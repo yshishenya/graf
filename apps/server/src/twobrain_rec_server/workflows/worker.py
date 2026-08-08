@@ -683,6 +683,7 @@ async def run_billing_renewal_activity(payload: dict[str, str]) -> dict[str, str
                         )
             elif provider_status in {"canceled", "cancelled"}:
                 operation.state = "canceled"
+                invoice.status = "canceled"
                 if subscription is not None:
                     subscription.renewal_resolution = "canceled"
             else:

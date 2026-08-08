@@ -54,6 +54,7 @@ async def reconcile_pending_initial_checkout_operations(
     settings: Settings,
     *,
     limit: int = 100,
+    operation_id: object | None = None,
 ) -> dict[str, int]:
     """Poll persisted initial payments when the webhook was lost.
 
@@ -63,14 +64,17 @@ async def reconcile_pending_initial_checkout_operations(
     """
     if not settings.billing_checkout_enabled:
         return {"processed": 0, "succeeded": 0, "canceled": 0, "pending": 0, "failed": 0}
+    filters = [
+        BillingOperation.kind == "initial_checkout",
+        BillingOperation.provider_id.is_not(None),
+        BillingOperation.state.in_(("provider_pending", "unknown")),
+    ]
+    if operation_id is not None:
+        filters.append(BillingOperation.id == operation_id)
     operations = tuple(
         await db.scalars(
             select(BillingOperation)
-            .where(
-                BillingOperation.kind == "initial_checkout",
-                BillingOperation.provider_id.is_not(None),
-                BillingOperation.state.in_(("provider_pending", "unknown")),
-            )
+            .where(*filters)
             .order_by(BillingOperation.updated_at, BillingOperation.id)
             .limit(max(1, min(limit, 500)))
             .with_for_update()
@@ -108,6 +112,11 @@ async def reconcile_pending_initial_checkout_operations(
                             now=observation.provider_created_at,
                         )
                         operation.state = "canceled"
+                        invoice = await db.scalar(
+                            select(BillingInvoice).where(BillingInvoice.operation_id == operation.id).with_for_update()
+                        )
+                        if invoice is not None:
+                            invoice.status = "canceled"
                         counters["canceled"] += 1
                     else:
                         counters["pending"] += 1

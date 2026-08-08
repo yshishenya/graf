@@ -1,4 +1,5 @@
 {% import "cabinet/components/settings_navigation.html" as settings_ui %}
+{% import "cabinet/components/sections.html" as sections %}
 <main id="cabinet-main" class="cabinet-main" tabindex="-1">
   <div class="cabinet-workspace settings-page">
     {{ settings_ui.navigation(settings_navigation, active=settings_active, back_href="/billing") }}
@@ -11,6 +12,7 @@
         <label for="referral-link">Ссылка для приглашения</label>
         <input id="referral-link" type="text" value="{{ referral_link }}" readonly aria-describedby="referral-link-help">
         <p id="referral-link-help" class="muted">За месячную подписку — 7 дней, за годовую — 30 дней. Начисление происходит через 14 дней после оплаты; денежного вознаграждения нет.</p>
+        {% if not referral_issued|default(False) %}<p class="notice" role="status">Ссылка ещё не активирована для учёта приглашений.</p><form action="/referrals/issue" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<button class="button" type="submit">Активировать ссылку</button></form>{% endif %}
         <button class="button" type="button" data-copy-target="referral-link">Скопировать ссылку</button>
       </section>
       <section class="settings-section cabinet-card" aria-labelledby="referral-safety-title">

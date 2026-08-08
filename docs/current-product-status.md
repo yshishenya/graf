@@ -50,8 +50,9 @@ Date: 2026-08-08
   timestamp в invoice/operation snapshot, запрет Trial поверх действующего
   paid-through, каталог-управляемые цены с годовой экономией, timeline статуса
   платежа и привязку referral reversal к исходному payer snapshot, а не к
-  текущему владельцу workspace. Контрактные UI/accessibility проверки: 19
-  passed; focused billing/account/security/PostgreSQL suite: 72 passed.
+  текущему владельцу workspace. Контрактные UI/accessibility/usability проверки: 22
+  passed; focused billing/account/security/PostgreSQL suite: 72 passed. Последний
+  fast PostgreSQL контур после hardening checkout/referral: 1014 passed.
 
 Этот документ коротко фиксирует состояние продукта на текущей ветке
 реализации. PRD остается базовой продуктовой линией; feature specs и

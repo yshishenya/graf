@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime, timedelta
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlencode, urlsplit
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -46,6 +47,9 @@ from twobrain_rec_server.billing.subscription import (
 )
 from twobrain_rec_server.billing.trial import activate_trial, require_trial_activation
 from twobrain_rec_server.billing.usage import format_duration, moscow_window_for
+from twobrain_rec_server.billing.webhook_reconciliation import (
+    reconcile_pending_initial_checkout_operations,
+)
 from twobrain_rec_server.billing.yookassa import (
     YooKassaClient,
     YooKassaConfigurationError,
@@ -134,7 +138,7 @@ def _checkout_result_redirect(
 MOSCOW = ZoneInfo("Europe/Moscow")
 
 
-def billing_checkout_return_url(request: Request) -> str:
+def billing_checkout_return_url(request: Request, *, safe_invoice_number: str | None = None) -> str:
     """Build a canonical HTTPS callback URL; never trust the inbound Host header."""
     configured = getattr(request.app.state.settings, "public_base_url", None)
     if configured is None:
@@ -145,7 +149,12 @@ def billing_checkout_return_url(request: Request) -> str:
         raise YooKassaConfigurationError("billing public callback URL is invalid") from exc
     if parsed.scheme != "https" or not parsed.netloc or parsed.username or parsed.password or parsed.query or parsed.fragment:
         raise YooKassaConfigurationError("billing public callback URL is invalid")
-    return f"{str(configured).rstrip('/')}{request.app.url_path_for('billing_checkout_return')}"
+    path = request.app.url_path_for("billing_checkout_return")
+    if safe_invoice_number is not None:
+        if re.fullmatch(r"INV-[A-Z0-9]+", safe_invoice_number) is None:
+            raise YooKassaConfigurationError("billing invoice reference is invalid")
+        path = f"{path}?{urlencode({'invoice': safe_invoice_number})}"
+    return f"{str(configured).rstrip('/')}{path}"
 
 
 def trial_surface(
@@ -708,7 +717,14 @@ async def apply_billing_discount(
     promo_code: str | None = Form(default=None, max_length=48),
 ) -> RedirectResponse:
     """Validate a code without reserving it; reservation belongs to checkout."""
-    if db is None or await _billing_role(db, tenant_scope=tenant_scope, principal=principal) != "owner":
+    subscription = await db.scalar(
+        select(WorkspaceSubscription).where(WorkspaceSubscription.workspace_id == tenant_scope.workspace_id)
+    ) if db is not None else None
+    if db is None or not _can_manage_billing(
+        role=await _billing_role(db, tenant_scope=tenant_scope, principal=principal),
+        subscription=subscription,
+        principal=principal,
+    ):
         return RedirectResponse("/billing?result=owner_only", status_code=303)
     try:
         normalized = normalize_promo(promo_code or "")
@@ -738,7 +754,14 @@ async def remove_billing_discount(
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
 ) -> RedirectResponse:
-    if db is None or await _billing_role(db, tenant_scope=tenant_scope, principal=principal) != "owner":
+    subscription = await db.scalar(
+        select(WorkspaceSubscription).where(WorkspaceSubscription.workspace_id == tenant_scope.workspace_id)
+    ) if db is not None else None
+    if db is None or not _can_manage_billing(
+        role=await _billing_role(db, tenant_scope=tenant_scope, principal=principal),
+        subscription=subscription,
+        principal=principal,
+    ):
         return RedirectResponse("/billing?result=owner_only", status_code=303)
     response = RedirectResponse("/billing/discounts?result=removed", status_code=303)
     response.delete_cookie(_CHECKOUT_PROMO_COOKIE, path="/billing/checkout")
@@ -801,8 +824,46 @@ async def billing_checkout_status_page(
         operation_state=operation_state,
         operation_state_label=_operation_state_label(operation_state),
         updated_at_label=_billing_datetime_label(operation.updated_at if operation is not None else None),
+        status_result=request.query_params.get("result"),
     )
     return cabinet_html_response(content)
+
+
+@router.post("/billing/checkout/status/{safe_number}/refresh", response_class=HTMLResponse, include_in_schema=False)
+async def refresh_billing_checkout_status(
+    safe_number: str,
+    request: Request,
+    _csrf: None = WebCSRFDependency,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> RedirectResponse:
+    """Refresh one hosted checkout from provider truth without opening a new payment."""
+    if db is None:
+        return RedirectResponse(f"/billing/checkout/status/{quote(safe_number, safe='-')}?result=unavailable", status_code=303)
+    invoice = await db.scalar(
+        select(BillingInvoice).where(
+            BillingInvoice.workspace_id == tenant_scope.workspace_id,
+            BillingInvoice.safe_number == safe_number,
+        )
+    )
+    subscription = await db.scalar(
+        select(WorkspaceSubscription).where(WorkspaceSubscription.workspace_id == tenant_scope.workspace_id)
+    )
+    if not _can_manage_billing(
+        role=await _billing_role(db, tenant_scope=tenant_scope, principal=principal),
+        subscription=subscription,
+        principal=principal,
+    ) or invoice is None:
+        return RedirectResponse("/billing?result=owner_only", status_code=303)
+    await reconcile_pending_initial_checkout_operations(
+        db,
+        request.app.state.settings,
+        limit=1,
+        operation_id=invoice.operation_id,
+    )
+    await db.commit()
+    return RedirectResponse(f"/billing/checkout/status/{quote(safe_number, safe='-')}?result=refreshed", status_code=303)
 
 
 @router.post("/billing/trial/activate", response_class=HTMLResponse, include_in_schema=False)
@@ -1399,6 +1460,15 @@ async def start_billing_checkout(
                 return RedirectResponse(confirmation_url, status_code=303)
             return RedirectResponse("/billing?result=pending", status_code=303)
 
+        now = datetime.now(UTC)
+        if (
+            subscription is not None
+            and subscription.plan_code == "personal"
+            and subscription.paid_through is not None
+            and subscription.paid_through.astimezone(UTC) > now
+        ):
+            return RedirectResponse("/billing?result=already_active", status_code=303)
+
         promo: PromoCode | None = None
         promo_campaign: PromotionCampaign | None = None
         if promo_code and promo_code.strip():
@@ -1609,7 +1679,7 @@ async def start_billing_checkout(
                 redemption.released_at = None
                 redemption.redeemed_at = None
         await db.commit()
-        return_url = billing_checkout_return_url(request)
+        return_url = billing_checkout_return_url(request, safe_invoice_number=intent.invoice_number)
         async with YooKassaClient(settings) as provider:
             payment = await provider.create_payment(
                 amount_minor=preview.payable_amount_minor,
@@ -1655,7 +1725,9 @@ async def start_billing_checkout(
 
 
 @router.get("/billing/checkout/return", name="billing_checkout_return", include_in_schema=False)
-async def billing_checkout_return() -> RedirectResponse:
+async def billing_checkout_return(invoice: str | None = None) -> RedirectResponse:
+    if invoice is not None and re.fullmatch(r"INV-[A-Z0-9]+", invoice):
+        return RedirectResponse(f"/billing/checkout/status/{quote(invoice, safe='-')}", status_code=303)
     return RedirectResponse("/billing?result=returned", status_code=303)
 
 
