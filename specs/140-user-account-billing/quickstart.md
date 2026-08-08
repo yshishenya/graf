@@ -55,6 +55,10 @@ elsewhere; real-shop canary is a separate approved release step.
 - Focused billing lifecycle, notification and subscription tests: PASS; no
   checkout enablement was performed; evidence is committed locally at the
   current feature SHA and has not been pushed.
+- Latest hardening pass: UI/accessibility contracts 19 passed; focused
+  disposable-PostgreSQL billing/account/security suite 72 passed; provider
+  refund observation regression test confirms referral reversal uses the
+  original payer snapshot after ownership changes.
 - Public launch remains blocked by the production gates below: real merchant
   test-shop/canary evidence, accessibility/usability and live security review,
   source-retention policy approval, Russia-first JTBD/WTP/COGS evidence and

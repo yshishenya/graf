@@ -1,6 +1,6 @@
 # Текущий статус продукта
 
-Date: 2026-08-04
+Date: 2026-08-08
 
 ## Implementation update (2026-08-06) — Feature 140 personal billing foundation
 
@@ -46,6 +46,12 @@ Date: 2026-08-04
   test-shop canary, live security/RLS, accessibility/usability, product-market
   WTP/COGS и approved finance/legal sign-off ещё должны быть закрыты до
   включения checkout.
+- Последний hardening-проход добавил отдельное подтверждение версии оферты с
+  timestamp в invoice/operation snapshot, запрет Trial поверх действующего
+  paid-through, каталог-управляемые цены с годовой экономией, timeline статуса
+  платежа и привязку referral reversal к исходному payer snapshot, а не к
+  текущему владельцу workspace. Контрактные UI/accessibility проверки: 19
+  passed; focused billing/account/security/PostgreSQL suite: 72 passed.
 
 Этот документ коротко фиксирует состояние продукта на текущей ветке
 реализации. PRD остается базовой продуктовой линией; feature specs и

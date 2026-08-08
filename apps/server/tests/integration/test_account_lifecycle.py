@@ -227,6 +227,65 @@ def test_trial_expiry_projects_free_without_grace_period(client) -> None:
     assert "Пробный период активирован" not in response.text
 
 
+def test_trial_cannot_replace_an_active_paid_subscription(client) -> None:
+    workspace_id, device_id = asyncio.run(_seed_personal_workspace(client))
+
+    async def seed_paid_subscription() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            db.add(
+                ExternalIdentity(
+                    user_id=USER_ID,
+                    provider="email",
+                    provider_subject=f"paid-trial-guard-{USER_ID}",
+                    email="paid-trial-guard@example.test",
+                    is_verified=True,
+                    is_active=True,
+                )
+            )
+            db.add(
+                WorkspaceSubscription(
+                    workspace_id=workspace_id,
+                    billing_owner_id=USER_ID,
+                    state="personal",
+                    plan_code="personal",
+                    cycle="month",
+                    paid_through=datetime.now(UTC) + timedelta(days=30),
+                    capacity_bytes=2_000_000_000,
+                    recurring_allowed=True,
+                    recurring_authority_version=4,
+                )
+            )
+            await db.commit()
+
+    asyncio.run(seed_paid_subscription())
+    token, session_id = asyncio.run(
+        _issue_web_session(client, user_id=USER_ID, workspace_id=workspace_id, device_id=device_id)
+    )
+    headers = _bind_web_session(client, token=token, session_id=session_id)
+    response = client.post(
+        "/billing/trial/activate",
+        headers=headers,
+        data={"confirmation": "start_trial"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert response.headers["location"].endswith("trial=unavailable")
+
+    async def load_subscription() -> WorkspaceSubscription:
+        async with client.app_state["sessionmaker"]() as db:
+            row = await db.scalar(
+                select(WorkspaceSubscription).where(WorkspaceSubscription.workspace_id == workspace_id)
+            )
+            assert row is not None
+            return row
+
+    unchanged = asyncio.run(load_subscription())
+    assert unchanged.plan_code == "personal"
+    assert unchanged.state == "personal"
+    assert unchanged.recurring_allowed is True
+    assert unchanged.capacity_bytes == 2_000_000_000
+
+
 def test_account_close_owner_cooling_cancel_and_finalization_revoke_access(client) -> None:
     token, session_id = asyncio.run(
         _issue_web_session(client, user_id=USER_ID, workspace_id=WORKSPACE_ID, device_id=DEVICE_ID)

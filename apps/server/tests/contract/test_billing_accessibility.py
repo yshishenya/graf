@@ -38,8 +38,9 @@ def test_checkout_uses_amount_specific_yookassa_actions_without_js() -> None:
     html = (TEMPLATE_ROOT / "billing_checkout_content.html").read_text(encoding="utf-8")
     assert 'name="cycle" value="month"' in html
     assert 'name="cycle" value="year"' in html
-    assert "Оплатить 790 ₽ в YooKassa" in html
-    assert "Оплатить 7 900 ₽ в YooKassa" in html
+    assert "monthly_price_label|default" in html
+    assert "annual_price_label|default" in html
+    assert "annual_saving_label" in html
     assert "Перейти к оплате" not in html
 
 

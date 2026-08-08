@@ -30,7 +30,7 @@
           {% if trial_state == "eligible" %}<form action="/billing/trial/activate" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<input type="hidden" name="confirmation" value="start_trial"><button class="button quiet" type="submit">Попробовать «Личный» 7 дней</button></form>{% endif %}
           {% endif %}
         {% elif billing_role == "owner" %}<p class="notice" role="status">Для этого пространства назначен другой владелец биллинга. Чтобы стать новым владельцем, подтвердите новую оплату с автопродлением на странице выбора тарифа. <a href="/billing/checkout">Открыть выбор тарифа</a>.</p>
-        {% else %}<p class="notice" role="status">Оплатой и платежными данными управляет владелец пространства. Здесь доступны только сводка использования и хранилища.</p><p class="muted">Возврат оформляется только письмом в поддержку; автоматической заявки в продукте нет.</p><p class="muted"><a href="/billing/payment-method" aria-disabled="true">Способ оплаты</a> и <a href="/billing/storage" aria-disabled="true">увеличение хранилища</a> доступны только владельцу.</p>{% endif %}
+        {% else %}<p class="notice" role="status">Оплатой и платежными данными управляет владелец пространства. Здесь доступны только сводка использования и хранилища.</p><p class="muted">Возврат оформляется только письмом в поддержку; автоматической заявки в продукте нет.</p><p class="muted">Способ оплаты и увеличение хранилища доступны только владельцу пространства.</p>{% endif %}
       </section>
       {% if billing_owner %}
       <section class="settings-section cabinet-card" aria-labelledby="billing-truth-title">

@@ -76,6 +76,7 @@ def test_provider_refund_observation_is_idempotently_bound_without_refund_mutati
         safe_number="INV-1",
         amount_minor=79_000,
         currency="RUB",
+        plan_snapshot={"billing_actor_user_id": "44444444-4444-4444-8444-444444444444"},
     )
     refund = extract_refund_observation(
         {
@@ -102,7 +103,10 @@ def test_provider_refund_observation_is_idempotently_bound_without_refund_mutati
         async def flush(self):
             return None
 
-    async def no_reward(*_args, **_kwargs):
+    captured = {}
+
+    async def no_reward(*_args, **kwargs):
+        captured.update(kwargs)
         return "none"
 
     monkeypatch.setattr("twobrain_rec_server.billing.reconciliation.reverse_credit_for_payment", no_reward)
@@ -110,3 +114,4 @@ def test_provider_refund_observation_is_idempotently_bound_without_refund_mutati
     assert asyncio.run(record_observed_refund(db, workspace_id=operation.workspace_id, observation=refund)) == "inserted"
     assert len(db.added) == 1
     assert db.added[0].amount_minor == 100
+    assert captured["invitee_user_id"] == UUID("44444444-4444-4444-8444-444444444444")

@@ -34,8 +34,9 @@ def test_billing_hub_uses_exact_free_copy_and_external_refund_boundary() -> None
     assert "250 000 000 байт" in html
     assert "только письмом" in html
     assert "автоматической заявки" in html
-    assert "/billing/payment-method" in html
-    assert "/billing/storage" in html
+    assert "Способ оплаты и увеличение хранилища доступны только владельцу" in html
+    assert 'href="/billing/payment-method"' not in html
+    assert 'href="/billing/storage"' not in html
 
 
 def test_subscription_and_usage_surfaces_keep_no_grace_and_unlimited_copy() -> None:
@@ -88,10 +89,34 @@ def test_checkout_requires_explicit_recurring_consent_copy() -> None:
         billing_enabled=True,
         checkout_idempotency_key="synthetic-key",
         checkout_result="consent_required",
+        monthly_price_label="790 ₽",
+        annual_price_label="7 900 ₽",
+        annual_saving_label="Экономия 1 580 ₽ (17%)",
     )
     assert 'name="recurring_consent"' in html
+    assert 'name="offer_consent"' in html
+    assert 'href="/offer"' in html
     assert "required" in html
     assert "регулярное списание" in html
+
+
+def test_checkout_offer_consent_error_is_explicit() -> None:
+    html = render_template(
+        "cabinet/pages/billing_checkout_content.html",
+        embedded=False,
+        settings_navigation=settings_category_navigation(active="billing"),
+        settings_active="billing",
+        csrf_token="synthetic-csrf",
+        plan=plan_descriptor("personal"),
+        billing_enabled=True,
+        checkout_idempotency_key="synthetic-key",
+        checkout_result="offer_required",
+        monthly_price_label="790 ₽",
+        annual_price_label="7 900 ₽",
+        annual_saving_label="Экономия 1 580 ₽ (17%)",
+    )
+    assert "примите оферту" in html.lower()
+    assert "billing-personal-v1" in html
 
 
 def test_checkout_result_redirect_keeps_promo_out_of_url_and_uses_short_lived_cookie() -> None:

@@ -93,6 +93,7 @@ router = APIRouter(tags=["cabinet-web"])
 
 _CHECKOUT_PROMO_COOKIE = "graf_checkout_promo"
 _CHECKOUT_PROMO_COOKIE_MAX_AGE = 5 * 60
+_BILLING_OFFER_VERSION = "billing-personal-v1"
 
 
 def _checkout_result_redirect(
@@ -203,6 +204,24 @@ def _billing_amount_label(amount_minor: int | None, currency: str = "RUB") -> st
     return f"{amount_minor / 100:,.2f} {currency}".replace(",", " ")
 
 
+def _billing_price_label(amount_minor: int | None) -> str | None:
+    if amount_minor is None:
+        return None
+    if amount_minor % 100 == 0:
+        return f"{amount_minor // 100:,} ₽".replace(",", " ")
+    return f"{amount_minor / 100:,.2f} ₽".replace(",", " ")
+
+
+def _annual_saving_label(monthly_amount_minor: int | None, annual_amount_minor: int | None) -> str | None:
+    if monthly_amount_minor is None or annual_amount_minor is None:
+        return None
+    saving = monthly_amount_minor * 12 - annual_amount_minor
+    if saving <= 0:
+        return None
+    percent = round(saving / (monthly_amount_minor * 12) * 100)
+    return f"Экономия {_billing_price_label(saving)} ({percent}%)"
+
+
 def _operation_state_label(state: str | None) -> str:
     return {
         "scheduled": "Платёж подготовлен",
@@ -285,6 +304,9 @@ async def _trial_eligibility_state(
         )
     )
     workspace = await db.get(Workspace, tenant_scope.workspace_id)
+    subscription = await db.scalar(
+        select(WorkspaceSubscription).where(WorkspaceSubscription.workspace_id == tenant_scope.workspace_id)
+    )
     if (
         identity is None
         or membership is None
@@ -292,6 +314,17 @@ async def _trial_eligibility_state(
         or workspace is None
         or workspace.kind != "personal"
         or workspace.owner_user_id != principal.user_id
+    ):
+        return "unavailable"
+    if subscription is not None and (
+        subscription.paid_through is not None and subscription.paid_through > datetime.now(UTC)
+        or effective_plan_code(
+            plan_code=subscription.plan_code,  # type: ignore[arg-type]
+            state=subscription.state,
+            now=datetime.now(UTC),
+            paid_through=subscription.paid_through,
+            trial_ends_at=subscription.trial_ends_at,
+        ) != "free"
     ):
         return "unavailable"
     verified_identity = await db.scalar(
@@ -562,8 +595,11 @@ async def billing_plans_page(
                 "processing_mode": descriptor.processing_mode,
                 "processing_label": processing_label,
                 "storage_label": _capacity_label(descriptor.storage_bytes),
-                "monthly_amount_label": _billing_amount_label(descriptor.monthly_amount_minor),
-                "annual_amount_label": _billing_amount_label(descriptor.annual_amount_minor),
+                "monthly_amount_label": _billing_price_label(descriptor.monthly_amount_minor),
+                "annual_amount_label": _billing_price_label(descriptor.annual_amount_minor),
+                "annual_saving_label": _annual_saving_label(
+                    descriptor.monthly_amount_minor, descriptor.annual_amount_minor
+                ),
                 "is_current": code == current_code,
             }
         )
@@ -757,7 +793,10 @@ async def billing_checkout_status_page(
             request, "billing_checkout_status", principal=principal, tenant_scope=tenant_scope
         ),
         content_template="cabinet/pages/billing_operation_status_content.html",
-        invoice={"safe_number": invoice.safe_number},
+        invoice={
+            "safe_number": invoice.safe_number,
+            "created_at_label": _billing_datetime_label(invoice.created_at),
+        },
         amount_label=_billing_amount_label(invoice.amount_minor, invoice.currency) or "Сумма недоступна",
         operation_state=operation_state,
         operation_state_label=_operation_state_label(operation_state),
@@ -821,6 +860,17 @@ async def activate_billing_trial(
     except ValueError:
         return RedirectResponse("/billing?trial=already", status_code=303)
     if subscription is not None and subscription.billing_owner_id not in {None, principal.user_id}:
+        return RedirectResponse("/billing?trial=unavailable", status_code=303)
+    if subscription is not None and (
+        subscription.paid_through is not None and subscription.paid_through > datetime.now(UTC)
+        or effective_plan_code(
+            plan_code=subscription.plan_code,  # type: ignore[arg-type]
+            state=subscription.state,
+            now=datetime.now(UTC),
+            paid_through=subscription.paid_through,
+            trial_ends_at=subscription.trial_ends_at,
+        ) != "free"
+    ):
         return RedirectResponse("/billing?trial=unavailable", status_code=303)
     now = datetime.now(UTC)
     trial = activate_trial(
@@ -1260,6 +1310,7 @@ async def billing_checkout_page(
     if await _billing_role(db, tenant_scope=tenant_scope, principal=principal) != "owner":
         return RedirectResponse("/billing?result=owner_only", status_code=303)
     checkout_promo_code = request.cookies.get(_CHECKOUT_PROMO_COOKIE, "")
+    descriptor = plan_descriptor("personal")
     content = _page_shell(
         "Выбор тарифа",
         embedded=False,
@@ -1274,7 +1325,12 @@ async def billing_checkout_page(
         ),
         content_template="cabinet/pages/billing_checkout_content.html",
         billing_enabled=bool(request.app.state.settings.billing_checkout_enabled),
-        plan=plan_descriptor("personal"),
+        plan=descriptor,
+        monthly_price_label=_billing_price_label(descriptor.monthly_amount_minor),
+        annual_price_label=_billing_price_label(descriptor.annual_amount_minor),
+        annual_saving_label=_annual_saving_label(
+            descriptor.monthly_amount_minor, descriptor.annual_amount_minor
+        ),
         checkout_idempotency_key=f"web-{principal.user_id}-{uuid4().hex}",
         checkout_result=request.query_params.get("result"),
         checkout_promo_code=checkout_promo_code,
@@ -1294,6 +1350,7 @@ async def start_billing_checkout(
     db: AsyncSession | None = WebDbDependency,
     cycle: str = Form(default="month", max_length=16),
     idempotency_key: str = Form(default="", max_length=240),
+    offer_consent: bool = Form(default=False),
     recurring_consent: bool = Form(default=False),
     promo_code: str | None = Form(default=None, max_length=48),
 ) -> RedirectResponse:
@@ -1322,6 +1379,8 @@ async def start_billing_checkout(
         key = idempotency_key.strip()
         if not key:
             return RedirectResponse("/billing/checkout?result=invalid", status_code=303)
+        if not offer_consent:
+            return RedirectResponse("/billing/checkout?result=offer_required", status_code=303)
         if not recurring_consent:
             return RedirectResponse("/billing/checkout?result=consent_required", status_code=303)
 
@@ -1464,6 +1523,7 @@ async def start_billing_checkout(
                 return RedirectResponse(confirmation_url, status_code=303)
             return RedirectResponse("/billing?result=pending", status_code=303)
         intent = build_checkout_intent(workspace_id=tenant_scope.workspace_id, idempotency_key=key, preview=preview)
+        consent_at = datetime.now(UTC).isoformat()
         operation = BillingOperation(
             id=intent.operation_id,
             workspace_id=tenant_scope.workspace_id,
@@ -1479,9 +1539,11 @@ async def start_billing_checkout(
                 "promo_code_hash": promo_code_hash(promo.code) if promo is not None else None,
                 "referral_discount": referral_discount,
                 "discount_source": "referral" if referral_discount else ("promo" if promo is not None else None),
+                "offer_consent": True,
                 "recurring_consent": True,
+                "consent_at": consent_at,
                 "billing_actor_user_id": str(principal.user_id),
-                "offer_version": "billing-personal-v1",
+                "offer_version": _BILLING_OFFER_VERSION,
             },
         )
         db.add(operation)
@@ -1499,9 +1561,11 @@ async def start_billing_checkout(
                 "campaign_version": promo.campaign_version if promo is not None else None,
                 "referral_discount": referral_discount,
                 "discount_source": "referral" if referral_discount else ("promo" if promo is not None else None),
+                "offer_consent": True,
                 "recurring_consent": True,
+                "consent_at": consent_at,
                 "billing_actor_user_id": str(principal.user_id),
-                "offer_version": "billing-personal-v1",
+                "offer_version": _BILLING_OFFER_VERSION,
             },
         )
         db.add(invoice)

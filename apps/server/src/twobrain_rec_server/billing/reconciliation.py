@@ -16,7 +16,6 @@ from twobrain_rec_server.db.models import (
     BillingInvoice,
     BillingOperation,
     ObservedProviderRefund,
-    WorkspaceSubscription,
 )
 
 ObservationSource = Literal["webhook", "poll", "registry"]
@@ -435,15 +434,21 @@ async def record_observed_refund(
             status="succeeded",
         )
     )
-    subscription = await db.scalar(
-        select(WorkspaceSubscription).where(WorkspaceSubscription.workspace_id == workspace_id)
-    )
+    invitee_user_id = None
+    snapshot = invoice.plan_snapshot
+    if isinstance(snapshot, Mapping):
+        actor = snapshot.get("billing_actor_user_id")
+        if isinstance(actor, str):
+            try:
+                invitee_user_id = UUID(actor)
+            except ValueError:
+                invitee_user_id = None
     await reverse_credit_for_payment(
         db,
         workspace_id=workspace_id,
         provider_payment_id=observation.provider_payment_id,
         now=observation.provider_created_at,
-        invitee_user_id=subscription.billing_owner_id if subscription is not None else None,
+        invitee_user_id=invitee_user_id,
     )
     await db.flush()
     return "inserted"
