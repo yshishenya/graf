@@ -44,7 +44,11 @@ from twobrain_rec_server.billing.provider_events import validate_provider_identi
 from twobrain_rec_server.billing.receipts import ReceiptState, receipt_label
 from twobrain_rec_server.billing.referrals import referral_token_hash, validate_referral_token
 from twobrain_rec_server.billing.refund_email import build_refund_mailto
-from twobrain_rec_server.billing.storage import StorageProjection, project_active_playback_storage
+from twobrain_rec_server.billing.storage import (
+    StorageProjection,
+    lock_storage_workspace,
+    project_active_playback_storage,
+)
 from twobrain_rec_server.billing.subscription import (
     SubscriptionControl,
     cancel_auto_renewal,
@@ -1009,6 +1013,7 @@ async def activate_billing_trial(
         return RedirectResponse("/billing?trial=unavailable", status_code=303)
     if confirmation != "start_trial":
         return RedirectResponse("/billing?trial=confirmation_required", status_code=303)
+    await lock_storage_workspace(db, tenant_scope.workspace_id)
     eligibility_state = await _trial_eligibility_state(
         db,
         tenant_scope=tenant_scope,
@@ -1050,6 +1055,8 @@ async def activate_billing_trial(
         return RedirectResponse("/billing?trial=unavailable", status_code=303)
     except ValueError:
         return RedirectResponse("/billing?trial=already", status_code=303)
+    if workspace is None or workspace.owner_user_id != principal.user_id:
+        return RedirectResponse("/billing?trial=unavailable", status_code=303)
     if subscription is not None and subscription.billing_owner_id not in {None, principal.user_id}:
         return RedirectResponse("/billing?trial=unavailable", status_code=303)
     if subscription is not None and (
@@ -2029,19 +2036,6 @@ async def billing_history_page(
         return RedirectResponse("/billing?result=owner_only", status_code=303)
     invoices: list[dict[str, object]] = []
     if db is not None:
-        default_method = await db.scalar(
-            select(BillingPaymentMethod)
-            .where(
-                BillingPaymentMethod.workspace_id == tenant_scope.workspace_id,
-                BillingPaymentMethod.owner_user_id == subscription.billing_owner_id
-                if subscription is not None and subscription.billing_owner_id is not None
-                else BillingPaymentMethod.id.is_(None),
-                BillingPaymentMethod.is_default.is_(True),
-                BillingPaymentMethod.state == "active",
-            )
-            .order_by(BillingPaymentMethod.created_at.desc())
-        )
-        masked_method = mask_payment_method(default_method.masked_label if default_method is not None else None)
         rows = await db.scalars(
             select(BillingInvoice)
             .where(BillingInvoice.workspace_id == tenant_scope.workspace_id)
@@ -2079,7 +2073,11 @@ async def billing_history_page(
                         if isinstance(snapshot.get("discount_percent"), int)
                         else ("Реферальная скидка" if snapshot.get("referral_discount") else None)
                     ),
-                    "payment_method_label": masked_method,
+                    "payment_method_label": mask_payment_method(
+                        snapshot.get("payment_method_label")
+                        if isinstance(snapshot.get("payment_method_label"), str)
+                        else None
+                    ),
                     "receipt_label": receipt_label(receipt_state),
                     "detail_url": f"/billing/invoices/{invoice.safe_number}",
                     "refund_mailto": refund_mailto,
@@ -2142,18 +2140,6 @@ async def billing_invoice_detail_page(
     receipt_url = snapshot.get("receipt_url")
     if not is_allowed_confirmation_url(receipt_url):
         receipt_url = None
-    method = await db.scalar(
-        select(BillingPaymentMethod)
-        .where(
-            BillingPaymentMethod.workspace_id == tenant_scope.workspace_id,
-            BillingPaymentMethod.owner_user_id == subscription.billing_owner_id
-            if subscription is not None and subscription.billing_owner_id is not None
-            else BillingPaymentMethod.id.is_(None),
-            BillingPaymentMethod.is_default.is_(True),
-            BillingPaymentMethod.state == "active",
-        )
-        .order_by(BillingPaymentMethod.created_at.desc())
-    ) if db is not None else None
     refund_mailto = None
     support_email = request.app.state.settings.billing_support_email
     if support_email:
@@ -2183,7 +2169,11 @@ async def billing_invoice_detail_page(
                 if isinstance(snapshot.get("discount_percent"), int)
                 else ("Реферальная скидка" if snapshot.get("referral_discount") else None)
             ),
-            "payment_method_label": mask_payment_method(method.masked_label if method is not None else None),
+            "payment_method_label": mask_payment_method(
+                snapshot.get("payment_method_label")
+                if isinstance(snapshot.get("payment_method_label"), str)
+                else None
+            ),
             "receipt_contact_label": _masked_receipt_contact(invoice.receipt_contact_snapshot),
             "receipt_label": receipt_label(receipt_state),
             "receipt_url": receipt_url,

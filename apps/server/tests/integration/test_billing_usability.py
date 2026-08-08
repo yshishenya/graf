@@ -30,8 +30,8 @@ def test_billing_surfaces_keep_contextual_non_coercive_upgrade_copy() -> None:
     assert "После окончания автоматически включится Free" in overview
     assert "Платный режим закончился" in overview
     assert "через {{ trial_remaining_label }}" in overview
-    assert "можно запустить без сохранения аудио" in overview
-    assert 'href="/meetings?archive_audio=false#manual-upload"' in overview
+    assert "обработка без сохранения аудио также недоступна до этого момента" in overview
+    assert 'href="/meetings?archive_audio=false#manual-upload"' not in overview
     assert "Переход на «Личный» необязателен" in usage
     assert "Осталось {{ processing_remaining_label }} до сброса {{ processing_reset_at_label }}" in usage
     assert "Увеличить хранилище" in usage

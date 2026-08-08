@@ -46,6 +46,16 @@ class StorageAdmissionError(RuntimeError):
     pass
 
 
+async def lock_storage_workspace(db: AsyncSession, workspace_id: UUID) -> None:
+    """Serialize entitlement mutations and storage admission per workspace."""
+    get_bind = getattr(db, "get_bind", None)
+    if callable(get_bind) and get_bind().dialect.name == "postgresql":
+        await db.execute(
+            text("select pg_advisory_xact_lock(hashtextextended(:workspace_id, 0))"),
+            {"workspace_id": str(workspace_id)},
+        )
+
+
 def is_chargeable_playback_artifact(
     *,
     track_role: str,
@@ -205,11 +215,7 @@ async def reserve_storage(
     now = now or datetime.now(UTC)
     if expires_at is not None and expires_at <= now:
         raise ValueError("storage reservation expiry must be in the future")
-    if db.get_bind().dialect.name == "postgresql":
-        await db.execute(
-            text("select pg_advisory_xact_lock(hashtextextended(:workspace_id, 0))"),
-            {"workspace_id": str(workspace_id)},
-        )
+    await lock_storage_workspace(db, workspace_id)
     existing = await db.scalar(
         select(StorageReservationRow)
         .where(

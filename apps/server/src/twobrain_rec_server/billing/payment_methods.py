@@ -93,6 +93,18 @@ def extract_saved_bank_card(payload: Mapping[str, Any]) -> SavedPaymentMethod | 
     return SavedPaymentMethod(provider_ref, "bank_card", f"•••• {last4}")
 
 
+def extract_payment_method_label(payload: Mapping[str, Any]) -> str | None:
+    """Return only the immutable masked card label for invoice history."""
+    method = payload.get("payment_method")
+    card = method.get("card") if isinstance(method, Mapping) else None
+    last4 = card.get("last4") if isinstance(card, Mapping) else None
+    if not isinstance(method, Mapping) or method.get("type") != "bank_card":
+        return None
+    if not isinstance(last4, str) or not re.fullmatch(r"\d{4}", last4):
+        return None
+    return f"•••• {last4}"
+
+
 def seal_provider_reference(provider_ref: str, key: bytes) -> str:
     if not _PROVIDER_REFERENCE_RE.fullmatch(provider_ref) or not key:
         raise ValueError("provider reference and encryption key are required")

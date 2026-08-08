@@ -15,6 +15,7 @@ from twobrain_rec_server.billing.entitlements import (
 from twobrain_rec_server.billing.events import enqueue_billing_notification
 from twobrain_rec_server.billing.notifications import BillingNotification
 from twobrain_rec_server.billing.payment_methods import (
+    extract_payment_method_label,
     extract_saved_bank_card,
     read_billing_encryption_key,
 )
@@ -103,6 +104,7 @@ async def reconcile_pending_initial_checkout_operations(
                             paid_at=observation.provider_created_at,
                             recurring_method_confirmed=saved_bank_card_confirmed(payload),
                             saved_payment_method=extract_saved_bank_card(payload),
+                            payment_method_label=extract_payment_method_label(payload),
                             payment_method_key=read_billing_encryption_key(settings.credential_encryption_key_file),
                             receipt_registration=observation.receipt_registration,
                         )
@@ -237,6 +239,7 @@ async def _reconcile_event(
                 paid_at=observation.provider_created_at,
                 recurring_method_confirmed=saved_bank_card_confirmed(payload),
                 saved_payment_method=extract_saved_bank_card(payload),
+                payment_method_label=extract_payment_method_label(payload),
                 payment_method_key=read_billing_encryption_key(settings.credential_encryption_key_file),
                 receipt_registration=observation.receipt_registration,
             )

@@ -114,6 +114,7 @@ def _snapshot(*, subscription: WorkspaceSubscription, catalog: PlanCatalogSnapsh
         "payable_amount_minor": catalog.amount_minor,
         "currency": catalog.currency,
         "catalog_snapshot": catalog.as_dict(),
+        "storage_capacity_bytes": subscription.capacity_bytes,
         "billing_actor_user_id": str(subscription.billing_owner_id) if subscription.billing_owner_id else None,
         "recurring_authority_version": subscription.recurring_authority_version,
         "paid_through_at": paid_through.isoformat() if paid_through is not None else None,
@@ -168,8 +169,8 @@ async def plan_due_renewals(
                 "provider_floor" if catalog is not None and catalog.amount_minor is not None and catalog.amount_minor < provider_floor_minor else "catalog_not_approved"
             )
             continue
-        method_exists = await db.scalar(
-            select(BillingPaymentMethod.id)
+        default_method = await db.scalar(
+            select(BillingPaymentMethod)
             .where(
                 BillingPaymentMethod.workspace_id == subscription.workspace_id,
                 BillingPaymentMethod.owner_user_id == subscription.billing_owner_id,
@@ -179,7 +180,7 @@ async def plan_due_renewals(
             )
             .limit(1)
         )
-        if method_exists is None:
+        if default_method is None:
             subscription.renewal_resolution = "method_required"
             continue
         receipt_contact = await db.scalar(
@@ -214,6 +215,9 @@ async def plan_due_renewals(
             continue
         operation_id = uuid5(NAMESPACE_URL, f"graf:renewal-operation:{key}")
         snapshot = _snapshot(subscription=subscription, catalog=catalog)
+        method_label = getattr(default_method, "masked_label", None)
+        if isinstance(method_label, str) and method_label:
+            snapshot["payment_method_label"] = method_label
         operation = BillingOperation(
             id=operation_id,
             workspace_id=subscription.workspace_id,

@@ -52,6 +52,10 @@ elsewhere; real-shop canary is a separate approved release step.
   deployment evidence scan passed. A prior full run had one transient SC-017
   p95 performance miss; the isolated rerun passed and the clean full run did
   not change the threshold.
+- Финальный полный прогон после hardening: PASS, 650 Swift-тестов,
+  ContractValidation PASS, 2833 серверных теста (1 skipped), strict PostgreSQL,
+  Ruff/Python compile и deployment evidence scan PASS. Дополнительно focused
+  OpenAPI PostgreSQL contract: 10/10 PASS.
 - Billing launch contracts and test-shop e2e: PASS, 8 tests. Focused billing
   account/checkout/security/UI contracts: PASS, 57 tests.
 - Disposable-PostgreSQL billing lifecycle sample: PASS, 61 tests covering

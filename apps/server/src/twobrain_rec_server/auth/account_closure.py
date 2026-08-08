@@ -10,6 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.problems import ProblemDetail
+from twobrain_rec_server.billing.storage import lock_storage_workspace
 from twobrain_rec_server.db.models import (
     AccountClosureRequest,
     AuthSession,
@@ -99,6 +100,7 @@ async def schedule_account_close(
 ) -> AccountCloseView:
     """Schedule a seven-day cooling period and turn off future renewal."""
 
+    await lock_storage_workspace(db, workspace_id)
     workspace = await _owner_workspace(db, workspace_id=workspace_id, user_id=user_id)
     now_utc = _utc(now)
     existing = await db.scalar(
@@ -184,6 +186,7 @@ async def finalize_account_close(
     )
     if request is None:
         raise ProblemDetail(status=404, code="account_close_not_found", title="Запрос закрытия не найден")
+    await lock_storage_workspace(db, request.workspace_id)
     now_utc = _utc(now)
     if request.state == "canceled":
         return close_view(request, now=now_utc)

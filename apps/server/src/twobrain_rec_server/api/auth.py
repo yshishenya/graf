@@ -53,6 +53,7 @@ from twobrain_rec_server.db.models import (
     StorageReservation,
     TimeCreditLedgerEntry,
     UserIdentity,
+    Workspace,
     WorkspaceMembership,
     WorkspaceSubscription,
 )
@@ -178,8 +179,8 @@ class BillingSummaryResponse(BaseModel):
     bonus_until: datetime | None = None
     renewal_resolution: str | None = None
     processing_unlimited: bool
-    storage_used_bytes: int
-    storage_capacity_bytes: int
+    storage_used_bytes: int | None = None
+    storage_capacity_bytes: int | None = None
     handoff_path: str = "/billing"
 
 
@@ -1156,7 +1157,7 @@ async def get_me(
         )
     await _apply_auth_request_context(db, workspace_id=workspace_id, principal=principal)
     user = await db.get(UserIdentity, principal.user_id)
-    if user is None:
+    if user is None or user.status != "active":
         raise ProblemDetail(
             status=401,
             code="auth_required",
@@ -1166,6 +1167,7 @@ async def get_me(
         select(WorkspaceMembership).where(
             WorkspaceMembership.workspace_id == workspace_id,
             WorkspaceMembership.user_id == principal.user_id,
+            WorkspaceMembership.status == "active",
         )
     )
     if membership is None:
@@ -1174,6 +1176,14 @@ async def get_me(
             code="workspace_scope_denied",
             title="Workspace scope denied",
         )
+    workspace = await db.get(Workspace, workspace_id)
+    is_personal_owner = (
+        membership.role == "owner"
+        and workspace is not None
+        and workspace.kind == "personal"
+        and workspace.owner_user_id == principal.user_id
+    )
+    billing_role = "owner" if is_personal_owner else ("admin" if membership.role in {"owner", "admin"} else "member")
     identities = (
         await db.execute(
             select(ExternalIdentity)
@@ -1266,6 +1276,11 @@ async def get_me(
             TimeCreditLedgerEntry.applied_end > now,
         )
     )
+    owner_billing = billing_role == "owner"
+    member_billing = billing_role == "member"
+    safe_state = (subscription.state if subscription is not None else "free") if owner_billing else (
+        "active" if plan_code in {"trial", "personal"} else "free"
+    )
     return MeResponse(
         user_id=user.id,
         workspace_id=workspace_id,
@@ -1275,13 +1290,13 @@ async def get_me(
         registered_devices=registered_devices,
         billing=BillingSummaryResponse(
             plan_code=plan_code,
-            state=subscription.state if subscription is not None else "free",
-            trial_ends_at=subscription.trial_ends_at if subscription is not None and plan_code == "trial" else None,
-            paid_through=subscription.paid_through if subscription is not None and plan_code == "personal" else None,
-            bonus_until=bonus_until,
-            renewal_resolution=subscription.renewal_resolution if subscription is not None else None,
+            state=safe_state,
+            trial_ends_at=subscription.trial_ends_at if owner_billing and subscription is not None and plan_code == "trial" else None,
+            paid_through=subscription.paid_through if owner_billing and subscription is not None and plan_code == "personal" else None,
+            bonus_until=bonus_until if owner_billing else None,
+            renewal_resolution=subscription.renewal_resolution if owner_billing and subscription is not None else None,
             processing_unlimited=plan_code in {"trial", "personal"},
-            storage_used_bytes=storage.used_bytes,
-            storage_capacity_bytes=storage.capacity_bytes,
+            storage_used_bytes=None if member_billing else storage.used_bytes,
+            storage_capacity_bytes=None if member_billing else storage.capacity_bytes,
         ),
     )

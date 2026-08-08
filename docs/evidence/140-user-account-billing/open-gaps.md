@@ -56,6 +56,12 @@ evidence в launch runbook.
 
 ## Ремедиация 2026-08-08
 
+Финальный полный CI после этой ремедиации прошёл: 650 Swift-тестов,
+ContractValidation, 2833 серверных теста (1 skipped), strict PostgreSQL,
+Ruff/Python compile и deployment evidence scan — PASS. OpenAPI contract drift
+после nullable billing-полей закрыт и отдельно проверен focused PostgreSQL
+прогоном 10/10.
+
 - Исправлены локальные P1 hardening gaps: chunked webhook body bounded до
   `256 KiB`, startup-проверка непустых provider/webhook/referral secrets и
   support email, write-RLS для глобального billing catalog, явные промо/карта

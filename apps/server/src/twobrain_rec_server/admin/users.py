@@ -13,6 +13,7 @@ from twobrain_rec_server.admin.permissions import (
 )
 from twobrain_rec_server.admin.queries import AdminWorkspaceContext
 from twobrain_rec_server.api.problems import ProblemDetail
+from twobrain_rec_server.billing.storage import lock_storage_workspace
 from twobrain_rec_server.db.models import (
     AdminAuditEvent,
     AuthSession,
@@ -248,6 +249,7 @@ async def update_workspace_membership(
     requested_status: str | None,
     reason_code: str | None,
 ) -> dict[str, object]:
+    await lock_storage_workspace(db, context.workspace_id)
     membership = await db.get(
         WorkspaceMembership,
         {"workspace_id": context.workspace_id, "user_id": target_user_id},

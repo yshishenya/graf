@@ -60,6 +60,7 @@ async def test_confirmed_payment_grants_once_and_records_receipt_state(monkeypat
             "cycle": "month",
             "billing_actor_user_id": str(OWNER_ID),
             "recurring_consent": False,
+            "catalog_snapshot": {"storage_bytes": 5_000_000_000},
         },
     )
     invoice = BillingInvoice(
@@ -106,6 +107,7 @@ async def test_confirmed_payment_grants_once_and_records_receipt_state(monkeypat
     assert grant.ends_at == datetime(2026, 9, 7, 12, tzinfo=UTC)
     subscription = next(row for row in db.added if isinstance(row, WorkspaceSubscription))
     assert subscription.plan_code == "personal"
+    assert subscription.capacity_bytes == 5_000_000_000
     assert subscription.paid_through == grant.ends_at
 
     duplicate_db = _FakeDb([operation, invoice, grant])

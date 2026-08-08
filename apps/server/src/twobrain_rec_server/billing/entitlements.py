@@ -23,6 +23,7 @@ from twobrain_rec_server.billing.payment_methods import (
 from twobrain_rec_server.billing.promotions import redeem_invoice_promo
 from twobrain_rec_server.billing.receipts import ReceiptRegistration, merge_receipt_registration
 from twobrain_rec_server.billing.referral_rewards import create_pending_credit
+from twobrain_rec_server.billing.storage import lock_storage_workspace
 from twobrain_rec_server.db.models import (
     BillingAuditEvent,
     BillingEntitlementGrant,
@@ -108,6 +109,18 @@ def recurring_actor_matches_current_owner(*, snapshot_actor: object, current_own
         return False
 
 
+def _snapshot_storage_capacity(snapshot: object, *, fallback: int) -> int:
+    if isinstance(snapshot, dict):
+        value = snapshot.get("storage_capacity_bytes")
+        if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+            return value
+        catalog = snapshot.get("catalog_snapshot")
+        value = catalog.get("storage_bytes") if isinstance(catalog, dict) else None
+        if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+            return value
+    return fallback
+
+
 async def grant_confirmed_payment(
     db: AsyncSession,
     *,
@@ -120,9 +133,11 @@ async def grant_confirmed_payment(
     saved_payment_method: SavedPaymentMethod | None = None,
     payment_method_key: bytes | None = None,
     payment_method_key_version: str = "billing-v1",
+    payment_method_label: str | None = None,
     receipt_registration: ReceiptRegistration | None = None,
 ) -> str:
     """Grant one immutable invoice only after provider GET confirms its amount."""
+    await lock_storage_workspace(db, workspace_id)
     operation = await db.scalar(
         select(BillingOperation)
         .where(BillingOperation.workspace_id == workspace_id, BillingOperation.provider_id == provider_payment_id)
@@ -210,7 +225,10 @@ async def grant_confirmed_payment(
     subscription.state = "personal"
     subscription.plan_code = "personal"
     subscription.cycle = cycle
-    subscription.capacity_bytes = storage_capacity_bytes("personal")
+    subscription.capacity_bytes = _snapshot_storage_capacity(
+        snapshot,
+        fallback=storage_capacity_bytes("personal"),
+    )
     subscription.paid_through = paid_through
     subscription.billing_anchor = paid_at
     if saved_payment_method is not None and payment_method_key is not None and recurring_actor_matches:
@@ -248,6 +266,8 @@ async def grant_confirmed_payment(
     subscription.recurring_authority_version = (subscription.recurring_authority_version or 0) + 1
     subscription.application_version = (subscription.application_version or 0) + 1
     invoice.status = "succeeded"
+    if payment_method_label and "payment_method_label" not in invoice.plan_snapshot:
+        invoice.plan_snapshot = {**invoice.plan_snapshot, "payment_method_label": payment_method_label}
     operation.state = "succeeded"
     await redeem_invoice_promo(db, invoice_id=invoice.id, now=paid_at)
     await create_pending_credit(
@@ -310,6 +330,7 @@ async def grant_confirmed_renewal(
     grant_starts_at: datetime,
 ) -> str:
     """Project one GET-confirmed renewal into the append-only entitlement ledger."""
+    await lock_storage_workspace(db, workspace_id)
     operation = await db.scalar(
         select(BillingOperation)
         .where(
@@ -418,6 +439,10 @@ async def grant_confirmed_renewal(
     subscription.plan_code = "personal"
     subscription.cycle = cycle
     subscription.paid_through = ends_at
+    subscription.capacity_bytes = _snapshot_storage_capacity(
+        snapshot,
+        fallback=subscription.capacity_bytes or storage_capacity_bytes("personal"),
+    )
     subscription.renewal_resolution = "succeeded"
     subscription.application_version = (subscription.application_version or 0) + 1
     invoice.status = "succeeded"

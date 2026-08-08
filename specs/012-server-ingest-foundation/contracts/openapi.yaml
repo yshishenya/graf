@@ -9319,10 +9319,14 @@ components:
           type: boolean
           title: Processing Unlimited
         storage_used_bytes:
-          type: integer
+          anyOf:
+          - type: integer
+          - type: 'null'
           title: Storage Used Bytes
         storage_capacity_bytes:
-          type: integer
+          anyOf:
+          - type: integer
+          - type: 'null'
           title: Storage Capacity Bytes
         handoff_path:
           type: string
@@ -9333,8 +9337,6 @@ components:
       - plan_code
       - state
       - processing_unlimited
-      - storage_used_bytes
-      - storage_capacity_bytes
       title: BillingSummaryResponse
     AbortUploadRequest:
       properties:

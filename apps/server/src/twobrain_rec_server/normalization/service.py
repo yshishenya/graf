@@ -25,7 +25,11 @@ from twobrain_rec_server.billing.source_lifecycle import (
     clear_source_playback_verification,
     mark_source_playback_verified,
 )
-from twobrain_rec_server.billing.storage import commit_storage_reservation, reserve_storage
+from twobrain_rec_server.billing.storage import (
+    commit_storage_reservation,
+    lock_storage_workspace,
+    reserve_storage,
+)
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.models import (
     MediaRevision,
@@ -2882,6 +2886,7 @@ async def publish_uploaded_attempt(
     for artifact in prior_playback:
         _supersede_playback_artifact(artifact)
     publication_time = datetime.now(UTC)
+    await lock_storage_workspace(db, job.workspace_id)
     subscription = await db.scalar(
         select(WorkspaceSubscription)
         .where(WorkspaceSubscription.workspace_id == job.workspace_id)
