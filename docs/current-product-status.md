@@ -4,9 +4,9 @@ Date: 2026-08-11
 
 ## Runtime update (2026-08-11) — Feature 140
 
-- Exact deployed SHA `6a89df43963b26bdde8a0ebb12f139cb233167cc` проверен на
+- Exact deployed SHA `da63ec7ae2576f0084a75f0d557eee42d6517737` проверен на
   `2brain.dev`; рабочее дерево чистое, migration head
-  `0059_referral_expiry_owner_write`.
+  `0061_referral_landing_lookup_rls`.
 - Live/ready/root health probes HTTP 200; production smoke и metadata-only
   cleanup PASS (39 database rows, 3 object keys, no residue).
 - Billing checkout остаётся `false`: это проверка инфраструктурной готовности,
@@ -64,7 +64,7 @@ Date: 2026-08-11
   платежа и привязку referral reversal к исходному payer snapshot, а не к
   текущему владельцу workspace. Контрактные UI/accessibility/usability проверки: 23
   passed; focused billing/account/security/PostgreSQL suite: 72 passed. Последний
-  fast PostgreSQL контур после hardening checkout/referral/renewal/catalog: 1022 passed.
+  fast PostgreSQL контур после hardening checkout/referral/renewal/catalog: 1030 passed.
 
 Этот документ коротко фиксирует состояние продукта на текущей ветке
 реализации. PRD остается базовой продуктовой линией; feature specs и
