@@ -5,7 +5,6 @@ from types import SimpleNamespace
 from uuid import UUID
 
 import pytest
-
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.normalization import worker as worker_module
 from twobrain_rec_server.normalization.worker import (
@@ -160,7 +159,7 @@ async def test_schema_startup_gate_requires_exact_migration_head() -> None:
 
 
 def test_worker_schema_head_is_derived_from_packaged_migrations() -> None:
-    assert packaged_schema_head() == "0069_fair_use_review_constraints"
+    assert packaged_schema_head() == "0070_fair_use_review_metadata"
 
 
 @pytest.mark.anyio

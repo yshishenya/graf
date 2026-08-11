@@ -354,7 +354,7 @@ class FairUseReviewRecord(Base):
             name="ck_fair_use_review_state",
         ),
         CheckConstraint(
-            "review_by <= starts_at + interval '24 hours'",
+            "review_by >= starts_at and review_by <= starts_at + interval '24 hours'",
             name="ck_fair_use_review_deadline",
         ),
         CheckConstraint(
@@ -364,6 +364,10 @@ class FairUseReviewRecord(Base):
         CheckConstraint(
             "evidence_ref ~ '^[A-Za-z0-9_.:-]{1,160}$'",
             name="ck_fair_use_review_evidence_ref",
+        ),
+        CheckConstraint(
+            "evidence_ref !~* '(meeting|content|email|card|token|payload)'",
+            name="ck_fair_use_review_evidence_safe",
         ),
         Index("ix_fair_use_reviews_workspace_state", "workspace_id", "state", "review_by"),
         Index("ix_fair_use_reviews_subject_state", "subject_user_id", "state"),
