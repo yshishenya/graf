@@ -117,10 +117,15 @@ Ruff/Python compile и deployment evidence scan — PASS. OpenAPI contract drift
 
 ## Runtime recheck 2026-08-11 (latest closeout)
 
-- На deployed SHA `da63ec7ae2576f0084a75f0d557eee42d6517737` migration head
-  `0061_referral_landing_lookup_rls`; live RLS metadata-only probe PASS:
+- На deployed SHA `0665dbdb28d758a9af168d76ef39abeff0974104` migration head
+  `0062_referral_reward_linkage`; live RLS metadata-only probe PASS:
   `104/104` таблиц enabled+forced. Это не закрывает
   edge allowlist/header и независимый security sign-off.
+- Этот deploy также проверил связку referral ledger с attribution lifecycle,
+  coarse risk-review signal и recovery-safe billing UX; focused tests и
+  disposable PostgreSQL RLS suite зелёные. Global campaign caps/manual review,
+  OAuth/concurrency evidence и полноценный referral landing UX остаются
+  отдельными launch gates.
 - Production nginx пока не содержит подтверждённой YooKassa CIDR allowlist и
   injected `X-Billing-Webhook-Secret`; реальные уведомления поэтому не должны
   включаться. Checkout остаётся `false`.
