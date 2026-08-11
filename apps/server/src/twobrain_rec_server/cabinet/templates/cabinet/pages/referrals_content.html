@@ -22,8 +22,20 @@
       </section>
       <section class="settings-section cabinet-card" aria-labelledby="referral-safety-title">
         <h2 id="referral-safety-title">Как это работает</h2>
-        <p>Скидка действует только на первую оплату приглашённого. Один человек может использовать одну ссылку, а бонусы ограничены 180 днями за скользящие 12 месяцев.</p>
+        <p>Скидка действует только на первую оплату приглашённого. Одна ссылка может использоваться несколькими приглашёнными, а бонусы ограничены 180 днями за скользящие 12 месяцев.</p>
         <p class="muted">Статус приглашений показывается без email и других персональных данных.</p>
+      </section>
+      <section class="settings-section cabinet-card" aria-labelledby="referral-history-title">
+        <h2 id="referral-history-title">Статус приглашений</h2>
+        {% if referral_history|default([]) %}
+        <p>Начислено: <strong>{{ referral_credited_days|default(0) }} дней</strong>. В ожидании: <strong>{{ referral_pending_days|default(0) }} дней</strong>.</p>
+        <ol class="settings-choice-list" aria-label="Статус приглашений">
+          {% for item in referral_history %}
+          <li class="settings-choice-row"><span>Приглашение №{{ item.number }} — {{ item.status_label }}</span><span class="muted">{{ item.updated_label }}{% if item.reward_days %} · {{ item.reward_days }} дней{% endif %}{% if item.risk_review %} · нужна дополнительная проверка{% endif %}</span></li>
+          {% endfor %}
+        </ol>
+        {% else %}<p class="muted" role="status">Пока нет зарегистрированных приглашённых.</p>{% endif %}
+        <p class="muted">Для вопросов о начислении обратитесь в поддержку; email и платёжные данные приглашённых не показываются.</p>
       </section>
     </div>
   </div>

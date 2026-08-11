@@ -75,10 +75,14 @@ def test_subscription_and_usage_surfaces_keep_no_grace_and_unlimited_copy() -> N
         storage_available=2_000_000_000,
         storage_capacity=2_000_000_000,
         storage_threshold="normal",
+        billing_owner=True,
     )
     assert "Возобновить автопродление" in subscription_html
     assert "Без лимита по минутам и встречам" in usage_html
     assert "meeting-review.m4a" in usage_html
+    assert "Управлять архивом" in usage_html
+    assert "Увеличить хранилище" in usage_html
+    assert "Обработать без сохранения аудио" in usage_html
 
 
 def test_checkout_requires_explicit_recurring_consent_copy() -> None:

@@ -30,6 +30,11 @@
         <p>Зарезервировано: <strong>{{ storage_reserved_label|default(storage_reserved) }}</strong> ({{ storage_reserved_exact_label|default(storage_reserved) }} байт). Доступно: <strong>{{ storage_available_label|default(storage_available) }}</strong> ({{ storage_available_exact_label|default(storage_available) }} байт).</p>
         <p>Состояние: <strong>{{ storage_threshold_label|default(storage_threshold) }}</strong>. В расчёт входит только сохранённый нормализованный playback-файл <code>meeting-review.m4a</code>; обработка без сохранения аудио лимит хранения не расходует.</p>
         {% if storage_threshold in ["80%", "95%"] %}<p class="notice" role="status" aria-live="polite">Можно удалить данные{% if billing_owner %}, увеличить хранилище{% endif %} или выбрать обработку без сохранения аудио.</p>{% elif storage_threshold == "full" %}<p class="notice" role="status" aria-live="polite">Архив заполнен: новое аудио не сохраняется. {% if billing_owner %}<a href="/billing/storage">Увеличить хранилище</a>, {% endif %}<a href="/meetings">удалить старые записи</a> или <a href="/meetings?archive_audio=false#manual-upload">обработать без сохранения аудио</a>; расшифровка и заметки останутся.</p>{% endif %}
+        <nav class="settings-actions" aria-label="Действия с хранилищем">
+          <a class="button quiet" href="/meetings">Управлять архивом</a>
+          {% if billing_owner %}<a class="button quiet" href="/billing/storage">Увеличить хранилище</a>{% endif %}
+          {% if processing_unlimited or processing_threshold != "exhausted" %}<a class="button quiet" href="/meetings?archive_audio=false#manual-upload">Обработать без сохранения аудио</a>{% endif %}
+        </nav>
         {% endif %}
         {% endif %}
       </section>

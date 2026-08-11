@@ -16,6 +16,15 @@ def test_billing_ia_contract_names_recoverable_states() -> None:
         assert phrase in contract
 
 
+def test_billing_ia_contract_matches_current_server_route_namespace() -> None:
+    contract = (ROOT / "specs/140-user-account-billing/contracts/account-ia-ux-ui-cx.md").read_text(
+        encoding="utf-8"
+    )
+    for route in ("`/billing`", "`/billing/usage`", "`/billing/plans`", "`/billing/checkout`", "`/billing/history`"):
+        assert route in contract
+    assert "`/account/workspaces/{ws}/billing`" not in contract
+
+
 def test_billing_surfaces_keep_contextual_non_coercive_upgrade_copy() -> None:
     overview = (
         ROOT
@@ -37,3 +46,4 @@ def test_billing_surfaces_keep_contextual_non_coercive_upgrade_copy() -> None:
     assert "Увеличить хранилище" in usage
     assert "удалить старые записи" in usage
     assert "обработать без сохранения аудио" in usage
+    assert "Управлять архивом" in usage

@@ -279,7 +279,10 @@ active/expired state and bounded expiry. The public canonical path is
 
 `referral_attribution` is one first-touch row per invitee and link, copied with
 the inviter/workspace authority and lifecycle
-`issued|bound|registered|paid|pending_maturity|available|rejected|reversed`.
+`issued|bound|registered|paid|pending_maturity|available|applied|expired|rejected|reversed`.
+The row stores only a coarse `risk_signal` such as `review`, never raw device,
+IP, email or payment-profile evidence. Its first reward ledger row is linked by
+`time_credit_ledger_entry.referral_attribution_id`.
 The link is not consumed after the first signup: concurrent new invitees get
 separate attribution rows, while the invitee/user uniqueness and first-payment
 source uniqueness keep rewards idempotent. Email and new OAuth registration use

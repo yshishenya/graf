@@ -28,7 +28,12 @@ from twobrain_rec_server.cabinet.web_routes.support import (
     WebTenantDependency,
     _csrf_token_for_principal,
 )
-from twobrain_rec_server.db.models import ReferralLink, Workspace
+from twobrain_rec_server.db.models import (
+    ReferralAttribution,
+    ReferralLink,
+    TimeCreditLedgerEntry,
+    Workspace,
+)
 from twobrain_rec_server.db.tenant_context import (
     ReferralLandingLookupContext,
     WorkspaceAuthContext,
@@ -65,6 +70,9 @@ async def referrals_page(
     )
     token_hash = referral_token_hash(token) if token else None
     link_record = None
+    referral_history: list[dict[str, object]] = []
+    referral_credited_days = 0
+    referral_pending_days = 0
     if db is not None and token_hash is not None:
         await apply_tenant_context(
             db,
@@ -80,6 +88,61 @@ async def referrals_page(
                     ReferralLink.expires_at.is_(None) | (ReferralLink.expires_at > datetime.now(UTC)),
                 )
             )
+            attributions = list(
+                await db.scalars(
+                    select(ReferralAttribution)
+                    .where(
+                        ReferralAttribution.workspace_id == tenant_scope.workspace_id,
+                        ReferralAttribution.inviter_user_id == principal.user_id,
+                        ReferralAttribution.invitee_user_id.is_not(None),
+                    )
+                    .order_by(ReferralAttribution.bound_at.desc(), ReferralAttribution.id.desc())
+                    .limit(50)
+                )
+            )
+            attribution_ids = tuple(row.id for row in attributions)
+            ledger_by_attribution = {}
+            if attribution_ids:
+                ledger_by_attribution = {
+                    row.referral_attribution_id: row
+                    for row in await db.scalars(
+                        select(TimeCreditLedgerEntry).where(
+                            TimeCreditLedgerEntry.referral_attribution_id.in_(attribution_ids)
+                        )
+                    )
+                    if row.referral_attribution_id is not None
+                }
+            status_labels = {
+                "issued": "Ссылка создана",
+                "registered": "Аккаунт зарегистрирован",
+                "bound": "Аккаунт зарегистрирован",
+                "attributed": "Готово к первой оплате",
+                "pending_maturity": "Оплата подтверждена, бонус ожидает 14 дней",
+                "available": "Бонус доступен",
+                "applied": "Бонус применён",
+                "expired": "Бонус истёк",
+                "rejected": "Бонус отклонён по правилам кампании",
+                "reversed": "Бонус отменён после проверки платежа",
+            }
+            for index, row in enumerate(attributions, start=1):
+                ledger = ledger_by_attribution.get(row.id)
+                if ledger is not None and ledger.state == "applied":
+                    referral_credited_days += max(0, ledger.days)
+                elif ledger is not None and ledger.state in {"pending", "available"}:
+                    referral_pending_days += max(0, ledger.days)
+                referral_history.append(
+                    {
+                        "number": index,
+                        "status_label": status_labels.get(row.state, "Статус уточняется"),
+                        "reward_days": ledger.days if ledger is not None and ledger.days > 0 else None,
+                        "updated_label": (
+                            row.bound_at.astimezone(MOSCOW).strftime("%d.%m.%Y")
+                            if row.bound_at is not None
+                            else "дата уточняется"
+                        ),
+                        "risk_review": row.risk_signal == "review",
+                    }
+                )
         finally:
             await apply_tenant_scope(db, tenant_scope)
     public_base_url = getattr(request.app.state.settings, "public_base_url", None)
@@ -110,6 +173,9 @@ async def referrals_page(
             else None
         ),
         referral_issue_result=request.query_params.get("result"),
+        referral_history=referral_history,
+        referral_credited_days=referral_credited_days,
+        referral_pending_days=referral_pending_days,
     )
     return cabinet_html_response(content)
 

@@ -30,7 +30,7 @@
             </div>{% else %}<p role="status">Магазин пока не включён: цена и переход к оплате появятся после merchant‑canary и утверждения launch‑gate.</p>{% endif %}
           </fieldset>
           <label for="billing-promo">Промокод <span class="muted">(если у вас есть действующий код)</span></label>
-          <input id="billing-promo" name="promo_code" type="text" inputmode="latin" autocomplete="off" maxlength="48" value="{{ checkout_promo_code|default('') }}"{% if checkout_result == "promo_invalid" %} aria-describedby="billing-checkout-error"{% endif %}>
+          <input id="billing-promo" name="promo_code" type="text" inputmode="latin" autocomplete="off" maxlength="48" value="{{ checkout_promo_code|default('') }}"{% if checkout_result == "promo_invalid" %} aria-describedby="billing-checkout-error" aria-invalid="true"{% endif %}>
           <label><input type="checkbox" name="offer_consent" value="true" required{% if not billing_enabled %} disabled{% endif %}> Принимаю <a href="/offer" target="_blank" rel="noopener">оферту</a> версии {{ offer_version_label|default("billing-personal-v1") }}.</label>
           <label><input type="checkbox" name="recurring_consent" value="true" required{% if not billing_enabled %} disabled{% endif %}> Согласен на регулярное списание до отключения автопродления.</label>
         </form>

@@ -173,3 +173,5 @@ def test_referral_routes_keep_contract_alias_and_gate_unissued_link() -> None:
     assert "PublicDbDependency" in route_source
     assert "ReferralLandingLookupContext" in route_source
     assert "referral_expires_at_label" in template_source
+    assert "referral_history" in route_source
+    assert "Одна ссылка может использоваться несколькими приглашёнными" in template_source

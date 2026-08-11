@@ -74,6 +74,23 @@ def test_checkout_promo_error_preserves_safe_input_and_associates_error() -> Non
     assert 'id="billing-promo"' in html
     assert 'value="WELCOME10"' in html
     assert 'aria-describedby="billing-checkout-error"' in html
+    assert 'aria-invalid="true"' in html
+
+    discounts_html = render_template(
+        "cabinet/pages/billing_discounts_content.html",
+        embedded=False,
+        settings_navigation=settings_category_navigation(active="billing"),
+        settings_active="billing",
+        csrf_token="synthetic-csrf",
+        billing_owner=True,
+        result="invalid",
+        active_promotions=[],
+        redemptions=[],
+    )
+    assert 'id="billing-discount-error"' in discounts_html
+    assert 'role="alert"' in discounts_html
+    assert 'aria-describedby="billing-discount-error"' in discounts_html
+    assert 'aria-invalid="true"' in discounts_html
 
 
 def test_payment_method_delete_and_discount_actions_have_csrf_and_labels() -> None:
