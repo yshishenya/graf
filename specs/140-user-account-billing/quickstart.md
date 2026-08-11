@@ -45,8 +45,8 @@ elsewhere; real-shop canary is a separate approved release step.
 ### Runtime verification (2026-08-11)
 
 - Remote `/opt/projects/2brain-rec` is clean at deployed SHA
-  `efe36a9dc5e1d055e0816e696085224caaec6de6`, migration head
-  `0067_referral_bound_attributed`; live/ready/root probes return HTTP 200.
+  `f293c0a5ad75a014b1656c8d45d8f2e67e573cd3`, migration head
+  `0068_fair_use_reviews`; live/ready/root probes return HTTP 200.
 - Independent production smoke PASS: config validation, disposable RLS/migration
   probes and metadata-only cleanup (39 database rows, 3 object keys, no residue).
 - Live production RLS metadata-only probe PASS: 104/104 tables in the verifier
@@ -98,10 +98,10 @@ elsewhere; real-shop canary is a separate approved release step.
   row lock; refund webhook backstop follows YooKassa cursor pages with a bounded
   20-page safety limit. These are covered by focused disposable-PostgreSQL and
   adapter/webhook tests; live provider evidence and manual sign-offs remain open.
-- Production remains at migration head `0067_referral_bound_attributed`; the
-  unreleased fair-use persistence slice adds `0068_fair_use_reviews` and must
-  be deployed and re-audited before production evidence is updated:
-  plan and promotion catalog rows remain readable in request/worker contexts,
+- Production migration head is `0068_fair_use_reviews`; fair-use persistence
+  is deployed with checkout still disabled. Any future migration must update
+  the exact-SHA evidence and rerun the direct RLS probe. Plan and promotion
+  catalog rows remain readable in request/worker contexts,
   but inserts/updates require the maintenance role. Webhook bodies are read in
   bounded chunks without relying on `Content-Length`; enabling billing also
   requires non-empty provider, webhook and referral secret files plus a valid

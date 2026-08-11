@@ -32,11 +32,11 @@ binder, а checkout читает собственную attribution после �
 и concurrent signup evidence; внешний canary и product copy gates по-прежнему
 не закрыты.
 
-Fair-use review теперь имеет unreleased persisted metadata-only row, tenant RLS,
+Fair-use review теперь имеет deployed persisted metadata-only row, tenant RLS,
 обязательное уведомление и пользовательскую CSRF-защищённую апелляцию на
-`/account/fair-use` (migration `0068_fair_use_reviews`). Production остаётся на
-`0067_referral_bound_attributed`; detector/операционный producer, global
-fair-use economics и ручной review sign-off не считаются автоматически закрытыми.
+`/account/fair-use` (migration `0068_fair_use_reviews`). Detector/операционный
+producer, global fair-use economics и ручной review sign-off не считаются
+автоматически закрытыми.
 
 Checkout, binding и renewal mutation нельзя включать, пока владельцы Product,
 Finance/Accounting, Legal, Security и QA не внесут версии решений и exact-SHA
@@ -123,10 +123,9 @@ Ruff/Python compile и deployment evidence scan — PASS. OpenAPI contract drift
 
 ## Runtime recheck 2026-08-11 (latest closeout)
 
-- На deployed SHA `efe36a9dc5e1d055e0816e696085224caaec6de6` migration head
-  `0067_referral_bound_attributed`; live RLS metadata-only probe PASS:
-  `104/104` таблиц верификатора (105/105 прикладных таблиц по прямой проверке)
-  enabled+forced. Это не закрывает
+- На deployed SHA `f293c0a5ad75a014b1656c8d45d8f2e67e573cd3` migration head
+  `0068_fair_use_reviews`; live RLS metadata-only probe PASS:
+  `105/105` прикладных таблиц enabled+forced. Это не закрывает
   edge allowlist/header и независимый security sign-off.
 - Этот deploy также проверил отложенную награду referral после status refresh,
   связку ledger с attribution lifecycle, coarse risk-review hold и
