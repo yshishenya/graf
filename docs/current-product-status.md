@@ -4,7 +4,7 @@ Date: 2026-08-11
 
 ## Runtime update (2026-08-11) — Feature 140
 
-- Exact deployed SHA `b19dd0fe1920147598164839d82f93deb1b0c2ac` проверен на
+- Exact deployed SHA `efe36a9dc5e1d055e0816e696085224caaec6de6` проверен на
   `2brain.dev`; рабочее дерево чистое, migration head
   `0067_referral_bound_attributed`.
 - Live/ready/root health probes HTTP 200; production smoke и metadata-only
