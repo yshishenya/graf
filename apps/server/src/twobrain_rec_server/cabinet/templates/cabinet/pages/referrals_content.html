@@ -13,7 +13,7 @@
         {% if referral_issued|default(False) %}
         <label for="referral-link">Ссылка для приглашения</label>
         <input id="referral-link" type="text" value="{{ referral_link }}" readonly aria-describedby="referral-link-help">
-        <p id="referral-link-help" class="muted">За месячную подписку — 7 дней, за годовую — 30 дней. Начисление происходит через 14 дней после оплаты; денежного вознаграждения нет.</p>
+        <p id="referral-link-help" class="muted">Ссылка действует до {{ referral_expires_at_label or "обновления условий кампании" }}. За месячную подписку — 7 дней, за годовую — 30 дней. Начисление происходит через 14 дней после оплаты; денежного вознаграждения нет.</p>
         <button class="button" type="button" data-copy-target="referral-link">Скопировать ссылку</button>
         {% else %}
         <p class="notice" role="status">Ссылка ещё не активирована для учёта приглашений.</p>

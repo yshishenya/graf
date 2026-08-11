@@ -128,7 +128,18 @@ async def get_web_request_db_session(
         yield session
 
 
+async def get_public_request_db_session(request: Request):
+    """Yield a session without tenant context for narrow public-token lookups."""
+    sessionmaker = getattr(request.app.state, "db_sessionmaker", None)
+    if sessionmaker is None:
+        yield None
+        return
+    async with sessionmaker() as session:
+        yield session
+
+
 WebDbDependency = Depends(get_web_request_db_session)
+PublicDbDependency = Depends(get_public_request_db_session)
 
 
 async def get_web_login_db_session(request: Request):

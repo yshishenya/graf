@@ -221,6 +221,10 @@ def _billing_datetime_label(value: datetime | None) -> str | None:
 def _billing_amount_label(amount_minor: int | None, currency: str = "RUB") -> str | None:
     if amount_minor is None:
         return None
+    if currency.upper() == "RUB":
+        if amount_minor % 100 == 0:
+            return f"{amount_minor // 100:,} ₽".replace(",", " ")
+        return f"{amount_minor / 100:,.2f} ₽".replace(",", " ")
     return f"{amount_minor / 100:,.2f} {currency}".replace(",", " ")
 
 
@@ -282,6 +286,27 @@ def _capacity_label(capacity_bytes: int) -> str:
         if capacity_bytes % divisor == 0:
             return f"{capacity_bytes // divisor} {unit}"
     return f"{capacity_bytes:,} байт".replace(",", " ")
+
+
+def _exact_bytes_label(value: int) -> str:
+    return f"{value:,}".replace(",", " ")
+
+
+def _storage_threshold_label(value: str) -> str:
+    return {
+        "normal": "В норме",
+        "80%": "Заполнено на 80%",
+        "95%": "Заполнено на 95%",
+        "full": "Заполнено",
+        "over_capacity": "Превышена ёмкость",
+    }.get(value, "Состояние уточняется")
+
+
+def _payment_method_kind_label(value: str | None) -> str | None:
+    return {
+        "bank_card": "Банковская карта",
+        "sbp": "СБП",
+    }.get(value, "Способ оплаты уточняется" if value else None)
 
 
 def _promotion_state_label(state: str) -> str:
@@ -619,11 +644,18 @@ async def billing_overview_page(
         plan=plan,
         plan_code=plan_code,
         storage_used=storage_used,
+        storage_used_label=_capacity_label(storage_used),
+        storage_used_exact_label=_exact_bytes_label(storage_used),
         storage_reserved=storage_reserved,
+        storage_reserved_label=_capacity_label(storage_reserved),
+        storage_reserved_exact_label=_exact_bytes_label(storage_reserved),
         storage_capacity=effective_capacity,
         storage_threshold=classify_storage_threshold(
             used_bytes=storage_used,
             capacity_bytes=effective_capacity,
+        ),
+        storage_threshold_label=_storage_threshold_label(
+            classify_storage_threshold(used_bytes=storage_used, capacity_bytes=effective_capacity)
         ),
         processing_used=processing_used,
         processing_reserved=processing_reserved,
@@ -635,7 +667,8 @@ async def billing_overview_page(
         free_processing_limit_label="300 минут",
         processing_usage_freshness=window.freshness_state if window is not None else ("unavailable" if db is None else "fresh"),
         billing_data_available=db is not None,
-        storage_capacity_label=f"{effective_capacity:,}".replace(",", " "),
+        storage_capacity_label=_capacity_label(effective_capacity),
+        storage_capacity_exact_label=_exact_bytes_label(effective_capacity),
         processing_threshold=classify_free_processing(committed_seconds=processing_used + processing_reserved),
         billing_enabled=bool(request.app.state.settings.billing_checkout_enabled),
         catalog_ready=("month" in approved_catalog and "year" in approved_catalog),
@@ -1194,10 +1227,19 @@ async def billing_usage_page(
         billing_enabled=bool(request.app.state.settings.billing_checkout_enabled),
         processing_unlimited=plan_code in {"trial", "personal"},
         storage_used=projection.used_bytes,
+        storage_used_label=_capacity_label(projection.used_bytes),
         storage_reserved=projection.reserved_bytes,
+        storage_reserved_label=_capacity_label(projection.reserved_bytes),
+        storage_reserved_exact_label=_exact_bytes_label(projection.reserved_bytes),
         storage_available=projection.available_bytes,
+        storage_available_label=_capacity_label(projection.available_bytes),
+        storage_available_exact_label=_exact_bytes_label(projection.available_bytes),
         storage_capacity=projection.capacity_bytes,
+        storage_capacity_label=_capacity_label(projection.capacity_bytes),
+        storage_capacity_exact_label=_exact_bytes_label(projection.capacity_bytes),
+        storage_used_exact_label=_exact_bytes_label(projection.used_bytes),
         storage_threshold=projection.threshold,
+        storage_threshold_label=_storage_threshold_label(projection.threshold),
         usage_projection_state=usage_projection_state,
     )
     return cabinet_html_response(content)
@@ -1251,6 +1293,19 @@ async def billing_subscription_page(
         active=active,
         method_available=method_available,
         next_charge_amount_label=next_charge_amount_label,
+        subscription_plan_label=(
+            plan_descriptor(
+                effective_plan_code(
+                    plan_code=subscription.plan_code,
+                    state=subscription.state,
+                    now=now,
+                    paid_through=subscription.paid_through,
+                    trial_ends_at=subscription.trial_ends_at,
+                )
+            ).label
+            if subscription is not None
+            else "Бесплатный"
+        ),
         result=request.query_params.get("result"),
     )
     return cabinet_html_response(content)
@@ -1293,6 +1348,7 @@ async def billing_payment_method_page(
         content_template="cabinet/pages/billing_payment_method_content.html",
         method_label=method.masked_label if method is not None else None,
         method_kind=method.kind if method is not None else None,
+        method_kind_label=_payment_method_kind_label(method.kind if method is not None else None),
         method_present=method is not None,
         renewal_allowed=bool(subscription is not None and subscription.recurring_allowed),
         paid_until_label=_billing_datetime_label(subscription.paid_through) if subscription is not None else None,
@@ -1357,6 +1413,8 @@ async def billing_storage_page(
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
 ) -> HTMLResponse:
+    if db is None:
+        return RedirectResponse("/billing/storage?result=unavailable", status_code=303)
     subscription = None
     if db is not None:
         subscription = await db.scalar(
@@ -1393,9 +1451,12 @@ async def billing_storage_page(
         ),
         content_template="cabinet/pages/billing_storage_content.html",
         current_capacity=current_capacity,
+        current_capacity_label=_capacity_label(current_capacity),
         addon_options=(5_000_000_000, 20_000_000_000, 100_000_000_000, 500_000_000_000),
+        capacity_labels=tuple(_capacity_label(value) for value in (5_000_000_000, 20_000_000_000, 100_000_000_000, 500_000_000_000)),
         eligible=effective_plan == "personal",
         billing_enabled=bool(request.app.state.settings.billing_checkout_enabled),
+        result=request.query_params.get("result"),
     )
     return cabinet_html_response(content)
 
