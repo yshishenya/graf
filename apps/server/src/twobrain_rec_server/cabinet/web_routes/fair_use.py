@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import select
+from sqlalchemy import exists, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
@@ -20,7 +20,7 @@ from twobrain_rec_server.cabinet.web_routes.support import (
     WebTenantDependency,
     _csrf_token_for_principal,
 )
-from twobrain_rec_server.db.models import FairUseReviewRecord
+from twobrain_rec_server.db.models import FairUseReviewRecord, Workspace
 from twobrain_rec_server.product_analytics.browser_context import (
     build_request_browser_provider_context,
 )
@@ -48,7 +48,7 @@ def _date_label(value: datetime) -> str:
     return value.astimezone(MOSCOW).strftime("%d.%m.%Y, %H:%M")
 
 
-def _review_view(row: FairUseReviewRecord, *, now: datetime) -> dict[str, object]:
+def _review_view(row: FairUseReviewRecord, *, now: datetime, can_appeal: bool) -> dict[str, object]:
     review_by = row.review_by.astimezone(UTC)
     return {
         "id": str(row.id),
@@ -57,7 +57,8 @@ def _review_view(row: FairUseReviewRecord, *, now: datetime) -> dict[str, object
         "state_label": _STATE_LABELS.get(row.state, "Статус уточняется"),
         "review_by_label": _date_label(review_by),
         "review_overdue": review_by <= now,
-        "can_appeal": row.state in {"notice", "restricted"},
+        "support_reference": f"FU-{row.id.hex[:12].upper()}",
+        "can_appeal": can_appeal and row.state in {"notice", "restricted"},
         "appealed": row.state == "appealed",
     }
 
@@ -78,12 +79,23 @@ async def _render_fair_use_page(
             select(FairUseReviewRecord)
             .where(
                 FairUseReviewRecord.workspace_id == tenant_scope.workspace_id,
-                FairUseReviewRecord.subject_user_id == principal.user_id,
+                or_(
+                    FairUseReviewRecord.subject_user_id == principal.user_id,
+                    exists(
+                        select(1).where(
+                            Workspace.id == FairUseReviewRecord.workspace_id,
+                            Workspace.owner_user_id == principal.user_id,
+                        )
+                    ),
+                ),
             )
             .order_by(FairUseReviewRecord.review_by.desc(), FairUseReviewRecord.created_at.desc())
         )
         now = datetime.now(UTC)
-        reviews = [_review_view(row, now=now) for row in rows]
+        reviews = [
+            _review_view(row, now=now, can_appeal=row.subject_user_id == principal.user_id)
+            for row in rows
+        ]
         await db.commit()
     html = _page_shell(
         "Проверка добросовестного использования",
@@ -159,7 +171,23 @@ async def fair_use_appeal(
         except ValueError:
             parsed_review_id = None
         was_appealed = False
-        row = (
+        existing = (
+            await db.scalar(
+                select(FairUseReviewRecord)
+                .where(
+                    FairUseReviewRecord.id == parsed_review_id,
+                    FairUseReviewRecord.workspace_id == tenant_scope.workspace_id,
+                    FairUseReviewRecord.subject_user_id == principal.user_id,
+                )
+                .with_for_update()
+            )
+            if parsed_review_id is not None
+            else None
+        )
+        if existing is None or existing.state in {"cleared", "confirmed"}:
+            result = "unavailable"
+        else:
+            was_appealed = existing.appealed_at is not None
             await appeal_persisted_review(
                 db,
                 workspace_id=tenant_scope.workspace_id,
@@ -167,13 +195,6 @@ async def fair_use_appeal(
                 subject_user_id=principal.user_id,
                 at=datetime.now(UTC),
             )
-            if parsed_review_id is not None
-            else None
-        )
-        if row is None:
-            result = "unavailable"
-        else:
-            was_appealed = row.appealed_at is not None
             result = "already_appealed" if was_appealed else "appealed"
             await db.commit()
     base = "/desktop/account/fair-use" if request.url.path.startswith("/desktop/") else "/account/fair-use"

@@ -223,6 +223,18 @@ def notification_copy(event: NotificationEvent) -> tuple[str, str]:
     """Russian-first copy built only from allowlisted event fields."""
     invoice = event.safe_payload.get("invoice")
     suffix = f" Номер платежа: {invoice}." if invoice else ""
+    fair_use_capability = {
+        "server_processing": "обработка встреч",
+        "storage": "хранилище",
+        "exports": "экспорт данных",
+    }.get(event.safe_payload.get("capability", ""), "одна из функций")
+    fair_use_reason = {
+        "automated_bulk": "автоматизированная массовая обработка",
+        "resale": "перепродажа или предоставление сервиса третьим лицам",
+        "limit_circumvention": "обход технических ограничений",
+        "security_abuse": "подозрение на злоупотребление безопасностью",
+    }.get(event.safe_payload.get("reason", ""), "доказуемая неперсональная эксплуатация")
+    fair_use_deadline = event.safe_payload.get("review_by", "в течение 24 часов")
     copy = {
         BillingNotification.TRIAL_ENDING: ("Пробный период скоро закончится", "Выберите тариф, чтобы сохранить платную обработку."),
         BillingNotification.TRIAL_EXPIRED: ("Пробный период закончился", "Платный режим отключён. Выберите тариф, чтобы продолжить."),
@@ -234,7 +246,12 @@ def notification_copy(event: NotificationEvent) -> tuple[str, str]:
         BillingNotification.RENEWAL_UNKNOWN: ("Проверяем продление", "Статус платежа пока неизвестен. Новое списание не создаём."),
         BillingNotification.RENEWAL_LATE_SUCCESS: ("Продление подтверждено поздно", "Мы восстановили оплаченный период. Проверьте дату следующего списания."),
         BillingNotification.RENEWAL_MANUAL_RESUME: ("Подписку можно возобновить", "Продление не подтверждено. Если хотите снова включить автопродление, откройте управление подпиской."),
-        BillingNotification.FAIR_USE_REVIEW: ("Проверяем использование", "Часть функции временно ограничена. Откройте кабинет и проверьте срок проверки."),
+        BillingNotification.FAIR_USE_REVIEW: (
+            "Проверяем использование",
+            f"Функция «{fair_use_capability}» временно может быть ограничена. "
+            f"Причина: {fair_use_reason}. Срок проверки: {fair_use_deadline} МСК. "
+            "Откройте кабинет, чтобы подать апелляцию или обратиться в поддержку.",
+        ),
         BillingNotification.ACCOUNT_CLOSE: ("Закрытие аккаунта", "Проверьте запланированную дату и последствия удаления данных в кабинете."),
     }
     return copy[event.kind]
@@ -252,13 +269,18 @@ def build_notification(*, event_id: str, kind: BillingNotification, payload: dic
         BillingNotification.TRIAL_EXPIRED: set(),
         BillingNotification.STORAGE_THRESHOLD: set(),
         BillingNotification.REFERRAL_CREDIT: set(),
-        BillingNotification.FAIR_USE_REVIEW: set(),
+        BillingNotification.FAIR_USE_REVIEW: {"capability", "reason", "review_by"},
         BillingNotification.ACCOUNT_CLOSE: set(),
     }[kind]
     safe: dict[str, str] = {}
     for key in allowed_keys:
         value = payload.get(key)
-        if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}", value):
+        pattern = (
+            r"\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}"
+            if key == "review_by"
+            else r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}"
+        )
+        if isinstance(value, str) and re.fullmatch(pattern, value):
             safe[key] = value
     action_path = payload.get("action_path")
     if isinstance(action_path, str) and re.fullmatch(

@@ -7,6 +7,7 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +19,7 @@ FairUseReason = Literal["automated_bulk", "resale", "limit_circumvention", "secu
 FairUseState = Literal["notice", "restricted", "appealed", "cleared", "confirmed"]
 
 _REASONS = frozenset({"automated_bulk", "resale", "limit_circumvention", "security_abuse"})
+MOSCOW = ZoneInfo("Europe/Moscow")
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,7 +77,12 @@ async def enqueue_review_notification(
         recipient_id=recipient_id,
         event_type="fair_use.review",
         subject_ref=review_subject_ref(review),
-        payload={"action_path": "/account/fair-use"},
+        payload={
+            "action_path": "/account/fair-use",
+            "capability": review.capability,
+            "reason": review.reason,
+            "review_by": _aware(review.review_by).astimezone(MOSCOW).strftime("%d.%m.%Y %H:%M"),
+        },
         marketing_allowed=False,
     )
 
@@ -119,6 +126,14 @@ async def persist_review(
         )
         db.add(row)
         await db.flush()
+    elif (
+        row.subject_user_id != subject_user_id
+        or row.capability != review.capability
+        or row.reason_code != review.reason
+        or _aware(row.starts_at) != _aware(review.starts_at)
+        or _aware(row.review_by) != _aware(review.review_by)
+    ):
+        raise ValueError("fair-use evidence reference is already bound to another review")
     await enqueue_review_notification(
         db,
         workspace_id=workspace_id,
