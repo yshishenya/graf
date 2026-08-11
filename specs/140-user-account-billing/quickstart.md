@@ -45,7 +45,7 @@ elsewhere; real-shop canary is a separate approved release step.
 ### Runtime verification (2026-08-11)
 
 - Remote `/opt/projects/2brain-rec` is clean at deployed SHA
-  `3a0cdeee852da316bb883700c757b952b3a42c15`, migration head
+  `b966365f2e45637a78a54088f823f9ed44e977f8`, migration head
   `0068_fair_use_reviews`; live/ready/root probes return HTTP 200.
 - Independent production smoke PASS: config validation, disposable RLS/migration
   probes and metadata-only cleanup (39 database rows, 3 object keys, no residue).

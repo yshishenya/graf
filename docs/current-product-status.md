@@ -4,7 +4,7 @@ Date: 2026-08-11
 
 ## Runtime update (2026-08-11) — Feature 140
 
-- Exact deployed SHA `3a0cdeee852da316bb883700c757b952b3a42c15` проверен на
+- Exact deployed SHA `b966365f2e45637a78a54088f823f9ed44e977f8` проверен на
   `2brain.dev`; рабочее дерево чистое, migration head
   `0068_fair_use_reviews`.
 - Live/ready/root health probes HTTP 200; production smoke и metadata-only
@@ -17,7 +17,7 @@ Date: 2026-08-11
 
 ## Runtime recheck (2026-08-11) — fair-use persistence deploy
 
-- Migration `0068_fair_use_reviews` deployed on `3a0cdeee`; fair-use rows are
+- Migration `0068_fair_use_reviews` deployed on `b966365f`; fair-use rows are
   metadata-only, tenant-RLS protected and surfaced through the authenticated
   `/account/fair-use` appeal flow. Checkout remains disabled.
 - Post-deploy migration/RLS verification passed: 106/106 application tables are
