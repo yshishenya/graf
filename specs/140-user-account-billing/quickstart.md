@@ -45,8 +45,8 @@ elsewhere; real-shop canary is a separate approved release step.
 ### Runtime verification (2026-08-11)
 
 - Remote `/opt/projects/2brain-rec` is clean at deployed SHA
-  `83c46fcf8cf8283b40080994cec3b9969e1a7da6`, migration head
-  `0069_fair_use_review_constraints`; live/ready/root probes return HTTP 200.
+  `3a904d8e9abc806c39c4d03ea8784c3df4ba07d4`, migration head
+  `0070_fair_use_review_metadata`; live/ready/root probes return HTTP 200.
 - Independent production smoke PASS: config validation, disposable RLS/migration
   probes and metadata-only cleanup (39 database rows, 3 object keys, no residue).
 - Live production RLS metadata-only probe PASS: 106/106 application tables in
@@ -98,7 +98,7 @@ elsewhere; real-shop canary is a separate approved release step.
   row lock; refund webhook backstop follows YooKassa cursor pages with a bounded
   20-page safety limit. These are covered by focused disposable-PostgreSQL and
   adapter/webhook tests; live provider evidence and manual sign-offs remain open.
-- Production migration head is `0069_fair_use_review_constraints`; fair-use persistence
+- Production migration head is `0070_fair_use_review_metadata`; fair-use persistence
   is deployed with checkout still disabled. Any future migration must update
   the exact-SHA evidence and rerun the direct RLS probe. Plan and promotion
   catalog rows remain readable in request/worker contexts,
