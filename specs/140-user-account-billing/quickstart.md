@@ -44,18 +44,20 @@ elsewhere; real-shop canary is a separate approved release step.
 
 ### Runtime verification (2026-08-11)
 
-- Remote `/opt/projects/2brain-rec` is clean at exact SHA
-  `24e55765e412686291861464b845a62974a7c666`, migration head
-  `0057_referral_workspace_scope`; live/ready/root probes return HTTP 200.
+- Remote `/opt/projects/2brain-rec` is clean at deployed SHA
+  `11b5ecc0` (full SHA is recorded in the closeout packet), migration head
+  `0059_referral_expiry_owner_write`; live/ready/root probes return HTTP 200.
 - Independent production smoke PASS: config validation, disposable RLS/migration
-  probes and metadata-only cleanup (43 database rows, 3 object keys, no residue).
+  probes and metadata-only cleanup (39 database rows, 3 object keys, no residue).
+- Live production RLS metadata-only probe PASS: 104/104 tables enabled and
+  forced. This does not replace edge webhook allowlist/header verification.
 - Checkout remains disabled (`TWOBRAIN_BILLING_CHECKOUT_ENABLED=false`). This is
   runtime evidence only; test-shop/real-shop canary, edge/live-RLS review and
   four-eyes product/finance/legal/security/QA sign-offs are still required.
 
 ### Latest local evidence (2026-08-08)
 
-- `infra/scripts/ci-local.sh --fast`: PASS, 1024 server tests, Ruff and
+- `infra/scripts/ci-local.sh --fast`: PASS, 1029 server tests, Ruff and
   Python compile; disposable PostgreSQL container removed after the run.
 - `infra/scripts/ci-local.sh --full`: PASS on the billing/master integration
   branch: 650 Swift tests, ContractValidation PASS, 2833 server tests passed,
@@ -95,7 +97,7 @@ elsewhere; real-shop canary is a separate approved release step.
   row lock; refund webhook backstop follows YooKassa cursor pages with a bounded
   20-page safety limit. These are covered by focused disposable-PostgreSQL and
   adapter/webhook tests; live provider evidence and manual sign-offs remain open.
-- Current migration head for the billing branch is `0057_referral_workspace_scope`:
+- Current migration head for the billing branch is `0059_referral_expiry_owner_write`:
   plan and promotion catalog rows remain readable in request/worker contexts,
   but inserts/updates require the maintenance role. Webhook bodies are read in
   bounded chunks without relying on `Content-Length`; enabling billing also

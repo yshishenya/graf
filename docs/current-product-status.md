@@ -6,9 +6,9 @@ Date: 2026-08-11
 
 - Exact deployed SHA `df1add3769fc5a9c87a6e28e48fdf240a57846ce` проверен на
   `2brain.dev`; рабочее дерево чистое, migration head
-  `0058_referral_link_invitees`.
+  `0059_referral_expiry_owner_write`.
 - Live/ready/root health probes HTTP 200; production smoke и metadata-only
-  cleanup PASS (43 database rows, 3 object keys, no residue).
+  cleanup PASS (39 database rows, 3 object keys, no residue).
 - Billing checkout остаётся `false`: это проверка инфраструктурной готовности,
   не разрешение public launch. Live RLS metadata-only probe PASS (`104/104`),
   но YooKassa edge allowlist/header, canary и

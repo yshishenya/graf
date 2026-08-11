@@ -1,4 +1,4 @@
-# Deployment evidence — 2026-08-11
+# Historical deployment evidence — 2026-08-11 (pre-closeout)
 
 Metadata-only record for Feature 140. No provider credentials, customer IDs,
 emails, raw webhook bodies, audio, transcripts or private meeting content are
@@ -14,7 +14,8 @@ stored here.
 - Billing: `TWOBRAIN_BILLING_CHECKOUT_ENABLED=false`; no provider mutation or
   real-shop canary was performed
 
-This evidence proves deployed runtime readiness only. Public billing remains
+This historical evidence proves deployed runtime readiness only. The current
+closeout packet is `deployment-2026-08-11-closeout.md`. Public billing remains
 blocked until controlled YooKassa canary, edge source/TLS allowlist and live RLS
 review, plus merchant/product/finance/legal/security/QA sign-offs, are attached
 to `docs/runbooks/billing-launch.md`.
