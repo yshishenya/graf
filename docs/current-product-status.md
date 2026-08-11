@@ -4,14 +4,14 @@ Date: 2026-08-11
 
 ## Runtime update (2026-08-11) — Feature 140
 
-- Exact deployed SHA `dd895de4af1fc6cba0c2f2e132d2ac5037d89977` проверен на
+- Exact deployed SHA `d135b4b18c4ff3231fc303d9cd1f0a0d3194599f` проверен на
   `2brain.dev`; рабочее дерево чистое, migration head
-  `0063_referral_signup_bind_rls`.
+  `0065_status_refresh_prefix`.
 - Live/ready/root health probes HTTP 200; production smoke и metadata-only
   cleanup PASS (39 database rows, 3 object keys, no residue).
 - Billing checkout остаётся `false`: это проверка инфраструктурной готовности,
   не разрешение public launch. Live RLS metadata-only probe PASS (`104/104`),
-  но YooKassa edge allowlist/header, canary и
+  webhook без секрета получает HTTP 401, но YooKassa edge allowlist/header, canary и
   merchant/product/legal/finance/QA sign-offs остаются обязательными.
 
 ## Implementation update (2026-08-06) — Feature 140 personal billing foundation

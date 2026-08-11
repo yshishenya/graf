@@ -50,6 +50,7 @@ def test_all_billing_tables_are_in_tenant_policy_inventory() -> None:
             "0058_referral_links_many_invitees.py",
             "0060_referral_user_history_rls.py",
             "0064_status_refresh_webhook_event_rls.py",
+            "0065_status_refresh_prefix.py",
         )
     )
     for table_name in (

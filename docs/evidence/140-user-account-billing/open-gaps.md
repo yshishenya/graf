@@ -117,13 +117,14 @@ Ruff/Python compile и deployment evidence scan — PASS. OpenAPI contract drift
 
 ## Runtime recheck 2026-08-11 (latest closeout)
 
-- На deployed SHA `dd895de4af1fc6cba0c2f2e132d2ac5037d89977` migration head
-  `0063_referral_signup_bind_rls`; live RLS metadata-only probe PASS:
+- На deployed SHA `d135b4b18c4ff3231fc303d9cd1f0a0d3194599f` migration head
+  `0065_status_refresh_prefix`; live RLS metadata-only probe PASS:
   `104/104` таблиц enabled+forced. Это не закрывает
   edge allowlist/header и независимый security sign-off.
-- Этот deploy также проверил связку referral ledger с attribution lifecycle,
-  coarse risk-review signal и recovery-safe billing UX; focused tests и
-  disposable PostgreSQL RLS suite зелёные. Global campaign caps/manual review,
+- Этот deploy также проверил отложенную награду referral после status refresh,
+  связку ledger с attribution lifecycle, coarse risk-review hold и
+  recovery-safe billing UX; focused tests и disposable PostgreSQL RLS suite
+  зелёные. Global campaign caps/manual review,
   OAuth/concurrency evidence и ручная accessibility/usability проверка landing
   остаются отдельными launch gates; server-rendered valid/invalid/unavailable
   states и три auth CTA уже реализованы.

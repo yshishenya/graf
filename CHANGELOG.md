@@ -15,7 +15,7 @@
 - Billing secrets остаются server-only и монтируются через Docker secrets;
   receipt/VAT mapping передаётся через fail-closed env, а migration head
   включает anonymous referral landing, user-history и status-refresh inbox RLS
-  до `0064_status_refresh_rls`.
+  до `0065_status_refresh_prefix`.
 
 ### Изменено
 - _Пока нет записей._

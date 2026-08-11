@@ -9,13 +9,13 @@
 |---|---|
 | Production host | `2brain.dev:/opt/projects/2brain-rec` |
 | Branch | `master` |
-| Deployed SHA | `dd895de4af1fc6cba0c2f2e132d2ac5037d89977` |
-| Migration head | `0063_referral_signup_bind_rls` |
+| Deployed SHA | `d135b4b18c4ff3231fc303d9cd1f0a0d3194599f` |
+| Migration head | `0065_status_refresh_prefix` |
 | Checkout | `TWOBRAIN_BILLING_CHECKOUT_ENABLED=false` |
 | Deploy result | `pass` |
 | Backup/restore rehearsal | `pass` |
 | Production smoke/cleanup | `pass`, residue empty (post-deploy run) |
-| Live/ready probes | HTTP 200 |
+| Live/ready probes | HTTP 200; YooKassa production webhook без секрета HTTP 401 |
 | Live RLS metadata probe | `pass`, 104/104 enabled+forced |
 
 Операция не является YooKassa canary и не доказывает доставку provider webhook:
