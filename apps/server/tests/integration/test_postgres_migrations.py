@@ -212,7 +212,7 @@ def test_production_share_head_upgrades_to_regeneration_merge(
             await engine.dispose()
 
     versions, tables, columns, maintenance_helper = asyncio.run(inspect_schema())
-    assert versions == ["0068_fair_use_reviews"]
+    assert versions == ["0069_fair_use_review_constraints"]
     assert {
         "dispatch_intents",
         "meeting_deletion_fences",

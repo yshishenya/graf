@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from typing import Literal
@@ -197,6 +198,7 @@ def _validate_review_fields(capability: str, reason: str, evidence_ref: str) -> 
         not evidence_ref
         or len(evidence_ref) > 160
         or not evidence_ref.isascii()
+        or not re.fullmatch(r"[A-Za-z0-9_.:-]{1,160}", evidence_ref)
         or any(part in lowered_ref for part in ("meeting", "content", "email", "card", "token", "payload"))
     ):
         raise ValueError("fair-use evidence reference is invalid")
