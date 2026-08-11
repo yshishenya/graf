@@ -436,6 +436,31 @@ async def test_referral_reward_pending_and_reversal_cross_workspace_in_billing_m
         )
         assert ledger.state == "reversed"
         assert attribution.state == "reversed"
+
+        # Legacy refund observations may not carry the invitee actor. The
+        # ledger linkage must still resolve the attribution instead of
+        # reading an uninitialised local variable.
+        legacy_row = TimeCreditLedgerEntry(
+            workspace_id=ids["workspace_a"],
+            referral_attribution_id=attribution_id,
+            source_ref="referral:payment:legacy-no-invitee",
+            days=7,
+            state="pending",
+            maturity_at=datetime.now(UTC) + timedelta(days=14),
+            expires_at=datetime.now(UTC) + timedelta(days=365),
+        )
+        db.add(legacy_row)
+        await db.flush()
+        assert (
+            await reverse_credit_for_payment(
+                db,
+                workspace_id=ids["workspace_a"],
+                provider_payment_id="legacy-no-invitee",
+                now=datetime.now(UTC),
+            )
+            == "reversed"
+        )
+        assert legacy_row.state == "reversed"
         await db.commit()
 
 
