@@ -9,7 +9,7 @@
 |---|---|
 | Production host | `2brain.dev:/opt/projects/2brain-rec` |
 | Branch | `master` |
-| Deployed SHA | `7e9d4731d385753f2c5545ba53cd836aefc277e8` |
+| Deployed SHA | `8e29ff3b361a0518ac09605e3d0027aa2e16571f` |
 | Migration head | `0066_referral_attributed_rls` |
 | Checkout | `TWOBRAIN_BILLING_CHECKOUT_ENABLED=false` |
 | Deploy result | `pass` |
