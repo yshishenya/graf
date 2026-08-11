@@ -5,6 +5,7 @@ from uuid import uuid4
 
 import pytest
 from sqlalchemy import select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from tests.integration.test_rls_postgres_policies import (
@@ -57,6 +58,7 @@ def test_all_billing_tables_are_in_tenant_policy_inventory() -> None:
             "0068_fair_use_reviews.py",
             "0069_fair_use_review_constraints.py",
             "0070_fair_use_review_metadata_constraints.py",
+            "0071_fair_use_capability_prefix.py",
         )
     )
     for table_name in (
@@ -115,6 +117,37 @@ async def test_fair_use_review_is_user_visible_but_cross_tenant_isolated(rls_eng
         assert await conn.scalar(text("select count(*) from fair_use_reviews")) == 1
         await apply_tenant_context_to_connection(conn, _request_context(ids, "b"))
         assert await conn.scalar(text("select count(*) from fair_use_reviews")) == 0
+
+
+@pytest.mark.asyncio
+async def test_fair_use_capability_prefix_is_enforced_by_postgres(rls_engine) -> None:
+    ids = await _seed_probe_rows(rls_engine)
+    async with rls_engine.begin() as conn:
+        await apply_tenant_context_to_connection(
+            conn,
+            MaintenanceTenantContext(
+                operation_name="billing_reconciliation",
+                actor_id="test_fair_use_capability_prefix",
+                reason_category="fair_use_review",
+                feature_area="billing",
+            ),
+        )
+        with pytest.raises(IntegrityError):
+            async with conn.begin_nested():
+                await conn.execute(
+                    text(
+                        "insert into fair_use_reviews "
+                        "(id, workspace_id, subject_user_id, capability, reason_code, evidence_ref, "
+                        "starts_at, review_by, state) values "
+                        "(:id, :workspace_id, :subject_user_id, '.server_processing', 'automated_bulk', "
+                        "'incident:invalid-prefix', now(), now() + interval '24 hours', 'notice')"
+                    ),
+                    {
+                        "id": uuid4(),
+                        "workspace_id": ids["workspace_a"],
+                        "subject_user_id": ids["user_a"],
+                    },
+                )
 
 
 @pytest.mark.asyncio

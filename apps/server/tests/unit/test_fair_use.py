@@ -76,6 +76,17 @@ def test_persisted_review_rejects_deadline_before_start() -> None:
         )
 
 
+@pytest.mark.parametrize("capability", [".server_processing", "_server_processing", ":server_processing", "-server_processing"])
+def test_fair_use_review_requires_alphanumeric_capability_prefix(capability: str) -> None:
+    with pytest.raises(ValueError):
+        create_review(
+            capability=capability,
+            reason="automated_bulk",
+            evidence_ref="incident:123",
+            starts_at=datetime(2026, 8, 7, tzinfo=UTC),
+        )
+
+
 def test_billing_event_taxonomy_is_closed_and_refund_free() -> None:
     assert notification_kind_for(BillingEvent.FAIR_USE_REVIEW) == BillingNotification.FAIR_USE_REVIEW
     assert event_id_for(event_type="payment.succeeded", subject_ref="INV-123") == "payment.succeeded:INV-123"

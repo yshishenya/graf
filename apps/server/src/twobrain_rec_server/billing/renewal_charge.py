@@ -16,6 +16,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from twobrain_rec_server.billing.audit import metadata_only
 from twobrain_rec_server.billing.authority import (
     BillingAuthorizationError,
     require_authority_version,
@@ -251,7 +252,9 @@ async def plan_due_renewals(
                 target_ref=renewal_invoice_number(operation_id),
                 outcome="scheduled",
                 reason_code="one_operation_per_period",
-                metadata_json={"cycle": str(subscription.cycle), "amount_minor": str(catalog.amount_minor)},
+                metadata_json=metadata_only(
+                    {"cycle": str(subscription.cycle), "amount_minor": str(catalog.amount_minor)}
+                ),
             )
         )
         planned.append(operation_id)

@@ -8,6 +8,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from twobrain_rec_server.billing.audit import metadata_only
 from twobrain_rec_server.billing.catalog import (
     FREE_PROCESSING_SECONDS,
     PlanCode,
@@ -312,10 +313,12 @@ async def grant_confirmed_payment(
                 if recurring_actor_matches
                 else "provider_get_confirmed_recurring_suppressed"
             ),
-            metadata_json={
-                "currency": currency,
-                "recurring_authority": "current_owner" if recurring_actor_matches else "owner_changed",
-            },
+            metadata_json=metadata_only(
+                {
+                    "currency": currency,
+                    "recurring_authority": "current_owner" if recurring_actor_matches else "owner_changed",
+                }
+            ),
         )
     )
     await enqueue_billing_notification(
@@ -477,7 +480,7 @@ async def grant_confirmed_renewal(
             target_ref=invoice.safe_number,
             outcome="success",
             reason_code="provider_get_confirmed",
-            metadata_json={"amount_minor": str(amount_minor), "currency": currency},
+            metadata_json=metadata_only({"amount_minor": str(amount_minor), "currency": currency}),
         )
     )
     await db.flush()
