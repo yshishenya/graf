@@ -14,6 +14,7 @@
           <div><dt>Сегодня</dt><dd>Выберите период ниже{% if billing_enabled %}: {{ monthly_price_label|default("цена уточняется") }}/месяц или {{ annual_price_label|default("цена уточняется") }}/год{% endif %}</dd></div>
           {% if annual_saving_label|default(None) %}<div><dt>При оплате за год</dt><dd>{{ annual_saving_label }}</dd></div>{% endif %}
           <div><dt>Следующее списание</dt><dd>Та же сумма в выбранном периоде, пока автопродление не отключено</dd></div>
+          {% if receipt_contact_label|default(None) %}<div><dt>Чек отправится на</dt><dd>{{ receipt_contact_label }}</dd></div>{% endif %}
           <div><dt>Дополнительное хранилище</dt><dd>Не выбрано; варианты 5/20/100/500 GB доступны отдельным действием после утверждения цены</dd></div>
           <div><dt>Возврат</dt><dd>Только письмом в поддержку после оплаты; автоматической заявки в продукте нет</dd></div>
         </dl>

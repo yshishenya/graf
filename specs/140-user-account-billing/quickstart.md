@@ -46,7 +46,7 @@ elsewhere; real-shop canary is a separate approved release step.
 
 - Remote `/opt/projects/2brain-rec` is clean at deployed SHA
   `7068de6798a5519650d428777d3d6cb8ca4596a6`, migration head
-  `0066_referral_attributed_rls`; live/ready/root probes return HTTP 200.
+  `0067_referral_bound_attributed`; live/ready/root probes return HTTP 200.
 - Independent production smoke PASS: config validation, disposable RLS/migration
   probes and metadata-only cleanup (39 database rows, 3 object keys, no residue).
 - Live production RLS metadata-only probe PASS: 104/104 tables in the verifier
@@ -98,7 +98,7 @@ elsewhere; real-shop canary is a separate approved release step.
   row lock; refund webhook backstop follows YooKassa cursor pages with a bounded
   20-page safety limit. These are covered by focused disposable-PostgreSQL and
   adapter/webhook tests; live provider evidence and manual sign-offs remain open.
-- Current migration head for the billing branch is `0066_referral_attributed_rls`:
+- Current migration head for the billing branch is `0067_referral_bound_attributed`:
   plan and promotion catalog rows remain readable in request/worker contexts,
   but inserts/updates require the maintenance role. Webhook bodies are read in
   bounded chunks without relying on `Content-Length`; enabling billing also

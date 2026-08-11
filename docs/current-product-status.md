@@ -6,7 +6,7 @@ Date: 2026-08-11
 
 - Exact deployed SHA `7068de6798a5519650d428777d3d6cb8ca4596a6` проверен на
   `2brain.dev`; рабочее дерево чистое, migration head
-  `0066_referral_attributed_rls`.
+  `0067_referral_bound_attributed`.
 - Live/ready/root health probes HTTP 200; production smoke и metadata-only
   cleanup PASS (39 database rows, 3 object keys, no residue).
 - Billing checkout остаётся `false`: это проверка инфраструктурной готовности,
