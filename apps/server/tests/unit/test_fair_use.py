@@ -1,10 +1,10 @@
 import asyncio
-from datetime import UTC, datetime
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
 import pytest
-
 from twobrain_rec_server.billing.events import BillingEvent, event_id_for, notification_kind_for
 from twobrain_rec_server.billing.fair_use import (
     appeal_persisted_review,
@@ -45,6 +45,26 @@ def test_fair_use_review_rejects_unbounded_reason_or_time() -> None:
             reason="automated_bulk",
             evidence_ref="meeting-content",
             starts_at=datetime(2026, 8, 7),
+        )
+
+
+def test_persisted_review_rejects_deadline_before_start() -> None:
+    review = create_review(
+        capability="server_processing",
+        reason="automated_bulk",
+        evidence_ref="incident:123",
+        starts_at=datetime(2026, 8, 7, 10, tzinfo=UTC),
+    )
+    invalid = replace(review, review_by=review.starts_at - timedelta(minutes=1))
+
+    with pytest.raises(ValueError, match="24-hour review window"):
+        asyncio.run(
+            persist_review(
+                type("EmptyDB", (), {})(),
+                workspace_id=uuid4(),
+                subject_user_id=uuid4(),
+                review=invalid,
+            )
         )
     with pytest.raises(ValueError):
         create_review(

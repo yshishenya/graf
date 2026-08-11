@@ -10,8 +10,6 @@ from alembic.config import Config
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-
-from tests.fakes.fake_minio import FakeMinioStorage
 from twobrain_rec_server.config import Settings, get_settings
 from twobrain_rec_server.db.models import (
     Organization,
@@ -21,6 +19,8 @@ from twobrain_rec_server.db.models import (
     WorkspaceMembership,
 )
 from twobrain_rec_server.main import create_app
+
+from tests.fakes.fake_minio import FakeMinioStorage
 
 ROOT = Path(__file__).parents[4]
 ORG_ID = UUID("10000000-0000-0000-0000-000000000001")
@@ -212,7 +212,7 @@ def test_production_share_head_upgrades_to_regeneration_merge(
             await engine.dispose()
 
     versions, tables, columns, maintenance_helper = asyncio.run(inspect_schema())
-    assert versions == ["0069_fair_use_review_constraints"]
+    assert versions == ["0070_fair_use_review_metadata"]
     assert {
         "dispatch_intents",
         "meeting_deletion_fences",
@@ -256,6 +256,49 @@ def test_production_share_head_upgrades_to_regeneration_merge(
     )
     assert "prompt_optimization" in maintenance_helper
     assert "processing_legacy_lineage_reconciliation" in maintenance_helper
+
+
+def test_fair_use_review_metadata_constraints_are_postgres_enforced(
+    postgres_clean_database_url: str,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("TWOBRAIN_DATABASE_URL", postgres_clean_database_url)
+    get_settings.cache_clear()
+    alembic_config = Config(str(ROOT / "apps/server/alembic.ini"))
+    alembic_config.set_main_option(
+        "script_location", str(ROOT / "apps/server/src/twobrain_rec_server/db/migrations")
+    )
+    command.upgrade(alembic_config, "head")
+
+    async def inspect_constraints() -> dict[str, str]:
+        engine = create_async_engine(postgres_clean_database_url)
+        try:
+            async with engine.connect() as connection:
+                rows = await connection.execute(
+                    text(
+                        "select conname, pg_get_constraintdef(oid) "
+                        "from pg_constraint "
+                        "where conrelid = 'fair_use_reviews'::regclass and contype = 'c'"
+                    )
+                )
+                return {str(row[0]): str(row[1]).lower() for row in rows}
+        finally:
+            await engine.dispose()
+
+    constraints = asyncio.run(inspect_constraints())
+    deadline_name = next(
+        name for name in constraints if name.endswith("_ck_fair_use_review_deadline")
+    )
+    deadline = constraints[deadline_name]
+    assert "review_by >= starts_at" in deadline
+    assert "review_by <=" in deadline
+    assert "24:00:00" in deadline
+    safe_evidence_name = next(
+        name for name in constraints if name.endswith("_ck_fair_use_review_evidence_safe")
+    )
+    safe_evidence = constraints[safe_evidence_name]
+    assert "!~*" in safe_evidence
+    assert "meeting|content|email|card|token|payload" in safe_evidence
 
 
 def test_speaker_name_migration_is_tenant_scoped_and_unique() -> None:

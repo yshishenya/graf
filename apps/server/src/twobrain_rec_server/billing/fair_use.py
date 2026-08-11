@@ -103,8 +103,10 @@ async def persist_review(
     _validate_review_fields(review.capability, review.reason, review.evidence_ref)
     if review.state not in {"notice", "restricted", "appealed", "cleared", "confirmed"}:
         raise ValueError("fair-use review state is invalid")
-    if _aware(review.review_by) > _aware(review.starts_at) + timedelta(hours=24):
-        raise ValueError("fair-use review deadline exceeds 24 hours")
+    starts_at = _aware(review.starts_at)
+    review_by = _aware(review.review_by)
+    if not starts_at <= review_by <= starts_at + timedelta(hours=24):
+        raise ValueError("fair-use review deadline is outside the 24-hour review window")
     row = await db.scalar(
         select(FairUseReviewRecord)
         .where(
