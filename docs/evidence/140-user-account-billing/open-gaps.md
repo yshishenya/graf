@@ -117,7 +117,7 @@ Ruff/Python compile и deployment evidence scan — PASS. OpenAPI contract drift
 
 ## Runtime recheck 2026-08-11 (latest closeout)
 
-- На deployed SHA `7068de6798a5519650d428777d3d6cb8ca4596a6` migration head
+- На deployed SHA `b19dd0fe1920147598164839d82f93deb1b0c2ac` migration head
   `0067_referral_bound_attributed`; live RLS metadata-only probe PASS:
   `104/104` таблиц верификатора (105/105 прикладных таблиц по прямой проверке)
   enabled+forced. Это не закрывает
