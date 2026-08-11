@@ -10,12 +10,12 @@
         {% if active_promotions %}<h3>Действующие предложения</h3><ul class="settings-choice-list" aria-label="Действующие предложения">{% for item in active_promotions %}<li class="settings-choice-row"><span>{{ item.discount_label }}</span><span class="muted">до {{ item.expiry_label }}</span></li>{% endfor %}</ul>{% endif %}
         {% if billing_owner %}
         <p class="muted">Код проверяется сервером и не резервируется до создания платежа. Одновременно применяется только одна скидка.</p>
-        <form action="/billing/discounts/apply" method="post">
+        {% if billing_enabled|default(True) %}<form action="/billing/discounts/apply" method="post">
           <label for="billing-discount-code">Промокод</label>
           <input id="billing-discount-code" name="promo_code" type="text" inputmode="latin" autocomplete="off" maxlength="48"{% if result == "invalid" %} aria-describedby="billing-discount-error" aria-invalid="true"{% endif %}>
           <div class="settings-actions"><button class="button" type="submit">Применить</button><a class="button quiet" href="/billing/checkout">Добавить промокод на оплате</a></div>
           <input type="hidden" name="csrf_token" value="{{ csrf_token|default('') }}">
-        </form>
+        </form>{% else %}<p role="status">Промокоды временно недоступны: магазин не включён.</p>{% endif %}
         <form action="/billing/discounts/remove" method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token|default('') }}"><button class="button quiet" type="submit">Удалить</button></form>
         {% endif %}
         {% if redemptions %}
