@@ -9,12 +9,12 @@
 |---|---|
 | Production host | `2brain.dev:/opt/projects/2brain-rec` |
 | Branch | `master` |
-| Deployed SHA | `0665dbdb28d758a9af168d76ef39abeff0974104` |
-| Migration head | `0062_referral_reward_linkage` |
+| Deployed SHA | `dd895de4af1fc6cba0c2f2e132d2ac5037d89977` |
+| Migration head | `0063_referral_signup_bind_rls` |
 | Checkout | `TWOBRAIN_BILLING_CHECKOUT_ENABLED=false` |
 | Deploy result | `pass` |
 | Backup/restore rehearsal | `pass` |
-| Production smoke/cleanup | `pass`, residue empty |
+| Production smoke/cleanup | `pass`, residue empty (post-deploy run) |
 | Live/ready probes | HTTP 200 |
 | Live RLS metadata probe | `pass`, 104/104 enabled+forced |
 

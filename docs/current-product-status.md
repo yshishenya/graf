@@ -4,9 +4,9 @@ Date: 2026-08-11
 
 ## Runtime update (2026-08-11) — Feature 140
 
-- Exact deployed SHA `0665dbdb28d758a9af168d76ef39abeff0974104` проверен на
+- Exact deployed SHA `dd895de4af1fc6cba0c2f2e132d2ac5037d89977` проверен на
   `2brain.dev`; рабочее дерево чистое, migration head
-  `0062_referral_reward_linkage`.
+  `0063_referral_signup_bind_rls`.
 - Live/ready/root health probes HTTP 200; production smoke и metadata-only
   cleanup PASS (39 database rows, 3 object keys, no residue).
 - Billing checkout остаётся `false`: это проверка инфраструктурной готовности,
