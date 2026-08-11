@@ -45,13 +45,13 @@ elsewhere; real-shop canary is a separate approved release step.
 ### Runtime verification (2026-08-11)
 
 - Remote `/opt/projects/2brain-rec` is clean at deployed SHA
-  `f293c0a5ad75a014b1656c8d45d8f2e67e573cd3`, migration head
+  `3a0cdeee852da316bb883700c757b952b3a42c15`, migration head
   `0068_fair_use_reviews`; live/ready/root probes return HTTP 200.
 - Independent production smoke PASS: config validation, disposable RLS/migration
   probes and metadata-only cleanup (39 database rows, 3 object keys, no residue).
-- Live production RLS metadata-only probe PASS: 104/104 tables in the verifier
-  scope (105/105 application tables by direct metadata check) enabled and
-  forced. This does not replace edge webhook allowlist/header verification.
+- Live production RLS metadata-only probe PASS: 106/106 application tables in
+  the verifier scope are enabled and forced. This does not replace edge
+  webhook allowlist/header verification.
 - Checkout remains disabled (`TWOBRAIN_BILLING_CHECKOUT_ENABLED=false`). This is
   runtime evidence only; test-shop/real-shop canary, edge/live-RLS review and
   four-eyes product/finance/legal/security/QA sign-offs are still required.

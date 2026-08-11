@@ -15,11 +15,11 @@
 - Billing secrets остаются server-only и монтируются через Docker secrets;
   receipt/VAT mapping передаётся через fail-closed env, а migration head
   включает anonymous referral landing, user-history и status-refresh inbox RLS
-  до `0067_referral_bound_attributed`.
+  до `0068_fair_use_reviews`.
 - Fair-use review теперь хранится metadata-only в tenant-scoped таблице с RLS,
   24-часовым review deadline, обязательным уведомлением и CSRF-защищённой
-  апелляцией в `/account/fair-use`; новая миграция `0068_fair_use_reviews`
-  пока не развернута в production.
+  апелляцией в `/account/fair-use`; миграция `0068_fair_use_reviews`
+  развернута в production, checkout остаётся выключенным до canary.
 
 ### Изменено
 - _Пока нет записей._
