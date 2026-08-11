@@ -10,13 +10,13 @@
         <h2 id="billing-storage-title">Текущая ёмкость</h2>
         {% if result|default(None) == "unavailable" %}<p class="notice" role="alert">Данные хранилища временно недоступны. Объёмы и платные действия скрыты; обновите страницу позже.</p>
         {% else %}
-        <p><strong>{{ current_capacity_label|default(current_capacity ~ " байт") }}</strong> включено в текущий тариф ({{ current_capacity }} байт).</p>
+        <p><strong>{{ current_capacity_label|default("ёмкость уточняется") }}</strong> включено в текущий тариф.</p>
         <p class="muted">В расчёт входит только нормализованный playback-файл <code>meeting-review.m4a</code>. Исходный WAV и временные файлы не расходуют лимит пользователя.</p>
         {% if eligible and billing_enabled %}
         <h3>Доступные варианты</h3>
         <ul class="settings-choice-list" aria-label="Варианты хранилища">
           {% for capacity in addon_options %}
-          <li class="settings-choice-row"><span>{{ capacity_labels[loop.index0] if capacity_labels is defined else capacity ~ " байт" }} всего</span><span class="muted" role="status">Увеличить до {{ capacity }} байт: цена не опубликована — покупка недоступна</span></li>
+          <li class="settings-choice-row"><span>{{ capacity_labels[loop.index0] if capacity_labels is defined else "ёмкость уточняется" }} всего</span><span class="muted" role="status">Увеличить до {{ capacity_labels[loop.index0] if capacity_labels is defined else "указанной ёмкости" }}: цена не опубликована — покупка недоступна</span></li>
           {% endfor %}
         </ul>
         <p class="muted">Покупка дополнения будет доступна после подтверждения ценовой версии магазина. До этого новая платёжная операция не создаётся.</p>

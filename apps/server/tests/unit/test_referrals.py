@@ -4,7 +4,6 @@ from pathlib import Path
 from uuid import UUID
 
 import pytest
-
 from twobrain_rec_server.billing.referral_rewards import mature_credit, payment_source_ref
 from twobrain_rec_server.billing.referrals import (
     ReferralRiskSignals,
@@ -174,4 +173,11 @@ def test_referral_routes_keep_contract_alias_and_gate_unissued_link() -> None:
     assert "ReferralLandingLookupContext" in route_source
     assert "referral_expires_at_label" in template_source
     assert "referral_history" in route_source
+    assert "existing_valid" in route_source
+    assert "response.delete_cookie(\"graf_referral_token\")" in route_source
+    assert "expires_at > landing_now" in route_source
     assert "Одна ссылка может использоваться несколькими приглашёнными" in template_source
+    landing_template = (Path(__file__).parents[2] / "src/twobrain_rec_server/cabinet/templates/cabinet/auth/referral_landing.html").read_text(encoding="utf-8")
+    assert "Создать аккаунт" in landing_template
+    assert "Продолжить без бонуса" in landing_template
+    assert "referral/skip" in route_source

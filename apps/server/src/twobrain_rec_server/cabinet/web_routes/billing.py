@@ -302,6 +302,14 @@ def _storage_threshold_label(value: str) -> str:
     }.get(value, "Состояние уточняется")
 
 
+def _processing_threshold_label(value: str) -> str:
+    return {
+        "normal": "В норме",
+        "approaching": "Приближается к лимиту",
+        "exhausted": "Лимит исчерпан",
+    }.get(value, "Состояние уточняется")
+
+
 def _payment_method_kind_label(value: str | None) -> str | None:
     return {
         "bank_card": "Банковская карта",
@@ -660,6 +668,7 @@ async def billing_overview_page(
         processing_used=processing_used,
         processing_reserved=processing_reserved,
         processing_used_label=format_duration(processing_used),
+        processing_reserved_label=format_duration(processing_reserved),
         processing_remaining_label=format_duration(
             max(0, FREE_PROCESSING_SECONDS - processing_used - processing_reserved)
         ),
@@ -670,6 +679,9 @@ async def billing_overview_page(
         storage_capacity_label=_capacity_label(effective_capacity),
         storage_capacity_exact_label=_exact_bytes_label(effective_capacity),
         processing_threshold=classify_free_processing(committed_seconds=processing_used + processing_reserved),
+        processing_threshold_label=_processing_threshold_label(
+            classify_free_processing(committed_seconds=processing_used + processing_reserved)
+        ),
         billing_enabled=bool(request.app.state.settings.billing_checkout_enabled),
         catalog_ready=("month" in approved_catalog and "year" in approved_catalog),
         trial_result=trial_result,
@@ -1214,8 +1226,12 @@ async def billing_usage_page(
         processing_used=processing_used,
         processing_reserved=processing_reserved,
         processing_used_label=format_duration(processing_used),
+        processing_reserved_label=format_duration(processing_reserved),
         free_processing_limit_label="300 минут",
         processing_threshold=classify_free_processing(committed_seconds=processing_used + processing_reserved),
+        processing_threshold_label=_processing_threshold_label(
+            classify_free_processing(committed_seconds=processing_used + processing_reserved)
+        ),
         processing_remaining=max(0, FREE_PROCESSING_SECONDS - processing_used - processing_reserved),
         processing_remaining_label=format_duration(
             max(0, FREE_PROCESSING_SECONDS - processing_used - processing_reserved)
@@ -1414,7 +1430,25 @@ async def billing_storage_page(
     db: AsyncSession | None = WebDbDependency,
 ) -> HTMLResponse:
     if db is None:
-        return RedirectResponse("/billing/storage?result=unavailable", status_code=303)
+        content = _page_shell(
+            "Увеличение хранилища",
+            embedded=False,
+            active_nav="settings",
+            settings_active="billing",
+            csrf_token=_csrf_token_for_principal(request, principal, tenant_scope=tenant_scope),
+            product_analytics_provider=build_request_browser_provider_context(
+                request, "billing_storage_addons", principal=principal, tenant_scope=tenant_scope
+            ),
+            content_template="cabinet/pages/billing_storage_content.html",
+            current_capacity=None,
+            current_capacity_label=None,
+            addon_options=(),
+            capacity_labels=(),
+            eligible=False,
+            billing_enabled=False,
+            result="unavailable",
+        )
+        return cabinet_html_response(content)
     subscription = None
     if db is not None:
         subscription = await db.scalar(
@@ -2132,7 +2166,7 @@ async def billing_history_page(
                 {
                     "safe_number": invoice.safe_number,
                     "created_at": invoice.created_at,
-                    "amount_label": f"{invoice.amount_minor / 100:.2f} {invoice.currency}",
+                    "amount_label": _billing_amount_label(invoice.amount_minor, invoice.currency) or "Сумма недоступна",
                     "status": invoice.status,
                     "status_label": _invoice_status_label(invoice.status),
                     "cycle_label": "Год" if snapshot.get("cycle") == "year" else "Месяц",
@@ -2228,7 +2262,7 @@ async def billing_invoice_detail_page(
         invoice={
             "safe_number": invoice.safe_number,
             "created_at": invoice.created_at,
-            "amount_label": f"{invoice.amount_minor / 100:.2f} {invoice.currency}",
+            "amount_label": _billing_amount_label(invoice.amount_minor, invoice.currency) or "Сумма недоступна",
             "status": invoice.status,
             "cycle_label": "Год" if snapshot.get("cycle") == "year" else "Месяц",
             "status_label": _invoice_status_label(invoice.status),

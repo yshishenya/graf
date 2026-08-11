@@ -1,0 +1,39 @@
+<main class="auth-page">
+  <section class="auth-panel" aria-labelledby="referral-landing-title">
+    <div class="auth-brand-lockup">
+      <picture class="brand-wordmark brand-wordmark--auth">
+        <img class="brand-wordmark__image" src="{{ cabinet_static_url }}/graf-wordmark-dark.png" alt="ГРАФ">
+      </picture>
+    </div>
+    {% if state == "valid" %}
+    <h1 id="referral-landing-title">Вас пригласили в GRAF</h1>
+    <p class="auth-subtitle">Создайте личный аккаунт и попробуйте запись встреч, расшифровку и заметки.</p>
+    <ul class="truth-copy">
+      <li>10% скидки на первую платную подписку.</li>
+      <li>Пригласившему начислят 7 дней за месячную или 30 дней за годовую оплату после подтверждения платежа и 14 дней ожидания.</li>
+    </ul>
+    {% if expires_at_label %}<p class="muted">Ссылка действует до {{ expires_at_label }}.</p>{% endif %}
+    <div class="auth-actions">
+      <a class="primary" href="/sign-up?next=/meetings">Создать аккаунт</a>
+      <a class="auth-provider" href="/login?next=/meetings">Войти</a>
+      <a class="mini-link" href="/referral/skip">Продолжить без бонуса</a>
+    </div>
+    <p class="auth-legal">Скидка применяется только к первой оплате. Денежного вознаграждения нет; условия могут измениться для новых кампаний.</p>
+    {% elif state == "unavailable" %}
+    <h1 id="referral-landing-title">Приглашение временно недоступно</h1>
+    <p class="auth-subtitle" role="alert">Не удалось проверить ссылку. Попробуйте обновить страницу позже или продолжите без бонуса.</p>
+    <div class="auth-actions">
+      <a class="primary" href="/sign-up?next=/meetings">Создать аккаунт</a>
+      <a class="auth-provider" href="/login?next=/meetings">Войти</a>
+    </div>
+    {% else %}
+    <h1 id="referral-landing-title">Ссылка недействительна</h1>
+    <p class="auth-subtitle" role="alert">Ссылка истекла, была отключена или уже недоступна. Это не мешает создать обычный аккаунт.</p>
+    <div class="auth-actions">
+      <a class="primary" href="/sign-up?next=/meetings">Создать аккаунт</a>
+      <a class="auth-provider" href="/login?next=/meetings">Войти</a>
+    </div>
+    {% endif %}
+    <p class="auth-download"><span>Приложение нужно для записи встреч.</span> <a href="/download">Скачать GRAF</a></p>
+  </section>
+</main>

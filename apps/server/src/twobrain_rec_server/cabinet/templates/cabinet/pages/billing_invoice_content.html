@@ -9,7 +9,7 @@
         <dl class="settings-definition-list">
           <div><dt>Сумма</dt><dd>{{ invoice.amount_label }}</dd></div>
           <div><dt>Период</dt><dd>{{ invoice.cycle_label }}</dd></div>
-          <div><dt>Статус</dt><dd>{{ invoice.status_label|default(invoice.status) }}</dd></div>
+          <div><dt>Статус</dt><dd>{{ invoice.status_label|default("Статус уточняется") }}</dd></div>
           {% if invoice.discount_label %}<div><dt>Скидка</dt><dd>{{ invoice.discount_label }}</dd></div>{% endif %}
           {% if invoice.payment_method_label %}<div><dt>Способ оплаты</dt><dd>{{ invoice.payment_method_label }}</dd></div>{% endif %}
           {% if invoice.receipt_contact_label %}<div><dt>Чек отправляется на</dt><dd>{{ invoice.receipt_contact_label }}</dd></div>{% endif %}

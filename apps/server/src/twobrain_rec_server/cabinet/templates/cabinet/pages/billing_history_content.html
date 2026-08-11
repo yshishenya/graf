@@ -12,7 +12,7 @@
         <ul class="settings-choice-list" aria-label="История платежей">
           {% for invoice in invoices %}
           <li class="settings-choice-row">
-            <div><strong>{{ invoice.amount_label }}</strong><span class="muted">{{ invoice.safe_number }} · {{ invoice.status_label|default(invoice.status) }} · {{ invoice.cycle_label|default("Период уточняется") }}{% if invoice.created_at %} · {{ invoice.created_at.strftime("%Y-%m-%d %H:%M UTC") }}{% endif %}</span>{% if invoice.discount_label %}<span class="muted">{{ invoice.discount_label }}</span>{% endif %}{% if invoice.payment_method_label %}<span class="muted">Способ оплаты: {{ invoice.payment_method_label }}</span>{% endif %}<span class="muted">{{ invoice.receipt_label|default("Чек: статус уточняется") }}</span></div>
+            <div><strong>{{ invoice.amount_label }}</strong><span class="muted">{{ invoice.safe_number }} · {{ invoice.status_label|default("Статус уточняется") }} · {{ invoice.cycle_label|default("Период уточняется") }}{% if invoice.created_at %} · {{ invoice.created_at.strftime("%Y-%m-%d %H:%M UTC") }}{% endif %}</span>{% if invoice.discount_label %}<span class="muted">{{ invoice.discount_label }}</span>{% endif %}{% if invoice.payment_method_label %}<span class="muted">Способ оплаты: {{ invoice.payment_method_label }}</span>{% endif %}<span class="muted">{{ invoice.receipt_label|default("Чек: статус уточняется") }}</span></div>
             <div class="settings-actions">
               <a class="button quiet" href="{{ invoice.detail_url }}">Открыть</a>
               <button class="button quiet" type="button" data-copy-value="{{ invoice.safe_number }}">Скопировать номер платежа</button>

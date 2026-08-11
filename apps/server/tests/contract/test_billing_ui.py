@@ -2,12 +2,23 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 
 from starlette.requests import Request
-
 from twobrain_rec_server.billing.catalog import plan_descriptor
 from twobrain_rec_server.billing.usage import format_duration
 from twobrain_rec_server.cabinet.templates import render_template
 from twobrain_rec_server.cabinet.view_models import settings_category_navigation
-from twobrain_rec_server.cabinet.web_routes.billing import _checkout_result_redirect
+from twobrain_rec_server.cabinet.web_routes.billing import (
+    _billing_amount_label,
+    _checkout_result_redirect,
+    _processing_threshold_label,
+)
+
+
+def test_billing_labels_are_localized_for_user_surfaces() -> None:
+    assert _billing_amount_label(79_000, "RUB") == "790 ₽"
+    assert _billing_amount_label(79_050, "RUB") == "790.50 ₽"
+    assert _processing_threshold_label("normal") == "В норме"
+    assert _processing_threshold_label("approaching") == "Приближается к лимиту"
+    assert _processing_threshold_label("exhausted") == "Лимит исчерпан"
 
 
 def test_billing_hub_uses_exact_free_copy_and_external_refund_boundary() -> None:
@@ -24,15 +35,17 @@ def test_billing_hub_uses_exact_free_copy_and_external_refund_boundary() -> None
         processing_used=0,
         processing_used_label=format_duration(0),
         free_processing_limit_label="300 минут",
-        storage_capacity_label="250 000 000",
+        storage_capacity_label="250 MB",
         storage_capacity_exact_label="250 000 000",
         processing_threshold="normal",
+        processing_threshold_label="В норме",
         billing_enabled=False,
         trial_result=None,
     )
     assert "0 мин 0 сек" in html
     assert "300 минут" in html
-    assert "250 000 000 байт" in html
+    assert "250 MB" in html
+    assert "250 000 000 байт" not in html
     assert "только письмом" in html
     assert "автоматической заявки" in html
     assert "Способ оплаты и увеличение хранилища доступны только владельцу" in html
@@ -75,11 +88,14 @@ def test_subscription_and_usage_surfaces_keep_no_grace_and_unlimited_copy() -> N
         storage_available=2_000_000_000,
         storage_capacity=2_000_000_000,
         storage_threshold="normal",
+        storage_threshold_label="В норме",
         billing_owner=True,
     )
     assert "Возобновить автопродление" in subscription_html
     assert "Без лимита по минутам и встречам" in usage_html
     assert "meeting-review.m4a" in usage_html
+    assert "Состояние: <strong>В норме</strong>" in usage_html
+    assert "Состояние: normal" not in usage_html
     assert "Управлять архивом" in usage_html
     assert "Увеличить хранилище" in usage_html
     assert "Обработать без сохранения аудио" in usage_html
@@ -170,7 +186,9 @@ def test_payment_method_and_storage_surfaces_keep_safe_boundaries() -> None:
         "cabinet/pages/billing_storage_content.html",
         **common,
         current_capacity=2_000_000_000,
+        current_capacity_label="2 GB",
         addon_options=(5_000_000_000, 20_000_000_000),
+        capacity_labels=("5 GB", "20 GB"),
         eligible=True,
         billing_enabled=True,
     )
@@ -178,7 +196,106 @@ def test_payment_method_and_storage_surfaces_keep_safe_boundaries() -> None:
     assert "Данные карты не проходят через GRAF" in method_html
     assert "meeting-review.m4a" in storage_html
     assert "Исходный WAV" in storage_html
-    assert "Увеличить до 5000000000 байт" in storage_html
+    assert "Увеличить до 5 GB" in storage_html
+    assert "5000000000 байт" not in storage_html
+
+
+def test_storage_surface_hides_values_and_addons_when_data_is_unavailable() -> None:
+    html = render_template(
+        "cabinet/pages/billing_storage_content.html",
+        embedded=False,
+        settings_navigation=settings_category_navigation(active="billing"),
+        settings_active="billing",
+        result="unavailable",
+        current_capacity=None,
+        current_capacity_label=None,
+        addon_options=(),
+        capacity_labels=(),
+        eligible=False,
+        billing_enabled=False,
+    )
+    assert "Данные хранилища временно недоступны" in html
+    assert "Доступные варианты" not in html
+    assert "Увеличить хранилище" not in html
+
+
+def test_billing_overview_hides_usage_cta_when_data_is_unavailable() -> None:
+    html = render_template(
+        "cabinet/pages/billing_overview_content.html",
+        embedded=False,
+        settings_navigation=settings_category_navigation(active="billing"),
+        settings_active="billing",
+        plan=plan_descriptor("free"),
+        plan_code="free",
+        billing_data_available=False,
+        billing_enabled=False,
+        billing_owner=False,
+    )
+    assert "Данные биллинга временно недоступны" in html
+    assert 'href="/billing/usage"' not in html
+    assert 'href="/billing/checkout"' not in html
+
+
+def test_billing_disabled_does_not_render_recovery_checkout_cta() -> None:
+    html = render_template(
+        "cabinet/pages/billing_overview_content.html",
+        embedded=False,
+        settings_navigation=settings_category_navigation(active="billing"),
+        settings_active="billing",
+        plan=plan_descriptor("free"),
+        plan_code="free",
+        billing_data_available=True,
+        billing_enabled=False,
+        billing_owner=True,
+        renewal_failed=True,
+        paid_through_label="01.09.2026",
+        processing_used_label="0 мин 0 сек",
+        free_processing_limit_label="300 минут",
+        processing_threshold="normal",
+        storage_capacity_label="250 MB",
+        storage_threshold="normal",
+        storage_used=0,
+        storage_threshold_label="В норме",
+        trial_result=None,
+        bonus_until_label=None,
+        latest_invoice=None,
+        latest_operation_label=None,
+        latest_operation_state=None,
+        next_charge_label=None,
+        next_charge_amount_label=None,
+        payment_method_label=None,
+    )
+    assert "Оплата временно недоступна" in html
+    assert 'href="/billing/checkout"' not in html
+
+
+def test_usage_surface_localizes_processing_reservation_and_threshold() -> None:
+    html = render_template(
+        "cabinet/pages/billing_usage_content.html",
+        embedded=False,
+        settings_navigation=settings_category_navigation(active="billing"),
+        settings_active="billing",
+        plan_code="free",
+        processing_used=60,
+        processing_used_label="1 мин 0 сек",
+        processing_reserved=90,
+        processing_reserved_label="1 мин 30 сек",
+        free_processing_limit_label="300 минут",
+        processing_threshold="normal",
+        processing_threshold_label="В норме",
+        processing_unlimited=False,
+        storage_used_label="0 MB",
+        storage_reserved_label="0 MB",
+        storage_available_label="250 MB",
+        storage_capacity_label="250 MB",
+        storage_threshold="normal",
+        storage_threshold_label="В норме",
+        billing_owner=False,
+    )
+    assert "1 мин 30 сек" in html
+    assert "90 сек" not in html
+    assert "Состояние: В норме" in html
+    assert "Состояние: normal" not in html
 
 
 def test_payment_method_and_discount_screens_expose_recoverable_owner_actions() -> None:
