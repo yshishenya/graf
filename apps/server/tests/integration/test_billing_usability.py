@@ -60,6 +60,16 @@ def test_usage_surface_does_not_fall_back_to_raw_storage_threshold() -> None:
     assert 'storage_threshold_label|default("Состояние уточняется")' in usage
 
 
+def test_operation_status_does_not_offer_checkout_when_billing_is_disabled() -> None:
+    template = (
+        ROOT
+        / "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_operation_status_content.html"
+    ).read_text(encoding="utf-8")
+    route = (ROOT / "apps/server/src/twobrain_rec_server/cabinet/web_routes/billing.py").read_text(encoding="utf-8")
+    assert "billing_enabled|default(False)" in template
+    assert "billing_enabled=bool(request.app.state.settings.billing_checkout_enabled)" in route
+
+
 def test_billing_surfaces_keep_contextual_non_coercive_upgrade_copy() -> None:
     overview = (
         ROOT

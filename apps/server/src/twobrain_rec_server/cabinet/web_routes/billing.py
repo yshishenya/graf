@@ -1000,6 +1000,7 @@ async def billing_checkout_status_page(
         amount_label=_billing_amount_label(invoice.amount_minor, invoice.currency) or "Сумма недоступна",
         operation_state=operation_state,
         operation_state_label=_operation_state_label(operation_state),
+        billing_enabled=bool(request.app.state.settings.billing_checkout_enabled),
         updated_at_label=_billing_datetime_label(operation.updated_at if operation is not None else None),
         status_result=request.query_params.get("result"),
     )
