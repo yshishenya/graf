@@ -121,10 +121,10 @@ Ruff/Python compile и deployment evidence scan — PASS. OpenAPI contract drift
   merchant canary не выполнялись. Результат означает runtime readiness, а не
   public billing launch.
 
-## Runtime recheck 2026-08-11 (latest closeout)
+## Runtime recheck 2026-08-12 (latest closeout)
 
-- На deployed SHA `3a904d8e9abc806c39c4d03ea8784c3df4ba07d4` migration head
-  `0070_fair_use_review_metadata`; live RLS metadata-only probe PASS:
+- На deployed SHA `ec114a81dc92e7e29d59f91c3111bdf7acb32070` migration head
+  `0071_fair_use_capability_prefix`; live RLS metadata-only probe PASS:
   `106/106` прикладных таблиц enabled+forced (включая `workspace_join_offers`). Это не закрывает
   edge allowlist/header и независимый security sign-off.
 - Этот deploy также проверил отложенную награду referral после status refresh,

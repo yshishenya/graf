@@ -1,6 +1,6 @@
 # Deployment evidence: Feature 140 closeout
 
-Дата: 2026-08-11 (Europe/Moscow)
+Дата: 2026-08-12 (Europe/Moscow)
 
 Это metadata-only evidence. Секреты, provider IDs, customer data, payloads,
 аудио и транскрипты намеренно не сохраняются.
@@ -9,12 +9,12 @@
 |---|---|
 | Production host | `2brain.dev:/opt/projects/2brain-rec` |
 | Branch | `master` |
-| Deployed SHA | `3a904d8e9abc806c39c4d03ea8784c3df4ba07d4` |
-| Migration head | `0070_fair_use_review_metadata` |
+| Deployed SHA | `ec114a81dc92e7e29d59f91c3111bdf7acb32070` |
+| Migration head | `0071_fair_use_capability_prefix` |
 | Checkout | `TWOBRAIN_BILLING_CHECKOUT_ENABLED=false` |
 | Deploy result | `pass` |
-| Backup/restore rehearsal | `pass` |
-| Production smoke/cleanup | `pass`, residue empty (post-deploy run) |
+| Backup/restore rehearsal | `pass`, `/opt/projects/2brain-rec/backups/20260811T221934Z` |
+| Production smoke/cleanup | `pass`, 39 database rows and 3 object keys removed, residue empty |
 | Live/ready probes | HTTP 200; YooKassa production webhook без секрета HTTP 401 |
 | Live RLS metadata probe | `pass`, 106/106 прикладных таблиц enabled+forced |
 
