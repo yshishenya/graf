@@ -181,6 +181,7 @@ async def referrals_page(
         referral_history=referral_history,
         referral_credited_days=referral_credited_days,
         referral_pending_days=referral_pending_days,
+        support_email=request.app.state.settings.billing_support_email,
     )
     return cabinet_html_response(content)
 

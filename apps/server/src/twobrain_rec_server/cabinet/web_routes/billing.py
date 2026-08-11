@@ -1656,6 +1656,16 @@ async def billing_checkout_page(
         return RedirectResponse("/billing?result=owner_only", status_code=303)
     checkout_promo_code = request.cookies.get(_CHECKOUT_PROMO_COOKIE, "")
     descriptor = plan_descriptor("personal")
+    receipt_contact = await db.scalar(
+        select(ExternalIdentity.email)
+        .where(
+            ExternalIdentity.user_id == principal.user_id,
+            ExternalIdentity.is_active.is_(True),
+            ExternalIdentity.is_verified.is_(True),
+            ExternalIdentity.email.is_not(None),
+        )
+        .order_by(ExternalIdentity.created_at.asc())
+    ) if db is not None else None
     catalog = await _approved_personal_catalog(db, now=datetime.now(UTC))
     monthly_catalog = catalog.get("month")
     annual_catalog = catalog.get("year")
@@ -1690,6 +1700,7 @@ async def billing_checkout_page(
         checkout_idempotency_key=f"web-{principal.user_id}-{uuid4().hex}",
         checkout_result=request.query_params.get("result"),
         checkout_promo_code=checkout_promo_code,
+        receipt_contact_label=_masked_receipt_contact(receipt_contact),
     )
     response = cabinet_html_response(content)
     if checkout_promo_code:
@@ -1911,7 +1922,7 @@ async def start_billing_checkout(
             # create a redemption against the entered campaign.
             promo_campaign = None
         referral_discount = promo is referral_candidate and referral_candidate is not None
-        if referral_discount and referred is not None and referred.state == "registered":
+        if referral_discount and referred is not None and referred.state in {"bound", "registered"}:
             # The invitee owns this transition; the reward itself is created
             # later by maintenance in the inviter workspace.
             await apply_tenant_context(
@@ -1924,7 +1935,7 @@ async def start_billing_checkout(
                     .where(
                         ReferralAttribution.id == referred.id,
                         ReferralAttribution.invitee_user_id == principal.user_id,
-                        ReferralAttribution.state == "registered",
+                        ReferralAttribution.state.in_(("bound", "registered")),
                     )
                     .values(state="attributed")
                 )

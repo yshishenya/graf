@@ -107,3 +107,6 @@ def test_invitee_can_mark_referral_attributed_for_checkout() -> None:
     assert "state = 'registered'" in source
     assert "state = 'attributed'" in source
     assert "invitee_user_id = rec_current_user_id()" in source
+    migration_0067 = Path(__file__).parents[2] / "src/twobrain_rec_server/db/migrations/versions/0067_referral_attributed_legacy_bound_rls.py"
+    source_0067 = migration_0067.read_text(encoding="utf-8")
+    assert "state in ('bound', 'registered')" in source_0067

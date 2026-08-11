@@ -118,6 +118,7 @@ def test_checkout_requires_explicit_recurring_consent_copy() -> None:
         monthly_price_label="790 ₽",
         annual_price_label="7 900 ₽",
         annual_saving_label="Экономия 1 580 ₽ (17%)",
+        receipt_contact_label="y***@example.com",
     )
     assert 'name="recurring_consent"' in html
     assert 'name="offer_consent"' in html
@@ -125,6 +126,8 @@ def test_checkout_requires_explicit_recurring_consent_copy() -> None:
     assert 'href="/offer"' in html
     assert "required" in html
     assert "регулярное списание" in html
+    assert "Чек отправится на" in html
+    assert "y***@example.com" in html
 
 
 def test_checkout_offer_consent_error_is_explicit() -> None:
