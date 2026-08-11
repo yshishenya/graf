@@ -4,7 +4,7 @@ All workspace-mutating browser routes require authenticated session, CSRF, curre
 
 ## Browser routes
 
-`GET /account/profile|security|notifications|referrals|close` render account pages. Matching `POST` routes mutate only the named action. Billing routes are under `/account/workspaces/{workspace_slug}/billing`; slug lookup is tenant-scoped and cannot expose existence cross-tenant.
+`GET /account/profile|security|notifications|referrals|close` render account pages. Matching `POST` routes mutate only the named action. The current server-rendered billing routes are workspace-scoped through the selected tenant context and use the stable `/billing` namespace: `/billing`, `/billing/plans`, `/billing/usage`, `/billing/subscription`, `/billing/payment-method`, `/billing/storage`, `/billing/checkout`, `/billing/checkout/status/{safe_number}`, `/billing/history` and `/billing/invoices/{safe_number}`. The account IA path `/account/workspaces/{workspace_slug}/billing` remains a conceptual scope, not an implemented public route; links MUST use the current `/billing*` routes until a workspace-route migration is approved. Tenant lookup cannot expose existence cross-tenant.
 
 `POST /account/workspaces/switch` accepts an internal workspace reference, rechecks active membership within the same auth Organization, rotates owner session and CSRF/tenant context, and redirects to a canonical safe route. Cross-organization, inactive, stale and replayed switches fail closed without object disclosure.
 

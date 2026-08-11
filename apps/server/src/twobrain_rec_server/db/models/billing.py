@@ -266,10 +266,14 @@ class StorageReservation(Base):
 
 class TimeCreditLedgerEntry(Base):
     __tablename__ = "time_credit_ledger_entries"
-    __table_args__ = (UniqueConstraint("workspace_id", "source_ref", name="uq_time_credit_source"),)
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "source_ref", name="uq_time_credit_source"),
+        Index("ix_time_credit_referral_attribution", "referral_attribution_id"),
+    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
+    referral_attribution_id: Mapped[UUID | None] = mapped_column(ForeignKey("referral_attributions.id"))
     source_ref: Mapped[str] = mapped_column(String(240), nullable=False)
     days: Mapped[int] = mapped_column(Integer, nullable=False)
     state: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")

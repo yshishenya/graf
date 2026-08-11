@@ -1832,7 +1832,7 @@ async def start_billing_checkout(
                     select(ReferralAttribution).where(
                         ReferralAttribution.token_hash == token_hash,
                         ReferralAttribution.invitee_user_id == principal.user_id,
-                        ReferralAttribution.state == "bound",
+                        ReferralAttribution.state.in_(("bound", "registered")),
                     )
                 )
             if referred is None:
@@ -1843,7 +1843,7 @@ async def start_billing_checkout(
                 referred = await db.scalar(
                     select(ReferralAttribution).where(
                         ReferralAttribution.invitee_user_id == principal.user_id,
-                        ReferralAttribution.state == "bound",
+                        ReferralAttribution.state.in_(("bound", "registered")),
                     )
                 )
         except ValueError:

@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
@@ -13,9 +13,15 @@ from tests.integration.test_rls_postgres_policies import (
 )
 from twobrain_rec_server.billing.referral_rewards import (
     create_pending_credit,
+    mature_pending_credits,
     reverse_credit_for_payment,
 )
-from twobrain_rec_server.db.models import TimeCreditLedgerEntry
+from twobrain_rec_server.billing.referrals import ReferralRiskSignals
+from twobrain_rec_server.db.models import (
+    ReferralAttribution,
+    TimeCreditLedgerEntry,
+    WorkspaceSubscription,
+)
 from twobrain_rec_server.db.tenant_context import (
     MaintenanceTenantContext,
     ReferralLandingLookupContext,
@@ -211,6 +217,7 @@ async def test_referral_reward_pending_and_reversal_cross_workspace_in_billing_m
                 provider_payment_id=payment_id,
                 paid_at=datetime.now(UTC),
                 cycle="month",
+                risk_signals=ReferralRiskSignals(same_device=True, same_payment_profile=True),
             )
             == "created"
         )
@@ -224,6 +231,41 @@ async def test_referral_reward_pending_and_reversal_cross_workspace_in_billing_m
         )
         assert ledger is not None
         assert ledger.state == "pending"
+        assert ledger.referral_attribution_id == attribution_id
+        attribution = await db.get(ReferralAttribution, attribution_id)
+        assert attribution is not None
+        assert attribution.state == "pending_maturity"
+        assert attribution.risk_signal == "review"
+        assert (
+            await create_pending_credit(
+                db,
+                workspace_id=ids["workspace_b"],
+                invitee_user_id=ids["user_b"],
+                provider_payment_id=payment_id,
+                paid_at=datetime.now(UTC),
+                cycle="month",
+            )
+            == "duplicate"
+        )
+
+        paid_at = datetime(2026, 8, 1, tzinfo=UTC)
+        subscription = WorkspaceSubscription(
+            workspace_id=ids["workspace_a"],
+            billing_owner_id=ids["user_a"],
+            plan_code="personal",
+            state="active",
+            cycle="month",
+            paid_through=paid_at + timedelta(days=30),
+        )
+        db.add(subscription)
+        await db.flush()
+        # Use the persisted maturity timestamp so the worker transition is
+        # exercised without relying on the wall clock.
+        ledger.maturity_at = paid_at + timedelta(days=14)
+        ledger.expires_at = paid_at + timedelta(days=379)
+        assert await mature_pending_credits(db, now=paid_at + timedelta(days=14)) == 7
+        assert ledger.state == "applied"
+        assert attribution.state == "applied"
 
         assert (
             await reverse_credit_for_payment(
@@ -237,3 +279,4 @@ async def test_referral_reward_pending_and_reversal_cross_workspace_in_billing_m
         )
         await db.commit()
         assert ledger.state == "reversed"
+        assert attribution.state == "reversed"

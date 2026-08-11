@@ -31,6 +31,9 @@
 - Referral landing принимает только активные неистёкшие ссылки, очищает stale
   first-touch cookie, а binding безопасно переживает повторную атрибуцию и
   конфликт глобальной уникальности invitee.
+- Referral reward ledger теперь связан с attribution: сохраняет coarse review
+  signal, переводит статусы `pending_maturity → available → applied` и отражает
+  `expired/rejected/reversed` после bounded maintenance/refund reconciliation.
 - Billing UI не показывает ложные Free/нулевые объёмы при недоступном источнике;
   тарифы, способы оплаты, суммы и ёмкости хранилища локализованы и дополнены
   точными байтами для сверки.

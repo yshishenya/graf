@@ -87,7 +87,7 @@ async def bind_referral_attribution(
             attribution.invitee_user_id = user_id
             attribution.first_touched_at = attribution.first_touched_at or now
             attribution.bound_at = now
-            attribution.state = "bound"
+            attribution.state = "registered"
             return True
         try:
             async with db.begin_nested():
@@ -101,7 +101,7 @@ async def bind_referral_attribution(
                         campaign_version=link.campaign_version,
                         first_touched_at=now,
                         bound_at=now,
-                        state="bound",
+                        state="registered",
                     )
                 )
                 await db.flush()
