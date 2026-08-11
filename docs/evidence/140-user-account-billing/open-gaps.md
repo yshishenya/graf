@@ -117,8 +117,9 @@ Ruff/Python compile и deployment evidence scan — PASS. OpenAPI contract drift
 
 ## Runtime recheck 2026-08-11
 
-- На deployed SHA `24e55765e412686291861464b845a62974a7c666` live RLS
-  metadata-only probe PASS: `103/103` таблиц enabled+forced. Это не закрывает
+- На deployed SHA `df1add3769fc5a9c87a6e28e48fdf240a57846ce` migration head
+  `0058_referral_link_invitees`; live RLS metadata-only probe PASS:
+  `104/104` таблиц enabled+forced. Это не закрывает
   edge allowlist/header и независимый security sign-off.
 - Production nginx пока не содержит подтверждённой YooKassa CIDR allowlist и
   injected `X-Billing-Webhook-Secret`; реальные уведомления поэтому не должны
