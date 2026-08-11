@@ -70,6 +70,19 @@ def test_operation_status_does_not_offer_checkout_when_billing_is_disabled() -> 
     assert "billing_enabled=bool(request.app.state.settings.billing_checkout_enabled)" in route
 
 
+def test_subscription_and_discount_surfaces_gate_disabled_checkout_actions() -> None:
+    subscription = (
+        ROOT
+        / "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_subscription_content.html"
+    ).read_text(encoding="utf-8")
+    discounts = (
+        ROOT / "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_discounts_content.html"
+    ).read_text(encoding="utf-8")
+    assert 'billing_enabled|default(False)' in subscription
+    assert 'href="/billing/checkout">Выбрать тариф</a>' in subscription
+    assert "{% if billing_enabled|default(True) %}<form action=\"/billing/discounts/apply\"" in discounts
+
+
 def test_billing_surfaces_keep_contextual_non_coercive_upgrade_copy() -> None:
     overview = (
         ROOT

@@ -32,7 +32,7 @@
         <p class="muted">Возобновление не создаёт новый платёж. Следующее списание: <strong>{{ next_charge_amount_label|default("сумма уточняется") }}</strong> после {{ subscription.paid_through }}. Для действия нужна сохранённая подтверждённая карта.</p>
         {% if method_available|default(False) %}<form action="/billing/subscription/resume" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<input type="hidden" name="expected_authority_version" value="{{ subscription.recurring_authority_version }}"><label><input type="checkbox" name="resume_consent" value="true"> Я разрешаю следующее рекуррентное списание по указанной сумме и дате.</label><button class="button" type="submit">Возобновить автопродление</button></form>{% else %}<p role="status">Возобновление недоступно до добавления подтверждённого способа оплаты.</p>{% endif %}
         {% endif %}
-        {% else %}<p>Активной платной подписки нет. После окончания оплаченного периода доступ сразу переходит на бесплатный тариф.</p><p>Следующее списание: <strong>не запланировано</strong>.</p><a class="button" href="/billing/checkout">Выбрать тариф</a>{% endif %}
+        {% else %}<p>Активной платной подписки нет. После окончания оплаченного периода доступ сразу переходит на бесплатный тариф.</p><p>Следующее списание: <strong>не запланировано</strong>.</p>{% if billing_enabled|default(False) %}<a class="button" href="/billing/checkout">Выбрать тариф</a>{% else %}<p role="status">Оплата временно недоступна; магазин не включён.</p>{% endif %}{% endif %}
       </section>
       <p class="billing-help"><a class="button quiet" href="/billing/history">Нужна помощь с оплатой?</a></p>
       <a class="button quiet" href="/billing">Вернуться к тарифу и оплате</a>

@@ -1310,6 +1310,7 @@ async def billing_subscription_page(
         active=active,
         method_available=method_available,
         next_charge_amount_label=next_charge_amount_label,
+        billing_enabled=bool(request.app.state.settings.billing_checkout_enabled),
         subscription_plan_label=(
             plan_descriptor(
                 effective_plan_code(
