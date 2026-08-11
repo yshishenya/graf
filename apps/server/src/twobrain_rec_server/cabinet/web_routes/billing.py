@@ -2188,7 +2188,7 @@ async def billing_history_page(
             invoices.append(
                 {
                     "safe_number": invoice.safe_number,
-                    "created_at": invoice.created_at,
+                    "created_at_label": _billing_datetime_label(invoice.created_at),
                     "amount_label": _billing_amount_label(invoice.amount_minor, invoice.currency) or "Сумма недоступна",
                     "status": invoice.status,
                     "status_label": _invoice_status_label(invoice.status),
