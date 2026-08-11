@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 import httpx
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -1870,7 +1870,7 @@ async def start_billing_checkout(
                     select(ReferralAttribution).where(
                         ReferralAttribution.token_hash == token_hash,
                         ReferralAttribution.invitee_user_id == principal.user_id,
-                        ReferralAttribution.state.in_(("bound", "registered")),
+                        ReferralAttribution.state.in_(("bound", "registered", "attributed")),
                     )
                 )
             if referred is None:
@@ -1881,7 +1881,7 @@ async def start_billing_checkout(
                 referred = await db.scalar(
                     select(ReferralAttribution).where(
                         ReferralAttribution.invitee_user_id == principal.user_id,
-                        ReferralAttribution.state.in_(("bound", "registered")),
+                        ReferralAttribution.state.in_(("bound", "registered", "attributed")),
                     )
                 )
         except ValueError:
@@ -1911,6 +1911,25 @@ async def start_billing_checkout(
             # create a redemption against the entered campaign.
             promo_campaign = None
         referral_discount = promo is referral_candidate and referral_candidate is not None
+        if referral_discount and referred is not None and referred.state == "registered":
+            # The invitee owns this transition; the reward itself is created
+            # later by maintenance in the inviter workspace.
+            await apply_tenant_context(
+                db,
+                AuthReferralUserLookupContext(user_id=principal.user_id),
+            )
+            try:
+                await db.execute(
+                    update(ReferralAttribution)
+                    .where(
+                        ReferralAttribution.id == referred.id,
+                        ReferralAttribution.invitee_user_id == principal.user_id,
+                        ReferralAttribution.state == "registered",
+                    )
+                    .values(state="attributed")
+                )
+            finally:
+                await apply_tenant_scope(db, tenant_scope)
         preview = checkout_preview(
             plan_code="personal",
             cycle=cycle,

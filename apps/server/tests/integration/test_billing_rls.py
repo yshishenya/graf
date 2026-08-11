@@ -25,6 +25,7 @@ from twobrain_rec_server.db.models import (
     WorkspaceSubscription,
 )
 from twobrain_rec_server.db.tenant_context import (
+    AuthReferralUserLookupContext,
     MaintenanceTenantContext,
     ReferralLandingLookupContext,
     WorkspaceAuthContext,
@@ -51,6 +52,7 @@ def test_all_billing_tables_are_in_tenant_policy_inventory() -> None:
             "0060_referral_user_history_rls.py",
             "0064_status_refresh_webhook_event_rls.py",
             "0065_status_refresh_prefix.py",
+            "0066_referral_attributed_rls.py",
         )
     )
     for table_name in (
@@ -183,6 +185,64 @@ async def test_referral_signup_binder_can_insert_registered_attribution_under_rl
         assert state == "registered"
         assert invitee_user_id == ids["user_b"]
         assert referral_link_id == link_id
+
+
+@pytest.mark.asyncio
+async def test_invitee_can_mark_registered_referral_attributed_under_rls(rls_engine) -> None:
+    ids = await _seed_probe_rows(rls_engine)
+    attribution_id = uuid4()
+    link_id = uuid4()
+    token_hash = ("f" * 63) + "1"
+    async with rls_engine.begin() as conn:
+        await apply_tenant_context_to_connection(
+            conn,
+            MaintenanceTenantContext(
+                operation_name="billing_reconciliation",
+                actor_id="test_referral_attributed",
+                reason_category="referral_checkout",
+                feature_area="billing",
+            ),
+        )
+        await conn.execute(
+            text(
+                "insert into referral_links "
+                "(id, workspace_id, inviter_user_id, token_hash, campaign_version, state) "
+                "values (:id, :workspace_id, :inviter_user_id, :token_hash, 'referral-v1', 'active')"
+            ),
+            {
+                "id": link_id,
+                "workspace_id": ids["workspace_a"],
+                "inviter_user_id": ids["user_a"],
+                "token_hash": token_hash,
+            },
+        )
+        await conn.execute(
+            text(
+                "insert into referral_attributions "
+                "(id, workspace_id, inviter_user_id, invitee_user_id, referral_link_id, token_hash, campaign_version, state) "
+                "values (:id, :workspace_id, :inviter_user_id, :invitee_user_id, :referral_link_id, :token_hash, 'referral-v1', 'registered')"
+            ),
+            {
+                "id": attribution_id,
+                "workspace_id": ids["workspace_a"],
+                "inviter_user_id": ids["user_a"],
+                "invitee_user_id": ids["user_b"],
+                "referral_link_id": link_id,
+                "token_hash": token_hash,
+            },
+        )
+        await apply_tenant_context_to_connection(
+            conn,
+            AuthReferralUserLookupContext(user_id=ids["user_b"]),
+        )
+        result = await conn.execute(
+            text(
+                "update referral_attributions set state='attributed' "
+                "where id=:id and state='registered' returning state"
+            ),
+            {"id": attribution_id},
+        )
+        assert result.scalar_one() == "attributed"
 
 
 @pytest.mark.asyncio

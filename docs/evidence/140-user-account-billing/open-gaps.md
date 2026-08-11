@@ -118,8 +118,9 @@ Ruff/Python compile и deployment evidence scan — PASS. OpenAPI contract drift
 ## Runtime recheck 2026-08-11 (latest closeout)
 
 - На deployed SHA `7e9d4731d385753f2c5545ba53cd836aefc277e8` migration head
-  `0065_status_refresh_prefix`; live RLS metadata-only probe PASS:
-  `104/104` таблиц enabled+forced. Это не закрывает
+  `0066_referral_attributed_rls`; live RLS metadata-only probe PASS:
+  `104/104` таблиц верификатора (105/105 прикладных таблиц по прямой проверке)
+  enabled+forced. Это не закрывает
   edge allowlist/header и независимый security sign-off.
 - Этот deploy также проверил отложенную награду referral после status refresh,
   связку ledger с attribution lifecycle, coarse risk-review hold и

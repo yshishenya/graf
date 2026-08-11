@@ -6,11 +6,11 @@ Date: 2026-08-11
 
 - Exact deployed SHA `7e9d4731d385753f2c5545ba53cd836aefc277e8` проверен на
   `2brain.dev`; рабочее дерево чистое, migration head
-  `0065_status_refresh_prefix`.
+  `0066_referral_attributed_rls`.
 - Live/ready/root health probes HTTP 200; production smoke и metadata-only
   cleanup PASS (39 database rows, 3 object keys, no residue).
 - Billing checkout остаётся `false`: это проверка инфраструктурной готовности,
-  не разрешение public launch. Live RLS metadata-only probe PASS (`104/104`),
+  не разрешение public launch. Live RLS metadata-only probe PASS (`104/104` верификатора; 105/105 прикладных таблиц по прямой проверке),
   webhook без секрета получает HTTP 401, но YooKassa edge allowlist/header, canary и
   merchant/product/legal/finance/QA sign-offs остаются обязательными.
 

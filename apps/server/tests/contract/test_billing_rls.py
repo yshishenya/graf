@@ -98,3 +98,12 @@ def test_legacy_issued_referral_rows_can_be_bound_once_under_signup_context() ->
     assert "state = 'issued'" in source
     assert "state = 'registered'" in source
     assert "invitee_user_id = rec_current_user_id()" in source
+
+
+def test_invitee_can_mark_referral_attributed_for_checkout() -> None:
+    migration = Path(__file__).parents[2] / "src/twobrain_rec_server/db/migrations/versions/0066_referral_attributed_rls.py"
+    source = migration.read_text(encoding="utf-8")
+    assert "auth_referral_user_lookup" in source
+    assert "state = 'registered'" in source
+    assert "state = 'attributed'" in source
+    assert "invitee_user_id = rec_current_user_id()" in source
