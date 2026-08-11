@@ -1,3 +1,4 @@
+import ast
 import inspect
 from pathlib import Path
 from types import SimpleNamespace
@@ -6,6 +7,7 @@ import pytest
 from fastapi.routing import APIRoute
 from starlette.requests import Request
 
+from twobrain_rec_server.billing.audit import metadata_only
 from twobrain_rec_server.billing.yookassa import YooKassaClient, YooKassaConfigurationError
 from twobrain_rec_server.cabinet.web_routes.billing import (
     _billing_owner_subscription,
@@ -97,6 +99,23 @@ def test_product_has_no_yookassa_refund_mutation() -> None:
 
     assert not hasattr(YooKassaClient, "create_refund")
     assert '"POST", "/v3/refunds' not in source
+
+
+def test_billing_audit_writers_filter_financial_metadata() -> None:
+    assert metadata_only({"amount_minor": 79000, "currency": "RUB", "cycle": "monthly"}) == {
+        "cycle": "monthly"
+    }
+    source_root = Path(__file__).parents[2] / "src/twobrain_rec_server"
+    for path in source_root.rglob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if not isinstance(node, ast.Call) or getattr(node.func, "id", None) != "BillingAuditEvent":
+                continue
+            metadata = next((item.value for item in node.keywords if item.arg == "metadata_json"), None)
+            if not isinstance(metadata, ast.Dict):
+                continue
+            for key in metadata.keys:
+                assert isinstance(key, ast.Constant) and isinstance(key.value, str)
+                assert metadata_only({key.value: "value"}), f"unsafe audit metadata key {key.value!r} in {path}"
 
 
 def test_billing_callback_url_uses_configured_public_origin_not_request_host() -> None:

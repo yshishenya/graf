@@ -358,7 +358,7 @@ class FairUseReviewRecord(Base):
             name="ck_fair_use_review_deadline",
         ),
         CheckConstraint(
-            "capability ~ '^[A-Za-z0-9_.:-]{1,64}$'",
+            "capability ~ '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$'",
             name="ck_fair_use_review_capability",
         ),
         CheckConstraint(

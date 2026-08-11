@@ -15,7 +15,7 @@
 - Billing secrets остаются server-only и монтируются через Docker secrets;
   receipt/VAT mapping передаётся через fail-closed env, а migration head
   включает anonymous referral landing, user-history, status-refresh inbox RLS и
-  fair-use metadata constraints до `0070_fair_use_review_metadata`.
+  fair-use metadata constraints до `0071_fair_use_capability_prefix`.
 - Fair-use review теперь хранится metadata-only в tenant-scoped таблице с RLS,
   24-часовым review deadline, обязательным уведомлением и CSRF-защищённой
   апелляцией в `/account/fair-use`; миграция `0070_fair_use_review_metadata`
@@ -29,6 +29,10 @@
 - _Пока нет записей._
 
 ### Исправлено
+- Fair-use capability теперь одинаково требует буквенно-цифровой первый символ
+  на Python, notification и PostgreSQL boundaries; billing audit writers
+  пропускают financial metadata через общий allowlist и не сохраняют
+  `amount_minor`/`currency` в broad audit.
 - Исправлена очистка smoke-данных: billing referral time-credit rows удаляются
   до workspace и не оставляют FK-хвостов.
 - Отменённый initial checkout сразу переводит operation/invoice в `canceled`,

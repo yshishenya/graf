@@ -20,6 +20,7 @@ FairUseReason = Literal["automated_bulk", "resale", "limit_circumvention", "secu
 FairUseState = Literal["notice", "restricted", "appealed", "cleared", "confirmed"]
 
 _REASONS = frozenset({"automated_bulk", "resale", "limit_circumvention", "security_abuse"})
+_CAPABILITY_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}\Z")
 MOSCOW = ZoneInfo("Europe/Moscow")
 
 
@@ -199,7 +200,7 @@ def _validate_review_fields(capability: str, reason: str, evidence_ref: str) -> 
         not capability
         or len(capability) > 64
         or not capability.isascii()
-        or not all(char.isalnum() or char in "_.:-" for char in capability)
+        or not _CAPABILITY_RE.fullmatch(capability)
         or reason not in _REASONS
     ):
         raise ValueError("fair-use review classification is invalid")
