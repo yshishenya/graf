@@ -1,4 +1,4 @@
-# Cross-artifact analysis — 2026-08-07
+# Cross-artifact analysis — 2026-08-11
 
 ## Результат
 
@@ -17,13 +17,15 @@ manual UX gates.
 | Temporal billing maintenance | закрыто | `tests/contract/test_billing_reconciliation_workflow.py`, `tests/unit/test_billing_maintenance.py` |
 | Storage admission | закрыто для выбранных сценариев | fail-closed artifact/expiry checks; DB/object-stat/supersede lifecycle проходит focused disposable-PostgreSQL evidence |
 | Source WAV retention/COGS | реализовано с внешним gate | production gate-поля, exact-byte evidence и opt-in/fail-closed worker wiring есть; policy approval остаётся launch gate |
-| Desktop billing handoff | закрыто для выбранных сценариев | browser-owned route policy, one-time browser handoff guards and dedicated Swift test; live browser/network matrix remains external |
+| Desktop billing handoff | частично закрыто | browser-owned route policy и regression matrix покрывают 12 billing routes; полноценный embedded summary, short-lived one-time authenticated handoff, URL query sanitization и live browser/network matrix остаются отдельным implementation/release gate |
 | Security/accessibility/usability | interim | automated suites pass; live/manual review ещё обязателен |
 | Product-market/pricing | hypothesis | интервью, WTP, 30-day usage, COGS и margin approval отсутствуют |
 
 После последней проверки: **87 задач, 80 закрыты, 7 открыты**. Открытые
 задачи: T078–T080, T083–T085 и T087. T036, T047, T053 и T075–T077 имеют
-implementation evidence и закрыты в `tasks.md`.
+implementation evidence и закрыты в `tasks.md`. Desktop route tests не
+подменяют поведение FR-012: native summary и одноразовый browser handoff
+намеренно не объявлены реализованными без отдельного архитектурного среза.
 
 ## Findings
 
