@@ -77,6 +77,7 @@ RLS_DIRECT_WORKSPACE_TABLES = frozenset(
         "support_incidents",
         "support_incident_rate_limit_buckets",
         "workspace_invitations",
+        "workspace_join_offers",
         "workspace_quota_policies",
         "workspace_usage_daily",
         "user_usage_daily",

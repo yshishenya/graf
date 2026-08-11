@@ -19,6 +19,10 @@ DELETION_MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0007_retention_deletion_execution.py"
 )
+WORKSPACE_ONBOARDING_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0027_workspace_account_onboarding.py"
+)
 RECORDING_SYNC_MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0008_recording_sync_transcription_loop.py"
@@ -164,6 +168,7 @@ def test_rls_migration_covers_every_current_tenant_table() -> None:
         + ACCOUNT_CLOSURE_MIGRATION.read_text(encoding="utf-8")
         + REFERRAL_LINKS_MIGRATION.read_text(encoding="utf-8")
         + FAIR_USE_MIGRATION.read_text(encoding="utf-8")
+        + WORKSPACE_ONBOARDING_MIGRATION.read_text(encoding="utf-8")
     )
 
     for table_name in sorted(RLS_COVERED_TABLES):
