@@ -45,8 +45,8 @@ elsewhere; real-shop canary is a separate approved release step.
 ### Runtime verification (2026-08-11)
 
 - Remote `/opt/projects/2brain-rec` is clean at deployed SHA
-  `6a89df43963b26bdde8a0ebb12f139cb233167cc`, migration head
-  `0059_referral_expiry_owner_write`; live/ready/root probes return HTTP 200.
+  `da63ec7ae2576f0084a75f0d557eee42d6517737`, migration head
+  `0061_referral_landing_lookup_rls`; live/ready/root probes return HTTP 200.
 - Independent production smoke PASS: config validation, disposable RLS/migration
   probes and metadata-only cleanup (39 database rows, 3 object keys, no residue).
 - Live production RLS metadata-only probe PASS: 104/104 tables enabled and
@@ -55,9 +55,9 @@ elsewhere; real-shop canary is a separate approved release step.
   runtime evidence only; test-shop/real-shop canary, edge/live-RLS review and
   four-eyes product/finance/legal/security/QA sign-offs are still required.
 
-### Latest local evidence (2026-08-08)
+### Latest local evidence (2026-08-11)
 
-- `infra/scripts/ci-local.sh --fast`: PASS, 1029 server tests, Ruff and
+- `infra/scripts/ci-local.sh --fast`: PASS, 1030 server tests, Ruff and
   Python compile; disposable PostgreSQL container removed after the run.
 - `infra/scripts/ci-local.sh --full`: PASS on the billing/master integration
   branch: 650 Swift tests, ContractValidation PASS, 2833 server tests passed,
@@ -82,7 +82,7 @@ elsewhere; real-shop canary is a separate approved release step.
   disposable-PostgreSQL billing/account/security suite 72 passed; provider
   refund observation regression test confirms referral reversal uses the
   original payer snapshot after ownership changes. Full fast unit/PostgreSQL
-  contour after the latest changes: 1022 passed.
+  contour after the latest changes: 1030 passed.
 - Public launch remains blocked by the production gates below: real merchant
   test-shop/canary evidence, accessibility/usability and live security review,
   source-retention policy approval, Russia-first JTBD/WTP/COGS evidence and
@@ -97,7 +97,7 @@ elsewhere; real-shop canary is a separate approved release step.
   row lock; refund webhook backstop follows YooKassa cursor pages with a bounded
   20-page safety limit. These are covered by focused disposable-PostgreSQL and
   adapter/webhook tests; live provider evidence and manual sign-offs remain open.
-- Current migration head for the billing branch is `0059_referral_expiry_owner_write`:
+- Current migration head for the billing branch is `0061_referral_landing_lookup_rls`:
   plan and promotion catalog rows remain readable in request/worker contexts,
   but inserts/updates require the maintenance role. Webhook bodies are read in
   bounded chunks without relying on `Content-Length`; enabling billing also

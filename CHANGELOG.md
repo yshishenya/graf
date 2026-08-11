@@ -14,7 +14,8 @@
   back-office процесс. Checkout остаётся выключенным до canary и согласований.
 - Billing secrets остаются server-only и монтируются через Docker secrets;
   receipt/VAT mapping передаётся через fail-closed env, а migration head
-  включает workspace-scoped referral RLS `0057_referral_workspace_scope`.
+  включает anonymous referral landing и user-history RLS до
+  `0061_referral_landing_lookup_rls`.
 
 ### Изменено
 - _Пока нет записей._
@@ -27,6 +28,12 @@
   `initial_checkout`.
 - Billing handoff в macOS пропускает планы, скидки и status checkout; paid usage
   показывает фактически учтённое время и восстановительный CTA.
+- Referral landing принимает только активные неистёкшие ссылки, очищает stale
+  first-touch cookie, а binding безопасно переживает повторную атрибуцию и
+  конфликт глобальной уникальности invitee.
+- Billing UI не показывает ложные Free/нулевые объёмы при недоступном источнике;
+  тарифы, способы оплаты, суммы и ёмкости хранилища локализованы и дополнены
+  точными байтами для сверки.
 
 ### Безопасность
 - Закрыт обход admin egress governance: прямые API-запросы на download/export больше не выдают артефакты встреч, заблокированных retention или lifecycle политикой.

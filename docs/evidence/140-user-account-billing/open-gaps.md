@@ -89,7 +89,7 @@ Ruff/Python compile и deployment evidence scan — PASS. OpenAPI contract drift
   Spec Kit closeout. Поэтому public launch остаётся **BLOCKED**.
 - Remote readiness audit 2026-08-08 is historical: at that time the billing
   branch and mounts were not deployed. Current exact-SHA runtime evidence is
-  recorded in `deployment-2026-08-11.md`; checkout remains disabled until the
+  recorded in `deployment-2026-08-11-closeout.md`; checkout remains disabled until the
   external canary and sign-offs are complete.
 - Local evidence after the renewal/catalog hardening: disposable PostgreSQL
   focused lifecycle suite — 47 passed; `infra/scripts/ci-local.sh --fast` —
@@ -115,10 +115,10 @@ Ruff/Python compile и deployment evidence scan — PASS. OpenAPI contract drift
   merchant canary не выполнялись. Результат означает runtime readiness, а не
   public billing launch.
 
-## Runtime recheck 2026-08-11
+## Runtime recheck 2026-08-11 (latest closeout)
 
-- На deployed SHA `6a89df43963b26bdde8a0ebb12f139cb233167cc` migration head
-  `0059_referral_expiry_owner_write`; live RLS metadata-only probe PASS:
+- На deployed SHA `da63ec7ae2576f0084a75f0d557eee42d6517737` migration head
+  `0061_referral_landing_lookup_rls`; live RLS metadata-only probe PASS:
   `104/104` таблиц enabled+forced. Это не закрывает
   edge allowlist/header и независимый security sign-off.
 - Production nginx пока не содержит подтверждённой YooKassa CIDR allowlist и
