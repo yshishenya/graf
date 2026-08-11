@@ -1361,7 +1361,12 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             case .openExternally:
                 authContinuationActive = false
                 navigationController.clearPendingNavigation(webView: webView)
-                NSWorkspace.shared.open(url)
+                guard let sanitizedURL = routePolicy.sanitizedExternalURL(for: url) else {
+                    cabinetState = .blockedRoute
+                    decisionHandler(.cancel)
+                    return
+                }
+                NSWorkspace.shared.open(sanitizedURL)
                 decisionHandler(.cancel)
             case .blockWithMessage:
                 authContinuationActive = false

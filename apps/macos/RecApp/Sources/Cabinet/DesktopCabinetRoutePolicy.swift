@@ -270,6 +270,23 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
         return block(path: path, kind: .unsupported, reason: .blockedUnknownRoute, message: "This meeting route is not available in the desktop workspace.")
     }
 
+    /// Return only the browser-owned origin/path. Query and fragment values
+    /// may contain payment, provider, promo or referral data and never cross
+    /// the desktop-to-browser boundary.
+    public func sanitizedExternalURL(for url: URL) -> URL? {
+        let routeDecision = decision(for: url)
+        guard routeDecision.decision == .openExternally,
+              let scheme = url.scheme?.lowercased(),
+              let host = url.host?.lowercased()
+        else { return nil }
+        var components = URLComponents()
+        components.scheme = scheme
+        components.host = host
+        components.port = url.port
+        components.path = routeDecision.route.path
+        return components.url
+    }
+
     public func reviewDecision(
         for url: URL,
         reviewAvailableMeetingIds: Set<String>
