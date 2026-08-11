@@ -47,6 +47,30 @@ YooKassa; GRAF не создаёт refund mutation и не показывает 
 неразрешённого адреса и подтверждённая доставка YooKassa; отсутствие любого
 доказательства оставляет T080/T078 blocked.
 
+### Текущая topology-проверка production
+
+На `2brain.dev` внешний `443` сейчас принимает общий Nginx `stream` SNI-router
+и передаёт HTTPS virtual hosts на `127.0.0.1:10444`. Установленный Nginx
+`1.24.0` не разрешает `server_name` внутри `stream`-server, поэтому нельзя
+безопасно включить `proxy_protocol` только для `rec.2brain.pro`: глобальное
+включение затронет остальные SNI-сервисы и Xray upstream. Попытка добавить
+такую конфигурацию должна завершаться `nginx -t` с автоматическим rollback;
+нельзя оставлять частичную allowlist или прокидывать секрет через общий
+location.
+
+До canary оператор должен выбрать один из безопасных вариантов:
+
+- выделенный public IP/listener для `rec.2brain.pro` с TLS termination и
+  HTTP-level YooKassa CIDR allowlist;
+- отдельный HAProxy/stream proxy, который умеет выбирать backend по SNI и
+  включать PROXY protocol только для `rec.2brain.pro`;
+- иной edge-терминатор TLS с dedicated upstream, сохраняющий реальный source
+  IP и overwrite `X-Billing-Webhook-Secret`.
+
+Выбранный вариант обязан пройти `nginx -t`/эквивалентную проверку, negative
+probe с неразрешённого адреса и controlled provider delivery. До этого
+checkout и provider secrets остаются fail-closed.
+
 ## 1. Перед canary: checklist
 
 ### Окружение и release
