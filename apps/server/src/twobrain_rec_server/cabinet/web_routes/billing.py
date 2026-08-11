@@ -96,7 +96,7 @@ from twobrain_rec_server.db.models import (
 )
 from twobrain_rec_server.db.tenant_context import (
     AuthReferralLookupContext,
-    WorkspaceAuthContext,
+    AuthReferralUserLookupContext,
     apply_tenant_context,
     apply_tenant_scope,
 )
@@ -519,6 +519,7 @@ async def billing_overview_page(
     latest_operation = None
     payment_method = None
     bonus_until = None
+    window = None
     window_start, window_end = moscow_window_for(now)
     if db is not None:
         window = await db.scalar(
@@ -632,7 +633,8 @@ async def billing_overview_page(
         ),
         processing_reset_at_label=window_end.astimezone(MOSCOW).strftime("%d.%m.%Y, %H:%M (МСК)"),
         free_processing_limit_label="300 минут",
-        processing_usage_freshness=window.freshness_state if window is not None else "fresh",
+        processing_usage_freshness=window.freshness_state if window is not None else ("unavailable" if db is None else "fresh"),
+        billing_data_available=db is not None,
         storage_capacity_label=f"{effective_capacity:,}".replace(",", " "),
         processing_threshold=classify_free_processing(committed_seconds=processing_used + processing_reserved),
         billing_enabled=bool(request.app.state.settings.billing_checkout_enabled),
@@ -655,6 +657,9 @@ async def billing_overview_page(
         next_charge_amount_label=recurring_next_charge_amount_label,
         payment_method_label=payment_method.masked_label if payment_method is not None else None,
         latest_invoice=latest_invoice,
+        latest_invoice_status_label=(
+            _invoice_status_label(latest_invoice.status) if latest_invoice is not None else None
+        ),
         latest_operation_label=_operation_state_label(latest_operation.state if latest_operation is not None else None),
         latest_operation_state=latest_operation.state if latest_operation is not None else None,
     )
@@ -1772,7 +1777,7 @@ async def start_billing_checkout(
             else:
                 await apply_tenant_context(
                     db,
-                    WorkspaceAuthContext(workspace_id=tenant_scope.workspace_id, user_id=principal.user_id),
+                    AuthReferralUserLookupContext(user_id=principal.user_id),
                 )
                 referred = await db.scalar(
                     select(ReferralAttribution).where(

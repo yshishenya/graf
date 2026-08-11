@@ -270,12 +270,22 @@ immutable application snapshot. Redemption state
 Invoice creation revalidates and locks counters. Raw codes do not enter logs or
 analytics.
 
-### `referral_campaign` / `referral_attribution`
+### `referral_link` / `referral_attribution`
 
-Opaque-link campaign and immutable first-touch relation with referrer/referee,
-campaign version, first-payment source and lifecycle
-`attributed|registered|paid|pending_maturity|available|rejected|reversed`.
-Exactly one attribution per referee; no user-entered referral code.
+`referral_link` is one stable opaque share link per personal inviter workspace
+(`workspace_id + inviter_user_id`), with a hashed token, campaign version,
+active/expired state and bounded expiry. The public canonical path is
+`/r/{opaque}`; `/referral/{opaque}` remains a non-indexed compatibility alias.
+
+`referral_attribution` is one first-touch row per invitee and link, copied with
+the inviter/workspace authority and lifecycle
+`issued|bound|registered|paid|pending_maturity|available|rejected|reversed`.
+The link is not consumed after the first signup: concurrent new invitees get
+separate attribution rows, while the invitee/user uniqueness and first-payment
+source uniqueness keep rewards idempotent. Email and new OAuth registration use
+the same binder; existing accounts are never re-attributed. Referral lookup
+contexts expose only the bearer-token link or the current invitee's own bound
+row under RLS; inviter identity is not rendered to the invitee.
 
 ### `time_credit_ledger_entry`
 

@@ -556,6 +556,7 @@ class Settings(BaseSettings):
             or self.billing_referral_secret_file is None
         ):
             raise ValueError("enabled billing requires YooKassa shop, provider/webhook and referral secret files")
+        billing_secrets: list[tuple[str, str]] = []
         for field_name, path in (
             ("billing_yookassa_secret_file", self.billing_yookassa_secret_file),
             ("billing_yookassa_webhook_secret_file", self.billing_yookassa_webhook_secret_file),
@@ -563,6 +564,14 @@ class Settings(BaseSettings):
         ):
             if not path.is_file() or not path.read_text(encoding="utf-8").strip():
                 raise ValueError(f"enabled billing requires a non-empty {field_name}")
+            billing_secrets.append((field_name, path.read_text(encoding="utf-8").strip()))
+        if self.env.lower() == "production":
+            placeholder_values = {"replace-me", "changeme", "password", "secret", "default"}
+            for field_name, value in billing_secrets:
+                if len(value) < 32 or value.lower() in placeholder_values or value.lower().startswith("synthetic"):
+                    raise ValueError(
+                        f"production billing secret must be at least 32 characters and non-placeholder: {field_name}"
+                    )
         if (
             not self.billing_support_email
             or any(char in self.billing_support_email for char in "\r\n")

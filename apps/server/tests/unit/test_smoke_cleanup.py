@@ -118,6 +118,8 @@ def test_smoke_artifact_cleanup_deletes_billing_children_before_workspace() -> N
         "delete from free_usage_windows where workspace_id=:workspace_id",
         '"time_credit_ledger_reversals"',
         "delete from time_credit_ledger_entries where workspace_id=:workspace_id",
+        "delete from referral_attributions where workspace_id=:workspace_id",
+        "delete from referral_links where workspace_id=:workspace_id",
         "delete from billing_invoices where workspace_id=:workspace_id",
         "delete from workspace_subscriptions where workspace_id=:workspace_id",
         "delete from workspaces where id=:workspace_id",

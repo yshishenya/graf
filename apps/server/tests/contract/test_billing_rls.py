@@ -10,6 +10,7 @@ from twobrain_rec_server.db.models.billing import (
     FreeUsageWindow,
     ObservedProviderRefund,
     ReferralAttribution,
+    ReferralLink,
     StorageReservation,
     TimeCreditLedgerEntry,
     TrialActivation,
@@ -38,10 +39,13 @@ def test_all_billing_tables_are_in_tenant_policy_inventory() -> None:
         BillingWebhookEvent,
         ReferralAttribution,
     )
+    migration_0058 = Path(__file__).parents[2] / "src/twobrain_rec_server/db/migrations/versions/0058_referral_links_many_invitees.py"
     for model in models:
         table_name = model.__tablename__
-        assert table_name in migration_source
-        assert "_tenant_isolation" in migration_source
+        source = migration_0058.read_text(encoding="utf-8") if model is ReferralLink else migration_source
+        assert table_name in source
+        if model is not ReferralLink:
+            assert "_tenant_isolation" in source
 
 
 def test_referral_binding_uses_a_token_scoped_context() -> None:
@@ -67,3 +71,12 @@ def test_referral_owner_lookup_is_scoped_to_selected_workspace() -> None:
     source = migration.read_text(encoding="utf-8")
     assert "workspace_id = rec_current_workspace_id()" in source
     assert "rec_context_kind() = 'auth_public'" in source
+
+
+def test_many_invitee_referral_migration_separates_link_and_attribution() -> None:
+    migration = Path(__file__).parents[2] / "src/twobrain_rec_server/db/migrations/versions/0058_referral_links_many_invitees.py"
+    source = migration.read_text(encoding="utf-8")
+    assert 'create_table(' in source
+    assert '"referral_links"' in source
+    assert "referral_link_id" in source
+    assert "uq_referral_attributions_link_invitee" in source

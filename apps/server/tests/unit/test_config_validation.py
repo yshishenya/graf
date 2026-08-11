@@ -97,6 +97,27 @@ def test_enabled_billing_rejects_malformed_support_email(tmp_path) -> None:
         )
 
 
+def test_production_enabled_billing_rejects_weak_secret_files(tmp_path) -> None:
+    paths = []
+    for name in ("yookassa", "webhook", "referral"):
+        path = tmp_path / name
+        path.write_text("synthetic", encoding="utf-8")
+        paths.append(path)
+    with pytest.raises(ValidationError, match="production billing secret"):
+        _production_settings(
+            billing_checkout_enabled=True,
+            public_base_url="https://rec.2brain.pro",
+            billing_yookassa_base_url="https://api.yookassa.test",
+            billing_yookassa_shop_id="shop-test",
+            billing_yookassa_secret_file=paths[0],
+            billing_yookassa_webhook_secret_file=paths[1],
+            billing_referral_secret_file=paths[2],
+            billing_support_email="support@example.invalid",
+            billing_receipt_tax_system_code=2,
+            billing_receipt_vat_code=1,
+        )
+
+
 def test_default_upload_part_contract_is_one_gib() -> None:
     assert Settings().max_upload_part_bytes == 1_073_741_824
 

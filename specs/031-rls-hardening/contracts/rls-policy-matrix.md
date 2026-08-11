@@ -120,6 +120,7 @@ same authoritative production inventory:
 - `billing_audit_events`
 - `billing_notification_deliveries`
 - `billing_webhook_events`
+- `referral_links`
 - `referral_attributions`
 - `promotion_redemptions`
 - `account_closure_requests`

@@ -22,6 +22,33 @@ set -a
 set +a
 export TWOBRAIN_LANGFUSE_RELEASE="$expected_sha"
 
+repo_root="$(pwd -P)"
+disabled_billing_secret="$repo_root/infra/secret-placeholders/disabled_optional_provider_secret"
+normalize_compose_secret_path() {
+  local value="$1"
+  case "$value" in
+    /*) printf '%s' "$value" ;;
+    ./*) printf '%s/%s' "$repo_root" "${value#./}" ;;
+    ../*) printf '%s/infra/%s' "$repo_root" "$value" ;;
+    *) printf '%s/%s' "$repo_root" "$value" ;;
+  esac
+}
+if [[ "${TWOBRAIN_BILLING_CHECKOUT_ENABLED:-false}" == "true" ]]; then
+  export TWOBRAIN_BILLING_YOOKASSA_SECRET_FILE="$(
+    normalize_compose_secret_path "${TWOBRAIN_BILLING_YOOKASSA_SECRET_FILE:-./secrets/twobrain_yookassa_secret}"
+  )"
+  export TWOBRAIN_BILLING_YOOKASSA_WEBHOOK_SECRET_FILE="$(
+    normalize_compose_secret_path "${TWOBRAIN_BILLING_YOOKASSA_WEBHOOK_SECRET_FILE:-./secrets/twobrain_yookassa_webhook_secret}"
+  )"
+  export TWOBRAIN_BILLING_REFERRAL_SECRET_FILE="$(
+    normalize_compose_secret_path "${TWOBRAIN_BILLING_REFERRAL_SECRET_FILE:-./secrets/twobrain_billing_referral_secret}"
+  )"
+else
+  export TWOBRAIN_BILLING_YOOKASSA_SECRET_FILE="$disabled_billing_secret"
+  export TWOBRAIN_BILLING_YOOKASSA_WEBHOOK_SECRET_FILE="$disabled_billing_secret"
+  export TWOBRAIN_BILLING_REFERRAL_SECRET_FILE="$disabled_billing_secret"
+fi
+
 # File-backed Compose secrets retain host ownership. Keep generated files in
 # the deploy user's private primary group and grant only that numeric group to
 # the non-root services that consume them.
@@ -668,6 +695,12 @@ fi
 RESTORE_BACKUP_REFERENCE="$backup_reference" infra/scripts/rehearse-rec-restore.sh --execute
 
 "${compose[@]}" config >/tmp/twobrain-rec-compose-deploy.yml
+if [[ "${TWOBRAIN_BILLING_CHECKOUT_ENABLED:-false}" == "true" ]] \
+  && grep -Fq "$disabled_billing_secret" /tmp/twobrain-rec-compose-deploy.yml; then
+  echo "deploy_result=blocked"
+  echo "reason=billing_enabled_compose_uses_disabled_secret_placeholder"
+  exit 1
+fi
 if grep -Eq 'TWOBRAIN_(POSTGRES_PASSWORD|MINIO_ROOT_USER|MINIO_ROOT_PASSWORD|MINIO_API_ACCESS_KEY|MINIO_API_SECRET_KEY|MINIO_MEDIA_ACCESS_KEY|MINIO_MEDIA_SECRET_KEY|POSTAL_API_KEY|WEB_CSRF_SECRET):|MINIO_ROOT_PASSWORD:|MINIO_ROOT_USER:|POSTGRES_PWD:' /tmp/twobrain-rec-compose-deploy.yml; then
   echo "deploy_result=blocked"
   echo "reason=secret_env_exposure"

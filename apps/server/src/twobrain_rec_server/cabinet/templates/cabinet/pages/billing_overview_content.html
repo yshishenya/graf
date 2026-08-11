@@ -13,6 +13,7 @@
       <section class="settings-section cabinet-card" aria-labelledby="billing-plan-title">
         <span class="settings-scope-badge">В этом пространстве</span>
         <h2 id="billing-plan-title">{{ plan.label }}</h2>
+        {% if not billing_data_available|default(True) %}<p class="notice" role="alert">Данные биллинга временно недоступны. Оплата и изменения подписки скрыты; попробуйте обновить страницу позже.</p>{% endif %}
         {% if billing_result|default(None) == "pending" %}<p class="notice" role="status" aria-live="polite">Платёж уже создан. Проверяем его статус; повторную оплату пока не предлагаем.</p>
         {% elif billing_result|default(None) == "returned" %}<p class="notice" role="status" aria-live="polite">Вы вернулись из ЮKassa. Доступ включится только после подтверждения платежа.</p>
         {% elif billing_result|default(None) == "already_active" %}<p class="notice" role="status" aria-live="polite">Тариф «Личный» уже активен до {{ paid_through_label or "указанной даты" }}. Повторная оплата не создана.</p>
@@ -41,7 +42,7 @@
           {% if bonus_until_label %}<div><dt>Бонус до</dt><dd>{{ bonus_until_label }}</dd></div>{% endif %}
           <div><dt>Следующее списание</dt><dd>{{ next_charge_label or "не запланировано" }}{% if next_charge_amount_label %} · {{ next_charge_amount_label }}{% endif %}</dd></div>
           <div><dt>Способ оплаты</dt><dd>{{ payment_method_label or "не сохранён" }}</dd></div>
-          {% if latest_invoice %}<div><dt>Последний платёж</dt><dd><a href="{{ '/billing/invoices/' ~ latest_invoice.safe_number }}">{{ latest_invoice.safe_number }}</a> · {{ latest_invoice.status }}</dd></div>{% endif %}
+          {% if latest_invoice %}<div><dt>Последний платёж</dt><dd><a href="{{ '/billing/invoices/' ~ latest_invoice.safe_number }}">{{ latest_invoice.safe_number }}</a> · {{ latest_invoice_status_label|default("Статус уточняется") }}</dd></div>{% endif %}
           <div><dt>Состояние операции</dt><dd>{{ latest_operation_label or "Статус уточняется" }}</dd></div>
         </dl>
         {% if latest_operation_state in ["scheduled", "provider_pending", "unknown"] and latest_invoice %}<a class="button quiet" href="{{ '/billing/checkout/status/' ~ latest_invoice.safe_number }}">Проверить статус платежа</a>{% endif %}

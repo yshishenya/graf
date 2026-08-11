@@ -816,9 +816,6 @@ async def callback(
                 state_nonce=state,
                 link_state=link,
                 provider_credentials=_provider_credentials(settings, provider, callback_url),
-                actor_ip=_request_client_ip(request),
-                request_id=_request_id(request),
-                browser_state_nonce=request.cookies.get(BROWSER_AUTH_STATE_COOKIE_NAME),
             )
             await db.commit()
             redirect_path = _safe_browser_return_path(callback_state.requested_redirect)
@@ -840,6 +837,7 @@ async def callback(
             actor_ip=_request_client_ip(request),
             request_id=_request_id(request),
             browser_state_nonce=request.cookies.get(BROWSER_AUTH_STATE_COOKIE_NAME),
+            referral_token=request.cookies.get("graf_referral_token"),
         )
     except CallbackFlowError as exc:
         await db.commit()
@@ -885,9 +883,25 @@ async def callback(
         redirect = RedirectResponse(redirect_path, status_code=303)
         _set_auth_cookie(redirect, token=profile.token, expires_at=profile.token_expires_at)
         _clear_browser_auth_state_cookie(redirect)
+        if profile.registered:
+            redirect.delete_cookie(
+                key="graf_referral_token",
+                path="/",
+                secure=True,
+                httponly=True,
+                samesite="lax",
+            )
         return redirect
     _set_auth_cookie(response, token=profile.token, expires_at=profile.token_expires_at)
     _clear_browser_auth_state_cookie(response)
+    if profile.registered:
+        response.delete_cookie(
+            key="graf_referral_token",
+            path="/",
+            secure=True,
+            httponly=True,
+            samesite="lax",
+        )
     return payload
 
 

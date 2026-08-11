@@ -524,6 +524,10 @@ async def cleanup_smoke_artifacts(
                     "delete from referral_attributions where workspace_id=:workspace_id",
                 ),
                 (
+                    "referral_links",
+                    "delete from referral_links where workspace_id=:workspace_id",
+                ),
+                (
                     "billing_payment_methods",
                     "delete from billing_payment_methods where workspace_id=:workspace_id",
                 ),

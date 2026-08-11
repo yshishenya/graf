@@ -25,10 +25,12 @@ evidence/gates: moderated accessibility/usability и landing review, live
 security/RLS review, product-market segment/JTBD, WTP/COGS, upgrade-copy и
 финальный cross-artifact closeout (T078–T085, T087).
 
-Отдельный functional gap остаётся в referral flow: текущая детерминированная
-ссылка и одна `ReferralAttribution` рассчитаны на одного invitee, а OAuth signup
-не привязывает referral cookie. Это нельзя закрывать текстом или smoke-данными;
-нужны per-invitee attribution/конкурентный тест и явное решение для OAuth.
+Referral flow теперь разделяет стабильную workspace-scoped `ReferralLink` и
+per-invitee `ReferralAttribution`; email и новый OAuth signup используют общий
+binder, а checkout читает собственную attribution после очистки cookie. Для
+закрытия функционального риска остаётся обязательный disposable PostgreSQL/RLS
+и concurrent signup evidence; внешний canary и product copy gates по-прежнему
+не закрыты.
 
 Checkout, binding и renewal mutation нельзя включать, пока владельцы Product,
 Finance/Accounting, Legal, Security и QA не внесут версии решений и exact-SHA
@@ -97,11 +99,11 @@ Ruff/Python compile и deployment evidence scan — PASS. OpenAPI contract drift
   scan PASS. Это implementation evidence, не замена provider canary или
   four-eyes sign-off.
 
-## Runtime evidence 2026-08-11
+## Runtime evidence 2026-08-11 (historical snapshot)
 
-- `/opt/projects/2brain-rec` на `2brain.dev` чистый, `master` и exact SHA
-  `b511d78bfd9b741bbfa848f91c0164ae21f5302c`; migration head —
-  `0057_referral_workspace_scope`.
+- `/opt/projects/2brain-rec` на `2brain.dev` был чистым, `master`, exact SHA
+  `b511d78bfd9b741bbfa848f91c0164ae21f5302c`; migration head был
+  `0057_referral_workspace_scope`. Это исторический снимок до closeout-ветки.
 - `/api/v1/health/live`, `/api/v1/health/ready` и `/` отвечают HTTP 200; compose
   services API, maintenance, media-worker, processing-worker, Temporal, MinIO и
   PostgreSQL healthy.
@@ -112,3 +114,12 @@ Ruff/Python compile и deployment evidence scan — PASS. OpenAPI contract drift
 - `TWOBRAIN_BILLING_CHECKOUT_ENABLED=false`; YooKassa provider mutation и
   merchant canary не выполнялись. Результат означает runtime readiness, а не
   public billing launch.
+
+## Runtime recheck 2026-08-11
+
+- На deployed SHA `24e55765e412686291861464b845a62974a7c666` live RLS
+  metadata-only probe PASS: `103/103` таблиц enabled+forced. Это не закрывает
+  edge allowlist/header и независимый security sign-off.
+- Production nginx пока не содержит подтверждённой YooKassa CIDR allowlist и
+  injected `X-Billing-Webhook-Secret`; реальные уведомления поэтому не должны
+  включаться. Checkout остаётся `false`.

@@ -47,9 +47,10 @@ class ReferralReward:
     expires_at: datetime
 
 
-def create_referral_token(*, user_id: UUID, secret: str) -> str:
-    """Create an opaque, non-guessable first-touch token bound to the inviter."""
-    signature = hmac.new(secret.encode(), str(user_id).encode(), sha256).hexdigest()
+def create_referral_token(*, user_id: UUID, secret: str, workspace_id: UUID | None = None) -> str:
+    """Create an opaque token bound to the inviter and, when known, workspace."""
+    subject = f"{user_id}:{workspace_id}" if workspace_id is not None else str(user_id)
+    signature = hmac.new(secret.encode(), subject.encode(), sha256).hexdigest()
     return f"r1_{signature}"
 
 
