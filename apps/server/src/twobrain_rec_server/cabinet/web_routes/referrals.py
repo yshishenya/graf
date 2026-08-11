@@ -1,15 +1,18 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
 from twobrain_rec_server.auth.rate_limit import enforce_auth_rate_limits
 from twobrain_rec_server.billing.referrals import (
+    REFERRAL_TOKEN_MAX_AGE_DAYS,
     create_referral_token,
     referral_token_hash,
     validate_referral_token,
@@ -138,6 +141,7 @@ async def issue_referral_link(
     token_hash = referral_token_hash(
         create_referral_token(user_id=principal.user_id, workspace_id=tenant_scope.workspace_id, secret=secret)
     )
+    expires_at = datetime.now(UTC) + timedelta(days=REFERRAL_TOKEN_MAX_AGE_DAYS)
     await apply_tenant_context(db, WorkspaceAuthContext(workspace_id=tenant_scope.workspace_id, user_id=principal.user_id))
     try:
         link_record = await db.scalar(
@@ -150,16 +154,27 @@ async def issue_referral_link(
             .with_for_update()
         )
         if link_record is None:
-            db.add(
-                ReferralLink(
-                    id=uuid4(),
-                    workspace_id=tenant_scope.workspace_id,
-                    inviter_user_id=principal.user_id,
-                    token_hash=token_hash,
-                    campaign_version="referral-v1",
-                    state="active",
+            values = {
+                "id": uuid4(),
+                "workspace_id": tenant_scope.workspace_id,
+                "inviter_user_id": principal.user_id,
+                "token_hash": token_hash,
+                "campaign_version": "referral-v1",
+                "expires_at": expires_at,
+                "state": "active",
+            }
+            if db.get_bind().dialect.name == "postgresql":
+                await db.execute(
+                    pg_insert(ReferralLink).values(**values).on_conflict_do_nothing(
+                        index_elements=[ReferralLink.token_hash]
+                    )
                 )
-            )
+            else:
+                db.add(ReferralLink(**values))
+            await db.commit()
+        elif link_record.expires_at is None:
+            issued_at = link_record.issued_at or expires_at
+            link_record.expires_at = issued_at + timedelta(days=REFERRAL_TOKEN_MAX_AGE_DAYS)
             await db.commit()
     finally:
         await apply_tenant_scope(db, tenant_scope)

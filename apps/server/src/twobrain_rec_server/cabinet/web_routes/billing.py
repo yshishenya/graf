@@ -1774,7 +1774,7 @@ async def start_billing_checkout(
                         ReferralAttribution.state == "bound",
                     )
                 )
-            else:
+            if referred is None:
                 await apply_tenant_context(
                     db,
                     AuthReferralUserLookupContext(user_id=principal.user_id),
