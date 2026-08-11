@@ -8,9 +8,9 @@
 | Поле | Значение |
 |---|---|
 | Production host | `2brain.dev:/opt/projects/2brain-rec` |
-| Branch | `codex/140-billing-closeout` |
-| Deployed SHA | `df1add3769fc5a9c87a6e28e48fdf240a57846ce` |
-| Migration head | `0058_referral_link_invitees` |
+| Branch | `master` |
+| Deployed SHA | `6a89df43963b26bdde8a0ebb12f139cb233167cc` |
+| Migration head | `0059_referral_expiry_owner_write` |
 | Checkout | `TWOBRAIN_BILLING_CHECKOUT_ENABLED=false` |
 | Deploy result | `pass` |
 | Backup/restore rehearsal | `pass` |
