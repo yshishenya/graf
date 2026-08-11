@@ -58,18 +58,18 @@ elsewhere; real-shop canary is a separate approved release step.
 
 ### Latest local evidence (2026-08-11)
 
-- `infra/scripts/ci-local.sh --fast`: PASS, 1030 server tests, Ruff and
+- `infra/scripts/ci-local.sh --fast`: PASS, 1034 server tests, Ruff and
   Python compile; disposable PostgreSQL container removed after the run.
-- `infra/scripts/ci-local.sh --full`: PASS on the billing/master integration
-  branch: 650 Swift tests, ContractValidation PASS, 2833 server tests passed,
-  1 skipped, strict PostgreSQL phase 42 passed, Ruff/Python compile passed and
-  deployment evidence scan passed. A prior full run had one transient SC-017
-  p95 performance miss; the isolated rerun passed and the clean full run did
-  not change the threshold.
-- Финальный полный прогон после hardening: PASS, 650 Swift-тестов,
-  ContractValidation PASS, 2833 серверных теста (1 skipped), strict PostgreSQL,
-  Ruff/Python compile и deployment evidence scan PASS. Дополнительно focused
-  OpenAPI PostgreSQL contract: 10/10 PASS.
+- `infra/scripts/ci-local.sh --full`: PASS on the current master baseline:
+  653 Swift tests, ContractValidation PASS, 2873 server tests passed, 1
+  skipped, strict PostgreSQL phase 42 passed (1 skipped), Ruff/Python compile,
+  Compose config and deployment evidence scan passed. The local RLS-boundary
+  verifier remains intentionally blocked without a production/test database;
+  the independent production verifier is recorded above.
+- Финальный полный прогон после hardening: PASS, 653 Swift-теста,
+  ContractValidation PASS, 2873 серверных теста (1 skipped), strict PostgreSQL,
+  Ruff/Python compile, Compose config и deployment evidence scan PASS.
+  Дополнительно focused OpenAPI PostgreSQL contract: 10/10 PASS.
 - Billing launch contracts and test-shop e2e: PASS, 8 tests. Focused billing
   account/checkout/security/UI contracts: PASS, 57 tests.
 - Disposable-PostgreSQL billing lifecycle sample: PASS, 61 tests covering
