@@ -14,15 +14,16 @@
   back-office процесс. Checkout остаётся выключенным до canary и согласований.
 - Billing secrets остаются server-only и монтируются через Docker secrets;
   receipt/VAT mapping передаётся через fail-closed env, а migration head
-  включает anonymous referral landing, user-history и status-refresh inbox RLS
-  до `0068_fair_use_reviews`.
+  включает anonymous referral landing, user-history, status-refresh inbox RLS и
+  fair-use metadata constraints до `0070_fair_use_review_metadata`.
 - Fair-use review теперь хранится metadata-only в tenant-scoped таблице с RLS,
   24-часовым review deadline, обязательным уведомлением и CSRF-защищённой
-  апелляцией в `/account/fair-use`; миграция `0068_fair_use_reviews`
+  апелляцией в `/account/fair-use`; миграция `0070_fair_use_review_metadata`
   развернута в production, checkout остаётся выключенным до canary. Первая
   апелляция и повторная отправка различаются, owner видит review участника без
   права апелляции за него, а уведомление содержит только allowlisted capability,
-  причину и срок проверки.
+  причину и срок проверки. При review участника отдельное обязательное
+  уведомление получает также владелец workspace.
 
 ### Изменено
 - _Пока нет записей._

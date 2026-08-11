@@ -34,7 +34,7 @@ binder, а checkout читает собственную attribution после �
 
 Fair-use review теперь имеет deployed persisted metadata-only row, tenant RLS,
 обязательное уведомление и пользовательскую CSRF-защищённую апелляцию на
-`/account/fair-use` (migration `0069_fair_use_review_constraints`). Detector/операционный
+`/account/fair-use` (migration `0070_fair_use_review_metadata`). Detector/операционный
 producer, global fair-use economics и ручной review sign-off не считаются
 автоматически закрытыми.
 
@@ -123,8 +123,8 @@ Ruff/Python compile и deployment evidence scan — PASS. OpenAPI contract drift
 
 ## Runtime recheck 2026-08-11 (latest closeout)
 
-- На deployed SHA `83c46fcf8cf8283b40080994cec3b9969e1a7da6` migration head
-  `0069_fair_use_review_constraints`; live RLS metadata-only probe PASS:
+- На deployed SHA `3a904d8e9abc806c39c4d03ea8784c3df4ba07d4` migration head
+  `0070_fair_use_review_metadata`; live RLS metadata-only probe PASS:
   `106/106` прикладных таблиц enabled+forced (включая `workspace_join_offers`). Это не закрывает
   edge allowlist/header и независимый security sign-off.
 - Этот deploy также проверил отложенную награду referral после status refresh,
