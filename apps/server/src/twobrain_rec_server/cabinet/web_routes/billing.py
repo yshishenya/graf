@@ -631,7 +631,8 @@ async def billing_overview_page(
             max(0, FREE_PROCESSING_SECONDS - processing_used - processing_reserved)
         ),
         processing_reset_at_label=window_end.astimezone(MOSCOW).strftime("%d.%m.%Y, %H:%M (МСК)"),
-        free_processing_limit_label=format_duration(FREE_PROCESSING_SECONDS),
+        free_processing_limit_label="300 минут",
+        processing_usage_freshness=window.freshness_state if window is not None else "fresh",
         storage_capacity_label=f"{effective_capacity:,}".replace(",", " "),
         processing_threshold=classify_free_processing(committed_seconds=processing_used + processing_reserved),
         billing_enabled=bool(request.app.state.settings.billing_checkout_enabled),
@@ -1175,7 +1176,7 @@ async def billing_usage_page(
         processing_used=processing_used,
         processing_reserved=processing_reserved,
         processing_used_label=format_duration(processing_used),
-        free_processing_limit_label=format_duration(FREE_PROCESSING_SECONDS),
+        free_processing_limit_label="300 минут",
         processing_threshold=classify_free_processing(committed_seconds=processing_used + processing_reserved),
         processing_remaining=max(0, FREE_PROCESSING_SECONDS - processing_used - processing_reserved),
         processing_remaining_label=format_duration(
@@ -1185,6 +1186,7 @@ async def billing_usage_page(
         trial_eligible=trial_eligible,
         billing_owner=billing_owner,
         billing_role=role,
+        billing_enabled=bool(request.app.state.settings.billing_checkout_enabled),
         processing_unlimited=plan_code in {"trial", "personal"},
         storage_used=projection.used_bytes,
         storage_reserved=projection.reserved_bytes,

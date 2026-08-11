@@ -389,6 +389,9 @@ def test_maintenance_runtime_is_explicit_hardened_and_has_no_user_runtime_secret
         "twobrain_postgres_maintenance_password",
         "twobrain_minio_api_access_key",
         "twobrain_minio_api_secret_key",
+        "twobrain_yookassa_secret",
+        "twobrain_yookassa_webhook_secret",
+        "twobrain_billing_referral_secret",
         "twobrain_litellm_api_key",
         "twobrain_langfuse_public_key",
         "twobrain_langfuse_secret_key",
@@ -403,6 +406,12 @@ def test_maintenance_runtime_is_explicit_hardened_and_has_no_user_runtime_secret
     )
     assert service["environment"]["TWOBRAIN_LANGFUSE_SECRET_KEY_FILE"] == (
         "/run/secrets/twobrain_langfuse_secret_key"
+    )
+    assert service["environment"]["TWOBRAIN_BILLING_YOOKASSA_SECRET_FILE"] == (
+        "/run/secrets/twobrain_yookassa_secret"
+    )
+    assert service["environment"]["TWOBRAIN_BILLING_YOOKASSA_WEBHOOK_SECRET_FILE"] == (
+        "/run/secrets/twobrain_yookassa_webhook_secret"
     )
 
 

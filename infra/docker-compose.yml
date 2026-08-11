@@ -228,6 +228,14 @@ services:
       TWOBRAIN_POSTAL_API_KEY_FILE: /run/secrets/twobrain_postal_api_key
       TWOBRAIN_POSTAL_HOST_HEADER: ${TWOBRAIN_POSTAL_HOST_HEADER:-postal.2brain.pro}
       TWOBRAIN_POSTAL_REQUEST_TIMEOUT_SECONDS: ${TWOBRAIN_POSTAL_REQUEST_TIMEOUT_SECONDS:-10}
+      TWOBRAIN_BILLING_CHECKOUT_ENABLED: ${TWOBRAIN_BILLING_CHECKOUT_ENABLED:-false}
+      TWOBRAIN_BILLING_RECEIPT_TAX_SYSTEM_CODE: ${TWOBRAIN_BILLING_RECEIPT_TAX_SYSTEM_CODE:-0}
+      TWOBRAIN_BILLING_RECEIPT_VAT_CODE: ${TWOBRAIN_BILLING_RECEIPT_VAT_CODE:-0}
+      TWOBRAIN_BILLING_RECEIPT_PAYMENT_SUBJECT: ${TWOBRAIN_BILLING_RECEIPT_PAYMENT_SUBJECT:-service}
+      TWOBRAIN_BILLING_RECEIPT_PAYMENT_MODE: ${TWOBRAIN_BILLING_RECEIPT_PAYMENT_MODE:-full_payment}
+      TWOBRAIN_BILLING_YOOKASSA_SECRET_FILE: /run/secrets/twobrain_yookassa_secret
+      TWOBRAIN_BILLING_YOOKASSA_WEBHOOK_SECRET_FILE: /run/secrets/twobrain_yookassa_webhook_secret
+      TWOBRAIN_BILLING_REFERRAL_SECRET_FILE: /run/secrets/twobrain_billing_referral_secret
       TWOBRAIN_SHARE_EXTERNAL_INVITATIONS_ENABLED: ${TWOBRAIN_SHARE_EXTERNAL_INVITATIONS_ENABLED:-false}
       TWOBRAIN_SHARE_IDENTITY_HASH_SECRET_FILE: /run/secrets/graf_share_identity_hash_secret
       TWOBRAIN_MEDIASCRIBE_API_KEY_FILE: /run/secrets/twobrain_mediascribe_api_key
@@ -254,6 +262,21 @@ services:
         mode: 0440
       - source: twobrain_postal_api_key
         target: twobrain_postal_api_key
+        uid: "100"
+        gid: "101"
+        mode: 0440
+      - source: twobrain_yookassa_secret
+        target: twobrain_yookassa_secret
+        uid: "100"
+        gid: "101"
+        mode: 0440
+      - source: twobrain_yookassa_webhook_secret
+        target: twobrain_yookassa_webhook_secret
+        uid: "100"
+        gid: "101"
+        mode: 0440
+      - source: twobrain_billing_referral_secret
+        target: twobrain_billing_referral_secret
         uid: "100"
         gid: "101"
         mode: 0440
@@ -665,6 +688,14 @@ services:
       TWOBRAIN_MINIO_BUCKET: twobrain-rec-ingest
       TWOBRAIN_MINIO_SECURE: "false"
       TWOBRAIN_TEMPORAL_ADDRESS: rec-temporal:7233
+      TWOBRAIN_BILLING_CHECKOUT_ENABLED: ${TWOBRAIN_BILLING_CHECKOUT_ENABLED:-false}
+      TWOBRAIN_BILLING_RECEIPT_TAX_SYSTEM_CODE: ${TWOBRAIN_BILLING_RECEIPT_TAX_SYSTEM_CODE:-0}
+      TWOBRAIN_BILLING_RECEIPT_VAT_CODE: ${TWOBRAIN_BILLING_RECEIPT_VAT_CODE:-0}
+      TWOBRAIN_BILLING_RECEIPT_PAYMENT_SUBJECT: ${TWOBRAIN_BILLING_RECEIPT_PAYMENT_SUBJECT:-service}
+      TWOBRAIN_BILLING_RECEIPT_PAYMENT_MODE: ${TWOBRAIN_BILLING_RECEIPT_PAYMENT_MODE:-full_payment}
+      TWOBRAIN_BILLING_YOOKASSA_SECRET_FILE: /run/secrets/twobrain_yookassa_secret
+      TWOBRAIN_BILLING_YOOKASSA_WEBHOOK_SECRET_FILE: /run/secrets/twobrain_yookassa_webhook_secret
+      TWOBRAIN_BILLING_REFERRAL_SECRET_FILE: /run/secrets/twobrain_billing_referral_secret
       TWOBRAIN_OUTCOME_GENERATION_ENABLED: ${TWOBRAIN_OUTCOME_GENERATION_ENABLED:-false}
       TWOBRAIN_LITELLM_BASE_URL: ${TWOBRAIN_LITELLM_BASE_URL:-}
       TWOBRAIN_LITELLM_API_KEY_FILE: /run/secrets/twobrain_litellm_api_key
@@ -683,6 +714,21 @@ services:
         mode: 0440
       - source: twobrain_minio_api_secret_key
         target: twobrain_minio_api_secret_key
+        uid: "100"
+        gid: "101"
+        mode: 0440
+      - source: twobrain_yookassa_secret
+        target: twobrain_yookassa_secret
+        uid: "100"
+        gid: "101"
+        mode: 0440
+      - source: twobrain_yookassa_webhook_secret
+        target: twobrain_yookassa_webhook_secret
+        uid: "100"
+        gid: "101"
+        mode: 0440
+      - source: twobrain_billing_referral_secret
+        target: twobrain_billing_referral_secret
         uid: "100"
         gid: "101"
         mode: 0440

@@ -244,12 +244,27 @@ async def _reconcile_event(
                 receipt_registration=observation.receipt_registration,
             )
         if observation.status == "canceled":
+            operation = await db.scalar(
+                select(BillingOperation)
+                .where(
+                    BillingOperation.workspace_id == event.workspace_id,
+                    BillingOperation.provider_id == observation.provider_payment_id,
+                )
+                .with_for_update()
+            )
             await release_payment_promo(
                 db,
                 workspace_id=event.workspace_id,
                 provider_payment_id=observation.provider_payment_id,
                 now=observation.provider_created_at,
             )
+            if operation is not None and operation.kind == "initial_checkout":
+                operation.state = "canceled"
+                invoice = await db.scalar(
+                    select(BillingInvoice).where(BillingInvoice.operation_id == operation.id).with_for_update()
+                )
+                if invoice is not None:
+                    invoice.status = "canceled"
         return "observed"
     if event.event_type == "refund.succeeded":
         candidate = await _find_refund(provider, event.object_id)

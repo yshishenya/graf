@@ -62,6 +62,11 @@ def test_webhook_parser_rejects_path_manipulation_in_provider_object_id() -> Non
         parse_provider_event({**_payload("evt-path"), "object": {"id": "../refunds", "created_at": "2026-08-06T09:00:00Z"}})
 
 
+def test_webhook_parser_rejects_path_manipulation_in_provider_event_id() -> None:
+    with pytest.raises(ProviderEventError):
+        parse_provider_event(_payload("../events/1"))
+
+
 def test_webhook_reconciliation_has_authoritative_get_and_list_fallbacks() -> None:
     assert hasattr(YooKassaClient, "get_payment")
     assert hasattr(YooKassaClient, "list_refunds")

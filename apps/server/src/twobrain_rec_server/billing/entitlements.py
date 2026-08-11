@@ -145,6 +145,9 @@ async def grant_confirmed_payment(
     )
     if operation is None:
         return "unmatched"
+    if operation.kind != "initial_checkout":
+        operation.state = "reconciliation_gap"
+        return "operation_kind_mismatch"
     invoice = await db.scalar(
         select(BillingInvoice).where(BillingInvoice.operation_id == operation.id).with_for_update()
     )

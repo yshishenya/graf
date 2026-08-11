@@ -1,6 +1,17 @@
 # Текущий статус продукта
 
-Date: 2026-08-08
+Date: 2026-08-11
+
+## Runtime update (2026-08-11) — Feature 140
+
+- Exact deployed SHA `b511d78bfd9b741bbfa848f91c0164ae21f5302c` проверен на
+  `2brain.dev`; рабочее дерево чистое, migration head
+  `0057_referral_workspace_scope`.
+- Live/ready/root health probes HTTP 200; production smoke и metadata-only
+  cleanup PASS (43 database rows, 3 object keys, no residue).
+- Billing checkout остаётся `false`: это проверка инфраструктурной готовности,
+  не разрешение public launch. YooKassa canary, edge allowlist/live RLS и
+  merchant/product/legal/finance/QA sign-offs остаются обязательными.
 
 ## Implementation update (2026-08-06) — Feature 140 personal billing foundation
 

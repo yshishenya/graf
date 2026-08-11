@@ -1,6 +1,6 @@
 # Открытые launch-gates Feature 140
 
-Статус на 2026-08-08: public launch **BLOCKED**. Это не продуктовый refund
+Статус на 2026-08-11: public launch **BLOCKED**. Это не продуктовый refund
 case и не обещание пользователю; документ служит только внутренним
 metadata-only реестром незакрытых доказательств.
 
@@ -24,6 +24,11 @@ path validation и bounded analytics ingress. Остаются
 evidence/gates: moderated accessibility/usability и landing review, live
 security/RLS review, product-market segment/JTBD, WTP/COGS, upgrade-copy и
 финальный cross-artifact closeout (T078–T085, T087).
+
+Отдельный functional gap остаётся в referral flow: текущая детерминированная
+ссылка и одна `ReferralAttribution` рассчитаны на одного invitee, а OAuth signup
+не привязывает referral cookie. Это нельзя закрывать текстом или smoke-данными;
+нужны per-invitee attribution/конкурентный тест и явное решение для OAuth.
 
 Checkout, binding и renewal mutation нельзя включать, пока владельцы Product,
 Finance/Accounting, Legal, Security и QA не внесут версии решений и exact-SHA
@@ -80,13 +85,10 @@ Ruff/Python compile и deployment evidence scan — PASS. OpenAPI contract drift
   probe, test-shop/real-shop canary, merchant/finance/legal/security/QA
   sign-offs, moderated usability/landing, интервью/WTP/usage/COGS и финальный
   Spec Kit closeout. Поэтому public launch остаётся **BLOCKED**.
-- Remote readiness audit 2026-08-08: `2brain.dev` остаётся на `master`, billing
-  branch не развёрнут; remote `.env` не содержит billing-параметров, а webhook
-  и referral secret mounts отсутствуют. Файлы трёх billing secrets на host
-  существуют и приведены к mode `0600`; содержимое не проверялось и в evidence
-  не попадает. Read-only GET к YooKassa с shopId `1430118` вернул HTTP 200.
-  Production checkout и renewal поэтому остаются disabled/fail-closed до
-  одобренного exact-SHA deploy, mounts и настройки webhook в merchant cabinet.
+- Remote readiness audit 2026-08-08 is historical: at that time the billing
+  branch and mounts were not deployed. Current exact-SHA runtime evidence is
+  recorded in `deployment-2026-08-11.md`; checkout remains disabled until the
+  external canary and sign-offs are complete.
 - Local evidence after the renewal/catalog hardening: disposable PostgreSQL
   focused lifecycle suite — 47 passed; `infra/scripts/ci-local.sh --fast` —
   1024 passed, Ruff and Python compile passed. Повторный полный CI также
@@ -94,3 +96,19 @@ Ruff/Python compile и deployment evidence scan — PASS. OpenAPI contract drift
   теста прошли, 1 skipped, strict PostgreSQL 42 passed и deployment evidence
   scan PASS. Это implementation evidence, не замена provider canary или
   four-eyes sign-off.
+
+## Runtime evidence 2026-08-11
+
+- `/opt/projects/2brain-rec` на `2brain.dev` чистый, `master` и exact SHA
+  `b511d78bfd9b741bbfa848f91c0164ae21f5302c`; migration head —
+  `0057_referral_workspace_scope`.
+- `/api/v1/health/live`, `/api/v1/health/ready` и `/` отвечают HTTP 200; compose
+  services API, maintenance, media-worker, processing-worker, Temporal, MinIO и
+  PostgreSQL healthy.
+- Production smoke 2026-08-11 завершён PASS: config validation, migration/RLS
+  disposable probes и cleanup verification. Metadata-only cleanup удалил 43
+  database rows и 3 object keys; residue list пуст. Raw IDs, payloads и secrets
+  в evidence не сохраняются.
+- `TWOBRAIN_BILLING_CHECKOUT_ENABLED=false`; YooKassa provider mutation и
+  merchant canary не выполнялись. Результат означает runtime readiness, а не
+  public billing launch.
