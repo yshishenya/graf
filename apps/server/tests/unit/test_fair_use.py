@@ -89,7 +89,12 @@ def test_fair_use_notification_never_sends_evidence_payload() -> None:
         )
     assert result is True
     payload = enqueue.call_args.kwargs["payload"]
-    assert payload == {"action_path": "/account/fair-use"}
+    assert payload == {
+        "action_path": "/account/fair-use",
+        "capability": "server_processing",
+        "reason": "security_abuse",
+        "review_by": "08.08.2026 13:00",
+    }
     assert review.evidence_ref not in str(enqueue.call_args.kwargs)
 
 
@@ -171,3 +176,49 @@ def test_persisted_review_is_idempotent_and_appeal_is_repeatable() -> None:
     )
     assert appealed_again is row
     assert row.appealed_at == datetime(2026, 8, 7, 12, tzinfo=UTC)
+
+
+def test_persisted_review_rejects_evidence_reuse_for_another_subject() -> None:
+    class FakeDB:
+        def __init__(self, row) -> None:
+            self.row = row
+
+        async def scalar(self, _statement):
+            return self.row
+
+        async def flush(self) -> None:
+            return None
+
+    review = create_review(
+        capability="server_processing",
+        reason="automated_bulk",
+        evidence_ref="incident:123",
+        starts_at=datetime(2026, 8, 7, 10, tzinfo=UTC),
+    )
+    row = type(
+        "ReviewRow",
+        (),
+        {
+            "subject_user_id": uuid4(),
+            "capability": review.capability,
+            "reason_code": review.reason,
+            "starts_at": review.starts_at,
+            "review_by": review.review_by,
+        },
+    )()
+    with (
+        patch(
+            "twobrain_rec_server.billing.fair_use.enqueue_review_notification",
+            AsyncMock(return_value=True),
+        ) as enqueue,
+        pytest.raises(ValueError, match="already bound"),
+    ):
+        asyncio.run(
+            persist_review(
+                FakeDB(row),
+                workspace_id=uuid4(),
+                subject_user_id=uuid4(),
+                review=review,
+            )
+        )
+    enqueue.assert_not_awaited()

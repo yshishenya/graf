@@ -24,7 +24,11 @@
         <h2 id="fair-use-review-{{ review.id }}">{{ review.state_label }}</h2>
         <p>Затронутая возможность: <strong>{{ review.capability }}</strong>.</p>
         <p>Причина проверки: {{ review.reason_label }}.</p>
+        <p>Что это означает: часть этой возможности может быть временно ограничена до завершения проверки; минуты платного тарифа не превращаются в скрытый лимит.</p>
         <p>Срок проверки: <strong>{{ review.review_by_label }} (МСК)</strong>{% if review.review_overdue %}; срок уже прошёл, обращение требует внимания поддержки{% endif %}.</p>
+        <p>Номер для поддержки: <code id="fair-use-support-{{ review.id }}">{{ review.support_reference }}</code>
+          <button class="button quiet" type="button" data-copy-target="fair-use-support-{{ review.id }}">Скопировать номер для поддержки</button>
+        </p>
         {% if review.can_appeal %}
         <form method="post" action="{{ appeal_base_path }}/{{ review.id }}/appeal">
           {{ sections.csrf_field(csrf_token) }}
