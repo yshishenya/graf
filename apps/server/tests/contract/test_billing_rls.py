@@ -88,3 +88,13 @@ def test_many_invitee_referral_migration_separates_link_and_attribution() -> Non
     assert "auth_referral_user_lookup" in source_0059 or "auth_referral_user_lookup" in source
     migration_0060 = Path(__file__).parents[2] / "src/twobrain_rec_server/db/migrations/versions/0060_referral_user_history_rls.py"
     assert "for select using" in migration_0060.read_text(encoding="utf-8")
+
+
+def test_legacy_issued_referral_rows_can_be_bound_once_under_signup_context() -> None:
+    migration = Path(__file__).parents[2] / "src/twobrain_rec_server/db/migrations/versions/0063_referral_signup_bind_rls.py"
+    source = migration.read_text(encoding="utf-8")
+    assert "for insert with check" in source
+    assert "referral_attributions_signup_bind" in source
+    assert "state = 'issued'" in source
+    assert "state = 'registered'" in source
+    assert "invitee_user_id = rec_current_user_id()" in source

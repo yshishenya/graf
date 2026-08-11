@@ -19,7 +19,11 @@ from twobrain_rec_server.billing.referrals import (
     validate_referral_token,
 )
 from twobrain_rec_server.cabinet.rendering_shared import _page_shell
-from twobrain_rec_server.cabinet.templates import cabinet_html_response
+from twobrain_rec_server.cabinet.templates import (
+    cabinet_html_response,
+    render_template,
+    trusted_component_html,
+)
 from twobrain_rec_server.cabinet.web_routes.support import (
     PrincipalDependency,
     PublicDbDependency,
@@ -261,16 +265,37 @@ async def issue_referral_link(
     return RedirectResponse("/referrals?result=issued", status_code=303)
 
 
-@router.get("/referral/{token}", include_in_schema=False)
+def _referral_landing_html(*, state: str, expires_at_label: str | None = None) -> str:
+    content = render_template(
+        "cabinet/auth/referral_landing.html",
+        state=state,
+        expires_at_label=expires_at_label,
+    )
+    return render_template(
+        "cabinet/base.html",
+        title="Приглашение в GRAF",
+        surface_mode="auth",
+        content=trusted_component_html(content, source="auth.shell"),
+    )
+
+
+@router.get("/referral/skip", include_in_schema=False)
+async def referral_landing_skip() -> RedirectResponse:
+    response = RedirectResponse("/sign-up?next=/meetings", status_code=303)
+    response.delete_cookie("graf_referral_token", path="/", secure=True, httponly=True, samesite="lax")
+    return response
+
+
+@router.get("/referral/{token}", response_class=HTMLResponse, include_in_schema=False)
 async def referral_landing(
     request: Request,
     token: str,
     db: AsyncSession | None = PublicDbDependency,
-) -> RedirectResponse:
+) -> HTMLResponse:
     try:
         normalized_token = validate_referral_token(token)
     except ValueError:
-        response = RedirectResponse("/sign-up?error=referral_invalid", status_code=303)
+        response = cabinet_html_response(_referral_landing_html(state="invalid"), status_code=410)
         response.delete_cookie("graf_referral_token")
         return response
     link = None
@@ -287,13 +312,28 @@ async def referral_landing(
                     ReferralLink.expires_at.is_(None) | (ReferralLink.expires_at > landing_now),
             )
         )
+    if db is None:
+        response = cabinet_html_response(_referral_landing_html(state="unavailable"), status_code=503)
+        response.delete_cookie("graf_referral_token")
+        response.headers["Retry-After"] = "60"
+        response.headers["X-Robots-Tag"] = "noindex, nofollow"
+        return response
     if link is None:
-        response = RedirectResponse("/sign-up?error=referral_invalid", status_code=303)
+        response = cabinet_html_response(_referral_landing_html(state="invalid"), status_code=410)
         response.delete_cookie("graf_referral_token")
         response.headers["Cache-Control"] = "private, no-store"
         response.headers["X-Robots-Tag"] = "noindex, nofollow"
         return response
-    response = RedirectResponse("/sign-up?next=/meetings", status_code=303)
+    response = cabinet_html_response(
+        _referral_landing_html(
+            state="valid",
+            expires_at_label=(
+                link.expires_at.astimezone(MOSCOW).strftime("%d.%m.%Y, %H:%M (МСК)")
+                if link.expires_at is not None
+                else None
+            ),
+        )
+    )
     existing_cookie = request.cookies.get("graf_referral_token")
     existing_valid = False
     if existing_cookie:
@@ -337,6 +377,6 @@ async def referral_landing_short(
     request: Request,
     token: str,
     db: AsyncSession | None = PublicDbDependency,
-) -> RedirectResponse:
+) -> HTMLResponse:
     """Canonical contract alias kept alongside the legacy readable route."""
     return await referral_landing(request, token, db)

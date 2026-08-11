@@ -124,8 +124,9 @@ Ruff/Python compile и deployment evidence scan — PASS. OpenAPI contract drift
 - Этот deploy также проверил связку referral ledger с attribution lifecycle,
   coarse risk-review signal и recovery-safe billing UX; focused tests и
   disposable PostgreSQL RLS suite зелёные. Global campaign caps/manual review,
-  OAuth/concurrency evidence и полноценный referral landing UX остаются
-  отдельными launch gates.
+  OAuth/concurrency evidence и ручная accessibility/usability проверка landing
+  остаются отдельными launch gates; server-rendered valid/invalid/unavailable
+  states и три auth CTA уже реализованы.
 - Production nginx пока не содержит подтверждённой YooKassa CIDR allowlist и
   injected `X-Billing-Webhook-Secret`; реальные уведомления поэтому не должны
   включаться. Checkout остаётся `false`.

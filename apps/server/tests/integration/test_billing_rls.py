@@ -1,3 +1,4 @@
+import hashlib
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
@@ -5,12 +6,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
-
-from tests.integration.test_rls_postgres_policies import (
-    _request_context,
-    _seed_probe_rows,
-    apply_tenant_context_to_connection,
-)
+from twobrain_rec_server.billing.referral_binding import bind_referral_attribution
 from twobrain_rec_server.billing.referral_rewards import (
     create_pending_credit,
     mature_pending_credits,
@@ -27,6 +23,12 @@ from twobrain_rec_server.db.tenant_context import (
     ReferralLandingLookupContext,
     WorkspaceAuthContext,
     apply_tenant_context,
+)
+
+from tests.integration.test_rls_postgres_policies import (
+    _request_context,
+    _seed_probe_rows,
+    apply_tenant_context_to_connection,
 )
 
 pytest_plugins = ("tests.integration.test_rls_postgres_policies",)
@@ -115,9 +117,71 @@ async def test_referral_link_owner_can_issue_under_authenticated_web_context(rls
 
 
 @pytest.mark.asyncio
+async def test_referral_signup_binder_can_insert_registered_attribution_under_rls(rls_engine) -> None:
+    ids = await _seed_probe_rows(rls_engine)
+    token = "r1_" + ("e" * 64)
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    link_id = uuid4()
+    async with rls_engine.begin() as conn:
+        await apply_tenant_context_to_connection(
+            conn,
+            MaintenanceTenantContext(
+                operation_name="billing_reconciliation",
+                actor_id="test_referral_signup",
+                reason_category="referral_signup_bind",
+                feature_area="billing",
+            ),
+        )
+        await conn.execute(
+            text(
+                "insert into referral_links "
+                "(id, workspace_id, inviter_user_id, token_hash, campaign_version, expires_at, state) "
+                "values (:id, :workspace_id, :inviter_user_id, :token_hash, 'referral-v1', now() + interval '1 day', 'active')"
+            ),
+            {
+                "id": link_id,
+                "workspace_id": ids["workspace_a"],
+                "inviter_user_id": ids["user_a"],
+                "token_hash": token_hash,
+            },
+        )
+    async with async_sessionmaker(rls_engine, expire_on_commit=False)() as session:
+        assert await bind_referral_attribution(
+            session,
+            workspace_id=ids["workspace_b"],
+            user_id=ids["user_b"],
+            token=token,
+            now=datetime.now(UTC),
+        )
+        await session.commit()
+    async with rls_engine.begin() as conn:
+        await apply_tenant_context_to_connection(
+            conn,
+            MaintenanceTenantContext(
+                operation_name="billing_reconciliation",
+                actor_id="test_referral_signup_verify",
+                reason_category="referral_signup_bind",
+                feature_area="billing",
+            ),
+        )
+        row = await conn.execute(
+            text(
+                "select state, invitee_user_id, referral_link_id from referral_attributions "
+                "where referral_link_id=:link_id"
+            ),
+            {"link_id": link_id},
+        )
+        state, invitee_user_id, referral_link_id = row.one()
+        assert state == "registered"
+        assert invitee_user_id == ids["user_b"]
+        assert referral_link_id == link_id
+
+
+@pytest.mark.asyncio
 async def test_public_referral_landing_lookup_is_token_and_expiry_scoped(rls_engine) -> None:
     ids = await _seed_probe_rows(rls_engine)
     token_hash = ("c" * 63) + "1"
+    expired_token_hash = ("d" * 63) + "1"
     async with rls_engine.begin() as conn:
         await apply_tenant_context_to_connection(
             conn,
@@ -141,9 +205,24 @@ async def test_public_referral_landing_lookup_is_token_and_expiry_scoped(rls_eng
                 "token_hash": token_hash,
             },
         )
+        await conn.execute(
+            text(
+                "insert into referral_links "
+                "(id, workspace_id, inviter_user_id, token_hash, campaign_version, expires_at, state) "
+                "values (:id, :workspace_id, :inviter_user_id, :token_hash, 'referral-v1', now() - interval '1 day', 'active')"
+            ),
+            {
+                "id": uuid4(),
+                "workspace_id": ids["workspace_a"],
+                "inviter_user_id": ids["user_a"],
+                "token_hash": expired_token_hash,
+            },
+        )
     async with rls_engine.connect() as conn:
         await apply_tenant_context_to_connection(conn, ReferralLandingLookupContext(token_hash=token_hash))
         assert await conn.scalar(text("select count(*) from referral_links")) == 1
+        await apply_tenant_context_to_connection(conn, ReferralLandingLookupContext(token_hash=expired_token_hash))
+        assert await conn.scalar(text("select count(*) from referral_links")) == 0
 
 
 @pytest.mark.asyncio
