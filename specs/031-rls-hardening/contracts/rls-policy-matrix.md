@@ -122,6 +122,7 @@ same authoritative production inventory:
 - `billing_webhook_events`
 - `referral_links`
 - `referral_attributions`
+- `fair_use_reviews`
 - `promotion_redemptions`
 - `account_closure_requests`
 
@@ -129,6 +130,12 @@ same authoritative production inventory:
 user or approved maintenance context. `billing_webhook_events` has an explicit
 auth-public workspace binding policy. Their rows are still included in
 `RLS_COVERED_TABLES` and must be enabled and forced in production.
+
+`fair_use_reviews` is metadata-only. The affected user (or the selected
+workspace owner) may read their scoped review, while worker/maintenance
+contexts create and resolve review rows. Affected users may only submit the
+CSRF-protected appeal transition; evidence references and meeting content never
+cross this policy boundary.
 
 Controlled global tables are also covered:
 

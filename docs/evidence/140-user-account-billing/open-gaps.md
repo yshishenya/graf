@@ -32,6 +32,12 @@ binder, а checkout читает собственную attribution после �
 и concurrent signup evidence; внешний canary и product copy gates по-прежнему
 не закрыты.
 
+Fair-use review теперь имеет unreleased persisted metadata-only row, tenant RLS,
+обязательное уведомление и пользовательскую CSRF-защищённую апелляцию на
+`/account/fair-use` (migration `0068_fair_use_reviews`). Production остаётся на
+`0067_referral_bound_attributed`; detector/операционный producer, global
+fair-use economics и ручной review sign-off не считаются автоматически закрытыми.
+
 Checkout, binding и renewal mutation нельзя включать, пока владельцы Product,
 Finance/Accounting, Legal, Security и QA не внесут версии решений и exact-SHA
 evidence в launch runbook.

@@ -366,6 +366,10 @@ async def _database_residue(conn: Any, smoke_identity: dict[str, str]) -> list[s
             "playback_normalization_attempts",
             "select count(*) from playback_normalization_attempts where workspace_id=:workspace_id",
         ),
+        (
+            "fair_use_reviews",
+            "select count(*) from fair_use_reviews where workspace_id=:workspace_id",
+        ),
     )
     residue: list[str] = []
     for table_name, sql in checks:
@@ -510,6 +514,10 @@ async def cleanup_smoke_artifacts(
                 (
                     "billing_notification_deliveries",
                     "delete from billing_notification_deliveries where workspace_id=:workspace_id",
+                ),
+                (
+                    "fair_use_reviews",
+                    "delete from fair_use_reviews where workspace_id=:workspace_id",
                 ),
                 (
                     "billing_audit_events",

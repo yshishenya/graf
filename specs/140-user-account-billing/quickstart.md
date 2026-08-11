@@ -98,7 +98,9 @@ elsewhere; real-shop canary is a separate approved release step.
   row lock; refund webhook backstop follows YooKassa cursor pages with a bounded
   20-page safety limit. These are covered by focused disposable-PostgreSQL and
   adapter/webhook tests; live provider evidence and manual sign-offs remain open.
-- Current migration head for the billing branch is `0067_referral_bound_attributed`:
+- Production remains at migration head `0067_referral_bound_attributed`; the
+  unreleased fair-use persistence slice adds `0068_fair_use_reviews` and must
+  be deployed and re-audited before production evidence is updated:
   plan and promotion catalog rows remain readable in request/worker contexts,
   but inserts/updates require the maintenance role. Webhook bodies are read in
   bounded chunks without relying on `Content-Length`; enabling billing also

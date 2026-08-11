@@ -228,6 +228,7 @@ def test_rls_validation_inventory_matches_031_migration_policy_maps() -> None:
             "billing_audit_events",
             "billing_notification_deliveries",
             "billing_notification_preferences",
+            "fair_use_reviews",
             "billing_webhook_events",
             "referral_links",
             "referral_attributions",

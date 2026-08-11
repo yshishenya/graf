@@ -8,9 +8,11 @@ from datetime import UTC, datetime, timedelta
 from typing import Literal
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.billing.events import enqueue_billing_event
+from twobrain_rec_server.db.models import FairUseReviewRecord
 
 FairUseReason = Literal["automated_bulk", "resale", "limit_circumvention", "security_abuse"]
 FairUseState = Literal["notice", "restricted", "appealed", "cleared", "confirmed"]
@@ -38,22 +40,7 @@ def create_review(
     urgent: bool = False,
 ) -> FairUseReview:
     start = _aware(starts_at)
-    if (
-        not capability
-        or len(capability) > 64
-        or not capability.isascii()
-        or not all(char.isalnum() or char in "_.:-" for char in capability)
-        or reason not in _REASONS
-    ):
-        raise ValueError("fair-use review classification is invalid")
-    lowered_ref = evidence_ref.lower()
-    if (
-        not evidence_ref
-        or len(evidence_ref) > 160
-        or not evidence_ref.isascii()
-        or any(part in lowered_ref for part in ("meeting", "content", "email", "card", "token", "payload"))
-    ):
-        raise ValueError("fair-use evidence reference is invalid")
+    _validate_review_fields(capability, reason, evidence_ref)
     review_by = start + timedelta(hours=24)
     return FairUseReview(capability, reason, evidence_ref, start, review_by, "restricted" if urgent else "notice")
 
@@ -93,6 +80,84 @@ async def enqueue_review_notification(
     )
 
 
+async def persist_review(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    subject_user_id: UUID,
+    review: FairUseReview,
+) -> FairUseReviewRecord:
+    """Persist one review idempotently and enqueue its mandatory notice.
+
+    The evidence reference is an opaque operator reference; raw evidence and
+    support correspondence never enter the row or notification payload.
+    """
+    _validate_review_fields(review.capability, review.reason, review.evidence_ref)
+    if review.state not in {"notice", "restricted", "appealed", "cleared", "confirmed"}:
+        raise ValueError("fair-use review state is invalid")
+    if _aware(review.review_by) > _aware(review.starts_at) + timedelta(hours=24):
+        raise ValueError("fair-use review deadline exceeds 24 hours")
+    row = await db.scalar(
+        select(FairUseReviewRecord)
+        .where(
+            FairUseReviewRecord.workspace_id == workspace_id,
+            FairUseReviewRecord.evidence_ref == review.evidence_ref,
+        )
+        .with_for_update()
+    )
+    if row is None:
+        row = FairUseReviewRecord(
+            workspace_id=workspace_id,
+            subject_user_id=subject_user_id,
+            capability=review.capability,
+            reason_code=review.reason,
+            evidence_ref=review.evidence_ref,
+            starts_at=review.starts_at,
+            review_by=review.review_by,
+            state=review.state,
+            appealed_at=review.appealed_at,
+        )
+        db.add(row)
+        await db.flush()
+    await enqueue_review_notification(
+        db,
+        workspace_id=workspace_id,
+        recipient_id=subject_user_id,
+        review=review,
+    )
+    return row
+
+
+async def appeal_persisted_review(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    review_id: UUID,
+    subject_user_id: UUID,
+    at: datetime,
+) -> FairUseReviewRecord | None:
+    """Record an idempotent appeal without accepting user-supplied rationale."""
+    row = await db.scalar(
+        select(FairUseReviewRecord)
+        .where(
+            FairUseReviewRecord.id == review_id,
+            FairUseReviewRecord.workspace_id == workspace_id,
+            FairUseReviewRecord.subject_user_id == subject_user_id,
+        )
+        .with_for_update()
+    )
+    if row is None:
+        return None
+    if row.state in {"cleared", "confirmed"}:
+        return row
+    if row.appealed_at is None:
+        row.appealed_at = _aware(at)
+        row.appeal_ref = f"appeal:{row.id.hex[:24]}"
+    row.state = "appealed"
+    await db.flush()
+    return row
+
+
 def resolve_review(review: FairUseReview, *, state: Literal["cleared", "confirmed"]) -> FairUseReview:
     return replace(review, state=state)
 
@@ -101,3 +166,22 @@ def _aware(value: datetime) -> datetime:
     if value.tzinfo is None or value.utcoffset() is None:
         raise ValueError("fair-use timestamp must be timezone-aware")
     return value.astimezone(UTC)
+
+
+def _validate_review_fields(capability: str, reason: str, evidence_ref: str) -> None:
+    if (
+        not capability
+        or len(capability) > 64
+        or not capability.isascii()
+        or not all(char.isalnum() or char in "_.:-" for char in capability)
+        or reason not in _REASONS
+    ):
+        raise ValueError("fair-use review classification is invalid")
+    lowered_ref = evidence_ref.lower()
+    if (
+        not evidence_ref
+        or len(evidence_ref) > 160
+        or not evidence_ref.isascii()
+        or any(part in lowered_ref for part in ("meeting", "content", "email", "card", "token", "payload"))
+    ):
+        raise ValueError("fair-use evidence reference is invalid")

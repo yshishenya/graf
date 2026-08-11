@@ -9,6 +9,7 @@ from twobrain_rec_server.cabinet.web_routes import (
     calendar,
     deletion,
     desktop,
+    fair_use,
     provider_links,
     referrals,
     settings,
@@ -33,6 +34,7 @@ router.include_router(spaces.router)
 router.include_router(speakers.router)
 router.include_router(deletion.router)
 router.include_router(desktop.router)
+router.include_router(fair_use.router)
 
 
 def build_first_result_viewed_product_analytics_payload(

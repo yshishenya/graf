@@ -119,6 +119,10 @@ REFERRAL_LINKS_MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0058_referral_links_many_invitees.py"
 )
+FAIR_USE_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0068_fair_use_reviews.py"
+)
 PRODUCTION_SMOKE_SETUP_MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0023_production_smoke_setup.py"
@@ -159,6 +163,7 @@ def test_rls_migration_covers_every_current_tenant_table() -> None:
         + BILLING_NOTIFICATION_MIGRATION.read_text(encoding="utf-8")
         + ACCOUNT_CLOSURE_MIGRATION.read_text(encoding="utf-8")
         + REFERRAL_LINKS_MIGRATION.read_text(encoding="utf-8")
+        + FAIR_USE_MIGRATION.read_text(encoding="utf-8")
     )
 
     for table_name in sorted(RLS_COVERED_TABLES):
