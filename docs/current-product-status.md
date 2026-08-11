@@ -4,15 +4,25 @@ Date: 2026-08-11
 
 ## Runtime update (2026-08-11) — Feature 140
 
-- Exact deployed SHA `efe36a9dc5e1d055e0816e696085224caaec6de6` проверен на
+- Exact deployed SHA `f293c0a5ad75a014b1656c8d45d8f2e67e573cd3` проверен на
   `2brain.dev`; рабочее дерево чистое, migration head
-  `0067_referral_bound_attributed`.
+  `0068_fair_use_reviews`.
 - Live/ready/root health probes HTTP 200; production smoke и metadata-only
   cleanup PASS (39 database rows, 3 object keys, no residue).
 - Billing checkout остаётся `false`: это проверка инфраструктурной готовности,
-  не разрешение public launch. Live RLS metadata-only probe PASS (`104/104` верификатора; 105/105 прикладных таблиц по прямой проверке),
+  не разрешение public launch. Live RLS metadata-only probe PASS (105/105 прикладных таблиц),
   webhook без секрета получает HTTP 401, но YooKassa edge allowlist/header, canary и
   merchant/product/legal/finance/QA sign-offs остаются обязательными.
+
+## Runtime recheck (2026-08-11) — fair-use persistence deploy
+
+- Migration `0068_fair_use_reviews` deployed on `f293c0a5`; fair-use rows are
+  metadata-only, tenant-RLS protected and surfaced through the authenticated
+  `/account/fair-use` appeal flow. Checkout remains disabled.
+- Post-deploy migration/RLS verification passed: 105/105 application tables are
+  enabled and forced; live/ready probes are HTTP 200 and the webhook rejects an
+  unauthenticated request with HTTP 401. YooKassa edge allowlist/header,
+  canary and independent sign-offs remain launch gates.
 
 ## Implementation update (2026-08-06) — Feature 140 personal billing foundation
 
