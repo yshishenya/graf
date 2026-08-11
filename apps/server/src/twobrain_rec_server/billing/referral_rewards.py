@@ -209,6 +209,7 @@ async def reverse_credit_for_payment(
     """Create a bounded append-only reversal from observed provider refund truth."""
     source_ref = payment_source_ref(provider_payment_id)
     ledger_workspace_id = workspace_id
+    attribution: ReferralAttribution | None = None
     if invitee_user_id is not None:
         attribution = await db.scalar(
             select(ReferralAttribution).where(
