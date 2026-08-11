@@ -18,10 +18,13 @@ YooKassa; GRAF не создаёт refund mutation и не показывает 
   отдельный host, callback, shop, secret files, DB, bucket и Temporal namespace.
   Нельзя переносить test database, receipt, webhook/CSV payload или secret в
   production.
-- Секреты монтируются только в `rec-api` через Docker secrets. `rec-web`,
-  desktop, браузер и workers не получают YooKassa credentials. Перед canary
+- YooKassa API/webhook и referral secrets монтируются server-side через Docker
+  secrets в `rec-api`, `rec-processing-worker` и `rec-maintenance`, потому что
+  последние два запускают reconciliation/renewal/notification workflows.
+  `rec-web`, desktop и браузер credentials не получают. Перед canary
   проверяются owner, permissions `0600`, rotation date и отсутствие
-  placeholder/default values.
+  placeholder/default values; deploy script fail-closed проверяет rendered
+  Compose paths, чтобы enabled checkout не получил пустой placeholder.
 - Evidence содержит только local `evidence_ref`, exact release SHA, bounded
   outcome, timestamp, role, severity/owner/deadline и hash evidence-файла. В нём
   не должно быть provider/payment/refund/invoice ID, card data, email клиента,
@@ -30,6 +33,19 @@ YooKassa; GRAF не создаёт refund mutation и не показывает 
   остаются merchant-cabinet/back-office процессом. GRAF только читает
   webhook/GET/list/registry и создаёт metadata-only reconciliation gap при
   несовпадении.
+
+### Обязательная edge-защита webhook
+
+До canary reverse proxy должен иметь отдельный exact-location для
+`/api/v1/billing/providers/yookassa/webhook/production`: только TLS, лимит
+тела `256k`, rate limit, `proxy_request_buffering off`, CIDR allowlist YooKassa
+(`185.71.76.0/27`, `185.71.77.0/27`, `77.75.153.0/25`, `77.75.156.11`,
+`77.75.156.35`, `77.75.154.128/25`, `2a02:5180::/32`) и overwrite заголовка
+`X-Billing-Webhook-Secret` из защищённого operator-managed include. Клиентский
+заголовок нельзя проксировать. Общий webhook location должен быть закрыт или
+защищён тем же allowlist. Нужны `nginx -t`, отрицательный synthetic probe с
+неразрешённого адреса и подтверждённая доставка YooKassa; отсутствие любого
+доказательства оставляет T080/T078 blocked.
 
 ## 1. Перед canary: checklist
 
@@ -42,8 +58,9 @@ YooKassa; GRAF не создаёт refund mutation и не показывает 
 - [ ] Backup/restore reference и migration rollback rehearsal существуют;
   reverse proxy принимает webhook только по TLS и опубликованному YooKassa
   source-network allowlist. Приложение требует `X-Billing-Webhook-Secret`.
-- [ ] В production secret mounts присутствуют только в `rec-api`; прямой
-  публичный доступ к backend webhook закрыт.
+- [ ] В production secret mounts присутствуют только у server-side ролей
+  `rec-api`, `rec-processing-worker`, `rec-maintenance`; прямой публичный
+  доступ к backend webhook закрыт.
 - [ ] Есть on-call owner, incident owner, deadline, emergency-stop operator и
   независимый approver (four-eyes); canary cohort allowlisted и ограничен.
 

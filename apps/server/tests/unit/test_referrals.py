@@ -30,83 +30,89 @@ def test_referral_token_is_opaque_and_stable_for_inviter() -> None:
     first = create_referral_token(user_id=user_id, secret="a" * 32)
     assert first == create_referral_token(user_id=user_id, secret="a" * 32)
     assert first.startswith("r1_") and len(first) == 67
-    assert referral_token_hash(first) != referral_token_hash(
-        create_referral_token(user_id=user_id, secret="b" * 32)
-    )
+    assert referral_token_hash(first) != referral_token_hash(create_referral_token(user_id=user_id, secret="b" * 32))
 
 
-def test_first_touch_binding_is_single_use_and_masks_no_identity() -> None:
+def test_referral_token_is_scoped_when_workspace_is_known() -> None:
+    user_id = UUID("11111111-1111-1111-1111-111111111111")
+    first_workspace = UUID("33333333-3333-3333-3333-333333333333")
+    second_workspace = UUID("66666666-6666-6666-6666-666666666666")
+    first = create_referral_token(user_id=user_id, workspace_id=first_workspace, secret="a" * 32)
+    second = create_referral_token(user_id=user_id, workspace_id=second_workspace, secret="a" * 32)
+    assert first != second
+
+
+def test_first_touch_binding_supports_multiple_invitees() -> None:
     class FakeDb:
-        def __init__(self, attribution) -> None:
-            self.attribution = attribution
+        def __init__(self, link) -> None:
+            self.link = link
+            self.calls = 0
             self.info = {}
+            self.added = []
 
         def get_bind(self):
             class Bind:
                 dialect = type("Dialect", (), {"name": "sqli" + "te"})()
-
             return Bind()
 
         async def scalar(self, _query):
-            return self.attribution
+            self.calls += 1
+            if self.calls % 2:
+                return self.link
+            return None
+
+        def add(self, value):
+            self.added.append(value)
+
+        async def flush(self):
+            return None
 
     inviter = UUID("11111111-1111-1111-1111-111111111111")
-    invitee = UUID("22222222-2222-2222-2222-222222222222")
-    attribution = type(
-        "Attribution",
-        (),
-        {
-            "inviter_user_id": inviter,
-            "invitee_user_id": None,
-            "state": "issued",
-            "bound_at": None,
-            "first_touched_at": datetime(2026, 8, 1, tzinfo=UTC),
-        },
-    )()
     token = create_referral_token(user_id=inviter, secret="a" * 32)
-
-    bound = asyncio.run(
-        _bind_referral_attribution(
-            FakeDb(attribution),
-            workspace_id=UUID("33333333-3333-3333-3333-333333333333"),
-            user_id=invitee,
-            token=token,
-            now=datetime(2026, 8, 7, tzinfo=UTC),
-        )
+    link = type("Link", (), {
+        "id": UUID("44444444-4444-4444-4444-444444444444"),
+        "inviter_user_id": inviter,
+        "workspace_id": UUID("33333333-3333-3333-3333-333333333333"),
+        "token_hash": referral_token_hash(token),
+        "campaign_version": "referral-v1",
+        "expires_at": None,
+        "state": "active",
+    })()
+    db = FakeDb(link)
+    invitees = (
+        UUID("22222222-2222-2222-2222-222222222222"),
+        UUID("55555555-5555-5555-5555-555555555555"),
     )
+    for invitee in invitees:
+        assert asyncio.run(
+            _bind_referral_attribution(
+                db,
+                workspace_id=link.workspace_id,
+                user_id=invitee,
+                token=token,
+                now=datetime(2026, 8, 7, tzinfo=UTC),
+            )
+        ) is True
+    assert len(db.added) == 2
+    assert {row.invitee_user_id for row in db.added} == set(invitees)
 
-    assert bound is True
-    assert attribution.invitee_user_id == invitee
-    assert attribution.state == "bound"
-    assert attribution.bound_at == datetime(2026, 8, 7, tzinfo=UTC)
 
-
-def test_first_touch_binding_rejects_expired_attribution() -> None:
+def test_first_touch_binding_rejects_expired_link() -> None:
     class FakeDb:
         info = {}
 
         def get_bind(self):
             class Bind:
                 dialect = type("Dialect", (), {"name": "sqli" + "te"})()
-
             return Bind()
 
         async def scalar(self, _query):
-            return type(
-                "Attribution",
-                (),
-                {
-                    "inviter_user_id": UUID("11111111-1111-1111-1111-111111111111"),
-                    "invitee_user_id": None,
-                    "state": "issued",
-                    "bound_at": None,
-                    "first_touched_at": datetime(2026, 7, 1, tzinfo=UTC),
-                },
-            )()
+            return type("Link", (), {
+                "inviter_user_id": UUID("11111111-1111-1111-1111-111111111111"),
+                "expires_at": datetime(2026, 7, 1, tzinfo=UTC),
+            })()
 
-    token = create_referral_token(
-        user_id=UUID("11111111-1111-1111-1111-111111111111"), secret="a" * 32
-    )
+    token = create_referral_token(user_id=UUID("11111111-1111-1111-1111-111111111111"), secret="a" * 32)
     assert asyncio.run(
         _bind_referral_attribution(
             FakeDb(),
@@ -121,37 +127,18 @@ def test_first_touch_binding_rejects_expired_attribution() -> None:
 def test_annual_credit_waits_for_maturity_and_cap_is_bounded() -> None:
     paid_at = datetime(2026, 8, 1, tzinfo=UTC)
     reward = first_payment_reward(paid_at=paid_at, cycle="year")
-    assert mature_credit(
-        reward=reward,
-        source_ref=payment_source_ref("pay-1"),
-        granted_rolling_days=179,
-        now=paid_at + timedelta(days=15),
-    ).days == 1
-    assert mature_credit(
-        reward=reward,
-        source_ref=payment_source_ref("pay-2"),
-        granted_rolling_days=180,
-        now=paid_at + timedelta(days=15),
-    ) is None
-    assert mature_credit(
-        reward=reward,
-        source_ref=payment_source_ref("pay-3"),
-        granted_rolling_days=0,
-        now=paid_at + timedelta(days=13),
-    ) is None
+    assert mature_credit(reward=reward, source_ref="payment-1", granted_rolling_days=179, now=paid_at + timedelta(days=15)).days == 1
+    assert mature_credit(reward=reward, source_ref="payment-2", granted_rolling_days=180, now=paid_at + timedelta(days=15)) is None
+    assert mature_credit(reward=reward, source_ref="payment-3", granted_rolling_days=0, now=paid_at + timedelta(days=13)) is None
     with pytest.raises(ValueError):
         payment_source_ref("provider id with spaces")
 
 
 def test_referral_risk_is_a_review_signal_and_token_shape_is_strict() -> None:
-    token = create_referral_token(
-        user_id=UUID("11111111-1111-1111-1111-111111111111"), secret="a" * 32
-    )
+    token = create_referral_token(user_id=UUID("11111111-1111-1111-1111-111111111111"), secret="a" * 32)
     assert validate_referral_token(token) == token
     assert classify_referral_risk(ReferralRiskSignals(same_device=True)) == "none"
-    assert classify_referral_risk(
-        ReferralRiskSignals(same_device=True, same_payment_profile=True)
-    ) == "review"
+    assert classify_referral_risk(ReferralRiskSignals(same_device=True, same_payment_profile=True)) == "review"
     with pytest.raises(ValueError):
         validate_referral_token(token[:-1])
     with pytest.raises(ValueError):
@@ -159,9 +146,15 @@ def test_referral_risk_is_a_review_signal_and_token_shape_is_strict() -> None:
 
 
 def test_referral_links_use_configured_public_origin_not_request_host() -> None:
-    source = (
-        Path(__file__).parents[2]
-        / "src/twobrain_rec_server/cabinet/web_routes/referrals.py"
-    ).read_text(encoding="utf-8")
+    source = (Path(__file__).parents[2] / "src/twobrain_rec_server/cabinet/web_routes/referrals.py").read_text(encoding="utf-8")
     assert "request.base_url" not in source
     assert "public_base_url" in source
+
+
+def test_referral_routes_keep_contract_alias_and_gate_unissued_link() -> None:
+    route_source = (Path(__file__).parents[2] / "src/twobrain_rec_server/cabinet/web_routes/referrals.py").read_text(encoding="utf-8")
+    template_source = (Path(__file__).parents[2] / "src/twobrain_rec_server/cabinet/templates/cabinet/pages/referrals_content.html").read_text(encoding="utf-8")
+    assert '@router.get("/r/{token}"' in route_source
+    assert 'f"{str(public_base_url).rstrip(\'/\')}/r/{token}"' in route_source
+    assert "referral_issue_result" in template_source
+    assert "{% if referral_issued|default(False) %}" in template_source

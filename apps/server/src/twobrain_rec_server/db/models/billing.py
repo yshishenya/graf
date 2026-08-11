@@ -349,17 +349,38 @@ class BillingWebhookEvent(Base):
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class ReferralLink(Base):
+    """One stable inviter link that can create many invitee attributions."""
+
+    __tablename__ = "referral_links"
+    __table_args__ = (
+        UniqueConstraint("token_hash", name="uq_referral_links_token_hash"),
+        Index("ix_referral_links_workspace_state", "workspace_id", "state"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
+    inviter_user_id: Mapped[UUID] = mapped_column(ForeignKey("user_identities.id"), nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    campaign_version: Mapped[str] = mapped_column(String(64), nullable=False, default="referral-v1")
+    issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    state: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
+
+
 class ReferralAttribution(Base):
     __tablename__ = "referral_attributions"
     __table_args__ = (
-        UniqueConstraint("token_hash", name="uq_referral_attributions_token_hash"),
+        UniqueConstraint("referral_link_id", "invitee_user_id", name="uq_referral_attributions_link_invitee"),
         Index("ix_referral_attributions_workspace_state", "workspace_id", "state"),
+        Index("ix_referral_attributions_link_state", "referral_link_id", "state"),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
     inviter_user_id: Mapped[UUID] = mapped_column(ForeignKey("user_identities.id"), nullable=False)
     invitee_user_id: Mapped[UUID | None] = mapped_column(ForeignKey("user_identities.id"))
+    referral_link_id: Mapped[UUID] = mapped_column(ForeignKey("referral_links.id"), nullable=False)
     token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     campaign_version: Mapped[str] = mapped_column(String(64), nullable=False, default="referral-v1")
     first_touched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

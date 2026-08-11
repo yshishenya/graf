@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import secrets
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import Request
@@ -14,11 +14,7 @@ from twobrain_rec_server.auth.audit import write_auth_audit_event
 from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
 from twobrain_rec_server.auth.sessions import callback_expiry, hash_token, issue_auth_session
 from twobrain_rec_server.auth.workspace_onboarding import ensure_personal_workspace
-from twobrain_rec_server.billing.referrals import (
-    REFERRAL_TOKEN_MAX_AGE_DAYS,
-    referral_token_hash,
-    validate_referral_token,
-)
+from twobrain_rec_server.billing.referral_binding import bind_referral_attribution
 from twobrain_rec_server.cabinet.auth_rendering import (
     _safe_browser_next_path,
     render_email_code_page,
@@ -27,7 +23,6 @@ from twobrain_rec_server.db.models import (
     AuthCallbackState,
     AuthSessionDeviceBinding,
     ExternalIdentity,
-    ReferralAttribution,
     RegisteredDevice,
     UserIdentity,
     Workspace,
@@ -35,7 +30,6 @@ from twobrain_rec_server.db.models import (
 )
 from twobrain_rec_server.db.tenant_context import (
     AuthCallbackLookupContext,
-    AuthReferralLookupContext,
     TenantDatabaseContext,
     WorkspaceAuthContext,
     apply_tenant_context,
@@ -68,52 +62,14 @@ async def _bind_referral_attribution(
     token: str | None,
     now: datetime,
 ) -> bool:
-    """Bind a first-touch token while the signup transaction is still open."""
-    if not token:
-        return False
-    try:
-        token_hash = referral_token_hash(validate_referral_token(token))
-    except ValueError:
-        return False
-    await apply_tenant_context(
+    """Compatibility wrapper for the shared email/OAuth binding helper."""
+    return await bind_referral_attribution(
         db,
-        AuthReferralLookupContext(
-            workspace_id=workspace_id,
-            user_id=user_id,
-            token_hash=token_hash,
-        ),
+        workspace_id=workspace_id,
+        user_id=user_id,
+        token=token,
+        now=now,
     )
-    try:
-        attribution = await db.scalar(
-            select(ReferralAttribution)
-            .where(
-                ReferralAttribution.token_hash == token_hash,
-                ReferralAttribution.invitee_user_id.is_(None),
-                ReferralAttribution.state == "issued",
-            )
-            .with_for_update()
-        )
-        touched_at = attribution.first_touched_at if attribution is not None else None
-        if touched_at is not None:
-            if touched_at.tzinfo is None or touched_at.utcoffset() is None:
-                return False
-            if now - touched_at.astimezone(UTC) > timedelta(days=REFERRAL_TOKEN_MAX_AGE_DAYS):
-                return False
-        if attribution is None or attribution.inviter_user_id == user_id:
-            return False
-        attribution.invitee_user_id = user_id
-        attribution.bound_at = now
-        attribution.state = "bound"
-        return True
-    finally:
-        await apply_tenant_context(
-            db,
-            WorkspaceAuthContext(
-                workspace_id=workspace_id,
-                user_id=user_id,
-                context_kind="auth_bootstrap",
-            ),
-        )
 
 
 async def _record_email_login_audit(
@@ -276,14 +232,6 @@ async def _consume_email_login_code(
             email=email,
             now=now,
         )
-        if registered:
-            await _bind_referral_attribution(
-                db,
-                workspace_id=workspace.id,
-                user_id=user.id,
-                token=request.cookies.get("graf_referral_token"),
-                now=now,
-            )
     if workspace is None or user is None:
         state.result = "failed"
         state.used_at = now
@@ -311,6 +259,14 @@ async def _consume_email_login_code(
     )
     if allow_registration:
         workspace = personal_workspace
+    if registered:
+        await _bind_referral_attribution(
+            db,
+            workspace_id=workspace.id,
+            user_id=user.id,
+            token=request.cookies.get("graf_referral_token"),
+            now=now,
+        )
     device = await _resolve_email_browser_device(db, workspace=workspace, user=user, now=now)
     issued = await issue_auth_session(
         db,

@@ -25,7 +25,7 @@ def test_all_billing_tables_are_in_tenant_policy_inventory() -> None:
     migration_root = Path(__file__).parents[2] / "src/twobrain_rec_server/db/migrations/versions"
     migration_source = "\n".join(
         (migration_root / name).read_text(encoding="utf-8")
-        for name in ("0044_user_account_billing.py", "0045_billing_entitlement_grants.py")
+        for name in ("0044_user_account_billing.py", "0045_billing_entitlement_grants.py", "0058_referral_links_many_invitees.py")
     )
     for table_name in (
         "workspace_subscriptions",
@@ -44,6 +44,7 @@ def test_all_billing_tables_are_in_tenant_policy_inventory() -> None:
         "billing_entitlement_grants",
         "billing_webhook_events",
         "referral_attributions",
+        "referral_links",
     ):
         assert table_name in migration_source
         assert "_tenant_isolation" in migration_source
@@ -81,6 +82,7 @@ async def test_referral_reward_pending_and_reversal_cross_workspace_in_billing_m
     ids = await _seed_probe_rows(rls_engine)
     payment_id = f"pay-referral-{ids['slug']}"
     attribution_id = uuid4()
+    link_id = uuid4()
     async with rls_engine.begin() as conn:
         await apply_tenant_context_to_connection(
             conn,
@@ -94,9 +96,24 @@ async def test_referral_reward_pending_and_reversal_cross_workspace_in_billing_m
         await conn.execute(
             text(
                 """
+                insert into referral_links
+                    (id, workspace_id, inviter_user_id, token_hash, campaign_version, state)
+                values (:id, :workspace_id, :inviter_user_id, :token_hash, 'referral-v1', 'active')
+                """
+            ),
+            {
+                "id": link_id,
+                "workspace_id": ids["workspace_a"],
+                "inviter_user_id": ids["user_a"],
+                "token_hash": ("a" * 63) + "1",
+            },
+        )
+        await conn.execute(
+            text(
+                """
                 insert into referral_attributions
-                    (id, workspace_id, inviter_user_id, invitee_user_id, token_hash, campaign_version, state)
-                values (:id, :workspace_id, :inviter_user_id, :invitee_user_id, :token_hash, 'referral-v1', 'bound')
+                    (id, workspace_id, inviter_user_id, invitee_user_id, referral_link_id, token_hash, campaign_version, state)
+                values (:id, :workspace_id, :inviter_user_id, :invitee_user_id, :referral_link_id, :token_hash, 'referral-v1', 'bound')
                 """
             ),
             {
@@ -104,6 +121,7 @@ async def test_referral_reward_pending_and_reversal_cross_workspace_in_billing_m
                 "workspace_id": ids["workspace_a"],
                 "inviter_user_id": ids["user_a"],
                 "invitee_user_id": ids["user_b"],
+                "referral_link_id": link_id,
                 "token_hash": ("a" * 63) + "1",
             },
         )

@@ -9,11 +9,16 @@
       </header>
       <section class="settings-section cabinet-card" aria-labelledby="referral-link-title">
         <h2 id="referral-link-title">Ваша ссылка</h2>
+        {% if referral_issue_result == "issued" %}<p class="notice" role="status" aria-live="polite">Ссылка активирована. Теперь приглашения будут учитываться.</p>{% elif referral_issue_result == "unavailable" %}<p class="notice" role="alert">Не удалось активировать ссылку. Попробуйте ещё раз или обратитесь в поддержку.</p>{% endif %}
+        {% if referral_issued|default(False) %}
         <label for="referral-link">Ссылка для приглашения</label>
         <input id="referral-link" type="text" value="{{ referral_link }}" readonly aria-describedby="referral-link-help">
         <p id="referral-link-help" class="muted">За месячную подписку — 7 дней, за годовую — 30 дней. Начисление происходит через 14 дней после оплаты; денежного вознаграждения нет.</p>
-        {% if not referral_issued|default(False) %}<p class="notice" role="status">Ссылка ещё не активирована для учёта приглашений.</p><form action="/referrals/issue" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<button class="button" type="submit">Активировать ссылку</button></form>{% endif %}
         <button class="button" type="button" data-copy-target="referral-link">Скопировать ссылку</button>
+        {% else %}
+        <p class="notice" role="status">Ссылка ещё не активирована для учёта приглашений.</p>
+        <form action="/referrals/issue" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<button class="button" type="submit">Активировать ссылку</button></form>
+        {% endif %}
       </section>
       <section class="settings-section cabinet-card" aria-labelledby="referral-safety-title">
         <h2 id="referral-safety-title">Как это работает</h2>

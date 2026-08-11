@@ -114,6 +114,7 @@ RLS_BILLING_TABLES = {
     "billing_notification_deliveries",
     "billing_notification_preferences",
     "billing_webhook_events",
+    "referral_links",
     "referral_attributions",
     "account_closure_requests",
 }

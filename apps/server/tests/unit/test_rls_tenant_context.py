@@ -10,6 +10,7 @@ from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.db.tenant_context import (
     AuthCallbackLookupContext,
     AuthReferralLookupContext,
+    AuthReferralUserLookupContext,
     AuthSessionLookupContext,
     MaintenanceTenantContext,
     SharedWithMeLookupContext,
@@ -17,6 +18,7 @@ from twobrain_rec_server.db.tenant_context import (
     TenantDatabaseContext,
     WorkspaceAuthContext,
     auth_referral_lookup_settings,
+    auth_referral_user_lookup_settings,
     auth_session_lookup_settings,
     share_invitation_lookup_settings,
     shared_with_me_lookup_settings,
@@ -112,6 +114,14 @@ def test_auth_referral_lookup_context_is_token_scoped() -> None:
             user_id=USER_ID,
             token_hash="A" * 64,
         )
+
+
+def test_auth_referral_user_lookup_context_is_invitee_only() -> None:
+    context = AuthReferralUserLookupContext(user_id=USER_ID)
+    assert auth_referral_user_lookup_settings(context) == {
+        "app.context_kind": "auth_referral_user_lookup",
+        "app.user_id": str(USER_ID),
+    }
 
 
 def test_maintenance_context_rejects_unknown_operation() -> None:

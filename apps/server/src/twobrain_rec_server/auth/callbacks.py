@@ -32,6 +32,7 @@ from twobrain_rec_server.auth.providers.base import (
 )
 from twobrain_rec_server.auth.sessions import consume_callback_state, issue_auth_session
 from twobrain_rec_server.auth.workspace_onboarding import ensure_personal_workspace
+from twobrain_rec_server.billing.referral_binding import bind_referral_attribution
 from twobrain_rec_server.db.models import (
     AuthCallbackState,
     AuthSessionDeviceBinding,
@@ -60,6 +61,7 @@ class CallbackProfile:
     token: str
     token_expires_at: datetime
     requested_redirect: str | None = None
+    registered: bool = False
 
 
 class CallbackFlowError(ValueError):
@@ -356,7 +358,7 @@ async def _get_or_create_user_from_provider_claims(
     phone: str | None,
     display_name: str | None,
     is_verified: bool,
-) -> UserIdentity:
+) -> tuple[UserIdentity, bool]:
     user = await _user_by_external_identity(
         db,
         organization_id=organization_id,
@@ -404,7 +406,7 @@ async def _get_or_create_user_from_provider_claims(
             email=email,
             phone=phone,
         )
-        return user
+        return user, False
 
     existing_identity = await db.scalar(
         select(ExternalIdentity).where(
@@ -446,7 +448,7 @@ async def _get_or_create_user_from_provider_claims(
         email=email,
         phone=phone,
     )
-    return user
+    return user, True
 
 
 async def resolve_callback_to_user(
@@ -461,6 +463,7 @@ async def resolve_callback_to_user(
     request_id: str | None = None,
     provider_http_client: ProviderHttpClient | None = None,
     browser_state_nonce: str | None = None,
+    referral_token: str | None = None,
     now: datetime | None = None,
 ) -> CallbackProfile:
     now = now or datetime.now(UTC)
@@ -608,7 +611,7 @@ async def resolve_callback_to_user(
     state.result = "completed"
 
     try:
-        user = await _get_or_create_user_from_provider_claims(
+        user, registered = await _get_or_create_user_from_provider_claims(
             db,
             organization_id=workspace.organization_id,
             workspace_id=workspace.id,
@@ -655,6 +658,14 @@ async def resolve_callback_to_user(
         # Provider/email claims only create safe personal access.  A corporate
         # membership can be created later by an explicit accepted join offer.
         workspace = personal_workspace
+    if registered:
+        await bind_referral_attribution(
+            db,
+            workspace_id=workspace.id,
+            user_id=user.id,
+            token=referral_token,
+            now=now,
+        )
     browser_device = None
     if _is_browser_requested_redirect(state.requested_redirect):
         browser_device = await _resolve_browser_login_device(
@@ -737,6 +748,7 @@ async def resolve_callback_to_user(
         token=issued.token,
         token_expires_at=issued.expires_at,
         requested_redirect=state.requested_redirect,
+        registered=registered,
     )
 
 
