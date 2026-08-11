@@ -117,7 +117,7 @@ Ruff/Python compile и deployment evidence scan — PASS. OpenAPI contract drift
 
 ## Runtime recheck 2026-08-11 (latest closeout)
 
-- На deployed SHA `d135b4b18c4ff3231fc303d9cd1f0a0d3194599f` migration head
+- На deployed SHA `7e9d4731d385753f2c5545ba53cd836aefc277e8` migration head
   `0065_status_refresh_prefix`; live RLS metadata-only probe PASS:
   `104/104` таблиц enabled+forced. Это не закрывает
   edge allowlist/header и независимый security sign-off.
