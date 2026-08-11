@@ -46,7 +46,7 @@ final class DesktopCabinetRoutePolicyTests: XCTestCase {
             XCTAssertEqual(decision.reason, .allowedCalendarSettings, route)
         }
 
-        for route in ["/billing", "/billing/checkout", "/billing/history", "/billing/invoices/INV-2026-0001"] {
+        for route in ["/billing", "/billing/plans", "/billing/usage", "/billing/discounts", "/billing/checkout", "/billing/checkout/return", "/billing/checkout/status/INV-2026-0001", "/billing/history", "/billing/invoices/INV-2026-0001"] {
             let billing = policy.decision(for: try url(route))
             XCTAssertEqual(billing.decision, .openExternally, route)
             XCTAssertEqual(billing.route.kind, .external, route)

@@ -496,6 +496,14 @@ async def cleanup_smoke_artifacts(
                     "delete from free_usage_windows where workspace_id=:workspace_id",
                 ),
                 (
+                    "time_credit_ledger_reversals",
+                    "delete from time_credit_ledger_entries where workspace_id=:workspace_id and reversal_of_id is not null",
+                ),
+                (
+                    "time_credit_ledger_entries",
+                    "delete from time_credit_ledger_entries where workspace_id=:workspace_id",
+                ),
+                (
                     "storage_reservations",
                     "delete from storage_reservations where workspace_id=:workspace_id",
                 ),

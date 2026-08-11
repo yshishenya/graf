@@ -53,7 +53,7 @@ class ProviderEvent:
 
 def parse_provider_event(payload: dict[str, Any]) -> ProviderEvent:
     try:
-        event_id = str(payload["id"]).strip()
+        event_id = validate_provider_identifier(payload["id"])
         event_type = str(payload["event"]).strip()
         object_id = validate_provider_identifier(payload["object"]["id"])
         occurred_at = datetime.fromisoformat(str(payload["object"].get("created_at", "")).replace("Z", "+00:00"))

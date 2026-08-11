@@ -42,6 +42,17 @@ Use disposable PostgreSQL for RLS/locking/concurrency tests. Provider tests use
 YooKassa test shop where supported and synthetic doubles/official-format CSV
 elsewhere; real-shop canary is a separate approved release step.
 
+### Runtime verification (2026-08-11)
+
+- Remote `/opt/projects/2brain-rec` is clean at exact SHA
+  `b511d78bfd9b741bbfa848f91c0164ae21f5302c`, migration head
+  `0057_referral_workspace_scope`; live/ready/root probes return HTTP 200.
+- Independent production smoke PASS: config validation, disposable RLS/migration
+  probes and metadata-only cleanup (43 database rows, 3 object keys, no residue).
+- Checkout remains disabled (`TWOBRAIN_BILLING_CHECKOUT_ENABLED=false`). This is
+  runtime evidence only; test-shop/real-shop canary, edge/live-RLS review and
+  four-eyes product/finance/legal/security/QA sign-offs are still required.
+
 ### Latest local evidence (2026-08-08)
 
 - `infra/scripts/ci-local.sh --fast`: PASS, 1024 server tests, Ruff and
@@ -242,7 +253,7 @@ elsewhere; real-shop canary is a separate approved release step.
 
 | Граница | Test shop | Production / controlled real shop |
 | --- | --- | --- |
-| YooKassa | Отдельный тестовый магазин и отдельные API/webhook secrets; идентификатор не коммитится | Магазин `1430118`, отдельные secrets; production secret files доступны только `rec-api` |
+| YooKassa | Отдельный тестовый магазин и отдельные API/webhook secrets; идентификатор не коммитится | Магазин `1430118`, отдельные secrets; provider secrets монтируются только в server-side API и maintenance/processing roles |
 | Приложение | Изолированный test host, callback и return URL; отдельные DB, object bucket и Temporal namespace | `https://rec.2brain.pro`, production DB/bucket/Temporal namespace; публичный callback принимает только production events |
 | Конфигурация | `TWOBRAIN_BILLING_CHECKOUT_ENABLED=false` по умолчанию; включается на короткое окно теста | `TWOBRAIN_BILLING_CHECKOUT_ENABLED=false` до четырёх-eyes approval; emergency stop остаётся готовым к немедленному включению |
 | Данные | Только синтетические пользователи, планы, media metadata и provider doubles/test objects | Только заранее allowlisted synthetic/consented canary identity; не копировать test DB, secrets, receipts или webhook payload в production |

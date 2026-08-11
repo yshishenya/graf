@@ -493,9 +493,12 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
         guard components.first == "billing" else { return false }
         if components.count == 1 { return true }
         if components.count == 2 {
-            return ["usage", "subscription", "payment-method", "checkout", "history", "storage"].contains(components[1])
+            return ["plans", "usage", "subscription", "payment-method", "checkout", "history", "discounts", "storage"].contains(components[1])
         }
         if components == ["billing", "checkout", "return"] { return true }
+        if components.count == 4 && components[1] == "checkout" && components[2] == "status" {
+            return isSafeMeetingId(components[3])
+        }
         return components.count == 3 && components[1] == "invoices" && isSafeMeetingId(components[2])
     }
 

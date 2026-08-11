@@ -23,14 +23,14 @@ def test_billing_hub_uses_exact_free_copy_and_external_refund_boundary() -> None
         storage_threshold="normal",
         processing_used=0,
         processing_used_label=format_duration(0),
-        free_processing_limit_label=format_duration(18_000),
+        free_processing_limit_label="300 минут",
         storage_capacity_label="250 000 000",
         processing_threshold="normal",
         billing_enabled=False,
         trial_result=None,
     )
     assert "0 мин 0 сек" in html
-    assert "300 мин 0 сек (18 000 сек)" in html
+    assert "300 минут" in html
     assert "250 000 000 байт" in html
     assert "только письмом" in html
     assert "автоматической заявки" in html

@@ -1,6 +1,6 @@
 # Billing security and redaction review (automated interim)
 
-**Дата**: 2026-08-07
+**Дата**: 2026-08-11
 **Lane**: high-risk backend/privacy; checkout remains disabled by default.
 
 Проверено локально:
@@ -42,6 +42,14 @@
 - Product-analytics POST ingress ограничен 256 KiB до Pydantic и имеет bounded
   process-local IP limiter (120 запросов/60 секунд); production edge всё равно
   обязан применять distributed limit для нескольких API replicas.
+- Дополнительный static/runtime review подтвердил: webhook provider event IDs
+  проходят общий ASCII allowlist; canceled initial checkout закрывает локальные
+  operation/invoice сразу; entitlement grant разрешён только для
+  `initial_checkout`; smoke cleanup удаляет referral time-credit children до
+  workspace.
+- Desktop billing handoff allowlist покрывает plans/discounts/checkout return и
+  checkout status; paid usage показывает фактически принятое время без
+  fabricated paid allowance.
 
 Команды evidence: `uv run ruff check src tests`, focused billing/security/UI и
 PostHog autocapture tests (43 targeted checks), `git diff --check`. Стандартный

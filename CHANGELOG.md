@@ -20,7 +20,13 @@
 - _Пока нет записей._
 
 ### Исправлено
-- _Пока нет записей._
+- Исправлена очистка smoke-данных: billing referral time-credit rows удаляются
+  до workspace и не оставляют FK-хвостов.
+- Отменённый initial checkout сразу переводит operation/invoice в `canceled`,
+  provider event ID валидируется, а entitlement выдаётся только для
+  `initial_checkout`.
+- Billing handoff в macOS пропускает планы, скидки и status checkout; paid usage
+  показывает фактически учтённое время и восстановительный CTA.
 
 ### Безопасность
 - Закрыт обход admin egress governance: прямые API-запросы на download/export больше не выдают артефакты встреч, заблокированных retention или lifecycle политикой.
