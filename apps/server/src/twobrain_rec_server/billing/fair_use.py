@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.billing.events import enqueue_billing_event
-from twobrain_rec_server.db.models import FairUseReviewRecord
+from twobrain_rec_server.db.models import FairUseReviewRecord, Workspace
 
 FairUseReason = Literal["automated_bulk", "resale", "limit_circumvention", "security_abuse"]
 FairUseState = Literal["notice", "restricted", "appealed", "cleared", "confirmed"]
@@ -141,6 +141,14 @@ async def persist_review(
         recipient_id=subject_user_id,
         review=review,
     )
+    owner_user_id = await db.scalar(select(Workspace.owner_user_id).where(Workspace.id == workspace_id))
+    if owner_user_id is not None and owner_user_id != subject_user_id:
+        await enqueue_review_notification(
+            db,
+            workspace_id=workspace_id,
+            recipient_id=owner_user_id,
+            review=review,
+        )
     return row
 
 

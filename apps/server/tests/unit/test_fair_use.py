@@ -4,7 +4,6 @@ from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
 import pytest
-
 from twobrain_rec_server.billing.events import BillingEvent, event_id_for, notification_kind_for
 from twobrain_rec_server.billing.fair_use import (
     appeal_persisted_review,
@@ -183,6 +182,45 @@ def test_persisted_review_is_idempotent_and_appeal_is_repeatable() -> None:
     )
     assert appealed_again is row
     assert row.appealed_at == datetime(2026, 8, 7, 12, tzinfo=UTC)
+
+
+def test_persisted_review_notifies_distinct_workspace_owner() -> None:
+    owner_id = uuid4()
+    subject_id = uuid4()
+
+    class FakeDB:
+        def __init__(self) -> None:
+            self.values = [None, owner_id]
+
+        async def scalar(self, _statement):
+            return self.values.pop(0)
+
+        def add(self, _row) -> None:
+            return None
+
+        async def flush(self) -> None:
+            return None
+
+    review = create_review(
+        capability="server_processing",
+        reason="automated_bulk",
+        evidence_ref="incident:owner-notice",
+        starts_at=datetime(2026, 8, 7, 10, tzinfo=UTC),
+    )
+    with patch(
+        "twobrain_rec_server.billing.fair_use.enqueue_review_notification",
+        AsyncMock(return_value=True),
+    ) as enqueue:
+        asyncio.run(
+            persist_review(
+                FakeDB(),
+                workspace_id=uuid4(),
+                subject_user_id=subject_id,
+                review=review,
+            )
+        )
+
+    assert [call.kwargs["recipient_id"] for call in enqueue.await_args_list] == [subject_id, owner_id]
 
 
 def test_persisted_review_rejects_evidence_reuse_for_another_subject() -> None:
