@@ -137,3 +137,8 @@ Ruff/Python compile и deployment evidence scan — PASS. OpenAPI contract drift
 - Production nginx пока не содержит подтверждённой YooKassa CIDR allowlist и
   injected `X-Billing-Webhook-Secret`; реальные уведомления поэтому не должны
   включаться. Checkout остаётся `false`.
+- Privileged topology-проверка 2026-08-12 подтвердила отдельный edge blocker:
+  внешний 443 — общий Nginx stream SNI-router на 10444, а установленный Nginx
+  1.24 не принимает `server_name` внутри stream-server. Частичный PROXY
+  protocol для одного SNI неприменим; пробная конфигурация откатилась после
+  `nginx -t`. Нужен dedicated edge/listener или per-SNI proxy до canary.
