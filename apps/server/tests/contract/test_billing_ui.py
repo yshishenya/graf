@@ -25,6 +25,7 @@ def test_billing_hub_uses_exact_free_copy_and_external_refund_boundary() -> None
         processing_used_label=format_duration(0),
         free_processing_limit_label="300 минут",
         storage_capacity_label="250 000 000",
+        storage_capacity_exact_label="250 000 000",
         processing_threshold="normal",
         billing_enabled=False,
         trial_result=None,

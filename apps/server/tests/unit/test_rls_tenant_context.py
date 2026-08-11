@@ -13,6 +13,7 @@ from twobrain_rec_server.db.tenant_context import (
     AuthReferralUserLookupContext,
     AuthSessionLookupContext,
     MaintenanceTenantContext,
+    ReferralLandingLookupContext,
     SharedWithMeLookupContext,
     ShareInvitationLookupContext,
     TenantDatabaseContext,
@@ -20,6 +21,7 @@ from twobrain_rec_server.db.tenant_context import (
     auth_referral_lookup_settings,
     auth_referral_user_lookup_settings,
     auth_session_lookup_settings,
+    referral_landing_lookup_settings,
     share_invitation_lookup_settings,
     shared_with_me_lookup_settings,
     tenant_context_from_scope,
@@ -121,6 +123,14 @@ def test_auth_referral_user_lookup_context_is_invitee_only() -> None:
     assert auth_referral_user_lookup_settings(context) == {
         "app.context_kind": "auth_referral_user_lookup",
         "app.user_id": str(USER_ID),
+    }
+
+
+def test_referral_landing_lookup_context_is_token_only() -> None:
+    context = ReferralLandingLookupContext(token_hash="b" * 64)
+    assert referral_landing_lookup_settings(context) == {
+        "app.context_kind": "referral_landing_lookup",
+        "app.referral_token_hash": "b" * 64,
     }
 
 

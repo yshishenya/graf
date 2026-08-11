@@ -57,9 +57,19 @@ def test_first_touch_binding_supports_multiple_invitees() -> None:
 
         async def scalar(self, _query):
             self.calls += 1
-            if self.calls % 2:
+            if self.calls % 3 == 1:
                 return self.link
             return None
+
+        def begin_nested(self):
+            class Nested:
+                async def __aenter__(self):
+                    return self
+
+                async def __aexit__(self, *_args):
+                    return None
+
+            return Nested()
 
         def add(self, value):
             self.added.append(value)
@@ -160,3 +170,6 @@ def test_referral_routes_keep_contract_alias_and_gate_unissued_link() -> None:
     assert "{% if referral_issued|default(False) %}" in template_source
     assert "REFERRAL_TOKEN_MAX_AGE_DAYS" in route_source
     assert '"expires_at": expires_at' in route_source
+    assert "PublicDbDependency" in route_source
+    assert "ReferralLandingLookupContext" in route_source
+    assert "referral_expires_at_label" in template_source

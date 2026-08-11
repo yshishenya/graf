@@ -12,14 +12,16 @@
       </header>
       <section class="settings-section cabinet-card" aria-labelledby="billing-plan-title">
         <span class="settings-scope-badge">В этом пространстве</span>
-        <h2 id="billing-plan-title">{{ plan.label }}</h2>
+        <h2 id="billing-plan-title">{{ plan.label if billing_data_available|default(True) else "Данные временно недоступны" }}</h2>
         {% if not billing_data_available|default(True) %}<p class="notice" role="alert">Данные биллинга временно недоступны. Оплата и изменения подписки скрыты; попробуйте обновить страницу позже.</p>{% endif %}
         {% if billing_result|default(None) == "pending" %}<p class="notice" role="status" aria-live="polite">Платёж уже создан. Проверяем его статус; повторную оплату пока не предлагаем.</p>
         {% elif billing_result|default(None) == "returned" %}<p class="notice" role="status" aria-live="polite">Вы вернулись из ЮKassa. Доступ включится только после подтверждения платежа.</p>
         {% elif billing_result|default(None) == "already_active" %}<p class="notice" role="status" aria-live="polite">Тариф «Личный» уже активен до {{ paid_through_label or "указанной даты" }}. Повторная оплата не создана.</p>
         {% elif billing_result|default(None) == "unavailable" %}<p class="notice" role="alert">Не удалось открыть оплату. Проверьте историю платежей или повторите позже.</p>
         {% elif billing_result|default(None) == "owner_only" %}<p class="notice" role="status">Оплатой и платежными данными управляет владелец пространства.</p>{% endif %}
-        {% if plan_code == "free" %}
+        {% if not billing_data_available|default(True) %}
+        <p class="muted">Количественные данные подписки, обработки и хранилища не показываем, пока источник недоступен.</p>
+        {% elif plan_code == "free" %}
         <p>Обработка: <strong>{{ processing_used_label }} из {{ free_processing_limit_label }}</strong>. Платные тарифы обрабатывают встречи без лимита по времени.</p>
         {% if processing_threshold == "approaching" %}<p class="notice" role="status" aria-live="polite">Использовано 80% месячного лимита обработки. Осталось {{ processing_remaining_label }} до сброса {{ processing_reset_at_label }}. {% if billing_owner and trial_eligible|default(False) %}<a href="/billing">Начать 7 дней бесплатно</a> или {% endif %}{% if billing_owner %}<a href="/billing/checkout">Выбрать «Личный»</a>{% endif %} подождать сброса можно без перехода.</p>{% elif processing_threshold == "exhausted" %}<p class="notice" role="status" aria-live="polite">Лимит обработки исчерпан до {{ processing_reset_at_label }}. Новая обработка станет доступна после сброса лимита{% if billing_owner and trial_eligible|default(False) %} или после запуска 7-дневного пробного периода{% endif %}; обработка без сохранения аудио также недоступна до этого момента.</p>{% endif %}
         {% else %}<p>Обработка: <strong>Без лимита по минутам и встречам</strong>. Учтено: <strong>{{ processing_used_label }}</strong>{% if processing_usage_freshness|default("fresh") != "fresh" %} (данные могут быть устаревшими){% endif %}. Хранилище оплачивается отдельно от обработки.</p>{% if billing_owner and billing_enabled and plan_code != "personal" %}<a class="button quiet" href="/billing/checkout">Выбрать «Личный»</a>{% endif %}{% endif %}
@@ -51,11 +53,13 @@
       {% if billing_owner %}<p class="billing-help"><a class="button quiet" href="/billing/history">Нужна помощь с оплатой?</a></p>{% endif %}
       <section class="settings-section cabinet-card" aria-labelledby="billing-storage-title">
         <h2 id="billing-storage-title">Хранилище</h2>
-        {% if billing_role in ["member", "corporate_owner"] %}
+        {% if not billing_data_available|default(True) %}
+        <p class="muted">Данные хранилища временно недоступны; объёмы и действия скрыты.</p>
+        {% elif billing_role in ["member", "corporate_owner"] %}
         <p>Хранилище и обработка доступны в рамках настроек пространства. Точные объёмы использования видит владелец биллинга.</p>
         {% else %}
-        <p><strong>{{ storage_used }} байт</strong> из <strong>{{ storage_capacity_label }} байт</strong> · состояние: {{ storage_threshold }}</p>
-          {% if storage_reserved|default(0) %}<p class="muted">В обработке зарезервировано: {{ storage_reserved }} байт.</p>{% endif %}
+        <p><strong>{{ storage_used_label|default(storage_used) }}</strong> из <strong>{{ storage_capacity_label }}</strong> ({{ storage_capacity_exact_label|default(storage_capacity) }} байт) · состояние: {{ storage_threshold_label|default(storage_threshold) }}</p>
+          {% if storage_reserved|default(0) %}<p class="muted">В обработке зарезервировано: {{ storage_reserved_label|default(storage_reserved) }} ({{ storage_reserved_exact_label|default(storage_reserved) }} байт).</p>{% endif %}
         <p class="muted">Размер учитывает нормализованный файл встречи. Лимит хранения не ограничивает обработку.</p>
         {% if storage_threshold in ["80%", "95%"] %}<p class="notice" role="status" aria-live="polite">Хранилище заполнено на {{ storage_threshold }}. Можно удалить старые записи, увеличить хранилище или продолжить обработку без сохранения аудио.</p>{% elif storage_threshold == "full" %}<p class="notice" role="status" aria-live="polite">Хранилище заполнено. Новое аудио не сохраняется в архив, но обработку можно запустить без сохранения аудио: расшифровка и заметки останутся, исходный звук — нет.</p>{% endif %}
         {% endif %}

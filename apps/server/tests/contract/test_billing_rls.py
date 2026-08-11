@@ -85,3 +85,6 @@ def test_many_invitee_referral_migration_separates_link_and_attribution() -> Non
     source_0059 = migration_0059.read_text(encoding="utf-8")
     assert "expires_at" in source_0059
     assert "uq_referral_attributions_invitee" in source_0059
+    assert "auth_referral_user_lookup" in source_0059 or "auth_referral_user_lookup" in source
+    migration_0060 = Path(__file__).parents[2] / "src/twobrain_rec_server/db/migrations/versions/0060_referral_user_history_rls.py"
+    assert "for select using" in migration_0060.read_text(encoding="utf-8")

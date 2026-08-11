@@ -16,7 +16,8 @@
       {% elif result == "method_required" %}<p class="notice" role="alert">Нужен подтверждённый способ оплаты. Возобновление не включено.</p>
       {% elif result == "unavailable" %}<p class="notice" role="alert">Управление подпиской сейчас недоступно.</p>{% endif %}
       <section class="settings-section cabinet-card" aria-labelledby="billing-subscription-state-title">
-        <h2 id="billing-subscription-state-title">{{ subscription.plan_code if subscription else "Бесплатный" }}</h2>
+        {% set displayed_plan_label = subscription_plan_label|default({"personal": "Личный", "trial": "Пробный период", "free": "Бесплатный"}.get(subscription.plan_code if subscription else "free", "Бесплатный")) %}
+        <h2 id="billing-subscription-state-title">{{ displayed_plan_label }}</h2>
         {% if subscription and (subscription.renewal_resolution|default(None)) in ["pending", "unknown", "provider_key_expired", "late_success"] %}
         <p class="notice" role="status" aria-live="polite">Проверяем результат последнего списания. Нового платежа не создаём. Если подтверждения не будет, доступ сразу перейдёт на бесплатный тариф.</p>
         {% endif %}

@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.billing.referrals import (
@@ -14,6 +15,7 @@ from twobrain_rec_server.billing.referrals import (
 from twobrain_rec_server.db.models import ReferralAttribution, ReferralLink
 from twobrain_rec_server.db.tenant_context import (
     AuthReferralLookupContext,
+    AuthReferralUserLookupContext,
     WorkspaceAuthContext,
     apply_tenant_context,
 )
@@ -52,6 +54,12 @@ async def bind_referral_attribution(
             return False
         if link.expires_at is not None and now.astimezone(UTC) >= link.expires_at.astimezone(UTC):
             return False
+        await apply_tenant_context(db, AuthReferralUserLookupContext(user_id=user_id))
+        existing = await db.scalar(
+            select(ReferralAttribution.id).where(ReferralAttribution.invitee_user_id == user_id)
+        )
+        if existing is not None:
+            return False
         await apply_tenant_context(
             db,
             AuthReferralLookupContext(
@@ -81,20 +89,24 @@ async def bind_referral_attribution(
             attribution.bound_at = now
             attribution.state = "bound"
             return True
-        db.add(
-            ReferralAttribution(
-                workspace_id=link.workspace_id,
-                inviter_user_id=link.inviter_user_id,
-                invitee_user_id=user_id,
-                referral_link_id=link.id,
-                token_hash=link.token_hash,
-                campaign_version=link.campaign_version,
-                first_touched_at=now,
-                bound_at=now,
-                state="bound",
-            )
-        )
-        await db.flush()
+        try:
+            async with db.begin_nested():
+                db.add(
+                    ReferralAttribution(
+                        workspace_id=link.workspace_id,
+                        inviter_user_id=link.inviter_user_id,
+                        invitee_user_id=user_id,
+                        referral_link_id=link.id,
+                        token_hash=link.token_hash,
+                        campaign_version=link.campaign_version,
+                        first_touched_at=now,
+                        bound_at=now,
+                        state="bound",
+                    )
+                )
+                await db.flush()
+        except IntegrityError:
+            return False
         return True
     finally:
         await apply_tenant_context(

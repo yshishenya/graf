@@ -18,6 +18,7 @@ from twobrain_rec_server.billing.referral_rewards import (
 from twobrain_rec_server.db.models import TimeCreditLedgerEntry
 from twobrain_rec_server.db.tenant_context import (
     MaintenanceTenantContext,
+    ReferralLandingLookupContext,
     WorkspaceAuthContext,
     apply_tenant_context,
 )
@@ -29,7 +30,12 @@ def test_all_billing_tables_are_in_tenant_policy_inventory() -> None:
     migration_root = Path(__file__).parents[2] / "src/twobrain_rec_server/db/migrations/versions"
     migration_source = "\n".join(
         (migration_root / name).read_text(encoding="utf-8")
-        for name in ("0044_user_account_billing.py", "0045_billing_entitlement_grants.py", "0058_referral_links_many_invitees.py")
+        for name in (
+            "0044_user_account_billing.py",
+            "0045_billing_entitlement_grants.py",
+            "0058_referral_links_many_invitees.py",
+            "0060_referral_user_history_rls.py",
+        )
     )
     for table_name in (
         "workspace_subscriptions",
@@ -99,6 +105,38 @@ async def test_referral_link_owner_can_issue_under_authenticated_web_context(rls
                 "token_hash": ("b" * 63) + "1",
             },
         )
+        assert await conn.scalar(text("select count(*) from referral_links")) == 1
+
+
+@pytest.mark.asyncio
+async def test_public_referral_landing_lookup_is_token_and_expiry_scoped(rls_engine) -> None:
+    ids = await _seed_probe_rows(rls_engine)
+    token_hash = ("c" * 63) + "1"
+    async with rls_engine.begin() as conn:
+        await apply_tenant_context_to_connection(
+            conn,
+            MaintenanceTenantContext(
+                operation_name="billing_reconciliation",
+                actor_id="test_referral_landing",
+                reason_category="referral_landing_probe",
+                feature_area="billing",
+            ),
+        )
+        await conn.execute(
+            text(
+                "insert into referral_links "
+                "(id, workspace_id, inviter_user_id, token_hash, campaign_version, expires_at, state) "
+                "values (:id, :workspace_id, :inviter_user_id, :token_hash, 'referral-v1', now() + interval '1 day', 'active')"
+            ),
+            {
+                "id": uuid4(),
+                "workspace_id": ids["workspace_a"],
+                "inviter_user_id": ids["user_a"],
+                "token_hash": token_hash,
+            },
+        )
+    async with rls_engine.connect() as conn:
+        await apply_tenant_context_to_connection(conn, ReferralLandingLookupContext(token_hash=token_hash))
         assert await conn.scalar(text("select count(*) from referral_links")) == 1
 
 

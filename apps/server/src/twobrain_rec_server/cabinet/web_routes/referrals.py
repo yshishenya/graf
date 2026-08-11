@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -21,6 +22,7 @@ from twobrain_rec_server.cabinet.rendering_shared import _page_shell
 from twobrain_rec_server.cabinet.templates import cabinet_html_response
 from twobrain_rec_server.cabinet.web_routes.support import (
     PrincipalDependency,
+    PublicDbDependency,
     WebCSRFDependency,
     WebDbDependency,
     WebTenantDependency,
@@ -28,6 +30,7 @@ from twobrain_rec_server.cabinet.web_routes.support import (
 )
 from twobrain_rec_server.db.models import ReferralLink, Workspace
 from twobrain_rec_server.db.tenant_context import (
+    ReferralLandingLookupContext,
     WorkspaceAuthContext,
     apply_tenant_context,
     apply_tenant_scope,
@@ -37,6 +40,7 @@ from twobrain_rec_server.product_analytics.browser_context import (
 )
 
 router = APIRouter(tags=["cabinet-web"])
+MOSCOW = ZoneInfo("Europe/Moscow")
 
 
 @router.get("/referrals", response_class=HTMLResponse, include_in_schema=False)
@@ -73,6 +77,7 @@ async def referrals_page(
                     ReferralLink.workspace_id == tenant_scope.workspace_id,
                     ReferralLink.inviter_user_id == principal.user_id,
                     ReferralLink.state == "active",
+                    ReferralLink.expires_at.is_(None) | (ReferralLink.expires_at > datetime.now(UTC)),
                 )
             )
         finally:
@@ -99,6 +104,11 @@ async def referrals_page(
         referral_link=link,
         referral_token_hash=token_hash,
         referral_issued=link_record is not None,
+        referral_expires_at_label=(
+            link_record.expires_at.astimezone(MOSCOW).strftime("%d.%m.%Y, %H:%M (МСК)")
+            if link_record is not None and link_record.expires_at is not None
+            else None
+        ),
         referral_issue_result=request.query_params.get("result"),
     )
     return cabinet_html_response(content)
@@ -176,23 +186,75 @@ async def issue_referral_link(
             issued_at = link_record.issued_at or expires_at
             link_record.expires_at = issued_at + timedelta(days=REFERRAL_TOKEN_MAX_AGE_DAYS)
             await db.commit()
+        elif link_record.expires_at <= datetime.now(UTC) or link_record.state != "active":
+            link_record.expires_at = expires_at
+            link_record.state = "active"
+            await db.commit()
     finally:
         await apply_tenant_scope(db, tenant_scope)
     return RedirectResponse("/referrals?result=issued", status_code=303)
 
 
 @router.get("/referral/{token}", include_in_schema=False)
-async def referral_landing(request: Request, token: str) -> RedirectResponse:
+async def referral_landing(
+    request: Request,
+    token: str,
+    db: AsyncSession | None = PublicDbDependency,
+) -> RedirectResponse:
     try:
-        validate_referral_token(token)
+        normalized_token = validate_referral_token(token)
     except ValueError:
-        return RedirectResponse("/sign-up?error=referral_invalid", status_code=303)
+        response = RedirectResponse("/sign-up?error=referral_invalid", status_code=303)
+        response.delete_cookie("graf_referral_token")
+        return response
+    link = None
+    if db is not None:
+        landing_now = datetime.now(UTC)
+        await apply_tenant_context(
+            db,
+            ReferralLandingLookupContext(token_hash=referral_token_hash(normalized_token)),
+        )
+        link = await db.scalar(
+            select(ReferralLink).where(
+                    ReferralLink.token_hash == referral_token_hash(normalized_token),
+                    ReferralLink.state == "active",
+                    ReferralLink.expires_at.is_(None) | (ReferralLink.expires_at > landing_now),
+            )
+        )
+    if link is None:
+        response = RedirectResponse("/sign-up?error=referral_invalid", status_code=303)
+        response.delete_cookie("graf_referral_token")
+        response.headers["Cache-Control"] = "private, no-store"
+        response.headers["X-Robots-Tag"] = "noindex, nofollow"
+        return response
     response = RedirectResponse("/sign-up?next=/meetings", status_code=303)
-    if not request.cookies.get("graf_referral_token"):
+    existing_cookie = request.cookies.get("graf_referral_token")
+    existing_valid = False
+    if existing_cookie:
+        try:
+            existing_hash = referral_token_hash(validate_referral_token(existing_cookie))
+            if db is not None:
+                await apply_tenant_context(db, ReferralLandingLookupContext(token_hash=existing_hash))
+                existing_valid = (
+                    await db.scalar(
+                        select(ReferralLink.id).where(
+                            ReferralLink.token_hash == existing_hash,
+                            ReferralLink.state == "active",
+                            ReferralLink.expires_at.is_(None) | (ReferralLink.expires_at > datetime.now(UTC)),
+                        )
+                    )
+                    is not None
+                )
+        except ValueError:
+            existing_valid = False
+    if not existing_valid:
+        if existing_cookie:
+            response.delete_cookie("graf_referral_token")
+        max_age = max(1, int((link.expires_at - datetime.now(UTC)).total_seconds())) if link.expires_at else 30 * 86400
         response.set_cookie(
             "graf_referral_token",
-            token,
-            max_age=60 * 60 * 24 * 30,
+            normalized_token,
+            max_age=max_age,
             httponly=True,
             samesite="lax",
             secure=True,
@@ -205,6 +267,10 @@ async def referral_landing(request: Request, token: str) -> RedirectResponse:
 
 
 @router.get("/r/{token}", include_in_schema=False)
-async def referral_landing_short(request: Request, token: str) -> RedirectResponse:
+async def referral_landing_short(
+    request: Request,
+    token: str,
+    db: AsyncSession | None = PublicDbDependency,
+) -> RedirectResponse:
     """Canonical contract alias kept alongside the legacy readable route."""
-    return await referral_landing(request, token)
+    return await referral_landing(request, token, db)

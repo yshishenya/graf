@@ -212,7 +212,7 @@ def test_production_share_head_upgrades_to_regeneration_merge(
             await engine.dispose()
 
     versions, tables, columns, maintenance_helper = asyncio.run(inspect_schema())
-    assert versions == ["0059_referral_expiry_owner_write"]
+    assert versions == ["0061_referral_landing_lookup_rls"]
     assert {
         "dispatch_intents",
         "meeting_deletion_fences",
