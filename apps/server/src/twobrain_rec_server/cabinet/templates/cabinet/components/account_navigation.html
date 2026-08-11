@@ -7,6 +7,7 @@
   <a href="{{ '/desktop/account/notifications' if embedded else '/account/notifications' }}"{% if active == 'notifications' %} aria-current="page"{% endif %}>Уведомления</a>
   <a href="/billing">Тариф и оплата</a>
   <a href="/referrals">Пригласить друзей</a>
+  <a href="{{ '/desktop/account/fair-use' if embedded else '/account/fair-use' }}"{% if active == 'fair-use' %} aria-current="page"{% endif %}>Проверка добросовестного использования</a>
   <span class="account-navigation__divider" aria-hidden="true"></span>
   <form class="account-navigation__logout" method="post" action="{{ '/desktop/meetings' if embedded else '/logout' }}">
     {{ sections.csrf_field(csrf_token) }}

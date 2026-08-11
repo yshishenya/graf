@@ -303,10 +303,12 @@ receipt or mutable wallet.
 ### `fair_use_review`
 
 Narrow non-meter restriction: workspace, affected capability, reason class
-`automated_bulk|resale|circumvention|security_abuse`, bounded evidence,
-urgency/state, `starts_at`, `review_by ≤ starts_at + 24h`, appeal and decision.
-Volume/IP/device alone cannot decide it. Local Record/Stop and existing
-read/export/delete remain available.
+`automated_bulk|resale|limit_circumvention|security_abuse`, bounded operator
+reference, urgency/state, `starts_at`, `review_by ≤ starts_at + 24h`, appeal
+and decision. The persisted row is workspace/user scoped and deduplicated by
+the opaque evidence reference; the notification outbox receives only a hashed
+subject and the `/account/fair-use` action path. Volume/IP/device alone cannot
+decide it. Local Record/Stop and existing read/export/delete remain available.
 
 ## Notifications, audit and reconciliation
 

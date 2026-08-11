@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import (
     JSON,
     BigInteger,
+    CheckConstraint,
     DateTime,
     ForeignKey,
     Index,
@@ -335,6 +336,41 @@ class BillingNotificationPreference(Base):
     user_id: Mapped[UUID] = mapped_column(ForeignKey("user_identities.id"), primary_key=True)
     optional_email_enabled: Mapped[bool] = mapped_column(nullable=False, default=True)
     optional_in_app_enabled: Mapped[bool] = mapped_column(nullable=False, default=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class FairUseReviewRecord(Base):
+    """Persisted, metadata-only fair-use review visible to its affected user."""
+
+    __tablename__ = "fair_use_reviews"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "evidence_ref", name="uq_fair_use_review_evidence"),
+        CheckConstraint(
+            "reason_code in ('automated_bulk', 'resale', 'limit_circumvention', 'security_abuse')",
+            name="ck_fair_use_review_reason",
+        ),
+        CheckConstraint(
+            "state in ('notice', 'restricted', 'appealed', 'cleared', 'confirmed')",
+            name="ck_fair_use_review_state",
+        ),
+        Index("ix_fair_use_reviews_workspace_state", "workspace_id", "state", "review_by"),
+        Index("ix_fair_use_reviews_subject_state", "subject_user_id", "state"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
+    subject_user_id: Mapped[UUID] = mapped_column(ForeignKey("user_identities.id"), nullable=False)
+    capability: Mapped[str] = mapped_column(String(64), nullable=False)
+    reason_code: Mapped[str] = mapped_column(String(32), nullable=False)
+    evidence_ref: Mapped[str] = mapped_column(String(160), nullable=False)
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    review_by: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False, default="notice")
+    appealed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    appeal_ref: Mapped[str | None] = mapped_column(String(64))
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    resolution_code: Mapped[str | None] = mapped_column(String(32))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 

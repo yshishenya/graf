@@ -54,6 +54,7 @@ def test_all_billing_tables_are_in_tenant_policy_inventory() -> None:
             "0065_status_refresh_prefix.py",
             "0066_referral_attributed_rls.py",
             "0067_referral_attributed_legacy_bound_rls.py",
+            "0068_fair_use_reviews.py",
         )
     )
     for table_name in (
@@ -74,9 +75,44 @@ def test_all_billing_tables_are_in_tenant_policy_inventory() -> None:
         "billing_webhook_events",
         "referral_attributions",
         "referral_links",
+        "fair_use_reviews",
     ):
         assert table_name in migration_source
         assert "_tenant_isolation" in migration_source
+
+
+@pytest.mark.asyncio
+async def test_fair_use_review_is_user_visible_but_cross_tenant_isolated(rls_engine) -> None:
+    ids = await _seed_probe_rows(rls_engine)
+    review_id = uuid4()
+    async with rls_engine.begin() as conn:
+        await apply_tenant_context_to_connection(
+            conn,
+            MaintenanceTenantContext(
+                operation_name="billing_reconciliation",
+                actor_id="test_fair_use_review",
+                reason_category="fair_use_review",
+                feature_area="billing",
+            ),
+        )
+        await conn.execute(
+            text(
+                "insert into fair_use_reviews "
+                "(id, workspace_id, subject_user_id, capability, reason_code, evidence_ref, starts_at, review_by, state) "
+                "values (:id, :workspace_id, :subject_user_id, 'server_processing', 'automated_bulk', "
+                "'incident:fair-use-1', now(), now() + interval '24 hours', 'notice')"
+            ),
+            {
+                "id": review_id,
+                "workspace_id": ids["workspace_a"],
+                "subject_user_id": ids["user_a"],
+            },
+        )
+    async with rls_engine.connect() as conn:
+        await apply_tenant_context_to_connection(conn, _request_context(ids, "a"))
+        assert await conn.scalar(text("select count(*) from fair_use_reviews")) == 1
+        await apply_tenant_context_to_connection(conn, _request_context(ids, "b"))
+        assert await conn.scalar(text("select count(*) from fair_use_reviews")) == 0
 
 
 @pytest.mark.asyncio

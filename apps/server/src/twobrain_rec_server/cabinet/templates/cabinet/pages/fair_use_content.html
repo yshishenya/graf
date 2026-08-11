@@ -1,0 +1,46 @@
+{% import "cabinet/components/settings_navigation.html" as settings_ui %}
+{% import "cabinet/components/sections.html" as sections %}
+<main id="cabinet-main" class="cabinet-main" tabindex="-1">
+  <div class="cabinet-workspace settings-page">
+    {{ settings_ui.navigation(settings_navigation, active=settings_active, back_href=back_href) }}
+    <div class="settings-page__content">
+      <header class="cabinet-topbar settings-page__topbar">
+        <div class="page-title"><h1>Проверка добросовестного использования</h1></div>
+      </header>
+      {% if fair_use_result %}<p class="settings-status" role="status" aria-live="polite">{{ fair_use_result }}</p>{% endif %}
+      {% if unavailable %}
+      <section class="settings-section settings-boundary-card" role="status" aria-live="polite">
+        <h2>Данные временно недоступны</h2>
+        <p class="muted">Мы не показываем неподтверждённые ограничения. Обновите страницу позже.</p>
+      </section>
+      {% elif not reviews %}
+      <section class="settings-section settings-boundary-card" role="status">
+        <h2>Ограничений нет</h2>
+        <p class="muted">Обычный личный объём встреч не является нарушением. Если появится проверка, здесь будут причина, срок и безопасное действие.</p>
+      </section>
+      {% else %}
+      {% for review in reviews %}
+      <section class="settings-section cabinet-card" aria-labelledby="fair-use-review-{{ review.id }}">
+        <h2 id="fair-use-review-{{ review.id }}">{{ review.state_label }}</h2>
+        <p>Затронутая возможность: <strong>{{ review.capability }}</strong>.</p>
+        <p>Причина проверки: {{ review.reason_label }}.</p>
+        <p>Срок проверки: <strong>{{ review.review_by_label }} (МСК)</strong>{% if review.review_overdue %}; срок уже прошёл, обращение требует внимания поддержки{% endif %}.</p>
+        {% if review.can_appeal %}
+        <form method="post" action="{{ appeal_base_path }}/{{ review.id }}/appeal">
+          {{ sections.csrf_field(csrf_token) }}
+          <button class="button" type="submit">Обжаловать ограничение</button>
+        </form>
+        {% elif review.appealed %}
+        <p class="settings-status" role="status">Апелляция уже отправлена. Мы не принимаем содержимое встреч или данные карты через эту форму.</p>
+        {% endif %}
+      </section>
+      {% endfor %}
+      {% endif %}
+      <section class="settings-section settings-boundary-card" aria-labelledby="fair-use-safety-title">
+        <h2 id="fair-use-safety-title">Что сохраняется</h2>
+        <p class="muted">Локальная запись и остановка, существующие данные, экспорт и удаление остаются доступны в пределах контроля GRAF. Техническая проверка не является скрытым лимитом минут.</p>
+        {% if support_email %}<p><a class="button quiet" href="mailto:{{ support_email|e }}">Обратиться в поддержку</a></p>{% endif %}
+      </section>
+    </div>
+  </div>
+</main>
