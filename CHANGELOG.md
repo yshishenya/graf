@@ -19,7 +19,10 @@
 - Fair-use review теперь хранится metadata-only в tenant-scoped таблице с RLS,
   24-часовым review deadline, обязательным уведомлением и CSRF-защищённой
   апелляцией в `/account/fair-use`; миграция `0068_fair_use_reviews`
-  развернута в production, checkout остаётся выключенным до canary.
+  развернута в production, checkout остаётся выключенным до canary. Первая
+  апелляция и повторная отправка различаются, owner видит review участника без
+  права апелляции за него, а уведомление содержит только allowlisted capability,
+  причину и срок проверки.
 
 ### Изменено
 - _Пока нет записей._
