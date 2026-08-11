@@ -10,7 +10,7 @@ final class DesktopCabinetBillingHandoffTests: XCTestCase {
             baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev"))
         )
 
-        for path in ["/billing", "/billing/plans", "/billing/checkout", "/billing/checkout/return", "/billing/checkout/status/INV-2026-0001", "/billing/discounts", "/billing/history"] {
+        for path in ["/billing", "/billing/plans", "/billing/usage", "/billing/subscription", "/billing/payment-method", "/billing/storage", "/billing/checkout", "/billing/checkout/return", "/billing/checkout/status/INV-2026-0001", "/billing/discounts", "/billing/history", "/billing/invoices/INV-2026-0001"] {
             let decision = policy.decision(for: try XCTUnwrap(URL(string: "https://rec.2brain.dev\(path)")))
             XCTAssertEqual(decision.decision, .openExternally, path)
             XCTAssertEqual(decision.reason, .openBrowserOwnedBilling, path)
