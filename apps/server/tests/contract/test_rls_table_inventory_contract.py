@@ -4,8 +4,9 @@ import importlib.util
 from pathlib import Path
 from types import ModuleType
 
-from tests.fixtures.rls import RLS_COVERED_TABLES as TEST_RLS_COVERED_TABLES
 from twobrain_rec_server.db.rls_validation import RLS_COVERED_TABLES
+
+from tests.fixtures.rls import RLS_COVERED_TABLES as TEST_RLS_COVERED_TABLES
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 MIGRATION = (
@@ -209,6 +210,7 @@ def test_rls_validation_inventory_matches_031_migration_policy_maps() -> None:
         | set(lifecycle_reconciliation_migration.__dict__.get("CONTENT_WORKSPACE_POLICIES", {}))
         | set(legacy_lineage_migration.__dict__.get("CONTENT_WORKSPACE_POLICIES", {}))
         | set(auth_rate_limit_migration.AUTH_RATE_LIMIT_TABLES)
+        | {"workspace_join_offers"}
         | {
             "billing_plan_versions",
             "promotion_campaigns",
