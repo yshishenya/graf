@@ -4,9 +4,9 @@ Date: 2026-08-11
 
 ## Runtime update (2026-08-11) — Feature 140
 
-- Exact deployed SHA `b966365f2e45637a78a54088f823f9ed44e977f8` проверен на
+- Exact deployed SHA `83c46fcf8cf8283b40080994cec3b9969e1a7da6` проверен на
   `2brain.dev`; рабочее дерево чистое, migration head
-  `0068_fair_use_reviews`.
+  `0069_fair_use_review_constraints`.
 - Live/ready/root health probes HTTP 200; production smoke и metadata-only
   cleanup PASS (39 database rows, 3 object keys, no residue).
 - Billing checkout остаётся `false`: это проверка инфраструктурной готовности,
@@ -15,9 +15,9 @@ Date: 2026-08-11
   webhook без секрета получает HTTP 401, но YooKassa edge allowlist/header, canary и
   merchant/product/legal/finance/QA sign-offs остаются обязательными.
 
-## Runtime recheck (2026-08-11) — fair-use persistence deploy
+## Runtime recheck (2026-08-11) — fair-use constraint deploy
 
-- Migration `0068_fair_use_reviews` deployed on `b966365f`; fair-use rows are
+- Migration `0069_fair_use_review_constraints` deployed on `83c46fcf`; fair-use rows are
   metadata-only, tenant-RLS protected and surfaced through the authenticated
   `/account/fair-use` appeal flow. Checkout remains disabled.
 - Post-deploy migration/RLS verification passed: 106/106 application tables are
