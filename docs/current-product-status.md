@@ -4,22 +4,23 @@ Date: 2026-08-11
 
 ## Runtime update (2026-08-11) — Feature 140
 
-- Exact deployed SHA `f293c0a5ad75a014b1656c8d45d8f2e67e573cd3` проверен на
+- Exact deployed SHA `3a0cdeee852da316bb883700c757b952b3a42c15` проверен на
   `2brain.dev`; рабочее дерево чистое, migration head
   `0068_fair_use_reviews`.
 - Live/ready/root health probes HTTP 200; production smoke и metadata-only
   cleanup PASS (39 database rows, 3 object keys, no residue).
 - Billing checkout остаётся `false`: это проверка инфраструктурной готовности,
-  не разрешение public launch. Live RLS metadata-only probe PASS (105/105 прикладных таблиц),
+  не разрешение public launch. Live RLS metadata-only probe PASS: 106/106 прикладных
+  таблиц enabled+forced (включая `workspace_join_offers`),
   webhook без секрета получает HTTP 401, но YooKassa edge allowlist/header, canary и
   merchant/product/legal/finance/QA sign-offs остаются обязательными.
 
 ## Runtime recheck (2026-08-11) — fair-use persistence deploy
 
-- Migration `0068_fair_use_reviews` deployed on `f293c0a5`; fair-use rows are
+- Migration `0068_fair_use_reviews` deployed on `3a0cdeee`; fair-use rows are
   metadata-only, tenant-RLS protected and surfaced through the authenticated
   `/account/fair-use` appeal flow. Checkout remains disabled.
-- Post-deploy migration/RLS verification passed: 105/105 application tables are
+- Post-deploy migration/RLS verification passed: 106/106 application tables are
   enabled and forced; live/ready probes are HTTP 200 and the webhook rejects an
   unauthenticated request with HTTP 401. YooKassa edge allowlist/header,
   canary and independent sign-offs remain launch gates.
