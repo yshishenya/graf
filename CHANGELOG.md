@@ -41,6 +41,9 @@
 - Billing UI не показывает ложные Free/нулевые объёмы при недоступном источнике;
   тарифы, способы оплаты, суммы и ёмкости хранилища локализованы и дополнены
   точными байтами для сверки.
+- Desktop browser handoff теперь передаёт только allowlisted origin/path без
+  query, fragment и userinfo; legacy referral refund без invitee-контекста
+  корректно обрабатывается через ledger linkage.
 
 ### Безопасность
 - Закрыт обход admin egress governance: прямые API-запросы на download/export больше не выдают артефакты встреч, заблокированных retention или lifecycle политикой.
