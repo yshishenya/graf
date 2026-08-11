@@ -67,6 +67,8 @@ def test_operation_status_does_not_offer_checkout_when_billing_is_disabled() -> 
     ).read_text(encoding="utf-8")
     route = (ROOT / "apps/server/src/twobrain_rec_server/cabinet/web_routes/billing.py").read_text(encoding="utf-8")
     assert "billing_enabled|default(False)" in template
+    assert "Проверить статус" in template
+    assert "Проверить в ЮKassa" not in template
     assert "billing_enabled=bool(request.app.state.settings.billing_checkout_enabled)" in route
 
 
@@ -78,6 +80,16 @@ def test_status_refresh_defers_cross_workspace_referral_reward() -> None:
     assert "defer_referral_reward=True" in route
     assert "status_refresh_" in reconciliation
     assert '"referral_reward_deferred": True' in reconciliation
+
+
+def test_history_uses_localized_timestamp_view_model() -> None:
+    template = (
+        ROOT / "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_history_content.html"
+    ).read_text(encoding="utf-8")
+    route = (ROOT / "apps/server/src/twobrain_rec_server/cabinet/web_routes/billing.py").read_text(encoding="utf-8")
+    assert "invoice.created_at.strftime" not in template
+    assert "invoice.created_at_label" in template
+    assert '"created_at_label": _billing_datetime_label(invoice.created_at)' in route
 
 
 def test_subscription_and_discount_surfaces_gate_disabled_checkout_actions() -> None:
