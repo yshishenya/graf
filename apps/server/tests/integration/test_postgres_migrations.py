@@ -10,6 +10,8 @@ from alembic.config import Config
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+from tests.fakes.fake_minio import FakeMinioStorage
 from twobrain_rec_server.config import Settings, get_settings
 from twobrain_rec_server.db.models import (
     Organization,
@@ -19,8 +21,6 @@ from twobrain_rec_server.db.models import (
     WorkspaceMembership,
 )
 from twobrain_rec_server.main import create_app
-
-from tests.fakes.fake_minio import FakeMinioStorage
 
 ROOT = Path(__file__).parents[4]
 ORG_ID = UUID("10000000-0000-0000-0000-000000000001")

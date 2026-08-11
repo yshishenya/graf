@@ -4,9 +4,8 @@ import importlib.util
 from pathlib import Path
 from types import ModuleType
 
-from twobrain_rec_server.db.rls_validation import RLS_COVERED_TABLES
-
 from tests.fixtures.rls import RLS_COVERED_TABLES as TEST_RLS_COVERED_TABLES
+from twobrain_rec_server.db.rls_validation import RLS_COVERED_TABLES
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 MIGRATION = (
