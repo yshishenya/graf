@@ -5,7 +5,7 @@ emails, raw webhook bodies, audio, transcripts or private meeting content are
 stored here.
 
 - Host: `2brain.dev`; project: `/opt/projects/2brain-rec`
-- Branch/SHA: `master` / `b511d78bfd9b741bbfa848f91c0164ae21f5302c`
+- Branch/SHA: `master` / `24e55765e412686291861464b845a62974a7c666`
 - Migration: `0057_referral_workspace_scope (head)`
 - Health: `/api/v1/health/live`, `/api/v1/health/ready`, `/` → HTTP 200
 - Smoke: config validation, migration/RLS disposable probes and metadata-only
