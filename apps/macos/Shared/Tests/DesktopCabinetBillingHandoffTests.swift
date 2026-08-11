@@ -59,5 +59,15 @@ final class DesktopCabinetBillingHandoffTests: XCTestCase {
 
         XCTAssertNil(policy.sanitizedExternalURL(for: source))
     }
+
+    func testExternalHelpHandoffRejectsHTTP() throws {
+        let policy = DesktopCabinetRoutePolicy(
+            baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev"))
+        )
+        let source = try XCTUnwrap(URL(string: "http://help.2brain.dev/billing?amount=790"))
+
+        XCTAssertEqual(policy.decision(for: source).decision, .blockWithMessage)
+        XCTAssertNil(policy.sanitizedExternalURL(for: source))
+    }
 }
 #endif

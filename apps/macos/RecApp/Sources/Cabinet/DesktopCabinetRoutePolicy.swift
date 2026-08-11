@@ -316,6 +316,9 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
     }
 
     private func externalDecision(for url: URL) -> DesktopCabinetRouteDecision {
+        guard url.scheme?.lowercased() == "https" else {
+            return block(path: normalizedPath(url.path), kind: .external, reason: .blockedUnknownRoute, message: "External links must use HTTPS.")
+        }
         let host = url.host?.lowercased() ?? ""
         if host == "docs.2brain.dev" || host == "help.2brain.dev" {
             return DesktopCabinetRouteDecision(
