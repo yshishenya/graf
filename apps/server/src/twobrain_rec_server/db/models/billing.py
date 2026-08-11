@@ -384,7 +384,6 @@ class ReferralAttribution(Base):
             "invitee_user_id",
             unique=True,
             postgresql_where=text("invitee_user_id is not null"),
-            sqlite_where=text("invitee_user_id is not null"),
         ),
     )
 

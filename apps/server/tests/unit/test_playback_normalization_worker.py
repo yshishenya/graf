@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from uuid import UUID
 
 import pytest
+
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.normalization import worker as worker_module
 from twobrain_rec_server.normalization.worker import (

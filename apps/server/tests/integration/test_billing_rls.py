@@ -6,6 +6,12 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
+
+from tests.integration.test_rls_postgres_policies import (
+    _request_context,
+    _seed_probe_rows,
+    apply_tenant_context_to_connection,
+)
 from twobrain_rec_server.billing.reconciliation import PaymentObservation, ProviderScope
 from twobrain_rec_server.billing.referral_binding import bind_referral_attribution
 from twobrain_rec_server.billing.referral_rewards import (
@@ -30,12 +36,6 @@ from twobrain_rec_server.db.tenant_context import (
     ReferralLandingLookupContext,
     WorkspaceAuthContext,
     apply_tenant_context,
-)
-
-from tests.integration.test_rls_postgres_policies import (
-    _request_context,
-    _seed_probe_rows,
-    apply_tenant_context_to_connection,
 )
 
 pytest_plugins = ("tests.integration.test_rls_postgres_policies",)
