@@ -14,8 +14,8 @@
   back-office процесс. Checkout остаётся выключенным до canary и согласований.
 - Billing secrets остаются server-only и монтируются через Docker secrets;
   receipt/VAT mapping передаётся через fail-closed env, а migration head
-  включает anonymous referral landing и user-history RLS до
-  `0061_referral_landing_lookup_rls`.
+  включает anonymous referral landing, user-history и status-refresh inbox RLS
+  до `0064_status_refresh_rls`.
 
 ### Изменено
 - _Пока нет записей._
@@ -32,8 +32,12 @@
   first-touch cookie, а binding безопасно переживает повторную атрибуцию и
   конфликт глобальной уникальности invitee.
 - Referral reward ledger теперь связан с attribution: сохраняет coarse review
-  signal, переводит статусы `pending_maturity → available → applied` и отражает
-  `expired/rejected/reversed` после bounded maintenance/refund reconciliation.
+  signal, переводит статусы `paid → pending_maturity → available → applied` и
+  отражает `expired/rejected/reversed` после bounded maintenance/refund
+  reconciliation; открытая security review приостанавливает maturity.
+- Обновление статуса hosted checkout выдаёт подписку в tenant-контексте
+  пользователя, а referral reward надёжно ставится в maintenance inbox без
+  расширения доступа к workspace пригласившего.
 - Billing UI не показывает ложные Free/нулевые объёмы при недоступном источнике;
   тарифы, способы оплаты, суммы и ёмкости хранилища локализованы и дополнены
   точными байтами для сверки.

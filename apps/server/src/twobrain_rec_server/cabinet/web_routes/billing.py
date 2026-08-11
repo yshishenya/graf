@@ -1047,6 +1047,7 @@ async def refresh_billing_checkout_status(
         request.app.state.settings,
         limit=1,
         operation_id=invoice.operation_id,
+        defer_referral_reward=True,
     )
     await db.commit()
     return RedirectResponse(f"/billing/checkout/status/{quote(safe_number, safe='-')}?result=refreshed", status_code=303)
@@ -1308,6 +1309,7 @@ async def billing_subscription_page(
         content_template="cabinet/pages/billing_subscription_content.html",
         subscription=subscription,
         active=active,
+        paid_through_label=_billing_datetime_label(subscription.paid_through) if active and subscription is not None else None,
         method_available=method_available,
         next_charge_amount_label=next_charge_amount_label,
         billing_enabled=bool(request.app.state.settings.billing_checkout_enabled),

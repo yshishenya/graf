@@ -6,6 +6,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
+from twobrain_rec_server.billing.reconciliation import PaymentObservation, ProviderScope
 from twobrain_rec_server.billing.referral_binding import bind_referral_attribution
 from twobrain_rec_server.billing.referral_rewards import (
     create_pending_credit,
@@ -13,7 +14,12 @@ from twobrain_rec_server.billing.referral_rewards import (
     reverse_credit_for_payment,
 )
 from twobrain_rec_server.billing.referrals import ReferralRiskSignals
+from twobrain_rec_server.billing.webhook_reconciliation import (
+    _enqueue_deferred_referral_reconciliation,
+)
 from twobrain_rec_server.db.models import (
+    BillingOperation,
+    BillingWebhookEvent,
     ReferralAttribution,
     TimeCreditLedgerEntry,
     WorkspaceSubscription,
@@ -43,6 +49,7 @@ def test_all_billing_tables_are_in_tenant_policy_inventory() -> None:
             "0045_billing_entitlement_grants.py",
             "0058_referral_links_many_invitees.py",
             "0060_referral_user_history_rls.py",
+            "0064_status_refresh_webhook_event_rls.py",
         )
     )
     for table_name in (
@@ -313,7 +320,7 @@ async def test_referral_reward_pending_and_reversal_cross_workspace_in_billing_m
         assert ledger.referral_attribution_id == attribution_id
         attribution = await db.get(ReferralAttribution, attribution_id)
         assert attribution is not None
-        assert attribution.state == "pending_maturity"
+        assert attribution.state == "paid"
         assert attribution.risk_signal == "review"
         assert (
             await create_pending_credit(
@@ -342,6 +349,15 @@ async def test_referral_reward_pending_and_reversal_cross_workspace_in_billing_m
         # exercised without relying on the wall clock.
         ledger.maturity_at = paid_at + timedelta(days=14)
         ledger.expires_at = paid_at + timedelta(days=379)
+        assert await mature_pending_credits(db, now=paid_at + timedelta(days=14)) == 0
+        assert ledger.state == "pending"
+        assert attribution.state == "paid"
+        # A cleared review is an explicit maintenance decision; maturity then
+        # proceeds without widening the request tenant context.
+        attribution.risk_signal = None
+        assert await mature_pending_credits(db, now=paid_at + timedelta(days=7)) == 0
+        assert ledger.state == "pending"
+        assert attribution.state == "pending_maturity"
         assert await mature_pending_credits(db, now=paid_at + timedelta(days=14)) == 7
         assert ledger.state == "applied"
         assert attribution.state == "applied"
@@ -356,6 +372,48 @@ async def test_referral_reward_pending_and_reversal_cross_workspace_in_billing_m
             )
             == "reversed"
         )
-        await db.commit()
         assert ledger.state == "reversed"
         assert attribution.state == "reversed"
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_status_refresh_defers_cross_workspace_referral_reward_to_inbox(rls_engine) -> None:
+    ids = await _seed_probe_rows(rls_engine)
+    operation_id = uuid4()
+    payment_id = "payment-status-refresh"
+    async with async_sessionmaker(rls_engine, expire_on_commit=False)() as db:
+        await apply_tenant_context(
+            db,
+            _request_context(ids, "b"),
+        )
+        operation = BillingOperation(
+            id=operation_id,
+            workspace_id=ids["workspace_b"],
+            kind="initial_checkout",
+            idempotency_key="status-refresh-operation",
+            provider_id=payment_id,
+            state="succeeded",
+            request_snapshot={"plan_code": "personal", "cycle": "month", "billing_actor_user_id": str(ids["user_b"])},
+        )
+        db.add(operation)
+        await db.flush()
+        observation = PaymentObservation(
+            scope=ProviderScope(environment="test", shop_id="1430118"),
+            provider_payment_id=payment_id,
+            amount_minor=79_000,
+            currency="RUB",
+            status="succeeded",
+            provider_created_at=datetime.now(UTC),
+        )
+        await _enqueue_deferred_referral_reconciliation(db, operation=operation, observation=observation)
+        await db.commit()
+        event = await db.scalar(
+            select(BillingWebhookEvent).where(
+                BillingWebhookEvent.workspace_id == ids["workspace_b"],
+                BillingWebhookEvent.event_type == "payment.succeeded",
+            )
+        )
+        assert event is not None
+        assert event.state == "pending_reconciliation"
+        assert event.metadata_json["referral_reward_deferred"] is True

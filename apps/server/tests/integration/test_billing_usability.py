@@ -70,6 +70,16 @@ def test_operation_status_does_not_offer_checkout_when_billing_is_disabled() -> 
     assert "billing_enabled=bool(request.app.state.settings.billing_checkout_enabled)" in route
 
 
+def test_status_refresh_defers_cross_workspace_referral_reward() -> None:
+    route = (ROOT / "apps/server/src/twobrain_rec_server/cabinet/web_routes/billing.py").read_text(encoding="utf-8")
+    reconciliation = (
+        ROOT / "apps/server/src/twobrain_rec_server/billing/webhook_reconciliation.py"
+    ).read_text(encoding="utf-8")
+    assert "defer_referral_reward=True" in route
+    assert "status_refresh_" in reconciliation
+    assert '"referral_reward_deferred": True' in reconciliation
+
+
 def test_subscription_and_discount_surfaces_gate_disabled_checkout_actions() -> None:
     subscription = (
         ROOT
@@ -105,3 +115,24 @@ def test_billing_surfaces_keep_contextual_non_coercive_upgrade_copy() -> None:
     assert "удалить старые записи" in usage
     assert "обработать без сохранения аудио" in usage
     assert "Управлять архивом" in usage
+
+
+def test_billing_navigation_uses_approved_russian_labels() -> None:
+    overview = (
+        ROOT
+        / "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_overview_content.html"
+    ).read_text(encoding="utf-8")
+    plans = (
+        ROOT
+        / "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_plans_content.html"
+    ).read_text(encoding="utf-8")
+    assert "Управлять хранением" in overview
+    assert "Изменить способ оплаты" in overview
+    assert "Настроить хранилище" in plans
+
+
+def test_referral_history_localizes_paid_lifecycle_state() -> None:
+    source = (ROOT / "apps/server/src/twobrain_rec_server/cabinet/web_routes/referrals.py").read_text(
+        encoding="utf-8"
+    )
+    assert '"paid": "Оплата подтверждена, бонус ожидает 14 дней"' in source
