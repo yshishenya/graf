@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
 import pytest
+
 from twobrain_rec_server.billing.events import BillingEvent, event_id_for, notification_kind_for
 from twobrain_rec_server.billing.fair_use import (
     appeal_persisted_review,
