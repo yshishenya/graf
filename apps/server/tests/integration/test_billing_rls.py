@@ -16,7 +16,11 @@ from twobrain_rec_server.billing.referral_rewards import (
     reverse_credit_for_payment,
 )
 from twobrain_rec_server.db.models import TimeCreditLedgerEntry
-from twobrain_rec_server.db.tenant_context import MaintenanceTenantContext, apply_tenant_context
+from twobrain_rec_server.db.tenant_context import (
+    MaintenanceTenantContext,
+    WorkspaceAuthContext,
+    apply_tenant_context,
+)
 
 pytest_plugins = ("tests.integration.test_rls_postgres_policies",)
 
@@ -72,6 +76,30 @@ async def test_workspace_subscription_isolated_and_missing_context_denied(rls_en
             )
             == 0
         )
+
+
+@pytest.mark.asyncio
+async def test_referral_link_owner_can_issue_under_authenticated_web_context(rls_engine) -> None:
+    ids = await _seed_probe_rows(rls_engine)
+    async with rls_engine.begin() as conn:
+        await apply_tenant_context_to_connection(
+            conn,
+            WorkspaceAuthContext(workspace_id=ids["workspace_a"], user_id=ids["user_a"]),
+        )
+        await conn.execute(
+            text(
+                "insert into referral_links "
+                "(id, workspace_id, inviter_user_id, token_hash, campaign_version, state) "
+                "values (:id, :workspace_id, :inviter_user_id, :token_hash, 'referral-v1', 'active')"
+            ),
+            {
+                "id": uuid4(),
+                "workspace_id": ids["workspace_a"],
+                "inviter_user_id": ids["user_a"],
+                "token_hash": ("b" * 63) + "1",
+            },
+        )
+        assert await conn.scalar(text("select count(*) from referral_links")) == 1
 
 
 @pytest.mark.asyncio

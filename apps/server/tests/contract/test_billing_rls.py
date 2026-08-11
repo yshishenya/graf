@@ -80,3 +80,8 @@ def test_many_invitee_referral_migration_separates_link_and_attribution() -> Non
     assert '"referral_links"' in source
     assert "referral_link_id" in source
     assert "uq_referral_attributions_link_invitee" in source
+    assert "inviter_user_id = rec_current_user_id()" in source
+    migration_0059 = Path(__file__).parents[2] / "src/twobrain_rec_server/db/migrations/versions/0059_referral_expiry_owner_write.py"
+    source_0059 = migration_0059.read_text(encoding="utf-8")
+    assert "expires_at" in source_0059
+    assert "uq_referral_attributions_invitee" in source_0059

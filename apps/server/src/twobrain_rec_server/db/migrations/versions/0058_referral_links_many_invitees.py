@@ -106,6 +106,8 @@ def upgrade() -> None:
             "and token_hash = rec_setting('app.referral_token_hash') and state = 'active') "
             "or rec_maintenance_allowed()) with check ("
             "(rec_context_kind() in ('request', 'worker') and workspace_id = rec_current_workspace_id()) "
+            "or (rec_context_kind() = 'auth_public' and workspace_id = rec_current_workspace_id() "
+            "and inviter_user_id = rec_current_user_id()) "
             "or rec_maintenance_allowed())"
         )
         op.execute("drop policy if exists referral_attributions_tenant_isolation on referral_attributions")

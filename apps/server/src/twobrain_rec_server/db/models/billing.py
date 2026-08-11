@@ -12,6 +12,7 @@ from sqlalchemy import (
     Integer,
     String,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -374,6 +375,13 @@ class ReferralAttribution(Base):
         UniqueConstraint("referral_link_id", "invitee_user_id", name="uq_referral_attributions_link_invitee"),
         Index("ix_referral_attributions_workspace_state", "workspace_id", "state"),
         Index("ix_referral_attributions_link_state", "referral_link_id", "state"),
+        Index(
+            "uq_referral_attributions_invitee",
+            "invitee_user_id",
+            unique=True,
+            postgresql_where=text("invitee_user_id is not null"),
+            sqlite_where=text("invitee_user_id is not null"),
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)

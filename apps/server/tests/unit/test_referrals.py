@@ -158,3 +158,5 @@ def test_referral_routes_keep_contract_alias_and_gate_unissued_link() -> None:
     assert 'f"{str(public_base_url).rstrip(\'/\')}/r/{token}"' in route_source
     assert "referral_issue_result" in template_source
     assert "{% if referral_issued|default(False) %}" in template_source
+    assert "REFERRAL_TOKEN_MAX_AGE_DAYS" in route_source
+    assert '"expires_at": expires_at' in route_source
