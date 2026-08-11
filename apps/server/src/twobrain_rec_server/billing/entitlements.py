@@ -135,6 +135,7 @@ async def grant_confirmed_payment(
     payment_method_key_version: str = "billing-v1",
     payment_method_label: str | None = None,
     receipt_registration: ReceiptRegistration | None = None,
+    defer_referral_reward: bool = False,
 ) -> str:
     """Grant one immutable invoice only after provider GET confirms its amount."""
     await lock_storage_workspace(db, workspace_id)
@@ -162,6 +163,22 @@ async def grant_confirmed_payment(
         .with_for_update()
     )
     if existing_grant is not None:
+        if not defer_referral_reward:
+            snapshot = operation.request_snapshot
+            cycle = snapshot.get("cycle") if isinstance(snapshot, dict) else None
+            try:
+                payer_user_id = UUID(str(snapshot["billing_actor_user_id"])) if isinstance(snapshot, dict) else None
+            except (KeyError, TypeError, ValueError):
+                payer_user_id = None
+            if payer_user_id is not None and cycle in {"month", "year"}:
+                await create_pending_credit(
+                    db,
+                    workspace_id=workspace_id,
+                    invitee_user_id=payer_user_id,
+                    provider_payment_id=provider_payment_id,
+                    paid_at=existing_grant.starts_at,
+                    cycle=cycle,
+                )
         return "duplicate"
     receipt_became_available = False
     if receipt_registration is not None:
@@ -273,14 +290,15 @@ async def grant_confirmed_payment(
         invoice.plan_snapshot = {**invoice.plan_snapshot, "payment_method_label": payment_method_label}
     operation.state = "succeeded"
     await redeem_invoice_promo(db, invoice_id=invoice.id, now=paid_at)
-    await create_pending_credit(
-        db,
-        workspace_id=workspace_id,
-        invitee_user_id=payer_user_id,
-        provider_payment_id=provider_payment_id,
-        paid_at=paid_at,
-        cycle=cycle,
-    )
+    if not defer_referral_reward:
+        await create_pending_credit(
+            db,
+            workspace_id=workspace_id,
+            invitee_user_id=payer_user_id,
+            provider_payment_id=provider_payment_id,
+            paid_at=paid_at,
+            cycle=cycle,
+        )
     db.add(
         BillingAuditEvent(
             workspace_id=workspace_id,

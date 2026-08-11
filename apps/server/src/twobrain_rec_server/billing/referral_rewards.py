@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Literal
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -65,7 +65,7 @@ async def create_pending_credit(
         select(ReferralAttribution).where(
             ReferralAttribution.invitee_user_id == invitee_user_id,
             ReferralAttribution.state.in_(
-                ("bound", "registered", "attributed", "pending_maturity", "available", "applied")
+                ("bound", "registered", "attributed", "paid", "pending_maturity", "available", "applied")
             ),
         ).with_for_update()
     )
@@ -80,7 +80,7 @@ async def create_pending_credit(
     )
     if existing is not None:
         return "duplicate"
-    if attribution.state not in {"bound", "registered", "attributed"}:
+    if attribution.state not in {"bound", "registered", "attributed", "paid"}:
         return "ineligible"
     reward = first_payment_reward(paid_at=_utc(paid_at), cycle=cycle)
     if risk_signals is None:
@@ -112,18 +112,22 @@ async def create_pending_credit(
             await db.flush()
     except IntegrityError:
         return "duplicate"
-    attribution.state = "pending_maturity"
+    attribution.state = "paid"
     return "created"
 
 
 async def mature_pending_credits(db: AsyncSession, *, now: datetime, rolling_days: int = 0) -> int:
     """Apply matured credits contiguously after the current paid/bonus period."""
     current = _utc(now)
+    paid_attribution_ids = select(ReferralAttribution.id).where(ReferralAttribution.state == "paid")
     rows = await db.scalars(
         select(TimeCreditLedgerEntry)
         .where(
             TimeCreditLedgerEntry.state.in_(("pending", "available")),
-            TimeCreditLedgerEntry.maturity_at <= current,
+            or_(
+                TimeCreditLedgerEntry.maturity_at <= current,
+                TimeCreditLedgerEntry.referral_attribution_id.in_(paid_attribution_ids),
+            ),
         )
         .order_by(TimeCreditLedgerEntry.maturity_at, TimeCreditLedgerEntry.id)
         .with_for_update()
@@ -139,8 +143,15 @@ async def mature_pending_credits(db: AsyncSession, *, now: datetime, rolling_day
             )
         if current >= row.expires_at:
             row.state = "expired"
-            if attribution is not None and attribution.state == "pending_maturity":
+            if attribution is not None and attribution.state in {"paid", "pending_maturity", "available"}:
                 attribution.state = "expired"
+            continue
+        if attribution is not None and attribution.risk_signal == "review":
+            # A security review is an explicit hold; only an audited operator
+            # decision may clear it before maturity or application.
+            continue
+        if attribution is not None and attribution.state == "paid" and current < row.maturity_at:
+            attribution.state = "pending_maturity"
             continue
         window_start = current - timedelta(days=365)
         already_granted = await db.scalar(
@@ -156,7 +167,7 @@ async def mature_pending_credits(db: AsyncSession, *, now: datetime, rolling_day
         days = min(max(0, row.days), max(0, 180 - granted))
         if days <= 0:
             row.state = "rejected"
-            if attribution is not None and attribution.state == "pending_maturity":
+            if attribution is not None and attribution.state in {"paid", "pending_maturity"}:
                 attribution.state = "rejected"
             continue
         row.state = "available"
@@ -176,7 +187,7 @@ async def mature_pending_credits(db: AsyncSession, *, now: datetime, rolling_day
         start = subscription.paid_through.astimezone(UTC) if subscription.paid_through and subscription.paid_through > current else current
         row.days = days
         row.state = "applied"
-        if attribution is not None and attribution.state == "available":
+        if attribution is not None and attribution.state in {"paid", "pending_maturity", "available"}:
             attribution.state = "applied"
         row.applied_start = start
         row.applied_end = start + timedelta(days=days)
@@ -202,7 +213,7 @@ async def reverse_credit_for_payment(
         attribution = await db.scalar(
             select(ReferralAttribution).where(
                 ReferralAttribution.invitee_user_id == invitee_user_id,
-                ReferralAttribution.state.in_(("pending_maturity", "available", "applied")),
+                ReferralAttribution.state.in_(("paid", "pending_maturity", "available", "applied")),
             ).with_for_update()
         )
         if attribution is not None:
@@ -223,7 +234,7 @@ async def reverse_credit_for_payment(
                 .where(ReferralAttribution.id == row.referral_attribution_id)
                 .with_for_update()
             )
-        if attribution is not None and attribution.state in {"pending_maturity", "available"}:
+        if attribution is not None and attribution.state in {"paid", "pending_maturity", "available"}:
             attribution.state = "reversed"
         await db.flush()
         return "reversed"

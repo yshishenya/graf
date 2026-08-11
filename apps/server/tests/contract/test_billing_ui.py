@@ -70,6 +70,7 @@ def test_subscription_and_usage_surfaces_keep_no_grace_and_unlimited_copy() -> N
             recurring_authority_version=1,
         ),
         active=True,
+        paid_through_label="01.09.2026, 03:00 (МСК)",
         result=None,
         method_available=True,
         next_charge_amount_label="790 ₽",
@@ -92,6 +93,8 @@ def test_subscription_and_usage_surfaces_keep_no_grace_and_unlimited_copy() -> N
         billing_owner=True,
     )
     assert "Возобновить автопродление" in subscription_html
+    assert "01.09.2026, 03:00 (МСК)" in subscription_html
+    assert "2026-09-01 00:00:00" not in subscription_html
     assert "Без лимита по минутам и встречам" in usage_html
     assert "meeting-review.m4a" in usage_html
     assert "Состояние: <strong>В норме</strong>" in usage_html
@@ -118,6 +121,7 @@ def test_checkout_requires_explicit_recurring_consent_copy() -> None:
     )
     assert 'name="recurring_consent"' in html
     assert 'name="offer_consent"' in html
+    assert 'href="/billing/plans">Назад к тарифам</a>' in html
     assert 'href="/offer"' in html
     assert "required" in html
     assert "регулярное списание" in html

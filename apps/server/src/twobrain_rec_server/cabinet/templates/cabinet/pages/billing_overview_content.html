@@ -64,7 +64,7 @@
         {% if storage_threshold in ["80%", "95%"] %}<p class="notice" role="status" aria-live="polite">Состояние хранилища: {{ storage_threshold_label|default("заполнение уточняется") }}. Можно удалить старые записи, увеличить хранилище или продолжить обработку без сохранения аудио.</p>{% elif storage_threshold == "full" %}<p class="notice" role="status" aria-live="polite">Хранилище заполнено. Новое аудио не сохраняется в архив, но обработку можно запустить без сохранения аудио: расшифровка и заметки останутся, исходный звук — нет.</p>{% endif %}
         {% endif %}
         {% if billing_data_available|default(True) %}<a class="button quiet" href="/billing/usage">Открыть использование</a>{% endif %}
-        {% if billing_owner %}<a class="button quiet" href="/billing/storage">Настроить хранилище</a>{% endif %}
+        {% if billing_owner %}<a class="button quiet" href="/billing/storage">Управлять хранением</a>{% endif %}
       </section>
       {% if billing_owner %}
       <section class="settings-section cabinet-card" aria-labelledby="billing-catalog-title">
@@ -76,7 +76,7 @@
       <section class="settings-section cabinet-card" aria-labelledby="billing-method-title">
         <h2 id="billing-method-title">Способ оплаты</h2>
         <p class="muted">Сохранённая карта нужна только для разрешённых регулярных списаний.</p>
-        <a class="button quiet" href="/billing/payment-method">Открыть способ оплаты</a>
+        <a class="button quiet" href="/billing/payment-method">Изменить способ оплаты</a>
       </section>
       <section class="settings-section cabinet-card" aria-labelledby="billing-support-title">
         <h2 id="billing-support-title">Платежи и возврат</h2>

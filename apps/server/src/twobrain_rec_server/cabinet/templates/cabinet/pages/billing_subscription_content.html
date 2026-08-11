@@ -22,14 +22,14 @@
         <p class="notice" role="status" aria-live="polite">Проверяем результат последнего списания. Нового платежа не создаём. Если подтверждения не будет, доступ сразу перейдёт на бесплатный тариф.</p>
         {% endif %}
         {% if active %}
-        <p>Оплачено до: <strong>{{ subscription.paid_through }}</strong>.</p>
+        <p>Оплачено до: <strong>{{ paid_through_label|default("дата уточняется") }}</strong>.</p>
         {% if subscription.recurring_allowed %}
-        <p>Следующее списание: <strong>{{ subscription.paid_through }}</strong> по сохранённому способу оплаты.</p>
+        <p>Следующее списание: <strong>{{ paid_through_label|default("дата уточняется") }}</strong> по сохранённому способу оплаты.</p>
         <p class="muted">Если передумаете, автопродление можно включить снова до даты окончания доступа.</p>
         <form action="/billing/subscription/cancel" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<input type="hidden" name="expected_authority_version" value="{{ subscription.recurring_authority_version }}"><button class="button quiet" type="submit">Отключить автопродление</button></form>
         {% else %}
         <p>Автопродление отключено. Нового списания не будет.</p>
-        <p class="muted">Возобновление не создаёт новый платёж. Следующее списание: <strong>{{ next_charge_amount_label|default("сумма уточняется") }}</strong> после {{ subscription.paid_through }}. Для действия нужна сохранённая подтверждённая карта.</p>
+        <p class="muted">Возобновление не создаёт новый платёж. Следующее списание: <strong>{{ next_charge_amount_label|default("сумма уточняется") }}</strong> после {{ paid_through_label|default("даты уточняется") }}. Для действия нужна сохранённая подтверждённая карта.</p>
         {% if method_available|default(False) %}<form action="/billing/subscription/resume" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<input type="hidden" name="expected_authority_version" value="{{ subscription.recurring_authority_version }}"><label><input type="checkbox" name="resume_consent" value="true"> Я разрешаю следующее рекуррентное списание по указанной сумме и дате.</label><button class="button" type="submit">Возобновить автопродление</button></form>{% else %}<p role="status">Возобновление недоступно до добавления подтверждённого способа оплаты.</p>{% endif %}
         {% endif %}
         {% else %}<p>Активной платной подписки нет. После окончания оплаченного периода доступ сразу переходит на бесплатный тариф.</p><p>Следующее списание: <strong>не запланировано</strong>.</p>{% if billing_enabled|default(False) %}<a class="button" href="/billing/checkout">Выбрать тариф</a>{% else %}<p role="status">Оплата временно недоступна; магазин не включён.</p>{% endif %}{% endif %}

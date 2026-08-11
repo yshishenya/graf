@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from hashlib import sha256
 from typing import TYPE_CHECKING
 
 import httpx
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.billing.entitlements import (
@@ -59,6 +61,7 @@ async def reconcile_pending_initial_checkout_operations(
     *,
     limit: int = 100,
     operation_id: object | None = None,
+    defer_referral_reward: bool = False,
 ) -> dict[str, int]:
     """Poll persisted initial payments when the webhook was lost.
 
@@ -107,8 +110,15 @@ async def reconcile_pending_initial_checkout_operations(
                             payment_method_label=extract_payment_method_label(payload),
                             payment_method_key=read_billing_encryption_key(settings.credential_encryption_key_file),
                             receipt_registration=observation.receipt_registration,
+                            defer_referral_reward=defer_referral_reward,
                         )
                         if grant_result in {"granted", "duplicate"}:
+                            if defer_referral_reward:
+                                await _enqueue_deferred_referral_reconciliation(
+                                    db,
+                                    operation=operation,
+                                    observation=observation,
+                                )
                             counters["succeeded"] += 1
                         else:
                             counters["failed"] += 1
@@ -140,6 +150,56 @@ async def reconcile_pending_initial_checkout_operations(
     except (YooKassaConfigurationError, ValueError):
         counters["failed"] += len(operations)
     return counters
+
+
+async def _enqueue_deferred_referral_reconciliation(
+    db: AsyncSession,
+    *,
+    operation: BillingOperation,
+    observation: object,
+) -> None:
+    """Persist a maintenance-owned retry for cross-workspace referral credit.
+
+    Browser status refresh runs in the payer workspace context. The entitlement
+    grant is safe there, but the inviter's ledger is intentionally writable only
+    by maintenance. A deterministic inbox row keeps that reward eventual and
+    idempotent without widening request RLS.
+    """
+    provider_payment_id = str(getattr(observation, "provider_payment_id", ""))
+    occurred_at = getattr(observation, "provider_created_at", None)
+    if not provider_payment_id or occurred_at is None:
+        return
+    provider_event_id = f"status_refresh_{sha256(provider_payment_id.encode()).hexdigest()}"
+    payload_hash = sha256(
+        f"payment.succeeded:{provider_payment_id}:{occurred_at.isoformat()}".encode()
+    ).hexdigest()
+    existing = await db.scalar(
+        select(BillingWebhookEvent).where(
+            BillingWebhookEvent.workspace_id == operation.workspace_id,
+            BillingWebhookEvent.provider_event_id == provider_event_id,
+        )
+    )
+    if existing is not None:
+        return
+    try:
+        async with db.begin_nested():
+            db.add(
+                BillingWebhookEvent(
+                    workspace_id=operation.workspace_id,
+                    provider_event_id=provider_event_id,
+                    event_type="payment.succeeded",
+                    object_id=provider_payment_id,
+                    occurred_at=occurred_at,
+                    payload_hash=payload_hash,
+                    state="pending_reconciliation",
+                    metadata_json={"source": "status_refresh", "referral_reward_deferred": True},
+                )
+            )
+            await db.flush()
+    except IntegrityError:
+        # Another serialized status refresh already enqueued this deterministic
+        # event; the confirmed entitlement remains committed.
+        return
 
 
 async def reconcile_pending_webhook_events(
