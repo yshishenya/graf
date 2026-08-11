@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 
 from starlette.requests import Request
+
 from twobrain_rec_server.billing.catalog import plan_descriptor
 from twobrain_rec_server.billing.usage import format_duration
 from twobrain_rec_server.cabinet.templates import render_template

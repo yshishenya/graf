@@ -4,6 +4,7 @@ from pathlib import Path
 from uuid import UUID
 
 import pytest
+
 from twobrain_rec_server.billing.referral_rewards import mature_credit, payment_source_ref
 from twobrain_rec_server.billing.referrals import (
     ReferralRiskSignals,
