@@ -274,11 +274,17 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
     /// may contain payment, provider, promo or referral data and never cross
     /// the desktop-to-browser boundary.
     public func sanitizedExternalURL(for url: URL) -> URL? {
-        guard decision(for: url).decision == .openExternally else { return nil }
-        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-        components?.query = nil
-        components?.fragment = nil
-        return components?.url
+        let routeDecision = decision(for: url)
+        guard routeDecision.decision == .openExternally,
+              let scheme = url.scheme?.lowercased(),
+              let host = url.host?.lowercased()
+        else { return nil }
+        var components = URLComponents()
+        components.scheme = scheme
+        components.host = host
+        components.port = url.port
+        components.path = routeDecision.route.path
+        return components.url
     }
 
     public func reviewDecision(

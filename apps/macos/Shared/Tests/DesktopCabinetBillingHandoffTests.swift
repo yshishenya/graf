@@ -41,12 +41,14 @@ final class DesktopCabinetBillingHandoffTests: XCTestCase {
         let policy = DesktopCabinetRoutePolicy(
             baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev"))
         )
-        let source = try XCTUnwrap(URL(string: "https://rec.2brain.dev/billing/checkout?amount=790&provider_id=pay_033#payment"))
+        let source = try XCTUnwrap(URL(string: "https://user:secret@rec.2brain.dev/billing/checkout?amount=790&provider_id=pay_033#payment"))
 
         let sanitized = try XCTUnwrap(policy.sanitizedExternalURL(for: source))
         XCTAssertEqual(sanitized.absoluteString, "https://rec.2brain.dev/billing/checkout")
         XCTAssertNil(sanitized.query)
         XCTAssertNil(sanitized.fragment)
+        XCTAssertNil(sanitized.user)
+        XCTAssertNil(sanitized.password)
     }
 
     func testUnsafeRouteCannotBeSanitizedForExternalHandoff() throws {
