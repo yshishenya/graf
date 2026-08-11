@@ -35,6 +35,11 @@ _REASON_LABELS = {
     "limit_circumvention": "обход технических ограничений",
     "security_abuse": "подозрение на злоупотребление безопасностью",
 }
+_CAPABILITY_LABELS = {
+    "server_processing": "обработка встреч",
+    "storage": "хранилище",
+    "exports": "экспорт данных",
+}
 _STATE_LABELS = {
     "notice": "Уведомление",
     "restricted": "Ограничение на проверке",
@@ -52,7 +57,7 @@ def _review_view(row: FairUseReviewRecord, *, now: datetime, can_appeal: bool) -
     review_by = row.review_by.astimezone(UTC)
     return {
         "id": str(row.id),
-        "capability": row.capability,
+        "capability": _CAPABILITY_LABELS.get(row.capability, "одна из функций продукта"),
         "reason_label": _REASON_LABELS.get(row.reason_code, "доказуемая неперсональная эксплуатация"),
         "state_label": _STATE_LABELS.get(row.state, "Статус уточняется"),
         "review_by_label": _date_label(review_by),

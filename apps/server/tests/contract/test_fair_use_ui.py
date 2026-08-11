@@ -24,7 +24,7 @@ def test_fair_use_routes_and_template_keep_user_safe_boundaries() -> None:
         reviews=[
             {
                 "id": "00000000-0000-0000-0000-000000000001",
-                "capability": "server_processing",
+                "capability": "обработка встреч",
                 "reason_label": "автоматизированная массовая обработка",
                 "state_label": "Ограничение на проверке",
                 "review_by_label": "07.08.2026, 12:00",
@@ -44,6 +44,7 @@ def test_fair_use_routes_and_template_keep_user_safe_boundaries() -> None:
     assert '"/account/fair-use/{review_id}/appeal"' in route_source
     assert 'name="csrf_token" value="synthetic-csrf"' in template
     assert "Обжаловать ограничение" in template
+    assert "обработка встреч" in template
     assert "Локальная запись и остановка" in template
     assert "Скопировать номер для поддержки" in template
     assert "incident" not in template

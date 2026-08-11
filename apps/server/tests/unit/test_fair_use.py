@@ -46,6 +46,13 @@ def test_fair_use_review_rejects_unbounded_reason_or_time() -> None:
             evidence_ref="meeting-content",
             starts_at=datetime(2026, 8, 7),
         )
+    with pytest.raises(ValueError):
+        create_review(
+            capability="server_processing",
+            reason="automated_bulk",
+            evidence_ref="incident/123",
+            starts_at=datetime(2026, 8, 7, tzinfo=UTC),
+        )
 
 
 def test_billing_event_taxonomy_is_closed_and_refund_free() -> None:
