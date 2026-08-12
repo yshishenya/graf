@@ -27,7 +27,7 @@ public enum PlatformSupport {
         operatingSystemVersion: OperatingSystemVersion = ProcessInfo.processInfo.operatingSystemVersion,
         architecture: MacArchitecture = currentArchitecture
     ) -> Bool {
-        architecture == .appleSilicon &&
+        (architecture == .appleSilicon || architecture == .intel) &&
             isAtLeastMinimumMacOS(operatingSystemVersion)
     }
 

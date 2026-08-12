@@ -493,8 +493,8 @@ func validatePlatformGate() throws {
         "PlatformSupport minimum macOS must be 14.5"
     )
     try require(
-        PlatformSupport.currentArchitecture == .appleSilicon,
-        "This MVP validation command must run on Apple Silicon"
+        PlatformSupport.currentArchitecture != .unknown,
+        "This validation command must run on a supported macOS architecture"
     )
 }
 

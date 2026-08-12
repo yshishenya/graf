@@ -22,7 +22,7 @@ WORDMARK_DARK="$MACOS_DIR/RecApp/Resources/GrafWordmarkDark.png"
 WORDMARK_DARK_2X="$MACOS_DIR/RecApp/Resources/GrafWordmarkDark@2x.png"
 WORDMARK_LIGHT="$MACOS_DIR/RecApp/Resources/GrafWordmarkLight.png"
 WORDMARK_LIGHT_2X="$MACOS_DIR/RecApp/Resources/GrafWordmarkLight@2x.png"
-OUTPUT_PKG="${1:-"$BUILD_DIR/graf-local.pkg"}"
+OUTPUT_PKG="${1:-"$BUILD_DIR/graf.pkg"}"
 APP_SIGN_IDENTITY="${GRAF_APP_SIGN_IDENTITY:-${TWO_BRAIN_REC_APP_SIGN_IDENTITY:-${DEVELOPER_ID_APPLICATION_IDENTITY:-}}}"
 UPDATE_FEED_URL="${GRAF_UPDATE_FEED_URL:-}"
 SPARKLE_PUBLIC_ED_KEY="${GRAF_SPARKLE_PUBLIC_ED_KEY:-}"
@@ -166,15 +166,47 @@ rm -rf "$BUILD_DIR"
 mkdir -p "$STAGE_DIR/app/Applications"
 mkdir -p "$COMPONENT_DIR"
 mkdir -p "$SCRIPTS_DIR/desktop-app"
-swift build --package-path "$MACOS_DIR" -c release --product TwoBrainRecApp
 
-BIN_DIR=$(swift build --package-path "$MACOS_DIR" -c release --show-bin-path)
-APP_EXECUTABLE="$BIN_DIR/TwoBrainRecApp"
-APP_CORE_RESOURCE_BUNDLE="$BIN_DIR/$APP_CORE_RESOURCE_BUNDLE_NAME"
+build_architecture() {
+  architecture=$1
+  triple=$2
+  scratch_path="$BUILD_DIR/swift-$architecture"
+  if ! swift build \
+    --package-path "$MACOS_DIR" \
+    --scratch-path "$scratch_path" \
+    --triple "$triple" \
+    -c release \
+    --product TwoBrainRecApp >&2; then
+    return 1
+  fi
+  bin_dir="$scratch_path/${triple%%-*}-apple-macosx/release"
+  if [ ! -x "$bin_dir/TwoBrainRecApp" ]; then
+    echo "Missing $architecture executable at $bin_dir/TwoBrainRecApp" >&2
+    return 1
+  fi
+  printf '%s\n' "$bin_dir"
+}
+
+ARM_BIN_DIR=$(build_architecture arm64 arm64-apple-macosx14.5)
+INTEL_BIN_DIR=$(build_architecture x86_64 x86_64-apple-macosx14.5)
+ARM_APP_EXECUTABLE="$ARM_BIN_DIR/TwoBrainRecApp"
+INTEL_APP_EXECUTABLE="$INTEL_BIN_DIR/TwoBrainRecApp"
+APP_CORE_RESOURCE_BUNDLE="$ARM_BIN_DIR/$APP_CORE_RESOURCE_BUNDLE_NAME"
 SPARKLE_FRAMEWORK_SOURCE="$MACOS_DIR/.build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework"
 
-if [ ! -x "$APP_EXECUTABLE" ]; then
-  echo "Missing app executable at $APP_EXECUTABLE" >&2
+for executable in "$ARM_APP_EXECUTABLE" "$INTEL_APP_EXECUTABLE"; do
+  if [ ! -x "$executable" ]; then
+    echo "Missing app executable at $executable" >&2
+    exit 1
+  fi
+done
+
+if [ "$(lipo -archs "$ARM_APP_EXECUTABLE")" != "arm64" ]; then
+  echo "ARM build is not arm64-only: $(lipo -archs "$ARM_APP_EXECUTABLE")" >&2
+  exit 1
+fi
+if [ "$(lipo -archs "$INTEL_APP_EXECUTABLE")" != "x86_64" ]; then
+  echo "Intel build is not x86_64-only: $(lipo -archs "$INTEL_APP_EXECUTABLE")" >&2
   exit 1
 fi
 if [ ! -f "$APP_ICON" ]; then
@@ -208,7 +240,14 @@ rm -rf "$APP_BUNDLE"
 mkdir -p "$APP_BUNDLE/Contents/MacOS"
 mkdir -p "$APP_BUNDLE/Contents/Resources"
 mkdir -p "$APP_BUNDLE/Contents/Frameworks"
-cp "$APP_EXECUTABLE" "$APP_BUNDLE/Contents/MacOS/GRAF"
+lipo -create \
+  "$ARM_APP_EXECUTABLE" \
+  "$INTEL_APP_EXECUTABLE" \
+  -output "$APP_BUNDLE/Contents/MacOS/GRAF"
+if [ "$(lipo -archs "$APP_BUNDLE/Contents/MacOS/GRAF" | tr ' ' '\n' | sort | tr '\n' ' ' | sed 's/ $//')" != "arm64 x86_64" ]; then
+  echo "Final app executable is not universal: $(lipo -archs "$APP_BUNDLE/Contents/MacOS/GRAF")" >&2
+  exit 1
+fi
 ditto "$SPARKLE_FRAMEWORK_SOURCE" "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework"
 cp -R "$APP_CORE_RESOURCE_BUNDLE" "$APP_BUNDLE/Contents/Resources/"
 cp "$SPARKLE_LICENSE_SOURCE" "$APP_BUNDLE/Contents/Resources/Sparkle-LICENSE.txt"
@@ -427,7 +466,7 @@ EOF
   fi
 fi
 
-cp -R "$APP_BUNDLE" "$STAGE_DIR/app/Applications/"
+ditto --norsrc --noextattr --noqtn "$APP_BUNDLE" "$STAGE_DIR/app/Applications/GRAF.app"
 xattr -cr "$STAGE_DIR/app" 2>/dev/null || true
 cat > "$SCRIPTS_DIR/desktop-app/preinstall" <<'EOF'
 #!/usr/bin/env sh

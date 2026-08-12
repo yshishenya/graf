@@ -2,6 +2,7 @@
 set -eu
 
 ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/../../.." && pwd)
+INSTALLER_BUILD_DIR="${GRAF_INSTALLER_BUILD_DIR:-$ROOT_DIR/apps/macos/.build/installer}"
 
 usage() {
     echo "validate-system-audio-capture-pivot.sh"
@@ -259,14 +260,23 @@ validate_installer_app_only() {
         blocked "local app-only package build failed"
     fi
 
-    component_dir=$ROOT_DIR/apps/macos/.build/installer/components
-    stage_app_dir=$ROOT_DIR/apps/macos/.build/installer/stage/app
-    product_package=$ROOT_DIR/apps/macos/.build/installer/graf-local.pkg
+    component_dir=$INSTALLER_BUILD_DIR/components
+    stage_app_dir=$INSTALLER_BUILD_DIR/stage/app
+    product_package=$INSTALLER_BUILD_DIR/graf.pkg
     [ -f "$product_package" ] || blocked "local product package is missing"
     [ -f "$component_dir/graf-desktop-app.pkg" ] || blocked "desktop app component package is missing"
     component_count=$(find "$component_dir" -maxdepth 1 -type f -name "*.pkg" | wc -l | tr -d " ")
     [ "$component_count" = "1" ] || blocked "installer contains more than one component package"
-    [ -d "$stage_app_dir/GRAF.app" ] || blocked "staged application bundle is missing"
+    staged_app="$stage_app_dir/Applications/GRAF.app"
+    [ -d "$staged_app" ] || blocked "staged application bundle is missing"
+    staged_executable="$staged_app/Contents/MacOS/GRAF"
+    [ -f "$staged_executable" ] || blocked "staged application executable is missing"
+    staged_arches=$(lipo -archs "$staged_executable" 2>/dev/null || true)
+    [ "$(printf '%s\n' "$staged_arches" | tr ' ' '\n' | sort | tr '\n' ' ' | sed 's/ $//')" = "arm64 x86_64" ] || \
+        blocked "staged application is not universal: $staged_arches"
+    if find "$stage_app_dir" -name '._*' -o -name '.DS_Store' | grep -q .; then
+        blocked "app-only package contains Finder metadata sidecars"
+    fi
     if find "$stage_app_dir" -type d -name "*.driver" -o -type d -name "*.plugin" | grep -q .; then
         blocked "app-only package contains an audio component"
     fi

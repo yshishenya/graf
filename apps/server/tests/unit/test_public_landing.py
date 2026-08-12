@@ -185,9 +185,8 @@ def test_public_download_handoff_is_available(client) -> None:
 
     assert response.status_code == 200
     assert "Скачать GRAF" in response.text
-    assert "Скачать для macOS" in response.text
-    assert "Для Mac с чипом Apple и macOS 14.5 или новее" in response.text
-    assert "Подписано разработчиком и проверено Apple" in response.text
+    assert "Скачать универсальный установщик GRAF" in response.text
+    assert "Для Mac с Apple Silicon или Intel и macOS 14.5 или новее" in response.text
     assert "Доступно" in response.text
     assert "Скоро" in response.text
     assert "Windows" in response.text
@@ -196,7 +195,11 @@ def test_public_download_handoff_is_available(client) -> None:
     assert "нотарифицировано Apple" not in response.text
     assert "Открыть всё равно" not in response.text
     assert "без подписи Developer ID" not in response.text
-    assert "/static/public/downloads/graf-local.pkg?v=" in response.text
+    assert "/static/public/downloads/graf.pkg?v=" in response.text
+    assert response.text.count("/static/public/downloads/graf.pkg?v=") == 1
+    assert "graf-local.pkg" not in response.text
+    assert "ARM" not in response.text
+    assert "Intel-версия" not in response.text
     assert response.text.count('data-platform-status="planned"') == 2
     assert 'data-platform="windows" href=' not in response.text.lower()
     assert 'data-platform="linux" href=' not in response.text.lower()
@@ -295,7 +298,7 @@ def test_public_download_analytics_attributes_do_not_change_handoff_destinations
     assert 'href="/login?next=/meetings"' in response.text
     assert 'data-analytics-cta="download_page_login"' in response.text
     assert 'data-analytics-target="login"' in response.text
-    assert "/static/public/downloads/graf-local.pkg?v=" in response.text
+    assert "/static/public/downloads/graf.pkg?v=" in response.text
     assert "download" in response.text
     assert 'data-analytics-cta="download_page_installer"' in response.text
     assert 'data-analytics-target="installer_package"' in response.text

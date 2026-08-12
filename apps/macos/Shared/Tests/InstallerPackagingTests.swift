@@ -12,7 +12,7 @@ final class InstallerPackagingTests: XCTestCase {
         )
 
         XCTAssertTrue(script.contains("APP_CORE_RESOURCE_BUNDLE_NAME=\"TwoBrainRecMacOS_TwoBrainRecAppCore.bundle\""))
-        XCTAssertTrue(script.contains("APP_CORE_RESOURCE_BUNDLE=\"$BIN_DIR/$APP_CORE_RESOURCE_BUNDLE_NAME\""))
+        XCTAssertTrue(script.contains("APP_CORE_RESOURCE_BUNDLE=\"$ARM_BIN_DIR/$APP_CORE_RESOURCE_BUNDLE_NAME\""))
         XCTAssertTrue(script.contains("cp -R \"$APP_CORE_RESOURCE_BUNDLE\" \"$APP_BUNDLE/Contents/Resources/\""))
     }
 
@@ -30,6 +30,20 @@ final class InstallerPackagingTests: XCTestCase {
         XCTAssertFalse(script.contains("AudioDriver"))
         XCTAssertFalse(script.contains("Audio/Plug-Ins/HAL"))
         XCTAssertFalse(script.contains("audio-driver"))
+    }
+
+    func testLocalInstallerBuildsOneUniversalExecutable() throws {
+        let script = try String(
+            contentsOf: Self.repositoryRoot()
+                .appendingPathComponent("apps/macos/Installer/Scripts/build-local-installer.sh"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(script.contains("arm64-apple-macosx14.5"))
+        XCTAssertTrue(script.contains("x86_64-apple-macosx14.5"))
+        XCTAssertTrue(script.contains("lipo -create"))
+        XCTAssertTrue(script.contains("OUTPUT_PKG=\"${1:-\"$BUILD_DIR/graf.pkg\"}\""))
+        XCTAssertFalse(script.contains("graf-local.pkg"))
     }
 
     private static func repositoryRoot() throws -> URL {
