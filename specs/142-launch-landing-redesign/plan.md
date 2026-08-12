@@ -1,6 +1,6 @@
 # Implementation Plan: Launch Landing Redesign
 
-**Branch**: `142-launch-landing-redesign` | **Date**: 2026-08-07 | **Spec**: [spec.md](./spec.md)
+**Branch**: `codex/146-public-legal-hardening` | **Date**: 2026-08-12 | **Spec**: [spec.md](./spec.md)
 
 **Input**: Feature specification from `/specs/142-launch-landing-redesign/spec.md`
 
@@ -14,13 +14,13 @@
 
 **Primary Dependencies**: existing FastAPI public router, Jinja templates, local packaged static assets, existing consent-aware public analytics
 
-**Storage**: N/A; feature does not add persistence, catalog data, payment state or migrations
+**Storage**: existing browser consent state only; no database schema, catalog data, payment state or migrations
 
 **Testing**: focused pytest public landing/analytics contracts, HTML/CSS static checks, local browser desktop/mobile/accessibility interaction matrix, Product Design visual comparison
 
 **Risk / Validation Lane**: `high-risk-feature`; public launch positioning touches brand-distance UX, privacy/AI claims, capture wording, download truth and payment expectations
 
-**Release Gate**: `no deploy`; implementation and local evidence only. Public rollout requires separate signed-installer, screenshot, AI/egress and billing claim gates plus explicit user approval.
+**Release Gate**: public rollout remains blocked until the published policy matches the active processors and cross-border notification posture; paid checkout remains disabled until a catalog, fiscal flow and effective payment terms exist.
 
 **Target Platform**: responsive public web at 320–1440+ CSS px; current downloadable client remains macOS-first
 
@@ -30,7 +30,7 @@
 
 **Constraints**: no fake product assets, no personal data, no hardcoded price, no specific model names, no false universal capture/egress claim, no public local/self-signed installer claim, WCAG-oriented keyboard/focus/contrast/reduced-motion behavior
 
-**Scale/Scope**: two public templates, one shared stylesheet, local brand/product assets, existing public routes and focused contracts; no auth, billing, checkout, capture behavior, analytics schema, app UI or database change
+**Scale/Scope**: landing, download and five legal templates; one shared stylesheet and analytics controller; public response helpers/routes and focused contracts; no auth, billing, checkout, capture behavior, app UI or database change
 
 ## Constitution Check
 
@@ -51,17 +51,20 @@ Post-Phase-1 re-check: PASS. The UI contract below narrows claims and does not e
 1. Replace the current teal/grid/3D landing presentation with the selected near-black, violet-accent editorial rhythm while preserving semantic HTML, skip link, anchors and existing analytics attributes.
 2. Use the official GRAF wordmark image and actual product UI captures. The current generated direction remains a design target only; it is never shipped as product evidence.
 3. Keep the hero platform-neutral. The proof chapters use current public truth: familiar services/manual system-audio recording, verifiable meeting outcomes, and visible user control.
-4. Reserve Russian/local AI and ruble/YooKassa copy in product documentation only until their separate gates pass. Do not add feature flags or parallel pricing logic in this slice.
+4. Keep the model-origin claim separate from data-residency claims and link to the factual processor disclosure. Reserve ruble/YooKassa conversion copy until the billing gate passes; do not add feature flags or parallel pricing logic in this slice.
 5. Redesign `/download` as a platform availability surface: macOS is the only actionable platform; Windows and Linux are non-interactive planned statuses. The existing runtime-mounted package URL remains, while release/deploy validation—not a git file-presence check—proves public readiness.
-6. Extend focused contracts for content boundaries, CTA routes, real local assets, platform status semantics, reduced motion and responsive safety. Preserve current public analytics inventory and consent behavior.
-7. Validate visually at desktop and mobile against `design/selected-direction-3.png`, then fix P0–P2 differences that do not conflict with product truth.
+6. Replace internal legal drafts with plain-Russian public editions that identify the operator, processing purposes and bases, recipients, retention limits, user rights and the actual Langfuse Cloud EU content boundary.
+7. Make Yandex Metrica truly category-scoped: defer the automatic pageview, send an allowlisted path, omit attribution without its category and disable the counter after revocation.
+8. Harden public HTML responses, add canonical/social discovery surfaces and cache only fingerprinted public assets as immutable.
+9. Extend focused contracts for legal completeness, consent categories, CTA routes, platform truth, product assets, security headers and 280–1440 px responsive safety.
+10. Validate visually at desktop and mobile against `design/selected-direction-3.png`, then fix P0–P2 differences that do not conflict with product truth.
 
 ## Validation Plan
 
 1. Run the focused public landing and analytics contracts named in `quickstart.md`.
 2. Run template/source checks for forbidden claims, personal data, fake prices, disabled platform links, external CDNs and missing focus/reduced-motion rules.
-3. Start the existing server locally and inspect `/` plus `/download` at 1440×1000, 1024×768, 768×1024, 390×844 and 320×800.
-4. Test header anchors, CTA destinations, keyboard order, visible focus, skip link, image fallback meaning and reduced-motion mode.
+3. Start the existing server locally and inspect `/`, `/download` and every legal route at 1440×1000, 1024×768, 768×1024, 390×844, 320×800 and 280×800.
+4. Test header anchors, CTA destinations, keyboard order, visible focus, skip link, image fallback meaning, consent accept/custom/reject/revoke and reduced-motion mode.
 5. Compare the 1440 landing capture with the selected direction in one visual QA input. Record findings in `design-qa.md`; fix P0/P1/P2 until `final result: passed`.
 6. Run `infra/scripts/ci-local.sh --fast` before implementation closeout because public UX/QA expectations and shared server assets change. Full CI and deploy smoke remain release-gate work.
 
@@ -89,9 +92,15 @@ specs/142-launch-landing-redesign/
 apps/server/src/twobrain_rec_server/public/
 ├── templates/public/
 │   ├── landing.html
-│   └── download.html
+│   ├── download.html
+│   ├── privacy.html
+│   ├── cookies.html
+│   ├── terms.html
+│   ├── offer.html
+│   └── analytics_consent.html
 └── static/public/
     ├── landing.css
+    ├── analytics.js
     └── landing-*.png
 
 apps/server/src/twobrain_rec_server/cabinet/static/cabinet/
@@ -103,7 +112,9 @@ apps/server/tests/
     ├── test_public_landing_contract.py
     └── test_public_analytics_contract.py
 
+apps/server/src/twobrain_rec_server/public/templates.py
 apps/server/src/twobrain_rec_server/public/web.py
+apps/server/src/twobrain_rec_server/main.py
 CHANGELOG.md
 ```
 

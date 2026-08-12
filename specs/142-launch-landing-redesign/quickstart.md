@@ -4,7 +4,8 @@
 
 - Work from the feature worktree.
 - Use synthetic screenshots only.
-- Do not publish or deploy from this feature validation pass.
+- Do not enable paid checkout until the approved catalog, fiscal flow and
+  effective payment terms are present.
 
 ## Focused contract validation
 
@@ -21,7 +22,7 @@ Expected: all focused public template, asset, analytics, focus and claim-boundar
 ## Static source checks
 
 ```bash
-rg -n "2brain Rec|Анна|Игорь|Борис|790|7 900|за рубеж ничего|YooKassa|ЮKassa" \
+rg -n "2brain Rec|Анна|Игорь|Борис|790|7 900|за рубеж ничего|Рабочая редакция|Phase 1|campaign launch" \
   apps/server/src/twobrain_rec_server/public/templates/public/landing.html \
   apps/server/src/twobrain_rec_server/public/templates/public/download.html
 ```
@@ -30,13 +31,14 @@ Expected: no obsolete brand, personal-style demo names, unapproved price or bloc
 
 ## Local browser matrix
 
-Start the existing server through the repository's normal local development path, then inspect `/` and `/download` at:
+Start the existing server through the repository's normal local development path, then inspect `/`, `/download`, `/privacy`, `/cookies`, `/terms`, `/offer` and `/analytics-consent` at:
 
 - 1440×1000
 - 1024×768
 - 768×1024
 - 390×844
 - 320×800
+- 280×800
 
 For each viewport:
 
@@ -45,8 +47,11 @@ For each viewport:
 3. Confirm visible focus for every actionable element.
 4. Confirm all `Скачать GRAF` actions reach `/download` and `Войти` reaches the existing login path.
 5. Confirm Windows/Linux statuses are not focusable controls.
-6. Disable images and confirm every proof remains understandable.
-7. Enable reduced motion and confirm smooth scroll/transforms are removed.
+6. Accept, customize, reject and revoke consent; confirm analytics, attribution
+   and replay follow their independent categories.
+7. Open a URL with query/hash and confirm no provider hit contains either.
+8. Disable images and confirm every proof remains understandable.
+9. Enable reduced motion and confirm smooth scroll/transforms are removed.
 
 ## Visual QA
 

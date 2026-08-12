@@ -362,13 +362,13 @@ h1 span {
 .hero-product::before {
   position: absolute;
   z-index: -1;
-  inset: -24% -30% -22% 6%;
+  inset: -24% -6% -22% 6%;
   content: "";
   background: url("landing-atmosphere.jpg") 70% 24% / cover no-repeat;
   opacity: 0.74;
   filter: saturate(1.08);
   pointer-events: none;
-  transform: translate3d(0, 0, 0) scale(1.08);
+  transform: translate3d(0, 0, 0) scale(1.04);
 }
 
 .hero-proof-window {
@@ -404,6 +404,12 @@ h1 span {
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
   margin: 0;
+}
+
+.hero-proof-panel picture {
+  display: block;
+  min-width: 0;
+  min-height: 0;
 }
 
 .proof-frame img {
@@ -1215,6 +1221,10 @@ h2 {
   color: var(--soft);
 }
 
+.legal-section code {
+  overflow-wrap: anywhere;
+}
+
 .legal-section p,
 .legal-section ul {
   margin: 0;
@@ -1239,7 +1249,18 @@ h2 {
   --cc-btn-secondary-hover-bg: rgba(255, 255, 255, 0.13);
   --cc-toggle-on-bg: #8b5cf6;
   --cc-toggle-off-bg: rgba(247, 244, 250, 0.2);
+  --cc-toggle-readonly-bg: #312b3c;
+  --cc-section-category-border: rgba(232, 226, 242, 0.14);
+  --cc-cookie-category-block-bg: #1b1822;
+  --cc-cookie-category-block-border: rgba(232, 226, 242, 0.14);
+  --cc-cookie-category-block-hover-bg: #241f2e;
+  --cc-cookie-category-block-hover-border: rgba(200, 186, 255, 0.28);
+  --cc-cookie-category-expanded-block-bg: rgba(139, 92, 246, 0.08);
+  --cc-cookie-category-expanded-block-hover-bg: rgba(139, 92, 246, 0.16);
   --cc-separator-border-color: rgba(232, 226, 242, 0.14);
+  --cc-footer-bg: #0d0b11;
+  --cc-footer-color: #d2ccd8;
+  --cc-footer-border-color: rgba(232, 226, 242, 0.14);
   --cc-modal-border-radius: 12px;
   --cc-btn-border-radius: 10px;
 }
@@ -1641,6 +1662,13 @@ h2 {
   .legal-page {
     padding-top: 64px;
   }
+
+  .legal-page h1 {
+    font-size: clamp(1.75rem, 9.2vw, 2.75rem);
+    hyphens: auto;
+    overflow-wrap: anywhere;
+    text-wrap: pretty;
+  }
 }
 
 @media (max-width: 320px) {
@@ -1748,8 +1776,8 @@ h2 {
 
 .platform-download.platform-download-current {
   transition: background-color 0.2s;
-  padding: 28px 16px;
-  margin: 0 -16px;
+  padding: 28px 0;
+  margin: 0;
   border-radius: 12px;
   border-bottom: 1px solid transparent;
 }

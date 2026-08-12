@@ -10,13 +10,13 @@ def test_public_landing_is_self_serve_entry(client) -> None:
     assert response.status_code == 200
     assert "Встреча закончится" in response.text
     assert "Главное останется" in response.text
-    assert "GRAF записывает встречу без бота в звонке" in response.text
+    assert "GRAF записывает звук встречи на компьютере" in response.text
     assert "регистрац" not in response.text.lower()
-    assert "Настройте один раз. Встречи запишутся сами" in response.text
-    assert "GRAF распознаёт её и запускает запись" in response.text
+    assert "Выберите приложения. GRAF подхватит встречу" in response.text
+    assert "запускает запись по вашему правилу" in response.text
     assert "79" in response.text
     assert "приложений в текущем" in response.text
-    assert "Сервис встречи не диктует сценарий" in response.text
+    assert "Запись не зависит от сервиса встречи" in response.text
     assert "Любой сервис для созвонов" not in response.text
     assert "всех приложениях" not in response.text.lower()
     assert "GRAF REC" not in response.text
@@ -27,18 +27,20 @@ def test_public_landing_is_self_serve_entry(client) -> None:
     assert "Kontur Talk" in response.text
     assert "Dion" in response.text
     assert "Google Meet и другие браузерные встречи" in response.text
-    assert "с ручным запуском записи" in response.text
+    assert "с ручным запуском" in response.text
     assert "Контекст из календаря" in response.text
-    assert "Автозапуск остаётся привязан к выбранным приложениям" in response.text
+    assert "Календарь подскажет название встречи" in response.text
     assert "SberJazz" not in response.text
     assert "через минуты" not in response.text
-    assert "Не протокол. Готовый план действий" in response.text
+    assert "После встречи понятно, что делать дальше" in response.text
     assert "Запустить двухнедельный пилот в понедельник" in response.text
     assert "Продажи готовят список участников и календарь встреч" in response.text
-    assert "Ручной старт и остановка всегда остаются доступны" in response.text
+    assert "Активная запись всегда видна" in response.text
+    assert "Остановить её можно одним действием" in response.text
     assert "Как работает автозапись" not in response.text
     assert "данные встречи созданы для демонстрации" in response.text.lower()
-    assert "Российские и локальные модели" in response.text
+    assert "Российские и локально развёрнутые модели" in response.text
+    assert "остаётся в управляемом контуре" not in response.text
     assert "ничего за рубеж" not in response.text.lower()
     assert response.text.count('href="/download"') >= 2
     assert "Скачать GRAF" in response.text
@@ -69,7 +71,7 @@ def test_public_landing_uses_local_static_assets(client) -> None:
     assert "/static/public/landing-recording-proof.png?v=" not in response.text
     assert "/static/public/landing-recording-proof-focus.png?v=" not in response.text
     assert "/static/public/landing-transcript-proof.png?v=" in response.text
-    assert "/static/public/landing-transcript-proof-mobile.png?v=" not in response.text
+    assert "/static/public/landing-transcript-proof-mobile.png?v=" in response.text
     assert "/static/public/landing-outcome-proof.png?v=" in response.text
     assert "/static/public/landing-outcome-proof-mobile.png?v=" in response.text
     assert "/static/public/landing-outcome-proof-focus.png?v=" not in response.text
@@ -82,7 +84,7 @@ def test_public_landing_uses_local_static_assets(client) -> None:
     assert 'height="2000"' in response.text
     assert "/static/public/fonts/onest-cyrillic.woff2?v=" in response.text
     assert "/static/public/fonts/onest-latin.woff2?v=" in response.text
-    assert "https://" not in response.text
+    assert "https://rec.2brain.pro/" in response.text
 
 
 def test_public_landing_accepts_synthetic_utm_visit_without_reflecting_private_values(
@@ -184,6 +186,7 @@ def test_public_download_handoff_is_available(client) -> None:
     assert response.status_code == 200
     assert "Скачать GRAF" in response.text
     assert "Скачать для macOS" in response.text
+    assert "Для Mac с чипом Apple и macOS 14.5 или новее" in response.text
     assert "Подписано разработчиком и проверено Apple" in response.text
     assert "Доступно" in response.text
     assert "Скоро" in response.text
@@ -215,11 +218,12 @@ def test_public_pages_do_not_publish_unapproved_price_or_checkout_claims(client)
     assert "оплатить" not in combined.lower()
 
 
-def test_public_legal_pages_are_available_without_public_analytics_config(client) -> None:
+def test_public_legal_pages_are_final_and_available_without_public_analytics_config(client) -> None:
     pages = {
-        "/privacy": "Политика конфиденциальности",
+        "/privacy": "Политика обработки персональных данных",
         "/cookies": "Политика cookies",
-        "/terms": "Условия публичного сайта",
+        "/terms": "Условия использования GRAF",
+        "/offer": "Условия оплаты и возврата",
         "/analytics-consent": "Согласие на аналитику",
     }
 
@@ -228,7 +232,10 @@ def test_public_legal_pages_are_available_without_public_analytics_config(client
 
         assert response.status_code == 200
         assert heading in response.text
-        assert "Рабочая редакция" in response.text or "Редакция:" in response.text
+        assert "12 августа" in response.text
+        assert "Рабочая редакция" not in response.text
+        assert "Phase 1" not in response.text
+        assert "campaign launch" not in response.text
         assert 'href="/privacy"' in response.text
         assert 'href="/cookies"' in response.text
         assert 'href="/terms"' in response.text
@@ -236,6 +243,49 @@ def test_public_legal_pages_are_available_without_public_analytics_config(client
         assert "graf-public-analytics-config" not in response.text
         assert "analytics.js" not in response.text
         assert "cookieconsent.umd.js" not in response.text
+
+
+def test_public_privacy_notice_covers_operator_product_and_current_processors(client) -> None:
+    response = client.get("/privacy")
+
+    assert response.status_code == 200
+    for required in (
+        "предприниматель Шишеня Ян Александрович",
+        "ИНН 667803118920",
+        "ОГРНИП 320665800036109",
+        "записи встреч",
+        "расшифровки",
+        "Langfuse Cloud EU",
+        "Ирланд",
+        "LiteLLM",
+        "Temporal",
+        "MediaScribe",
+        "трансгранич",
+        "yan@shishenya.ru",
+    ):
+        assert required in response.text
+    assert "всё остаётся в России" not in response.text
+    assert "полное удаление у всех поставщиков" not in response.text
+
+
+def test_public_terms_put_recording_lawfulness_on_the_recording_user(client) -> None:
+    response = client.get("/terms")
+
+    assert response.status_code == 200
+    assert "законное основание" in response.text
+    assert "проинформировать участников о записи" in response.text
+    assert "охраняемой законом" in response.text
+
+
+def test_public_payment_conditions_do_not_pretend_checkout_is_active(client) -> None:
+    response = client.get("/offer")
+
+    assert response.status_code == 200
+    assert "Условия оплаты и возврата" in response.text
+    assert "платная подписка сейчас не продаётся" in response.text.lower()
+    assert "платное предложение возникает только когда интерфейс оплаты" in response.text.lower()
+    assert "полная цена в рублях" in response.text.lower()
+    assert "Публичная оферта GRAF" not in response.text
 
 
 def test_public_download_analytics_attributes_do_not_change_handoff_destinations(client) -> None:

@@ -5,9 +5,10 @@ from functools import lru_cache
 from pathlib import Path
 
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 
-from twobrain_rec_server.public.templates import public_template_response
+from twobrain_rec_server.config import Settings
+from twobrain_rec_server.public.templates import DEFAULT_PUBLIC_BASE_URL, public_template_response
 
 router = APIRouter(tags=["public-web"])
 LANDING_AUTORECORD_PRIORITY = (
@@ -85,7 +86,7 @@ async def public_privacy_page(request: Request) -> HTMLResponse:
     return public_template_response(
         request,
         "public/privacy.html",
-        page_title="Политика конфиденциальности GRAF",
+        page_title="Политика обработки персональных данных GRAF",
     )
 
 
@@ -103,7 +104,7 @@ async def public_terms_page(request: Request) -> HTMLResponse:
     return public_template_response(
         request,
         "public/terms.html",
-        page_title="Условия публичного сайта GRAF",
+        page_title="Условия использования GRAF",
     )
 
 
@@ -112,7 +113,7 @@ async def public_offer_page(request: Request) -> HTMLResponse:
     return public_template_response(
         request,
         "public/offer.html",
-        page_title="Публичная оферта GRAF",
+        page_title="Условия оплаты и возврата GRAF",
     )
 
 
@@ -122,4 +123,26 @@ async def public_analytics_consent_page(request: Request) -> HTMLResponse:
         request,
         "public/analytics_consent.html",
         page_title="Согласие на аналитику GRAF",
+    )
+
+
+def _public_base_url(request: Request) -> str:
+    settings = getattr(request.app.state, "settings", Settings())
+    return str(settings.public_base_url or DEFAULT_PUBLIC_BASE_URL).rstrip("/")
+
+
+@router.get("/robots.txt", response_class=PlainTextResponse, include_in_schema=False)
+async def public_robots(request: Request) -> PlainTextResponse:
+    base_url = _public_base_url(request)
+    return PlainTextResponse(f"User-agent: *\nAllow: /\nSitemap: {base_url}/sitemap.xml\n")
+
+
+@router.get("/sitemap.xml", include_in_schema=False)
+async def public_sitemap(request: Request) -> Response:
+    base_url = _public_base_url(request)
+    locations = ("/", "/download", "/privacy", "/cookies", "/terms", "/analytics-consent")
+    urls = "".join(f"<url><loc>{base_url}{path}</loc></url>" for path in locations)
+    return Response(
+        f'<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{urls}</urlset>',
+        media_type="application/xml",
     )

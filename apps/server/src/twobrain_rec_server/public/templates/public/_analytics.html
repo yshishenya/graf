@@ -2,7 +2,7 @@
   <a href="/privacy">Конфиденциальность</a>
   <a href="/cookies">Cookies</a>
   <a href="/terms">Условия</a>
-  <a href="/offer">Оферта и тарифы</a>
+  <a href="/offer">Оплата и возврат</a>
   <a href="/analytics-consent">Согласие на аналитику</a>
   {% if public_analytics.enabled %}
     <button class="cookie-settings-link" type="button" data-cc="show-preferencesModal">
@@ -23,5 +23,3 @@
   ></script>
   <script defer src="{{ public_static_asset_url('analytics.js') }}"></script>
 {% endif %}
-
-{% include "public/_product_analytics_provider.html" %}

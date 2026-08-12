@@ -136,6 +136,67 @@ def test_public_landing_css_keeps_accessible_focus_and_stable_motion() -> None:
     assert "hero-proof-tabs" not in content
     assert "transition: all" not in content
     assert "overflow-x: hidden" not in content
+    assert "inset: -24% -6% -22% 6%" in content
+    assert "margin: 0 -16px" not in content
+    assert ".legal-page h1" in content
+    assert ".legal-section code" in content
+    assert "overflow-wrap: anywhere" in content
+
+
+def test_public_cookie_preferences_use_dark_contrast_tokens() -> None:
+    content = (PUBLIC_STATIC_DIR / "landing.css").read_text(encoding="utf-8")
+
+    for token in (
+        "--cc-cookie-category-block-bg: #1b1822",
+        "--cc-cookie-category-block-hover-bg: #241f2e",
+        "--cc-cookie-category-block-border: rgba(232, 226, 242, 0.14)",
+        "--cc-footer-bg: #0d0b11",
+        "--cc-footer-color: #d2ccd8",
+    ):
+        assert token in content
+
+
+def test_public_html_security_headers_discovery_and_canonical_are_shared() -> None:
+    settings = Settings(public_base_url="https://rec.2brain.pro")
+    app = create_app(settings)
+
+    from fastapi.testclient import TestClient
+
+    with TestClient(app) as client:
+        for path in ("/", "/download", "/privacy", "/cookies", "/terms", "/offer", "/analytics-consent"):
+            response = client.get(path)
+            assert response.status_code == 200
+            assert response.headers["x-content-type-options"] == "nosniff"
+            assert response.headers["x-frame-options"] == "DENY"
+            assert response.headers["referrer-policy"] == "strict-origin-when-cross-origin"
+            assert response.headers["permissions-policy"] == "camera=(), microphone=(), geolocation=()"
+            assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
+            assert f'<link rel="canonical" href="https://rec.2brain.pro{path}">' in response.text
+            assert 'property="og:title"' in response.text
+
+        robots = client.get("/robots.txt")
+        sitemap = client.get("/sitemap.xml")
+
+    assert robots.status_code == 200
+    assert "Sitemap: https://rec.2brain.pro/sitemap.xml" in robots.text
+    assert sitemap.status_code == 200
+    assert sitemap.headers["content-type"].startswith("application/xml")
+    for path in ("/", "/download", "/privacy", "/cookies", "/terms", "/analytics-consent"):
+        assert f"https://rec.2brain.pro{path}" in sitemap.text
+
+
+def test_fingerprinted_public_static_assets_are_immutable_only_with_version() -> None:
+    app = create_app(Settings())
+
+    from fastapi.testclient import TestClient
+
+    with TestClient(app) as client:
+        fingerprinted = client.get(public_static_asset_url("landing.css"))
+        stable = client.get("/static/public/landing.css")
+
+    assert fingerprinted.status_code == stable.status_code == 200
+    assert fingerprinted.headers["cache-control"] == "public, max-age=31536000, immutable"
+    assert stable.headers["cache-control"] == "no-cache"
 
 
 def test_public_landing_asset_url_is_fingerprinted() -> None:

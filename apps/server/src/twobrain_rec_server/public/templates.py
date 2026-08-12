@@ -4,14 +4,15 @@ from functools import lru_cache
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs
 
 from fastapi import Request
 from jinja2 import Environment
 from starlette.responses import HTMLResponse
+from starlette.staticfiles import StaticFiles
 
 from twobrain_rec_server.cabinet.templates import CABINET_STATIC_URL, cabinet_static_asset_url
 from twobrain_rec_server.config import Settings
-from twobrain_rec_server.product_analytics.browser_context import build_browser_provider_context
 from twobrain_rec_server.public.analytics import build_public_analytics_context
 from twobrain_rec_server.templates import (
     html_response,
@@ -21,6 +22,15 @@ from twobrain_rec_server.templates import (
 )
 
 PUBLIC_STATIC_URL = "/static/public"
+DEFAULT_PUBLIC_BASE_URL = "https://rec.2brain.pro"
+PUBLIC_HTML_HEADERS = {
+    "Cache-Control": "private, no-store",
+    "Content-Security-Policy": "frame-ancestors 'none'; base-uri 'self'; object-src 'none'",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+}
 
 
 def public_template_dir() -> str:
@@ -36,6 +46,22 @@ def public_static_asset_url(filename: str) -> str:
     path = Path(public_static_dir(), filename)
     version = sha256(path.read_bytes()).hexdigest()[:12]
     return f"{PUBLIC_STATIC_URL}/{filename}?v={version}"
+
+
+class VersionedPublicStaticFiles(StaticFiles):
+    async def get_response(self, path: str, scope: dict[str, Any]):
+        response = await super().get_response(path, scope)
+        version = parse_qs(scope.get("query_string", b"").decode("ascii", "ignore")).get("v", [None])[0]
+        try:
+            expected = public_static_asset_url(path).rsplit("?v=", 1)[1]
+        except (FileNotFoundError, IndexError):
+            expected = None
+        response.headers["Cache-Control"] = (
+            "public, max-age=31536000, immutable"
+            if response.status_code < 400 and version == expected
+            else "no-cache"
+        )
+        return response
 
 
 def get_public_templates() -> Environment:
@@ -72,17 +98,14 @@ def public_template_response(
             referrer=request.headers.get("referer"),
         ),
     )
-    public_page_class = {
-        "/": "public_landing",
-        "/download": "public_download",
-        "/privacy": "legal",
-        "/cookies": "legal",
-        "/terms": "legal",
-        "/offer": "legal",
-        "/analytics-consent": "legal",
-    }.get(analytics_path, "future_browser_page")
-    context.setdefault("product_analytics_provider", build_browser_provider_context(settings, public_page_class))
-    return html_response(
+    public_base_url = str(settings.public_base_url or DEFAULT_PUBLIC_BASE_URL).rstrip("/")
+    canonical_url = f"{public_base_url}{analytics_path}"
+    context.setdefault("canonical_url", canonical_url)
+    context.setdefault("social_title", context.get("page_title", "GRAF"))
+    context.setdefault("social_description", "GRAF записывает встречи и превращает разговор в расшифровку, решения и следующие действия.")
+    response = html_response(
         render_template(template_name, request=request, **context),
         status_code=status_code,
     )
+    response.headers.update(PUBLIC_HTML_HEADERS)
+    return response
