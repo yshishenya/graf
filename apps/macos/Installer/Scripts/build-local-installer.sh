@@ -16,7 +16,7 @@ SCRIPTS_DIR="$BUILD_DIR/scripts"
 APP_BUNDLE="$MACOS_DIR/RecApp/.build/GRAF.app"
 APP_ICON="$MACOS_DIR/RecApp/Resources/AppIcon.icns"
 APP_CORE_RESOURCE_BUNDLE_NAME="TwoBrainRecMacOS_TwoBrainRecAppCore.bundle"
-SPARKLE_LICENSE_SOURCE="$MACOS_DIR/.build/checkouts/Sparkle/LICENSE"
+SPARKLE_LICENSE_SOURCE=""
 SPARKLE_LICENSE_SHA256="389a4e4e9a32f059775b13a06e25a591445ba229d2838d26dd3e7c0c45127cfe"
 WORDMARK_DARK="$MACOS_DIR/RecApp/Resources/GrafWordmarkDark.png"
 WORDMARK_DARK_2X="$MACOS_DIR/RecApp/Resources/GrafWordmarkDark@2x.png"
@@ -192,7 +192,8 @@ INTEL_BIN_DIR=$(build_architecture x86_64 x86_64-apple-macosx14.5)
 ARM_APP_EXECUTABLE="$ARM_BIN_DIR/TwoBrainRecApp"
 INTEL_APP_EXECUTABLE="$INTEL_BIN_DIR/TwoBrainRecApp"
 APP_CORE_RESOURCE_BUNDLE="$ARM_BIN_DIR/$APP_CORE_RESOURCE_BUNDLE_NAME"
-SPARKLE_FRAMEWORK_SOURCE="$MACOS_DIR/.build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework"
+SPARKLE_FRAMEWORK_SOURCE="$BUILD_DIR/swift-arm64/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework"
+SPARKLE_LICENSE_SOURCE="$BUILD_DIR/swift-arm64/checkouts/Sparkle/LICENSE"
 
 for executable in "$ARM_APP_EXECUTABLE" "$INTEL_APP_EXECUTABLE"; do
   if [ ! -x "$executable" ]; then
