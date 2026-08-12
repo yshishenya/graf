@@ -8,5 +8,5 @@
 - [X] T008 Усилить installer validation проверкой universal staged executable.
 - [X] T009 Переключить public template, asset и contract tests на `graf.pkg`.
 - [X] T010 Исправить PRD, current status, READMEs, feature index и changelog.
-- [ ] T021 Выполнить production Developer ID/notarization/staple receipt.
+- [X] T021 Выполнить production Developer ID/notarization/staple receipt.
 - [ ] T022 Подтвердить live public download receipt после deploy.
