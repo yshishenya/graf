@@ -12,6 +12,9 @@
 - _Пока нет записей._
 
 ### Изменено
+- Feature `147-macos-arch-builds`: macOS теперь собирается одним универсальным
+  установщиком `graf.pkg` для Apple Silicon и Intel (macOS 14.5+); retired
+  virtual-driver компонент удален из активной сборки и публичного download flow.
 - Feature `096-product-analytics-provider-rollout`: product status and provider
   runbooks now reflect the 2026-07-09 production runtime state: self-hosted
   PostHog is live-safe validated on the analytics domain, while Yandex offline

@@ -143,10 +143,15 @@ def test_public_download_handoff_is_available(client) -> None:
 
     assert response.status_code == 200
     assert "Установите GRAF" in response.text
-    assert "Скачать GRAF" in response.text
-    assert "Текущий установщик" in response.text
-    assert "Скачайте пакет и откройте GRAF." in response.text
-    assert "/static/public/downloads/graf-local.pkg?v=" in response.text
+    assert "Скачать универсальный установщик GRAF" in response.text
+    assert "Установщик для Mac" in response.text
+    assert "Один пакет для Apple Silicon и Intel." in response.text
+    assert "macOS 14.5 и новее" in response.text
+    assert "/static/public/downloads/graf.pkg?v=" in response.text
+    assert response.text.count("/static/public/downloads/graf.pkg?v=") == 1
+    assert "graf-local.pkg" not in response.text
+    assert "ARM" not in response.text
+    assert "Intel-версия" not in response.text
     assert "Как только установщик будет готов" not in response.text
     assert 'href="/login?next=/meetings"' in response.text
 
@@ -181,7 +186,8 @@ def test_public_download_analytics_attributes_do_not_change_handoff_destinations
     assert 'href="/login?next=/meetings"' in response.text
     assert 'data-analytics-cta="download_page_login"' in response.text
     assert 'data-analytics-target="login"' in response.text
-    assert "/static/public/downloads/graf-local.pkg?v=" in response.text
+    assert "/static/public/downloads/graf.pkg?v=" in response.text
+    assert response.text.count("/static/public/downloads/graf.pkg?v=") == 1
     assert "download" in response.text
     assert 'data-analytics-cta="download_page_installer"' in response.text
     assert 'data-analytics-target="installer_package"' in response.text

@@ -4,11 +4,11 @@ This document is the architecture reference for the macOS-only MVP slice.
 
 ## 1) Scope And Stack
 
-- Scope: interactive macOS delivery only (`macOS 14.5+`, Apple Silicon first-class; Intel considered unsupported and blocked with explicit failure state).
+- Scope: interactive macOS delivery only (`macOS 14.5+`) through one universal
+  installer for Apple Silicon (`arm64`) and Intel (`x86_64`).
 - Primary implementation stack: SwiftUI + Swift Package modules for app layer,
-  ScreenCaptureKit/system-audio capture for the MVP recording pivot, Core Audio
-  HAL Plugin for parked future passthrough/driver work, and shell-based scripts
-  for installer lifecycle.
+  ScreenCaptureKit/system-audio capture for the MVP recording pivot, and
+  shell-based scripts for installer lifecycle.
 - No desktop Rust/Flutter/Dart layer is used for this slice.
 
 ## 2) Functional boundaries
@@ -16,25 +16,22 @@ This document is the architecture reference for the macOS-only MVP slice.
 - **System-audio MVP recording**: uses macOS capture permissions and a
   user-confirmed capture scope. It does not require driver install, driver
   repair, virtual-device publication, Core Audio restart, or HAL runtime probes.
-- **Driver**: parked for future passthrough diagnostics and experiments. It can
-  publish and manage two virtual devices, but those devices are not MVP
-  recording prerequisites:
-  - `GRAF Microphone`
-  - `GRAF Speaker`
+- **Retired virtual driver**: not part of the product, installer, or active
+  build. Future routing work requires a separate decision and safety evidence.
 - **App core (Swift)**: route verification, permission/device state, capture control surface, track/buffer continuity snapshots, local recovery hints, and diagnostics.
 - **Storage in this slice**: local encrypted buffer artifacts and manifests only.
 - **No backend audio responsibilities in client**: app does not send raw audio directly to MediaScribe and does not store API credentials.
 
 ## 2.1) Current Runtime Status (2026-06-01)
 
-### System-audio pivot status (2026-06-08)
+### System-audio pivot status (2026-08-12)
 
 Accepted for the current feature branch:
 
 - MVP recording readiness is checked from the Record flow and permission gate,
   not from driver repair or virtual-device visibility.
-- Driver diagnostics may still be displayed for legacy passthrough context, but
-  UI copy must say they are parked and not required for system-audio recording.
+- The app-only universal installer is the release path; legacy driver diagnostics
+  are not an installer or MVP acceptance dependency.
 - No-HAL validation is enforced by
   `apps/macos/Scripts/validate-system-audio-no-hal-probe.sh`.
 - CPU/resource gate evidence is recorded through metadata-only process sampling
@@ -48,19 +45,10 @@ Not accepted yet:
 
 Accepted:
 
-- local development installer builds successfully;
+- local development universal installer builds successfully;
+- the packaged `GRAF` executable contains `arm64` and `x86_64` slices;
 - app launches from `/Applications/GRAF.app` when Developer Tools Security
   is enabled for ad-hoc development builds;
-- the HAL driver is loaded by Core Audio;
-- both virtual devices are visible in macOS;
-- default-safe idle runtime proof reports both virtual devices visible/alive and
-  non-running;
-- low-resource routing is the local default after automated gates and manual
-  smoke;
-- Telemost, Chrome, Opera, and Zoom manual smoke passed with
-  `GRAF Microphone` and `GRAF Speaker`;
-- `Run Check` is retained as recheck/repair and is no longer required for normal
-  non-recording passthrough startup.
 
 Not accepted yet:
 
@@ -77,7 +65,7 @@ not start from the audio-route readiness path.
 
 ## 3) Recovery model
 
-1. **Permission/driver/path failures** are surfaced as distinct UI states.
+1. **Permission/path failures** are surfaced as distinct UI states.
 2. **Restart recovery** preserves local buffer items not yet uploaded and finalizes interrupted tracks as degraded where needed.
 3. **Installer safety** supports update deferral under active-call conditions and truthful partial cleanup or manual remediation reporting.
 
@@ -88,13 +76,13 @@ not start from the audio-route readiness path.
 
 ## 5) Installer contract
 
-- Interactive install/update/repair/rollback/uninstall only.
+- Interactive universal install/update only for the current MVP.
 - Active capture/call update should not be forced through automatically.
 - Reinstall and uninstall flows must be deterministic and reportable.
 
 ## 6) Delivery evidence mapping
 
-- Proof gate: `apps/macos/AudioDriver/RuntimeProofReport.md`
+- Universal installer proof: `specs/147-macos-arch-builds/evidence/universal-installer.md`.
 - US1/US2/US3/US4 checklists and proofs: `qa/macos/release-candidate-checklist.md`, `tests/macos/*`.
 - Schema and contracts: `tests/macos/contract/*`, `specs/001-macos-audio-driver/contracts/*`.
 
@@ -105,8 +93,6 @@ not start from the audio-route readiness path.
 - `sh apps/macos/Scripts/validate-foundation.sh`
 - `sh apps/macos/Scripts/validate-us1-regression.sh`
 - `sh apps/macos/Scripts/validate-us1-gate.sh`
-- `make -C apps/macos/AudioDriver proof-scaffold-run`
-- `make -C apps/macos/AudioDriver proof-plugin-build`
 
 ### Required interactive checks (QA/Pre-release)
 
@@ -114,8 +100,8 @@ not start from the audio-route readiness path.
   local builds, or with an Apple application signing identity for pre-release
   builds. Ad-hoc `.app` bundles may install but be killed by AMFI before launch
   when Developer Tools Security is disabled.
-- Install package and grant required permissions on a clean Apple Silicon macOS host.
-- Fresh install + permissions + virtual device presence.
+- Install package and grant required permissions on clean Apple Silicon and Intel macOS hosts.
+- Fresh install + permissions + native system-audio capture readiness.
 - Route verification UI: physical mic/speaker selection and `ready` gating.
 - Browser meeting matrix on approved targets (Chrome, Opera, Yandex Browser, Yandex Telemost).
 - 60-minute capture integrity run for wired/USB/Bluetooth/AirPods-class devices.
@@ -128,7 +114,8 @@ not start from the audio-route readiness path.
 
 For every production rollout attempt, keep:
 
-- `apps/macos/AudioDriver/RuntimeProofReport.md` with an accepted runtime result.
+- `specs/147-macos-arch-builds/evidence/universal-installer.md` with metadata-only
+  slice, package, and publication checks.
 - `qa/macos/release-candidate-checklist.md` with all remaining rows filled.
 - Signed/notarization completion notes for installer artifacts and installer script outcomes.
 - A short note for any open known limitation and explicit product-safe workaround.

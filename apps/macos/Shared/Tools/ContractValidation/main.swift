@@ -585,8 +585,8 @@ func validatePlatformGate() throws {
         "PlatformSupport minimum macOS must be 14.5"
     )
     try require(
-        PlatformSupport.currentArchitecture == .appleSilicon,
-        "This MVP validation command must run on Apple Silicon"
+        PlatformSupport.isSupported(),
+        "This MVP validation command requires macOS 14.5+ on Apple Silicon or Intel"
     )
 }
 
@@ -1174,7 +1174,7 @@ func validateAppStopFailureFailClosedSourceInvariant() throws {
     )
 
     guard let clearBlockerRange = source.range(of: "recordingBlocker = nil"),
-          let beginPreparingRange = source.range(of: "let preparing = try captureController.beginPreparing"),
+          let beginPreparingRange = source.range(of: "try captureController.beginPreparing"),
           let microphonePromptRange = source.range(of: "let microphoneSession = await microphoneCaptureService.requestPermissionAndPreflight"),
           let systemAudioPromptRange = source.range(of: "let systemAudioPermissionState = await systemAudioPermissionAuthorizer.requestPermission()")
     else {

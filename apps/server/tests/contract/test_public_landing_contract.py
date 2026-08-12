@@ -12,13 +12,23 @@ PUBLIC_TEMPLATE_DIR = ROOT / "src" / "twobrain_rec_server" / "public" / "templat
 def test_public_landing_static_assets_are_local_to_server_package() -> None:
     assert (PUBLIC_STATIC_DIR / "landing.css").is_file()
     assert (PUBLIC_STATIC_DIR / "landing-hero-product.png").is_file()
-    assert (PUBLIC_STATIC_DIR / "downloads" / "graf-local.pkg").is_file()
+    assert (PUBLIC_STATIC_DIR / "downloads" / "graf.pkg").is_file()
     assert (PUBLIC_STATIC_DIR / "analytics.js").is_file()
     assert (PUBLIC_STATIC_DIR / "cookieconsent.umd.js").is_file()
     assert (PUBLIC_STATIC_DIR / "cookieconsent.css").is_file()
     assert (PUBLIC_TEMPLATE_DIR / "landing.html").is_file()
     assert (PUBLIC_TEMPLATE_DIR / "download.html").is_file()
     assert (PUBLIC_TEMPLATE_DIR / "_analytics.html").is_file()
+
+
+def test_public_download_template_exposes_one_universal_installer() -> None:
+    content = (PUBLIC_TEMPLATE_DIR / "download.html").read_text(encoding="utf-8")
+
+    assert content.count("downloads/graf.pkg") == 1
+    assert "graf-local.pkg" not in content
+    assert "arm64" not in content.lower()
+    assert "x86_64" not in content.lower()
+    assert "Intel-версия" not in content
 
 
 def test_public_landing_static_assets_are_mounted_by_app() -> None:

@@ -1,6 +1,6 @@
 # Текущий статус продукта
 
-Date: 2026-07-10
+Date: 2026-08-12
 
 Этот документ коротко фиксирует состояние продукта на текущей ветке
 реализации. PRD остается базовой продуктовой линией; feature specs и
@@ -11,20 +11,15 @@ metadata-only evidence остаются подробной историей ре
 - macOS is the selected MVP platform.
 - The current macOS product identity is `GRAF.app` with bundle id
   `pro.2brain.graf`.
-- The Core Audio HAL component publishes `GRAF Microphone` and `GRAF Speaker`
-  with `pro.2brain.graf.*` virtual device identifiers; legacy `2brain Rec`
-  paths are kept only for cleanup and local data compatibility.
-- The installed local package can be upgraded, `coreaudiod` can be restarted,
-  and both virtual devices return visible/alive in default-safe idle state.
-- Low-resource routing is the current local default: public virtual devices
-  stay lightweight while physical input/output routes are opened only when a
-  virtual-device client needs audio or the user runs an explicit check.
-- Non-recording passthrough smoke is accepted for Telemost, Chrome, Opera, and
-  Zoom in the local environment.
-- `Run Check` is now a recheck/repair action, not the normal activation path
-  for ordinary browser/meeting audio.
-- The current route truth model separates publication, virtual client I/O, app
-  bridge, physical-device routing, and future recording triggers.
+- Feature `147-macos-arch-builds` fixes the release architecture: one public
+  `graf.pkg` contains a native universal `GRAF.app` with `arm64` and `x86_64`
+  slices, supports macOS 14.5+, and is the only download choice on `/download`.
+- The retired virtual-driver component is not part of the product, installer,
+  package distribution, or active validation. System-audio capture remains
+  app-only and native.
+- Cross-architecture SwiftPM release builds, `lipo` merge checks, package
+  metadata checks, and the public single-link contract are required before the
+  asset is published.
 - Diagnostics and validation artifacts remain metadata-only and must not include
   raw audio, transcript text, credentials, tokens, signed URLs, passwords, or
   meeting content.
@@ -550,10 +545,8 @@ metadata-only evidence остаются подробной историей ре
 - `020` is finalization-only. It does not introduce external egress, a
   MediaScribe call, live echo cancellation, recording-time route remediation,
   driver fallback, or a customer-visible auto-start policy.
-- The driver-based live virtual-device publication blocker from `019` / issue
-  #234 is superseded for MVP recording by `025` and parked as future
-  advanced-routing work. Its unsafe HAL publication attempts remain preserved
-  as negative evidence and must not be counted as accepted driver evidence.
+- Historical HAL/virtual-device validation from `019` remains negative evidence
+  only; it does not define the current product or installer.
 - ADR `001-local-trust-shell-and-server-dashboard` is accepted. Capture-critical
   desktop trust surfaces stay local/native; server/web surfaces own
   post-meeting, transcript, notes, admin, retention, deletion, audit, and fleet
@@ -573,8 +566,8 @@ metadata-only evidence остаются подробной историей ре
   product must not label polluted microphone audio as clean local speech.
   Feature `038` did not accept Apple processing for built-in speakerphone
   recording; `044` remains the real echo/noise suppression runtime candidate.
-- Driver live virtual-device publication is not accepted for MVP recording and
-  must not be revived without a separate future advanced-routing spec,
+- Driver live virtual-device publication is retired from the current product
+  and must not be restored without a separate future advanced-routing spec,
   implementation, and safety evidence.
 - Public meeting links, external-recipient invitations, partial deletion,
   legal-hold management, admin retention editing UI, billing, and desktop-owned

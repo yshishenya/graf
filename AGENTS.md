@@ -13,8 +13,9 @@ root `RULES.md` for Codex unless a separate tool explicitly requires it.
 ## Project Context
 
 Product: `GRAF`, a self-hosted meeting capture and transcription product
-with a macOS system-audio-first MVP. The virtual audio driver is parked as
-future advanced-routing work until it has separate safety evidence.
+with a macOS system-audio-first MVP. The retired virtual-driver component is not
+part of the product or build; future routing work requires a separate decision
+and safety evidence.
 
 Primary baseline document:
 
@@ -132,7 +133,7 @@ Use `docs/agent-guidance/spec-kit-flow.md` for the detailed rules. In short:
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at specs/096-product-analytics-provider-rollout/plan.md
+at specs/147-macos-arch-builds/plan.md
 <!-- SPECKIT END -->
 
 ## Tracking And GitHub Issues
@@ -174,8 +175,8 @@ diagnostics, deployment, or user-facing workflow must preserve the gates in:
 
 Non-negotiable reminders:
 
-- macOS system-audio-first MVP; virtual-driver routing is not required for MVP
-  recording acceptance.
+- macOS system-audio-first MVP; the retired virtual-driver implementation is
+  not available and is not required for recording acceptance.
 - Capture-critical implementation is platform-native by default.
 - Manual start/stop remains available, active capture is visible locally, and
   one-action stop is always available.

@@ -22,11 +22,16 @@ The product is functionally in the same category as Krisp's meeting assistant, b
 Current accepted local baseline:
 
 - macOS remains the MVP platform.
+- Feature `147-macos-arch-builds` is the current release architecture decision:
+  one public `graf.pkg` contains a native universal `GRAF.app` with `arm64`
+  and `x86_64` slices, supports macOS 14.5+, and is exposed through one
+  download link without browser-side architecture selection.
 - Feature `025-system-audio-capture-pivot` changes the MVP capture strategy to
   system-audio-first after `019` validation showed CoreAudio/HAL CPU runaway
   risk.
-- The Core Audio HAL component and virtual audio devices are no longer in the
-  MVP acceptance path. They remain future advanced-routing work.
+- The retired Core Audio HAL/virtual-driver component is not in the product,
+  installer, or active build. Any future routing work requires a separate
+  decision and safety evidence.
 - Manual `Record`/`Stop` exists with visible local recording state and
   one-action stop.
 - Local recording persistence is accepted for manual recordings.
@@ -604,32 +609,29 @@ Acceptance criteria:
 - A 5-minute network outage does not affect live audio passthrough.
 - Track timestamps remain aligned within 100 ms over a 60-minute recording.
 
-## 11. Platform Driver Requirements
+## 11. Platform And Installer Requirements
 
-Driver decisions are required before Phase 0 implementation begins, not before Phase 1.
+The current MVP is app-only and system-audio-first. The retired virtual-driver
+path is not a release prerequisite or an active build input. Future advanced
+routing requires a separate decision, implementation, and safety evidence.
 
-Phase 0 may not start coding until the following are approved:
+The current release gate covers:
 
-- macOS virtual audio implementation approach.
-- Driver/component privilege model.
-- Helper/daemon/Login Item/Background Item decision.
-- Installer/signing/notarization approach.
-- Update, rollback, repair, and uninstall approach.
-- Local passthrough failure model.
-- QA hardware and macOS version matrix.
+- app-only universal installer and package metadata;
+- Apple application signing and notarization before public release;
+- update, uninstall, and rollback behavior for the app package;
+- local permission and native system-audio capture evidence;
+- QA on Apple Silicon and Intel Macs running macOS 14.5+.
 
 macOS:
 
 - macOS 14.5+.
 - Signed and notarized installer package.
-- Apple Silicon support required.
-- Intel Mac unsupported for MVP unless explicitly added by release decision and covered by the full QA matrix.
-- Core Audio AudioServerPlugIn/HAL-style virtual device or approved modern equivalent.
-- Helper/daemon only if required.
+- One universal installer must support both Apple Silicon (`arm64`) and Intel
+  (`x86_64`) Macs.
+- Intel Macs below macOS 14.5 remain unsupported.
 - Microphone permission.
 - Screen & System Audio Recording permission if used.
-- Login Items/Background Items status where relevant.
-- System extension/driver approval state where relevant.
 - Guided remediation for missing permissions.
 
 Windows later phase:
@@ -644,62 +646,55 @@ Windows later phase:
 
 Installer/update/uninstall:
 
-- App and driver updates must be signed.
+- App updates must be signed.
 - Release candidates must pass installer QA on macOS 14.5 and the latest stable macOS at RC time.
 - Updates must not interrupt active calls.
-- Active-call update defers without interrupting passthrough.
+- Active-call update defers without interrupting capture.
 - Failed updates must roll back.
 - Admins can pin or delay update channels.
-- Uninstall removes virtual devices, helpers/services, launch/login items, and stale devices.
-- Restore previous default mic/speaker where OS APIs allow.
-- App detects driver/component version.
+- Uninstall removes app-managed artifacts and reports partial cleanup truthfully.
 - Permission denied/revoked flows show guided remediation and never claim capture is ready.
 - Failed install/update/uninstall produces diagnostic evidence without raw audio.
 
-## 12. Driver/App IPC
+## 12. App And Capture Boundaries
 
-The architecture must separate real-time audio passthrough from non-real-time control, upload, diagnostics, and UI.
+The architecture separates native capture from non-real-time upload, diagnostics,
+and UI. No virtual-driver or privileged helper is required by the current MVP.
 
 Required components:
 
-- Virtual audio driver or OS virtual audio component.
-- Privileged helper/service where required.
 - User-space desktop app.
+- Native system-audio capture layer.
 - Local recorder/buffer.
 - Uploader.
 - Diagnostics collector.
 
 IPC planes:
 
-- Control: device selection, route updates, recording start/stop/pause, policy sync, update commands.
-- Health: heartbeat, versions, permissions, route status, buffer/dropout counters, crash/restart events.
+- Control: recording start/stop/pause, policy sync, update commands.
+- Health: heartbeat, versions, permissions, capture status, buffer/dropout counters, crash/restart events.
 - Data/metadata: session ID, track ID, audio format, timestamps, sequence number, dropout markers, upload cursor.
 
 IPC requirements:
 
-- Version negotiation.
-- Backward-compatible app/driver updates.
+- Version negotiation for app-owned contracts.
 - Bounded queues and backpressure.
-- Reconnect after app/helper restart.
-- Authenticated local communication where OS-supported.
+- Reconnect after app restart.
 - Authorization checks for commands that start/stop capture, change policy, update components, or export diagnostics.
-- Signed update commands and anti-rollback protection for driver/helper updates.
-- Least-privilege boundaries for helpers/services; privileged components must expose the minimum required IPC surface.
-- No network dependency for local passthrough.
+- Signed update commands and anti-rollback protection for app updates.
+- No network dependency for native local capture.
 
 Acceptance criteria:
 
-- Restarting desktop app does not require reinstalling driver.
-- Helper/service restart restores routes or shows recoverable degraded state.
-- App/driver version mismatch is detected and reported.
-- IPC overflow cannot crash the driver.
+- Restarting the desktop app preserves recoverable local capture state or reports a degraded state.
+- App version mismatch is detected and reported.
+- IPC overflow cannot lose accepted local metadata without an explicit degraded state.
 
 ## 13. Diagnostics And Degraded Modes
 
 Diagnostics view must show:
 
-- Driver/app/helper/service status and versions.
-- Virtual device availability.
+- App and capture status and versions.
 - Selected physical mic/output.
 - Current route graph.
 - Permissions.
@@ -2015,25 +2010,26 @@ Deployment runbook acceptance on `2brain.dev`:
 - Rollback procedure is documented for app image, worker image, and database migration.
 - Logs can be inspected without exposing secrets, upload tokens, raw audio, or full transcript content by default.
 
-## 33A. Desktop Driver QA Matrix
+## 33A. macOS Universal Installer And Capture QA Matrix
 
-The driver QA matrix is a Phase 0/Phase 1 requirement, not a later polish item.
+The universal installer and native capture QA matrix is a release requirement,
+not a later polish item.
 
-MVP approved app list must be locked before Phase 0 exit. The product goal is application independence through the driver, but QA still needs representative targets. Default target list:
+MVP approved app list must be locked before release. QA still needs representative targets. Default target list:
 
 - Google Meet in Chrome.
 - Browser-based meetings in Chrome.
 - Browser-based meetings in Opera.
 - Browser-based meetings in Yandex Browser, if available on test machines.
 - Yandex Telemost in browser.
-- Any app that can select `2brain Rec Microphone` and `2brain Rec Speaker` should work, but only tested apps are officially supported in MVP.
+- Only tested meeting targets are officially supported in MVP.
 
 OS and architecture coverage:
 
 - Selected MVP OS version baseline.
 - Latest supported OS major version.
-- macOS Apple Silicon if macOS is selected.
-- macOS Intel only if supported.
+- macOS Apple Silicon (`arm64`) if macOS is selected.
+- macOS Intel (`x86_64`) is included in the same universal installer.
 - Windows x64 if Windows is selected.
 - Windows ARM only if explicitly supported.
 
@@ -2152,22 +2148,23 @@ Phase 4: Advanced capture and intelligence.
 
 ## 34. Phase Gates
 
-Phase 0 driver gates:
+Phase 0 capture and installer gates:
 
 - Target platform selected: macOS.
-- Driver implementation approach, privilege model, installer/signing/notarization approach, update/rollback/repair/uninstall approach, and QA matrix approved before Phase 0 coding starts.
-- Virtual devices install and appear in OS audio settings.
-- Approved meeting apps can select devices.
-- Mic and remote audio captured as separate tracks.
+- The app-only universal installer, signing/notarization approach, update and
+  uninstall approach, and QA matrix are approved before release.
+- The packaged app contains both `arm64` and `x86_64` slices and no retired
+  virtual-driver component.
+- Native system-audio capture records mic and incoming audio as separate tracks.
 - 30-minute and 60-minute call tests completed.
 - Latency/dropout targets measured.
 - Sleep/wake, device switch, app restart, network outage, server outage tested.
 - Installer/uninstaller path validated.
-- Diagnostic bundle captures driver/install failures.
 
 Platform-specific Phase 0 gates:
 
-- macOS: signed/notarized installer proof, required permission flow proof, virtual audio component load proof, helper recovery proof if helper is used, clean uninstall proof.
+- macOS: signed/notarized universal installer proof, required permission flow
+  proof, native system-audio capture proof, and clean uninstall proof.
 - Windows: deferred until after macOS launch. Windows must not be represented as supported during MVP.
 
 Phase 1 pilot rollout gate:
@@ -2241,14 +2238,14 @@ Engagement:
 
 ## 36. Acceptance Criteria
 
-Desktop/driver:
+Desktop/app:
 
-- Virtual mic/speaker appear in OS audio devices.
-- Approved apps can select virtual devices.
+- The universal installer contains native `arm64` and `x86_64` app slices.
+- The app records native system audio without virtual-device selection.
 - Separate mic and speaker tracks are recorded.
-- Audio passthrough continues when server/upload fails.
-- Invalid self-routing is blocked.
-- Uninstall removes virtual devices cleanly.
+- Native capture remains local when server/upload fails.
+- Permission and capture failures are visible and actionable.
+- Uninstall removes app-managed artifacts cleanly.
 
 Ingest/recovery:
 

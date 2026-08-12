@@ -4,11 +4,10 @@ This directory owns the local macOS installer package and recovery scripts.
 
 ## MVP Scope
 
-- System-audio MVP local install defaults to the desktop app only.
-- Driver install, repair, rollback, uninstall, and Core Audio restart are parked
-  for future driver diagnostics unless an explicit driver flag is set.
-- User-visible restart-required and manual-cleanup states remain required for
-  future driver work, but are not MVP recording prerequisites.
+- The system-audio MVP ships as one desktop-app-only universal installer.
+- The installer contains native `arm64` and `x86_64` slices and requires macOS
+  14.5 or later.
+- The retired virtual-driver component is not part of the product or build.
 
 Silent install, MDM, fleet deployment, and enterprise deployment are out of scope for this feature.
 
@@ -20,14 +19,16 @@ Use the native Apple `pkgbuild`/`productbuild` flow for local development:
 sudo DevToolsSecurity -enable
 spctl developer-mode enable-terminal
 sh apps/macos/Installer/Scripts/build-local-installer.sh
-open apps/macos/.build/installer/graf-local.pkg
+open apps/macos/.build/installer/graf.pkg
 ```
 
 By default, the script builds:
 
+- both native SwiftPM release slices (`arm64-apple-macosx14.5` and
+  `x86_64-apple-macosx14.5`) and merges them into one executable;
 - the local SwiftUI app bundle at `apps/macos/RecApp/.build/GRAF.app`;
 - a desktop-app component package;
-- an interactive product installer at `apps/macos/.build/installer/graf-local.pkg`.
+- an interactive product installer at `apps/macos/.build/installer/graf.pkg`.
 
 The app bundle and package version use the product CalVer release train without
 the git tag prefix: `YYYY.MM.DD.N`. When `GRAF_VERSION` is not set, the script
@@ -42,24 +43,25 @@ GRAF_VERSION=YYYY.MM.DD.N \
 The matching git tag and GitHub Release add the leading `v`, for example
 `vYYYY.MM.DD.N`.
 
-The default package does not include the proof HAL driver component and does not
-restart `coreaudiod`. This is intentional for the system-audio MVP pivot.
+The package is universal and does not include a virtual audio driver or restart
+`coreaudiod`. This is intentional for the system-audio MVP.
+
+Verify the slices before opening the package:
+
+```sh
+lipo -archs apps/macos/RecApp/.build/GRAF.app/Contents/MacOS/GRAF
+pkgutil --payload-files apps/macos/.build/installer/components/graf-desktop-app.pkg
+```
+
+The first command must report `arm64 x86_64` (order may vary). The public
+download flow intentionally exposes this single package to both supported Mac
+architectures.
 
 After installing, verify the local result with:
 
 ```sh
 open "/Applications/GRAF.app"
 ```
-
-To build the parked driver diagnostics package explicitly, opt in:
-
-```sh
-GRAF_INCLUDE_DRIVER_COMPONENT=1 \
-  GRAF_ALLOW_COREAUDIOD_RESTART=1 \
-  sh apps/macos/Installer/Scripts/build-local-installer.sh
-```
-
-Do not use the driver opt-in path for system-audio MVP acceptance.
 
 Local development may use ad-hoc app signing only when Developer Tools Security
 is enabled. If it is disabled, macOS can install the `.app` successfully but
@@ -112,6 +114,5 @@ path is `Scripts/build-local-installer.sh`.
 ## Safety Rules
 
 - Updates must not interrupt active capture or an active call.
-- Uninstall must remove app-managed virtual audio artifacts where macOS permits.
-- Uninstall must attempt to restore previous physical microphone and speaker choices where macOS permits.
+- Uninstall must remove app-managed application artifacts where macOS permits.
 - Partial cleanup must be reported truthfully with a manual remediation step.

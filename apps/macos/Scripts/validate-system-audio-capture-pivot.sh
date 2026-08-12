@@ -10,7 +10,7 @@ RELEASE_DURATION="$EVIDENCE_DIR/release-75-minute.md"
 CPU_GATES="$EVIDENCE_DIR/cpu-gates.md"
 NO_HAL="$EVIDENCE_DIR/no-hal-probe.md"
 SCOPE_REVIEW="$EVIDENCE_DIR/scope-review.md"
-DRIVER_PARKED="$EVIDENCE_DIR/driver-parked.md"
+INSTALLER_EVIDENCE="$ROOT_DIR/specs/147-macos-arch-builds/evidence/universal-installer.md"
 
 usage() {
     cat <<'USAGE'
@@ -1348,8 +1348,7 @@ validate_duration() {
 }
 
 validate_installer_app_only() {
-    mkdir -p "$EVIDENCE_DIR"
-    require_file "$DRIVER_PARKED"
+    mkdir -p "$(dirname "$INSTALLER_EVIDENCE")"
 
     build_output="$(mktemp)"
     failure_file="$(mktemp)"
@@ -1357,19 +1356,27 @@ validate_installer_app_only() {
     trap 'rm -f "$build_output" "$failure_file" "$stage_sidecars"' EXIT
 
     if ! GRAF_ALLOW_ADHOC_APP_SIGNING=1 \
-        GRAF_INCLUDE_DRIVER_COMPONENT=0 \
         sh "$ROOT_DIR/apps/macos/Installer/Scripts/build-local-installer.sh" >"$build_output" 2>&1; then
-        printf '%s\n' "default app-only package build failed" >> "$failure_file"
+        printf '%s\n' "universal app-only package build failed" >> "$failure_file"
     fi
 
     component_dir="$ROOT_DIR/apps/macos/.build/installer/components"
     stage_app_dir="$ROOT_DIR/apps/macos/.build/installer/stage/app"
     distribution="$ROOT_DIR/apps/macos/.build/installer/distribution.xml"
-    package="$ROOT_DIR/apps/macos/.build/installer/graf-local.pkg"
+    package="$ROOT_DIR/apps/macos/.build/installer/graf.pkg"
+    app_executable="$stage_app_dir/Applications/GRAF.app/Contents/MacOS/GRAF"
 
     [ -f "$package" ] || printf '%s\n' "missing local product package" >> "$failure_file"
     [ -f "$component_dir/graf-desktop-app.pkg" ] ||
         printf '%s\n' "missing desktop app component package" >> "$failure_file"
+    if [ -f "$app_executable" ]; then
+        app_architectures=$(lipo -archs "$app_executable" 2>/dev/null || true)
+        app_architecture_set=$(printf '%s\n' "$app_architectures" | tr ' ' '\n' | sort | paste -sd ' ' -)
+        [ "$app_architecture_set" = "arm64 x86_64" ] ||
+            printf '%s\n' "staged GRAF.app is not arm64+x86_64 universal" >> "$failure_file"
+    else
+        printf '%s\n' "missing staged universal GRAF executable" >> "$failure_file"
+    fi
     if find "$component_dir" -maxdepth 1 -type f -name '*audio-driver*.pkg' | grep . >/dev/null 2>&1; then
         printf '%s\n' "audio-driver component package is present in default build" >> "$failure_file"
     fi
@@ -1382,12 +1389,13 @@ validate_installer_app_only() {
         sed 's/^/stage sidecar: /' "$stage_sidecars" >> "$failure_file"
     fi
 
-    append_run_header "$DRIVER_PARKED" "App-Only Installer Validator Run"
+    append_run_header "$INSTALLER_EVIDENCE" "Universal Installer Validator Run"
     {
         printf -- '- Mode: `--installer-app-only`\n'
         printf -- '- Package: `%s`\n' "$package"
         printf -- '- Component directory: `%s`\n' "$component_dir"
-    } >> "$DRIVER_PARKED"
+        printf -- '- App architectures: `arm64 x86_64`\n'
+    } >> "$INSTALLER_EVIDENCE"
 
     if [ -s "$failure_file" ]; then
         {
@@ -1398,19 +1406,19 @@ validate_installer_app_only() {
             printf -- '- Build output tail:\n\n```text\n'
             tail -n 40 "$build_output"
             printf '```\n'
-        } >> "$DRIVER_PARKED"
+        } >> "$INSTALLER_EVIDENCE"
         printf '%s\n' "system_audio_capture_pivot_validation=blocked"
-        printf '%s\n' "reason=default local package is not app-only"
+        printf '%s\n' "reason=universal app-only package validation failed"
         cat "$failure_file"
         exit 2
     fi
 
     {
         printf -- '- Validator result: `passed`\n'
-        printf -- '- Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.\n'
-    } >> "$DRIVER_PARKED"
+        printf -- '- Safe checks: universal package built, arm64 and x86_64 slices present, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.\n'
+    } >> "$INSTALLER_EVIDENCE"
 
-    passed "default local package is app-only"
+    passed "default local package is universal and app-only"
 }
 
 validate_review_evidence() {

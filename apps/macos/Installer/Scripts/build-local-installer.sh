@@ -19,10 +19,13 @@ WORDMARK_DARK="$MACOS_DIR/RecApp/Resources/GrafWordmarkDark.png"
 WORDMARK_DARK_2X="$MACOS_DIR/RecApp/Resources/GrafWordmarkDark@2x.png"
 WORDMARK_LIGHT="$MACOS_DIR/RecApp/Resources/GrafWordmarkLight.png"
 WORDMARK_LIGHT_2X="$MACOS_DIR/RecApp/Resources/GrafWordmarkLight@2x.png"
-OUTPUT_PKG="${1:-"$BUILD_DIR/graf-local.pkg"}"
+OUTPUT_PKG="${1:-"$BUILD_DIR/graf.pkg"}"
 APP_SIGN_IDENTITY="${GRAF_APP_SIGN_IDENTITY:-${TWO_BRAIN_REC_APP_SIGN_IDENTITY:-${DEVELOPER_ID_APPLICATION_IDENTITY:-}}}"
 ALLOW_ADHOC_APP_SIGNING="${GRAF_ALLOW_ADHOC_APP_SIGNING:-${TWO_BRAIN_REC_ALLOW_ADHOC_APP_SIGNING:-0}}"
-INCLUDE_DRIVER_COMPONENT="${GRAF_INCLUDE_DRIVER_COMPONENT:-${TWO_BRAIN_REC_INCLUDE_DRIVER_COMPONENT:-0}}"
+ARM64_TRIPLE="arm64-apple-macosx14.5"
+X86_64_TRIPLE="x86_64-apple-macosx14.5"
+ARM64_SCRATCH="$BUILD_DIR/swiftpm-arm64"
+X86_64_SCRATCH="$BUILD_DIR/swiftpm-x86_64"
 DEVELOPER_TOOLS_STATUS=$(DevToolsSecurity -status 2>&1 || true)
 DEVELOPER_TOOLS_ENABLED=0
 case "$DEVELOPER_TOOLS_STATUS" in
@@ -77,24 +80,53 @@ rm -rf "$BUILD_DIR"
 mkdir -p "$STAGE_DIR/app/Applications"
 mkdir -p "$COMPONENT_DIR"
 mkdir -p "$SCRIPTS_DIR/desktop-app"
-if [ "$INCLUDE_DRIVER_COMPONENT" = "1" ]; then
-  mkdir -p "$STAGE_DIR/driver/Library/Audio/Plug-Ins/HAL"
-  mkdir -p "$SCRIPTS_DIR/audio-driver"
-fi
 
-if [ "$INCLUDE_DRIVER_COMPONENT" = "1" ]; then
-  make -C "$MACOS_DIR/AudioDriver" proof-plugin-build
-fi
-swift build --package-path "$MACOS_DIR" -c release --product TwoBrainRecApp
+swift build \
+  --package-path "$MACOS_DIR" \
+  --product TwoBrainRecApp \
+  --triple "$ARM64_TRIPLE" \
+  --scratch-path "$ARM64_SCRATCH" \
+  -c release
+swift build \
+  --package-path "$MACOS_DIR" \
+  --product TwoBrainRecApp \
+  --triple "$X86_64_TRIPLE" \
+  --scratch-path "$X86_64_SCRATCH" \
+  -c release
 
-BIN_DIR=$(swift build --package-path "$MACOS_DIR" -c release --show-bin-path)
-APP_EXECUTABLE="$BIN_DIR/TwoBrainRecApp"
-DRIVER_BUNDLE="$MACOS_DIR/AudioDriver/.build/proof/GrafProof.driver"
+ARM64_BIN_DIR=$(swift build \
+  --package-path "$MACOS_DIR" \
+  --product TwoBrainRecApp \
+  --triple "$ARM64_TRIPLE" \
+  --scratch-path "$ARM64_SCRATCH" \
+  -c release \
+  --show-bin-path)
+X86_64_BIN_DIR=$(swift build \
+  --package-path "$MACOS_DIR" \
+  --product TwoBrainRecApp \
+  --triple "$X86_64_TRIPLE" \
+  --scratch-path "$X86_64_SCRATCH" \
+  -c release \
+  --show-bin-path)
+ARM64_EXECUTABLE="$ARM64_BIN_DIR/TwoBrainRecApp"
+X86_64_EXECUTABLE="$X86_64_BIN_DIR/TwoBrainRecApp"
 
-if [ ! -x "$APP_EXECUTABLE" ]; then
-  echo "Missing app executable at $APP_EXECUTABLE" >&2
-  exit 1
-fi
+verify_architecture() {
+  executable="$1"
+  expected_architecture="$2"
+  if [ ! -x "$executable" ]; then
+    echo "Missing app executable at $executable" >&2
+    exit 1
+  fi
+  actual_architectures=$(lipo -archs "$executable")
+  if [ "$actual_architectures" != "$expected_architecture" ]; then
+    echo "Expected $executable to contain only $expected_architecture, got: $actual_architectures" >&2
+    exit 1
+  fi
+}
+
+verify_architecture "$ARM64_EXECUTABLE" arm64
+verify_architecture "$X86_64_EXECUTABLE" x86_64
 if [ ! -f "$APP_ICON" ]; then
   echo "Missing app icon at $APP_ICON" >&2
   exit 1
@@ -106,15 +138,19 @@ for resource in "$WORDMARK_DARK" "$WORDMARK_DARK_2X" "$WORDMARK_LIGHT" "$WORDMAR
   fi
 done
 
-if [ "$INCLUDE_DRIVER_COMPONENT" = "1" ] && [ ! -d "$DRIVER_BUNDLE" ]; then
-  echo "Missing proof driver bundle at $DRIVER_BUNDLE" >&2
-  exit 1
-fi
-
 rm -rf "$APP_BUNDLE"
 mkdir -p "$APP_BUNDLE/Contents/MacOS"
 mkdir -p "$APP_BUNDLE/Contents/Resources"
-cp "$APP_EXECUTABLE" "$APP_BUNDLE/Contents/MacOS/GRAF"
+lipo -create \
+  "$ARM64_EXECUTABLE" \
+  "$X86_64_EXECUTABLE" \
+  -output "$APP_BUNDLE/Contents/MacOS/GRAF"
+FINAL_ARCHITECTURES=$(lipo -archs "$APP_BUNDLE/Contents/MacOS/GRAF")
+FINAL_ARCHITECTURE_SET=$(printf '%s\n' "$FINAL_ARCHITECTURES" | tr ' ' '\n' | sort | paste -sd ' ' -)
+if [ "$FINAL_ARCHITECTURE_SET" != "arm64 x86_64" ]; then
+  echo "Universal GRAF executable must contain arm64 and x86_64, got: $FINAL_ARCHITECTURES" >&2
+  exit 1
+fi
 cp "$APP_ICON" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
 cp "$WORDMARK_DARK" "$APP_BUNDLE/Contents/Resources/GrafWordmarkDark.png"
 cp "$WORDMARK_DARK_2X" "$APP_BUNDLE/Contents/Resources/GrafWordmarkDark@2x.png"
@@ -239,22 +275,6 @@ exit 0
 EOF
 chmod 755 "$SCRIPTS_DIR/desktop-app/preinstall"
 
-if [ "$INCLUDE_DRIVER_COMPONENT" = "1" ]; then
-  cp -R "$DRIVER_BUNDLE" "$STAGE_DIR/driver/Library/Audio/Plug-Ins/HAL/"
-  xattr -cr "$STAGE_DIR/driver" 2>/dev/null || true
-  cp "$SCRIPT_DIR/postinstall.sh" "$SCRIPTS_DIR/audio-driver/postinstall"
-  chmod 755 "$SCRIPTS_DIR/audio-driver/postinstall"
-
-  pkgbuild \
-    --root "$STAGE_DIR/driver" \
-    --identifier "pro.2brain.graf.audio-driver" \
-    --version "$VERSION" \
-    --install-location "/" \
-    --scripts "$SCRIPTS_DIR/audio-driver" \
-    --ownership recommended \
-    "$COMPONENT_DIR/graf-audio-driver.pkg"
-fi
-
 pkgbuild \
   --root "$STAGE_DIR/app" \
   --identifier "pro.2brain.graf.desktop-app" \
@@ -263,20 +283,6 @@ pkgbuild \
   --scripts "$SCRIPTS_DIR/desktop-app" \
   --ownership recommended \
   "$COMPONENT_DIR/graf-desktop-app.pkg"
-
-if [ "$INCLUDE_DRIVER_COMPONENT" = "1" ]; then
-  DRIVER_CHOICE_LINE='      <line choice="audio-driver"/>'
-  DRIVER_DEFAULT_REF='    <pkg-ref id="pro.2brain.graf.audio-driver"/>'
-  DRIVER_CHOICE_BLOCK='  <choice id="audio-driver" title="GRAF Audio Driver" start_selected="true" start_enabled="false">
-    <pkg-ref id="pro.2brain.graf.audio-driver"/>
-  </choice>'
-  DRIVER_PKG_REF="  <pkg-ref id=\"pro.2brain.graf.audio-driver\" version=\"$VERSION\" auth=\"Root\">graf-audio-driver.pkg</pkg-ref>"
-else
-  DRIVER_CHOICE_LINE=''
-  DRIVER_DEFAULT_REF=''
-  DRIVER_CHOICE_BLOCK=''
-  DRIVER_PKG_REF=''
-fi
 
 cat > "$BUILD_DIR/distribution.xml" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -298,19 +304,15 @@ function InstallationCheck() {
   </script>
   <choices-outline>
     <line choice="default">
-$DRIVER_CHOICE_LINE
       <line choice="desktop-app"/>
     </line>
   </choices-outline>
   <choice id="default" title="GRAF" start_selected="true" start_enabled="false" start_visible="false">
-$DRIVER_DEFAULT_REF
     <pkg-ref id="pro.2brain.graf.desktop-app"/>
   </choice>
-$DRIVER_CHOICE_BLOCK
   <choice id="desktop-app" title="GRAF Desktop App" start_selected="true" start_enabled="false">
     <pkg-ref id="pro.2brain.graf.desktop-app"/>
   </choice>
-$DRIVER_PKG_REF
   <pkg-ref id="pro.2brain.graf.desktop-app" version="$VERSION" auth="Root">graf-desktop-app.pkg</pkg-ref>
 </installer-gui-script>
 EOF
