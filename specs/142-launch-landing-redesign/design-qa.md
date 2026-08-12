@@ -1,5 +1,36 @@
 # Design QA: Launch Landing Redesign
 
+## Final legal, consent and responsive hardening — 2026-08-12
+
+- Replaced the five public draft notices with dated plain-Russian editions
+  covering the site and product, the current processors and the actual
+  Langfuse Cloud EU content boundary. Payment text remains explicitly
+  non-operative until checkout publishes the price and essential terms.
+- Added query-safe consent-gated Yandex loading, independent attribution and
+  replay categories, provider disable-on-revoke, canonical/social metadata,
+  discovery routes, public HTML security headers and fingerprint-aware cache
+  policy.
+- Browser QA passed for the landing at 1440, 390, 320 and 280 CSS px and for
+  download/legal routes at 280 CSS px. The only discovered overflow was a long
+  localStorage identifier on `/cookies`; the shared legal code style now wraps
+  it and the repeated result is `scrollWidth = clientWidth = 280`.
+- Live consent QA passed: necessary-only disables Yandex; analytics-only does
+  not enable attribution or replay; revocation records `revoked` and sets the
+  Yandex disable flag. Server-rendered content remains available without the
+  analytics runtime, and reduced-motion behavior remains covered by the
+  existing CSS and contract checks.
+- Focused public contracts: `39 passed, 2 warnings`. Full server suite before
+  the final CSS-only overflow fix: `1207 passed, 2 warnings`. Web: 114 tests,
+  lint and production build passed. The published package reports Apple arm64,
+  macOS 14.5 minimum and a valid Apple Developer ID Installer chain.
+
+visual result: passed
+
+release result: blocked — production release still requires confirmed Russian
+primary-storage location, Roskomnadzor processing/cross-border formalities and
+processor/DPA/retention evidence. Billing publication additionally requires
+the final catalog, YooKassa/receipt configuration and effective checkout terms.
+
 ## Marketing-proof crop refresh — 2026-08-08
 
 The desktop hero pair was re-composed from the current GRAF runtime screens.

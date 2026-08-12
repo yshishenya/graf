@@ -80,6 +80,7 @@ def test_public_pages_render_without_analytics_by_default(client) -> None:
         assert "analytics.js" not in response.text
         assert "cookieconsent.umd.js" not in response.text
         assert "cookieconsent.css" not in response.text
+        assert "graf-product-analytics-provider-config" not in response.text
         assert not [marker for marker in FORBIDDEN_LIVE_PROVIDER_URLS if marker in response.text.lower()]
         assert not [marker for marker in FORBIDDEN_PHASE1_MARKERS if marker in response.text]
 
@@ -181,6 +182,7 @@ def test_public_analytics_is_absent_from_non_public_and_legal_surfaces(
         assert "cookieconsent.umd.js" not in response.text
         assert "metrika/tag.js" not in response.text
         assert "data-graf-cookieconsent-version" not in response.text
+        assert "graf-product-analytics-provider-config" not in response.text
 
 
 def test_public_pages_render_stable_conversion_labels_in_render_only_mode(
@@ -292,6 +294,20 @@ def test_public_analytics_controller_has_consent_persistence_and_safe_event_allo
     assert "customer@example.com" not in analytics_js
     assert "signed" not in analytics_js.lower()
     assert "passcode" not in analytics_js.lower()
+
+
+def test_public_yandex_pageview_is_query_safe_category_scoped_and_revocable() -> None:
+    analytics_js = (PUBLIC_STATIC_DIR / "analytics.js").read_text(encoding="utf-8")
+
+    assert "defer: true" in analytics_js
+    assert 'window.ym(config.yandex_metrica_id, "hit", config.page_path' in analytics_js
+    assert "window.location.href" not in analytics_js
+    assert "document.title" not in analytics_js
+    assert 'hasCategory(currentCategories, "advertising_attribution")' in analytics_js
+    assert 'disableYaCounter" + config.yandex_metrica_id' in analytics_js
+    assert "disableYandexProvider" in analytics_js
+    assert '? config.campaign_attribution || {}' in analytics_js
+    assert ": {}," in analytics_js
 
 
 def test_public_analytics_production_env_example_is_disabled_and_redacted() -> None:

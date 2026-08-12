@@ -203,3 +203,84 @@ copy form one story instead of two unrelated abstractions.
   already explains setup and the safety line preserves manual control.
 - Keep generic `Кратко / Действия / Решения / Источник` columns — rejected because
   they describe output types but do not demonstrate the value of this meeting.
+
+## Decision 14: Publish one product-wide privacy notice
+
+**Decision**: Replace the site-only draft with one notice covering the public
+site, account, desktop application, meeting content, integrations, support and
+future billing. Identify the operator and describe categories, purposes, legal
+bases, operations, recipients, retention boundaries, rights and contact route.
+
+**Rationale**: Article 18.1 of Federal Law No. 152-FZ requires the operator's
+policy to be publicly available on the resources used to collect personal data.
+The current page expressly excludes the main product and therefore does not
+inform meeting participants or account holders about the actual processing.
+
+**Alternatives considered**:
+
+- Keep separate unspecified product terms — rejected because no linked public
+  product privacy notice exists.
+- Publish an exhaustive vendor register without verified facts — rejected;
+  named processors are limited to confirmed current boundaries and provider
+  categories are used where the configured route can change.
+
+## Decision 15: Disclose the current content-bearing EU trace boundary
+
+**Decision**: State that current AI observability can send the complete compiled
+request, transcript, model response and validated result to private Langfuse
+Cloud EU infrastructure in Ireland. State that per-meeting deletion in GRAF does
+not automatically erase retained Langfuse traces, Temporal history, provider
+logs or backups outside the same deletion boundary.
+
+**Rationale**: The constitution, product gates and baseline PRD record this as
+current architecture. Langfuse documents `cloud.langfuse.com` as AWS
+`eu-west-1` in Ireland. A Russia-only or zero-egress statement would be false.
+
+**Alternatives considered**:
+
+- Preserve “Российские и локальные модели” as a privacy guarantee — rejected
+  because model origin does not prove data residency.
+- Hide processor details behind “managed contour” — rejected because it prevents
+  informed consent and creates a misleading absolute claim.
+
+## Decision 16: Make analytics consent enforceable, not descriptive
+
+**Decision**: Initialize Yandex Metrica with `defer: true`, send the configured
+allowlisted page path without query/hash/title, include campaign attribution
+only when its separate category is granted, enable replay only with its category
+at first initialization, and set `disableYaCounter<ID>` when analytics is
+revoked.
+
+**Rationale**: Yandex documents that `defer` disables the automatic initial hit,
+that `hit` accepts an explicit URL and that `disableYaCounter<ID> = true` blocks
+cookies and collection. The previous controller allowed an automatic full-URL
+hit, sent UTM values with analytics-only consent and did not stop an initialized
+counter after revocation.
+
+**Alternatives considered**:
+
+- Rely only on safe custom goal payloads — rejected because the provider's
+  automatic pageview still observes the full browser URL.
+- Attempt to switch Webvisor in place — rejected because the provider does not
+  expose a reliable category toggle after initialization; a changed replay
+  choice disables the counter and takes effect on a reload.
+
+## Decision 17: Keep payment terms conditional until checkout is real
+
+**Decision**: Keep `/offer` as discoverable payment and refund information, but
+do not present it as an active priced public offer. Paid terms take effect only
+when a checkout names the plan, price, period, recurring-payment choice and
+acceptance action.
+
+**Rationale**: Civil Code Articles 437 and 438 require sufficiently definite
+offer terms and acceptance. The current product has no approved public catalog
+or active checkout, so publishing invented price or acceptance mechanics would
+mislead users.
+
+## Sources reviewed
+
+- Federal Law No. 152-FZ, including Articles 6, 9, 12, 18.1 and 19.
+- Law of the Russian Federation No. 2300-1, including Articles 8–10 and 16.
+- Civil Code of the Russian Federation, Articles 437, 438, 1235 and 1286.
+- Yandex Metrica documentation for initialization, manual hits and visitor opt-out.
+- Langfuse privacy, security FAQ and EU data-region documentation.

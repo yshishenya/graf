@@ -107,6 +107,21 @@
 - [X] T049 [US1] Update landing markup and CSS contracts for the non-interactive progress rail, reduced-motion fallback and removal of manual hero tabs in `apps/server/tests/unit/test_public_landing.py` and `apps/server/tests/contract/test_public_landing_contract.py`
 - [X] T050 [US1] Capture desktop/mobile hero states and run focused public checks; record evidence in `specs/142-launch-landing-redesign/evidence/hero-carousel-v1/`
 
+## Phase 14: Final Legal, Consent And Responsive Hardening
+
+- [X] T051 [P] Extend public legal, consent, platform-truth, SEO and responsive contracts in `apps/server/tests/unit/test_public_landing.py`, `apps/server/tests/contract/test_public_landing_contract.py` and `apps/server/tests/contract/test_public_analytics_contract.py`
+- [X] T052 Replace draft public privacy, cookies, product terms, payment conditions and analytics consent with final plain-Russian editions in `apps/server/src/twobrain_rec_server/public/templates/public/privacy.html`, `apps/server/src/twobrain_rec_server/public/templates/public/cookies.html`, `apps/server/src/twobrain_rec_server/public/templates/public/terms.html`, `apps/server/src/twobrain_rec_server/public/templates/public/offer.html` and `apps/server/src/twobrain_rec_server/public/templates/public/analytics_consent.html`
+- [X] T053 Enforce category-scoped attribution, query-safe Yandex page hits and provider disable-on-revoke in `apps/server/src/twobrain_rec_server/public/static/public/analytics.js`
+- [X] T054 Fix cookie-category contrast, hero/download/legal overflow, legal typography and mobile proof selection in `apps/server/src/twobrain_rec_server/public/static/public/landing.css`, `apps/server/src/twobrain_rec_server/public/templates/public/landing.html` and `apps/server/src/twobrain_rec_server/public/templates/public/download.html`
+- [X] T055 Add public response hardening, canonical/social metadata, `robots.txt`, `sitemap.xml` and versioned static cache policy in `apps/server/src/twobrain_rec_server/public/templates.py`, `apps/server/src/twobrain_rec_server/public/web.py` and `apps/server/src/twobrain_rec_server/main.py`
+- [X] T056 Reconcile launch wording with current capture, calendar, AI-egress, installer and billing truth in `apps/server/src/twobrain_rec_server/public/templates/public/landing.html`, `apps/server/src/twobrain_rec_server/public/templates/public/download.html` and `apps/server/src/twobrain_rec_server/public/templates/public/_analytics.html`
+- [X] T057 Run focused public tests, the Feature 142 quickstart, responsive browser QA, reduced-motion/no-JS/consent interaction checks and `infra/scripts/ci-local.sh --fast`; record evidence in `specs/142-launch-landing-redesign/design-qa.md` and `CHANGELOG.md`
+
+## Phase 15: Convergence
+
+- [ ] T058 CRITICAL Block public launch until the operator confirms Russian primary database/object-storage location, current Roskomnadzor operator notification and Article 12 cross-border notification/assessment evidence per FR-022 and FR-026 (partial)
+- [ ] T059 Keep payment publication disabled until the approved catalog, YooKassa acquiring, 54-FZ receipt/tax configuration, renewal/refund rules and effective checkout terms are verified together per FR-013, FR-014 and FR-022 (partial)
+
 ## Dependencies
 
 - T001–T005 are foundational.
@@ -121,6 +136,7 @@
 - T037–T040 form the linked-proof sequence. T041 depends on all four and on fresh desktop/mobile comparison evidence.
 - T042–T046 form the product-depth sequence. T047 depends on all five and fresh desktop/mobile evidence.
 - T048–T050 are the compact-hero follow-up; T049 depends on T048 and T050 depends on both plus focused validation.
+- T051 is test-first. T052–T056 depend on it and may proceed in parallel only when touching separate files. T057 depends on T051–T056.
 
 ## Parallel Opportunities
 

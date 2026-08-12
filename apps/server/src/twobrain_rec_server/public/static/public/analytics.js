@@ -25,7 +25,9 @@
       productConfig = null;
     }
   }
-  initializePostHogAutocapture(productConfig);
+  if (!configElement) {
+    initializePostHogAutocapture(productConfig);
+  }
   if (!configElement) {
     initializeProductYandexProvider(productConfig);
   }
@@ -183,7 +185,9 @@
         event_name: eventName,
         page_path: config.page_path,
         surface: config.surface,
-        campaign_attribution: config.campaign_attribution || {},
+        campaign_attribution: hasCategory(currentCategories, "advertising_attribution")
+          ? config.campaign_attribution || {}
+          : {},
         product_activation_bridge_supported: Boolean(
           config.product_activation_bridge && config.product_activation_bridge.bridge_supported,
         ),
@@ -203,6 +207,7 @@
     }
     currentCategories = grantedCategories;
     currentConsentState = consentStateForCategories(grantedCategories);
+    window["disableYaCounter" + config.yandex_metrica_id] = false;
     api.currentCategories = currentCategories.slice();
     api.currentConsentState = currentConsentState;
     if (api.providerLoaded || providerInitStarted || document.querySelector('script[data-graf-provider="yandex-metrica"]')) {
@@ -238,10 +243,23 @@
       clickmap: true,
       trackLinks: true,
       accurateTrackBounce: true,
+      defer: true,
       webvisor: hasCategory(grantedCategories, "behavior_replay") && config.replay_allowed,
+    });
+    window.ym(config.yandex_metrica_id, "hit", config.page_path, {
+      sendTitle: false,
     });
     bindProductYandexUserID(config.yandex_metrica_id, productConfig);
     api.providerLoaded = true;
+    return true;
+  }
+
+  function disableYandexProvider() {
+    if (!config.yandex_metrica_id) {
+      return false;
+    }
+    window["disableYaCounter" + config.yandex_metrica_id] = true;
+    api.providerBlocked = true;
     return true;
   }
 
@@ -536,8 +554,10 @@
     api.currentConsentState = state;
     writeStoredConsent(state, categories);
     if (!hasCategory(categories, "analytics")) {
+      disableYandexProvider();
       return false;
     }
+    api.providerBlocked = false;
     return startGrantedTracking(categories);
   }
 
@@ -605,8 +625,8 @@
                 },
                 {
                   description:
-                    "Помогает связать рекламные кампании с web-конверсией. В Phase 1 " +
-                    "используются только безопасные UTM-метки и цели Яндекс Метрики.",
+                    "Помогает связать рекламные кампании с переходом к скачиванию. " +
+                    "Используются только разрешённые UTM-метки и цели Яндекс Метрики.",
                   linkedCategory: "advertising_attribution",
                   title: "Рекламная атрибуция",
                 },
@@ -648,6 +668,7 @@
     currentConsentState: currentConsentState,
     dispatchEvent: dispatchEvent,
     dispatchOnce: dispatchOnce,
+    disableYandexProvider: disableYandexProvider,
     ensureYandexProvider: ensureYandexProvider,
     providerBlocked: false,
     providerInitStarted: false,
