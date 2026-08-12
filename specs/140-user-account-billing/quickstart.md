@@ -45,15 +45,17 @@ elsewhere; real-shop canary is a separate approved release step.
 ### Runtime verification (2026-08-12)
 
 - Remote `/opt/projects/2brain-rec` is clean at deployed SHA
-  `ec114a81dc92e7e29d59f91c3111bdf7acb32070`, migration head
+  `5002a98324283008e10528c2439f1ffa1c24d4b4`, migration head
   `0071_fair_use_capability_prefix`; live/ready/root probes return HTTP 200.
 - Independent production smoke PASS: config validation, disposable RLS/migration
   probes and metadata-only cleanup (39 database rows, 3 object keys, no residue).
 - Live production RLS metadata-only probe PASS: 106/106 application tables in
-  the verifier scope are enabled and forced. This does not replace edge
-  webhook allowlist/header verification.
+  the verifier scope are enabled and forced.
+- Dedicated YooKassa webhook edge `:8443` PASS: `nginx -t`, TLS 1.2/1.3,
+  official IPv4/IPv6 allowlist, `256k`, rate limit and server-side secret
+  overwrite. Untrusted probe is 403; direct backend without secret is 401.
 - Checkout remains disabled (`TWOBRAIN_BILLING_CHECKOUT_ENABLED=false`). This is
-  runtime evidence only; test-shop/real-shop canary, edge/live-RLS review and
+  runtime evidence only; controlled provider delivery/test-shop/real-shop canary and
   four-eyes product/finance/legal/security/QA sign-offs are still required.
 
 ### Latest local evidence (2026-08-11)

@@ -123,10 +123,10 @@ Ruff/Python compile и deployment evidence scan — PASS. OpenAPI contract drift
 
 ## Runtime recheck 2026-08-12 (latest closeout)
 
-- На deployed SHA `ec114a81dc92e7e29d59f91c3111bdf7acb32070` migration head
+- На deployed SHA `5002a98324283008e10528c2439f1ffa1c24d4b4` migration head
   `0071_fair_use_capability_prefix`; live RLS metadata-only probe PASS:
   `106/106` прикладных таблиц enabled+forced (включая `workspace_join_offers`). Это не закрывает
-  edge allowlist/header и независимый security sign-off.
+  controlled provider delivery и независимый security sign-off.
 - Этот deploy также проверил отложенную награду referral после status refresh,
   связку ledger с attribution lifecycle, coarse risk-review hold и
   recovery-safe billing UX; focused tests и disposable PostgreSQL RLS suite
@@ -134,11 +134,14 @@ Ruff/Python compile и deployment evidence scan — PASS. OpenAPI contract drift
   OAuth/concurrency evidence и ручная accessibility/usability проверка landing
   остаются отдельными launch gates; server-rendered valid/invalid/unavailable
   states и три auth CTA уже реализованы.
-- Production nginx пока не содержит подтверждённой YooKassa CIDR allowlist и
-  injected `X-Billing-Webhook-Secret`; реальные уведомления поэтому не должны
-  включаться. Checkout остаётся `false`.
-- Privileged topology-проверка 2026-08-12 подтвердила отдельный edge blocker:
-  внешний 443 — общий Nginx stream SNI-router на 10444, а установленный Nginx
-  1.24 не принимает `server_name` внутри stream-server. Частичный PROXY
-  protocol для одного SNI неприменим; пробная конфигурация откатилась после
-  `nginx -t`. Нужен dedicated edge/listener или per-SNI proxy до canary.
+- Production nginx использует dedicated TLS listener
+  `https://rec.2brain.pro:8443/.../webhook/production`: `nginx -t` и reload
+  PASS, официальный YooKassa IPv4/IPv6 allowlist, `256k`, rate limit и
+  server-side overwrite `X-Billing-Webhook-Secret` активны. Negative probe с
+  неразрешённого IP — 403; GET — 405; legacy/443 webhook routes — 404; прямой
+  backend без секрета — 401; TLS 1.2/1.3 verify PASS. Backup:
+  `/etc/nginx/backups/graf-billing-webhook-20260812T035449Z`.
+- Edge topology blocker закрыт без нового IP: официальный callback port `8443`
+  обходит общий `443` SNI-router и сохраняет реальный source IP. Открытым
+  остаётся controlled provider delivery/canary из кабинета YooKassa и
+  независимый security/finance/legal/QA sign-off. Checkout остаётся `false`.
