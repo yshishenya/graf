@@ -8,6 +8,11 @@
 
 ## [Unreleased]
 
+- YooKassa webhook приведён к официальному notification envelope без
+  вымышленного верхнеуровневого event id; production edge вынесен на отдельный
+  TLS-listener `:8443` того же сервера с CIDR allowlist, лимитом `256k`, rate
+  limit, server-side secret header, backup и автоматическим rollback.
+
 ### Добавлено
 - Feature 140 добавляет личный кабинет тарифа и оплаты, hosted checkout YooKassa,
   промокоды, referral credits, usage/storage controls, renewal и ручной refund

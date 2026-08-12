@@ -13,7 +13,7 @@ YooKassa; GRAF не создаёт refund mutation и не показывает 
   `1430118`, API protocol — YooKassa HTTP API. ShopId не является секретом;
   API/webhook/referral secrets никогда не записываются в Git, логи или evidence.
 - Production return URL — `https://rec.2brain.pro`; production webhook endpoint —
-  `https://rec.2brain.pro/api/v1/billing/providers/yookassa/webhook/production`;
+  `https://rec.2brain.pro:8443/api/v1/billing/providers/yookassa/webhook/production`;
   test shop имеет
   отдельный host, callback, shop, secret files, DB, bucket и Temporal namespace.
   Нельзя переносить test database, receipt, webhook/CSV payload или secret в
@@ -58,18 +58,14 @@ YooKassa; GRAF не создаёт refund mutation и не показывает 
 нельзя оставлять частичную allowlist или прокидывать секрет через общий
 location.
 
-До canary оператор должен выбрать один из безопасных вариантов:
-
-- выделенный public IP/listener для `rec.2brain.pro` с TLS termination и
-  HTTP-level YooKassa CIDR allowlist;
-- отдельный HAProxy/stream proxy, который умеет выбирать backend по SNI и
-  включать PROXY protocol только для `rec.2brain.pro`;
-- иной edge-терминатор TLS с dedicated upstream, сохраняющий реальный source
-  IP и overwrite `X-Billing-Webhook-Secret`.
-
-Выбранный вариант обязан пройти `nginx -t`/эквивалентную проверку, negative
-probe с неразрешённого адреса и controlled provider delivery. До этого
-checkout и provider secrets остаются fail-closed.
+Выбран безопасный вариант без нового сервера/IP: YooKassa официально принимает
+HTTPS callback на `8443`, поэтому `rec.2brain.pro:8443` терминирует TLS напрямую
+в отдельном Nginx listener. Он сохраняет реальный source IP, применяет provider
+CIDR allowlist и server-side overwrite `X-Billing-Webhook-Secret`, не меняя
+общий SNI-router сайта на `443`. Репозиторный installer
+`infra/scripts/install-billing-webhook-edge.sh` обязан сделать backup,
+`nginx -t`, reload, negative probe и automatic rollback. До успешного
+controlled provider delivery checkout остаётся fail-closed.
 
 ## 1. Перед canary: checklist
 

@@ -75,7 +75,7 @@ async def test_hosted_success_decline_timeout_and_duplicate_key_are_observable(t
 
 def test_webhook_duplicate_and_malformed_events_fail_closed() -> None:
     payload = {
-        "id": "event-1",
+        "type": "notification",
         "event": "payment.succeeded",
         "object": {
             "id": "payment-1",
@@ -87,10 +87,10 @@ def test_webhook_duplicate_and_malformed_events_fail_closed() -> None:
     inbox = WebhookInbox()
     assert inbox.accept(event) == "accepted"
     assert inbox.accept(event) == "duplicate"
-    conflict = parse_provider_event({**payload, "event": "payment.canceled"})
-    assert inbox.accept(conflict) == "replay_conflict"
+    next_state = parse_provider_event({**payload, "event": "payment.canceled"})
+    assert inbox.accept(next_state) == "accepted"
     with pytest.raises(ProviderEventError):
-        parse_provider_event({"id": "event-2", "event": "payment.succeeded", "object": {}})
+        parse_provider_event({"type": "notification", "event": "payment.succeeded", "object": {}})
 
 
 def test_pending_timeout_can_be_reconciled_by_late_authoritative_success() -> None:
