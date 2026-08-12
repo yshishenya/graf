@@ -2,6 +2,15 @@
 
 Date: 2026-08-12
 
+## Implementation update (2026-08-12) — Feature 147 universal macOS installer
+
+- macOS distribution is fixed to one public `graf.pkg` installer and one site
+  download link. The embedded app executable is a universal Mach-O with
+  `arm64` and `x86_64` slices.
+- Both architectures use the same app-owned system-audio-first capture path and
+  macOS 14.5 minimum. The retired privileged audio component remains outside
+  source, build, installer, validation, and public distribution.
+
 ## Runtime update (2026-08-12) — Feature 140
 
 - Exact deployed SHA `5002a98324283008e10528c2439f1ffa1c24d4b4` проверен на

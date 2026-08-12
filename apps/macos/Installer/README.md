@@ -20,14 +20,20 @@ or isolated packaging tests. This command is not a public release path:
 sudo DevToolsSecurity -enable
 spctl developer-mode enable-terminal
 sh apps/macos/Installer/Scripts/build-local-installer.sh
-open apps/macos/.build/installer/graf-local.pkg
+  open apps/macos/.build/installer/graf.pkg
 ```
 
 By default, the script builds:
 
 - the local SwiftUI app bundle at `apps/macos/RecApp/.build/GRAF.app`;
 - a desktop-app component package;
-- an interactive product installer at `apps/macos/.build/installer/graf-local.pkg`.
+- an interactive universal product installer at `apps/macos/.build/installer/graf.pkg`.
+
+The package contains one `GRAF.app`. Its `Contents/MacOS/GRAF` executable is a
+universal Mach-O with `arm64` and `x86_64` slices, built separately with SwiftPM
+and combined with `lipo`. The supported floor is macOS 14.5 for both Apple
+Silicon and Intel Macs. The public site exposes this same package through one
+download link; there are no architecture-specific public packages.
 
 The app bundle and package version use the product CalVer release train without
 the git tag prefix: `YYYY.MM.DD.N`. When `GRAF_VERSION` is not set, the script

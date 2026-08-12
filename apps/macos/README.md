@@ -56,6 +56,11 @@ GRAF_ALLOW_ADHOC_APP_SIGNING=1 \
   apps/macos/Installer/Scripts/build-local-installer.sh
 ```
 
+The resulting `graf.pkg` is one universal installer. The app binary contains
+both `arm64` and `x86_64` slices and supports macOS 14.5 or newer on Apple
+Silicon and Intel Macs. The public download page offers this same package via
+one link.
+
 The default build, test, packaging, and uninstall paths do not install or
 remove privileged audio components and do not restart Core Audio services.
 

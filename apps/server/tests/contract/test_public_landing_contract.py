@@ -38,7 +38,7 @@ def test_public_landing_static_assets_are_local_to_server_package() -> None:
     assert (PUBLIC_STATIC_DIR / "fonts" / "onest-cyrillic.woff2").is_file()
     assert (PUBLIC_STATIC_DIR / "fonts" / "onest-latin.woff2").is_file()
     assert (PUBLIC_STATIC_DIR / "fonts" / "OFL.txt").is_file()
-    assert (PUBLIC_STATIC_DIR / "downloads" / "graf-local.pkg").is_file()
+    assert (PUBLIC_STATIC_DIR / "downloads" / "graf.pkg").is_file()
     assert (PUBLIC_STATIC_DIR / "analytics.js").is_file()
     assert (PUBLIC_STATIC_DIR / "cookieconsent.umd.js").is_file()
     assert (PUBLIC_STATIC_DIR / "cookieconsent.css").is_file()
@@ -70,6 +70,16 @@ def test_public_landing_static_assets_are_mounted_by_app() -> None:
     app = create_app(Settings())
 
     assert any(route.path == PUBLIC_STATIC_URL for route in app.routes)
+
+
+def test_public_download_template_exposes_one_universal_installer() -> None:
+    content = (PUBLIC_TEMPLATE_DIR / "download.html").read_text(encoding="utf-8")
+
+    assert content.count("downloads/graf.pkg") == 1
+    assert "graf-local.pkg" not in content
+    assert "arm64" not in content.lower()
+    assert "x86_64" not in content.lower()
+    assert "Intel-версия" not in content
 
 
 def test_public_downloads_use_a_read_only_runtime_mount_outside_git() -> None:

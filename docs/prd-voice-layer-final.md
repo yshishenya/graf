@@ -588,9 +588,9 @@ Safety and acceptance:
 macOS:
 
 - macOS 14.5+.
-- Apple Silicon support required.
-- Intel Mac remains unsupported unless a later release decision adds the full
-  QA matrix.
+- Apple Silicon and Intel Mac support are required.
+- Public macOS distribution uses one universal installer containing `arm64` and
+  `x86_64` app slices; architecture-specific public packages are not exposed.
 - Native Swift/SwiftUI application.
 - ScreenCaptureKit for incoming/system audio.
 - Native microphone capture for the local microphone track.

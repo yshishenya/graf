@@ -14,6 +14,8 @@
   limit, server-side secret header, backup и автоматическим rollback.
 
 ### Добавлено
+- Feature 147: единый универсальный macOS installer `graf.pkg` с app-бинарником
+  `arm64` + `x86_64` для Apple Silicon и Intel на macOS 14.5+.
 - Feature 140 добавляет личный кабинет тарифа и оплаты, hosted checkout YooKassa,
   промокоды, referral credits, usage/storage controls, renewal и ручной refund
   back-office процесс. Checkout остаётся выключенным до canary и согласований.
@@ -31,6 +33,8 @@
   уведомление получает также владелец workspace.
 
 ### Изменено
+- Страница загрузки GRAF публикует одну кнопку и одну ссылку на универсальный
+  installer; отдельные архитектурные пакеты не используются.
 - Публичные документы GRAF заменены на датированные редакции для сайта и
   продукта; политика теперь прямо раскрывает фактических обработчиков,
   трансграничный контур и границы удаления, а условия оплаты не изображают
@@ -83,6 +87,8 @@
   потенциально секретных domain/path строк.
 
 ### Документы
+- Зафиксированы архитектурный контракт, release QA и отсутствие retired driver
+  в source/build/installer/validation path.
 - Добавлены Spec Kit артефакты Feature 140, launch runbook и metadata-only
   evidence с production blockers и canary checklist.
 

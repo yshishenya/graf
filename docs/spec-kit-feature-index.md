@@ -117,6 +117,7 @@ receipt и current-product-status одним change set.
 | [120](../specs/120-transcript-export/spec.md) | Реализована и merged через PR #4084 | Все шесть форматов, backend и web-cabinet UI валидированы; T059 / #4083 остаётся representative-reviewer gate перед general release. |
 | [121](../specs/121-recording-workflows/spec.md) | Реализована, merged, released, deployed и установлена как `v2026.07.22.4` | Recording/review/outcome/share/deletion infrastructure работает fail-closed на SHA `3724b596`; T050, T057 и T089 остаются открыты до LiteLLM credentials и live three-store/two-worker evidence. |
 | [124](../specs/124-restore-automatic-recording/spec.md) | Реализована, post-review validated, merged, released и deployed; macOS update опубликован как `v2026.07.23.11` | Восстановлены native target-scoped auto-record, список приложений, checkbox, восьмисекундный countdown и automatic start; server receipt `v2026.07.23.9`, public appcast и Sparkle ZIP/PKG receipt `v2026.07.23.11`; RLS 77/77 и health/ready receipts есть. `.8` остановлен fail-closed и superseded. |
+| [147](../specs/147-macos-arch-builds/spec.md) | Реализована: один universal macOS installer | `graf.pkg` содержит `arm64` и `x86_64`, public download использует одну ссылку, минимальная версия macOS — 14.5; legacy driver не входит в build/install/runtime path. |
 
 ## Реальные открытые задачи во всём архиве
 
