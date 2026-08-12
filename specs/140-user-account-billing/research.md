@@ -58,6 +58,12 @@
   сохраняет dedupe reference и быстро отвечает; worker выполняет authenticated
   GET, проверяет context/amount/currency/metadata и применяет monotonic state
   под DB lock. IP allowlist — defense in depth, не authority.
+- **Decision (2026-08-12)**: production webhook использует поддерживаемый
+  YooKassa HTTPS-порт `8443`. Отдельный listener на существующем сервере
+  сохраняет реальный source IP и применяет опубликованный provider allowlist,
+  не меняя общий SNI-router сайта на `443`. Официальный notification envelope
+  состоит из `type`, `event`, `object`; локальный dedupe key детерминированно
+  выводится из `event + object.id`, поскольку верхнеуровневого event id нет.
 - **Rationale**: YooKassa хранит idempotence result 24 часа, тогда как локальная
   exactly-once защита должна пережить этот срок, duplicate/out-of-order webhook
   и restart.

@@ -76,3 +76,19 @@ def test_launch_runbook_keeps_signoff_accessibility_and_stop_procedure_explicit(
         / "specs/140-user-account-billing/contracts/account-ia-ux-ui-cx.md"
     ).read_text(encoding="utf-8")
     assert "WCAG 2.2 AA" in ia_contract
+
+
+def test_yookassa_webhook_edge_is_dedicated_and_fail_closed() -> None:
+    root = Path(__file__).parents[4]
+    nginx = (root / "infra/nginx/rec.2brain.pro.conf").read_text(encoding="utf-8")
+    installer = (root / "infra/scripts/install-billing-webhook-edge.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "listen 8443 ssl" in nginx
+    assert "client_max_body_size 256k" in nginx
+    assert "allow 2a02:5180::/32" in nginx
+    assert "deny all" in nginx
+    assert "graf-billing-webhook-secret.conf" in nginx
+    assert 'proxy_set_header X-Billing-Webhook-Secret ""' in nginx
+    assert all(term in installer for term in ("nginx -t", "rollback", "untrusted_edge_status"))

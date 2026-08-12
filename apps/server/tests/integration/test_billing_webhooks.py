@@ -1,4 +1,5 @@
 import inspect
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
@@ -21,9 +22,9 @@ from twobrain_rec_server.billing.yookassa import YooKassaClient
 from twobrain_rec_server.config import Settings
 
 
-def _payload(event_id: str, *, created_at: str = "2026-08-06T09:00:00Z") -> dict[str, object]:
+def _payload(*, created_at: str = "2026-08-06T09:00:00Z") -> dict[str, object]:
     return {
-        "id": event_id,
+        "type": "notification",
         "event": "payment.succeeded",
         "object": {"id": "pay-1", "created_at": created_at, "amount": {"value": "79.00"}},
     }
@@ -31,40 +32,53 @@ def _payload(event_id: str, *, created_at: str = "2026-08-06T09:00:00Z") -> dict
 
 def test_webhook_inbox_is_idempotent_and_detects_conflicting_replay() -> None:
     inbox = WebhookInbox()
-    first = parse_provider_event(_payload("evt-1"))
+    first = parse_provider_event(_payload())
     assert inbox.accept(first) == "accepted"
     assert inbox.accept(first) == "duplicate"
     extra_amount_metadata = parse_provider_event(
         {
-            **_payload("evt-1"),
-            "object": {**_payload("evt-1")["object"], "amount": {"value": "79.00", "secret": "must-not-hash"}},
+            **_payload(),
+            "object": {**_payload()["object"], "amount": {"value": "79.00", "secret": "must-not-hash"}},
         }
     )
     assert extra_amount_metadata.payload_hash == first.payload_hash
-    conflict = parse_provider_event({**_payload("evt-1"), "event": "payment.canceled"})
-    assert inbox.accept(conflict) == "replay_conflict"
+    next_state = parse_provider_event({**_payload(), "event": "payment.canceled"})
+    assert inbox.accept(next_state) == "accepted"
     amount_conflict = parse_provider_event(
-        {**_payload("evt-1"), "object": {**_payload("evt-1")["object"], "amount": {"value": "80.00"}}}
+        {**_payload(), "object": {**_payload()["object"], "amount": {"value": "80.00"}}}
     )
     assert inbox.accept(amount_conflict) == "replay_conflict"
 
 
 def test_webhook_parser_accepts_out_of_order_timestamps_but_rejects_malformed() -> None:
-    older = parse_provider_event(_payload("evt-old", created_at="2026-08-05T09:00:00Z"))
-    newer = parse_provider_event(_payload("evt-new"))
+    older = parse_provider_event(_payload(created_at="2026-08-05T09:00:00Z"))
+    newer = parse_provider_event({**_payload(), "object": {**_payload()["object"], "id": "pay-2"}})
     assert older.occurred_at < newer.occurred_at
     with pytest.raises(ProviderEventError):
-        parse_provider_event({"id": "evt-bad", "event": "payment.succeeded", "object": {}})
+        parse_provider_event({"type": "notification", "event": "payment.succeeded", "object": {}})
 
 
 def test_webhook_parser_rejects_path_manipulation_in_provider_object_id() -> None:
     with pytest.raises(ProviderEventError):
-        parse_provider_event({**_payload("evt-path"), "object": {"id": "../refunds", "created_at": "2026-08-06T09:00:00Z"}})
+        parse_provider_event({**_payload(), "object": {"id": "../refunds", "created_at": "2026-08-06T09:00:00Z"}})
 
 
-def test_webhook_parser_rejects_path_manipulation_in_provider_event_id() -> None:
+def test_webhook_parser_rejects_non_notification_envelope() -> None:
     with pytest.raises(ProviderEventError):
-        parse_provider_event(_payload("../events/1"))
+        parse_provider_event({**_payload(), "type": "payment"})
+
+
+def test_payment_method_notification_without_created_at_remains_a_bounded_signal() -> None:
+    event = parse_provider_event(
+        {
+            "type": "notification",
+            "event": "payment_method.active",
+            "object": {"id": "pm-1", "status": "active"},
+        }
+    )
+
+    assert event.event_id.startswith("yookassa_")
+    assert event.occurred_at == datetime(1970, 1, 1, tzinfo=UTC)
 
 
 def test_webhook_reconciliation_has_authoritative_get_and_list_fallbacks() -> None:
@@ -77,9 +91,9 @@ def test_webhook_parser_binds_workspace_only_from_provider_metadata() -> None:
     workspace_id = uuid4()
     event = parse_provider_event(
         {
-            **_payload("evt-workspace"),
+            **_payload(),
             "object": {
-                **_payload("evt-workspace")["object"],
+                **_payload()["object"],
                 "metadata": {"workspace_id": str(workspace_id), "card": "must-not-persist"},
             },
         }

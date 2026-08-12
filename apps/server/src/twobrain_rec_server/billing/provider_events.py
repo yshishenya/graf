@@ -53,14 +53,23 @@ class ProviderEvent:
 
 def parse_provider_event(payload: dict[str, Any]) -> ProviderEvent:
     try:
-        event_id = validate_provider_identifier(payload["id"])
-        event_type = str(payload["event"]).strip()
+        if payload["type"] != "notification":
+            raise ValueError("provider event type is invalid")
+        event_type = validate_provider_identifier(payload["event"])
+        if len(event_type) > 120:
+            raise ValueError("provider event type is invalid")
         object_id = validate_provider_identifier(payload["object"]["id"])
-        occurred_at = datetime.fromisoformat(str(payload["object"].get("created_at", "")).replace("Z", "+00:00"))
+        occurred_raw = payload["object"].get("created_at")
+        occurred_at = (
+            datetime.fromisoformat(str(occurred_raw).replace("Z", "+00:00"))
+            if occurred_raw
+            else datetime(1970, 1, 1, tzinfo=UTC)
+        )
     except (AttributeError, KeyError, TypeError, ValueError) as exc:
         raise ProviderEventError("malformed provider event") from exc
-    if not event_id or not event_type:
-        raise ProviderEventError("provider event identifiers are required")
+    # YooKassa notifications have no event id. Event + object is their stable
+    # notification identity; hashing keeps the database key bounded.
+    event_id = "yookassa_" + sha256(f"{event_type}\0{object_id}".encode()).hexdigest()
     if occurred_at.tzinfo is None:
         occurred_at = occurred_at.replace(tzinfo=UTC)
     workspace_id: UUID | None = None
@@ -75,7 +84,7 @@ def parse_provider_event(payload: dict[str, Any]) -> ProviderEvent:
     safe_amount = {
         field: str(raw_amount[field])[:64]
         for field in ("value", "currency")
-        if isinstance(raw_amount, dict) and isinstance(raw_amount.get(field), (str, int, float))
+        if isinstance(raw_amount, dict) and isinstance(raw_amount.get(field), str | int | float)
     }
     safe_payload = {
         "id": event_id,

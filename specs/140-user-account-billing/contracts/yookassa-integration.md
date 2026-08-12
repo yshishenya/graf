@@ -23,7 +23,7 @@ Create payment with positive server amount, `capture=true`, hosted confirmation,
 ## Webhook
 
 - Accept only `payment.succeeded`, `payment.canceled`, optional `payment.waiting_for_capture`, `refund.succeeded` and `payment_method.active`, with bounded body size/content type.
-- Terminate HTTPS on port 443/8443 with TLS 1.2+, configure current published YooKassa source-network allowlist at the trusted edge, reject spoofed forwarded addresses, rate-limit unknown objects and verify subscribed events in test/prod merchant configuration. Source filtering is defense-in-depth; mandatory authoritative GET is the authenticity/truth check.
+- Terminate HTTPS on a dedicated port 8443 listener with TLS 1.2+, configure the current published YooKassa source-network allowlist at that trusted edge, reject spoofed forwarded addresses, rate-limit unknown objects and verify subscribed events in test/prod merchant configuration. Source filtering is defense-in-depth; mandatory authoritative GET is the authenticity/truth check.
 - Store event type/object id/dedupe identity, not raw body.
 - Acknowledge quickly; async worker fetches the object, validates environment/shop/id/amount/currency/metadata, then applies monotonic state.
 - Unknown object, cross-environment, mismatch or regressive transition is quarantined/audited and does not reveal tenant data.
