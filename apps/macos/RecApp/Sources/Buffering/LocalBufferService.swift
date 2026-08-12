@@ -172,3 +172,55 @@ public final class LocalBufferService: LocalBufferWriting {
         )
     }
 }
+
+public struct LocalRecordingStorageProbe: Sendable {
+    public typealias Measurement = @Sendable (URL) throws -> Int64
+
+    private let rootURL: URL
+    private let usedBytes: Int64
+    private let policy: LocalBufferPolicy
+    private let availableBytes: Measurement
+
+    public init(
+        rootURL: URL = LocalRecordingStore().rootURL,
+        usedBytes: Int64,
+        policy: LocalBufferPolicy = LocalBufferService.defaultPolicy,
+        availableBytes: @escaping Measurement = Self.measureAvailableBytes
+    ) {
+        self.rootURL = rootURL
+        self.usedBytes = usedBytes
+        self.policy = policy
+        self.availableBytes = availableBytes
+    }
+
+    public func riskState() -> LocalBufferRiskState {
+        do {
+            return LocalBufferService().riskState(
+                usedBytes: max(usedBytes, 0),
+                freeDiskBytes: try availableBytes(rootURL),
+                policy: policy
+            )
+        } catch {
+            return .mustDegradeOrStop
+        }
+    }
+
+    public static func measureAvailableBytes(at rootURL: URL) throws -> Int64 {
+        var capacityURL = rootURL
+        while !FileManager.default.fileExists(atPath: capacityURL.path),
+              capacityURL.path != "/" {
+            capacityURL.deleteLastPathComponent()
+        }
+        let values = try capacityURL.resourceValues(forKeys: [
+            .volumeAvailableCapacityForImportantUsageKey,
+            .volumeAvailableCapacityKey,
+        ])
+        if let available = values.volumeAvailableCapacityForImportantUsage {
+            return available
+        }
+        if let available = values.volumeAvailableCapacity {
+            return Int64(available)
+        }
+        throw CocoaError(.fileReadUnknown)
+    }
+}

@@ -1,3 +1,4 @@
+from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 from urllib.parse import quote, unquote, urlsplit
@@ -132,6 +133,13 @@ class Settings(BaseSettings):
     product_analytics_rollback_approved: bool = False
     product_analytics_live_provider_delivery_approved: bool = False
     product_analytics_campaign_readiness_approved: bool = False
+
+    assisted_auto_start_enabled: bool = False
+    assisted_auto_start_workspace_id: UUID | None = None
+    assisted_auto_start_policy_version: str | None = None
+    assisted_auto_start_acknowledgement_version: str | None = None
+    assisted_auto_start_policy_issued_at: datetime | None = None
+    assisted_auto_start_policy_expires_at: datetime | None = None
 
     mediascribe_base_url: AnyUrl | None = None
     mediascribe_health_url: AnyUrl | None = None
@@ -290,6 +298,11 @@ class Settings(BaseSettings):
         "product_analytics_posthog_project_key_file",
         "product_analytics_yandex_counter_id",
         "product_analytics_yandex_oauth_token_file",
+        "assisted_auto_start_workspace_id",
+        "assisted_auto_start_policy_version",
+        "assisted_auto_start_acknowledgement_version",
+        "assisted_auto_start_policy_issued_at",
+        "assisted_auto_start_policy_expires_at",
         mode="before",
     )
     @classmethod
@@ -386,6 +399,38 @@ class Settings(BaseSettings):
             or self.retention_source_audio_policy_version == "unconfigured"
         ):
             raise ValueError("source audio retention requires an explicit policy version")
+        return self
+
+    @model_validator(mode="after")
+    def validate_assisted_auto_start_safety(self) -> "Settings":
+        if not self.assisted_auto_start_enabled:
+            return self
+        if (
+            self.assisted_auto_start_workspace_id is None
+            or self.assisted_auto_start_policy_issued_at is None
+            or self.assisted_auto_start_policy_expires_at is None
+            or not self.assisted_auto_start_policy_version
+            or not self.assisted_auto_start_acknowledgement_version
+        ):
+            raise ValueError(
+                "assisted auto-start requires workspace, policy, acknowledgement, and expiry"
+            )
+        for value in (
+            self.assisted_auto_start_policy_version,
+            self.assisted_auto_start_acknowledgement_version,
+        ):
+            if len(value) > 64 or any(
+                character not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-"
+                for character in value
+            ):
+                raise ValueError("assisted auto-start versions must be safe codes")
+        if (
+            self.assisted_auto_start_policy_issued_at.tzinfo is None
+            or self.assisted_auto_start_policy_expires_at.tzinfo is None
+        ):
+            raise ValueError("assisted auto-start policy dates must include a timezone")
+        if self.assisted_auto_start_policy_issued_at >= self.assisted_auto_start_policy_expires_at:
+            raise ValueError("assisted auto-start policy expiry must follow issue time")
         return self
 
     @model_validator(mode="after")

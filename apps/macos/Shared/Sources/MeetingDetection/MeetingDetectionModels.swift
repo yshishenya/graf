@@ -386,6 +386,119 @@ public struct MeetingTargetRegistryTarget: Codable, Equatable, Sendable {
     }
 }
 
+public struct AssistedAutoStartPolicySnapshot: Codable, Equatable, Sendable {
+    public let policyRef: String
+    public let acknowledgementSubjectRef: String
+    public let deviceRef: String
+    public let policyVersion: String
+    public let acknowledgementVersion: String
+    public let enabled: Bool
+    public let issuedAt: Date
+    public let expiresAt: Date
+    public let noticeMode: String
+
+    public init(
+        policyRef: String,
+        acknowledgementSubjectRef: String,
+        deviceRef: String,
+        policyVersion: String,
+        acknowledgementVersion: String,
+        enabled: Bool = true,
+        issuedAt: Date,
+        expiresAt: Date,
+        noticeMode: String = "internal_no_participant_notice"
+    ) {
+        self.policyRef = policyRef
+        self.acknowledgementSubjectRef = acknowledgementSubjectRef
+        self.deviceRef = deviceRef
+        self.policyVersion = policyVersion
+        self.acknowledgementVersion = acknowledgementVersion
+        self.enabled = enabled
+        self.issuedAt = issuedAt
+        self.expiresAt = expiresAt
+        self.noticeMode = noticeMode
+    }
+
+    public func isActive(at now: Date = Date()) -> Bool {
+        enabled && issuedAt <= now && now < expiresAt
+    }
+}
+
+public struct AssistedAutoStartAcknowledgement: Codable, Equatable, Sendable {
+    public let policyRef: String
+    public let subjectRef: String
+    public let deviceRef: String
+    public let acknowledgementVersion: String
+    public let acceptedAt: Date
+
+    public init(
+        policyRef: String,
+        subjectRef: String,
+        deviceRef: String,
+        acknowledgementVersion: String,
+        acceptedAt: Date = Date()
+    ) {
+        self.policyRef = policyRef
+        self.subjectRef = subjectRef
+        self.deviceRef = deviceRef
+        self.acknowledgementVersion = acknowledgementVersion
+        self.acceptedAt = acceptedAt
+    }
+
+    public func matches(_ policy: AssistedAutoStartPolicySnapshot, at now: Date = Date()) -> Bool {
+        policy.isActive(at: now) &&
+            policyRef == policy.policyRef &&
+            subjectRef == policy.acknowledgementSubjectRef &&
+            deviceRef == policy.deviceRef &&
+            acknowledgementVersion == policy.acknowledgementVersion &&
+            policy.issuedAt <= acceptedAt &&
+            acceptedAt <= now &&
+            acceptedAt < policy.expiresAt
+    }
+}
+
+public enum MeetingDetectionStartReason: String, Codable, Equatable, Sendable {
+    case promptButton = "prompt_button"
+    case promptTimeout = "prompt_timeout"
+    case savedTargetPolicy = "saved_target_policy"
+
+    public var isAutomatic: Bool { self != .promptButton }
+}
+
+public struct MeetingDetectionCountdown: Equatable, Sendable {
+    public let startedAt: Date
+    public let duration: TimeInterval
+    public private(set) var isResolved = false
+
+    public init(startedAt: Date, duration: TimeInterval = 8) {
+        self.startedAt = startedAt
+        self.duration = duration
+    }
+
+    public func remainingWholeSeconds(at now: Date) -> Int {
+        max(0, Int(ceil(duration - now.timeIntervalSince(startedAt))))
+    }
+
+    public mutating func resolveStart(
+        reason: MeetingDetectionStartReason,
+        at now: Date
+    ) -> MeetingDetectionStartReason? {
+        guard !isResolved else { return nil }
+        if reason == .promptTimeout,
+           now.timeIntervalSince(startedAt) < duration {
+            return nil
+        }
+        isResolved = true
+        return reason
+    }
+
+    public mutating func cancel() -> Bool {
+        guard !isResolved else { return false }
+        isResolved = true
+        return true
+    }
+}
+
 public struct MeetingTargetRegistryDocument: Codable, Equatable, Sendable {
     public let schemaVersion: Int
     public let registryVersion: String
@@ -393,6 +506,7 @@ public struct MeetingTargetRegistryDocument: Codable, Equatable, Sendable {
     public let expiresAt: Date?
     public let targets: [MeetingTargetRegistryTarget]
     public let nonTargetRules: [MeetingDetectionNonTargetRule]
+    public let assistedAutoStartPolicy: AssistedAutoStartPolicySnapshot?
     public let etag: String?
 
     public init(
@@ -402,6 +516,7 @@ public struct MeetingTargetRegistryDocument: Codable, Equatable, Sendable {
         expiresAt: Date? = nil,
         targets: [MeetingTargetRegistryTarget],
         nonTargetRules: [MeetingDetectionNonTargetRule] = [],
+        assistedAutoStartPolicy: AssistedAutoStartPolicySnapshot? = nil,
         etag: String? = nil
     ) {
         self.schemaVersion = schemaVersion
@@ -410,6 +525,7 @@ public struct MeetingTargetRegistryDocument: Codable, Equatable, Sendable {
         self.expiresAt = expiresAt
         self.targets = targets
         self.nonTargetRules = nonTargetRules
+        self.assistedAutoStartPolicy = assistedAutoStartPolicy
         self.etag = etag
     }
 
@@ -420,6 +536,7 @@ public struct MeetingTargetRegistryDocument: Codable, Equatable, Sendable {
         case expiresAt
         case targets
         case nonTargetRules
+        case assistedAutoStartPolicy
         case etag
     }
 
@@ -434,6 +551,10 @@ public struct MeetingTargetRegistryDocument: Codable, Equatable, Sendable {
             [MeetingDetectionNonTargetRule].self,
             forKey: .nonTargetRules
         ) ?? []
+        assistedAutoStartPolicy = try container.decodeIfPresent(
+            AssistedAutoStartPolicySnapshot.self,
+            forKey: .assistedAutoStartPolicy
+        )
         etag = try container.decodeIfPresent(String.self, forKey: .etag)
     }
 

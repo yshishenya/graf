@@ -1,7 +1,49 @@
+from datetime import UTC, datetime
+
 import pytest
 from pydantic import ValidationError
 
 from twobrain_rec_server.config import LOCAL_DEV_SMOKE_IDS, SMOKE_IDENTITY_CLASS, Settings
+
+
+def test_assisted_auto_start_defaults_to_disabled() -> None:
+    settings = Settings()
+
+    assert settings.assisted_auto_start_enabled is False
+    assert settings.assisted_auto_start_workspace_id is None
+
+
+def test_enabled_assisted_auto_start_requires_complete_scoped_policy() -> None:
+    with pytest.raises(ValidationError, match="requires workspace"):
+        Settings(assisted_auto_start_enabled=True)
+
+    settings = Settings(
+        assisted_auto_start_enabled=True,
+        assisted_auto_start_workspace_id="20000000-0000-0000-0000-000000000001",
+        assisted_auto_start_policy_version="2026.08.12.1",
+        assisted_auto_start_acknowledgement_version="2026.08.12.1",
+        assisted_auto_start_policy_issued_at=datetime(2026, 8, 12, tzinfo=UTC),
+        assisted_auto_start_policy_expires_at=datetime(2026, 9, 12, tzinfo=UTC),
+    )
+
+    assert settings.assisted_auto_start_policy_version == "2026.08.12.1"
+
+
+def test_enabled_assisted_auto_start_rejects_unsafe_or_naive_values() -> None:
+    common = {
+        "assisted_auto_start_enabled": True,
+        "assisted_auto_start_workspace_id": "20000000-0000-0000-0000-000000000001",
+        "assisted_auto_start_acknowledgement_version": "2026.08.12.1",
+        "assisted_auto_start_policy_issued_at": datetime(2026, 8, 12, tzinfo=UTC),
+        "assisted_auto_start_policy_expires_at": datetime(2026, 9, 12, tzinfo=UTC),
+    }
+    with pytest.raises(ValidationError, match="safe codes"):
+        Settings(**common, assisted_auto_start_policy_version="unsafe policy")
+    with pytest.raises(ValidationError, match="timezone"):
+        Settings(
+            **{**common, "assisted_auto_start_policy_expires_at": datetime(2026, 9, 12)},
+            assisted_auto_start_policy_version="2026.08.12.1",
+        )
 
 
 def _production_settings(**overrides):

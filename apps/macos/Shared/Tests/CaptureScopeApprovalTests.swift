@@ -46,7 +46,8 @@ final class CaptureScopeApprovalTests: XCTestCase {
         )
 
         let approval = try service.approveDetectorAssistedMeetingTarget(
-            sourceDisplayName: "Yandex Telemost"
+            sourceDisplayName: "Yandex Telemost",
+            startReason: .promptButton
         )
 
         XCTAssertEqual(approval.scopeApprovalId, "scope-detector")
@@ -54,6 +55,17 @@ final class CaptureScopeApprovalTests: XCTestCase {
         XCTAssertEqual(approval.approvalMode, .userConfirmedSuggestedScope)
         XCTAssertEqual(approval.eligibleReason, .approvedMeetingApp)
         XCTAssertTrue(approval.isAcceptedForMeetingRecording)
+    }
+
+    func testAutomatedDetectorAssistedApprovalUsesPriorAuthorization() throws {
+        let service = CaptureScopeApprovalService()
+
+        let approval = try service.approveDetectorAssistedMeetingTarget(
+            sourceDisplayName: "Yandex Telemost",
+            startReason: .savedTargetPolicy
+        )
+
+        XCTAssertEqual(approval.approvalMode, .priorUserAuthorization)
     }
 }
 #endif

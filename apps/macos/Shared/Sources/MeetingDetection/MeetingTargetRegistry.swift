@@ -10,6 +10,7 @@ public enum MeetingTargetRegistryError: Error, Equatable, CustomStringConvertibl
     case unsafePromptTarget(String)
     case unsafeBrowserTarget(String)
     case invalidNonTargetRule
+    case invalidAssistedAutoStartPolicy
     case expired
     case noUsableRegistry
 
@@ -33,6 +34,8 @@ public enum MeetingTargetRegistryError: Error, Equatable, CustomStringConvertibl
             "unsafe_browser_target:\(id)"
         case .invalidNonTargetRule:
             "invalid_non_target_rule"
+        case .invalidAssistedAutoStartPolicy:
+            "invalid_assisted_auto_start_policy"
         case .expired:
             "expired"
         case .noUsableRegistry:
@@ -107,6 +110,19 @@ public enum MeetingTargetRegistryValidator {
             )
         }
         try document.nonTargetRules.forEach(validate(rule:))
+        if let policy = document.assistedAutoStartPolicy {
+            guard policy.enabled,
+                  policy.policyRef.range(of: #"^sha256:[0-9a-f]{64}$"#, options: .regularExpression) != nil,
+                  policy.acknowledgementSubjectRef.range(of: #"^sha256:[0-9a-f]{64}$"#, options: .regularExpression) != nil,
+                  policy.deviceRef.range(of: #"^sha256:[0-9a-f]{64}$"#, options: .regularExpression) != nil,
+                  !policy.policyVersion.isEmpty,
+                  !policy.acknowledgementVersion.isEmpty,
+                  policy.expiresAt > policy.issuedAt,
+                  policy.noticeMode == "internal_no_participant_notice"
+            else {
+                throw MeetingTargetRegistryError.invalidAssistedAutoStartPolicy
+            }
+        }
     }
 
     private static func validate(

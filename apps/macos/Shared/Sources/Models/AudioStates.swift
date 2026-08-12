@@ -125,6 +125,7 @@ public enum RecordingEvidenceEventType: String, Codable, Sendable {
 
 public enum RecordingEvidenceInitiator: String, Codable, Sendable {
     case user
+    case assistedAutomation = "assisted_automation"
     case systemFailClosed = "system_fail_closed"
     case recovery
     case validation

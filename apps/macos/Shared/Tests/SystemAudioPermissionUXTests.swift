@@ -68,13 +68,19 @@ final class SystemAudioPermissionUXTests: XCTestCase {
         let session = try controller.beginDetectorAssistedPreparing(
             targetID: "yandex_telemost",
             bundleID: "ru.yandex.desktop.telemost",
-            displayName: "Yandex Telemost"
+            displayName: "Yandex Telemost",
+            startReason: .promptTimeout,
+            policySnapshotRef: "sha256:" + String(repeating: "a", count: 64),
+            authorizationEvidence: ["meetingDetectionPolicyVersion": "2026.08.12.1"]
         )
 
         XCTAssertEqual(session.state, .detecting)
         XCTAssertEqual(session.visibleIndicatorState, .ready)
         XCTAssertFalse(session.stopActionAvailable)
-        XCTAssertEqual(session.triggerEvidence["trigger"], "meeting_detection_prompt")
+        XCTAssertEqual(session.triggerEvidence["trigger"], "meeting_detection")
+        XCTAssertEqual(session.triggerEvidence["meetingDetectionStartReason"], "prompt_timeout")
+        XCTAssertEqual(session.triggerEvidence["meetingDetectionAutoStart"], "true")
+        XCTAssertEqual(session.policySnapshotRef, "sha256:" + String(repeating: "a", count: 64))
         XCTAssertEqual(session.triggerEvidence["meetingDetectionTargetId"], "yandex_telemost")
     }
 }

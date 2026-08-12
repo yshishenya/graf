@@ -98,6 +98,12 @@
 ### Добавлено
 - Feature 147: единый универсальный macOS installer `graf.pkg` с app-бинарником
   `arm64` + `x86_64` для Apple Silicon и Intel на macOS 14.5+.
+- Feature 145 добавляет явное версионное разрешение assisted auto-start для
+  одного настроенного внутреннего workspace, привязанное к текущим
+  user/device policy references. Production switch по умолчанию выключен.
+- Восьмисекундный countdown теперь показывает оставшиеся секунды текстом и через
+  accessibility value; button, timeout и saved-target start имеют разные
+  metadata-only reason codes.
 - Feature 140 добавляет личный кабинет тарифа и оплаты, hosted checkout YooKassa,
   промокоды, referral credits, usage/storage controls, renewal и ручной refund
   back-office процесс. Checkout остаётся выключенным до canary и согласований.
@@ -124,6 +130,9 @@
 - Лендинг и загрузка получили правдивые формулировки о записи, календаре,
   моделях и системных требованиях Apple silicon/macOS 14.5+, а мобильные
   product-proof изображения используются на узких экранах.
+- Перед каждым detector-assisted стартом повторно проверяются актуальная policy,
+  acknowledgement, target activity, разрешения macOS, фактический storage risk,
+  отсутствие другой записи, видимый индикатор и one-action Stop.
 
 ### Исправлено
 - Согласие публичного сайта теперь раздельно управляет аналитикой, рекламной
@@ -163,6 +172,10 @@
 - Публичные HTML-ответы получили базовые anti-framing, content-type,
   referrer и permissions заголовки; canonical/robots/sitemap и immutable-cache
   применяются только к проверенным публичным маршрутам и fingerprint-ресурсам.
+- Assisted auto-start теперь fail closed при отсутствующей, неверной или
+  просроченной policy, смене user/workspace/device, отзыве acknowledgement и
+  ошибке измерения storage. Существующие выбранные приложения сохраняются, но не
+  активируются без новой авторизации.
 - Закрыт обход admin egress governance: прямые API-запросы на download/export больше не выдают артефакты встреч, заблокированных retention или lifecycle политикой.
 - macOS calendar prompts снова скрывают bare Google Meet и Microsoft Teams
   ссылки из внешних calendar titles и показывают generic meeting title вместо
@@ -171,6 +184,8 @@
 ### Документы
 - Зафиксированы архитектурный контракт, release QA и отсутствие retired driver
   в source/build/installer/validation path.
+- Добавлены Spec Kit артефакты и validation plan Feature 145; production deploy
+  и внешний/customer rollout остаются вне этой реализации.
 - Добавлены Spec Kit артефакты Feature 140, launch runbook и metadata-only
   evidence с production blockers и canary checklist.
 

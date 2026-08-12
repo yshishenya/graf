@@ -41,12 +41,13 @@ public struct RecordingEvidenceService: Sendable {
 
     public func startBlocked(
         session: CaptureSession,
-        prerequisite: RecordingPrerequisiteSnapshot
+        prerequisite: RecordingPrerequisiteSnapshot,
+        initiator: RecordingEvidenceInitiator = .user
     ) -> RecordingEvidenceEvent {
         event(
             for: session,
             type: .startBlocked,
-            initiator: .user,
+            initiator: initiator,
             blockedReason: prerequisite.blockedReason,
             recoveryAction: prerequisite.recoveryAction
         )

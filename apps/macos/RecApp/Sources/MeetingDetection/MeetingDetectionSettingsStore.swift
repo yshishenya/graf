@@ -16,19 +16,22 @@ public struct MeetingDetectionSettings: Codable, Equatable, Sendable {
     public var unknownIdentityUploadAllowed: Bool
     public var targetScopedAutoRecordEnabled: Bool
     public var autoRecordTargetIds: Set<String>
+    public var assistedAutoStartAcknowledgement: AssistedAutoStartAcknowledgement?
 
     public init(
         detectionMode: MeetingDetectionMode = .detectAndAsk,
         uploadMode: MeetingDetectionUploadMode = .automaticCandidateUpload,
         unknownIdentityUploadAllowed: Bool = true,
         targetScopedAutoRecordEnabled: Bool = false,
-        autoRecordTargetIds: Set<String> = []
+        autoRecordTargetIds: Set<String> = [],
+        assistedAutoStartAcknowledgement: AssistedAutoStartAcknowledgement? = nil
     ) {
         self.detectionMode = detectionMode
         self.uploadMode = uploadMode
         self.unknownIdentityUploadAllowed = unknownIdentityUploadAllowed
         self.targetScopedAutoRecordEnabled = targetScopedAutoRecordEnabled
         self.autoRecordTargetIds = autoRecordTargetIds
+        self.assistedAutoStartAcknowledgement = assistedAutoStartAcknowledgement
     }
 
     public var policySummary: MeetingDetectionPolicySummary {
@@ -37,6 +40,14 @@ public struct MeetingDetectionSettings: Codable, Equatable, Sendable {
             uploadMode: uploadMode,
             unknownIdentityUploadAllowed: unknownIdentityUploadAllowed
         )
+    }
+
+    public func allowsAssistedAutoStart(
+        policy: AssistedAutoStartPolicySnapshot?,
+        at now: Date = Date()
+    ) -> Bool {
+        guard let policy, let assistedAutoStartAcknowledgement else { return false }
+        return assistedAutoStartAcknowledgement.matches(policy, at: now)
     }
 }
 

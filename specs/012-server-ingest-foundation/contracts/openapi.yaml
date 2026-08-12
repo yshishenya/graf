@@ -1184,7 +1184,8 @@ paths:
                 archive_audio:
                   type: boolean
                   default: true
-                  description: Keep playback audio in the server archive; false keeps it transient only.
+                  description: Keep playback audio in the server archive; false keeps
+                    it transient only.
               required:
               - file
               - duration_seconds
@@ -6037,7 +6038,8 @@ paths:
                 archive_audio:
                   type: boolean
                   default: true
-                  description: Keep playback audio in the server archive; false keeps it transient only.
+                  description: Keep playback audio in the server archive; false keeps
+                    it transient only.
               required:
               - file
               - duration_seconds
@@ -9284,60 +9286,6 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
 components:
   schemas:
-    BillingSummaryResponse:
-      properties:
-        plan_code:
-          type: string
-          title: Plan Code
-        state:
-          type: string
-          title: State
-        trial_ends_at:
-          anyOf:
-          - type: string
-            format: date-time
-          - type: 'null'
-          title: Trial Ends At
-        paid_through:
-          anyOf:
-          - type: string
-            format: date-time
-          - type: 'null'
-          title: Paid Through
-        bonus_until:
-          anyOf:
-          - type: string
-            format: date-time
-          - type: 'null'
-          title: Bonus Until
-        renewal_resolution:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Renewal Resolution
-        processing_unlimited:
-          type: boolean
-          title: Processing Unlimited
-        storage_used_bytes:
-          anyOf:
-          - type: integer
-          - type: 'null'
-          title: Storage Used Bytes
-        storage_capacity_bytes:
-          anyOf:
-          - type: integer
-          - type: 'null'
-          title: Storage Capacity Bytes
-        handoff_path:
-          type: string
-          title: Handoff Path
-          default: /billing
-      type: object
-      required:
-      - plan_code
-      - state
-      - processing_unlimited
-      title: BillingSummaryResponse
     AbortUploadRequest:
       properties:
         reason:
@@ -9436,6 +9384,61 @@ components:
       - label
       - action
       title: ArtifactEgressState
+    AssistedAutoStartPolicy:
+      properties:
+        policyRef:
+          type: string
+          pattern: ^sha256:[0-9a-f]{64}$
+          title: Policyref
+        acknowledgementSubjectRef:
+          type: string
+          pattern: ^sha256:[0-9a-f]{64}$
+          title: Acknowledgementsubjectref
+        deviceRef:
+          type: string
+          pattern: ^sha256:[0-9a-f]{64}$
+          title: Deviceref
+        policyVersion:
+          type: string
+          maxLength: 64
+          minLength: 1
+          pattern: ^[A-Za-z0-9._-]+$
+          title: Policyversion
+        acknowledgementVersion:
+          type: string
+          maxLength: 64
+          minLength: 1
+          pattern: ^[A-Za-z0-9._-]+$
+          title: Acknowledgementversion
+        enabled:
+          type: boolean
+          const: true
+          title: Enabled
+        issuedAt:
+          type: string
+          format: date-time
+          title: Issuedat
+        expiresAt:
+          type: string
+          format: date-time
+          title: Expiresat
+        noticeMode:
+          type: string
+          const: internal_no_participant_notice
+          title: Noticemode
+      additionalProperties: false
+      type: object
+      required:
+      - policyRef
+      - acknowledgementSubjectRef
+      - deviceRef
+      - policyVersion
+      - acknowledgementVersion
+      - enabled
+      - issuedAt
+      - expiresAt
+      - noticeMode
+      title: AssistedAutoStartPolicy
     AuthCallbackResponse:
       properties:
         user_id:
@@ -9710,6 +9713,60 @@ components:
       - expires_at
       - provider
       title: AuthStartResponse
+    BillingSummaryResponse:
+      properties:
+        plan_code:
+          type: string
+          title: Plan Code
+        state:
+          type: string
+          title: State
+        trial_ends_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Trial Ends At
+        paid_through:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Paid Through
+        bonus_until:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Bonus Until
+        renewal_resolution:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Renewal Resolution
+        processing_unlimited:
+          type: boolean
+          title: Processing Unlimited
+        storage_used_bytes:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Storage Used Bytes
+        storage_capacity_bytes:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Storage Capacity Bytes
+        handoff_path:
+          type: string
+          title: Handoff Path
+          default: /billing
+      type: object
+      required:
+      - plan_code
+      - state
+      - processing_unlimited
+      title: BillingSummaryResponse
     CalendarContextCandidateView:
       properties:
         event_id:
@@ -12358,6 +12415,10 @@ components:
             $ref: '#/components/schemas/MeetingTargetNonTargetRule'
           type: array
           title: Nontargetrules
+        assistedAutoStartPolicy:
+          anyOf:
+          - $ref: '#/components/schemas/AssistedAutoStartPolicy'
+          - type: 'null'
         etag:
           anyOf:
           - type: string

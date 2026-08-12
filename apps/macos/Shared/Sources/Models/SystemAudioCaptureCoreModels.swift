@@ -21,6 +21,7 @@ public enum SystemAudioCaptureScopeKind: String, Codable, Sendable {
 public enum CaptureScopeApprovalMode: String, Codable, Sendable {
     case manualSelection
     case userConfirmedSuggestedScope
+    case priorUserAuthorization
 }
 
 public enum CaptureScopeEligibleReason: String, Codable, Sendable {

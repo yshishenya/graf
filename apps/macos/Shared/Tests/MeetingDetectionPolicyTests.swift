@@ -6,6 +6,94 @@ import TwoBrainRecShared
 import XCTest
 
 final class MeetingDetectionPolicyTests: XCTestCase {
+    func testLegacySettingsKeepTargetSelectionButRequireNewAcknowledgement() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("meeting-settings-\(UUID().uuidString)", isDirectory: true)
+        let url = root.appendingPathComponent("settings.json")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data(
+            """
+            {
+              "detectionMode": "detect_and_ask",
+              "uploadMode": "automatic_candidate_upload",
+              "unknownIdentityUploadAllowed": true,
+              "targetScopedAutoRecordEnabled": true,
+              "autoRecordTargetIds": ["zoom"]
+            }
+            """.utf8
+        ).write(to: url)
+        let store = MeetingDetectionSettingsStore(settingsURL: url)
+
+        var loaded = try store.load()
+        XCTAssertEqual(loaded.autoRecordTargetIds, ["zoom"])
+        XCTAssertNil(loaded.assistedAutoStartAcknowledgement)
+
+        loaded.assistedAutoStartAcknowledgement = AssistedAutoStartAcknowledgement(
+            policyRef: "sha256:" + String(repeating: "a", count: 64),
+            subjectRef: "sha256:" + String(repeating: "b", count: 64),
+            deviceRef: "sha256:" + String(repeating: "c", count: 64),
+            acknowledgementVersion: "ack-v1"
+        )
+        try store.save(loaded)
+        let reloaded = try store.load()
+        XCTAssertEqual(reloaded.autoRecordTargetIds, loaded.autoRecordTargetIds)
+        XCTAssertEqual(
+            reloaded.assistedAutoStartAcknowledgement?.policyRef,
+            loaded.assistedAutoStartAcknowledgement?.policyRef
+        )
+        XCTAssertEqual(
+            reloaded.assistedAutoStartAcknowledgement?.subjectRef,
+            loaded.assistedAutoStartAcknowledgement?.subjectRef
+        )
+        XCTAssertEqual(
+            reloaded.assistedAutoStartAcknowledgement?.deviceRef,
+            loaded.assistedAutoStartAcknowledgement?.deviceRef
+        )
+        XCTAssertEqual(
+            reloaded.assistedAutoStartAcknowledgement?.acknowledgementVersion,
+            loaded.assistedAutoStartAcknowledgement?.acknowledgementVersion
+        )
+    }
+
+    func testAcknowledgementMatchesExactPolicyAndAuthenticatedSubject() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let policy = AssistedAutoStartPolicySnapshot(
+            policyRef: "sha256:" + String(repeating: "a", count: 64),
+            acknowledgementSubjectRef: "sha256:" + String(repeating: "b", count: 64),
+            deviceRef: "sha256:" + String(repeating: "c", count: 64),
+            policyVersion: "2026.08.12.1",
+            acknowledgementVersion: "ack-v1",
+            issuedAt: now,
+            expiresAt: now.addingTimeInterval(3_600)
+        )
+        let acknowledgement = AssistedAutoStartAcknowledgement(
+            policyRef: policy.policyRef,
+            subjectRef: policy.acknowledgementSubjectRef,
+            deviceRef: policy.deviceRef,
+            acknowledgementVersion: policy.acknowledgementVersion,
+            acceptedAt: now
+        )
+
+        XCTAssertTrue(acknowledgement.matches(policy, at: now))
+        XCTAssertFalse(AssistedAutoStartAcknowledgement(
+            policyRef: policy.policyRef,
+            subjectRef: "sha256:" + String(repeating: "c", count: 64),
+            deviceRef: policy.deviceRef,
+            acknowledgementVersion: policy.acknowledgementVersion,
+            acceptedAt: now
+        ).matches(policy, at: now))
+        XCTAssertFalse(AssistedAutoStartAcknowledgement(
+            policyRef: policy.policyRef,
+            subjectRef: policy.acknowledgementSubjectRef,
+            deviceRef: "sha256:" + String(repeating: "d", count: 64),
+            acknowledgementVersion: policy.acknowledgementVersion,
+            acceptedAt: now
+        ).matches(policy, at: now))
+        XCTAssertFalse(acknowledgement.matches(policy, at: policy.expiresAt))
+        XCTAssertFalse(acknowledgement.matches(policy, at: now.addingTimeInterval(-1)))
+        XCTAssertFalse(policy.isActive(at: now.addingTimeInterval(-1)))
+    }
     func testPromptEnabledKnownTargetCanPromptWhenCaptureGateIsReady() {
         let action = MeetingDetectionPolicy().action(
             for: MeetingDetectionCandidateDecision(
