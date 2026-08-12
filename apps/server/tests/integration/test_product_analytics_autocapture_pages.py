@@ -72,7 +72,7 @@ def test_primitives_have_provider_private_attributes_without_disabling_posthog_a
     assert 'data-ph-no-capture="true"' not in provider_macro
 
 
-def test_rendered_public_auth_cabinet_and_desktop_pages_include_live_product_provider_config(
+def test_rendered_public_pages_exclude_product_provider_and_product_pages_include_it(
     client,
     tmp_path: Path,
 ) -> None:
@@ -85,10 +85,8 @@ def test_rendered_public_auth_cabinet_and_desktop_pages_include_live_product_pro
         json={"confirmation_boundary": BOUNDED_DELETE_COPY},
     )
     assert deletion_request.status_code == 202
-    public_cases = {
-        "/": "public_landing",
-        "/download": "public_download",
-        "/privacy": "legal",
+    consent_scoped_public_paths = ("/", "/download", "/privacy")
+    product_public_cases = {
         "/login": "login_signup",
         "/sign-up": "login_signup",
     }
@@ -104,7 +102,12 @@ def test_rendered_public_auth_cabinet_and_desktop_pages_include_live_product_pro
         "/admin": "admin",
     }
 
-    for path, expected_page_class in public_cases.items():
+    for path in consent_scoped_public_paths:
+        response = client.get(path)
+        assert response.status_code == 200, path
+        assert _PRODUCT_PROVIDER_RE.search(response.text) is None
+
+    for path, expected_page_class in product_public_cases.items():
         response = client.get(path)
         assert response.status_code == 200, path
         config = _product_provider_config(response.text)
