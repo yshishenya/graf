@@ -1,6 +1,6 @@
-# Account/billing usability review (automated interim)
+# Account/billing usability review (automated and browser interim)
 
-**Дата**: 2026-08-08
+**Дата**: 2026-08-12
 **Статус**: automated contract checks pass; moderated human review pending.
 
 Автоматизированно проверяются русские labels, explicit destructive actions,
@@ -12,6 +12,22 @@ Manual gate remains: ≥90% discovery of primary actions in 2 minutes, cancel in
 ≤3 screens/60 seconds, keyboard-only path, 200% reflow, reduced motion and
 separate public landing review. Screenshots/video и participant evidence не
 хранятся до фактического moderated run.
+
+## Browser evidence 2026-08-12
+
+- focused billing accessibility/UI/usability suite: `39 passed`;
+- production Chromium desktop `1200 px`: один `h1`, один `main`, skip-link
+  `К содержанию`, named navigation, доступные имена CTA и legal links;
+- mobile viewport `390×844`: `scrollWidth == innerWidth`, горизонтального
+  overflow нет;
+- reduced-motion browser context: media query активна, overflow нет;
+- JavaScript-disabled mobile context: landing, download/login CTA, privacy,
+  terms и refund/offer navigation остаются server-rendered и доступны;
+- browser console: `0 errors`; только два повторяющихся предупреждения о
+  заранее загруженных шрифтах без влияния на действие или layout.
+
+Этот проход не измеряет human findability, screen-reader comprehension или
+время cancel. Поэтому T079 остаётся открытой до moderated participant evidence.
 
 ## Account/settings automated evidence
 

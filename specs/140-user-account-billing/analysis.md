@@ -21,8 +21,8 @@ manual UX gates.
 | Security/accessibility/usability | interim | automated suites pass; live/manual review ещё обязателен |
 | Product-market/pricing | hypothesis | интервью, WTP, 30-day usage, COGS и margin approval отсутствуют |
 
-После последней проверки: **87 задач, 80 закрыты, 7 открыты**. Открытые
-задачи: T078–T080, T083–T085 и T087. T036, T047, T053 и T075–T077 имеют
+После последней проверки: **87 задач, 81 закрыта, 6 открыты**. Открытые
+задачи: T078–T079, T083–T085 и T087. T036, T047, T053 и T075–T077 имеют
 implementation evidence и закрыты в `tasks.md`. Desktop route tests не
 подменяют поведение FR-012: native summary и одноразовый browser handoff
 намеренно не объявлены реализованными без отдельного архитектурного среза.
@@ -42,6 +42,8 @@ implementation evidence и закрыты в `tasks.md`. Desktop route tests н�
 
 ## Launch blockers
 
-Публичный запуск запрещён до controlled canary T078, ручного T079,
-live-security T080, подтверждения T084/T085 и повторного T083/T087. Checkout и реальные
+Публичный запуск запрещён до controlled canary и independent sign-off T078,
+ручного T079, подтверждения T084/T085 и повторного T083/T087. Технический
+security/redaction review T080 закрыт standard scan, focused security/RLS tests
+и production metadata-only probes. Checkout и реальные
 платёжные мутации остаются default-off до merchant/legal/finance approvals.

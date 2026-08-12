@@ -1,7 +1,23 @@
 # Отдельная проверка лендинга и публичных страниц
 
-Статус: **не выполнено**. Лендинг развивается параллельно feature 140 и не
-считается закрытым только по серверным тестам.
+Статус: **автоматизированный browser pass выполнен 2026-08-12; moderated и
+clean-room human review не выполнены**. Лендинг не считается закрытым только
+по серверным тестам или одному браузерному проходу.
+
+Отдельное moderated participant evidence **не выполнено**; T079 остаётся
+открытой до такого прогона.
+
+## Production browser pass
+
+- Chromium desktop `1200 px`, mobile `390×844`, reduced-motion и no-JavaScript
+  contexts загрузили `https://rec.2brain.pro/` без console errors;
+- один `h1`, один `main`, skip-link, named primary navigation, download/login
+  CTA и legal/footer routes присутствуют в accessibility snapshot;
+- horizontal overflow не обнаружен на desktop/mobile/reduced-motion;
+- no-JavaScript mobile snapshot сохранил download/login, privacy, cookies,
+  terms, offer/refund и analytics-consent links;
+- public snapshot не содержит billing amount, promo/referral token, email,
+  phone или provider identifier.
 
 Перед публичным запуском отдельным проходом проверить:
 
@@ -17,6 +33,6 @@
   Krisp и других референсов;
 - production smoke после публикации лендинга и юридического утверждения.
 
-Evidence: screenshots/video и результат moderated review добавляются только
-после отдельного ручного прогона. Реальные платежные реквизиты и данные
-пользователей в evidence не сохраняются.
+Screenshots/video и participant result добавляются только после отдельного
+moderated прогона. Реальные платежные реквизиты и данные пользователей в
+evidence не сохраняются.

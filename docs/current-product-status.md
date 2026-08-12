@@ -13,7 +13,7 @@ Date: 2026-08-12
 
 ## Runtime update (2026-08-12) — Feature 140
 
-- Exact deployed SHA `5002a98324283008e10528c2439f1ffa1c24d4b4` проверен на
+- Exact deployed SHA `a0ed01ee442dba2e4bfc2908326f8dda875d0ef4` (`v2026.08.12.1`) проверен на
   `2brain.dev`; рабочее дерево чистое, migration head
   `0071_fair_use_capability_prefix`.
 - Live/ready/root health probes HTTP 200; production smoke и metadata-only
@@ -29,7 +29,7 @@ Date: 2026-08-12
 
 ## Runtime recheck (2026-08-12) — fair-use and audit-boundary deploy
 
-- Migration `0071_fair_use_capability_prefix` deployed on `5002a983`; the
+- Migration `0071_fair_use_capability_prefix` deployed on `a0ed01ee`; the
   application, notification and PostgreSQL fair-use capability boundaries now
   require the same alphanumeric prefix, and broad billing audit writers omit
   financial metadata. Checkout remains disabled.

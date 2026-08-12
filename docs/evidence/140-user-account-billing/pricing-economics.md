@@ -1,6 +1,6 @@
 # Pricing and unit-economics evidence (interim)
 
-**Дата**: 2026-08-07
+**Дата**: 2026-08-12
 **Статус**: model ready, production approval отсутствует.
 
 ## Server-owned package
@@ -65,3 +65,30 @@ checkout и add-on price version остаются fail-closed.
 T085 остаётся открытой: внешнее сравнение теперь датировано и нормализовано,
 но target-user comprehension/WTP, observed usage distribution, COGS и
 gross-margin floor ещё не измерены. Рабочий guardrail из product-metrics — не менее 70% gross margin после перечисленных COGS; это provisional stop threshold до утверждения Finance.
+
+## Предварительный production usage snapshot — 2026-08-12
+
+Read-only SQL агрегировал только counts и percentiles за последние 30 дней, без
+workspace/user/meeting identifiers и без raw content.
+
+| Метрика | N | p50 | p90 | p99 | Ограничение |
+|---|---:|---:|---:|---:|---|
+| Длительность встречи, seconds | 80 | 39 | 2 283 | 4 560 | окно фактически 27 дней; fixture/internal activity не сегментирована |
+| Committed billing usage entry, seconds | 0 | 0 | 0 | 0 | billing usage ledger ещё не накопил production cohort |
+| Canonical playback object, bytes | 28 | 7 885 742 | 37 783 331 | 55 924 626 | только 2 workspaces |
+| 30-day duration per workspace, seconds | 8 workspaces | 3 | 14 087 | 32 470 | слишком мало workspaces для pricing decision |
+| 30-day playback per workspace, bytes | 2 workspaces | 205 706 018 | 336 475 628 | 365 898 790 | статистически непригодно для ladder approval |
+
+Snapshot заменяет прежнее `данных нет` на измеренное `данных недостаточно`.
+Он не закрывает T085: нужны минимум 30 полных дней устойчивого cohort,
+достаточное число self-service workspaces, заполненный billing usage ledger,
+сегментация accepted production use и утверждённые compute/storage/egress/
+backup/support/payment-fee inputs. Нули не подставляются вместо unknown COGS.
+
+Свежая проверка официальных comparables подтверждает прежнюю семантику:
+[Krisp](https://krisp.ai/pricing/) показывает 7-day no-card trial, unlimited
+core и 10/60 GB storage; [Otter](https://otter.ai/pricing) — 300 Free и 1 200
+Pro minutes с unlimited storage; [Notta](https://www.notta.ai/pricing) — 120/
+1 800 minutes и unlimited Business; [Fireflies](https://guide.fireflies.ai/articles/2631950139-learn-about-transcription-credits-storage-and-rate-limits-for-meetings)
+разделяет monthly upload rate и cumulative meeting storage. Эти источники не
+дают российского WTP и не утверждают 790 ₽/7 900 ₽.

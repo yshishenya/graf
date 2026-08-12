@@ -45,7 +45,7 @@ elsewhere; real-shop canary is a separate approved release step.
 ### Runtime verification (2026-08-12)
 
 - Remote `/opt/projects/2brain-rec` is clean at deployed SHA
-  `5002a98324283008e10528c2439f1ffa1c24d4b4`, migration head
+  `a0ed01ee442dba2e4bfc2908326f8dda875d0ef4` (`v2026.08.12.1`), migration head
   `0071_fair_use_capability_prefix`; live/ready/root probes return HTTP 200.
 - Independent production smoke PASS: config validation, disposable RLS/migration
   probes and metadata-only cleanup (39 database rows, 3 object keys, no residue).
@@ -91,10 +91,10 @@ elsewhere; real-shop canary is a separate approved release step.
   source-retention policy approval, Russia-first JTBD/WTP/COGS evidence and
   finance/legal approval.
 - Cross-artifact analyze pass found no unresolved critical implementation blockers; the feature has
-  87 tasks (80 validated complete, 7 still open). T036, T047, T053 and
+  87 tasks (81 validated complete, 6 still open). T036, T047, T053 and
   T075–T077 are implementation-complete with focused evidence; provider IDs and
   anonymous analytics ingress now have explicit boundary guards. T078 remains
-  the controlled canary/sign-off gate, alongside T079–T080 and T083–T085/T087.
+  the controlled canary/sign-off gate, alongside T079 and T083–T085/T087.
   This branch is not a public-launch completion claim.
 - Billing ownership-loss guard revokes recurring authority under a subscription
   row lock; refund webhook backstop follows YooKassa cursor pages with a bounded

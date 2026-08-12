@@ -18,7 +18,10 @@
 - _Пока нет записей._
 
 ### Безопасность
-- _Пока нет записей._
+- Технический security/redaction review Feature 140 закрыт: standard scan не
+  выявил reportable findings, focused security и PostgreSQL RLS проверки
+  прошли; независимая Security-подпись и positive provider canary остаются
+  обязательными до включения checkout.
 
 ### Документы
 - _Пока нет записей._

@@ -1,6 +1,6 @@
 # Открытые launch-gates Feature 140
 
-Статус на 2026-08-11: public launch **BLOCKED**. Это не продуктовый refund
+Статус на 2026-08-12: public launch **BLOCKED**. Это не продуктовый refund
 case и не обещание пользователю; документ служит только внутренним
 metadata-only реестром незакрытых доказательств.
 
@@ -20,10 +20,13 @@ capability evidence, four-eyes sign-off, emergency stop и rollback; факти�
 canary/sign-off остаётся T078. Автоматическая часть T079 усилилась
 recoverable promo error, keyboard-safe copy и focus/reflow checks; T080 получил
 provider-boundary forbidden-field guard для browser PostHog, provider-ID
-path validation и bounded analytics ingress. Остаются
-evidence/gates: moderated accessibility/usability и landing review, live
-security/RLS review, product-market segment/JTBD, WTP/COGS, upgrade-copy и
-финальный cross-artifact closeout (T078–T085, T087).
+path validation и bounded analytics ingress. Технический security/redaction
+review T080 закрыт 2026-08-12: standard scan не дал reportable findings,
+focused security suite прошёл 38/38, disposable PostgreSQL RLS — 10/10, live
+RLS — 106/106. Остаются evidence/gates: independent Security sign-off и
+provider canary в T078, moderated accessibility/usability и landing review,
+product-market segment/JTBD, WTP/COGS, upgrade-copy и финальный cross-artifact
+closeout (T078–T079, T083–T085, T087).
 
 Referral flow теперь разделяет стабильную workspace-scoped `ReferralLink` и
 per-invitee `ReferralAttribution`; email и новый OAuth signup используют общий
@@ -123,7 +126,7 @@ Ruff/Python compile и deployment evidence scan — PASS. OpenAPI contract drift
 
 ## Runtime recheck 2026-08-12 (latest closeout)
 
-- На deployed SHA `5002a98324283008e10528c2439f1ffa1c24d4b4` migration head
+- На deployed SHA `a0ed01ee442dba2e4bfc2908326f8dda875d0ef4` (`v2026.08.12.1`) migration head
   `0071_fair_use_capability_prefix`; live RLS metadata-only probe PASS:
   `106/106` прикладных таблиц enabled+forced (включая `workspace_join_offers`). Это не закрывает
   controlled provider delivery и независимый security sign-off.

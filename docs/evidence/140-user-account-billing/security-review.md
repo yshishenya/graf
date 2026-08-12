@@ -1,6 +1,6 @@
-# Billing security and redaction review (automated interim)
+# Billing security and redaction review
 
-**Дата**: 2026-08-11
+**Дата**: 2026-08-12
 **Lane**: high-risk backend/privacy; checkout remains disabled by default.
 
 Проверено локально:
@@ -51,12 +51,25 @@
   checkout status; paid usage показывает фактически принятое время без
   fabricated paid allowance.
 
-Команды evidence: `uv run ruff check src tests`, focused billing/security/UI и
-PostHog autocapture tests (43 targeted checks), `git diff --check`. Стандартный
-Codex Security preflight завершён со статусом `ready` (warn: в текущем desktop
-runtime доступно 3 usable worker slots вместо рекомендованных 6); независимый
-read-only baseline просмотрел 54 файла и дал два исправленных findings.
-Production approval требует отдельной проверки deployment secrets,
-PostHog/Yandex configuration, distributed edge rate limit и RLS against a live
-PostgreSQL instance. Локальные contract/unit/webhook checks и static baseline
-не заменяют live security review.
+Финальная техническая проверка T080:
+
+- standard Codex Security scan `50d7bf52-a460-4a8a-b538-4e3bf0a33be0`
+  завершён без reportable findings по семи trust boundaries: secrets/config,
+  webhook/provider, auth/CSRF, tenant RLS, analytics, audit/logging и
+  support-email;
+- focused security/CSRF/RLS/webhook/audit/redaction suite — `38 passed`;
+- disposable PostgreSQL billing RLS suite — `10 passed`;
+- production metadata-only probe: `106/106` прикладных таблиц имеют enabled и
+  forced RLS; checkout и emergency stop выключены, billing secrets mounted
+  read-only;
+- production edge negative matrix: untrusted `:8443` webhook — `403`, legacy
+  webhook на `:443` — `404`, direct backend без injected secret — `401`;
+  `/health/live` и `/health/ready` — `200`.
+
+Scan выполнялся последовательным fallback без независимого subagent baseline,
+потому что в момент запуска session policy запрещала delegation. Он был
+закреплён на `a4dc8b89`; последующие изменения до release tag `v2026.08.12.1`
+были нерелевантными для проверенных trust boundaries и дополнительно прошли
+focused security regression. Это закрывает технический review T080, но не
+самоутверждает независимую Security-подпись и не заменяет positive provider
+delivery/canary: они остаются fail-closed launch-gates T078.
