@@ -4,7 +4,7 @@ Date: 2026-08-12
 
 ## Runtime update (2026-08-12) — Feature 140
 
-- Exact deployed SHA `ec114a81dc92e7e29d59f91c3111bdf7acb32070` проверен на
+- Exact deployed SHA `5002a98324283008e10528c2439f1ffa1c24d4b4` проверен на
   `2brain.dev`; рабочее дерево чистое, migration head
   `0071_fair_use_capability_prefix`.
 - Live/ready/root health probes HTTP 200; production smoke и metadata-only
@@ -12,19 +12,23 @@ Date: 2026-08-12
 - Billing checkout остаётся `false`: это проверка инфраструктурной готовности,
   не разрешение public launch. Live RLS metadata-only probe PASS: 106/106 прикладных
   таблиц enabled+forced (включая `workspace_join_offers`),
-  webhook без секрета получает HTTP 401, но YooKassa edge allowlist/header, canary и
-  merchant/product/legal/finance/QA sign-offs остаются обязательными.
+  dedicated YooKassa edge на `:8443` прошёл `nginx -t`: официальный CIDR
+  allowlist, `256k`, rate limit и server-side secret header активны; внешний
+  неразрешённый IP получает 403, прямой backend без секрета — 401. Controlled
+  provider delivery/canary и merchant/product/legal/finance/QA sign-offs
+  остаются обязательными.
 
 ## Runtime recheck (2026-08-12) — fair-use and audit-boundary deploy
 
-- Migration `0071_fair_use_capability_prefix` deployed on `ec114a81`; the
+- Migration `0071_fair_use_capability_prefix` deployed on `5002a983`; the
   application, notification and PostgreSQL fair-use capability boundaries now
   require the same alphanumeric prefix, and broad billing audit writers omit
   financial metadata. Checkout remains disabled.
 - Post-deploy migration/RLS verification passed: 106/106 application tables are
   enabled and forced; live/ready probes are HTTP 200 and the webhook rejects an
-  unauthenticated request with HTTP 401. YooKassa edge allowlist/header,
-  canary and independent sign-offs remain launch gates.
+  unauthenticated direct-backend request with HTTP 401. Edge allowlist/header
+  verification теперь PASS; provider delivery canary and independent sign-offs
+  remain launch gates.
 
 ## Implementation update (2026-08-06) — Feature 140 personal billing foundation
 
