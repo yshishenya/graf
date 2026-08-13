@@ -78,6 +78,32 @@ def test_upload_part_sync_storage_fallback_runs_off_event_loop(client) -> None:
     assert response.status_code == 200
 
 
+def test_upload_part_rejects_unbounded_part_number_before_storage_write(client) -> None:
+    meeting = client.post(
+        "/api/v1/meetings",
+        headers=auth_headers(),
+        json={"local_recording_id": "minio-long-part-number", "duration_seconds": 60},
+    ).json()
+    session = client.post(
+        f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
+        headers=auth_headers(),
+        json={"expected_track_sizes": {"system": 4}},
+    ).json()
+    data = deterministic_wav_bytes(4)
+    digest = sha256(data).hexdigest()
+    oversized_part_number = "9" * 800
+
+    response = client.put(
+        f"/api/v1/upload-sessions/{session['session_id']}/tracks/system/parts/{oversized_part_number}",
+        headers=auth_headers() | {"X-Byte-Offset": "0", "X-Content-SHA256": digest},
+        content=data,
+    )
+
+    assert response.status_code == 400
+    assert response.json()["code"] == "invalid_part_number"
+    assert client.app_state["storage"].objects == {}
+
+
 def test_upload_part_creates_temporary_cleanup_accounting(client) -> None:
     meeting = client.post(
         "/api/v1/meetings",
