@@ -13,8 +13,9 @@ Release commit: `a53965c72f3d175b740d91702b3b1916932986c7`
 - Предыдущий appcast сохранён для отката:
   `/opt/projects/2brain-rec/infra/runtime/public-downloads/graf-appcast.xml.pre-v2026.08.13.3-20260813T161301Z`.
 
-Публикация Sparkle-артефактов независима от server deploy: production runtime
-оставлен на SHA `d363a1ba4bba38ca8d6d289e6c384c77f7c04c0e`.
+Публикация Sparkle-артефактов выполнена вместе с guarded server rollout:
+production runtime закреплён на SHA `a53965c72f3d175b740d91702b3b1916932986c7`,
+том же SHA, что и release tag.
 
 ## Артефакты
 
@@ -40,8 +41,14 @@ Apple notarization:
   `2026.08.13.3`, enclosure URL и длина совпадают.
 - Live ZIP и PKG — HTTP 200; SHA-256 и размеры совпадают с локальными
   артефактами.
+- `/api/v1/health/live` и `/api/v1/health/ready` — HTTP 200; API, processing и
+  media worker, Temporal, PostgreSQL и MinIO работают в healthy-состоянии.
 - Публичные versioned assets были перемещены до атомарной замены appcast.
 - Smoke не оставил временный staging-каталог.
+
+В случае неуспешной проверки guarded deploy автоматически возвращает runtime и
+публичный installer к предыдущему состоянию; предыдущий appcast сохранён по
+пути выше.
 
 GitHub Release: https://github.com/yshishenya/crisp/releases/tag/v2026.08.13.3
 
@@ -53,3 +60,4 @@ Receipt содержит только технические метаданны�
 - Отдельный физический smoke на Intel Mac остаётся ручным follow-up.
 - Автоматическое обновление Sparkle не включается: пользователь подтверждает
   установку обновления.
+- Checkout YooKassa остаётся выключенным (`TWOBRAIN_BILLING_CHECKOUT_ENABLED=false`).
