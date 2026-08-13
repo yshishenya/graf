@@ -121,9 +121,9 @@ Ruff/Python compile и deployment evidence scan — PASS. OpenAPI contract drift
   merchant canary не выполнялись. Результат означает runtime readiness, а не
   public billing launch.
 
-## Runtime recheck 2026-08-12 (latest closeout)
+## Runtime recheck 2026-08-13 (latest closeout)
 
-- На deployed SHA `5002a98324283008e10528c2439f1ffa1c24d4b4` migration head
+- На deployed SHA `32ce03c2334bc842cbb9871f966432ecf0ac33ca` migration head
   `0071_fair_use_capability_prefix`; live RLS metadata-only probe PASS:
   `106/106` прикладных таблиц enabled+forced (включая `workspace_join_offers`). Это не закрывает
   controlled provider delivery и независимый security sign-off.

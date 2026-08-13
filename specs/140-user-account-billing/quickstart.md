@@ -42,10 +42,10 @@ Use disposable PostgreSQL for RLS/locking/concurrency tests. Provider tests use
 YooKassa test shop where supported and synthetic doubles/official-format CSV
 elsewhere; real-shop canary is a separate approved release step.
 
-### Runtime verification (2026-08-12)
+### Runtime verification (2026-08-13)
 
 - Remote `/opt/projects/2brain-rec` is clean at deployed SHA
-  `5002a98324283008e10528c2439f1ffa1c24d4b4`, migration head
+  `32ce03c2334bc842cbb9871f966432ecf0ac33ca`, migration head
   `0071_fair_use_capability_prefix`; live/ready/root probes return HTTP 200.
 - Independent production smoke PASS: config validation, disposable RLS/migration
   probes and metadata-only cleanup (39 database rows, 3 object keys, no residue).

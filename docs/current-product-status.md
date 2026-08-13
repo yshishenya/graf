@@ -1,6 +1,6 @@
 # Текущий статус продукта
 
-Date: 2026-08-12
+Date: 2026-08-13
 
 ## Implementation update (2026-08-12) — Feature 147 universal macOS installer
 
@@ -11,9 +11,9 @@ Date: 2026-08-12
   macOS 14.5 minimum. The retired privileged audio component remains outside
   source, build, installer, validation, and public distribution.
 
-## Runtime update (2026-08-12) — Feature 140
+## Runtime update (2026-08-13) — Feature 140
 
-- Exact deployed SHA `5002a98324283008e10528c2439f1ffa1c24d4b4` проверен на
+- Exact deployed SHA `32ce03c2334bc842cbb9871f966432ecf0ac33ca` проверен на
   `2brain.dev`; рабочее дерево чистое, migration head
   `0071_fair_use_capability_prefix`.
 - Live/ready/root health probes HTTP 200; production smoke и metadata-only
@@ -29,7 +29,7 @@ Date: 2026-08-12
 
 ## Runtime recheck (2026-08-12) — fair-use and audit-boundary deploy
 
-- Migration `0071_fair_use_capability_prefix` deployed on `5002a983`; the
+- Migration `0071_fair_use_capability_prefix` deployed on `32ce03c2`; the
   application, notification and PostgreSQL fair-use capability boundaries now
   require the same alphanumeric prefix, and broad billing audit writers omit
   financial metadata. Checkout remains disabled.
