@@ -838,6 +838,7 @@ async def callback(
             request_id=_request_id(request),
             browser_state_nonce=request.cookies.get(BROWSER_AUTH_STATE_COOKIE_NAME),
             referral_token=request.cookies.get("graf_referral_token"),
+            referral_enabled=bool(settings.billing_checkout_enabled),
         )
     except CallbackFlowError as exc:
         await db.commit()

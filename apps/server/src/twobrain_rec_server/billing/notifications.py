@@ -22,6 +22,7 @@ class BillingNotification(StrEnum):
     REFERRAL_CREDIT = "referral_credit"
     RENEWAL_UNKNOWN = "renewal_unknown"
     RENEWAL_LATE_SUCCESS = "renewal_late_success"
+    RENEWAL_LATE_SUCCESS_REFUSED = "renewal_late_success_refused"
     RENEWAL_MANUAL_RESUME = "renewal_manual_resume"
     FAIR_USE_REVIEW = "fair_use_review"
     ACCOUNT_CLOSE = "account_close"
@@ -35,6 +36,7 @@ MANDATORY_NOTIFICATION_KINDS = frozenset(
         BillingNotification.RECEIPT_AVAILABLE,
         BillingNotification.RENEWAL_UNKNOWN,
         BillingNotification.RENEWAL_LATE_SUCCESS,
+        BillingNotification.RENEWAL_LATE_SUCCESS_REFUSED,
         BillingNotification.RENEWAL_MANUAL_RESUME,
         BillingNotification.FAIR_USE_REVIEW,
         BillingNotification.ACCOUNT_CLOSE,
@@ -219,7 +221,11 @@ class DurableNotificationOutbox:
         return row
 
 
-def notification_copy(event: NotificationEvent) -> tuple[str, str]:
+def notification_copy(
+    event: NotificationEvent,
+    *,
+    support_email: str | None = None,
+) -> tuple[str, str]:
     """Russian-first copy built only from allowlisted event fields."""
     invoice = event.safe_payload.get("invoice")
     suffix = f" Номер платежа: {invoice}." if invoice else ""
@@ -235,6 +241,11 @@ def notification_copy(event: NotificationEvent) -> tuple[str, str]:
         "security_abuse": "подозрение на злоупотребление безопасностью",
     }.get(event.safe_payload.get("reason", ""), "доказуемая неперсональная эксплуатация")
     fair_use_deadline = event.safe_payload.get("review_by", "в течение 24 часов")
+    support_instruction = (
+        f" Напишите в поддержку: {support_email}."
+        if support_email and "\n" not in support_email and "\r" not in support_email
+        else " Обратитесь в поддержку через историю платежей."
+    )
     copy = {
         BillingNotification.TRIAL_ENDING: ("Пробный период скоро закончится", "Выберите тариф, чтобы сохранить платную обработку."),
         BillingNotification.TRIAL_EXPIRED: ("Пробный период закончился", "Платный режим отключён. Выберите тариф, чтобы продолжить."),
@@ -245,6 +256,11 @@ def notification_copy(event: NotificationEvent) -> tuple[str, str]:
         BillingNotification.REFERRAL_CREDIT: ("Начислен реферальный бонус", "Дополнительные дни применены к вашему оплачиваемому периоду."),
         BillingNotification.RENEWAL_UNKNOWN: ("Проверяем продление", "Статус платежа пока неизвестен. Новое списание не создаём."),
         BillingNotification.RENEWAL_LATE_SUCCESS: ("Продление подтверждено поздно", "Мы восстановили оплаченный период. Проверьте дату следующего списания."),
+        BillingNotification.RENEWAL_LATE_SUCCESS_REFUSED: (
+            "Платёж подтверждён после отключения продления",
+            "Платный период не включён, потому что разрешение на продление было отозвано."
+            + support_instruction,
+        ),
         BillingNotification.RENEWAL_MANUAL_RESUME: ("Подписку можно возобновить", "Продление не подтверждено. Если хотите снова включить автопродление, откройте управление подпиской."),
         BillingNotification.FAIR_USE_REVIEW: (
             "Проверяем использование",
@@ -264,6 +280,7 @@ def build_notification(*, event_id: str, kind: BillingNotification, payload: dic
         BillingNotification.RECEIPT_AVAILABLE: {"invoice"},
         BillingNotification.RENEWAL_UNKNOWN: {"invoice"},
         BillingNotification.RENEWAL_LATE_SUCCESS: {"invoice"},
+        BillingNotification.RENEWAL_LATE_SUCCESS_REFUSED: {"invoice"},
         BillingNotification.RENEWAL_MANUAL_RESUME: {"invoice"},
         BillingNotification.TRIAL_ENDING: set(),
         BillingNotification.TRIAL_EXPIRED: set(),

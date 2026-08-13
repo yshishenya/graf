@@ -78,3 +78,17 @@ def test_outbox_rejects_invalid_recipient_and_channel() -> None:
         outbox.enqueue(event, recipient_id=" ")
     with pytest.raises(ValueError):
         outbox.enqueue(event, recipient_id="user-1", channel="sms")
+
+
+def test_refused_late_success_copy_requires_static_support_contact() -> None:
+    event = build_notification(
+        event_id="renewal:invoice-1:late-success-refused",
+        kind=BillingNotification.RENEWAL_LATE_SUCCESS_REFUSED,
+        payload={"invoice": "INV-1", "action_path": "/billing/history"},
+    )
+
+    title, body = notification_copy(event, support_email="billing@example.test")
+
+    assert "после отключения продления" in title
+    assert "billing@example.test" in body
+    assert "не включён" in body

@@ -24,13 +24,14 @@ from twobrain_rec_server.db.tenant_context import (
 async def bind_referral_attribution(
     db: AsyncSession,
     *,
+    enabled: bool,
     workspace_id: UUID,
     user_id: UUID,
     token: str | None,
     now: datetime,
 ) -> bool:
     """Atomically bind one new invitee to a stable referral link."""
-    if not token:
+    if not enabled or not token:
         return False
     try:
         token_hash = referral_token_hash(validate_referral_token(token))

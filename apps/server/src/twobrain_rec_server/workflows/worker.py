@@ -177,20 +177,6 @@ def _validate_authoritative_renewal_payment(
     return status
 
 
-def _renewal_authority_matches(
-    operation: BillingOperation,
-    subscription: WorkspaceSubscription | None,
-) -> bool:
-    if subscription is None or not subscription.recurring_allowed:
-        return False
-    authority_version = operation.request_snapshot.get("recurring_authority_version")
-    return (
-        isinstance(authority_version, int)
-        and not isinstance(authority_version, bool)
-        and authority_version == subscription.recurring_authority_version
-    )
-
-
 async def run_billing_renewal_reconciler(settings: Any, temporal_client: object) -> None:
     """Plan one renewal, charge it once, then reconcile provider truth."""
     engine = create_engine(settings)
@@ -359,7 +345,8 @@ async def run_billing_notification_reconciler(settings: Any) -> None:
                                 event_id=row.event_id,
                                 kind=kind,
                                 safe_payload=row.safe_payload or {},
-                            )
+                            ),
+                            support_email=settings.billing_support_email,
                         )
                         action_path = (row.safe_payload or {}).get("action_path")
                         base_url = str(getattr(settings, "public_base_url", "")).rstrip("/")
@@ -667,45 +654,30 @@ async def run_billing_renewal_activity(payload: dict[str, str]) -> dict[str, str
             previous_state = operation.state
 
             if provider_status == "succeeded":
-                if not _renewal_authority_matches(operation, subscription):
-                    operation.state = "succeeded_refused"
-                    if subscription is not None:
-                        subscription.renewal_resolution = "authority_refused"
-                    db.add(
-                        BillingAuditEvent(
-                            workspace_id=workspace_id,
-                            action="renewal_success_refused",
-                            target_kind="billing_operation",
-                            target_ref=str(operation_id),
-                            outcome="blocked",
-                            reason_code="recurring_authority_changed",
-                            metadata_json={},
-                        )
+                grant_starts_at = now
+                if not key_expired and subscription is not None and subscription.paid_through is not None:
+                    grant_starts_at = max(grant_starts_at, subscription.paid_through.astimezone(UTC))
+                grant_status = await grant_confirmed_renewal(
+                    db,
+                    workspace_id=workspace_id,
+                    provider_payment_id=provider_id,
+                    amount_minor=invoice.amount_minor,
+                    currency=invoice.currency,
+                    grant_starts_at=grant_starts_at,
+                )
+                if grant_status not in {"granted", "duplicate", "refused"}:
+                    raise ApplicationError(
+                        "billing_renewal_entitlement_projection_failed",
+                        type="BillingRenewalProviderMismatch",
+                        non_retryable=True,
                     )
-                else:
-                    grant_starts_at = now
-                    if not key_expired and subscription is not None and subscription.paid_through is not None:
-                        grant_starts_at = max(grant_starts_at, subscription.paid_through.astimezone(UTC))
-                    grant_status = await grant_confirmed_renewal(
-                        db,
-                        workspace_id=workspace_id,
-                        provider_payment_id=provider_id,
-                        amount_minor=invoice.amount_minor,
-                        currency=invoice.currency,
-                        grant_starts_at=grant_starts_at,
-                    )
-                    if grant_status not in {"granted", "duplicate"}:
-                        raise ApplicationError(
-                            "billing_renewal_entitlement_projection_failed",
-                            type="BillingRenewalProviderMismatch",
-                            non_retryable=True,
-                        )
+                if grant_status != "refused":
                     operation.state = "succeeded"
                     if subscription is not None:
                         subscription.renewal_resolution = (
                             "late_success" if key_expired else "succeeded"
                         )
-                    if key_expired:
+                    if key_expired and grant_status == "granted":
                         db.add(
                             BillingAuditEvent(
                                 workspace_id=workspace_id,

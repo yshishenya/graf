@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from hashlib import sha256
 from typing import TYPE_CHECKING
 
@@ -285,7 +286,11 @@ async def _reconcile_event(
                     provider_payment_id=observation.provider_payment_id,
                     amount_minor=observation.amount_minor,
                     currency=observation.currency,
-                    grant_starts_at=observation.provider_created_at,
+                    grant_starts_at=(
+                        datetime.now(UTC)
+                        if operation.state == "provider_key_expired"
+                        else observation.provider_created_at
+                    ),
                 )
                 if result not in {"granted", "duplicate", "refused"}:
                     raise ProviderObservationError("renewal entitlement projection failed")
