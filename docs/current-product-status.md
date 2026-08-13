@@ -10,6 +10,11 @@ Date: 2026-08-13
 - Both architectures use the same app-owned system-audio-first capture path and
   macOS 14.5 minimum. The retired privileged audio component remains outside
   source, build, installer, validation, and public distribution.
+- Production closeout is complete: deployment `a6d47455` passed the full local
+  and remote gate, and the live `/download` page plus `graf.pkg` returned HTTP
+  200 on 2026-08-13 with the published release SHA-256. Separate Intel hardware
+  smoke remains a manual compatibility follow-up, not an installer contract
+  blocker.
 
 ## Runtime update (2026-08-13) — Feature 140
 
