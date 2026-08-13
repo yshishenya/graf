@@ -370,7 +370,13 @@ if [ -n "$UPDATE_APPCAST" ]; then
   esac
   [ "$APPCAST_SHORT_VERSION" = "$VERSION" ] || fail "appcast short version differs"
   [ "$APPCAST_MINIMUM_SYSTEM" = "14.5" ] || [ "$APPCAST_MINIMUM_SYSTEM" = "14.5.0" ] || fail "appcast minimum system differs"
-  [ "$APPCAST_HARDWARE" = "arm64" ] || fail "appcast hardware requirement differs"
+  # Sparkle omits hardwareRequirements for a universal archive. Keep accepting
+  # the historical arm64-only feed and the explicit universal spellings while
+  # rejecting an architecture claim that does not match this product.
+  case "$APPCAST_HARDWARE" in
+    ""|arm64|x86_64|"arm64 x86_64"|"x86_64 arm64") ;;
+    *) fail "appcast hardware requirement differs" ;;
+  esac
   [ -n "$APPCAST_PUB_DATE" ] || fail "appcast publication date is missing"
   [ -n "$APPCAST_RELEASE_NOTES" ] || fail "appcast release notes are missing"
   printf '%s\n' "$APPCAST_RELEASE_NOTES" | grep -Eq '[А-Яа-яЁё]' || fail "appcast release notes must contain Russian user-facing text"
