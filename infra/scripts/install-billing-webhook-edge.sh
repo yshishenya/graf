@@ -113,13 +113,17 @@ direct_status="$(curl -sS -o /dev/null -w '%{http_code}' \
 edge_status="$(curl -ksS -o /dev/null -w '%{http_code}' \
   -H 'Content-Type: application/json' -d '{}' \
   https://rec.2brain.pro:8443/api/v1/billing/providers/yookassa/webhook/production || true)"
-if [[ "$health_status" != "200" || "$direct_status" != "401" || "$edge_status" != "403" ]]; then
+test_edge_status="$(curl -ksS -o /dev/null -w '%{http_code}' \
+  -H 'Content-Type: application/json' -d '{}' \
+  https://rec.2brain.pro:8443/api/v1/billing/providers/yookassa/webhook/test || true)"
+if [[ "$health_status" != "200" || "$direct_status" != "401" || "$edge_status" != "403" || "$test_edge_status" != "403" ]]; then
   rollback
   echo "billing_webhook_edge_result=blocked"
   echo "reason=post_reload_probe"
   echo "health_status=$health_status"
   echo "direct_backend_status=$direct_status"
   echo "untrusted_edge_status=$edge_status"
+  echo "untrusted_test_edge_status=$test_edge_status"
   echo "rollback=attempted"
   exit 1
 fi
@@ -130,3 +134,4 @@ echo "secret_validation=pass"
 echo "health_status=$health_status"
 echo "direct_backend_status=$direct_status"
 echo "untrusted_edge_status=$edge_status"
+echo "untrusted_test_edge_status=$test_edge_status"

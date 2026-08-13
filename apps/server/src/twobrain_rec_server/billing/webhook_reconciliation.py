@@ -16,6 +16,7 @@ from twobrain_rec_server.billing.entitlements import (
     grant_confirmed_renewal,
 )
 from twobrain_rec_server.billing.events import enqueue_billing_notification
+from twobrain_rec_server.billing.launch_gates import provider_environment
 from twobrain_rec_server.billing.notifications import BillingNotification
 from twobrain_rec_server.billing.payment_methods import (
     extract_payment_method_label,
@@ -91,7 +92,7 @@ async def reconcile_pending_initial_checkout_operations(
     counters = {"processed": 0, "succeeded": 0, "canceled": 0, "pending": 0, "failed": 0}
     try:
         async with YooKassaClient(settings) as provider:
-            environment = "test" if "test" in str(settings.billing_yookassa_base_url).lower() else "production"
+            environment = provider_environment(settings.billing_yookassa_environment)
             scope = ProviderScope(environment=environment, shop_id=settings.billing_yookassa_shop_id)
             for operation in operations:
                 counters["processed"] += 1
@@ -268,7 +269,7 @@ async def _reconcile_event(
     provider: YooKassaClient,
     event: BillingWebhookEvent,
 ) -> str:
-    environment = "test" if "test" in str(settings.billing_yookassa_base_url).lower() else "production"
+    environment = provider_environment(settings.billing_yookassa_environment)
     scope = ProviderScope(environment=environment, shop_id=settings.billing_yookassa_shop_id)
     if event.event_type.startswith("payment."):
         payload = await provider.get_payment(event.object_id)

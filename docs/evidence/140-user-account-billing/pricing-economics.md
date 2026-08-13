@@ -13,7 +13,7 @@
 | Личный год | 7 900 ₽ | без лимита | 2 000 000 000 B |
 
 Expansion ladder — **итоговая** ёмкость, не stacking: 5 / 20 / 100 / 500 GB.
-Цены add-on не включаются до отдельной approved price version и COGS review.
+Утверждённые цены add-on: 290 / 790 / 1 990 / 4 990 ₽ в месяц и 2 900 / 7 900 / 19 900 / 49 900 ₽ в год соответственно. Они должны пройти unit-economics и canary-проверку до production checkout, но больше не являются неизвестными ценовыми placeholders.
 
 ## Нормализация единиц
 
@@ -31,7 +31,7 @@ margin по month/year и каждому add-on. Go/no-go decision фиксир�
 gross-margin floor, fair-use sensitivity и stop threshold.
 
 Пока этих данных нет, нельзя объявлять 790/7 900 ₽ или add-on ladder
-доказанно оптимальными. Публичные USD pricing pages конкурентов используются
+доказанно оптимальными с точки зрения unit-economics. Публичные USD pricing pages конкурентов используются
 только как dated comparable context (см. `research.md` R11), без FX/PPP
 экстраполяции.
 

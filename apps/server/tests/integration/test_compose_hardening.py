@@ -164,6 +164,21 @@ def test_production_compose_uses_required_secret_placeholders_without_dev_defaul
     assert "TWOBRAIN_MINIO_API_SECRET_KEY:?set in deployment environment" not in compose_text
 
 
+def test_production_compose_passes_explicit_yookassa_environment_and_shop() -> None:
+    compose = _compose()
+    for service_name in ("rec-api", "rec-processing-worker", "rec-maintenance"):
+        environment = compose["services"][service_name]["environment"]
+        assert environment["TWOBRAIN_BILLING_YOOKASSA_ENVIRONMENT"] == (
+            "${TWOBRAIN_BILLING_YOOKASSA_ENVIRONMENT:-production}"
+        )
+        assert environment["TWOBRAIN_BILLING_YOOKASSA_BASE_URL"] == (
+            "${TWOBRAIN_BILLING_YOOKASSA_BASE_URL:-https://api.yookassa.ru}"
+        )
+        assert environment["TWOBRAIN_BILLING_YOOKASSA_SHOP_ID"] == (
+            "${TWOBRAIN_BILLING_YOOKASSA_SHOP_ID:-1430118}"
+        )
+
+
 def test_production_compose_declares_docker_secret_files_for_required_secret_classes() -> None:
     compose = _compose()
     secrets = compose["secrets"]

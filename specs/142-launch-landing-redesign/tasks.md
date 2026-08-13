@@ -119,7 +119,7 @@
 
 ## Phase 15: Convergence
 
-- [ ] T058 CRITICAL Block public launch until the operator confirms Russian primary database/object-storage location, current Roskomnadzor operator notification and Article 12 cross-border notification/assessment evidence per FR-022 and FR-026 (partial)
+- [ ] T058 CRITICAL Block public launch until the operator confirms Russian primary database/object-storage location, current Roskomnadzor operator notification and Article 12 cross-border notification/assessment evidence per FR-022 and FR-026 (partial). Current operator input: PostgreSQL, MinIO and backups are reported on HOSTKEY in Russia; Langfuse Cloud EU remains an approved content-bearing external dependency, so the public copy MUST disclose the resulting cross-border processing and MUST NOT claim that all data stays in Russia. Roskomнадзор notification preparation is explicitly deferred to backlog by product-owner decision.
 - [ ] T059 Keep payment publication disabled until the approved catalog, YooKassa acquiring, 54-FZ receipt/tax configuration, renewal/refund rules and effective checkout terms are verified together per FR-013, FR-014 and FR-022 (partial)
 
 ## Phase 16: Legal Trust UX Closeout

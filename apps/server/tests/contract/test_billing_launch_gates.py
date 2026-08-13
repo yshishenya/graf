@@ -99,5 +99,6 @@ def test_yookassa_webhook_edge_is_dedicated_and_fail_closed() -> None:
     assert "allow 2a02:5180::/32" in nginx
     assert "deny all" in nginx
     assert "graf-billing-webhook-secret.conf" in nginx
+    assert "(test|production)" in nginx
     assert 'proxy_set_header X-Billing-Webhook-Secret ""' in nginx
     assert all(term in installer for term in ("nginx -t", "rollback", "untrusted_edge_status"))

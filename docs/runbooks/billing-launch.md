@@ -14,10 +14,15 @@ YooKassa; GRAF не создаёт refund mutation и не показывает 
   API/webhook/referral secrets никогда не записываются в Git, логи или evidence.
 - Production return URL — `https://rec.2brain.pro`; production webhook endpoint —
   `https://rec.2brain.pro:8443/api/v1/billing/providers/yookassa/webhook/production`;
-  test shop имеет
-  отдельный host, callback, shop, secret files, DB, bucket и Temporal namespace.
-  Нельзя переносить test database, receipt, webhook/CSV payload или secret в
-  production.
+  test window uses the bounded `/webhook/test` route on the same listener.
+  Test shop `1436758` проверяется на той же установке, но только в отдельном
+  последовательном окне: explicit `TWOBRAIN_BILLING_YOOKASSA_ENVIRONMENT=test`,
+  test `SHOP_ID` и test API/webhook secret files задаются одновременно, а
+  checkout и provider observation останавливаются перед возвратом к
+  `production`/`1430118`. Два магазина не работают одновременно на одном
+  runtime. Перед переключением оператор убеждается, что нет pending webhook или
+  provider operations от test окна; тестовые платежи и receipts не считаются
+  production evidence.
 - YooKassa API/webhook и referral secrets монтируются server-side через Docker
   secrets в `rec-api`, `rec-processing-worker` и `rec-maintenance`, потому что
   последние два запускают reconciliation/renewal/notification workflows.
@@ -36,7 +41,8 @@ YooKassa; GRAF не создаёт refund mutation и не показывает 
 
 ### Обязательная edge-защита webhook
 
-До canary reverse proxy должен иметь отдельный exact-location для
+До canary reverse proxy должен иметь отдельный bounded location только для
+`/api/v1/billing/providers/yookassa/webhook/test` и
 `/api/v1/billing/providers/yookassa/webhook/production`: только TLS, лимит
 тела `256k`, rate limit, `proxy_request_buffering off`, CIDR allowlist YooKassa
 (`185.71.76.0/27`, `185.71.77.0/27`, `77.75.153.0/25`, `77.75.156.11`,
@@ -130,8 +136,14 @@ receipt/VAT/price, provider contract, cohort или при незакрытом 
 
 ## 3. Test-shop procedure
 
-1. Создать disposable test DB/bucket/Temporal namespace и synthetic owner.
-   Убедиться, что production host и production secret paths недоступны.
+1. На той же production-системе создать synthetic owner/workspace для
+   последовательного test-shop окна. Это не отдельный параллельный runtime:
+   перед переключением остановить checkout/observation, убедиться, что нет
+   незавершённых provider-операций, заменить explicit environment/shop/secret
+   configuration согласованным набором и проверить config snapshot. Не смешивать
+   test payment data с production customer cohort; после теста удалить synthetic
+   данные по runbook и вернуть production configuration до любого публичного
+   smoke.
 2. На exact SHA выполнить:
 
    ```sh
@@ -142,6 +154,14 @@ receipt/VAT/price, provider contract, cohort или при незакрытом 
    cd ../..
    infra/scripts/ci-local.sh --fast
    ```
+
+   Для реального provider окна оператор заранее кладёт test API и webhook
+   secrets в отдельные защищённые файлы (например,
+   `secrets/twobrain_yookassa_test_secret` и
+   `secrets/twobrain_yookassa_test_webhook_secret`) и временно указывает их
+   через `TWOBRAIN_BILLING_YOOKASSA_SECRET_FILE` и
+   `TWOBRAIN_BILLING_YOOKASSA_WEBHOOK_SECRET_FILE`. Значения не передаются в
+   чат и не попадают в Git.
 
 3. Включить checkout только на короткое окно test shop и проверить monthly,
    annual, saved-method, decline, timeout/unknown, duplicate/out-of-order
@@ -154,8 +174,10 @@ receipt/VAT/price, provider contract, cohort или при незакрытом 
    если capability поддерживает это. В GRAF проверить только read-only
    webhook/GET/list/registry convergence и отсутствие refund API mutation.
 6. Заполнить capability rows, metrics snapshot, stop rehearsal и независимую
-   review. После окна вернуть checkout disabled, удалить disposable data и
-   ротировать test secrets при необходимости.
+   review. После окна вернуть checkout disabled, восстановить
+   `TWOBRAIN_BILLING_YOOKASSA_ENVIRONMENT=production`, shop `1430118` и
+   production secret files, перезапустить сервисы, проверить health/readiness и
+   только затем считать систему готовой к production canary.
 
 Любой mismatch amount/currency/shop/environment, duplicate grant, missing
 receipt, unexpected refund call, leaked secret или customer content — `fail`,

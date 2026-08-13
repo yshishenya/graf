@@ -1,6 +1,7 @@
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 from urllib.parse import quote, unquote, urlsplit
 from uuid import UUID
 
@@ -241,6 +242,9 @@ class Settings(BaseSettings):
     # stop or checkout rollback. It never permits a provider money mutation.
     billing_provider_observation_enabled: bool = False
     billing_yookassa_base_url: AnyUrl | None = None
+    # YooKassa uses the same API host for test and production shops. Keep the
+    # selected shop environment explicit; inferring it from the URL is unsafe.
+    billing_yookassa_environment: Literal["test", "production"] = "production"
     billing_yookassa_shop_id: str | None = None
     billing_yookassa_secret_file: Path | None = None
     billing_yookassa_webhook_secret_file: Path | None = None

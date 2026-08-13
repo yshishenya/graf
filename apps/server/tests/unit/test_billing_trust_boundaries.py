@@ -7,6 +7,7 @@ from twobrain_rec_server.api.billing import (
 from twobrain_rec_server.api.billing import (
     router as billing_router,
 )
+from twobrain_rec_server.billing.launch_gates import provider_environment
 from twobrain_rec_server.billing.trial import require_trial_activation
 from twobrain_rec_server.billing.yookassa import is_allowed_confirmation_url
 
@@ -61,3 +62,8 @@ def test_billing_webhook_has_explicit_provider_environment_route() -> None:
     }
     assert "/api/v1/billing/providers/yookassa/webhook/{environment}" in paths
     assert "/api/v1/billing/webhook" in paths
+
+
+def test_provider_environment_does_not_infer_from_api_host() -> None:
+    assert provider_environment("test") == "test"
+    assert provider_environment("production") == "production"

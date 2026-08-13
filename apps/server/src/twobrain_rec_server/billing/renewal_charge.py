@@ -518,7 +518,7 @@ async def charge_renewal_operation(
             raise ValueError("renewal invoice is invalid")
         await require_current_billing_launch_gates(
             db,
-            environment=provider_environment(settings.billing_yookassa_base_url),
+            environment=provider_environment(settings.billing_yookassa_environment),
             shop_id=settings.billing_yookassa_shop_id,
             deployment_sha=settings.langfuse_release,
         )

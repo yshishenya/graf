@@ -1970,7 +1970,7 @@ async def start_billing_checkout(
             return RedirectResponse("/billing?result=pending", status_code=303)
         await require_current_billing_launch_gates(
             db,
-            environment=provider_environment(settings.billing_yookassa_base_url),
+            environment=provider_environment(settings.billing_yookassa_environment),
             shop_id=settings.billing_yookassa_shop_id,
             deployment_sha=settings.langfuse_release,
         )

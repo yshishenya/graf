@@ -15,6 +15,10 @@
 ### Изменено
 - CI и release-signing больше не зависят от исполняемых GitHub workflows;
   каноническими остаются `ci-local.sh`, `cd-remote.sh` и локальная подпись.
+- YooKassa test/production теперь выбираются явным `TWOBRAIN_BILLING_YOOKASSA_ENVIRONMENT`;
+  режим больше не выводится из API URL, поскольку оба магазина могут использовать
+  один API host. Runbook описывает последовательную проверку test shop на той же
+  установке с обязательным возвратом к production.
 
 ### Исправлено
 - Локальные проверки provenance, ZIP path-safety, draft-only upload и очистка

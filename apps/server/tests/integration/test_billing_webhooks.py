@@ -118,6 +118,7 @@ async def test_chunked_webhook_body_is_bounded_before_json_parse(tmp_path: Path)
         state=SimpleNamespace(
             settings=Settings(
                 billing_yookassa_base_url="https://api.yookassa.test",
+                billing_yookassa_environment="test",
                 billing_yookassa_shop_id="shop-1",
                 billing_yookassa_webhook_secret_file=secret,
             )
@@ -159,6 +160,7 @@ async def test_provider_webhook_without_proxy_secret_fails_closed(tmp_path: Path
         state=SimpleNamespace(
             settings=Settings(
                 billing_yookassa_base_url="https://api.yookassa.test",
+                billing_yookassa_environment="test",
                 billing_yookassa_shop_id="shop-1",
                 billing_yookassa_webhook_secret_file=secret,
             )

@@ -133,6 +133,38 @@ def test_billing_observation_requires_only_provider_read_credentials(tmp_path) -
     assert settings.billing_yookassa_secret_file == secret
 
 
+def test_yookassa_environment_is_explicit_when_api_host_is_shared(tmp_path) -> None:
+    secret = tmp_path / "yookassa-secret"
+    secret.write_text("test", encoding="utf-8")
+
+    test_settings = Settings(
+        billing_provider_observation_enabled=True,
+        billing_yookassa_base_url="https://api.yookassa.ru",
+        billing_yookassa_environment="test",
+        billing_yookassa_shop_id="1436758",
+        billing_yookassa_secret_file=secret,
+    )
+    production_settings = Settings(
+        billing_provider_observation_enabled=True,
+        billing_yookassa_base_url="https://api.yookassa.ru",
+        billing_yookassa_environment="production",
+        billing_yookassa_shop_id="1430118",
+        billing_yookassa_secret_file=secret,
+    )
+
+    assert test_settings.billing_yookassa_environment == "test"
+    assert production_settings.billing_yookassa_environment == "production"
+
+    with pytest.raises(ValidationError, match="billing_yookassa_environment"):
+        Settings(
+            billing_provider_observation_enabled=True,
+            billing_yookassa_base_url="https://api.yookassa.ru",
+            billing_yookassa_environment="sandbox",
+            billing_yookassa_shop_id="1436758",
+            billing_yookassa_secret_file=secret,
+        )
+
+
 def test_enabled_billing_rejects_malformed_support_email(tmp_path) -> None:
     paths = []
     for name in ("yookassa", "webhook", "referral"):

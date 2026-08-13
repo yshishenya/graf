@@ -34,8 +34,16 @@ def shop_id_hash(shop_id: str) -> str:
     return sha256(value.encode("utf-8")).hexdigest()
 
 
-def provider_environment(base_url: object) -> str:
-    return "test" if "test" in str(base_url).lower() else "production"
+def provider_environment(environment: object) -> str:
+    """Return the explicitly selected YooKassa environment.
+
+    Test and production shops may share ``api.yookassa.ru``. Callers must pass
+    the server-owned environment setting instead of deriving it from a URL.
+    """
+    value = str(environment).strip().lower()
+    if value not in {"test", "production"}:
+        raise ValueError("provider environment is invalid")
+    return value
 
 
 def _has_four_eyes_values(values: object) -> bool:

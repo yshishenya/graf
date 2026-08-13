@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
+from twobrain_rec_server.billing.launch_gates import provider_environment
 from twobrain_rec_server.billing.provider_events import (
     ProviderEventError,
     WebhookInbox,
@@ -88,9 +89,7 @@ async def _handle_billing_webhook(
 ) -> JSONResponse:
     settings = request.app.state.settings
     try:
-        configured_environment = (
-            "test" if "test" in str(settings.billing_yookassa_base_url).lower() else "production"
-        )
+        configured_environment = provider_environment(settings.billing_yookassa_environment)
         if environment is not None and environment not in {"test", "production"}:
             raise ProviderEventError("provider environment is invalid")
         if environment is not None and environment != configured_environment:

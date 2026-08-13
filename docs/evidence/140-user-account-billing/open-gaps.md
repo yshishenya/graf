@@ -85,7 +85,7 @@ Ruff/Python compile и deployment evidence scan — PASS. OpenAPI contract drift
   workspace metadata отвечает retryable `503`, а не теряет событие; renewal
   catalog ищет последнюю effective approved версию, а не только самый новый
   невалидный ряд.
-- Storage add-on остаётся fail-closed до появления утверждённых ценовых ключей
+- Storage add-on имеет утверждённую ценовую лестницу, но остаётся fail-closed до unit-economics, YooKassa canary и release sign-off
   в versioned catalog: UI не создаёт quote/invoice/payment с неподтверждённой
   ценой. Это отдельный merchant/product gate, а не «бесплатное» увеличение
   лимита.
@@ -122,6 +122,27 @@ Ruff/Python compile и deployment evidence scan — PASS. OpenAPI contract drift
   public billing launch.
 
 ## Runtime recheck 2026-08-13 (latest closeout)
+
+### YooKassa same-installation switch (latest check)
+
+- На текущем `master`/production runtime API host — `https://api.yookassa.ru`,
+  shop `1430118`, checkout `false`; production secret авторизует production
+  shop. Test API secret установлен на сервере в отдельный secret file с mode
+  `0600`, и test shop `1436758` теперь авторизуется (`200`, `enabled`,
+  `test=true`). Это только provider/configuration evidence: платежи не
+  создавались, checkout не включался.
+- Код больше не выводит environment из URL: введён явный
+  `TWOBRAIN_BILLING_YOOKASSA_ENVIRONMENT=test|production`, передаваемый во все
+  checkout, renewal, webhook и reconciliation launch-gate paths. Это позволяет
+  безопасно использовать один API host, но не делает test secret доступным.
+- Для test-shop окна нужен отдельный API secret (и webhook secret) в защищённых
+  server-side files. API secret уже установлен через защищённый канал; отдельные
+  webhook/referral secrets сгенерированы локально на сервере. Ключ мобильного
+  SDK не используется сервером и не сохраняется. В test shop `fiscalization=false`,
+  поэтому перед checkout-canary нужно включить/подтвердить тестовую чековую
+  конфигурацию YooKassa и сопоставить её с 54-ФЗ mapping в GRAF. До этого
+  observation/checkout остаются выключенными, а production configuration не
+  меняется.
 
 - На deployed SHA `32ce03c2334bc842cbb9871f966432ecf0ac33ca` migration head
   `0071_fair_use_capability_prefix`; live RLS metadata-only probe PASS:
