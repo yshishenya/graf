@@ -9,6 +9,9 @@ public struct MeetingDetectionSettingsView: View {
     public static let promptToggleTitle = "Запрашивать запись"
     public static let promptToggleDetail =
         "Если выключено, запросы не показываются и запись не запускается. Определение встреч продолжает работать."
+    public static let assistedAutoStartTitle = "Разрешить запуск записи после таймера"
+    public static let assistedAutoStartDetail =
+        "Для найденной встречи GRAF покажет 8 секунд, чтобы записать сразу или пропустить. Если ничего не нажать, запись начнётся автоматически."
     public static let autoRecordSectionTitle = "Приложения"
     public static let autoRecordSectionDetail =
         "Отмеченные приложения пишутся автоматически. Остальные будут спрашивать перед записью."
@@ -22,6 +25,7 @@ public struct MeetingDetectionSettingsView: View {
 
     @State private var settings: MeetingDetectionSettings
     @State private var promptCapableTargets: [MeetingTargetRegistryTarget] = []
+    @State private var currentPolicy: AssistedAutoStartPolicySnapshot? = nil
     @State private var saveError: String?
 
     public init(
@@ -97,6 +101,31 @@ public struct MeetingDetectionSettingsView: View {
             VStack(alignment: .leading, spacing: 28) {
                 Label(Self.pageTitle, systemImage: "dot.radiowaves.left.and.right")
                     .font(.headline)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(alignment: .firstTextBaseline, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(Self.assistedAutoStartTitle)
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                            Text(Self.assistedAutoStartDetail)
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Text(assistedAutoStartPolicyStatus)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Toggle("", isOn: assistedAutoStartBinding)
+                            .toggleStyle(.switch)
+                            .labelsHidden()
+                            .disabled(currentPolicy?.isActive() != true)
+                            .accessibilityLabel(Self.assistedAutoStartTitle)
+                    }
+                }
+
+                Divider()
 
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(alignment: .firstTextBaseline, spacing: 12) {
@@ -192,6 +221,36 @@ public struct MeetingDetectionSettingsView: View {
         )
     }
 
+    private var assistedAutoStartBinding: Binding<Bool> {
+        Binding(
+            get: { settings.allowsAssistedAutoStart(policy: currentPolicy) },
+            set: { enabled in
+                updateSettings { draft in
+                    if enabled, let policy = currentPolicy, policy.isActive() {
+                        draft.assistedAutoStartAcknowledgement = AssistedAutoStartAcknowledgement(
+                            policyRef: policy.policyRef,
+                            subjectRef: policy.acknowledgementSubjectRef,
+                            deviceRef: policy.deviceRef,
+                            acknowledgementVersion: policy.acknowledgementVersion
+                        )
+                    } else {
+                        draft.assistedAutoStartAcknowledgement = nil
+                    }
+                }
+            }
+        )
+    }
+
+    private var assistedAutoStartPolicyStatus: String {
+        guard let policy = currentPolicy, policy.isActive() else {
+            return "Политика workspace не разрешает автозапуск. Ручная запись доступна отдельно."
+        }
+        if settings.allowsAssistedAutoStart(policy: policy) {
+            return "Разрешено по правилам \(policy.policyVersion) до \(policy.expiresAt.formatted(date: .abbreviated, time: .omitted))."
+        }
+        return "Нужно ваше явное разрешение для правил \(policy.policyVersion)."
+    }
+
     private func autoRecordBinding(for targetID: String) -> Binding<Bool> {
         Binding(
             get: { settings.autoRecordTargetIds.contains(targetID) },
@@ -245,7 +304,13 @@ public struct MeetingDetectionSettingsView: View {
     }
 
     private func reloadRegistryTargets() {
-        promptCapableTargets = Self.loadPromptCapableTargets(from: registryStore)
+        guard let registry = try? registryStore.loadCache().registry else {
+            promptCapableTargets = []
+            currentPolicy = nil
+            return
+        }
+        currentPolicy = registry.assistedAutoStartPolicy
+        promptCapableTargets = Self.promptCapableTargets(in: registry)
     }
 
     private static func loadPromptCapableTargets(
@@ -254,6 +319,12 @@ public struct MeetingDetectionSettingsView: View {
         guard let registry = try? registryStore.loadCache().registry else {
             return []
         }
+        return promptCapableTargets(in: registry)
+    }
+
+    private static func promptCapableTargets(
+        in registry: MeetingTargetRegistryDocument
+    ) -> [MeetingTargetRegistryTarget] {
         return registry.targets
             .filter { target in
                 target.mode == .promptEnabled &&

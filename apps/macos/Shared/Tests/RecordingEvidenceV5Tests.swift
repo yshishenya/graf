@@ -53,6 +53,34 @@ final class RecordingEvidenceTests: XCTestCase {
         XCTAssertEqual(event.recoveryAction, "Grant Screen & System Audio permission in System Settings")
     }
 
+    func testAutomatedStartAndBlockUseAssistedAutomationInitiator() {
+        let service = RecordingEvidenceService()
+        let session = makeSession(state: .active, indicator: .active, stopAvailable: true)
+        let prerequisite = RecordingPrerequisiteSnapshot(
+            policyAllowsRecording: false,
+            microphonePermissionGranted: true,
+            systemAudioPermissionGranted: true,
+            storageRisk: .healthy,
+            indicatorAvailable: true,
+            sourceAppEligibility: .policyBlocked,
+            blockedReason: .policyDisabled,
+            evaluatedAt: Date()
+        )
+
+        XCTAssertEqual(
+            service.event(for: session, type: .started, initiator: .assistedAutomation).initiator,
+            .assistedAutomation
+        )
+        XCTAssertEqual(
+            service.startBlocked(
+                session: session,
+                prerequisite: prerequisite,
+                initiator: .assistedAutomation
+            ).initiator,
+            .assistedAutomation
+        )
+    }
+
     func testRecordingEvidenceDiagnosticBundleRemovesForbiddenContent() throws {
         let event = RecordingEvidenceEvent(
             eventId: "event",

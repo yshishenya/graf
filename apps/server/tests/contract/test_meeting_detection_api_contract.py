@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
 from fastapi.testclient import TestClient
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
+from tests.fakes.auth_contexts import WORKSPACE_ID
 
 
 def meeting_detection_payload(**overrides: object) -> dict[str, object]:
@@ -135,3 +137,57 @@ def test_meeting_detection_registry_contract_returns_metadata_only_registry(clie
         "rawaudio",
     ):
         assert forbidden not in exported
+
+
+def test_meeting_detection_registry_policy_is_fail_closed_and_workspace_scoped(
+    client: TestClient,
+) -> None:
+    settings = client.app.state.settings
+    default_response = client.get(
+        "/api/v1/desktop/meeting-detection/target-registry",
+        headers=auth_headers(),
+    )
+    assert "assistedAutoStartPolicy" not in default_response.json()
+
+    settings.assisted_auto_start_enabled = True
+    settings.assisted_auto_start_workspace_id = WORKSPACE_ID
+    settings.assisted_auto_start_policy_version = "2026.08.12.1"
+    settings.assisted_auto_start_acknowledgement_version = "2026.08.12.1"
+    settings.assisted_auto_start_policy_issued_at = datetime.now(UTC) - timedelta(days=1)
+    settings.assisted_auto_start_policy_expires_at = datetime.now(UTC) + timedelta(days=30)
+
+    settings.assisted_auto_start_workspace_id = UUID("20000000-0000-0000-0000-000000000099")
+    wrong_workspace_response = client.get(
+        "/api/v1/desktop/meeting-detection/target-registry",
+        headers=auth_headers(),
+    )
+    assert "assistedAutoStartPolicy" not in wrong_workspace_response.json()
+
+    settings.assisted_auto_start_workspace_id = WORKSPACE_ID
+
+    enabled_response = client.get(
+        "/api/v1/desktop/meeting-detection/target-registry",
+        headers=auth_headers(),
+    )
+    policy = enabled_response.json()["assistedAutoStartPolicy"]
+    assert policy["enabled"] is True
+    assert policy["policyRef"].startswith("sha256:")
+    assert policy["acknowledgementSubjectRef"].startswith("sha256:")
+    assert policy["deviceRef"].startswith("sha256:")
+    assert str(WORKSPACE_ID) not in str(policy)
+    assert enabled_response.headers["etag"] != default_response.headers["etag"]
+
+    settings.assisted_auto_start_policy_issued_at = datetime.now(UTC) + timedelta(days=1)
+    future_response = client.get(
+        "/api/v1/desktop/meeting-detection/target-registry",
+        headers=auth_headers(),
+    )
+    assert "assistedAutoStartPolicy" not in future_response.json()
+
+    settings.assisted_auto_start_policy_issued_at = datetime.now(UTC) - timedelta(days=1)
+    settings.assisted_auto_start_policy_expires_at = datetime.now(UTC) - timedelta(seconds=1)
+    expired_response = client.get(
+        "/api/v1/desktop/meeting-detection/target-registry",
+        headers=auth_headers(),
+    )
+    assert "assistedAutoStartPolicy" not in expired_response.json()

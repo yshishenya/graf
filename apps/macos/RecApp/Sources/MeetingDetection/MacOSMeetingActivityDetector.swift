@@ -146,6 +146,11 @@ public final class MacOSMeetingActivityDetector: @unchecked Sendable {
         }
     }
 
+    public func isActive(bundleID: String) -> Bool {
+        guard let tracked = trackedEvents[bundleID] else { return false }
+        return tracked.inactiveAt == nil
+    }
+
     private func outputForStableEvent(
         _ tracked: TrackedAudioOwnership,
         activeUntil: Date,

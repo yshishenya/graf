@@ -77,12 +77,19 @@ public final class CaptureSessionController {
         targetID: String,
         bundleID: String,
         displayName: String,
+        startReason: MeetingDetectionStartReason,
+        policySnapshotRef: String,
+        authorizationEvidence: [String: String],
         mode: CaptureMode = .audioRecording
     ) throws -> CaptureSession {
         var prepared = try beginPreparing(mode: mode, sourceAppEligibility: .eligible)
-        prepared.triggerEvidence["trigger"] = "meeting_detection_prompt"
+        prepared.policySnapshotRef = policySnapshotRef
+        prepared.triggerEvidence["trigger"] = "meeting_detection"
+        prepared.triggerEvidence["meetingDetectionStartReason"] = startReason.rawValue
+        prepared.triggerEvidence["meetingDetectionAutoStart"] = String(startReason.isAutomatic)
         prepared.triggerEvidence["meetingDetectionTargetId"] = targetID
         prepared.triggerEvidence["meetingDetectionBundleId"] = bundleID
+        authorizationEvidence.forEach { prepared.triggerEvidence[$0] = $1 }
         prepared.stopActionAvailable = false
         prepared.visibleIndicatorState = .ready
         session = prepared

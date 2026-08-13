@@ -5,6 +5,50 @@ import TwoBrainRecShared
 import XCTest
 
 final class MeetingTargetRegistryTests: XCTestCase {
+    func testAssistedAutoStartPolicyRequiresSafeOpaqueReferences() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let policy = AssistedAutoStartPolicySnapshot(
+            policyRef: "sha256:" + String(repeating: "a", count: 64),
+            acknowledgementSubjectRef: "sha256:" + String(repeating: "b", count: 64),
+            deviceRef: "sha256:" + String(repeating: "c", count: 64),
+            policyVersion: "2026.08.12.1",
+            acknowledgementVersion: "2026.08.12.1",
+            issuedAt: now,
+            expiresAt: now.addingTimeInterval(3_600)
+        )
+        let document = MeetingTargetRegistryDocument(
+            registryVersion: "2026.08.12.1",
+            generatedAt: now,
+            targets: [Self.promptTarget()],
+            assistedAutoStartPolicy: policy
+        )
+
+        XCTAssertNoThrow(try MeetingTargetRegistryValidator.validate(document, now: now))
+        XCTAssertTrue(policy.isActive(at: now))
+        XCTAssertFalse(policy.isActive(at: now.addingTimeInterval(3_601)))
+    }
+
+    func testAssistedAutoStartPolicyRejectsRawOrMalformedReference() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let document = MeetingTargetRegistryDocument(
+            registryVersion: "2026.08.12.1",
+            generatedAt: now,
+            targets: [Self.promptTarget()],
+            assistedAutoStartPolicy: AssistedAutoStartPolicySnapshot(
+                policyRef: "raw-workspace-id",
+                acknowledgementSubjectRef: "raw-user-id",
+                deviceRef: "raw-device-id",
+                policyVersion: "2026.08.12.1",
+                acknowledgementVersion: "2026.08.12.1",
+                issuedAt: now,
+                expiresAt: now.addingTimeInterval(3_600)
+            )
+        )
+
+        XCTAssertThrowsError(try MeetingTargetRegistryValidator.validate(document, now: now)) {
+            XCTAssertEqual($0 as? MeetingTargetRegistryError, .invalidAssistedAutoStartPolicy)
+        }
+    }
     func testNoRemoteOrCacheFailsClosedWithoutPackagedSeed() throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -249,6 +293,20 @@ final class MeetingTargetRegistryTests: XCTestCase {
               ]
             }
             """.utf8
+        )
+    }
+
+    static func promptTarget() -> MeetingTargetRegistryTarget {
+        MeetingTargetRegistryTarget(
+            id: "zoom",
+            displayName: "Zoom",
+            market: .global,
+            platform: .macos,
+            targetFamily: .nativeApp,
+            mode: .promptEnabled,
+            evidence: .runtimeVerified,
+            requiredSignals: [.macOSAudioHALAssertion],
+            nativeBundleIds: ["us.zoom.xos"]
         )
     }
 

@@ -2,6 +2,24 @@
 
 Date: 2026-08-13
 
+## Implementation update (2026-08-12) — Feature 145 assisted auto-start hardening
+
+- Feature 124 остаётся владельцем UX: verified native target, восемь секунд,
+  «Записать сейчас», «Пропустить», «Всегда писать это приложение» и старт по
+  timeout сохранены.
+- Новый старт разрешается только по аутентифицированной, versioned и неистёкшей
+  policy одного явно настроенного внутреннего workspace и после локального
+  подтверждения текущих user- и device-bound acknowledgement references.
+- Button, timeout и saved-target path теперь различаются как `prompt_button`,
+  `prompt_timeout` и `saved_target_policy`; автоматические пути больше не
+  маркируются как нажатие пользователя.
+- Перед capture повторно проверяются policy/acknowledgement, active target,
+  permissions, реальная ёмкость локального buffer/disk, active session,
+  indicator и one-action Stop. Missing/changed state блокирует старт.
+- Production defaults остаются disabled; внешний/customer rollout, release и
+  deploy этой feature не заявлены. Existing target selections сохраняются, но
+  требуют нового явного разрешения policy.
+
 ## Implementation update (2026-08-12) — Feature 147 universal macOS installer
 
 - macOS distribution is fixed to one public `graf.pkg` installer and one site
