@@ -97,6 +97,7 @@ def test_first_touch_binding_supports_multiple_invitees() -> None:
         assert asyncio.run(
             _bind_referral_attribution(
                 db,
+                enabled=True,
                 workspace_id=link.workspace_id,
                 user_id=invitee,
                 token=token,
@@ -126,9 +127,29 @@ def test_first_touch_binding_rejects_expired_link() -> None:
     assert asyncio.run(
         _bind_referral_attribution(
             FakeDb(),
+            enabled=True,
             workspace_id=UUID("33333333-3333-3333-3333-333333333333"),
             user_id=UUID("22222222-2222-2222-2222-222222222222"),
             token=token,
+            now=datetime(2026, 8, 7, tzinfo=UTC),
+        )
+    ) is False
+
+
+def test_referral_binding_is_disabled_with_checkout() -> None:
+    class FailIfUsedDb:
+        info = {}
+
+        async def scalar(self, _query):
+            raise AssertionError("disabled referral binding must not query the database")
+
+    assert asyncio.run(
+        _bind_referral_attribution(
+            FailIfUsedDb(),
+            enabled=False,
+            workspace_id=UUID("33333333-3333-3333-3333-333333333333"),
+            user_id=UUID("22222222-2222-2222-2222-222222222222"),
+            token="r1_" + "a" * 64,
             now=datetime(2026, 8, 7, tzinfo=UTC),
         )
     ) is False
@@ -179,6 +200,8 @@ def test_referral_routes_keep_contract_alias_and_gate_unissued_link() -> None:
     assert "existing_valid" in route_source
     assert "response.delete_cookie(\"graf_referral_token\")" in route_source
     assert "expires_at > landing_now" in route_source
+    assert "if not request.app.state.settings.billing_checkout_enabled" in route_source
+    assert "referral_enabled and secret_path" in route_source
     assert "Одна ссылка может использоваться несколькими приглашёнными" in template_source
     landing_template = (Path(__file__).parents[2] / "src/twobrain_rec_server/cabinet/templates/cabinet/auth/referral_landing.html").read_text(encoding="utf-8")
     assert "Создать аккаунт" in landing_template

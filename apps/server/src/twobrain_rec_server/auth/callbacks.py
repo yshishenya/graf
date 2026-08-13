@@ -464,6 +464,7 @@ async def resolve_callback_to_user(
     provider_http_client: ProviderHttpClient | None = None,
     browser_state_nonce: str | None = None,
     referral_token: str | None = None,
+    referral_enabled: bool,
     now: datetime | None = None,
 ) -> CallbackProfile:
     now = now or datetime.now(UTC)
@@ -661,6 +662,7 @@ async def resolve_callback_to_user(
     if registered:
         await bind_referral_attribution(
             db,
+            enabled=referral_enabled,
             workspace_id=workspace.id,
             user_id=user.id,
             token=referral_token,

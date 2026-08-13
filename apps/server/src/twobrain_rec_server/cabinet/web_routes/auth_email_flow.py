@@ -57,6 +57,7 @@ class EmailLoginCompletion:
 async def _bind_referral_attribution(
     db: AsyncSession,
     *,
+    enabled: bool,
     workspace_id: UUID,
     user_id: UUID,
     token: str | None,
@@ -65,6 +66,7 @@ async def _bind_referral_attribution(
     """Compatibility wrapper for the shared email/OAuth binding helper."""
     return await bind_referral_attribution(
         db,
+        enabled=enabled,
         workspace_id=workspace_id,
         user_id=user_id,
         token=token,
@@ -262,6 +264,7 @@ async def _consume_email_login_code(
     if registered:
         await _bind_referral_attribution(
             db,
+            enabled=bool(request.app.state.settings.billing_checkout_enabled),
             workspace_id=workspace.id,
             user_id=user.id,
             token=request.cookies.get("graf_referral_token"),

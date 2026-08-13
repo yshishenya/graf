@@ -372,31 +372,10 @@ async def grant_confirmed_renewal(
     if invoice is None or invoice.amount_minor != amount_minor or invoice.currency != currency:
         operation.state = "reconciliation_gap"
         return "amount_mismatch"
-    if operation.state in {"provider_key_expired", "manual_resolution", "reconciliation_gap", "succeeded_refused"}:
-        subscription = await db.scalar(
-            select(WorkspaceSubscription).where(WorkspaceSubscription.workspace_id == workspace_id).with_for_update()
-        )
-        if subscription is not None and subscription.recurring_allowed:
-            subscription.recurring_allowed = False
-            subscription.recurring_authority_version = (subscription.recurring_authority_version or 0) + 1
-        operation.state = "succeeded_refused"
-        invoice.status = "succeeded"
-        if subscription is not None:
-            subscription.renewal_resolution = "late_success_refused"
-            db.add(
-                BillingAuditEvent(
-                    workspace_id=workspace_id,
-                    actor_user_id=subscription.billing_owner_id,
-                    action="renewal_success_refused",
-                    target_kind="billing_operation",
-                    target_ref=invoice.safe_number,
-                    outcome="blocked",
-                    reason_code="provider_key_expired",
-                    metadata_json={},
-                )
-            )
-        await db.flush()
-        return "refused"
+    if operation.state == "succeeded_refused":
+        return "duplicate"
+    if operation.state in {"manual_resolution", "reconciliation_gap"}:
+        return "reconciliation_blocked"
     existing = await db.scalar(
         select(BillingEntitlementGrant)
         .where(
@@ -441,6 +420,16 @@ async def grant_confirmed_renewal(
                 metadata_json={},
             )
         )
+        if subscription.billing_owner_id is not None:
+            await enqueue_billing_notification(
+                db,
+                workspace_id=workspace_id,
+                recipient_id=subscription.billing_owner_id,
+                event_id=f"renewal:{invoice.id}:late_success_refused",
+                kind=BillingNotification.RENEWAL_LATE_SUCCESS_REFUSED,
+                payload={"invoice": invoice.safe_number, "action_path": "/billing/history"},
+                marketing_allowed=False,
+            )
         await db.flush()
         return "refused"
     starts_at = grant_starts_at.astimezone(UTC)

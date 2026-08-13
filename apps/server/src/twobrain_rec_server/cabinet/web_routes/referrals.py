@@ -60,9 +60,14 @@ async def referrals_page(
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
 ) -> HTMLResponse:
+    referral_enabled = bool(request.app.state.settings.billing_checkout_enabled)
     secret_path = getattr(request.app.state.settings, "billing_referral_secret_file", None)
     try:
-        secret = secret_path.read_text(encoding="utf-8").strip() if secret_path is not None and secret_path.is_file() else ""
+        secret = (
+            secret_path.read_text(encoding="utf-8").strip()
+            if referral_enabled and secret_path is not None and secret_path.is_file()
+            else ""
+        )
     except OSError:
         secret = ""
     workspace = await db.scalar(select(Workspace).where(Workspace.id == tenant_scope.workspace_id)) if db is not None else None
@@ -195,6 +200,8 @@ async def issue_referral_link(
     db: AsyncSession | None = WebDbDependency,
 ) -> RedirectResponse:
     """Persist referral attribution only after an explicit user action."""
+    if not request.app.state.settings.billing_checkout_enabled:
+        return RedirectResponse("/referrals?result=unavailable", status_code=303)
     if db is None:
         return RedirectResponse("/referrals?result=unavailable", status_code=303)
     sessionmaker = getattr(request.app.state, "db_sessionmaker", None)
@@ -294,6 +301,12 @@ async def referral_landing(
     token: str,
     db: AsyncSession | None = PublicDbDependency,
 ) -> HTMLResponse:
+    if not request.app.state.settings.billing_checkout_enabled:
+        response = cabinet_html_response(_referral_landing_html(state="invalid"), status_code=410)
+        response.delete_cookie("graf_referral_token")
+        response.headers["Cache-Control"] = "private, no-store"
+        response.headers["X-Robots-Tag"] = "noindex, nofollow"
+        return response
     try:
         normalized_token = validate_referral_token(token)
     except ValueError:

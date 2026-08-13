@@ -24,7 +24,6 @@ from twobrain_rec_server.workflows.billing_renewal_workflow import (
     validate_billing_renewal_payload,
 )
 from twobrain_rec_server.workflows.worker import (
-    _renewal_authority_matches,
     _validate_authoritative_renewal_payment,
     run_billing_renewal_activity,
 )
@@ -91,7 +90,7 @@ async def test_confirmed_renewal_extends_paid_through_once() -> None:
 
 
 @pytest.mark.anyio
-async def test_late_success_after_provider_key_expiry_is_refused() -> None:
+async def test_late_success_after_provider_key_expiry_restores_access_without_refusal() -> None:
     class FakeDb:
         def __init__(self, values):
             self.values = iter(values)
@@ -127,7 +126,7 @@ async def test_late_success_after_provider_key_expiry_is_refused() -> None:
         recurring_allowed=True,
         recurring_authority_version=4,
     )
-    db = FakeDb([operation, invoice, subscription])
+    db = FakeDb([operation, invoice, None, subscription])
 
     result = await grant_confirmed_renewal(
         db,
@@ -138,11 +137,85 @@ async def test_late_success_after_provider_key_expiry_is_refused() -> None:
         grant_starts_at=datetime(2026, 8, 7, tzinfo=UTC),
     )
 
-    assert result == "refused"
-    assert operation.state == "succeeded_refused"
+    assert result == "granted"
+    assert operation.state == "succeeded"
     assert invoice.status == "succeeded"
-    assert subscription.recurring_allowed is False
-    assert subscription.recurring_authority_version == 5
+    assert subscription.plan_code == "personal"
+    assert subscription.recurring_allowed is True
+    assert subscription.recurring_authority_version == 4
+
+
+@pytest.mark.anyio
+async def test_late_success_after_refusal_is_recorded_and_notified_once() -> None:
+    class FakeDb:
+        def __init__(self, values):
+            self.values = iter(values)
+            self.added = []
+
+        async def scalar(self, _query):
+            return next(self.values)
+
+        def add(self, value):
+            self.added.append(value)
+
+        async def flush(self):
+            return None
+
+    owner_id = UUID("33333333-3333-4333-8333-333333333333")
+    operation = BillingOperation(
+        id=OPERATION_ID,
+        workspace_id=WORKSPACE_ID,
+        kind="renewal",
+        idempotency_key="renewal-refused",
+        provider_id="pay-refused",
+        state="provider_key_expired",
+        request_snapshot={"plan_code": "personal", "cycle": "month", "recurring_authority_version": 4},
+    )
+    invoice = BillingInvoice(
+        workspace_id=WORKSPACE_ID,
+        operation_id=OPERATION_ID,
+        safe_number="INV-RENEWAL-REFUSED",
+        amount_minor=79_000,
+        currency="RUB",
+    )
+    subscription = WorkspaceSubscription(
+        workspace_id=WORKSPACE_ID,
+        billing_owner_id=owner_id,
+        state="free",
+        plan_code="free",
+        recurring_allowed=False,
+        recurring_authority_version=5,
+    )
+    db = FakeDb([operation, invoice, None, subscription, None, operation, invoice])
+
+    first = await grant_confirmed_renewal(
+        db,
+        workspace_id=WORKSPACE_ID,
+        provider_payment_id="pay-refused",
+        amount_minor=79_000,
+        currency="RUB",
+        grant_starts_at=datetime(2026, 8, 7, tzinfo=UTC),
+    )
+    duplicate = await grant_confirmed_renewal(
+        db,
+        workspace_id=WORKSPACE_ID,
+        provider_payment_id="pay-refused",
+        amount_minor=79_000,
+        currency="RUB",
+        grant_starts_at=datetime(2026, 8, 7, tzinfo=UTC),
+    )
+
+    assert first == "refused"
+    assert duplicate == "duplicate"
+    assert operation.state == "succeeded_refused"
+    assert subscription.plan_code == "free"
+    assert sum(getattr(row, "action", None) == "renewal_success_refused" for row in db.added) == 1
+    deliveries = [row for row in db.added if getattr(row, "template_key", None) == "renewal_late_success_refused"]
+    assert len(deliveries) == 1
+    assert deliveries[0].safe_payload == {
+        "invoice": "INV-RENEWAL-REFUSED",
+        "action_path": "/billing/history",
+    }
 
 
 def test_renewal_identity_and_payload_are_bounded() -> None:
@@ -171,8 +244,16 @@ def test_renewal_retry_repeats_only_authoritative_observation() -> None:
     source = inspect.getsource(run_billing_renewal_activity)
     assert ".get_payment(" in source
     assert "grant_confirmed_renewal" in source
+    assert "if not _renewal_authority_matches" not in source
     assert ".create_payment(" not in source
     assert ".create_refund(" not in source
+
+    webhook_source = inspect.getsource(__import__(
+        "twobrain_rec_server.billing.webhook_reconciliation",
+        fromlist=["_reconcile_event"],
+    )._reconcile_event)
+    assert 'operation.state == "provider_key_expired"' in webhook_source
+    assert "else observation.provider_created_at" in webhook_source
 
 
 @pytest.mark.anyio
@@ -228,7 +309,7 @@ async def test_active_renewal_workflow_is_reused() -> None:
     assert started.workflow_id == billing_renewal_workflow_id(OPERATION_ID)
 
 
-def test_authoritative_payment_requires_exact_operation_amount_and_authority() -> None:
+def test_authoritative_payment_requires_exact_operation_amount() -> None:
     operation = BillingOperation(
         id=OPERATION_ID,
         workspace_id=WORKSPACE_ID,
@@ -244,11 +325,6 @@ def test_authoritative_payment_requires_exact_operation_amount_and_authority() -
         safe_number="INV-RENEWAL-1",
         amount_minor=99900,
         currency="RUB",
-    )
-    subscription = WorkspaceSubscription(
-        workspace_id=WORKSPACE_ID,
-        recurring_allowed=True,
-        recurring_authority_version=4,
     )
     payment = {
         "id": "payment-1",
@@ -268,10 +344,6 @@ def test_authoritative_payment_requires_exact_operation_amount_and_authority() -
         )
         == "succeeded"
     )
-    assert _renewal_authority_matches(operation, subscription)
-
-    subscription.recurring_authority_version = 5
-    assert not _renewal_authority_matches(operation, subscription)
     with pytest.raises(ValueError, match="amount does not match"):
         _validate_authoritative_renewal_payment(
             {**payment, "amount": {"value": "998.00", "currency": "RUB"}},

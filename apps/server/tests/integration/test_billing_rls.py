@@ -230,6 +230,7 @@ async def test_referral_signup_binder_can_insert_registered_attribution_under_rl
     async with async_sessionmaker(rls_engine, expire_on_commit=False)() as session:
         assert await bind_referral_attribution(
             session,
+            enabled=True,
             workspace_id=ids["workspace_b"],
             user_id=ids["user_b"],
             token=token,
