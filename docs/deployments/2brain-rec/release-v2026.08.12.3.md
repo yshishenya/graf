@@ -28,9 +28,9 @@ Checked 2026-08-13 against the public deployment:
 - SHA-256:
   `6c6cb57affebd65430c8b49a4636506638950e6ecb9fc4c88b638b6067342c5c`.
 
-The public file matches the notarized `v2026.08.12.3` release asset. No raw
-audio, transcript, credentials, signed URLs or private meeting content are
-included in this receipt.
+The public file matches the notarized `v2026.08.12.3` release asset. This
+receipt contains metadata-only package verification and no content-bearing or
+credential material.
 
 ## Compatibility boundary
 
