@@ -27,6 +27,10 @@ from twobrain_rec_server.billing.catalog import (
     PlanCatalogSnapshot,
     validate_plan_version,
 )
+from twobrain_rec_server.billing.launch_gates import (
+    provider_environment,
+    require_current_billing_launch_gates,
+)
 from twobrain_rec_server.billing.operations import BillingEmergencyStop, require_billing_enabled
 from twobrain_rec_server.billing.payment_methods import (
     open_provider_reference,
@@ -511,6 +515,12 @@ async def charge_renewal_operation(
         )
         if invoice.amount_minor <= 0 or invoice.currency != "RUB":
             raise ValueError("renewal invoice is invalid")
+        await require_current_billing_launch_gates(
+            db,
+            environment=provider_environment(settings.billing_yookassa_base_url),
+            shop_id=settings.billing_yookassa_shop_id,
+            deployment_sha=settings.langfuse_release,
+        )
         operation.state = "processing"
         await db.flush()
         async with YooKassaClient(settings) as provider:

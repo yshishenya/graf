@@ -123,6 +123,7 @@ RLS_OPERATOR_TABLES = frozenset(
 RLS_BILLING_TABLES = frozenset(
     {
         "billing_plan_versions",
+        "billing_launch_gates",
         "promotion_campaigns",
         "promotion_redemptions",
         "workspace_subscriptions",

@@ -27,6 +27,10 @@ from twobrain_rec_server.billing.catalog import (
 from twobrain_rec_server.billing.checkout import build_checkout_intent, checkout_preview
 from twobrain_rec_server.billing.entitlements import effective_plan_code
 from twobrain_rec_server.billing.history import mask_payment_method
+from twobrain_rec_server.billing.launch_gates import (
+    provider_environment,
+    require_current_billing_launch_gates,
+)
 from twobrain_rec_server.billing.operations import (
     CHECKOUT_BLOCKING_STATES,
     BillingEmergencyStop,
@@ -1963,6 +1967,12 @@ async def start_billing_checkout(
             if is_allowed_confirmation_url(confirmation_url):
                 return RedirectResponse(confirmation_url, status_code=303)
             return RedirectResponse("/billing?result=pending", status_code=303)
+        await require_current_billing_launch_gates(
+            db,
+            environment=provider_environment(settings.billing_yookassa_base_url),
+            shop_id=settings.billing_yookassa_shop_id,
+            deployment_sha=settings.langfuse_release,
+        )
         intent = build_checkout_intent(workspace_id=tenant_scope.workspace_id, idempotency_key=key, preview=preview)
         consent_at = datetime.now(UTC).isoformat()
         operation = BillingOperation(

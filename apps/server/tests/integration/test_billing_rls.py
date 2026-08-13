@@ -5,7 +5,7 @@ from uuid import uuid4
 
 import pytest
 from sqlalchemy import select, text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from tests.integration.test_rls_postgres_policies import (
@@ -59,6 +59,7 @@ def test_all_billing_tables_are_in_tenant_policy_inventory() -> None:
             "0069_fair_use_review_constraints.py",
             "0070_fair_use_review_metadata_constraints.py",
             "0071_fair_use_capability_prefix.py",
+            "0072_billing_launch_gates.py",
         )
     )
     for table_name in (
@@ -80,9 +81,52 @@ def test_all_billing_tables_are_in_tenant_policy_inventory() -> None:
         "referral_attributions",
         "referral_links",
         "fair_use_reviews",
+        "billing_launch_gates",
     ):
         assert table_name in migration_source
         assert "_tenant_isolation" in migration_source
+
+
+@pytest.mark.asyncio
+async def test_launch_gates_are_globally_readable_but_maintenance_write_only(rls_engine) -> None:
+    ids = await _seed_probe_rows(rls_engine)
+    gate_values = '{"provider_correction": {"threshold_minor": 0}, "off_provider_correction": {"threshold_minor": 0}}'
+    gate_params = {
+        "id": uuid4(),
+        "shop_id_hash": "a" * 64,
+        "deployment_sha": "b" * 40,
+        "values_json": gate_values,
+    }
+    insert_gate = text(
+        "insert into billing_launch_gates "
+        "(id, environment, shop_id_hash, deployment_sha, gate_key, version, status, "
+        "evidence_ref, owner_role, approver_ref, executor_ref, values_json, approved_at, valid_until) "
+        "values (:id, 'production', :shop_id_hash, :deployment_sha, 'product', 1, 'approved', "
+        "'evidence:launch', 'product', 'approver:product', 'executor:release', "
+        "cast(:values_json as json), now(), now() + interval '1 day')"
+    )
+    async with rls_engine.begin() as conn:
+        await apply_tenant_context_to_connection(
+            conn,
+            MaintenanceTenantContext(
+                operation_name="billing_reconciliation",
+                actor_id="test_launch_gate",
+                reason_category="launch_gate",
+                feature_area="billing",
+            ),
+        )
+        await conn.execute(insert_gate, gate_params)
+    async with rls_engine.connect() as conn:
+        assert await conn.scalar(text("select count(*) from billing_launch_gates")) == 0
+        await apply_tenant_context_to_connection(conn, _request_context(ids, "a"))
+        assert await conn.scalar(text("select count(*) from billing_launch_gates")) == 1
+    async with rls_engine.begin() as conn:
+        await apply_tenant_context_to_connection(conn, _request_context(ids, "a"))
+        with pytest.raises(DBAPIError, match="row-level security|violates"):
+            await conn.execute(
+                insert_gate,
+                {**gate_params, "id": uuid4(), "deployment_sha": "c" * 40},
+            )
 
 
 @pytest.mark.asyncio

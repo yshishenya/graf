@@ -40,6 +40,43 @@ class BillingPlanVersion(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class BillingLaunchGate(Base):
+    """Versioned, metadata-only approval required before provider mutations."""
+
+    __tablename__ = "billing_launch_gates"
+    __table_args__ = (
+        UniqueConstraint(
+            "environment",
+            "shop_id_hash",
+            "deployment_sha",
+            "gate_key",
+            "version",
+            name="uq_billing_launch_gates_identity",
+        ),
+        CheckConstraint("version > 0", name="ck_billing_launch_gates_version"),
+        CheckConstraint("status in ('approved', 'rejected')", name="ck_billing_launch_gates_status"),
+        CheckConstraint("approved_at < valid_until", name="ck_billing_launch_gates_validity"),
+        CheckConstraint("approver_ref <> executor_ref", name="ck_billing_launch_gates_four_eyes"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    environment: Mapped[str] = mapped_column(String(16), nullable=False)
+    shop_id_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    deployment_sha: Mapped[str] = mapped_column(String(64), nullable=False)
+    gate_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    evidence_ref: Mapped[str] = mapped_column(String(160), nullable=False)
+    owner_role: Mapped[str] = mapped_column(String(64), nullable=False)
+    approver_ref: Mapped[str] = mapped_column(String(120), nullable=False)
+    executor_ref: Mapped[str] = mapped_column(String(120), nullable=False)
+    values_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    approved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    valid_until: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class PromotionCampaign(Base):
     """Versioned, operator-created campaign; raw promo codes are never stored."""
 
