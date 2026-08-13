@@ -9,22 +9,27 @@
 ## [Unreleased]
 
 ### Добавлено
-- _Пока нет записей._
+- Feature 148: локальный entrypoint для проверки custody и подписи draft
+  Sparkle-обновлений через named macOS Keychain.
 
 ### Изменено
-- _Пока нет записей._
+- CI и release-signing больше не зависят от исполняемых GitHub workflows;
+  каноническими остаются `ci-local.sh`, `cd-remote.sh` и локальная подпись.
 
 ### Исправлено
-- _Пока нет записей._
+- Локальные проверки provenance, ZIP path-safety, draft-only upload и очистка
+  временных данных теперь завершаются fail-closed.
 
 ### Безопасность
-- _Пока нет записей._
+- Sparkle private signer закреплён за named macOS Keychain; manifest сохраняет
+  trust generation 1, прежний key ID и public key, без экспорта в файл или GitHub.
 
 ### Документы
-- _Пока нет записей._
+- Обновлены release, notarization и QA runbooks для локального workflow.
 
 ### Операции
-- _Пока нет записей._
+- Репозиторий Actions оставлен выключенным; production deploy и live appcast
+  по Feature 148 не выполнялись.
 
 ## [2026.08.13.2] - 2026-08-13
 

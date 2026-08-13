@@ -2,6 +2,20 @@
 
 Date: 2026-08-13
 
+## Implementation update (2026-08-13) — Feature 148 local workflows
+
+- Канонические CI-проверки запускаются локально через
+  `infra/scripts/ci-local.sh --fast|--full`; production CD сохраняет
+  `cd-remote.sh` с полным gate на pinned SHA.
+- Исполняемые workflow-файлы удалены, repository Actions подтверждён как
+  выключенный. Sparkle custody и draft signing выполняются локальным
+  `verify-release-signing-custody.sh` и
+  `sign-graf-app-update-local.sh` через named macOS Keychain.
+- Active manifest сохраняет trust generation `1`, key ID
+  `sha256:63c373b20f82851a6b4443bad2100eede5d50d897ed2aaf9fa8c94db56e4ecce`
+  и прежний public key. Production deploy и live appcast в этом срезе не
+  запускались.
+
 ## Implementation update (2026-08-12) — Feature 145 assisted auto-start hardening
 
 - Feature 124 остаётся владельцем UX: verified native target, восемь секунд,

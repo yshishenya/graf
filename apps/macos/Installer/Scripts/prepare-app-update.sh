@@ -18,10 +18,7 @@ VALIDATOR="$MACOS_DIR/Scripts/validate-app-updates.sh"
 DERIVE_PUBLIC_KEY="$SCRIPT_DIR/derive-sparkle-public-key.swift"
 RELEASE_SIGNING_COMMON="$SCRIPT_DIR/release-signing-common.sh"
 UPDATE_SIGNING_MANIFEST="$MACOS_DIR/Installer/UpdateSigningKey.json"
-RELEASE_SIGNING_ATTESTATION=${GRAF_RELEASE_SIGNING_ATTESTATION:-}
 RELEASE_SIGNING_KEYCHAIN_ATTESTATION=${GRAF_RELEASE_SIGNING_KEYCHAIN_ATTESTATION:-}
-DEGRADED_FALLBACK_APPROVED=${GRAF_RELEASE_SIGNING_APPROVED_DEGRADED_FALLBACK:-0}
-DEGRADED_FALLBACK_APPROVAL_ID=${GRAF_RELEASE_SIGNING_DEGRADED_APPROVAL_ID:-}
 RELEASE_SIGNING_CUSTODY_STATE=not-checked
 
 fail() {
@@ -74,10 +71,6 @@ case "$REQUIRE_RELEASE_PROVENANCE" in
   0|1) ;;
   *) fail "GRAF_REQUIRE_RELEASE_PROVENANCE must be 0 or 1" ;;
 esac
-case "$DEGRADED_FALLBACK_APPROVED" in
-  0|1) ;;
-  *) fail "GRAF_RELEASE_SIGNING_APPROVED_DEGRADED_FALLBACK must be 0 or 1" ;;
-esac
 if [ "$REQUIRE_RELEASE_PROVENANCE" = "1" ]; then
   [ -z "$(git -C "$REPO_ROOT" status --porcelain --untracked-files=all)" ] ||
     fail "release provenance requires a clean worktree"
@@ -127,16 +120,7 @@ if [ "$REQUIRE_RELEASE_PROVENANCE" = "1" ]; then
   [ -n "$RELEASE_SIGNING_KEYCHAIN_ATTESTATION" ] ||
     fail "release provenance requires a safe Keychain attestation"
   release_signing_require_keychain_attestation "$RELEASE_SIGNING_KEYCHAIN_ATTESTATION" "v$VERSION" "$HEAD_SHA" || exit 1
-  if [ -n "$RELEASE_SIGNING_ATTESTATION" ]; then
-    release_signing_require_attestation "$RELEASE_SIGNING_ATTESTATION" "v$VERSION" "$HEAD_SHA" || exit 1
-    RELEASE_SIGNING_CUSTODY_STATE=ready
-  elif [ "$DEGRADED_FALLBACK_APPROVED" = "1" ] &&
-       [ "${GRAF_RELEASE_SIGNING_MODE:-}" = "keychain" ]; then
-    release_signing_require_safe_identifier "$DEGRADED_FALLBACK_APPROVAL_ID" "degraded fallback approval identifier" || exit 1
-    RELEASE_SIGNING_CUSTODY_STATE=degraded
-  else
-    fail "release provenance requires a safe signing attestation or an explicitly approved Keychain fallback"
-  fi
+  RELEASE_SIGNING_CUSTODY_STATE=ready
 fi
 
 grep -Eq '[А-Яа-яЁё]' "$RELEASE_NOTES" || fail "release notes must contain Russian user-facing text"
@@ -220,48 +204,23 @@ APPCAST_PATH="$WORK_DIR/graf-appcast.xml"
 ditto -c -k --sequesterRsrc --keepParent "$APP_BUNDLE" "$ARCHIVE_PATH"
 cp "$RELEASE_NOTES" "$NOTES_PATH"
 
-case "$RELEASE_SIGNING_SIGNER_MODE" in
-  keychain)
-    "$GENERATE_APPCAST" \
-      --account "$RELEASE_SIGNING_SIGNER_ACCOUNT" \
-      --download-url-prefix "$DOWNLOAD_BASE_URL/" \
-      --embed-release-notes \
-      --versions "$VERSION" \
-      --maximum-deltas 0 \
-      --maximum-versions 3 \
-      -o "$APPCAST_PATH" \
-      "$WORK_DIR" >/dev/null 2>&1 || fail "could not generate the signed appcast"
-    ;;
-  ephemeral-ci)
-    "$GENERATE_APPCAST" \
-      --ed-key-file "$RELEASE_SIGNING_SIGNER_FILE" \
-      --download-url-prefix "$DOWNLOAD_BASE_URL/" \
-      --embed-release-notes \
-      --versions "$VERSION" \
-      --maximum-deltas 0 \
-      --maximum-versions 3 \
-      -o "$APPCAST_PATH" \
-      "$WORK_DIR" >/dev/null 2>&1 || fail "could not generate the signed appcast"
-    ;;
-  *) fail "selected signer mode is unavailable" ;;
-esac
+"$GENERATE_APPCAST" \
+  --account "$RELEASE_SIGNING_SIGNER_ACCOUNT" \
+  --download-url-prefix "$DOWNLOAD_BASE_URL/" \
+  --embed-release-notes \
+  --versions "$VERSION" \
+  --maximum-deltas 0 \
+  --maximum-versions 3 \
+  -o "$APPCAST_PATH" \
+  "$WORK_DIR" >/dev/null 2>&1 || fail "could not generate the signed appcast"
 
 "$VALIDATOR" "$APP_BUNDLE" "$PREVIOUS_APP_BUNDLE" "$ARCHIVE_PATH" "$APPCAST_PATH"
 
 APPCAST_SIGNATURE=$(xmllint --xpath \
   "string((//*[local-name()='item' and *[local-name()='version' and normalize-space(text())='$VERSION']]/*[local-name()='enclosure'])/@*[local-name()='edSignature'])" \
   "$APPCAST_PATH")
-case "$RELEASE_SIGNING_SIGNER_MODE" in
-  keychain)
-    "$SIGN_UPDATE" --verify --account "$RELEASE_SIGNING_SIGNER_ACCOUNT" "$APPCAST_PATH" >/dev/null 2>&1 || fail "appcast signature verification failed"
-    "$SIGN_UPDATE" --verify --account "$RELEASE_SIGNING_SIGNER_ACCOUNT" "$ARCHIVE_PATH" "$APPCAST_SIGNATURE" >/dev/null 2>&1 || fail "archive signature verification failed"
-    ;;
-  ephemeral-ci)
-    "$SIGN_UPDATE" --verify --ed-key-file "$RELEASE_SIGNING_SIGNER_FILE" "$APPCAST_PATH" >/dev/null 2>&1 || fail "appcast signature verification failed"
-    "$SIGN_UPDATE" --verify --ed-key-file "$RELEASE_SIGNING_SIGNER_FILE" "$ARCHIVE_PATH" "$APPCAST_SIGNATURE" >/dev/null 2>&1 || fail "archive signature verification failed"
-    ;;
-  *) fail "selected signer mode is unavailable" ;;
-esac
+"$SIGN_UPDATE" --verify --account "$RELEASE_SIGNING_SIGNER_ACCOUNT" "$APPCAST_PATH" >/dev/null 2>&1 || fail "appcast signature verification failed"
+"$SIGN_UPDATE" --verify --account "$RELEASE_SIGNING_SIGNER_ACCOUNT" "$ARCHIVE_PATH" "$APPCAST_SIGNATURE" >/dev/null 2>&1 || fail "archive signature verification failed"
 
 if [ -d "$OUTPUT_DIR" ]; then
   mv "$OUTPUT_DIR" "$BACKUP_DIR"
