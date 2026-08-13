@@ -256,33 +256,46 @@ run_local_signer_failures() {
   printf '%s\n' 'not used' > "$fixture/previous.zip"
   printf '%s\n' 'Проверка безопасного выпуска.' > "$fixture/notes.md"
 
-  cat > "$fake_bin/git" <<'EOF'
+cat > "$fake_bin/git" <<'EOF'
 #!/usr/bin/env sh
 if [ "${1:-}" = "-C" ]; then shift 2; fi
 case "${1:-}" in
+  remote)
+    [ "${2:-}" = "get-url" ] && printf '%s\n' 'git@github.com:yshishenya/crisp.git' ;;
   rev-parse)
     if [ "${2:-}" = "--show-toplevel" ]; then
       printf '%s\n' "$GRAF_TEST_REPO_ROOT"
+    elif [ "${2:-}" = "refs/tags/v2026.07.20.6^{}" ]; then
+      printf '%s\n' 6666666666666666666666666666666666666666
+    elif [ "${2:-}" = "refs/tags/v2026.07.20.5^{}" ]; then
+      printf '%s\n' 5555555555555555555555555555555555555555
     else
-      printf '%s\n' 0000000000000000000000000000000000000000
+      printf '%s\n' 6666666666666666666666666666666666666666
     fi
     ;;
+  merge-base) [ "${GRAF_TEST_ANCESTOR:-1}" = "1" ] ;;
   status)
     [ "${GRAF_TEST_GIT_DIRTY:-0}" = "0" ] || printf '%s\n' ' M tracked-file'
     ;;
   fetch) ;;
   ls-remote)
-    printf '%s\t%s\n' 0000000000000000000000000000000000000000 "${3:-refs/heads/master}"
+    printf '%s\t%s\n' 6666666666666666666666666666666666666666 "${3:-refs/heads/master}"
     ;;
   *) exit 1 ;;
 esac
 EOF
-  cat > "$fake_bin/gh" <<'EOF'
+cat > "$fake_bin/gh" <<'EOF'
 #!/usr/bin/env sh
+repo=
+if [ "${1:-}" = "--repo" ]; then repo=$2; shift 2; fi
 case "${1:-} ${2:-}" in
   'auth status') exit 0 ;;
-  'release view') printf '%s\n' "${GRAF_TEST_RELEASE_DRAFT:-false}" ;;
+  'release view')
+    [ "$repo" = yshishenya/crisp ] || exit 1
+    printf '%s\n' "${GRAF_TEST_RELEASE_DRAFT:-false}"
+    ;;
   'release download')
+    case "$repo" in yshishenya/crisp|sparkle-project/Sparkle) ;; *) exit 1 ;; esac
     shift 2
     pattern=
     destination=
@@ -301,7 +314,10 @@ case "${1:-} ${2:-}" in
     esac
     cp "$source" "$destination/$pattern"
     ;;
-  'release upload') printf '%s\n' upload >> "$GRAF_TEST_UPLOAD_LOG" ;;
+  'release upload')
+    [ "$repo" = yshishenya/crisp ] || exit 1
+    printf '%s\n' upload >> "$GRAF_TEST_UPLOAD_LOG"
+    ;;
   *) exit 1 ;;
 esac
 EOF
@@ -311,17 +327,22 @@ EOF
     label=$1
     dirty=$2
     draft=$3
+    previous_tag=${4:-v2026.07.20.5}
+    ancestor=${5:-1}
+    gh_repo=${6:-}
     if GRAF_TEST_REPO_ROOT="$REPO_ROOT" \
       GRAF_TEST_GIT_DIRTY="$dirty" \
       GRAF_TEST_RELEASE_DRAFT="$draft" \
+      GRAF_TEST_ANCESTOR="$ancestor" \
       GRAF_TEST_CANDIDATE_SOURCE="$fixture/candidate.zip" \
       GRAF_TEST_PREVIOUS_SOURCE="$fixture/previous.zip" \
       GRAF_TEST_NOTES_SOURCE="$fixture/notes.md" \
       GRAF_TEST_UPLOAD_LOG="$upload_log" \
+      GH_REPO="$gh_repo" \
       PATH="$fake_bin:$PATH" \
       sh "$LOCAL_SIGNER" \
         --release-tag v2026.07.20.6 \
-        --previous-tag v2026.07.20.5 \
+        --previous-tag "$previous_tag" \
         --candidate-app-asset candidate.zip \
         --previous-app-asset previous.zip \
         --release-notes-asset notes.md >/dev/null 2>&1; then
@@ -333,6 +354,14 @@ EOF
 
   run_local_signer_failure dirty_worktree 1 true
   run_local_signer_failure published_release 0 false
+  run_local_signer_failure wrong_repository 0 true v2026.07.20.5 1 yshishenya/other
+  run_local_signer_failure non_ancestor_predecessor 0 true v2026.07.20.5 0
+  run_local_signer_failure newer_predecessor 0 true v2026.07.20.7 1
+  lock_dir="$MACOS_DIR/.build/.graf-local-signing.lock"
+  mkdir -p "$lock_dir"
+  run_local_signer_failure concurrent_signer 0 true
+  [ -d "$lock_dir" ] || fail "contending local signer removed the active serialization lock"
+  rmdir "$lock_dir"
   run_local_signer_failure unsafe_symlink_archive 0 true
   [ ! -d "$MACOS_DIR/.build/.graf-local-signing.lock" ] ||
     fail "local signer failure left its serialization lock behind"
@@ -487,7 +516,7 @@ for source in "$COMMON" "$PREPARE" "$BOOTSTRAP_VALIDATOR" "$BOOTSTRAP_BUILDER" "
   sh -n "$source"
 done
 
-grep -Fq 'gh release upload' "$LOCAL_SIGNER" ||
+grep -Fq 'release upload' "$LOCAL_SIGNER" ||
   fail "local draft-signing entrypoint does not upload bounded draft assets"
 grep -Fq 'GRAF_RELEASE_SIGNING_MODE=keychain' "$LOCAL_SIGNER" ||
   fail "local draft-signing entrypoint does not use the named Keychain signer"

@@ -23,6 +23,8 @@
 ### Безопасность
 - Sparkle private signer закреплён за named macOS Keychain; manifest сохраняет
   trust generation 1, прежний key ID и public key, без экспорта в файл или GitHub.
+- Локальная подпись Sparkle теперь привязана к GitHub origin, принимает только
+  более старый tag-предшественник и не удаляет lock параллельного процесса.
 
 ### Документы
 - Обновлены release, notarization и QA runbooks для локального workflow.

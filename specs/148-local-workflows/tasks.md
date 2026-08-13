@@ -58,6 +58,11 @@ only local commands, and repository Actions API returns disabled.
 - [X] T014 Run `specs/148-local-workflows/quickstart.md` focused checks and mark completed tasks
 - [X] T015 Run `infra/scripts/ci-local.sh --fast`, `infra/scripts/ci-local.sh --full`, and verify repository Actions `enabled=false`
 
+## Phase 7: Post-merge hardening
+
+- [X] T016 [US3] Pin GitHub operations to the configured origin, require an older ancestor tag, bound archive symlinks, and preserve a lock owned by another process in `apps/macos/Installer/Scripts/sign-graf-app-update-local.sh`, `apps/macos/Installer/Scripts/test-release-signing-custody.sh`, and `apps/macos/Shared/Tests/InstallerLifecycleEvidenceTests.swift`
+- [X] T017 [US3] Run the focused signing suite, shell/static checks, fast/full local CI, and verify Actions remain disabled using `specs/148-local-workflows/quickstart.md`
+
 ## Dependencies & Execution Order
 
 1. T001–T003 establish the local trust contract.
@@ -65,6 +70,7 @@ only local commands, and repository Actions API returns disabled.
 3. T007–T008 implement signing before deleting workflows.
 4. T009–T013 remove the remote surface and update active truth.
 5. T014–T015 validate the complete migration.
+6. T016 hardens the merged signing boundary; T017 validates the follow-up diff.
 
 T004 can be inspected independently. T009 can be prepared in parallel with T010
 but must not be considered complete until T008 passes focused tests.
