@@ -96,29 +96,23 @@ instructions.
   `SUPublicEDKey` is the approved base64 32-byte Ed25519 public key.
 - [ ] UpdateSigningKey.json is active, contains only public metadata, and its
   keyId, trust generation and public key match the final app SUPublicEDKey.
-- [ ] The normal GitHub signer and named Keychain recovery signer have each
-  produced matching safe key-id evidence. The disposable
-  graf-release-signing-test proof was separate and did not activate the
-  production generation.
-- [ ] A two-channel metadata-only readiness drill ran before this release, no
+- [ ] The named Keychain signer produced matching safe key-id evidence. Any
+  disposable test proof was separate and did not activate the production
+  generation.
+- [ ] A local metadata-only readiness drill ran before this release, no
   more than 90 calendar days after the prior drill and immediately after any
   control-plane change; its retained evidence contains only timestamp,
   generation, key ID and channel states.
 - [x] The public release never selects the historical owner-only fallback;
   historical receipts retain their exact tag/provenance and metadata-only
   evidence without becoming an active operator path.
-- [ ] The protected signing environments require independent reviewer approval,
-  permit the protected master branch only, and have no public-host write path.
-  Every external workflow action is pinned to a full immutable SHA.
 - [ ] The release attestation binds the active generation, exact CalVer tag,
-  commit, `github-environment` channel, `ready` state and a UTC timestamp no
+  commit, `macos-keychain` channel, `ready` state and a UTC timestamp no
   older than 24 hours before staging. A missing, stale or mismatched
   attestation blocks the attempt and leaves the prior staged/public appcast
   unchanged.
-- [ ] The exact draft release also contains a fresh metadata-only
-  `macos-keychain` attestation for the same generation/tag/commit. The signing
-  workflow rejects its absence, mismatch, non-ready state or age over 24 hours
-  before generating a signed appcast.
+- [ ] The local signing command rejects a missing, mismatched, non-ready or
+  expired Keychain attestation before generating a signed appcast.
 - [x] A one-channel Keychain recovery receipt, if encountered in history, is
   treated as archive evidence only. It never authorizes a new public release;
   malformed or missing attestation blocks publication.

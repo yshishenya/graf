@@ -18,12 +18,10 @@ server unit suite, lint and compile checks, and skips the longer macOS and
 deployment-readiness checks. It is for iteration and PR feedback, never a
 release gate. Focused tests remain the first check during implementation.
 
-The **GRAF validation** GitHub workflow automatically runs the fast server lane
-and a macOS build for every PR to `master`. Dispatch the same workflow with
-`lane=full` only when an early full baseline is useful; do not run it after
-every small edit. GitHub branch rules cannot make status checks mandatory on
-the current private-repository plan, so agents must follow this protocol and
-record the selected lane in the PR.
+GitHub Actions are intentionally disabled for this repository. Nothing runs
+automatically on a pull request: the author must run the selected local lane and
+record its result in the PR. Use `--full` only for a release candidate or early
+broad diagnosis; do not run it after every small edit.
 
 Use targeted tests during development, but do not replace the feature
 quickstart or canonical local gate with a narrow command when the change touches
@@ -83,6 +81,12 @@ Sparkle Ed25519 trust-generation custody/rotation. They are not Apple
 code-signing migration tools. Local/self-signed/ad-hoc commands may remain in
 historical receipts or disposable fixtures for negative tests, but are never a
 public release fallback.
+
+Sparkle update signing is also local-only. The active signer remains in the
+named macOS Keychain account and is never exported to GitHub or a temporary key
+file. Follow `docs/agent-guidance/macos-notarization.md` and run
+`apps/macos/Installer/Scripts/sign-graf-app-update-local.sh` only from the clean
+exact release tag on current `origin/master`.
 
 ## Dependency Updates
 

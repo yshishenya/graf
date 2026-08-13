@@ -148,7 +148,7 @@ final class InstallerLifecycleEvidenceTests: XCTestCase {
         XCTAssertTrue(source.contains("derive-sparkle-public-key.swift"))
         XCTAssertTrue(source.contains("GRAF.app SUPublicEDKey"))
         XCTAssertTrue(source.contains("--verify"))
-        XCTAssertTrue(source.contains("ephemeral-ci"))
+        XCTAssertFalse(source.contains("ephemeral-ci"))
         XCTAssertTrue(source.contains("--embed-release-notes"))
         XCTAssertTrue(source.contains("validate-app-updates.sh"))
         XCTAssertTrue(source.contains("apps/macos/.build/updates"))
@@ -187,18 +187,19 @@ final class InstallerLifecycleEvidenceTests: XCTestCase {
             XCTAssertNotNil(keyID.range(of: #"^sha256:[0-9a-f]{64}$"#, options: .regularExpression))
             let publicKey = try XCTUnwrap(manifest["publicKey"] as? String)
             XCTAssertEqual(Data(base64Encoded: publicKey)?.count, 32)
+            XCTAssertEqual(trustGeneration, 1)
+            XCTAssertEqual(keyID, "sha256:63c373b20f82851a6b4443bad2100eede5d50d897ed2aaf9fa8c94db56e4ecce")
+            XCTAssertEqual(publicKey, "Arod6toNHZ/p5uy+V86sOMZ/XLMfwGnb7RR5/I/QpZg=")
         }
 
         let channels = try XCTUnwrap(manifest["channels"] as? [String: Any])
         let primary = try XCTUnwrap(channels["primary"] as? [String: String])
-        let recovery = try XCTUnwrap(channels["recovery"] as? [String: String])
-        XCTAssertEqual(primary["kind"], "github-environment")
-        XCTAssertEqual(primary["environment"], "graf-release-signing")
-        XCTAssertEqual(recovery["kind"], "macos-keychain")
-        XCTAssertEqual(recovery["account"], "graf-release-signing")
+        XCTAssertEqual(primary["kind"], "macos-keychain")
+        XCTAssertEqual(primary["account"], "graf-release-signing")
+        XCTAssertNil(channels["recovery"])
     }
 
-    func testReleaseSigningCommonHelperFailsClosedForManifestAndEphemeralInputs() throws {
+    func testReleaseSigningCommonHelperFailsClosedForLocalKeychainInputs() throws {
         let source = try Self.readRepositoryFile("apps/macos/Installer/Scripts/release-signing-common.sh")
         let provisioner = try Self.readRepositoryFile("apps/macos/Installer/Scripts/provision-release-signing-custody.sh")
 
@@ -206,27 +207,21 @@ final class InstallerLifecycleEvidenceTests: XCTestCase {
         XCTAssertTrue(source.contains("public signing manifest is not active"))
         XCTAssertTrue(source.contains("key identifier does not match its public key"))
         XCTAssertTrue(source.contains("legacy arbitrary private-file input is forbidden"))
-        XCTAssertTrue(source.contains("GRAF_RELEASE_SIGNING_MODE must be keychain or ephemeral-ci"))
-        XCTAssertTrue(source.contains("ephemeral CI signing is restricted to GitHub Actions"))
-        XCTAssertTrue(source.contains("ephemeral CI key file permissions must be 0600"))
-        XCTAssertTrue(source.contains("outside the runner temporary directory"))
-        XCTAssertTrue(source.contains("[ ! -L \"$candidate\" ]"))
-        XCTAssertTrue(source.contains("safe signing attestation does not bind the requested release"))
-        XCTAssertTrue(source.contains("safe signing attestation does not bind the requested commit"))
+        XCTAssertTrue(source.contains("GRAF_RELEASE_SIGNING_MODE must be keychain"))
+        XCTAssertFalse(source.contains("ephemeral-ci"))
+        XCTAssertFalse(source.contains("GITHUB_ACTIONS"))
         XCTAssertTrue(source.contains("safe signing attestation is older than 24 hours"))
         XCTAssertTrue(source.contains("release_signing_require_keychain_attestation"))
         XCTAssertTrue(source.contains("safe Keychain attestation does not bind the requested commit"))
         let prepare = try Self.readRepositoryFile("apps/macos/Installer/Scripts/prepare-app-update.sh")
-        XCTAssertTrue(prepare.contains("explicitly approved Keychain fallback"))
-        XCTAssertTrue(prepare.contains("GRAF_RELEASE_SIGNING_DEGRADED_APPROVAL_ID"))
+        XCTAssertTrue(prepare.contains("release provenance requires a safe Keychain attestation"))
+        XCTAssertFalse(prepare.contains("GRAF_RELEASE_SIGNING_DEGRADED_APPROVAL_ID"))
         XCTAssertFalse(source.localizedCaseInsensitiveContains("private key:"))
-        XCTAssertTrue(provisioner.contains("mktemp -d"))
-        XCTAssertTrue(provisioner.contains("TRANSFER_FILE=\"$TRANSFER_DIRECTORY/signing-key\""))
-        XCTAssertTrue(provisioner.contains("rm -rf \"$TRANSFER_DIRECTORY\""))
         XCTAssertTrue(provisioner.contains("--resume is an explicit Keychain recovery"))
+        XCTAssertFalse(provisioner.contains("gh secret set"))
         let custodyHarness = try Self.readRepositoryFile("apps/macos/Installer/Scripts/test-release-signing-custody.sh")
         XCTAssertTrue(custodyHarness.contains("current source contains a probable secret literal"))
-        XCTAssertTrue(custodyHarness.contains("$REPO_ROOT/.github"))
+        XCTAssertTrue(custodyHarness.contains("remote workflow files remain in the active repository"))
     }
 
     func testReleaseSigningFailureSimulationsStayFailClosed() throws {
@@ -297,38 +292,20 @@ final class InstallerLifecycleEvidenceTests: XCTestCase {
         XCTAssertFalse(migration.contains("GRAF_UPDATE_ARCHIVE=\"$3\""))
     }
 
-    func testProtectedReleaseSigningWorkflowsStayManualPinnedAndSecretSafe() throws {
-        let verifier = try Self.readRepositoryFile(".github/workflows/verify-release-signing-custody.yml")
-        let signer = try Self.readRepositoryFile(".github/workflows/sign-graf-app-update.yml")
+    func testLocalReleaseSigningEntrypointStaysPinnedAndSecretSafe() throws {
+        let signer = try Self.readRepositoryFile("apps/macos/Installer/Scripts/sign-graf-app-update-local.sh")
 
-        for workflow in [verifier, signer] {
-            XCTAssertTrue(workflow.contains("workflow_dispatch:"))
-            XCTAssertTrue(workflow.contains("if: github.ref == 'refs/heads/master'"))
-            XCTAssertFalse(workflow.contains("pull_request:"))
-            XCTAssertFalse(workflow.contains("set -x"))
-            XCTAssertFalse(workflow.contains("scp "))
-            XCTAssertFalse(workflow.contains("rsync "))
-        }
-        XCTAssertTrue(verifier.contains("graf-release-signing-test"))
-        XCTAssertTrue(verifier.contains("graf-release-signing"))
-        XCTAssertTrue(verifier.contains("actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5"))
-        XCTAssertTrue(verifier.contains("actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02"))
-        XCTAssertTrue(verifier.contains("chmod 600"))
-        XCTAssertTrue(verifier.contains("rm -f \"$KEY_FILE\""))
-        XCTAssertTrue(verifier.contains("\"channel\": \"github-environment\""))
-        XCTAssertTrue(verifier.contains("\"state\": \"ready\""))
-        XCTAssertTrue(verifier.contains("\"checkedAt\": \"$CHECKED_AT\""))
-        XCTAssertTrue(signer.contains("concurrency:"))
-        XCTAssertTrue(signer.contains("cancel-in-progress: false"))
-        XCTAssertTrue(signer.contains("GRAF_RELEASE_SIGNING_MODE=ephemeral-ci"))
-        XCTAssertTrue(signer.contains("GRAF_RELEASE_SIGNING_ATTESTATION=\"$ATTESTATION\""))
-        XCTAssertTrue(signer.contains("GRAF_RELEASE_SIGNING_KEYCHAIN_ATTESTATION=\"$KEYCHAIN_ATTESTATION\""))
-        XCTAssertTrue(signer.contains("keychain_attestation_asset:"))
-        XCTAssertTrue(signer.contains("name: graf-release-signing"))
+        XCTAssertTrue(signer.contains("HEAD, release tag and origin/master must match exactly"))
+        XCTAssertTrue(signer.contains("target GitHub release must remain a draft"))
+        XCTAssertTrue(signer.contains("candidate asset is not a safe GRAF.app ZIP"))
+        XCTAssertTrue(signer.contains("SPARKLE_ARCHIVE_SHA256"))
+        XCTAssertTrue(signer.contains("GRAF_RELEASE_SIGNING_MODE=keychain"))
+        XCTAssertTrue(signer.contains("GRAF_RELEASE_SIGNING_KEYCHAIN_ATTESTATION=\"$ATTESTATION\""))
         XCTAssertTrue(signer.contains("GRAF_REQUIRE_RELEASE_PROVENANCE=1"))
         XCTAssertTrue(signer.contains("gh release upload"))
-        XCTAssertTrue(signer.contains("\"checkedAt\": \"$CHECKED_AT\""))
         XCTAssertFalse(signer.contains("GRAF_SPARKLE_PRIVATE_KEY_FILE"))
+        XCTAssertFalse(signer.contains("ephemeral-ci"))
+        XCTAssertFalse(signer.contains("GITHUB_ACTIONS"))
     }
 
     func testProductionUpdatePreparationRequiresCleanRemoteTaggedProvenance() throws {

@@ -6,11 +6,6 @@
   "publicKey": "Arod6toNHZ/p5uy+V86sOMZ/XLMfwGnb7RR5/I/QpZg=",
   "channels": {
     "primary": {
-      "kind": "github-environment",
-      "environment": "graf-release-signing",
-      "secretName": "GRAF_SPARKLE_ED25519_PRIVATE_KEY"
-    },
-    "recovery": {
       "kind": "macos-keychain",
       "account": "graf-release-signing"
     }

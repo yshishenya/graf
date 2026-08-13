@@ -77,15 +77,24 @@ Record the Apple request IDs and `Accepted` results in the release receipt.
 
 ## 3. Publish the Sparkle update
 
-Before uploading, validate the candidate against the previous Developer ID
-app with `apps/macos/Scripts/validate-app-updates.sh`. Create a draft GitHub
-Release containing the notarized candidate ZIP, previous ZIP, Russian release
-notes, and a metadata-only Keychain attestation. Dispatch
-`.github/workflows/sign-graf-app-update.yml` from `master`.
+Before uploading, validate the candidate against the previous Developer ID app
+with `apps/macos/Scripts/validate-app-updates.sh`. Create a draft GitHub Release
+containing the notarized candidate ZIP, previous ZIP and Russian release notes.
+From a clean checkout of the exact candidate tag on current `origin/master`, run:
 
-That workflow signs and uploads assets to the draft GitHub Release; it does not
-change the production feed. Publish versioned ZIP/PKG files and their SHA-256
-checksums on the download host, then replace `graf-appcast.xml` last.
+```sh
+apps/macos/Installer/Scripts/sign-graf-app-update-local.sh \
+  --release-tag vYYYY.MM.DD.N \
+  --previous-tag vYYYY.MM.DD.N \
+  --candidate-app-asset NAME.zip \
+  --previous-app-asset NAME.zip \
+  --release-notes-asset NAME.md
+```
+
+The local command verifies the named Keychain signer, creates metadata-only
+attestation, signs and uploads bounded assets to the draft GitHub Release. It
+does not change the production feed. Publish versioned ZIP/PKG files and their
+SHA-256 checksums on the download host, then replace `graf-appcast.xml` last.
 
 ## 4. Closeout
 
@@ -98,4 +107,3 @@ After publication, download the public artifacts again and verify:
 
 Keep the evidence metadata-only. Do not commit credentials, signed URLs, raw
 audio, transcript text, private meeting content, or private screenshots.
-

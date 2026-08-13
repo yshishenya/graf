@@ -270,26 +270,20 @@ GRAF_UPDATE_FEED_URL="https://rec.2brain.pro/static/public/downloads/graf-appcas
 ```
 
 An active manifest contains only the base64 public key, its safe SHA-256
-identifier, a trust generation, and the names of the two protected channels.
+identifier, a trust generation, and the named local Keychain account.
 It is the sole source for `SUPublicEDKey`. Supplying a different public-key
 override is rejected; an updater-disabled build remains the only valid build
 when the manifest is not active.
 
 ### Release-Signing Custody
 
-The signing material itself has two independently controlled copies of the
-same generation:
-
-- the normal path is the protected GitHub environment
-  `graf-release-signing`;
-- the recovery path is the named macOS Keychain account recorded in the active
-  public manifest.
+The signing material has one active copy in the named macOS Keychain account
+recorded in the public manifest. GitHub stores draft release assets but never
+stores or executes with the private signer.
 
 The repository, application bundle, issue tracker, public host, logs, and
-attestations contain neither signing material nor an export of it. A general
-local private-file input is intentionally rejected. The CI path accepts a
-temporary runner file only inside the GitHub runner temporary directory, with
-mode `0600`, and removes it on exit.
+attestations contain neither signing material nor an export of it. Private-file
+and environment inputs are intentionally rejected.
 
 `UpdateSigningKey.json` starts as `unprovisioned`. Do not create a real
 generation during ordinary development. At the separately approved release
@@ -298,53 +292,23 @@ gate, initialize it once from a clean, reviewed worktree:
 ```sh
 sh apps/macos/Installer/Scripts/provision-release-signing-custody.sh \
   --initialize \
-  --keychain-account graf-release-signing \
-  --github-environment graf-release-signing
+  --keychain-account graf-release-signing
 ```
 
-This command refuses an existing Keychain generation, sends the transient
-export directly to the named protected GitHub environment, deletes the
-transient file, and writes only public manifest fields. Review and commit that
-public manifest before any bootstrap package. It is not a command for a test
-secret: the disposable test workflow uses the separate
-`graf-release-signing-test` environment and must never activate the
-production manifest.
+This command refuses an existing Keychain generation and writes only public
+manifest fields. It never exports the private signer. Review and commit that
+public manifest before any bootstrap package; disposable tests must never
+activate the production manifest.
 
 If an approved initialization is interrupted after its named Keychain
 generation was created, do not create a second key or delete the first one.
-After checking the owner-approved recovery context, repeat only the protected
-transfer with `--resume` and the same account/environment names. It is
-idempotent for the cloud secret and activates the same public generation only
-while the repository manifest remains `unprovisioned`.
+After checking the owner-approved recovery context, run `--resume` with the
+same account. It activates the same public generation only while the repository
+manifest remains `unprovisioned`.
 
-Run `verify-release-signing-custody.yml` manually from the protected
-`master` branch and an exact tag. It verifies the tag points to the current
-`master` commit, derives only a public fingerprint in the runner, and uploads
-a metadata-only attestation. It records only `channel=github-environment`,
-`state=ready`, UTC `checkedAt`, key ID, trust generation, tag, commit, workflow
-and run ID. The local verifier rejects an attestation dated in the future or
-older than 24 hours and emits the current safe Keychain/cloud channel state.
-Run this two-channel drill before every production release, at least once every
-90 calendar days, and immediately after a change to either control plane;
-retain only the timestamp, generation, key ID and channel states. Environment
-protections must require independent reviewers, restrict allowed deployment
-branches to `master`, and keep the production secret inaccessible to public-host
-jobs.
-
-Download that metadata-only artifact through the GitHub Actions interface and
-run the local custody verifier against the candidate app, exact tag and
-attestation before a recovery-path release. A result of degraded is not normal
-readiness: it needs separately recorded release approval plus the explicit
-approved-fallback switch, and unavailable always blocks staging or publication.
-
-Before dispatching `sign-graf-app-update.yml`, create a fresh metadata-only
-Keychain attestation for the exact candidate tag and attach that JSON file to
-the same draft release. The signing workflow requires it as
-`keychain_attestation_asset`, checks that it matches the active manifest, tag,
-commit and 24-hour freshness bound, then creates the corresponding cloud
-attestation before staging. This makes routine staging require evidence from
-both protected channels; the Keychain evidence contains no secret or local
-machine path and is never copied to the public host.
+Before every production release, create a fresh metadata-only Keychain
+attestation for the exact candidate tag. The local verifier checks the app
+public key, named Keychain signer and published tag before writing evidence.
 
 ```sh
 sh apps/macos/Installer/Scripts/verify-release-signing-custody.sh \
@@ -353,8 +317,8 @@ sh apps/macos/Installer/Scripts/verify-release-signing-custody.sh \
   --emit-keychain-attestation "/safe/metadata-only-keychain-attestation.json"
 ```
 
-This mode creates the Keychain evidence only; it is not a release-ready result
-until the protected workflow has created the matching cloud attestation.
+The attestation contains no secret or local machine path. A missing, stale or
+mismatched attestation blocks release staging.
 
 After the manual bootstrap release, every in-app candidate must keep the same
 feed URL and public key as the previous app. Key rotation is a separate approved
@@ -413,17 +377,14 @@ GRAF_PREVIOUS_APP_BUNDLE="/absolute/path/to/previous/GRAF.app" \
 GRAF_UPDATE_RELEASE_NOTES="/absolute/path/to/release-notes-ru.md" \
 GRAF_UPDATE_DOWNLOAD_BASE_URL="https://rec.2brain.pro/static/public/downloads" \
 GRAF_RELEASE_SIGNING_MODE=keychain \
-GRAF_RELEASE_SIGNING_ATTESTATION="/absolute/path/to/safe-attestation.json" \
 GRAF_RELEASE_SIGNING_KEYCHAIN_ATTESTATION="/absolute/path/to/safe-keychain-attestation.json" \
 GRAF_REQUIRE_RELEASE_PROVENANCE=1 \
   sh apps/macos/Installer/Scripts/prepare-app-update.sh
 ```
 
-The recovery mode can use only the Keychain account named by the active
-manifest. The workflow mode is `ephemeral-ci` and is set only by
-`sign-graf-app-update.yml`; it cannot be selected with a general local file.
-The helper compares the manifest, candidate app, signer, cloud attestation and
-Keychain attestation before it creates a ZIP or appcast. It validates a strictly increasing CalVer,
+The helper can use only the Keychain account named by the active manifest. It
+compares the manifest, candidate app, signer and Keychain attestation before it
+creates a ZIP or appcast. It validates a strictly increasing CalVer,
 same-identity inputs, public credential-free HTTPS URLs, Russian notes, archive
 metadata, signatures, architecture, and minimum macOS version. It writes
 inspectable artifacts only under `apps/macos/.build/updates/` by default. It
@@ -432,21 +393,13 @@ does not upload, publish, tag, release, deploy, or alter the public feed.
 Production staging must set `GRAF_REQUIRE_RELEASE_PROVENANCE=1`. The helper then
 fails closed unless the worktree is clean, `HEAD` equals the published
 `origin/master` commit, and the exact `vYYYY.MM.DD.N` tag exists locally and on
-`origin` at that commit. It also requires current safe cloud and Keychain
-attestations for the exact tag and active trust generation. An untagged candidate may omit this flag for
+`origin` at that commit. It also requires a current safe Keychain attestation
+for the exact tag and active trust generation. An untagged candidate may omit this flag for
 local validation, but it must never be copied to the production update feed.
 
-If the protected cloud channel is temporarily unavailable, the named Keychain
-recovery signer may stage one explicitly approved degraded release only. It
-still needs the exact tag/provenance and a fresh Keychain attestation, and the
-operator must set both `GRAF_RELEASE_SIGNING_APPROVED_DEGRADED_FALLBACK=1` and
-a safe `GRAF_RELEASE_SIGNING_DEGRADED_APPROVAL_ID`. A present but malformed
-cloud attestation never falls back silently; it blocks the release. The cloud
-workflow itself always uses normal two-channel readiness.
-
-This custody fallback controls Sparkle Ed25519 archive/appcast signing only. It
-does not authorize local/self-signed Apple code signing, replace Developer ID
-Application/Installer, or provide an alternative public macOS release path.
+The named Keychain path controls Sparkle Ed25519 archive/appcast signing only.
+It does not authorize local/self-signed Apple code signing, replace Developer
+ID Application/Installer, or provide an alternative public macOS release path.
 
 #### Historical private-repository mode — not an active public lane
 
@@ -537,14 +490,24 @@ receipt. The former self-signed owner-only release is superseded and must not be
 used for a new publication; current Apple publication is Developer ID/notarized
 only.
 
-For a normal Developer ID cloud release, first attach the signed candidate-app ZIP,
-predecessor ZIP, and Russian notes to a draft GitHub Release. Dispatch
-`sign-graf-app-update.yml` manually from `master`; it only reads those
-exact-tag draft inputs, checks out the immutable tag, signs into the draft,
-uploads the ZIP, appcast, checksums and safe attestation, and serializes
-release attempts. These GitHub Release assets stay draft-only until their
-review is complete. It has no public-host write command. Verify those draft
-assets before changing the live catalog. On the download host copy the
+For a normal Developer ID release, first attach the signed candidate-app ZIP,
+predecessor ZIP, and Russian notes to a draft GitHub Release. From a clean
+checkout of the exact tag on current `origin/master`, run the local command:
+
+```sh
+apps/macos/Installer/Scripts/sign-graf-app-update-local.sh \
+  --release-tag vYYYY.MM.DD.N \
+  --previous-tag vYYYY.MM.DD.N \
+  --candidate-app-asset NAME.zip \
+  --previous-app-asset NAME.zip \
+  --release-notes-asset NAME.md
+```
+
+It reads those exact-tag draft inputs, signs into the draft, uploads the ZIP,
+appcast, checksums and safe attestation, and serializes release attempts. These
+GitHub Release assets stay draft-only until review is complete. It has no
+public-host write command. Verify those draft assets before changing the live
+catalog. On the download host copy the
 versioned archive and package first, verify their public SHA-256 values against
 the reviewed artifacts, and replace `graf-appcast.xml` last. Finally fetch the
 public appcast and archive again and verify their version, URL, length, EdDSA

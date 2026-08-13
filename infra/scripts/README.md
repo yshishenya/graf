@@ -29,9 +29,8 @@ infra/scripts/ci-local.sh --fast
 It runs the server unit suite, Ruff and Python compile checks. It is the fast
 feedback lane, not a release gate.
 
-The **GRAF validation** GitHub workflow runs this fast server lane plus a macOS
-build automatically for each PR to `master`. For an early full baseline, start
-that workflow manually with `lane=full`, or run:
+GitHub Actions are disabled. No pull-request validation runs remotely. For an
+early full baseline, run locally:
 
 ```sh
 infra/scripts/ci-local.sh --full
@@ -42,10 +41,9 @@ suite, RLS validation, production Compose rendering and the deployment evidence
 scan. Do not run it after every small edit: `cd-remote.sh --execute` runs this
 full lane automatically for the exact commit that will be deployed.
 
-## Manual CD
+## Local CD
 
-When GitHub Actions minutes are unavailable, deploy from the workstation through
-the remote-first CD gate:
+Deploy from the trusted workstation through the remote-first CD gate:
 
 ```sh
 infra/scripts/cd-remote.sh --dry-run
@@ -64,4 +62,4 @@ only. It requires explicit incident approval and does not bypass the clean
 worktree, branch sync, pinned SHA, backup, restore rehearsal, secret scans,
 smoke, or public health gates.
 
-Manual CD does not store production secrets in GitHub.
+Local CD does not store production secrets in GitHub.
