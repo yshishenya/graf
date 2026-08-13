@@ -122,6 +122,14 @@
 - [ ] T058 CRITICAL Block public launch until the operator confirms Russian primary database/object-storage location, current Roskomnadzor operator notification and Article 12 cross-border notification/assessment evidence per FR-022 and FR-026 (partial)
 - [ ] T059 Keep payment publication disabled until the approved catalog, YooKassa acquiring, 54-FZ receipt/tax configuration, renewal/refund rules and effective checkout terms are verified together per FR-013, FR-014 and FR-022 (partial)
 
+## Phase 16: Legal Trust UX Closeout
+
+- [X] T060 Add focused auth/legal trust contracts in `apps/server/tests/unit/test_cabinet_web_shell.py`, `apps/server/tests/unit/test_public_landing.py` and `apps/server/tests/integration/test_web_owner_session_context.py`
+- [X] T061 Link login/signup to the current product terms and privacy notice in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/auth/login.html` and `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/auth/signup.html`
+- [X] T062 Make analytics opt-out instructions truthful when public analytics is disabled in `apps/server/src/twobrain_rec_server/public/templates/public/cookies.html` and `apps/server/src/twobrain_rec_server/public/templates/public/analytics_consent.html`
+- [X] T063 Bump the changed consent edition to `2026-08-13.1` in `apps/server/src/twobrain_rec_server/config.py`, `infra/docker-compose.yml`, `infra/env/rec.production.env.example` and their focused contracts
+- [X] T064 Run focused auth/public contracts, browser QA and `infra/scripts/ci-local.sh --fast`; record the final trust-UX closeout in `CHANGELOG.md`
+
 ## Dependencies
 
 - T001–T005 are foundational.
@@ -137,6 +145,7 @@
 - T042–T046 form the product-depth sequence. T047 depends on all five and fresh desktop/mobile evidence.
 - T048–T050 are the compact-hero follow-up; T049 depends on T048 and T050 depends on both plus focused validation.
 - T051 is test-first. T052–T056 depend on it and may proceed in parallel only when touching separate files. T057 depends on T051–T056.
+- T060 is test-first. T061–T062 depend on it and touch separate templates. T063 depends on the T062 copy decision. T064 validates the completed implementation while T058–T059 remain external release gates.
 
 ## Parallel Opportunities
 

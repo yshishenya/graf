@@ -19,3 +19,5 @@ consent and product-truth requirements before implementation closeout.
 - [x] CHK010 Are installer architecture and minimum OS requirements tied to the verified package? [Truth, FR-030, SC-012]
 - [x] CHK011 Are all legal pages required to reflow at 280 CSS px without horizontal scrolling? [Accessibility, FR-031, SC-011]
 - [x] CHK012 Is external legal review retained as a release safeguard without substituting draft notices for public documents? [Release gate, FR-022–FR-023]
+- [x] CHK013 Are product terms and the privacy notice directly reachable from both login and registration, with acceptance wording tied only to account creation? [Trust UX, FR-032]
+- [x] CHK014 Does the analytics opt-out requirement define a truthful disabled state when the cookie-settings control is intentionally absent? [Consistency, FR-033]

@@ -118,6 +118,19 @@ Optional categories have independent technical effect:
 - Payment conditions do not become an active priced offer until checkout shows
   the subject, price, period, recurring-payment choice and acceptance action.
 - Public documents contain no internal phase/status/release instructions.
+- Login and registration place ordinary, keyboard-accessible links to the
+  current product terms and privacy notice beside the legal explanation.
+- Login copy invites review of the documents without treating every sign-in as
+  a new acceptance; registration copy identifies account creation as the
+  acceptance action.
+- Cookie and analytics-consent instructions send the user to `/` or `/download`,
+  where the settings control exists only when optional public analytics is
+  active. If the control is absent, the copy explains that optional public
+  analytics is disabled rather than promising a missing action.
+- A changed consent edition increments the machine-readable consent-copy
+  version in application settings, Compose defaults and the production env
+  example. A browser choice for an older edition cannot silently authorize the
+  new text.
 
 ## HTTP and discovery contract
 

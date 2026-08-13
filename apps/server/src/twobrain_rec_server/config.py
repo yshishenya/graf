@@ -100,7 +100,7 @@ class Settings(BaseSettings):
     public_analytics_yandex_metrica_id: str | None = None
     public_analytics_validation_mode: str = "disabled"
     public_analytics_replay_enabled: bool = False
-    public_analytics_consent_copy_version: str = "2026-07-08.1"
+    public_analytics_consent_copy_version: str = "2026-08-13.1"
     product_analytics_enabled: bool = False
     product_analytics_validation_mode: str = "disabled"
     product_analytics_provider_mode: str = "disabled"

@@ -1800,15 +1800,40 @@ def test_auth_page_composition_lives_in_templates() -> None:
 
 
 def test_auth_pages_do_not_render_disabled_placeholders_as_links() -> None:
-    pages = [
-        render_login_page(workspace_id=uuid4(), providers=[]),
-        render_signup_page(workspace_id=uuid4(), providers=[]),
-    ]
+    login = render_login_page(workspace_id=uuid4(), providers=[])
+    signup = render_signup_page(workspace_id=uuid4(), providers=[])
 
-    for page in pages:
+    for page in (login, signup):
         assert 'href="#"' not in page
         assert 'aria-disabled="true"' in page
-        assert '<span class="mini-link is-disabled" aria-disabled="true">' in page
+        assert '<a class="mini-link is-disabled"' not in page
+
+    assert (
+        '<span class="mini-link is-disabled" aria-disabled="true">Войти через SSO</span>'
+        in login
+    )
+    assert (
+        '<span class="mini-link auth-help is-disabled" aria-disabled="true">'
+        'Зачем GRAF доступ к календарю?</span>' in signup
+    )
+
+
+def test_auth_pages_link_to_current_product_terms_and_privacy_notice() -> None:
+    login = render_login_page(workspace_id=uuid4(), providers=[])
+    signup = render_signup_page(workspace_id=uuid4(), providers=[])
+
+    for page in (login, signup):
+        assert (
+            '<a class="mini-link" href="/privacy">'
+            'Политикой обработки персональных данных</a>' in page
+        )
+        assert "Политикой конфиденциальности</span>" not in page
+
+    assert '<a class="mini-link" href="/terms">Условиями использования</a>' in login
+    assert '<a class="mini-link" href="/terms">Условия использования</a>' in signup
+    assert "Перед входом ознакомьтесь" in login
+    assert "Создавая аккаунт, вы принимаете" in signup
+    assert "Для регистрации по почте" in signup
 
 
 def test_login_page_links_to_app_download_handoff() -> None:

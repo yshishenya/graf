@@ -223,19 +223,19 @@ def test_public_pages_do_not_publish_unapproved_price_or_checkout_claims(client)
 
 def test_public_legal_pages_are_final_and_available_without_public_analytics_config(client) -> None:
     pages = {
-        "/privacy": "Политика обработки персональных данных",
-        "/cookies": "Политика cookies",
-        "/terms": "Условия использования GRAF",
-        "/offer": "Условия оплаты и возврата",
-        "/analytics-consent": "Согласие на аналитику",
+        "/privacy": ("Политика обработки персональных данных", "12 августа"),
+        "/cookies": ("Политика cookies", "13 августа"),
+        "/terms": ("Условия использования GRAF", "12 августа"),
+        "/offer": ("Условия оплаты и возврата", "12 августа"),
+        "/analytics-consent": ("Согласие на аналитику", "13 августа"),
     }
 
-    for path, heading in pages.items():
+    for path, (heading, revision_date) in pages.items():
         response = client.get(path)
 
         assert response.status_code == 200
         assert heading in response.text
-        assert "12 августа" in response.text
+        assert revision_date in response.text
         assert "Рабочая редакция" not in response.text
         assert "Phase 1" not in response.text
         assert "campaign launch" not in response.text
@@ -246,6 +246,22 @@ def test_public_legal_pages_are_final_and_available_without_public_analytics_con
         assert "graf-public-analytics-config" not in response.text
         assert "analytics.js" not in response.text
         assert "cookieconsent.umd.js" not in response.text
+
+
+def test_public_legal_pages_explain_missing_cookie_controls_when_analytics_is_disabled(client) -> None:
+    cookies = client.get("/cookies")
+    consent = client.get("/analytics-consent")
+
+    for response in (cookies, consent):
+        assert response.status_code == 200
+        copy = " ".join(response.text.split())
+        assert "главной странице или странице скачивания" in copy
+        assert "Если кнопки нет" in copy
+        assert "необязательная публичная аналитика отключена" in copy
+
+    assert "Редакция 2026-08-13.1 от 13 августа 2026 года" in " ".join(
+        consent.text.split()
+    )
 
 
 def test_public_privacy_notice_covers_operator_product_and_current_processors(client) -> None:

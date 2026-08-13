@@ -280,6 +280,27 @@ Final evidence: `evidence/refinement-v4/`. Earlier findings and screenshots in
 
 ## Final result
 
+### Legal trust UX closeout — 2026-08-13
+
+- Login and registration now expose keyboard-accessible `/terms` and `/privacy`
+  links beside the legal explanation. Login does not claim a new acceptance;
+  registration identifies account creation as the acceptance action.
+- Cookies and analytics-consent instructions now point to the main/download
+  controls only when optional public analytics is active and explain that a
+  missing control means the optional public provider is disabled.
+- Browser QA passed at 1440×1000 and 390×844: no horizontal overflow, no console
+  warnings/errors, visible keyboard focus on the terms link, successful
+  registration-to-privacy navigation, and readable mobile legal sections.
+- Focused public/auth matrix: `44 passed, 2 warnings`.
+- Consent-version settings/Compose/env contracts: `3 passed, 2 warnings`.
+- Canonical fast CI: `1046 passed, 2 warnings`; server lint, Python compile and
+  the no-legacy-audio-driver guard passed. The warnings are existing pytest
+  rewrite and Starlette/httpx deprecation warnings.
+- Spec Kit analyze found no new critical, high or constitutional inconsistency
+  in FR-032/FR-033 and T060–T064. External release gates T058/T059 remain open.
+- Ponytail review: lean already; no dependency, abstraction or runtime code was
+  added.
+
 visual result: passed
 
 historical release status: blocked — `pkgutil --check-signature` reported `Status: no signature`

@@ -326,6 +326,8 @@ def test_browser_login_page_lists_workspace_providers(client) -> None:
     assert 'action="/login/email/start"' in response.text
     assert 'href="/download">Скачать GRAF</a>' in response.text
     assert 'type="email"' in response.text
+    assert 'class="mini-link" href="/terms"' in response.text
+    assert 'class="mini-link" href="/privacy"' in response.text
     assert "Способ входа" in response.text
     assert "Яндекс ID" in response.text
     assert '<a class="auth-provider" href="/login/yandex/start?next=%2Fmeetings">' in response.text
@@ -364,6 +366,8 @@ def test_browser_signup_page_matches_email_choice_flow_without_workspace_field(c
     assert "Госуслуги" in first_step.text
     assert "Alfa ID" in first_step.text
     assert "Рабочая почта" in first_step.text
+    assert 'class="mini-link" href="/terms"' in first_step.text
+    assert 'class="mini-link" href="/privacy"' in first_step.text
     assert "Telegram" not in first_step.text
     assert "Продолжить через" not in first_step.text
     assert "Workspace ID" not in first_step.text
@@ -372,6 +376,8 @@ def test_browser_signup_page_matches_email_choice_flow_without_workspace_field(c
     assert "Продолжить другим способом" in email_step.text
     assert 'action="/sign-up/email/start"' in email_step.text
     assert "Зарегистрироваться" in email_step.text
+    assert 'class="mini-link" href="/terms"' in email_step.text
+    assert 'class="mini-link" href="/privacy"' in email_step.text
 
 
 def test_browser_yandex_login_start_redirects_to_provider(client) -> None:

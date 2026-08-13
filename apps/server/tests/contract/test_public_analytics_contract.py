@@ -317,7 +317,7 @@ def test_public_analytics_production_env_example_is_disabled_and_redacted() -> N
     assert "# TWOBRAIN_PUBLIC_ANALYTICS_YANDEX_METRICA_ID=" in env_example
     assert "TWOBRAIN_PUBLIC_ANALYTICS_VALIDATION_MODE=disabled" in env_example
     assert "TWOBRAIN_PUBLIC_ANALYTICS_REPLAY_ENABLED=false" in env_example
-    assert "TWOBRAIN_PUBLIC_ANALYTICS_CONSENT_COPY_VERSION=2026-07-08.1" in env_example
+    assert "TWOBRAIN_PUBLIC_ANALYTICS_CONSENT_COPY_VERSION=2026-08-13.1" in env_example
     assert not [
         line
         for line in env_example.splitlines()

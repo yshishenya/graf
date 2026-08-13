@@ -30,7 +30,7 @@
 
 **Constraints**: no fake product assets, no personal data, no hardcoded price, no specific model names, no false universal capture/egress claim, no public local/self-signed installer claim, WCAG-oriented keyboard/focus/contrast/reduced-motion behavior
 
-**Scale/Scope**: landing, download and five legal templates; one shared stylesheet and analytics controller; public response helpers/routes and focused contracts; no auth, billing, checkout, capture behavior, app UI or database change
+**Scale/Scope**: landing, download, five legal templates and the legal notice in login/signup; consent-copy version defaults in settings/Compose/env example; one shared stylesheet and analytics controller; public response helpers/routes and focused contracts; no auth/session behavior, billing, checkout, capture behavior, app UI or database change
 
 ## Constitution Check
 
@@ -58,6 +58,8 @@ Post-Phase-1 re-check: PASS. The UI contract below narrows claims and does not e
 8. Harden public HTML responses, add canonical/social discovery surfaces and cache only fingerprinted public assets as immutable.
 9. Extend focused contracts for legal completeness, consent categories, CTA routes, platform truth, product assets, security headers and 280–1440 px responsive safety.
 10. Validate visually at desktop and mobile against `design/selected-direction-3.png`, then fix P0–P2 differences that do not conflict with product truth.
+11. Link the login/signup legal notice to the published product terms and privacy notice, and make the analytics opt-out instructions truthful when optional public analytics is disabled.
+12. Bump the consent-copy version with the changed legal edition so a future analytics rollout cannot reuse a browser choice made for the previous text.
 
 ## Validation Plan
 
