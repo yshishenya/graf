@@ -237,6 +237,9 @@ class Settings(BaseSettings):
     # Billing is fail-closed until the merchant, legal and receipt gates are
     # explicitly enabled in the deployment environment.
     billing_checkout_enabled: bool = False
+    # Read-only GET/list reconciliation can stay available during an emergency
+    # stop or checkout rollback. It never permits a provider money mutation.
+    billing_provider_observation_enabled: bool = False
     billing_yookassa_base_url: AnyUrl | None = None
     billing_yookassa_shop_id: str | None = None
     billing_yookassa_secret_file: Path | None = None
@@ -586,26 +589,21 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_billing_safety(self) -> "Settings":
-        if not self.billing_checkout_enabled:
+        observation_enabled = self.billing_provider_observation_enabled or self.billing_checkout_enabled
+        if not observation_enabled:
             return self
         if self.legacy_header_auth_enabled:
-            raise ValueError("enabled billing cannot use legacy header authentication")
+            raise ValueError("enabled billing observation cannot use legacy header authentication")
         if self.billing_yookassa_base_url is None or self.billing_yookassa_base_url.scheme != "https":
-            raise ValueError("enabled billing requires an HTTPS YooKassa base URL")
-        if self.public_base_url is None or self.public_base_url.scheme != "https":
-            raise ValueError("enabled billing requires an HTTPS public_base_url")
+            raise ValueError("enabled billing observation requires an HTTPS YooKassa base URL")
         if (
             not self.billing_yookassa_shop_id
             or self.billing_yookassa_secret_file is None
-            or self.billing_yookassa_webhook_secret_file is None
-            or self.billing_referral_secret_file is None
         ):
-            raise ValueError("enabled billing requires YooKassa shop, provider/webhook and referral secret files")
+            raise ValueError("enabled billing observation requires YooKassa shop and provider secret file")
         billing_secrets: list[tuple[str, str]] = []
         for field_name, path in (
             ("billing_yookassa_secret_file", self.billing_yookassa_secret_file),
-            ("billing_yookassa_webhook_secret_file", self.billing_yookassa_webhook_secret_file),
-            ("billing_referral_secret_file", self.billing_referral_secret_file),
         ):
             if not path.is_file() or not path.read_text(encoding="utf-8").strip():
                 raise ValueError(f"enabled billing requires a non-empty {field_name}")
@@ -613,6 +611,25 @@ class Settings(BaseSettings):
         if self.env.lower() == "production":
             placeholder_values = {"replace-me", "changeme", "password", "secret", "default"}
             for field_name, value in billing_secrets:
+                if len(value) < 32 or value.lower() in placeholder_values or value.lower().startswith("synthetic"):
+                    raise ValueError(
+                        f"production billing secret must be at least 32 characters and non-placeholder: {field_name}"
+                    )
+        if not self.billing_checkout_enabled:
+            return self
+        if self.public_base_url is None or self.public_base_url.scheme != "https":
+            raise ValueError("enabled billing requires an HTTPS public_base_url")
+        if self.billing_yookassa_webhook_secret_file is None or self.billing_referral_secret_file is None:
+            raise ValueError("enabled billing requires webhook and referral secret files")
+        for field_name, path in (
+            ("billing_yookassa_webhook_secret_file", self.billing_yookassa_webhook_secret_file),
+            ("billing_referral_secret_file", self.billing_referral_secret_file),
+        ):
+            if not path.is_file() or not path.read_text(encoding="utf-8").strip():
+                raise ValueError(f"enabled billing requires a non-empty {field_name}")
+            if self.env.lower() == "production":
+                value = path.read_text(encoding="utf-8").strip()
+                placeholder_values = {"replace-me", "changeme", "password", "secret", "default"}
                 if len(value) < 32 or value.lower() in placeholder_values or value.lower().startswith("synthetic"):
                     raise ValueError(
                         f"production billing secret must be at least 32 characters and non-placeholder: {field_name}"
@@ -740,7 +757,9 @@ class Settings(BaseSettings):
                 self.billing_referral_secret_file if self.billing_checkout_enabled else None
             ),
             "billing_yookassa_secret_file": (
-                self.billing_yookassa_secret_file if self.billing_checkout_enabled else None
+                self.billing_yookassa_secret_file
+                if self.billing_provider_observation_enabled or self.billing_checkout_enabled
+                else None
             ),
             "billing_yookassa_webhook_secret_file": (
                 self.billing_yookassa_webhook_secret_file if self.billing_checkout_enabled else None

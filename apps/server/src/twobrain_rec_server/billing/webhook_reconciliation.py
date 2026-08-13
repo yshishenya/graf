@@ -70,7 +70,7 @@ async def reconcile_pending_initial_checkout_operations(
     the hosted checkout path; a POST timeout before that id remains a manual
     reconciliation gap until the provider can be searched by metadata.
     """
-    if not settings.billing_checkout_enabled:
+    if not (settings.billing_provider_observation_enabled or settings.billing_checkout_enabled):
         return {"processed": 0, "succeeded": 0, "canceled": 0, "pending": 0, "failed": 0}
     filters = [
         BillingOperation.kind == "initial_checkout",
@@ -210,6 +210,9 @@ async def reconcile_pending_webhook_events(
     limit: int = 100,
 ) -> dict[str, int]:
     """Read provider truth outside the webhook request and commit per event."""
+
+    if not (settings.billing_provider_observation_enabled or settings.billing_checkout_enabled):
+        return {"processed": 0, "reconciled": 0, "pending": 0, "failed": 0}
 
     ids = tuple(
         await db.scalars(

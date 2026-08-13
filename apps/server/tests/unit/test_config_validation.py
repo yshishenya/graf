@@ -118,6 +118,21 @@ def test_enabled_billing_requires_canonical_https_public_origin(tmp_path) -> Non
     assert settings.public_base_url is not None
 
 
+def test_billing_observation_requires_only_provider_read_credentials(tmp_path) -> None:
+    secret = tmp_path / "yookassa-secret"
+    secret.write_text("test", encoding="utf-8")
+
+    settings = Settings(
+        billing_provider_observation_enabled=True,
+        billing_yookassa_base_url="https://api.yookassa.test",
+        billing_yookassa_shop_id="shop-test",
+        billing_yookassa_secret_file=secret,
+    )
+
+    assert settings.billing_checkout_enabled is False
+    assert settings.billing_yookassa_secret_file == secret
+
+
 def test_enabled_billing_rejects_malformed_support_email(tmp_path) -> None:
     paths = []
     for name in ("yookassa", "webhook", "referral"):
