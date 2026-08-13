@@ -39,8 +39,13 @@ Apple notarization:
 - ZIP integrity и Sparkle archive/feed signatures — PASS.
 - Live `/static/public/downloads/graf-appcast.xml` — HTTP 200, версия
   `2026.08.13.3`, enclosure URL и длина совпадают.
-- Live ZIP и PKG — HTTP 200; SHA-256 и размеры совпадают с локальными
-  артефактами.
+- Live ZIP — HTTP 200; SHA-256 `194f488d42293791065876b69adab63fcf131e70feb72848f2ba99132993ba12`
+  и размер `6 434 703` совпадают с GitHub Release asset.
+- Канонический installer для страницы `/download` (`graf.pkg`) — HTTP 200,
+  размер `6 136 432`, SHA-256
+  `6c6cb57affebd65430c8b49a4636506638950e6ecb9fc4c88b638b6067342c5c`.
+  Он является отдельным публичным download-артефактом; GitHub Release PKG
+  сохранён отдельно с SHA-256 `55ab33e64a7217b221a62be01fd3bc970704ef4f14891e936384aa99bbd61e49`.
 - `/api/v1/health/live` и `/api/v1/health/ready` — HTTP 200; API, processing и
   media worker, Temporal, PostgreSQL и MinIO работают в healthy-состоянии.
 - Публичные versioned assets были перемещены до атомарной замены appcast.
