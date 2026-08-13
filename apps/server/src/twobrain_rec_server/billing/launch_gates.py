@@ -57,7 +57,7 @@ def _has_four_eyes_values(values: object) -> bool:
             or not approver_role.strip()
             or not isinstance(executor_role, str)
             or not executor_role.strip()
-            or approver_role.strip() == executor_role.strip()
+            or approver_role.strip().casefold() == executor_role.strip().casefold()
         ):
             return False
     return True
@@ -99,9 +99,11 @@ async def require_current_billing_launch_gates(
             or row.approved_at > current
             or row.valid_until <= current
             or row.revoked_at is not None
-            or row.approver_ref == row.executor_ref
-            or not row.evidence_ref
-            or not row.owner_role
+            or not row.approver_ref.strip()
+            or not row.executor_ref.strip()
+            or row.approver_ref.strip().casefold() == row.executor_ref.strip().casefold()
+            or not row.evidence_ref.strip()
+            or not row.owner_role.strip()
             or not _has_four_eyes_values(row.values_json)
         ):
             raise BillingLaunchBlocked("billing launch approval is invalid")

@@ -141,3 +141,30 @@ async def test_missing_four_eyes_values_block_provider_boundary() -> None:
             deployment_sha="a" * 40,
             now=now,
         )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("evidence_ref", " "),
+        ("owner_role", " "),
+        ("approver_ref", " RELEASE:OPERATOR "),
+    ],
+)
+async def test_blank_or_equivalent_approval_identity_blocks_provider_boundary(
+    field: str,
+    value: str,
+) -> None:
+    now = datetime(2026, 8, 13, tzinfo=UTC)
+    rows = _rows(now=now, deployment_sha="a" * 40)
+    setattr(rows[0], field, value)
+
+    with pytest.raises(BillingLaunchBlocked, match="invalid"):
+        await require_current_billing_launch_gates(
+            FakeDb(rows),
+            environment="production",
+            shop_id="shop-1",
+            deployment_sha="a" * 40,
+            now=now,
+        )
