@@ -264,15 +264,15 @@ async def test_missing_launch_gate_blocks_before_provider_call(monkeypatch, tmp_
         block,
     )
 
-    with pytest.raises(BillingLaunchBlocked, match="incomplete"):
-        await charge_renewal_operation(
-            FakeDb([subscription, operation, invoice, method]),
-            settings,
-            operation_id=OPERATION_ID,
-            workspace_id=WORKSPACE_ID,
-            now=PAID_THROUGH,
-        )
+    result = await charge_renewal_operation(
+        FakeDb([subscription, operation, invoice, method]),
+        settings,
+        operation_id=OPERATION_ID,
+        workspace_id=WORKSPACE_ID,
+        now=PAID_THROUGH,
+    )
 
+    assert result.status == "blocked"
     assert provider.calls == []
     assert operation.state == "scheduled"
 

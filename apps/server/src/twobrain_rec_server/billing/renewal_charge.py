@@ -28,6 +28,7 @@ from twobrain_rec_server.billing.catalog import (
     validate_plan_version,
 )
 from twobrain_rec_server.billing.launch_gates import (
+    BillingLaunchBlocked,
     provider_environment,
     require_current_billing_launch_gates,
 )
@@ -563,7 +564,7 @@ async def charge_renewal_operation(
         )
         await db.commit()
         return RenewalChargeResult(operation_id, "sent", provider_id)
-    except BillingEmergencyStop:
+    except (BillingEmergencyStop, BillingLaunchBlocked):
         await db.rollback()
         return RenewalChargeResult(operation_id, "blocked")
     except BillingAuthorizationError:

@@ -58,7 +58,7 @@ def test_checkout_keeps_provider_observation_enabled(monkeypatch, tmp_path: Path
         billing_yookassa_secret_file=provider_secret,
         billing_yookassa_webhook_secret_file=webhook_secret,
         billing_referral_secret_file=referral_secret,
-        billing_support_email="support@example.test",
+        billing_support_email="billing@2brain.pro",
         billing_receipt_tax_system_code=2,
         billing_receipt_vat_code=1,
     )

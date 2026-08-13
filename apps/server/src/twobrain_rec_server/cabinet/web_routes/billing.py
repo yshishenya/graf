@@ -28,6 +28,7 @@ from twobrain_rec_server.billing.checkout import build_checkout_intent, checkout
 from twobrain_rec_server.billing.entitlements import effective_plan_code
 from twobrain_rec_server.billing.history import mask_payment_method
 from twobrain_rec_server.billing.launch_gates import (
+    BillingLaunchBlocked,
     provider_environment,
     require_current_billing_launch_gates,
 )
@@ -2128,7 +2129,14 @@ async def start_billing_checkout(
                 return RedirectResponse(winner_url, status_code=303)
             return RedirectResponse("/billing?result=pending", status_code=303)
         return RedirectResponse("/billing/checkout?result=unavailable", status_code=303)
-    except (BillingEmergencyStop, ValueError, YooKassaConfigurationError, YooKassaProviderError, httpx.HTTPError):
+    except (
+        BillingEmergencyStop,
+        BillingLaunchBlocked,
+        ValueError,
+        YooKassaConfigurationError,
+        YooKassaProviderError,
+        httpx.HTTPError,
+    ):
         await db.rollback()
         if "intent" in locals():
             unresolved = await db.scalar(
