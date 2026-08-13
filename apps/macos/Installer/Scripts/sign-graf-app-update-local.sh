@@ -56,28 +56,54 @@ done
 [ "$PREVIOUS_ASSET" != "$NOTES_ASSET" ] || fail "predecessor and notes assets must differ"
 
 command -v gh >/dev/null 2>&1 || fail "GitHub CLI is required for draft release assets"
-gh auth status >/dev/null 2>&1 || fail "GitHub CLI is not authenticated"
+ORIGIN_URL=$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null || true)
+case "$ORIGIN_URL" in
+  git@github.com:*) TARGET_REPO=${ORIGIN_URL#git@github.com:} ;;
+  https://github.com/*) TARGET_REPO=${ORIGIN_URL#https://github.com/} ;;
+  ssh://git@github.com/*) TARGET_REPO=${ORIGIN_URL#ssh://git@github.com/} ;;
+  *) fail "origin must be the configured github.com repository" ;;
+esac
+TARGET_REPO=${TARGET_REPO%.git}
+printf '%s' "$TARGET_REPO" | grep -Eq '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' ||
+  fail "could not derive a safe GitHub repository from origin"
+[ -z "${GH_REPO:-}" ] || [ "$GH_REPO" = "$TARGET_REPO" ] ||
+  fail "GH_REPO does not match the repository origin"
+[ -z "${GH_HOST:-}" ] || [ "$GH_HOST" = github.com ] ||
+  fail "GH_HOST must remain github.com for the configured origin"
+gh auth status --hostname github.com >/dev/null 2>&1 || fail "GitHub CLI is not authenticated"
 [ -z "$(git -C "$REPO_ROOT" status --porcelain --untracked-files=all)" ] || fail "release signing requires a clean worktree"
 git -C "$REPO_ROOT" fetch --force origin \
   "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG" \
   "refs/tags/$PREVIOUS_TAG:refs/tags/$PREVIOUS_TAG"
 HEAD_COMMIT=$(git -C "$REPO_ROOT" rev-parse HEAD)
 TAG_COMMIT=$(git -C "$REPO_ROOT" rev-parse "refs/tags/$RELEASE_TAG^{}")
+PREVIOUS_COMMIT=$(git -C "$REPO_ROOT" rev-parse "refs/tags/$PREVIOUS_TAG^{}")
 MASTER_COMMIT=$(git -C "$REPO_ROOT" ls-remote origin refs/heads/master | awk 'NR == 1 { print $1 }')
 [ -n "$MASTER_COMMIT" ] && [ "$HEAD_COMMIT" = "$TAG_COMMIT" ] && [ "$TAG_COMMIT" = "$MASTER_COMMIT" ] ||
   fail "HEAD, release tag and origin/master must match exactly"
-[ "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = "true" ] ||
+git -C "$REPO_ROOT" merge-base --is-ancestor "$PREVIOUS_COMMIT" "$TAG_COMMIT" ||
+  fail "predecessor tag must be an ancestor of the release tag"
+PREVIOUS_VERSION=${PREVIOUS_TAG#v}
+awk -v older="$PREVIOUS_VERSION" -v newer="$VERSION" '
+  BEGIN {
+    split(older, a, "."); split(newer, b, ".");
+    for (i = 1; i <= 4; i++) {
+      if ((a[i] + 0) < (b[i] + 0)) exit 0;
+      if ((a[i] + 0) > (b[i] + 0)) exit 1;
+    }
+    exit 1
+  }
+' || fail "predecessor CalVer must be strictly older than the release tag"
+[ "$(gh --repo "$TARGET_REPO" release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = "true" ] ||
   fail "target GitHub release must remain a draft"
 LOCK_PARENT="$MACOS_DIR/.build"
 mkdir -p "$LOCK_PARENT"
 LOCK_DIR="$LOCK_PARENT/.graf-local-signing.lock"
-if ! mkdir "$LOCK_DIR" 2>/dev/null; then
-  fail "another local draft-signing attempt is already in progress"
-fi
-WORK_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/graf-local-signing.XXXXXX")
-INPUT_DIR="$WORK_ROOT/inputs"
-APP_DIR="$WORK_ROOT/apps"
-ATTESTATION="$WORK_ROOT/signing-attestation.json"
+LOCK_OWNED=0
+WORK_ROOT=
+INPUT_DIR=
+APP_DIR=
+ATTESTATION=
 SPARKLE_BACKUP=
 cleanup() {
   if [ -n "$SPARKLE_BACKUP" ] && { [ -e "$SPARKLE_BACKUP" ] || [ -L "$SPARKLE_BACKUP" ]; }; then
@@ -86,18 +112,26 @@ cleanup() {
   elif [ -d "$SPARKLE_DIR" ] && [ -n "${SPARKLE_TOOLS_CREATED:-}" ]; then
     rm -rf "$SPARKLE_DIR"
   fi
-  rm -rf "$WORK_ROOT"
-  rmdir "$LOCK_DIR" 2>/dev/null || true
+  [ -z "$WORK_ROOT" ] || rm -rf "$WORK_ROOT"
+  [ "$LOCK_OWNED" = 0 ] || rmdir "$LOCK_DIR" 2>/dev/null || true
 }
 trap 'status=$?; trap - EXIT HUP INT TERM; cleanup; exit "$status"' EXIT
 trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
+if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+  fail "another local draft-signing attempt is already in progress"
+fi
+LOCK_OWNED=1
+WORK_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/graf-local-signing.XXXXXX")
+INPUT_DIR="$WORK_ROOT/inputs"
+APP_DIR="$WORK_ROOT/apps"
+ATTESTATION="$WORK_ROOT/signing-attestation.json"
 mkdir -p "$INPUT_DIR" "$APP_DIR/candidate" "$APP_DIR/previous"
 
-gh release download "$RELEASE_TAG" --pattern "$CANDIDATE_ASSET" --dir "$INPUT_DIR"
-gh release download "$PREVIOUS_TAG" --pattern "$PREVIOUS_ASSET" --dir "$INPUT_DIR"
-gh release download "$RELEASE_TAG" --pattern "$NOTES_ASSET" --dir "$INPUT_DIR"
+gh --repo "$TARGET_REPO" release download "$RELEASE_TAG" --pattern "$CANDIDATE_ASSET" --dir "$INPUT_DIR"
+gh --repo "$TARGET_REPO" release download "$PREVIOUS_TAG" --pattern "$PREVIOUS_ASSET" --dir "$INPUT_DIR"
+gh --repo "$TARGET_REPO" release download "$RELEASE_TAG" --pattern "$NOTES_ASSET" --dir "$INPUT_DIR"
 [ -f "$INPUT_DIR/$CANDIDATE_ASSET" ] && [ -f "$INPUT_DIR/$PREVIOUS_ASSET" ] && [ -f "$INPUT_DIR/$NOTES_ASSET" ] ||
   fail "required draft asset is missing"
 
@@ -111,14 +145,58 @@ extract_graf_app() {
     return 1
   fi
   if printf '%s\n' "$archive_list" | awk '
-    $0 != "GRAF.app" && $0 !~ /^GRAF\.app\// { bad = 1 }
+    $0 != "GRAF.app" && $0 !~ /^GRAF\.app\// && $0 != "__MACOSX" && $0 !~ /^__MACOSX\// { bad = 1 }
     END { exit bad }
   '; then :; else return 1; fi
   duplicate_paths=$(printf '%s\n' "$archive_list" | sort | uniq -d)
   [ -z "$duplicate_paths" ] || return 1
-  if zipinfo -l "$archive" 2>/dev/null | awk 'NR > 3 && $1 ~ /^[slbcp]/ { bad = 1 } END { exit bad }'; then :; else return 1; fi
+  if zipinfo -l "$archive" 2>/dev/null | awk 'NR > 3 && $1 ~ /^[sbcp]/ { bad = 1 } END { exit bad }'; then :; else return 1; fi
+  validate_graf_archive_symlinks "$archive" || return 1
   ditto -x -k "$archive" "$destination"
-  [ -d "$destination/GRAF.app" ]
+  [ -d "$destination/GRAF.app" ] || return 1
+  validate_graf_app_symlinks "$destination/GRAF.app"
+}
+expected_graf_app_symlinks() {
+  cat <<'EOF'
+Contents/Frameworks/Sparkle.framework/PrivateHeaders|Versions/Current/PrivateHeaders
+Contents/Frameworks/Sparkle.framework/Resources|Versions/Current/Resources
+Contents/Frameworks/Sparkle.framework/Versions/Current|B
+Contents/Frameworks/Sparkle.framework/Autoupdate|Versions/Current/Autoupdate
+Contents/Frameworks/Sparkle.framework/Updater.app|Versions/Current/Updater.app
+Contents/Frameworks/Sparkle.framework/Headers|Versions/Current/Headers
+Contents/Frameworks/Sparkle.framework/XPCServices|Versions/Current/XPCServices
+Contents/Frameworks/Sparkle.framework/Modules|Versions/Current/Modules
+Contents/Frameworks/Sparkle.framework/Sparkle|Versions/Current/Sparkle
+EOF
+}
+validate_graf_archive_symlinks() {
+  archive=$1
+  actual=$(zipinfo -l "$archive" 2>/dev/null | awk 'NR > 3 && $1 ~ /^l/ { print $NF }') || return 1
+  expected_count=0
+  while IFS='|' read -r relative target; do
+    expected_count=$((expected_count + 1))
+    path="GRAF.app/$relative"
+    printf '%s\n' "$actual" | grep -Fxq "$path" || return 1
+    [ "$(unzip -p "$archive" "$path")" = "$target" ] || return 1
+  done <<EOF
+$(expected_graf_app_symlinks)
+EOF
+  actual_count=$(printf '%s\n' "$actual" | grep -c . || true)
+  [ "$actual_count" = "$expected_count" ]
+}
+validate_graf_app_symlinks() {
+  app_root=$1
+  expected_count=0
+  while IFS='|' read -r relative target; do
+    expected_count=$((expected_count + 1))
+    link="$app_root/$relative"
+    [ -L "$link" ] || return 1
+    [ "$(readlink "$link")" = "$target" ] || return 1
+  done <<EOF
+$(expected_graf_app_symlinks)
+EOF
+  actual_count=$(find "$app_root" -type l -print | wc -l | tr -d ' ')
+  [ "$actual_count" = "$expected_count" ]
 }
 extract_graf_app "$INPUT_DIR/$CANDIDATE_ASSET" "$APP_DIR/candidate" || fail "candidate asset is not a safe GRAF.app ZIP"
 extract_graf_app "$INPUT_DIR/$PREVIOUS_ASSET" "$APP_DIR/previous" || fail "predecessor asset is not a safe GRAF.app ZIP"
@@ -126,7 +204,7 @@ extract_graf_app "$INPUT_DIR/$PREVIOUS_ASSET" "$APP_DIR/previous" || fail "prede
 DOWNLOAD_DIR="$WORK_ROOT/sparkle"
 ARCHIVE="$DOWNLOAD_DIR/Sparkle-for-Swift-Package-Manager.zip"
 mkdir -p "$DOWNLOAD_DIR"
-gh release download 2.9.4 --repo sparkle-project/Sparkle \
+gh --repo sparkle-project/Sparkle release download 2.9.4 \
   --pattern Sparkle-for-Swift-Package-Manager.zip --dir "$DOWNLOAD_DIR"
 printf '%s  %s\n' "$SPARKLE_ARCHIVE_SHA256" "$ARCHIVE" | shasum -a 256 -c -
 SPARKLE_BACKUP="$WORK_ROOT/sparkle-existing"
@@ -170,9 +248,9 @@ RELEASE_ATTESTATION="$OUTPUT_DIR/GRAF-$VERSION-signing-attestation.json"
 )
 /usr/bin/plutil -replace workflow -string sign-graf-app-update-local "$ATTESTATION"
 cp "$ATTESTATION" "$RELEASE_ATTESTATION"
-[ "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = "true" ] ||
+[ "$(gh --repo "$TARGET_REPO" release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = "true" ] ||
   fail "target GitHub release must remain a draft before upload"
-gh release upload "$RELEASE_TAG" \
+gh --repo "$TARGET_REPO" release upload "$RELEASE_TAG" \
   "$OUTPUT_DIR/$ARCHIVE_NAME" \
   "$OUTPUT_DIR/graf-appcast.xml" \
   "$CHECKSUM" \
