@@ -91,6 +91,10 @@ def test_remote_deploy_script_declares_and_executes_all_normalization_gates() ->
         'bash infra/scripts/cd-remote-runtime.sh "$branch" "$expected_sha" "$previous_sha"'
         in wrapper
     )
+    assert "/usr/bin/flock -n 9" in wrapper
+    assert wrapper.index("/usr/bin/flock -n 9") < wrapper.index(
+        'previous_sha="$(git rev-parse HEAD)"'
+    )
     assert "rec-media-worker" in runtime
     assert "twobrain_rec_app" in runtime
     assert (
@@ -695,8 +699,6 @@ def test_remote_deploy_rechecks_temporal_and_processing_worker_before_success() 
 
 
 def test_remote_deploy_turns_signals_into_nonzero_exit_for_rollback_trap() -> None:
-    from pathlib import Path
-
     runtime = (Path(__file__).parents[4] / "infra/scripts/cd-remote-runtime.sh").read_text()
 
     assert "trap rollback_on_exit EXIT" in runtime
@@ -704,9 +706,292 @@ def test_remote_deploy_turns_signals_into_nonzero_exit_for_rollback_trap() -> No
     assert "trap 'exit 143' TERM" in runtime
 
 
-def test_remote_deploy_marks_dispatch_open_before_enabling_worker_reconciliation() -> None:
-    from pathlib import Path
+def test_remote_deploy_publishes_and_verifies_the_public_installer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runtime = (Path(__file__).parents[4] / "infra/scripts/cd-remote-runtime.sh").read_text()
 
+    baseline = runtime.index("\ncapture_processing_runtime_baseline\n")
+    mutated = runtime.index("\nruntime_mutated=1\n", baseline)
+    api_stop = runtime.index('\n"${compose[@]}" stop rec-api', mutated)
+    sync = runtime.index("\nsync_public_download\n", api_stop)
+    compose_up = runtime.index('"${compose[@]}" up -d', sync)
+    smoke = runtime.index("\nverify_public_download\n", compose_up)
+    completion = runtime.index("deployment_complete=1", smoke)
+
+    assert baseline < mutated < api_stop < sync < compose_up < smoke < completion
+    assert "public_download_source_invalid" in runtime
+    assert "public_download_runtime_directory_invalid" in runtime
+    assert "public_download_directory_owner_invalid" in runtime
+    assert "public_download_target_invalid" in runtime
+    assert "public_download_page_unavailable" in runtime
+    assert "public_download_link_missing" in runtime
+    assert "public_download_cache_contract_mismatch" in runtime
+    assert "public_download_sha_mismatch" in runtime
+    assert 'cmp "$public_download_target" "$public_download_backup"' in runtime
+    assert "public_download_rollback_result=blocked" in runtime
+    assert "restore_public_download" in runtime
+    rollback = runtime.index("rollback_on_exit()")
+    rollback_api_stop = runtime.index('"${compose[@]}" stop rec-api', rollback)
+    rollback_restore = runtime.index("\n  if ! restore_public_download; then\n", rollback)
+    assert rollback_api_stop < rollback_restore < runtime.index(
+        'elif [[ "$runtime_mutated" == "1" ]]', rollback_restore
+    )
+
+    from twobrain_rec_server.public import templates as public_templates
+
+    cached_dir = tmp_path / "cached-public"
+    cached_dir.mkdir()
+    cached_package = cached_dir / "graf.pkg"
+    cached_package.write_bytes(b"previous-package")
+    monkeypatch.setattr(public_templates, "public_static_dir", lambda: str(cached_dir))
+    public_templates.public_static_asset_url.cache_clear()
+    try:
+        previous_url = public_templates.public_static_asset_url("graf.pkg")
+        candidate = cached_dir / "candidate.pkg"
+        candidate.write_bytes(b"candidate-package")
+        candidate.replace(cached_package)
+        assert public_templates.public_static_asset_url("graf.pkg") == previous_url
+    finally:
+        public_templates.public_static_asset_url.cache_clear()
+
+    helper_start = runtime.index("restore_public_download()")
+    helper_end = runtime.index("verify_public_download()", helper_start)
+    helper_source = runtime[helper_start:helper_end]
+    source = (
+        tmp_path
+        / "apps/server/src/twobrain_rec_server/public/static/public/downloads/graf.pkg"
+    )
+    target = tmp_path / "infra/runtime/public-downloads/graf.pkg"
+    source.parent.mkdir(parents=True)
+    target.parent.mkdir(parents=True)
+    source.write_bytes(b"candidate-package")
+    target.write_bytes(b"previous-package")
+    fixture_script = f"""
+set -euo pipefail
+repo_root="$1"
+public_download_updated=0
+public_download_source=""
+public_download_target=""
+public_download_backup=""
+public_download_temporary=""
+{helper_source}
+stat() {{ id -u; }}
+sync_public_download
+cmp "$public_download_target" "$public_download_source"
+restore_public_download
+if [[ "$2" == "exists" ]]; then
+  [[ "$(<"$public_download_target")" == "previous-package" ]]
+else
+  [[ ! -e "$public_download_target" ]]
+fi
+"""
+    result = subprocess.run(
+        ["bash", "-c", fixture_script, "bash", str(tmp_path), "exists"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert target.read_bytes() == b"previous-package"
+
+    target.unlink()
+    result = subprocess.run(
+        ["bash", "-c", fixture_script, "bash", str(tmp_path), "absent"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert not target.exists()
+
+
+@pytest.mark.parametrize("invalid_path", ["source", "runtime", "target_dir", "target"])
+def test_public_installer_sync_rejects_symlinks_without_altering_target(
+    tmp_path: Path, invalid_path: str
+) -> None:
+    runtime = (Path(__file__).parents[4] / "infra/scripts/cd-remote-runtime.sh").read_text()
+    helper_start = runtime.index("restore_public_download()")
+    helper_end = runtime.index("verify_public_download()", helper_start)
+    helper_source = runtime[helper_start:helper_end]
+    source = (
+        tmp_path
+        / "apps/server/src/twobrain_rec_server/public/static/public/downloads/graf.pkg"
+    )
+    source.parent.mkdir(parents=True)
+    source.write_bytes(b"candidate-package")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    if invalid_path == "runtime":
+        (tmp_path / "infra").mkdir()
+        (tmp_path / "infra/runtime").symlink_to(outside, target_is_directory=True)
+        target = outside / "public-downloads/graf.pkg"
+    elif invalid_path == "target_dir":
+        (tmp_path / "infra/runtime").mkdir(parents=True)
+        (tmp_path / "infra/runtime/public-downloads").symlink_to(
+            outside, target_is_directory=True
+        )
+        target = outside / "graf.pkg"
+    elif invalid_path == "target":
+        target = tmp_path / "infra/runtime/public-downloads/graf.pkg"
+        target.parent.mkdir(parents=True)
+        target.symlink_to(outside / "graf.pkg")
+        (outside / "graf.pkg").write_bytes(b"previous-package")
+    else:
+        target = tmp_path / "infra/runtime/public-downloads/graf.pkg"
+        target.parent.mkdir(parents=True)
+        source.unlink()
+        source.symlink_to(tmp_path / "candidate.pkg")
+        (tmp_path / "candidate.pkg").write_bytes(b"candidate-package")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(b"previous-package")
+    fixture_script = f"""
+set -euo pipefail
+repo_root="$1"
+public_download_updated=0
+public_download_source=""
+public_download_target=""
+public_download_backup=""
+public_download_temporary=""
+{helper_source}
+stat() {{ id -u; }}
+sync_public_download
+"""
+    result = subprocess.run(
+        ["bash", "-c", fixture_script, "bash", str(tmp_path)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert target.read_bytes() == b"previous-package"
+
+
+@pytest.mark.parametrize("served_package", [b"candidate-package", b"other-package"])
+def test_public_installer_smoke_checks_live_package_sha(
+    tmp_path: Path, served_package: bytes
+) -> None:
+    runtime = (Path(__file__).parents[4] / "infra/scripts/cd-remote-runtime.sh").read_text()
+    helper_start = runtime.index("verify_public_download()")
+    helper_end = runtime.index("share_identity_hash_secret_file=", helper_start)
+    helper_source = runtime[helper_start:helper_end]
+    source = tmp_path / "source.pkg"
+    served = tmp_path / "served.pkg"
+    source.write_bytes(b"candidate-package")
+    served.write_bytes(served_package)
+    fixture_script = f"""
+set -euo pipefail
+public_download_source="$1"
+public_download_smoke_directory=""
+served_package="$2"
+{helper_source}
+curl() {{
+  local output="" headers="" argument
+  for ((index=1; index <= $#; index++)); do
+    argument="${{!index}}"
+    case "$argument" in
+      -o) ((index++)); output="${{!index}}" ;;
+      -D) ((index++)); headers="${{!index}}" ;;
+    esac
+  done
+  if [[ -z "$output" ]]; then
+    printf '<a href="/static/public/downloads/graf.pkg?v=0123456789ab">download</a>'
+    return
+  fi
+  printf 'HTTP/1.1 200 OK\r\nCache-Control: public, max-age=31536000, immutable\r\n' >"$headers"
+  cp "$served_package" "$output"
+}}
+sha256sum() {{ shasum -a 256 "$1"; }}
+TWOBRAIN_PUBLIC_BASE_URL=https://fixture.invalid verify_public_download
+"""
+    result = subprocess.run(
+        ["bash", "-c", fixture_script, "bash", str(source), str(served)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    if served_package == source.read_bytes():
+        assert result.returncode == 0, result.stderr
+        assert "public_download_smoke_result=pass" in result.stdout
+    else:
+        assert result.returncode != 0
+        assert "reason=public_download_sha_mismatch" in result.stdout
+
+
+def test_remote_deploy_scripts_have_valid_bash_syntax() -> None:
+    repo_root = Path(__file__).parents[4]
+    for script in ("cd-remote.sh", "cd-remote-runtime.sh"):
+        result = subprocess.run(
+            ["bash", "-n", str(repo_root / "infra/scripts" / script)],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stderr
+
+
+def test_remote_deploy_cleanup_propagates_failure(tmp_path: Path) -> None:
+    runtime = (Path(__file__).parents[4] / "infra/scripts/cd-remote-runtime.sh").read_text()
+    helper_start = runtime.index("cleanup_runtime_files()")
+    helper_end = runtime.index("restore_public_download()", helper_start)
+    helper_source = runtime[helper_start:helper_end]
+    fixture_script = f"""
+set -euo pipefail
+public_download_smoke_directory="$1"
+{helper_source}
+rm() {{ return 1; }}
+if cleanup_runtime_files; then exit 1; fi
+"""
+    result = subprocess.run(
+        ["bash", "-c", fixture_script, "bash", str(tmp_path)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_failed_public_installer_restore_keeps_api_stopped(tmp_path: Path) -> None:
+    runtime = (Path(__file__).parents[4] / "infra/scripts/cd-remote-runtime.sh").read_text()
+    helper_start = runtime.index("rollback_on_exit()")
+    helper_end = runtime.index("trap rollback_on_exit EXIT", helper_start)
+    helper_source = runtime[helper_start:helper_end]
+    trace_path = tmp_path / "rollback-trace"
+    fixture_script = f"""
+set -euo pipefail
+compose=(compose_stub)
+runtime_mutated=1
+deployment_complete=0
+backup_reference=fixture-backup
+previous_sha=previous-sha
+{helper_source}
+compose_stub() {{ printf 'api_stopped\n' >>"$TRACE_PATH"; }}
+restore_public_download() {{ return 1; }}
+restore_previous_runtime() {{ printf 'api_restarted\n' >>"$TRACE_PATH"; }}
+cleanup_runtime_files() {{ return 0; }}
+set +e
+false
+rollback_on_exit
+"""
+    result = subprocess.run(
+        ["bash", "-c", fixture_script],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "TRACE_PATH": str(trace_path)},
+    )
+
+    assert result.returncode != 0
+    assert "public_download_rollback_result=blocked" in result.stdout
+    assert "rollback_result=blocked" in result.stdout
+    assert trace_path.read_text() == "api_stopped\n"
+
+
+def test_remote_deploy_marks_dispatch_open_before_enabling_worker_reconciliation() -> None:
     runtime = (Path(__file__).parents[4] / "infra/scripts/cd-remote-runtime.sh").read_text()
     marker_index = runtime.index("dispatch_opened=1")
     enabled_worker_index = runtime.index(

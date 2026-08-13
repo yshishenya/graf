@@ -10,3 +10,9 @@
 - [X] T010 Исправить PRD, current status, READMEs, feature index и changelog.
 - [X] T021 Проверить SwiftPM и cross-architecture release build.
 - [X] T022 Пройти полный local CI для Feature 147.
+
+## Phase 7: Convergence
+
+- [X] T023 Синхронизировать канонический `graf.pkg` из checkout в read-only runtime mount при остановленном `rec-api` непосредственно перед первым candidate Compose up в `infra/scripts/cd-remote-runtime.sh` (partial: public download requirement).
+- [X] T024 Добавить regression contract для синхронизации и внешнего smoke страницы `/download` и fingerprinted `graf.pkg` в `apps/server/tests/integration/test_deployment_readiness_gates.py` (partial: public download requirement).
+- [X] T025 Подтвердить live `/download` и подписанный нотарифицированный `graf.pkg`, записать evidence в `specs/147-macos-arch-builds/evidence/validation-summary.md` и закрыть release checklist (partial: public download requirement).

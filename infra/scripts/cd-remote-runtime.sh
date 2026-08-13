@@ -16,6 +16,12 @@ processing_worker_container_baseline=""
 processing_worker_restart_baseline=""
 maintenance_container_baseline=""
 maintenance_restart_baseline=""
+public_download_updated=0
+public_download_source=""
+public_download_target=""
+public_download_backup=""
+public_download_temporary=""
+public_download_smoke_directory=""
 
 set -a
 . ./.env
@@ -146,10 +152,146 @@ ensure_generated_secret() {
 }
 
 cleanup_runtime_files() {
+  local cleanup_failed=0
   rm -f \
     /tmp/twobrain-rec-api-env.txt \
     /tmp/twobrain-rec-compose-deploy.yml \
-    /tmp/twobrain-rec-media-worker-env.txt
+    /tmp/twobrain-rec-media-worker-env.txt || cleanup_failed=1
+  if [[ -n "$public_download_smoke_directory" \
+    && -d "$public_download_smoke_directory" \
+    && ! -L "$public_download_smoke_directory" ]]; then
+    rm -f -- \
+      "$public_download_smoke_directory/graf.pkg" \
+      "$public_download_smoke_directory/headers" || cleanup_failed=1
+    rmdir -- "$public_download_smoke_directory" 2>/dev/null || cleanup_failed=1
+  fi
+  return "$cleanup_failed"
+}
+
+restore_public_download() {
+  local restore_failed=0
+  if [[ -n "$public_download_temporary" && -e "$public_download_temporary" ]]; then
+    rm -f -- "$public_download_temporary" || restore_failed=1
+  fi
+  if [[ "$public_download_updated" != "1" ]]; then
+    if [[ -n "$public_download_backup" && -e "$public_download_backup" ]]; then
+      rm -f -- "$public_download_backup" || restore_failed=1
+    fi
+    return "$restore_failed"
+  fi
+  if [[ -n "$public_download_backup" && -f "$public_download_backup" ]]; then
+    mv "$public_download_backup" "$public_download_target" || restore_failed=1
+  elif [[ -e "$public_download_target" ]]; then
+    rm -f -- "$public_download_target" || restore_failed=1
+  fi
+  public_download_updated=0
+  return "$restore_failed"
+}
+
+sync_public_download() {
+  public_download_source="$repo_root/apps/server/src/twobrain_rec_server/public/static/public/downloads/graf.pkg"
+  local runtime_dir="$repo_root/infra/runtime"
+  local target_dir="$runtime_dir/public-downloads"
+  public_download_target="$target_dir/graf.pkg"
+
+  if [[ -L "$public_download_source" || ! -f "$public_download_source" || ! -s "$public_download_source" ]]; then
+    echo "deploy_result=blocked"
+    echo "reason=public_download_source_invalid"
+    exit 1
+  fi
+  if [[ -L "$runtime_dir" || ( -e "$runtime_dir" && ! -d "$runtime_dir" ) ]]; then
+    echo "deploy_result=blocked"
+    echo "reason=public_download_runtime_directory_invalid"
+    exit 1
+  fi
+  mkdir -p "$runtime_dir"
+  if [[ "$(stat -c '%u' -- "$runtime_dir")" != "$(id -u)" \
+    || -L "$target_dir" \
+    || ( -e "$target_dir" && ! -d "$target_dir" ) ]]; then
+    echo "deploy_result=blocked"
+    echo "reason=public_download_directory_invalid"
+    exit 1
+  fi
+  mkdir -p "$target_dir"
+  if [[ "$(stat -c '%u' -- "$target_dir")" != "$(id -u)" ]]; then
+    echo "deploy_result=blocked"
+    echo "reason=public_download_directory_owner_invalid"
+    exit 1
+  fi
+  if [[ -L "$public_download_target" || ( -e "$public_download_target" && ! -f "$public_download_target" ) ]]; then
+    echo "deploy_result=blocked"
+    echo "reason=public_download_target_invalid"
+    exit 1
+  fi
+  if [[ -f "$public_download_target" ]] && cmp -s "$public_download_source" "$public_download_target"; then
+    echo "public_download_sync_result=unchanged"
+    return
+  fi
+
+  public_download_temporary="$(mktemp "$target_dir/.graf.pkg.deploy.XXXXXX")"
+  install -m 0644 "$public_download_source" "$public_download_temporary"
+  cmp "$public_download_source" "$public_download_temporary"
+  if [[ -f "$public_download_target" ]]; then
+    public_download_backup="$(mktemp "$target_dir/.graf.pkg.rollback.XXXXXX")"
+    cp -p "$public_download_target" "$public_download_backup"
+    cmp "$public_download_target" "$public_download_backup"
+  fi
+  public_download_updated=1
+  mv "$public_download_temporary" "$public_download_target"
+  public_download_temporary=""
+  cmp "$public_download_source" "$public_download_target"
+  echo "public_download_sync_result=updated"
+}
+
+verify_public_download() {
+  local base_url="${TWOBRAIN_PUBLIC_BASE_URL:-https://rec.2brain.pro}"
+  local page package_path package_file headers_file expected_sha actual_sha
+  local curl_options=(
+    -fsS --connect-timeout 10 --max-time 90
+    --retry 2 --retry-delay 1 --retry-all-errors
+  )
+  if ! page="$(curl "${curl_options[@]}" "$base_url/download")"; then
+    echo "deploy_result=blocked"
+    echo "reason=public_download_page_unavailable"
+    exit 1
+  fi
+  if ! package_path="$(python3 -c '
+import re
+import sys
+
+match = re.search(r"(/static/public/downloads/graf[.]pkg[?]v=[0-9a-f]{12})", sys.stdin.read())
+if match is None:
+    raise SystemExit(1)
+print(match.group(1))
+' <<<"$page")"; then
+    echo "deploy_result=blocked"
+    echo "reason=public_download_link_missing"
+    exit 1
+  fi
+  public_download_smoke_directory="$(mktemp -d /tmp/graf-public-download.XXXXXX)"
+  package_file="$public_download_smoke_directory/graf.pkg"
+  headers_file="$public_download_smoke_directory/headers"
+  if ! curl "${curl_options[@]}" -D "$headers_file" -o "$package_file" \
+    "$base_url$package_path"; then
+    echo "deploy_result=blocked"
+    echo "reason=public_download_asset_unavailable"
+    exit 1
+  fi
+  if ! tr -d '\r' <"$headers_file" | grep -Fqi \
+    'cache-control: public, max-age=31536000, immutable'; then
+    echo "deploy_result=blocked"
+    echo "reason=public_download_cache_contract_mismatch"
+    exit 1
+  fi
+  expected_sha="$(sha256sum "$public_download_source" | awk '{print $1}')"
+  actual_sha="$(sha256sum "$package_file" | awk '{print $1}')"
+  if [[ "$actual_sha" != "$expected_sha" ]]; then
+    echo "deploy_result=blocked"
+    echo "reason=public_download_sha_mismatch"
+    exit 1
+  fi
+  echo "public_download_smoke_result=pass"
+  echo "public_download_sha256=$actual_sha"
 }
 
 share_identity_hash_secret_file="${TWOBRAIN_SHARE_IDENTITY_HASH_SECRET_SECRET_FILE:-./secrets/graf_share_identity_hash_secret}"
@@ -578,7 +720,7 @@ restore_previous_runtime() {
 }
 
 rollback_on_exit() {
-  local status=$?
+  local status=$? public_download_restore_failed=0
   trap - EXIT INT TERM
   if [[ "$status" == "0" || "$deployment_complete" == "1" ]]; then
     return
@@ -587,6 +729,12 @@ rollback_on_exit() {
   echo "deploy_result=blocked"
   echo "reason=staged_rollout_failed"
   if [[ "$runtime_mutated" == "1" ]]; then
+    "${compose[@]}" stop rec-api >/dev/null 2>&1 || true
+  fi
+  if ! restore_public_download; then
+    echo "public_download_rollback_result=blocked"
+    public_download_restore_failed=1
+  elif [[ "$runtime_mutated" == "1" ]]; then
     restore_previous_runtime
   else
     if git reset --hard "$previous_sha" >/dev/null 2>&1; then
@@ -597,7 +745,12 @@ rollback_on_exit() {
       echo "rollback_backup_reference=${backup_reference:-unavailable}"
     fi
   fi
-  cleanup_runtime_files
+  if [[ "$public_download_restore_failed" == "1" ]]; then
+    echo "rollback_result=blocked"
+    echo "rollback_target=forward_fix_required"
+    echo "rollback_backup_reference=${backup_reference:-unavailable}"
+  fi
+  cleanup_runtime_files || echo "runtime_cleanup_result=warning"
   exit "$status"
 }
 trap rollback_on_exit EXIT
@@ -775,6 +928,8 @@ echo "profile_contract_result=pass"
 
 capture_processing_runtime_baseline
 runtime_mutated=1
+"${compose[@]}" stop rec-api >/dev/null
+sync_public_download
 "${compose[@]}" stop rec-media-worker >/dev/null 2>&1 || true
 TWOBRAIN_PLAYBACK_NORMALIZATION_ENABLED=false \
   TWOBRAIN_PLAYBACK_NORMALIZATION_AUTOMATIC_DISPATCH_ENABLED=false \
@@ -962,6 +1117,7 @@ fi
 
 curl -fsS https://rec.2brain.pro/api/v1/health/live >/dev/null
 curl -fsS https://rec.2brain.pro/api/v1/health/ready >/dev/null
+verify_public_download
 
 if ! verify_processing_runtime_health; then
   echo "deploy_result=blocked"
@@ -976,8 +1132,16 @@ echo "backfill_inventory_result=required_post_deploy"
 echo "range_playback_result=required_post_deploy"
 echo "normalization_cleanup_result=required_post_deploy"
 
+if [[ -n "$public_download_backup" ]] && ! rm -f -- "$public_download_backup"; then
+  echo "public_download_cleanup_result=warning"
+fi
+if [[ -n "$public_download_temporary" ]] && ! rm -f -- "$public_download_temporary"; then
+  echo "public_download_cleanup_result=warning"
+fi
+if ! cleanup_runtime_files; then
+  echo "runtime_cleanup_result=warning"
+fi
 deployment_complete=1
-cleanup_runtime_files
 trap - EXIT INT TERM
 cat <<EOF
 deploy_result=pass

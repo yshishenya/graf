@@ -90,6 +90,13 @@ remote_script=$(cat <<'SH'
 set -eu
 branch="$1"
 expected_sha="$2"
+deploy_lock="$(git rev-parse --git-path twobrain-rec-deploy.lock)"
+exec 9>"$deploy_lock"
+if ! /usr/bin/flock -n 9; then
+  echo "deploy_result=blocked"
+  echo "reason=deploy_already_running"
+  exit 1
+fi
 previous_sha="$(git rev-parse HEAD)"
 
 if [ -n "$(git status --porcelain --untracked-files=all)" ]; then

@@ -8,5 +8,5 @@
 - [X] Developer ID package signing, notarization and staple completed for
       production (`v2026.08.12.3`).
 - [X] Live public download receipt after deploy: `/download` and
-      `downloads/graf.pkg` returned HTTP 200 on 2026-08-13; public SHA-256
-      matched the notarized release asset.
+      fingerprinted `downloads/graf.pkg` returned HTTP 200 on 2026-08-13;
+      public SHA-256 matched the signed and notarized release asset.
