@@ -97,6 +97,7 @@ RLS_OPERATOR_TABLES = {
 
 RLS_BILLING_TABLES = {
     "billing_plan_versions",
+    "billing_launch_gates",
     "promotion_campaigns",
     "promotion_redemptions",
     "workspace_subscriptions",

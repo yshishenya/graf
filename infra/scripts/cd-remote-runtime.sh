@@ -39,10 +39,15 @@ normalize_compose_secret_path() {
     *) printf '%s/%s' "$repo_root" "$value" ;;
   esac
 }
-if [[ "${TWOBRAIN_BILLING_CHECKOUT_ENABLED:-false}" == "true" ]]; then
+if [[ "${TWOBRAIN_BILLING_PROVIDER_OBSERVATION_ENABLED:-false}" == "true" \
+  || "${TWOBRAIN_BILLING_CHECKOUT_ENABLED:-false}" == "true" ]]; then
   export TWOBRAIN_BILLING_YOOKASSA_SECRET_FILE="$(
     normalize_compose_secret_path "${TWOBRAIN_BILLING_YOOKASSA_SECRET_FILE:-./secrets/twobrain_yookassa_secret}"
   )"
+else
+  export TWOBRAIN_BILLING_YOOKASSA_SECRET_FILE="$disabled_billing_secret"
+fi
+if [[ "${TWOBRAIN_BILLING_CHECKOUT_ENABLED:-false}" == "true" ]]; then
   export TWOBRAIN_BILLING_YOOKASSA_WEBHOOK_SECRET_FILE="$(
     normalize_compose_secret_path "${TWOBRAIN_BILLING_YOOKASSA_WEBHOOK_SECRET_FILE:-./secrets/twobrain_yookassa_webhook_secret}"
   )"
@@ -50,7 +55,6 @@ if [[ "${TWOBRAIN_BILLING_CHECKOUT_ENABLED:-false}" == "true" ]]; then
     normalize_compose_secret_path "${TWOBRAIN_BILLING_REFERRAL_SECRET_FILE:-./secrets/twobrain_billing_referral_secret}"
   )"
 else
-  export TWOBRAIN_BILLING_YOOKASSA_SECRET_FILE="$disabled_billing_secret"
   export TWOBRAIN_BILLING_YOOKASSA_WEBHOOK_SECRET_FILE="$disabled_billing_secret"
   export TWOBRAIN_BILLING_REFERRAL_SECRET_FILE="$disabled_billing_secret"
 fi
@@ -802,9 +806,17 @@ if [[ "${TWOBRAIN_OUTCOME_GENERATION_ENABLED:-false}" == "true" \
   echo "litellm_secret_permissions_result=pass"
 fi
 
+if [[ "${TWOBRAIN_BILLING_PROVIDER_OBSERVATION_ENABLED:-false}" == "true" \
+  || "${TWOBRAIN_BILLING_CHECKOUT_ENABLED:-false}" == "true" ]]; then
+  if ! secure_runtime_secret_file "${TWOBRAIN_BILLING_YOOKASSA_SECRET_FILE:-./secrets/twobrain_yookassa_secret}"; then
+    echo "deploy_result=blocked"
+    echo "reason=billing_secret_permissions_invalid"
+    exit 1
+  fi
+fi
+
 if [[ "${TWOBRAIN_BILLING_CHECKOUT_ENABLED:-false}" == "true" ]]; then
   for billing_secret in \
-    "${TWOBRAIN_BILLING_YOOKASSA_SECRET_FILE:-./secrets/twobrain_yookassa_secret}" \
     "${TWOBRAIN_BILLING_YOOKASSA_WEBHOOK_SECRET_FILE:-./secrets/twobrain_yookassa_webhook_secret}" \
     "${TWOBRAIN_BILLING_REFERRAL_SECRET_FILE:-./secrets/twobrain_billing_referral_secret}"; do
     if ! secure_runtime_secret_file "$billing_secret"; then
@@ -848,8 +860,35 @@ fi
 RESTORE_BACKUP_REFERENCE="$backup_reference" infra/scripts/rehearse-rec-restore.sh --execute
 
 "${compose[@]}" config >/tmp/twobrain-rec-compose-deploy.yml
-if [[ "${TWOBRAIN_BILLING_CHECKOUT_ENABLED:-false}" == "true" ]] \
-  && grep -Fq "$disabled_billing_secret" /tmp/twobrain-rec-compose-deploy.yml; then
+compose_secret_file() {
+  awk -v secret_name="$1" '
+    $0 == "secrets:" { in_secrets = 1; next }
+    in_secrets && $0 == "  " secret_name ":" { in_target = 1; next }
+    in_target && /^    file: / { sub(/^    file: /, ""); print; exit }
+    in_target && /^  [^ ]/ { exit }
+  ' /tmp/twobrain-rec-compose-deploy.yml
+}
+billing_provider_secret_source="$(compose_secret_file twobrain_yookassa_secret)"
+billing_webhook_secret_source="$(compose_secret_file twobrain_yookassa_webhook_secret)"
+billing_referral_secret_source="$(compose_secret_file twobrain_billing_referral_secret)"
+billing_secret_sources_valid=1
+if [[ "${TWOBRAIN_BILLING_PROVIDER_OBSERVATION_ENABLED:-false}" == "true" \
+  || "${TWOBRAIN_BILLING_CHECKOUT_ENABLED:-false}" == "true" ]]; then
+  [[ -n "$billing_provider_secret_source" \
+    && "$billing_provider_secret_source" != "$disabled_billing_secret" ]] || billing_secret_sources_valid=0
+else
+  [[ "$billing_provider_secret_source" == "$disabled_billing_secret" ]] || billing_secret_sources_valid=0
+fi
+if [[ "${TWOBRAIN_BILLING_CHECKOUT_ENABLED:-false}" == "true" ]]; then
+  [[ -n "$billing_webhook_secret_source" \
+    && "$billing_webhook_secret_source" != "$disabled_billing_secret" \
+    && -n "$billing_referral_secret_source" \
+    && "$billing_referral_secret_source" != "$disabled_billing_secret" ]] || billing_secret_sources_valid=0
+else
+  [[ "$billing_webhook_secret_source" == "$disabled_billing_secret" \
+    && "$billing_referral_secret_source" == "$disabled_billing_secret" ]] || billing_secret_sources_valid=0
+fi
+if [[ "$billing_secret_sources_valid" != "1" ]]; then
   echo "deploy_result=blocked"
   echo "reason=billing_enabled_compose_uses_disabled_secret_placeholder"
   exit 1

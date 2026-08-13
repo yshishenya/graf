@@ -8,6 +8,7 @@ import httpx
 import pytest
 from cryptography.fernet import Fernet
 
+from twobrain_rec_server.billing.launch_gates import BillingLaunchBlocked
 from twobrain_rec_server.billing.payment_methods import seal_provider_reference
 from twobrain_rec_server.billing.renewal_charge import (
     RENEWAL_CANDIDATE_STATES,
@@ -78,6 +79,16 @@ class FakeProvider:
         if isinstance(self.response, BaseException):
             raise self.response
         return self.response
+
+
+def _allow_launch_gates(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def allow(*_args: object, **_kwargs: object) -> None:
+        return None
+
+    monkeypatch.setattr(
+        "twobrain_rec_server.billing.renewal_charge.require_current_billing_launch_gates",
+        allow,
+    )
 
 
 def _settings(tmp_path: Path) -> Settings:
@@ -213,6 +224,7 @@ async def test_charge_uses_saved_method_and_authority_snapshot(monkeypatch, tmp_
     settings = _settings(tmp_path)
     subscription, operation, invoice, method = _rows(tmp_path)
     provider = FakeProvider({"id": "pay-renewal-1", "status": "pending"})
+    _allow_launch_gates(monkeypatch)
     monkeypatch.setattr(
         "twobrain_rec_server.billing.renewal_charge.YooKassaClient",
         lambda _settings: provider,
@@ -232,6 +244,37 @@ async def test_charge_uses_saved_method_and_authority_snapshot(monkeypatch, tmp_
     assert operation.provider_id == "pay-renewal-1"
     assert provider.calls[0]["payment_method_id"] == "pm-card-1"
     assert provider.calls[0]["idempotence_key"] == "renewal:period-1"
+
+
+@pytest.mark.asyncio
+async def test_missing_launch_gate_blocks_before_provider_call(monkeypatch, tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    subscription, operation, invoice, method = _rows(tmp_path)
+    provider = FakeProvider({"id": "must-not-be-called"})
+
+    async def block(*_args: object, **_kwargs: object) -> None:
+        raise BillingLaunchBlocked("billing launch approvals are incomplete")
+
+    monkeypatch.setattr(
+        "twobrain_rec_server.billing.renewal_charge.YooKassaClient",
+        lambda _settings: provider,
+    )
+    monkeypatch.setattr(
+        "twobrain_rec_server.billing.renewal_charge.require_current_billing_launch_gates",
+        block,
+    )
+
+    result = await charge_renewal_operation(
+        FakeDb([subscription, operation, invoice, method]),
+        settings,
+        operation_id=OPERATION_ID,
+        workspace_id=WORKSPACE_ID,
+        now=PAID_THROUGH,
+    )
+
+    assert result.status == "blocked"
+    assert provider.calls == []
+    assert operation.state == "scheduled"
 
 
 @pytest.mark.asyncio
@@ -262,6 +305,7 @@ async def test_transport_unknown_never_retries_without_provider_id(monkeypatch, 
     settings = _settings(tmp_path)
     subscription, operation, invoice, method = _rows(tmp_path)
     provider = FakeProvider(httpx.ReadTimeout("timeout"))
+    _allow_launch_gates(monkeypatch)
     monkeypatch.setattr(
         "twobrain_rec_server.billing.renewal_charge.YooKassaClient",
         lambda _settings: provider,
@@ -286,6 +330,7 @@ async def test_confirmed_provider_decline_turns_authority_off(monkeypatch, tmp_p
     settings = _settings(tmp_path)
     subscription, operation, invoice, method = _rows(tmp_path)
     provider = FakeProvider(YooKassaProviderError("declined", status_code=402))
+    _allow_launch_gates(monkeypatch)
     monkeypatch.setattr(
         "twobrain_rec_server.billing.renewal_charge.YooKassaClient",
         lambda _settings: provider,

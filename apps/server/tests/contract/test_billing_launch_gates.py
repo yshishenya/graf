@@ -25,6 +25,15 @@ def test_emergency_stop_blocks_provider_mutations() -> None:
         raise AssertionError("emergency stop must block checkout and renewal mutations")
 
 
+def test_money_mutations_require_durable_current_launch_registry() -> None:
+    root = Path(__file__).parents[2] / "src/twobrain_rec_server"
+    checkout = (root / "cabinet/web_routes/billing.py").read_text(encoding="utf-8")
+    renewal = (root / "billing/renewal_charge.py").read_text(encoding="utf-8")
+    for source in (checkout, renewal):
+        assert "require_current_billing_launch_gates(" in source
+        assert source.index("require_current_billing_launch_gates(") < source.index("provider.create_payment(")
+
+
 def test_monitoring_and_redaction_are_safe_for_evidence() -> None:
     snapshot = BillingMetricSnapshot(
         payment_success=1,

@@ -718,4 +718,9 @@ def test_remote_cd_normalizes_billing_secret_paths_and_fails_closed_on_placehold
     assert 'TWOBRAIN_BILLING_YOOKASSA_SECRET_FILE:-./secrets/twobrain_yookassa_secret' in script
     assert 'TWOBRAIN_BILLING_YOOKASSA_WEBHOOK_SECRET_FILE:-./secrets/twobrain_yookassa_webhook_secret' in script
     assert 'TWOBRAIN_BILLING_REFERRAL_SECRET_FILE:-./secrets/twobrain_billing_referral_secret' in script
+    assert "TWOBRAIN_BILLING_PROVIDER_OBSERVATION_ENABLED:-false" in script
+    assert "compose_secret_file twobrain_yookassa_secret" in script
+    assert "compose_secret_file twobrain_yookassa_webhook_secret" in script
+    assert "compose_secret_file twobrain_billing_referral_secret" in script
+    assert "billing_secret_sources_valid" in script
     assert "billing_enabled_compose_uses_disabled_secret_placeholder" in script
