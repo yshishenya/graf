@@ -141,6 +141,7 @@ cross this policy boundary.
 Controlled global tables are also covered:
 
 - `billing_plan_versions`
+- `billing_launch_gates`
 - `promotion_campaigns`
 
 They permit only the documented request/worker or approved maintenance

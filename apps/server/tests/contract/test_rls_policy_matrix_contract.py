@@ -127,6 +127,10 @@ FAIR_USE_MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0068_fair_use_reviews.py"
 )
+BILLING_LAUNCH_GATES_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0072_billing_launch_gates.py"
+)
 PRODUCTION_SMOKE_SETUP_MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0023_production_smoke_setup.py"
@@ -168,6 +172,7 @@ def test_rls_migration_covers_every_current_tenant_table() -> None:
         + ACCOUNT_CLOSURE_MIGRATION.read_text(encoding="utf-8")
         + REFERRAL_LINKS_MIGRATION.read_text(encoding="utf-8")
         + FAIR_USE_MIGRATION.read_text(encoding="utf-8")
+        + BILLING_LAUNCH_GATES_MIGRATION.read_text(encoding="utf-8")
         + WORKSPACE_ONBOARDING_MIGRATION.read_text(encoding="utf-8")
     )
 
