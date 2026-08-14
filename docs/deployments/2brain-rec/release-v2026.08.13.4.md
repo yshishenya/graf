@@ -14,6 +14,11 @@ Deploy SHA: `faeefd574a05cf9bdc77482f857471a62c27041c`
   6 241 392 bytes, SHA-256
   `2fee7e9cfb70e2894680f4b956a4bfc4105c6501cc71808343a26fae17962970`.
 - PKG подписан Developer ID Installer и принят Apple Notary Service.
+- Live Sparkle appcast сообщает `2026.08.13.4`, указывает на
+  `GRAF-2026.08.13.4.zip` длиной 6 434 671 байт; SHA-256 appcast
+  `017329e5a41ff985d8df4adfc9928cf4d231bdb02f928d1313d91e5cddd7a3c7`.
+- Предыдущий appcast сохранён как
+  `infra/runtime/public-downloads/graf-appcast.xml.pre-v2026.08.13.4-20260814T051302Z`.
 
 ## macOS и Intel
 
