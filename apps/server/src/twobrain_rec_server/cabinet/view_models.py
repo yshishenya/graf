@@ -1501,19 +1501,11 @@ def settings_category_navigation(
             "Аккаунт",
             "settings",
         ),
-        (
-            "billing",
-            "Тариф и оплата",
-            "В этом пространстве",
-            "/billing",
-            "Оплата",
-            "activity",
-        ),
     )
-    # Keep the long-standing sidebar compact; the notification page exposes
-    # its own active entry once opened from the account surface.
-    if active == "notifications":
-        definitions += (("notifications", "Уведомления", "Личная настройка", "/notifications", "Аккаунт", "bell"),)
+    definitions += (
+        ("notifications", "Уведомления", "Личная настройка", "/notifications", "Аккаунт", "bell"),
+        ("billing", "Тариф и оплата", "В этом пространстве", "/billing", "Оплата", "activity"),
+    )
     return tuple(
         SettingsCategoryView(
             id=category_id,

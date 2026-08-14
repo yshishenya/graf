@@ -178,6 +178,21 @@ def _is_browser_cabinet_path(path: str) -> bool:
     )
 
 
+def _is_browser_auth_handoff_path(path: str) -> bool:
+    return (
+        path == "/settings"
+        or path.startswith(("/settings/", "/desktop/settings/"))
+        or path == "/desktop/settings"
+        or path == "/account"
+        or path.startswith(("/account/", "/desktop/account/"))
+        or path == "/desktop/account"
+        or path == "/billing"
+        or path.startswith("/billing/")
+        or path == "/referrals"
+        or path.startswith("/referrals/")
+    )
+
+
 def _is_browser_invitation_path(path: str) -> bool:
     return path.startswith("/share-invitations/")
 
@@ -193,6 +208,15 @@ def _wants_html(request: Request) -> bool:
     return (
         accept in {"", "*/*"}
         and _is_browser_invitation_path(request.url.path)
+    )
+
+
+def _wants_browser_auth_handoff(request: Request) -> bool:
+    if request.method not in {"GET", "HEAD"}:
+        return False
+    accept = request.headers.get("accept", "").strip().lower()
+    return ("text/html" in accept or accept in {"", "*/*"}) and _is_browser_auth_handoff_path(
+        request.url.path
     )
 
 
@@ -235,7 +259,7 @@ async def problem_exception_handler(
             "/login?" + urlencode({"next": next_path, "error": exc.code}),
             status_code=303,
         )
-    if exc.status in {401, 403} and _is_browser_cabinet_path(request.url.path) and _wants_html(request):
+    if exc.status in {401, 403} and _wants_browser_auth_handoff(request):
         return RedirectResponse(
             "/login?" + urlencode({"next": _safe_browser_login_next(request), "error": exc.code}),
             status_code=303,

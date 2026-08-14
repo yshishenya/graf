@@ -26,3 +26,6 @@ requirements are explicit before implementation.
 - [x] CHK010 — Does the feature explicitly avoid new deletion promises or changes to observability retention? [Scope, Spec §Out of Scope, Constitution §IV]
 - [x] CHK011 — Are CSRF requirements retained for every settings mutation, including workspace, provider-link, calendar and device actions? [Completeness, Spec §FR-017, Contract §Mutation states]
 - [x] CHK012 — Are admin operations explicitly kept outside personal/workspace settings navigation? [Separation of privilege, Spec §FR-010]
+- [x] CHK013 — Do protected HTML handoffs redirect to the existing login flow
+  with a fixed same-origin return path while API clients keep problem JSON?
+  [Auth boundary, Spec §FR-018, SC-009]

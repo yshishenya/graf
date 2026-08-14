@@ -35,7 +35,15 @@ def test_settings_overview_exposes_supported_categories_and_group_labels() -> No
 
 
 def test_settings_sidebar_exposes_grouped_canonical_links_and_active_state() -> None:
-    expected_ids = ("recording", "summaries", "calendar", "workspace", "account", "billing")
+    expected_ids = (
+        "recording",
+        "summaries",
+        "calendar",
+        "workspace",
+        "account",
+        "notifications",
+        "billing",
+    )
     expected_groups = ("Встречи", "Рабочее пространство", "Аккаунт", "Оплата")
     expected_icons = {
         "recording": "video",
@@ -180,7 +188,7 @@ def test_settings_overview_keeps_navigation_primary_and_copy_compact() -> None:
     assert "Здесь собраны только доступные сейчас настройки" not in page
     assert "Что можно настроить" not in page
     assert "data-settings-category=" not in page
-    assert page.count('data-settings-nav="') == 6
+    assert page.count('data-settings-nav="') == 7
 
 
 def test_recording_settings_keep_native_boundary_copy_compact() -> None:

@@ -33,3 +33,6 @@ testable before implementation.
 - [x] CHK014 — Does the summary-format requirement explicitly distinguish built-in workspace defaults from personal formats? [Clarity, Spec §FR-006]
 - [x] CHK015 — Does the calendar requirement state the intended information order without prescribing a fake conflict action? [Clarity, Spec §FR-007, research Decision 5]
 - [x] CHK016 — Does the recording requirement explain native handoff without introducing a web capture policy? [Safety boundary, Spec §FR-011, SC-008]
+- [x] CHK017 — Is every supported settings category, including notifications,
+  discoverable from the shared navigation in browser and embedded modes?
+  [Discoverability, Spec §FR-002, FR-018]

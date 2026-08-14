@@ -48,7 +48,7 @@ def test_account_center_aliases_are_reachable_from_cabinet_navigation(client) ->
 
 
 def test_settings_sidebar_is_present_and_calendar_maps_to_parent_category(client) -> None:
-    expected_ids = ("recording", "summaries", "calendar", "workspace", "account")
+    expected_ids = ("recording", "summaries", "calendar", "workspace", "account", "notifications")
 
     for path in ("/settings/integrations/calendar", "/desktop/settings/integrations/calendar"):
         response = client.get(path, headers=auth_headers())

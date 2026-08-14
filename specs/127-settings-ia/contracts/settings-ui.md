@@ -10,6 +10,8 @@
 | Workspace and team | `/settings/workspace` | `/desktop/settings/workspace` | Existing spaces/offers actions |
 | Account and security | `/settings/account` | `/desktop/settings/account` | Safe provider/device projection |
 | Calendars | `/settings/integrations/calendar` | `/desktop/settings/integrations/calendar` | Existing integration contract |
+| Notifications | `/settings/notifications` | `/desktop/settings/notifications` | Personal optional channels; mandatory financial/security notices stay enabled |
+| Billing | `/billing` and child routes | Browser-owned external handoff from desktop | Missing browser session redirects to `/login`; no token-bearing URL |
 | Provider-link confirmation | `/settings/provider-links/:id` | `/desktop/settings/provider-links/:id` | Existing flow, return link points to account |
 
 `/settings/spaces`, `/settings/join-offers` and existing calendar action routes
@@ -24,6 +26,9 @@ return targets are a fixed allowlist.
   inner navigation with `aria-current="page"`.
 - Categories are not rendered as empty placeholders.
 - Admin links remain outside this navigation.
+- Browser-owned billing/account links may leave the desktop shell, but an
+  unauthenticated HTML request must use the normal login screen with a fixed
+  same-origin return path. API clients keep `application/problem+json` errors.
 
 ## Scope vocabulary
 

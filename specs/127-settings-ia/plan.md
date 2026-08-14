@@ -154,7 +154,16 @@ copy, and do not turn read-only conflict preview into a fake action.
 - Keep buttons for actions and links for navigation; make conflict choices
   clearly informational until a supported mutation exists.
 
-### 5. Documentation and release readiness
+### 5. Protect browser-owned HTML handoffs
+
+Classify all server-rendered cabinet paths (`/settings`, `/account`,
+`/billing`, `/referrals` and their desktop aliases) as HTML surfaces in the
+shared `ProblemDetail` handler. A missing or expired session redirects to the
+existing login page with a fixed same-origin return path; API paths remain
+problem JSON. The desktop billing policy remains browser-owned and no session
+token is copied into an external URL.
+
+### 6. Documentation and release readiness
 
 Update `CHANGELOG.md` in Russian under `[Unreleased]`, keep the feature artifacts
 in sync, and record focused/CI evidence without private meeting content.

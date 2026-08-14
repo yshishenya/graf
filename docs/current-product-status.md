@@ -2,6 +2,18 @@
 
 Date: 2026-08-13
 
+## Audit update (2026-08-14) — settings browser auth handoff
+
+- Проверены overview, запись, итоги, календари, пространство, аккаунт,
+  уведомления и browser-owned billing/referrals surfaces по route/auth,
+  scope/role, empty/error, CSRF, keyboard/focus и no-secret границам.
+- Найдена и исправлена общая причина сырого JSON 401: защищённые HTML-пути
+  теперь ведут на `/login` с безопасным same-origin `next`, а API сохраняют
+  `application/problem+json`. Legacy header authentication в production не
+  включается.
+- «Уведомления» добавлены в общую навигацию настроек; ручная проверка
+  desktop-to-browser handoff и production rollout остаются release gates.
+
 ## Implementation update (2026-08-13) — Feature 148 local workflows
 
 - Канонические CI-проверки запускаются локально через

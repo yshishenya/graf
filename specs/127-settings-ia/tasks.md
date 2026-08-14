@@ -159,6 +159,28 @@ settings IA and the macOS webview route allowlist.
   run the focused Swift tests and `infra/scripts/ci-local.sh`, then record the
   release/deploy evidence without changing native capture behavior.
 
+## Phase 9: Post-release browser auth and settings inventory audit
+
+**Purpose**: Make browser-owned HTML handoffs recoverable when the desktop
+webview session is not present in the user's browser, and expose every
+supported settings category from the shared IA.
+
+- [X] T040 [P] Add problem-handler contract coverage in
+  `apps/server/tests/contract/test_problem_details.py` for settings, account,
+  billing, referrals and desktop aliases; preserve JSON for API paths.
+- [X] T041 [US1] Classify protected cabinet HTML paths in
+  `apps/server/src/twobrain_rec_server/api/problems.py` so 401/403 responses
+  redirect to `/login` with a safe same-origin return path instead of raw JSON.
+- [X] T042 [US1] Expose the existing notifications category in the shared
+  navigation from `apps/server/src/twobrain_rec_server/cabinet/view_models.py`
+  and update the settings UI contracts.
+- [X] T043 [P] Record the complete settings/billing inventory and manual
+  browser-owned handoff scenario in `specs/127-settings-ia/quickstart.md` and
+  `specs/127-settings-ia/contracts/settings-ui.md`.
+- [X] T044 Run focused settings/problem tests, `git diff --check`, and the
+  selected high-risk fast validation lane; do not deploy until release evidence
+  and explicit production approval are complete.
+
 ## Dependencies & Execution Order
 
 ### Phase Dependencies
@@ -183,6 +205,8 @@ settings IA and the macOS webview route allowlist.
 - **US4 (P2)**: Depends only on US1 route map; no capture dependency.
 - **T038** depends on the completed server-side route map and is required before
   the embedded parity smoke in **T039**.
+- T040–T042 are the browser-auth follow-up after the embedded parity correction;
+  T044 is the closeout gate for this follow-up.
 
 ### Parallel Opportunities
 

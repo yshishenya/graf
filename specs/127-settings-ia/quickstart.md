@@ -29,11 +29,24 @@ contains provider subjects, candidate contact data or credentials.
 3. Confirm `/settings` opens the overview.
 4. Open «Итоги», «Интеграции → Календари», «Аккаунт и безопасность» and
    «Пространство и команда» from the inner navigation.
-5. Repeat steps 2–4 in `/desktop/meetings` and confirm the embedded paths remain
+5. Confirm «Уведомления» is visible in the same settings navigation and opens
+   its own page without relying on the account sub-navigation.
+6. Repeat steps 2–5 in `/desktop/meetings` and confirm the embedded paths remain
    under `/desktop/`.
-6. In the installed GRAF macOS client select the web cabinet's «Настройки»
+7. In the installed GRAF macOS client select the web cabinet's «Настройки»
    link and confirm the overview opens inside the webview; the native gear in
    the recording rail must remain the separate «Автозапись» handoff.
+
+### Manual scenario D: browser-owned billing handoff
+
+1. From the embedded desktop cabinet select «Тариф и оплата».
+2. Confirm the system opens the browser-owned billing route without copying
+   headers, cookies or tokens into the URL.
+3. If the browser has no validated session, confirm it opens the normal login
+   page with `/billing` as the safe return path; it must not show raw JSON 401.
+4. Repeat with `/settings`, `/account`, `/referrals` and their supported
+   desktop aliases. API paths must continue returning problem JSON to API
+   clients.
 
 ## Manual scenario B: scope and safe empty states
 
