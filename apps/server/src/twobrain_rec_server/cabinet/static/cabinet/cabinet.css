@@ -4493,22 +4493,25 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 }
 
 /* Additional settings redesign styles */
+.settings-page {
+  grid-template-columns: minmax(200px, 220px) minmax(0, 780px);
+  gap: 32px;
+}
 .settings-overview {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  max-width: 920px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  max-width: 780px;
 }
 .settings-overview-card {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 8px;
-  min-height: auto;
+  display: grid;
+  align-content: start;
+  gap: 9px;
+  min-height: 138px;
   padding: 16px;
   border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--surface-2);
+  border-radius: 8px;
+  background: transparent;
   text-decoration: none;
   transition: border-color 0.15s ease, background 0.15s ease;
 }
@@ -4517,15 +4520,30 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   background: var(--surface-3);
 }
 .settings-overview-card h3 {
-  font-size: 16px;
-  font-weight: 500;
+  font-size: 15px;
+  font-weight: 600;
 }
 .settings-overview-card__link {
-  margin-top: 4px;
-  font-size: 14px;
+  margin-top: auto;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
 }
+.settings-scope-badge,
+.settings-status-badge {
+  border-radius: 6px;
+  color: var(--muted);
+  background: transparent;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.settings-list { border-radius: 8px; }
+.settings-navigation__item { border-radius: 6px; }
 @media (forced-colors: active) {
   .settings-overview-card {
     border: 1px solid CanvasText;
   }
+}
+@media (max-width: 640px) {
+  .settings-page { grid-template-columns: 1fr; gap: 18px; }
+  .settings-overview { grid-template-columns: 1fr; }
 }

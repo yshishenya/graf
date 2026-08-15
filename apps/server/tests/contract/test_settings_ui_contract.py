@@ -192,6 +192,21 @@ def test_settings_overview_keeps_navigation_primary_and_copy_compact() -> None:
     assert page.count('data-settings-nav="') == 7
 
 
+def test_settings_overview_matches_product_reference_geometry() -> None:
+    root = Path(__file__).resolve().parents[2]
+    css = (root / "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css").read_text(
+        encoding="utf-8"
+    )
+    redesign = css[css.index("/* Additional settings redesign styles */") :]
+
+    assert "grid-template-columns: repeat(2, minmax(0, 1fr));" in redesign
+    assert "max-width: 780px;" in redesign
+    assert "min-height: 138px;" in redesign
+    assert "border-radius: 8px;" in redesign
+    assert "background: transparent;" in redesign
+    assert ".settings-scope-badge," in redesign
+
+
 def test_recording_settings_keep_native_boundary_copy_compact() -> None:
     page = render_settings_page(category="recording")
     embedded_page = render_settings_page(category="recording", embedded=True)
