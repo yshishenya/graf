@@ -24,6 +24,17 @@
 - PKG SHA-256: `c4a36a0731d1d14b4d13b8faca0a55a638c2c3349bdd90aa73db4440e027a5d7`.
 - Appcast SHA-256: `32c8b8c2099d7cd52e431f06c7227a9a1098bc9638bb1ff89fd7c54c9665643a`.
 
+## Исправление подписи обновления
+
+- После первой публикации обнаружено, что ZIP имел тот же размер, но не те же
+  байты, для которых был подписан appcast.
+- ZIP заменён на подписанный staging-артефакт:
+  `a809c144e268dc1de96f0a1a9fcecac13c34d78e26f76d81aa2323b7d7eefbc6`.
+- Публичный ZIP повторно скачан, `sign_update --verify` и полная
+  `validate-app-updates.sh` проверка с live appcast прошли.
+- Предыдущий ошибочный ZIP сохранён в backup как
+  `GRAF-2026.08.15.3.zip.invalid-signature`.
+
 ## Проверка и откат
 
 - Apple notarization ZIP/PKG: `Accepted`; stapler и Gatekeeper: PASS.
