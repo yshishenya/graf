@@ -701,6 +701,8 @@ async def revoke_other_settings_sessions(
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
 ) -> RedirectResponse:
+    if not principal.auth_via_session:
+        return RedirectResponse("/account/security?session=reauth_required", status_code=303)
     if db is None:
         raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
     await _revoke_other_account_sessions(db, tenant_scope=tenant_scope, principal=principal)
@@ -717,6 +719,8 @@ async def revoke_other_embedded_settings_sessions(
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
 ) -> RedirectResponse:
+    if not principal.auth_via_session:
+        return RedirectResponse("/desktop/account/security?session=reauth_required", status_code=303)
     if db is None:
         raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
     await _revoke_other_account_sessions(db, tenant_scope=tenant_scope, principal=principal)
@@ -734,6 +738,8 @@ async def revoke_settings_session(
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
 ) -> RedirectResponse:
+    if not principal.auth_via_session:
+        return RedirectResponse("/account/security?session=reauth_required", status_code=303)
     if db is None:
         raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
     await _revoke_account_session(db, session_id=session_id, tenant_scope=tenant_scope, principal=principal)
@@ -751,6 +757,8 @@ async def revoke_embedded_settings_session(
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
 ) -> RedirectResponse:
+    if not principal.auth_via_session:
+        return RedirectResponse("/desktop/account/security?session=reauth_required", status_code=303)
     if db is None:
         raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
     await _revoke_account_session(db, session_id=session_id, tenant_scope=tenant_scope, principal=principal)
@@ -851,6 +859,12 @@ async def _account_close_action(
 ) -> RedirectResponse:
     if db is None:
         raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    if not principal.auth_via_session:
+        return RedirectResponse(
+            ("/desktop/settings/account" if request.url.path.startswith("/desktop/") else "/settings/account")
+            + "?account_close=reauth_required",
+            status_code=303,
+        )
     if not cancel:
         form = await request.form()
         if str(form.get("confirm_close") or "") != "Закрыть аккаунт":
@@ -970,6 +984,8 @@ async def revoke_other_settings_devices(
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
 ) -> RedirectResponse:
+    if not principal.auth_via_session:
+        return RedirectResponse("/account/security?device_revoke=reauth_required", status_code=303)
     if db is None:
         raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
     await _revoke_other_account_devices(db, tenant_scope=tenant_scope, principal=principal)
@@ -988,6 +1004,8 @@ async def revoke_settings_device(
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
 ) -> RedirectResponse:
+    if not principal.auth_via_session:
+        return RedirectResponse("/settings/account?device_revoke=reauth_required", status_code=303)
     if db is None:
         raise ProblemDetail(
             status=503,
@@ -1233,6 +1251,8 @@ async def revoke_other_embedded_settings_devices(
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
 ) -> RedirectResponse:
+    if not principal.auth_via_session:
+        return RedirectResponse("/desktop/account/security?device_revoke=reauth_required", status_code=303)
     if db is None:
         raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
     await _revoke_other_account_devices(db, tenant_scope=tenant_scope, principal=principal)
@@ -1251,6 +1271,8 @@ async def revoke_embedded_settings_device(
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
 ) -> RedirectResponse:
+    if not principal.auth_via_session:
+        return RedirectResponse("/desktop/settings/account?device_revoke=reauth_required", status_code=303)
     if db is None:
         raise ProblemDetail(
             status=503,

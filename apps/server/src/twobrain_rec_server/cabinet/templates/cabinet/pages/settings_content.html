@@ -6,14 +6,19 @@
     <header class="cabinet-topbar settings-page__topbar">
       <div class="page-title">
         <h1>Настройки</h1>
+        <p class="muted">Выберите раздел. Область действия указана в каждой карточке.</p>
       </div>
     </header>
-    <section class="settings-section settings-boundary-card" aria-labelledby="settings-boundary-title">
-      <div>
-        <h2 id="settings-boundary-title">Запись на этом Mac</h2>
-        <p class="muted">Настройте запись в приложении GRAF для macOS.</p>
-      </div>
-      <a class="button quiet" href="{{ (settings_navigation | selectattr('id', 'equalto', 'recording') | list | first).href }}">О настройках записи</a>
+    <section class="settings-overview" aria-labelledby="settings-overview-title">
+      <h2 id="settings-overview-title" class="sr-only">Разделы настроек</h2>
+      {% for item in settings_navigation %}
+      <a class="settings-overview-card" href="{{ item.href }}" data-settings-category="{{ item.id }}">
+        <span class="settings-scope-badge">{{ item.scope_label }}</span>
+        <h3>{{ item.label }}</h3>
+        <p class="muted">{{ item.description }}</p>
+        <span class="settings-overview-card__link">Открыть раздел <span aria-hidden="true">→</span></span>
+      </a>
+      {% endfor %}
     </section>
     </div>
   </div>

@@ -185,9 +185,10 @@ def test_settings_content_is_grouped_into_the_second_grid_column() -> None:
 def test_settings_overview_keeps_navigation_primary_and_copy_compact() -> None:
     page = render_settings_page()
 
-    assert "Здесь собраны только доступные сейчас настройки" not in page
-    assert "Что можно настроить" not in page
-    assert "data-settings-category=" not in page
+    assert "Выберите раздел. Область действия указана в каждой карточке." in page
+    assert page.count('data-settings-category="') == 7
+    assert "Параметры записи на этом Mac находятся в приложении GRAF." in page
+    assert "Текущий тариф, использование и платежи выбранного пространства." in page
     assert page.count('data-settings-nav="') == 7
 
 
@@ -200,6 +201,7 @@ def test_recording_settings_keep_native_boundary_copy_compact() -> None:
     assert "Здесь нельзя включить запись для всех встреч" not in page
     assert "Веб-интерфейс показывает результат записи" not in page
     assert "/desktop/settings/meeting-detection" not in page
+    assert 'href="/download">Скачать GRAF для macOS' in page
     assert '/desktop/settings/meeting-detection">Открыть настройки записи в приложении' in embedded_page
 
 

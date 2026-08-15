@@ -896,11 +896,19 @@ curl() {{
       -D) ((index++)); headers="${{!index}}" ;;
     esac
   done
+  if [[ "$*" == *graf-appcast.xml* ]]; then
+    printf '<?xml version="1.0"?><rss><channel><item><enclosure url="https://fixture.invalid/static/public/downloads/GRAF-2026.08.13.4.zip" length="%s" type="application/octet-stream"/></item></channel></rss>' "$(wc -c <"$served_package" | tr -d ' ')"
+    return
+  fi
   if [[ -z "$output" ]]; then
     printf '<a href="/static/public/downloads/graf.pkg?v=0123456789ab">download</a>'
     return
   fi
   printf 'HTTP/1.1 200 OK\r\nCache-Control: public, max-age=31536000, immutable\r\n' >"$headers"
+  if [[ "$output" == "/dev/null" ]]; then
+    printf '200 %s\n' "$(wc -c <"$served_package" | tr -d ' ')"
+    return
+  fi
   cp "$served_package" "$output"
 }}
 sha256sum() {{ shasum -a 256 "$1"; }}

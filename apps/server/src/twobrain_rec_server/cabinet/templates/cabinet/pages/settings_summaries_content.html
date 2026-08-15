@@ -22,7 +22,7 @@
         <select data-summary-default-template disabled>
           {% for format in summary_formats %}<option value="{{ format.key }}" data-template-version="{{ format.version }}">{{ format.name }}</option>{% endfor %}
         </select>
-        <span class="muted" data-summary-default-help>Изменить может владелец пространства.</span>
+        <span class="muted" data-summary-default-help>Загружаем доступные форматы…</span>
       </label>
       <div class="summary-template-library" data-summary-template-library>
         <div class="summary-template-group">
@@ -38,7 +38,7 @@
         </div>
         <div class="summary-template-group">
           <h3>Личные</h3>
-          <div class="summary-template-list" data-summary-personal-template-list><p class="muted">Загружаем…</p></div>
+          <div class="summary-template-list" data-summary-personal-template-list role="status" aria-live="polite" aria-atomic="true"><p class="muted">Загружаем…</p></div>
         </div>
       </div>
       <p class="summary-template-settings-status" data-summary-template-settings-status role="status" aria-live="polite" aria-atomic="true"></p>

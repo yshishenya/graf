@@ -2417,7 +2417,22 @@
               : "Изменить может владелец пространства.";
           }
         } catch (_error) {
-          if (list) list.textContent = "Не удалось загрузить личные форматы.";
+          setStatus("Личные форматы не загрузились. Повторите попытку.");
+          if (list) {
+            list.replaceChildren();
+            const message = document.createElement("p");
+            message.className = "muted";
+            message.textContent = "Не удалось загрузить личные форматы.";
+            const retry = document.createElement("button");
+            retry.type = "button";
+            retry.className = "button quiet";
+            retry.textContent = "Повторить";
+            retry.addEventListener("click", () => {
+              setStatus("Загружаем личные форматы…");
+              loadTemplates();
+            });
+            list.append(message, retry);
+          }
         }
       };
       defaultSelect?.addEventListener("change", async () => {
@@ -2906,11 +2921,8 @@
       };
       const currentTheme = form.elements.namedItem("theme")?.value || "system";
       applyTheme(currentTheme);
-      const locale = form.elements.namedItem("locale")?.value;
-      if (locale) document.documentElement.lang = locale.slice(0, 2);
       form.addEventListener("change", (event) => {
         if (event.target?.name === "theme") applyTheme(event.target.value);
-        if (event.target?.name === "locale") document.documentElement.lang = event.target.value.slice(0, 2);
       });
       form.addEventListener("submit", () => {
         // Keep the native POST/no-JS path authoritative; preview is local only until the server confirms.
@@ -2921,8 +2933,6 @@
       });
       form.addEventListener("reset", () => window.setTimeout(() => {
         applyTheme(form.elements.namedItem("theme")?.value || "system");
-        const locale = form.elements.namedItem("locale")?.value;
-        if (locale) document.documentElement.lang = locale.slice(0, 2);
       }, 0));
     });
   };

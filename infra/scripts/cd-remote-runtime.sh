@@ -250,6 +250,7 @@ sync_public_download() {
 verify_public_download() {
   local base_url="${TWOBRAIN_PUBLIC_BASE_URL:-https://rec.2brain.pro}"
   local page package_path package_file headers_file expected_sha actual_sha
+  local appcast appcast_path appcast_url appcast_length appcast_status appcast_bytes
   local curl_options=(
     -fsS --connect-timeout 10 --max-time 90
     --retry 2 --retry-delay 1 --retry-all-errors
@@ -296,6 +297,55 @@ print(match.group(1))
   fi
   echo "public_download_smoke_result=pass"
   echo "public_download_sha256=$actual_sha"
+
+  appcast_path="/static/public/downloads/graf-appcast.xml"
+  if ! appcast="$(curl "${curl_options[@]}" "$base_url$appcast_path")"; then
+    echo "deploy_result=blocked"
+    echo "reason=public_update_feed_unavailable"
+    exit 1
+  fi
+  if ! read -r appcast_url appcast_length < <(APPCAST_XML="$appcast" python3 - "$base_url" <<'PY'
+import os
+import sys
+from urllib.parse import urlparse
+from xml.etree import ElementTree
+
+base = urlparse(sys.argv[1])
+root = ElementTree.fromstring(os.environ["APPCAST_XML"])
+enclosure = root.find(".//enclosure")
+if enclosure is None:
+    raise SystemExit(1)
+url = enclosure.attrib.get("url", "")
+length = enclosure.attrib.get("length", "")
+parsed = urlparse(url)
+if parsed.scheme != "https" or parsed.netloc != base.netloc or not parsed.path.startswith(
+    "/static/public/downloads/"
+) or not parsed.path.endswith(".zip") or not length.isdigit():
+    raise SystemExit(1)
+print(url, length)
+PY
+  ); then
+    echo "deploy_result=blocked"
+    echo "reason=public_update_feed_invalid"
+    exit 1
+  fi
+  if ! read -r appcast_status appcast_bytes < <(
+    curl "${curl_options[@]}" -D "$headers_file" -o /dev/null -w '%{http_code} %{size_download}\n' "$appcast_url"
+  ); then
+    echo "deploy_result=blocked"
+    echo "reason=public_update_archive_unavailable"
+    exit 1
+  fi
+  if [[ "$appcast_status" != "200" || "$appcast_bytes" != "$appcast_length" ]]; then
+    echo "deploy_result=blocked"
+    echo "reason=public_update_archive_mismatch"
+    echo "appcast_archive_status=$appcast_status"
+    echo "appcast_archive_bytes=$appcast_bytes"
+    echo "appcast_archive_length=$appcast_length"
+    exit 1
+  fi
+  echo "public_update_feed_smoke_result=pass"
+  echo "public_update_archive_bytes=$appcast_bytes"
 }
 
 share_identity_hash_secret_file="${TWOBRAIN_SHARE_IDENTITY_HASH_SECRET_SECRET_FILE:-./secrets/graf_share_identity_hash_secret}"

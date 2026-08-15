@@ -1448,6 +1448,7 @@ class SharedWithMeMeetingItem:
 class SettingsCategoryView:
     id: str
     label: str
+    description: str
     scope_label: str
     href: str
     group_label: str
@@ -1464,6 +1465,7 @@ def settings_category_navigation(
         (
             "recording",
             "Запись",
+            "Параметры записи на этом Mac находятся в приложении GRAF.",
             "На этом Mac",
             "/recording",
             "Встречи",
@@ -1472,6 +1474,7 @@ def settings_category_navigation(
         (
             "summaries",
             "Итоги",
+            "Форматы, которые используются для новых итогов встреч.",
             "В этом пространстве",
             "/summaries",
             "Встречи",
@@ -1480,6 +1483,7 @@ def settings_category_navigation(
         (
             "calendar",
             "Календари",
+            "Подключение календарей и выбор событий для синхронизации.",
             "Личная настройка",
             "/integrations/calendar",
             "Встречи",
@@ -1488,6 +1492,7 @@ def settings_category_navigation(
         (
             "workspace",
             "Пространство",
+            "Активное пространство, команда и приглашения.",
             "В этом пространстве",
             "/workspace",
             "Рабочее пространство",
@@ -1496,6 +1501,7 @@ def settings_category_navigation(
         (
             "account",
             "Аккаунт и безопасность",
+            "Профиль, способы входа, устройства и активные сессии.",
             "Личная настройка",
             "/account",
             "Аккаунт",
@@ -1503,19 +1509,36 @@ def settings_category_navigation(
         ),
     )
     definitions += (
-        ("notifications", "Уведомления", "Личная настройка", "/notifications", "Аккаунт", "bell"),
-        ("billing", "Тариф и оплата", "В этом пространстве", "/billing", "Оплата", "activity"),
+        (
+            "notifications",
+            "Уведомления",
+            "Необязательные подсказки и обязательные сообщения о безопасности и оплате.",
+            "Личная настройка",
+            "/notifications",
+            "Аккаунт",
+            "bell",
+        ),
+        (
+            "billing",
+            "Тариф и оплата",
+            "Текущий тариф, использование и платежи выбранного пространства.",
+            "В этом пространстве",
+            "/billing",
+            "Оплата",
+            "activity",
+        ),
     )
     return tuple(
         SettingsCategoryView(
             id=category_id,
             label=label,
+            description=description,
             scope_label=scope_label,
             href="/billing" if embedded and category_id == "billing" else base + suffix,
             group_label=group_label,
             icon=icon,
         )
-        for category_id, label, scope_label, suffix, group_label, icon in definitions
+        for category_id, label, description, scope_label, suffix, group_label, icon in definitions
     )
 
 

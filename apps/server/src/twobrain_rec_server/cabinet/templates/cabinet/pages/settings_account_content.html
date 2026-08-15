@@ -35,7 +35,7 @@
       {% endif %}
     </section>
     <section class="settings-section cabinet-card" aria-labelledby="account-preferences-title">
-      <div class="settings-section__heading"><div><span class="settings-scope-badge">Личная настройка</span><h2 id="account-preferences-title">Язык, часовой пояс и тема</h2><p class="muted">Предпросмотр применяется сразу, а после сохранения настройки действуют на всех ваших устройствах.</p></div></div>
+      <div class="settings-section__heading"><div><span class="settings-scope-badge">Личная настройка</span><h2 id="account-preferences-title">Язык, часовой пояс и тема</h2><p class="muted">Тема применяется сразу. Язык и часовой пояс сохраняются после отправки формы и действуют на всех ваших устройствах.</p></div></div>
       <form class="account-preferences-form" data-account-preferences data-settings-form method="post" action="{{ '/desktop/settings/account/preferences' if embedded else '/settings/account/preferences' }}">
         {{ sections.csrf_field(csrf_token) }}
         <label class="field-label" for="account-locale">Язык интерфейса</label>

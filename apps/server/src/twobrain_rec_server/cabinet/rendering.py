@@ -289,6 +289,7 @@ def render_settings_page(
     device_revoke_result_copy = {
         "revoked": "Устройство отозвано. Его активные сессии больше не действуют.",
         "others_revoked": "Доступ на остальных устройствах завершён. Текущее устройство остаётся активным.",
+        "reauth_required": "Для этого действия войдите через подтверждённую веб-сессию и повторите попытку.",
         "failed": "Не удалось отозвать устройство. Попробуйте ещё раз.",
     }.get(device_revoke_result)
     content_templates = {
@@ -332,11 +333,13 @@ def render_settings_page(
         "session_result": {
             "revoked": "Сеанс завершён.",
             "others_revoked": "Остальные сеансы завершены. Текущая сессия остаётся активной.",
+            "reauth_required": "Для управления сессиями войдите через подтверждённую веб-сессию и повторите попытку.",
         }.get(session_result),
         "notification_result": {"saved": "Настройки уведомлений сохранены."}.get(notification_result),
         "account_close_result": {
             "scheduled": "Закрытие аккаунта запланировано. До даты отмены доступ и данные сохраняются, будущие списания отключены.",
             "canceled": "Закрытие аккаунта отменено.",
+            "reauth_required": "Для закрытия аккаунта войдите через подтверждённую веб-сессию и повторите попытку.",
         }.get(account_close_result),
         "profile_result": {"saved": "Профиль сохранён."}.get(profile_result),
         "preferences_result": {"saved": "Настройки языка, часового пояса и темы сохранены."}.get(
