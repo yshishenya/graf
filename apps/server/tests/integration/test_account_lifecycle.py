@@ -376,6 +376,30 @@ def test_account_close_owner_cooling_cancel_and_finalization_revoke_access(clien
     asyncio.run(assert_revoked())
 
 
+def test_account_close_rejects_header_session_even_when_cookie_is_absent(client) -> None:
+    workspace_id, device_id = asyncio.run(_seed_personal_workspace(client))
+    token, _ = asyncio.run(
+        _issue_web_session(client, user_id=USER_ID, workspace_id=workspace_id, device_id=device_id)
+    )
+    client.cookies.clear()
+
+    response = client.post(
+        "/settings/account/close",
+        headers={"X-Auth-Session": token},
+        data={"confirm_close": "Закрыть аккаунт"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"].endswith("account_close=reauth_required")
+
+    async def load_request() -> AccountClosureRequest | None:
+        async with client.app_state["sessionmaker"]() as db:
+            return await db.scalar(select(AccountClosureRequest).where(AccountClosureRequest.workspace_id == workspace_id))
+
+    assert asyncio.run(load_request()) is None
+
+
 def test_account_preferences_persist_and_provider_unlink_keeps_recovery_path(client) -> None:
     workspace_id, device_id = asyncio.run(_seed_personal_workspace(client))
     token, session_id = asyncio.run(
@@ -488,6 +512,17 @@ def test_account_security_bulk_actions_revoke_only_other_sessions_and_devices(cl
             device_id=far_device_id,
         )
     )
+    headers = _bind_web_session(client, token=current_token, session_id=current_session_id)
+
+    client.cookies.clear()
+    header_only = client.post(
+        "/settings/account/sessions/revoke-others",
+        headers={"X-Auth-Session": current_token},
+        follow_redirects=False,
+    )
+    assert header_only.status_code == 303
+    assert header_only.headers["location"].endswith("session=reauth_required")
+
     headers = _bind_web_session(client, token=current_token, session_id=current_session_id)
 
     sessions_response = client.post(

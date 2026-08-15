@@ -17,6 +17,7 @@ from twobrain_rec_server.auth.account_closure import (
 )
 from twobrain_rec_server.auth.audit import write_auth_audit_event
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
+from twobrain_rec_server.auth.dependencies import is_web_cookie_session
 from twobrain_rec_server.auth.provider_links import recovery_safe_unlink_allowed
 from twobrain_rec_server.auth.workspace_onboarding import (
     list_active_workspaces,
@@ -699,11 +700,12 @@ async def unlink_embedded_settings_account_provider(
     dependencies=[WebCSRFDependency],
 )
 async def revoke_other_settings_sessions(
+    request: Request,
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
 ) -> RedirectResponse:
-    if not principal.auth_via_session:
+    if not principal.auth_via_session or not is_web_cookie_session(request):
         return RedirectResponse("/account/security?session=reauth_required", status_code=303)
     if db is None:
         raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
@@ -717,11 +719,12 @@ async def revoke_other_settings_sessions(
     dependencies=[WebCSRFDependency],
 )
 async def revoke_other_embedded_settings_sessions(
+    request: Request,
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
 ) -> RedirectResponse:
-    if not principal.auth_via_session:
+    if not principal.auth_via_session or not is_web_cookie_session(request):
         return RedirectResponse("/desktop/account/security?session=reauth_required", status_code=303)
     if db is None:
         raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
@@ -735,12 +738,13 @@ async def revoke_other_embedded_settings_sessions(
     dependencies=[WebCSRFDependency],
 )
 async def revoke_settings_session(
+    request: Request,
     session_id: UUID,
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
 ) -> RedirectResponse:
-    if not principal.auth_via_session:
+    if not principal.auth_via_session or not is_web_cookie_session(request):
         return RedirectResponse("/account/security?session=reauth_required", status_code=303)
     if db is None:
         raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
@@ -754,12 +758,13 @@ async def revoke_settings_session(
     dependencies=[WebCSRFDependency],
 )
 async def revoke_embedded_settings_session(
+    request: Request,
     session_id: UUID,
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
 ) -> RedirectResponse:
-    if not principal.auth_via_session:
+    if not principal.auth_via_session or not is_web_cookie_session(request):
         return RedirectResponse("/desktop/account/security?session=reauth_required", status_code=303)
     if db is None:
         raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
@@ -861,7 +866,7 @@ async def _account_close_action(
 ) -> RedirectResponse:
     if db is None:
         raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
-    if not principal.auth_via_session:
+    if not principal.auth_via_session or not is_web_cookie_session(request):
         return RedirectResponse(
             ("/desktop/settings/account" if request.url.path.startswith("/desktop/") else "/settings/account")
             + "?account_close=reauth_required",
@@ -982,11 +987,12 @@ async def cancel_embedded_account_close_page(
     dependencies=[WebCSRFDependency],
 )
 async def revoke_other_settings_devices(
+    request: Request,
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
 ) -> RedirectResponse:
-    if not principal.auth_via_session:
+    if not principal.auth_via_session or not is_web_cookie_session(request):
         return RedirectResponse("/account/security?device_revoke=reauth_required", status_code=303)
     if db is None:
         raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
@@ -1006,7 +1012,7 @@ async def revoke_settings_device(
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
 ) -> RedirectResponse:
-    if not principal.auth_via_session:
+    if not principal.auth_via_session or not is_web_cookie_session(request):
         return RedirectResponse("/settings/account?device_revoke=reauth_required", status_code=303)
     if db is None:
         raise ProblemDetail(
@@ -1249,11 +1255,12 @@ async def embedded_account_notifications_alias_page(
     dependencies=[WebCSRFDependency],
 )
 async def revoke_other_embedded_settings_devices(
+    request: Request,
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
 ) -> RedirectResponse:
-    if not principal.auth_via_session:
+    if not principal.auth_via_session or not is_web_cookie_session(request):
         return RedirectResponse("/desktop/account/security?device_revoke=reauth_required", status_code=303)
     if db is None:
         raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
@@ -1273,7 +1280,7 @@ async def revoke_embedded_settings_device(
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
 ) -> RedirectResponse:
-    if not principal.auth_via_session:
+    if not principal.auth_via_session or not is_web_cookie_session(request):
         return RedirectResponse("/desktop/settings/account?device_revoke=reauth_required", status_code=303)
     if db is None:
         raise ProblemDetail(
