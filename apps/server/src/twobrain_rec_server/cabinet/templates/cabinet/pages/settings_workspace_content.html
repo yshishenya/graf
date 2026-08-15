@@ -10,7 +10,7 @@
       </div>
     </header>
     {% if workspace_switch_result %}<p class="settings-status" role="status" aria-live="polite">{{ workspace_switch_result }}</p>{% endif %}
-    <section class="settings-section cabinet-card" id="active-workspace" aria-labelledby="active-workspace-title">
+    <section class="settings-section" id="active-workspace" aria-labelledby="active-workspace-title">
       <div class="settings-section__heading">
         <div>
           <span class="settings-scope-badge">Текущее пространство</span>
@@ -19,9 +19,9 @@
         </div>
       </div>
       {% if workspace_spaces %}
-      <ul class="settings-choice-list" aria-label="Доступные пространства">
+      <ul class="settings-list" aria-label="Доступные пространства">
         {% for space in workspace_spaces %}
-        <li class="settings-choice-row"{% if space.active %} aria-current="true"{% endif %}>
+        <li class="settings-list-item"{% if space.active %} aria-current="true"{% endif %}>
           <div><strong>{{ space.name }}</strong><span class="muted">{{ "Личное" if space.kind == "personal" else "Рабочее пространство" }} · {{ space.role_label }}</span></div>
           {% if space.active %}
           <span class="settings-status-badge">Текущее</span>
@@ -39,7 +39,7 @@
       {% endif %}
     </section>
 
-    <section class="settings-section cabinet-card" id="workspace-join-offers" aria-labelledby="workspace-join-offers-title">
+    <section class="settings-section" id="workspace-join-offers" aria-labelledby="workspace-join-offers-title">
       <div class="settings-section__heading">
         <div>
           <span class="settings-scope-badge">Личная настройка</span>
@@ -49,9 +49,9 @@
       </div>
       {% if workspace_offer_result %}<p class="settings-status" role="status" aria-live="polite">{{ workspace_offer_result }}</p>{% endif %}
       {% if workspace_join_offers %}
-      <ul class="settings-choice-list" aria-label="Доступные приглашения">
+      <ul class="settings-list" aria-label="Доступные приглашения">
         {% for offer in workspace_join_offers %}
-        <li class="settings-choice-row">
+        <li class="settings-list-item">
           <div><strong>{{ offer.workspace_name }}</strong><span class="muted">Роль: {{ offer.invited_role_label }}</span></div>
           <div class="settings-actions">
             <form action="{{ workspace_offer_action_base_path }}/{{ offer.id }}/accept?return_to_settings=true" method="post">{{ sections.csrf_field(csrf_token) }}<button class="button quiet" type="submit" aria-label="Присоединиться к {{ offer.workspace_name }}">Присоединиться</button></form>
