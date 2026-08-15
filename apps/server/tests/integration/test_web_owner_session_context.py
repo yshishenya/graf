@@ -974,6 +974,20 @@ def test_meetings_page_rejects_missing_web_session_without_legacy_headers(client
     assert response.json()["code"] == "missing_auth_context"
 
 
+def test_billing_page_uses_normal_login_handoff_without_legacy_error(client) -> None:
+    response = client.get(
+        "/billing",
+        headers={"Accept": "text/html"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    location = response.headers["location"]
+    assert "next=%2Fbilling" in location
+    assert "error=missing_auth_context" in location
+    assert "legacy_header_auth_disabled" not in location
+
+
 def test_meetings_page_rejects_invalid_owner_session_cookie(client) -> None:
     client.cookies.set(AUTH_SESSION_COOKIE_NAME, "unknown-session-token")
     response = client.get("/meetings")

@@ -302,7 +302,9 @@ async def get_principal(
             auth_via_session=False,
         )
 
-    _ensure_legacy_header_auth_allowed(request)
+    # No credentials is a normal unauthenticated browser/API request. Keep
+    # the legacy-header guard for actual legacy-header attempts above, but do
+    # not misclassify an empty request as a disabled legacy-auth flow.
     user_id = _parse_uuid(x_user_id, "X-User-Id")
     organization_id = _parse_uuid(x_organization_id, "X-Organization-Id")
     workspace_id = _parse_uuid(x_workspace_id, "X-Workspace-Id")
