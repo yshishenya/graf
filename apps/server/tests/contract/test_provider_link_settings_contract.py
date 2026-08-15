@@ -89,9 +89,13 @@ def test_workspace_offer_settings_render_explicit_choice_and_safe_recovery() -> 
     assert "Команда продукта" in page
     assert "Роль: Участник" in page
     assert "Роль: member" not in page
-    assert "Личное пространство остаётся вашим" in page
+    assert "Текущее пространство не изменилось" in page
     assert f'action="/settings/join-offers/{offer.id}/accept?return_to_settings=true"' in page
     assert f'action="/settings/join-offers/{offer.id}/reject?return_to_settings=true"' in page
+    assert 'aria-label="Присоединиться к Команда продукта"' in page
+    assert 'aria-label="Отклонить приглашение в Команда продукта"' in page
+    assert ">Присоединиться</button>" in page
+    assert ">Отклонить</button>" in page
     assert 'role="status" aria-live="polite"' in page
     assert "target_contact" not in page
     assert "workspace_id" not in page
@@ -119,7 +123,7 @@ def test_active_workspace_selector_is_accessible_and_uses_server_scoped_activati
     spaces = (
         WorkspaceAccessView(
             id=personal_id,
-            name="Личное пространство",
+            name="Моё пространство",
             kind="personal",
             role="owner",
             active=True,
@@ -148,10 +152,18 @@ def test_active_workspace_selector_is_accessible_and_uses_server_scoped_activati
 
     assert 'id="active-workspace"' in page
     assert 'aria-label="Доступные пространства"' in page
-    assert "Личное пространство" in page
+    assert "Моё пространство" in page
     assert "Команда продукта" in page
-    assert "Сейчас выбрано" in page
-    assert "Активное пространство изменено" in page
+    assert "Личное · Владелец" in page
+    assert "Рабочее пространство · Участник" in page
+    assert "Текущее" in page
+    assert 'aria-current="true"' in page
+    assert '<span class="settings-status-badge">Текущее</span>' in page
+    assert '<span class="settings-status-badge" role="status">Текущее</span>' not in page
+    assert "Куда сохраняются новые встречи" in page
+    assert ">Выбрать</button>" in page
+    assert 'aria-label="Выбрать Команда продукта"' in page
+    assert "Текущее пространство изменено" in page
     assert f'action="/settings/spaces/{corporate_id}/activate?return_to_settings=true"' in page
     assert 'name="workspace_id"' not in page
     assert 'role="status" aria-live="polite"' in page

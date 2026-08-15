@@ -13,6 +13,8 @@ from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.models import (
     BillingInvoice,
     BillingOperation,
+    Workspace,
+    WorkspaceMembership,
     WorkspaceSubscription,
 )
 from twobrain_rec_server.workflows.billing_renewal_workflow import (
@@ -26,10 +28,33 @@ from twobrain_rec_server.workflows.billing_renewal_workflow import (
 from twobrain_rec_server.workflows.worker import (
     _validate_authoritative_renewal_payment,
     run_billing_renewal_activity,
+    run_billing_renewal_reconciler,
 )
 
 OPERATION_ID = UUID("11111111-1111-4111-8111-111111111111")
 WORKSPACE_ID = UUID("22222222-2222-4222-8222-222222222222")
+OWNER_ID = UUID("33333333-3333-4333-8333-333333333333")
+ORGANIZATION_ID = UUID("44444444-4444-4444-8444-444444444444")
+
+
+def _personal_workspace(*, kind: str = "personal") -> Workspace:
+    return Workspace(
+        id=WORKSPACE_ID,
+        organization_id=ORGANIZATION_ID,
+        slug="personal-owner",
+        name="Моё пространство",
+        kind=kind,
+        owner_user_id=OWNER_ID,
+    )
+
+
+def _active_owner() -> WorkspaceMembership:
+    return WorkspaceMembership(
+        workspace_id=WORKSPACE_ID,
+        user_id=OWNER_ID,
+        role="owner",
+        status="active",
+    )
 
 
 @pytest.mark.anyio
@@ -54,7 +79,11 @@ async def test_confirmed_renewal_extends_paid_through_once() -> None:
         kind="renewal",
         idempotency_key="renewal-1",
         provider_id="pay-renewal-1",
-        request_snapshot={"plan_code": "personal", "cycle": "month"},
+        request_snapshot={
+            "plan_code": "personal",
+            "cycle": "month",
+            "billing_actor_user_id": str(OWNER_ID),
+        },
     )
     invoice = BillingInvoice(
         workspace_id=WORKSPACE_ID,
@@ -65,6 +94,7 @@ async def test_confirmed_renewal_extends_paid_through_once() -> None:
     )
     subscription = WorkspaceSubscription(
         workspace_id=WORKSPACE_ID,
+        billing_owner_id=OWNER_ID,
         state="free",
         plan_code="free",
         paid_through=datetime(2026, 8, 1, tzinfo=UTC),
@@ -72,7 +102,7 @@ async def test_confirmed_renewal_extends_paid_through_once() -> None:
         recurring_authority_version=0,
     )
     operation.request_snapshot["recurring_authority_version"] = 0
-    db = FakeDb([operation, invoice, None, subscription])
+    db = FakeDb([operation, invoice, None, subscription, _personal_workspace(), _active_owner()])
 
     result = await grant_confirmed_renewal(
         db,
@@ -112,7 +142,12 @@ async def test_late_success_after_provider_key_expiry_restores_access_without_re
         idempotency_key="renewal-expired",
         provider_id="pay-expired",
         state="provider_key_expired",
-        request_snapshot={"plan_code": "personal", "cycle": "month", "recurring_authority_version": 4},
+        request_snapshot={
+            "plan_code": "personal",
+            "cycle": "month",
+            "billing_actor_user_id": str(OWNER_ID),
+            "recurring_authority_version": 4,
+        },
     )
     invoice = BillingInvoice(
         workspace_id=WORKSPACE_ID,
@@ -123,10 +158,11 @@ async def test_late_success_after_provider_key_expiry_restores_access_without_re
     )
     subscription = WorkspaceSubscription(
         workspace_id=WORKSPACE_ID,
+        billing_owner_id=OWNER_ID,
         recurring_allowed=True,
         recurring_authority_version=4,
     )
-    db = FakeDb([operation, invoice, None, subscription])
+    db = FakeDb([operation, invoice, None, subscription, _personal_workspace(), _active_owner()])
 
     result = await grant_confirmed_renewal(
         db,
@@ -161,7 +197,6 @@ async def test_late_success_after_refusal_is_recorded_and_notified_once() -> Non
         async def flush(self):
             return None
 
-    owner_id = UUID("33333333-3333-4333-8333-333333333333")
     operation = BillingOperation(
         id=OPERATION_ID,
         workspace_id=WORKSPACE_ID,
@@ -169,7 +204,12 @@ async def test_late_success_after_refusal_is_recorded_and_notified_once() -> Non
         idempotency_key="renewal-refused",
         provider_id="pay-refused",
         state="provider_key_expired",
-        request_snapshot={"plan_code": "personal", "cycle": "month", "recurring_authority_version": 4},
+        request_snapshot={
+            "plan_code": "personal",
+            "cycle": "month",
+            "billing_actor_user_id": str(OWNER_ID),
+            "recurring_authority_version": 4,
+        },
     )
     invoice = BillingInvoice(
         workspace_id=WORKSPACE_ID,
@@ -180,13 +220,25 @@ async def test_late_success_after_refusal_is_recorded_and_notified_once() -> Non
     )
     subscription = WorkspaceSubscription(
         workspace_id=WORKSPACE_ID,
-        billing_owner_id=owner_id,
+        billing_owner_id=OWNER_ID,
         state="free",
         plan_code="free",
         recurring_allowed=False,
         recurring_authority_version=5,
     )
-    db = FakeDb([operation, invoice, None, subscription, None, operation, invoice])
+    db = FakeDb(
+        [
+            operation,
+            invoice,
+            None,
+            subscription,
+            _personal_workspace(),
+            _active_owner(),
+            None,
+            operation,
+            invoice,
+        ]
+    )
 
     first = await grant_confirmed_renewal(
         db,
@@ -210,12 +262,80 @@ async def test_late_success_after_refusal_is_recorded_and_notified_once() -> Non
     assert operation.state == "succeeded_refused"
     assert subscription.plan_code == "free"
     assert sum(getattr(row, "action", None) == "renewal_success_refused" for row in db.added) == 1
-    deliveries = [row for row in db.added if getattr(row, "template_key", None) == "renewal_late_success_refused"]
+    deliveries = [
+        row
+        for row in db.added
+        if getattr(row, "template_key", None) == "renewal_late_success_refused"
+    ]
     assert len(deliveries) == 1
     assert deliveries[0].safe_payload == {
         "invoice": "INV-RENEWAL-REFUSED",
         "action_path": "/billing/history",
     }
+
+
+@pytest.mark.anyio
+async def test_confirmed_renewal_is_refused_without_active_personal_owner() -> None:
+    class FakeDb:
+        def __init__(self, values):
+            self.values = iter(values)
+            self.added = []
+
+        async def scalar(self, _query):
+            return next(self.values)
+
+        def add(self, value):
+            self.added.append(value)
+
+        async def flush(self):
+            return None
+
+    operation = BillingOperation(
+        id=OPERATION_ID,
+        workspace_id=WORKSPACE_ID,
+        kind="renewal",
+        idempotency_key="renewal-invalid-owner",
+        provider_id="pay-invalid-owner",
+        request_snapshot={
+            "plan_code": "personal",
+            "cycle": "month",
+            "billing_actor_user_id": str(OWNER_ID),
+            "recurring_authority_version": 4,
+        },
+    )
+    invoice = BillingInvoice(
+        workspace_id=WORKSPACE_ID,
+        operation_id=OPERATION_ID,
+        safe_number="INV-RENEWAL-INVALID",
+        amount_minor=79_000,
+        currency="RUB",
+    )
+    subscription = WorkspaceSubscription(
+        workspace_id=WORKSPACE_ID,
+        billing_owner_id=OWNER_ID,
+        recurring_allowed=True,
+        recurring_authority_version=4,
+    )
+    db = FakeDb(
+        [operation, invoice, None, subscription, _personal_workspace(kind="corporate"), None]
+    )
+
+    result = await grant_confirmed_renewal(
+        db,
+        workspace_id=WORKSPACE_ID,
+        provider_payment_id="pay-invalid-owner",
+        amount_minor=79_000,
+        currency="RUB",
+        grant_starts_at=datetime(2026, 8, 7, tzinfo=UTC),
+    )
+
+    assert result == "refused"
+    assert operation.state == "succeeded_refused"
+    assert invoice.status == "succeeded"
+    assert subscription.plan_code != "personal"
+    assert subscription.recurring_allowed is False
+    assert subscription.renewal_resolution == "workspace_scope_invalid"
+    assert not any(getattr(row, "source", None) == "renewal_provider_confirmed" for row in db.added)
 
 
 def test_renewal_identity_and_payload_are_bounded() -> None:
@@ -248,10 +368,18 @@ def test_renewal_retry_repeats_only_authoritative_observation() -> None:
     assert ".create_payment(" not in source
     assert ".create_refund(" not in source
 
-    webhook_source = inspect.getsource(__import__(
-        "twobrain_rec_server.billing.webhook_reconciliation",
-        fromlist=["_reconcile_event"],
-    )._reconcile_event)
+    scheduler_source = inspect.getsource(run_billing_renewal_reconciler)
+    assert 'Workspace.kind == "personal"' in scheduler_source
+    assert 'WorkspaceMembership.role == "owner"' in scheduler_source
+    assert 'WorkspaceMembership.status == "active"' in scheduler_source
+    assert source.index('WorkspaceMembership.status == "active"') < source.index(".get_payment(")
+
+    webhook_source = inspect.getsource(
+        __import__(
+            "twobrain_rec_server.billing.webhook_reconciliation",
+            fromlist=["_reconcile_event"],
+        )._reconcile_event
+    )
     assert 'operation.state == "provider_key_expired"' in webhook_source
     assert "else observation.provider_created_at" in webhook_source
 

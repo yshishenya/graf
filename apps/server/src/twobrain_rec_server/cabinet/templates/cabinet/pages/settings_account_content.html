@@ -105,7 +105,7 @@
     </section>
     <section class="settings-section settings-boundary-card" aria-labelledby="account-notifications-title">
       <h2 id="account-notifications-title">Уведомления</h2>
-      <p class="muted">Настройте необязательные подсказки. Обязательные сообщения о платежах, безопасности и закрытии аккаунта сохраняются.</p>
+      <p class="muted">Управление уведомлениями. Важные системные и финансовые сообщения отключить нельзя.</p>
       <a class="button quiet" href="{{ "/desktop/settings/notifications" if embedded else "/settings/notifications" }}">Настроить уведомления</a>
     </section>
     <section class="settings-section settings-boundary-card account-close-card" aria-labelledby="account-close-title">
@@ -120,7 +120,7 @@
       </form>
       {% endif %}
       {% else %}
-      <p class="muted">После подтверждения начнётся 7-дневный период отмены. Доступ сохраняется до его окончания, а будущие списания отключаются сразу.</p>
+      <p class="muted">После подтверждения начнется 7-дневный период отмены. Доступ сохраняется, будущие списания отключаются.</p>
       <p class="muted">Для подтверждения введите: <strong>Закрыть аккаунт</strong>.</p>
       <form action="{{ "/desktop/settings/account/close" if embedded else "/settings/account/close" }}" method="post">
         {{ sections.csrf_field(csrf_token) }}

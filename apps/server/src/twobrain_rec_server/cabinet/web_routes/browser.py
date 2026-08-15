@@ -417,6 +417,7 @@ async def share_invitation_magic_link(
             session,
             workspace_id=workspace_id,
             email=recipient_email,
+            internal_workspace_id=request.app.state.settings.web_login_workspace_id,
         )
         if workspace is None:
             raise ProblemDetail(

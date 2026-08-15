@@ -298,6 +298,7 @@ async def browser_email_login_start(
         db,
         workspace_id=resolved_workspace_id,
         email=normalized_email,
+        internal_workspace_id=request.app.state.settings.web_login_workspace_id,
     )
     if workspace is None or (user is None and invitation_context is None):
         if workspace is not None:
@@ -969,7 +970,7 @@ async def browser_login_provider_start(
         redirect_uri=callback_url,
         state=state.state_nonce,
         return_url=safe_next,
-        workspace_id=str(resolved_workspace_id),
+        workspace_id="public",
         auth_provider=_safe_vk_auth_provider(auth_provider)
         if normalized_provider == "vk"
         else None,

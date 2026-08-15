@@ -9,7 +9,15 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
 import twobrain_rec_server.ingest.store as store_module
-from tests.fakes.auth_contexts import DEVICE_ID, ORG_ID, REVOKED_DEVICE_ID, USER_ID, WORKSPACE_ID
+from tests.fakes.auth_contexts import (
+    AUTH_BOOTSTRAP_WORKSPACE_ID,
+    DEVICE_ID,
+    ORG_ID,
+    PERSONAL_WORKSPACE_ID,
+    REVOKED_DEVICE_ID,
+    USER_ID,
+    WORKSPACE_ID,
+)
 from tests.fakes.fake_minio import FakeMinioStorage
 from tests.fixtures.postgres_test_database import (
     ensure_disposable_media_role,
@@ -61,10 +69,26 @@ async def _seed_database(database_url: str) -> None:
                 [
                     Organization(id=ORG_ID, slug="test-org", name="Test Org"),
                     Workspace(
+                        id=AUTH_BOOTSTRAP_WORKSPACE_ID,
+                        organization_id=ORG_ID,
+                        slug="test-auth-bootstrap",
+                        name="Test Auth Bootstrap",
+                        kind="corporate",
+                    ),
+                    Workspace(
                         id=WORKSPACE_ID,
                         organization_id=ORG_ID,
                         slug="test-workspace",
                         name="Test Workspace",
+                        kind="corporate",
+                    ),
+                    Workspace(
+                        id=PERSONAL_WORKSPACE_ID,
+                        organization_id=ORG_ID,
+                        owner_user_id=USER_ID,
+                        slug=f"personal-{USER_ID.hex}",
+                        name="Моё пространство",
+                        kind="personal",
                     ),
                     UserIdentity(
                         id=USER_ID,
@@ -80,6 +104,12 @@ async def _seed_database(database_url: str) -> None:
                 [
                     WorkspaceMembership(
                         workspace_id=WORKSPACE_ID,
+                        user_id=USER_ID,
+                        role="owner",
+                        status="active",
+                    ),
+                    WorkspaceMembership(
+                        workspace_id=PERSONAL_WORKSPACE_ID,
                         user_id=USER_ID,
                         role="owner",
                         status="active",
@@ -138,7 +168,7 @@ def test_settings(postgres_seeded_database_url: str) -> Settings:
         minio_access_key="test",
         minio_secret_key="test",
         minio_bucket="test-bucket",
-        web_login_workspace_id=WORKSPACE_ID,
+        web_login_workspace_id=AUTH_BOOTSTRAP_WORKSPACE_ID,
     )
 
 

@@ -802,7 +802,6 @@ async def billing_overview_page(
     )
     return cabinet_html_response(content)
 
-
 @router.get("/billing/plans", response_class=HTMLResponse, include_in_schema=False)
 async def billing_plans_page(
     request: Request,
@@ -826,6 +825,8 @@ async def billing_plans_page(
     )
     role = await _billing_role(db, tenant_scope=tenant_scope, principal=principal)
     billing_owner = _can_manage_billing(role=role, subscription=subscription, principal=principal)
+    if role != "owner":
+        return RedirectResponse("/billing?result=personal_only", status_code=303)
     trial_state = (
         await _trial_eligibility_state(db, tenant_scope=tenant_scope, principal=principal)
         if current_code == "free" and billing_owner

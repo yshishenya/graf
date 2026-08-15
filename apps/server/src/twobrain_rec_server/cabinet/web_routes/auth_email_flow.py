@@ -42,6 +42,10 @@ EMAIL_LOGIN_PROVIDER = "email"
 EMAIL_SIGNUP_PROVIDER = "email_signup"
 
 
+class _AmbiguousEmailIdentityError(RuntimeError):
+    pass
+
+
 @dataclass(frozen=True, slots=True)
 class EmailLoginCompletion:
     organization_id: UUID
@@ -144,16 +148,14 @@ async def _consume_email_login_code(
     now = datetime.now(UTC)
     await apply_tenant_context(db, AuthCallbackLookupContext(state_nonce=state_nonce))
     state = await db.scalar(
-        select(AuthCallbackState).where(
+        select(AuthCallbackState)
+        .where(
             AuthCallbackState.provider == provider,
             AuthCallbackState.state_nonce == state_nonce,
-        ).with_for_update()
+        )
+        .with_for_update()
     )
-    flow = (
-        "signup"
-        if provider == EMAIL_SIGNUP_PROVIDER
-        else ("share_invitation" if allow_registration else "login")
-    )
+    flow = "signup" if provider == EMAIL_SIGNUP_PROVIDER else ("share_invitation" if allow_registration else "login")
     if state is None:
         return _email_code_error_response(
             request=request,
@@ -225,14 +227,41 @@ async def _consume_email_login_code(
             error="email_code_invalid",
             flow=flow,
         )
-    workspace, user = await _resolve_email_login_user(db, workspace_id=workspace_id, email=email)
-    registered = False
-    if workspace is not None and user is None and allow_registration:
-        user, registered = await _ensure_email_registration_user(
+    internal_workspace_id = request.app.state.settings.web_login_workspace_id
+    try:
+        workspace, user = await _resolve_email_login_user(
             db,
-            workspace=workspace,
+            workspace_id=workspace_id,
             email=email,
-            now=now,
+            internal_workspace_id=internal_workspace_id,
+        )
+        registered = False
+        if workspace is not None and user is None and allow_registration:
+            user, registered = await _ensure_email_registration_user(
+                db,
+                workspace=workspace,
+                email=email,
+                now=now,
+            )
+    except _AmbiguousEmailIdentityError:
+        state.result = "failed"
+        state.used_at = now
+        state.error_code = "email_code_invalid"
+        await _record_email_login_audit(
+            db,
+            request=request,
+            workspace_id=workspace_id,
+            outcome="failure",
+            error_code="email_code_invalid",
+        )
+        await db.commit()
+        return _email_code_error_response(
+            request=request,
+            email=email,
+            state_nonce=state_nonce,
+            next_path=next_path,
+            error="email_code_invalid",
+            flow=flow,
         )
     if workspace is None or user is None:
         state.result = "failed"
@@ -259,7 +288,7 @@ async def _consume_email_login_code(
         organization_id=workspace.organization_id,
         user_id=user.id,
     )
-    if allow_registration:
+    if allow_registration or workspace.id == internal_workspace_id:
         workspace = personal_workspace
     if registered:
         await _bind_referral_attribution(
@@ -334,6 +363,7 @@ async def _resolve_email_login_user(
     *,
     workspace_id: UUID,
     email: str,
+    internal_workspace_id: UUID | None = None,
 ) -> tuple[Workspace | None, UserIdentity | None]:
     await apply_tenant_context(db, WorkspaceAuthContext(workspace_id=workspace_id))
     workspace = await db.get(Workspace, workspace_id)
@@ -360,16 +390,24 @@ async def _resolve_email_login_user(
             .order_by(ExternalIdentity.created_at.asc())
         )
     ).all()
+    candidates_by_user: dict[UUID, tuple[ExternalIdentity, UserIdentity]] = {}
     for identity, user in candidates:
-        await apply_tenant_context(
-            db,
-            WorkspaceAuthContext(
-                workspace_id=workspace.id,
-                organization_id=workspace.organization_id,
-                user_id=user.id,
-                context_kind="auth_bootstrap",
-            ),
-        )
+        candidates_by_user.setdefault(user.id, (identity, user))
+    if len(candidates_by_user) > 1:
+        raise _AmbiguousEmailIdentityError
+    if not candidates_by_user:
+        return workspace, None
+    identity, user = next(iter(candidates_by_user.values()))
+    await apply_tenant_context(
+        db,
+        WorkspaceAuthContext(
+            workspace_id=workspace.id,
+            organization_id=workspace.organization_id,
+            user_id=user.id,
+            context_kind="auth_bootstrap",
+        ),
+    )
+    if workspace.id != internal_workspace_id:
         membership = await db.scalar(
             select(WorkspaceMembership).where(
                 WorkspaceMembership.workspace_id == workspace.id,
@@ -379,22 +417,25 @@ async def _resolve_email_login_user(
         )
         if membership is not None:
             return workspace, user
-        personal_workspace = await db.scalar(
-            select(Workspace)
-            .join(
-                WorkspaceMembership,
-                WorkspaceMembership.workspace_id == Workspace.id,
-            )
-            .where(
-                Workspace.organization_id == workspace.organization_id,
-                Workspace.kind == "personal",
-                Workspace.owner_user_id == user.id,
-                WorkspaceMembership.user_id == user.id,
-                WorkspaceMembership.status == "active",
-            )
+    personal_workspace = await db.scalar(
+        select(Workspace)
+        .join(
+            WorkspaceMembership,
+            WorkspaceMembership.workspace_id == Workspace.id,
         )
-        if personal_workspace is not None:
-            return personal_workspace, user
+        .where(
+            Workspace.organization_id == workspace.organization_id,
+            Workspace.kind == "personal",
+            Workspace.owner_user_id == user.id,
+            WorkspaceMembership.user_id == user.id,
+            WorkspaceMembership.role == "owner",
+            WorkspaceMembership.status == "active",
+        )
+    )
+    if personal_workspace is not None:
+        return personal_workspace, user
+    if workspace.id == internal_workspace_id:
+        return workspace, user
     return workspace, None
 
 
@@ -418,50 +459,29 @@ async def _ensure_email_registration_user(
             context_kind="auth_bootstrap",
         ),
     )
-    existing = (
+    candidates = (
         await db.execute(
             select(ExternalIdentity, UserIdentity)
             .join(UserIdentity, UserIdentity.id == ExternalIdentity.user_id)
             .where(
                 UserIdentity.organization_id == workspace.organization_id,
                 UserIdentity.status == "active",
-                ExternalIdentity.is_active.is_(True),
                 func.lower(ExternalIdentity.email) == email,
+                (
+                    ExternalIdentity.is_active.is_(True)
+                    | ((ExternalIdentity.provider == EMAIL_LOGIN_PROVIDER) & ExternalIdentity.is_active.is_(False))
+                ),
             )
-            .order_by(ExternalIdentity.created_at.asc())
+            .order_by(ExternalIdentity.is_active.desc(), ExternalIdentity.created_at.asc())
         )
-    ).first()
-    if existing is not None:
-        identity, user = existing
-        await apply_tenant_context(
-            db,
-            WorkspaceAuthContext(
-                workspace_id=workspace.id,
-                organization_id=workspace.organization_id,
-                user_id=user.id,
-                context_kind="auth_bootstrap",
-            ),
-        )
-        identity.is_verified = True
-        identity.last_seen_at = now
-        return user, False
-
-    inactive = (
-        await db.execute(
-            select(ExternalIdentity, UserIdentity)
-            .join(UserIdentity, UserIdentity.id == ExternalIdentity.user_id)
-            .where(
-                UserIdentity.organization_id == workspace.organization_id,
-                UserIdentity.status == "active",
-                ExternalIdentity.provider == EMAIL_LOGIN_PROVIDER,
-                ExternalIdentity.is_active.is_(False),
-                func.lower(ExternalIdentity.email) == email,
-            )
-            .order_by(ExternalIdentity.created_at.asc())
-        )
-    ).first()
-    if inactive is not None:
-        identity, user = inactive
+    ).all()
+    candidates_by_user: dict[UUID, list[tuple[ExternalIdentity, UserIdentity]]] = {}
+    for identity, user in candidates:
+        candidates_by_user.setdefault(user.id, []).append((identity, user))
+    if len(candidates_by_user) > 1:
+        raise _AmbiguousEmailIdentityError
+    if candidates_by_user:
+        identity, user = next(iter(candidates_by_user.values()))[0]
         await apply_tenant_context(
             db,
             WorkspaceAuthContext(
@@ -576,9 +596,7 @@ def _email_code_error_response(
             next_path=next_path,
             error=error,
             flow=flow,
-            product_analytics_provider=build_request_browser_provider_context(
-                request, "login_signup"
-            ),
+            product_analytics_provider=build_request_browser_provider_context(request, "login_signup"),
         ),
         status_code=400,
     )

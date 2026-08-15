@@ -1,13 +1,10 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime, timedelta
-from uuid import UUID
 
 from sqlalchemy import select
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
-from tests.fakes.auth_contexts import ORG_ID, WORKSPACE_ID
 from tests.fixtures.admin import (
     DEFAULT_ADMIN_DEVICE_ID,
     DEFAULT_ADMIN_USER_ID,
@@ -17,7 +14,7 @@ from tests.fixtures.admin import (
     seed_default_workspace_admin_roles,
 )
 from tests.fixtures.cabinet import seed_cabinet_meetings
-from twobrain_rec_server.db.models import AdminAuditEvent, UserIdentity
+from twobrain_rec_server.db.models import AdminAuditEvent
 
 
 def test_admin_overview_contract_for_owner_and_admin(client) -> None:
@@ -172,77 +169,10 @@ def test_admin_invitation_resend_is_generic_and_keeps_terminal_invites_terminal(
     assert sent_to == ["review-invitee@example.test"]
 
 
-def test_admin_invitation_completion_contract(client) -> None:
-    asyncio.run(_seed_roles(client))
-    invited_user_id = UUID("30000000-0000-0000-0000-000000000150")
-    asyncio.run(_seed_invited_identity(client, invited_user_id))
-    invite = client.post(
-        "/api/v1/admin/invitations",
-        headers=auth_headers(),
-        json={
-            "target_contact": "invitee@example.test",
-            "target_provider": "email",
-            "invited_role": "member",
-            "expires_at": (datetime.now(UTC) + timedelta(days=1)).isoformat(),
-        },
-    )
-    assert invite.status_code == 201
-
-    complete = client.post(
-        f"/api/v1/admin/invitations/{invite.json()['id']}/complete",
-        headers=auth_headers_for(user_id=invited_user_id, device_id=DEFAULT_MEMBER_DEVICE_ID),
-        json={
-            "workspace_id": str(WORKSPACE_ID),
-            "login_contact": "INVITEE@example.test",
-            "provider": "email",
-        },
-    )
-
-    assert complete.status_code == 200
-    assert complete.json()["status"] == "completed"
-    assert complete.json()["completed_by_user_id"] == str(invited_user_id)
-
-
-def test_admin_invitation_completion_does_not_change_existing_member_role(client) -> None:
-    asyncio.run(_seed_roles(client))
-    invite = client.post(
-        "/api/v1/admin/invitations",
-        headers=auth_headers(),
-        json={"target_contact": str(DEFAULT_MEMBER_USER_ID), "invited_role": "admin"},
-    )
-    assert invite.status_code == 201
-
-    complete = client.post(
-        f"/api/v1/admin/invitations/{invite.json()['id']}/complete",
-        headers=auth_headers_for(
-            user_id=DEFAULT_MEMBER_USER_ID, device_id=DEFAULT_MEMBER_DEVICE_ID
-        ),
-        json={
-            "workspace_id": str(WORKSPACE_ID),
-            "login_contact": str(DEFAULT_MEMBER_USER_ID),
-            "provider": "email",
-        },
-    )
-    detail = client.get(f"/api/v1/admin/users/{DEFAULT_MEMBER_USER_ID}", headers=auth_headers())
-
-    assert complete.status_code == 200
-    assert complete.json()["status"] == "completed"
-    assert detail.status_code == 200
-    assert detail.json()["role"] == "member"
-    assert detail.json()["status"] == "active"
-
-
-async def _seed_invited_identity(client, user_id: UUID) -> None:
-    async with client.app_state["sessionmaker"]() as db:
-        db.add(
-            UserIdentity(
-                id=user_id,
-                organization_id=ORG_ID,
-                external_subject=str(user_id),
-                display_name="Invitee",
-            )
-        )
-        await db.commit()
+def test_admin_invitation_completion_uses_only_join_offer_flow(client) -> None:
+    assert "/api/v1/admin/invitations/{invitation_id}/complete" not in client.app.openapi()[
+        "paths"
+    ]
 
 
 def test_admin_file_contract_metadata_safe(client) -> None:

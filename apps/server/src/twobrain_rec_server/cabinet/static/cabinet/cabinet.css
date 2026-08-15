@@ -1023,7 +1023,7 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   align-items: center;
   gap: 8px;
   padding: 0 9px;
-  border: 1px solid transparent;
+  border: 1px solid var(--line-soft);
   border-radius: 7px;
   color: #d9dde4;
   background: transparent;

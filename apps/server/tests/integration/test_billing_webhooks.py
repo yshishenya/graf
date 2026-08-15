@@ -20,6 +20,7 @@ from twobrain_rec_server.billing.provider_events import (
 from twobrain_rec_server.billing.webhook_reconciliation import _find_refund
 from twobrain_rec_server.billing.yookassa import YooKassaClient
 from twobrain_rec_server.config import Settings
+from twobrain_rec_server.db.models import Workspace
 
 
 def _payload(*, created_at: str = "2026-08-06T09:00:00Z") -> dict[str, object]:
@@ -178,6 +179,91 @@ async def test_provider_webhook_without_proxy_secret_fails_closed(tmp_path: Path
     )
     response = await _handle_billing_webhook(request, None, environment="test")
     assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scope_kind", ["missing", "corporate", "internal"])
+async def test_invalid_workspace_webhook_is_terminally_acknowledged(
+    tmp_path: Path,
+    scope_kind: str,
+) -> None:
+    secret = tmp_path / "webhook-secret"
+    secret.write_text("expected-secret", encoding="utf-8")
+    workspace_id = uuid4()
+    workspace = (
+        None
+        if scope_kind == "missing"
+        else Workspace(
+            id=workspace_id,
+            organization_id=uuid4(),
+            slug="invalid-webhook-scope",
+            name="Invalid webhook scope",
+            kind="personal" if scope_kind == "internal" else "corporate",
+            owner_user_id=uuid4(),
+        )
+    )
+
+    class Db:
+        info: dict[str, object] = {}
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        def get_bind(self):
+            return SimpleNamespace(dialect=SimpleNamespace(name="sqlite"))
+
+        async def get(self, _model, _key):
+            return workspace
+
+    settings = Settings(
+        billing_yookassa_base_url="https://api.yookassa.test",
+        billing_yookassa_environment="test",
+        billing_yookassa_shop_id="shop-1",
+        billing_yookassa_webhook_secret_file=secret,
+        web_login_workspace_id=workspace_id if scope_kind == "internal" else uuid4(),
+    )
+    app = SimpleNamespace(
+        state=SimpleNamespace(
+            settings=settings,
+            db_sessionmaker=lambda: Db(),
+        )
+    )
+    body = (
+        '{"type":"notification","event":"payment.succeeded",'
+        f'"object":{{"id":"pay-invalid-scope","created_at":"2026-08-06T09:00:00Z",'
+        f'"metadata":{{"workspace_id":"{workspace_id}"}}}}}}'
+    ).encode()
+    sent = False
+
+    async def receive() -> dict[str, object]:
+        nonlocal sent
+        if sent:
+            return {"type": "http.disconnect"}
+        sent = True
+        return {"type": "http.request", "body": body, "more_body": False}
+
+    request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/api/v1/billing/providers/yookassa/webhook/test",
+            "headers": [(b"content-type", b"application/json")],
+            "query_string": b"",
+            "app": app,
+        },
+        receive,
+    )
+
+    response = await _handle_billing_webhook(
+        request,
+        "expected-secret",
+        environment="test",
+    )
+
+    assert response.status_code == 200
 
 
 def test_payment_method_active_is_observed_without_granting_authority() -> None:

@@ -18,7 +18,8 @@
         {% elif billing_result|default(None) == "returned" %}<p class="notice" role="status" aria-live="polite">Вы вернулись из ЮKassa. Доступ включится только после подтверждения платежа.</p>
         {% elif billing_result|default(None) == "already_active" %}<p class="notice" role="status" aria-live="polite">Тариф «Личный» уже активен до {{ paid_through_label or "указанной даты" }}. Повторная оплата не создана.</p>
         {% elif billing_result|default(None) == "unavailable" %}<p class="notice" role="alert">Не удалось открыть оплату. Проверьте историю платежей или повторите позже.</p>
-        {% elif billing_result|default(None) == "owner_only" %}<p class="notice" role="status">Оплатой и платежными данными управляет владелец пространства.</p>{% endif %}
+        {% elif billing_result|default(None) == "owner_only" %}<p class="notice" role="status">Оплатой и платежными данными управляет владелец пространства.</p>
+        {% elif billing_result|default(None) == "personal_only" %}<p class="notice" role="status">Личный тариф оформляется для «Моего пространства». <a href="/settings/workspace">Выбрать Моё пространство</a></p>{% endif %}
         {% if not billing_data_available|default(True) %}
         <p class="muted">Количественные данные подписки, обработки и хранилища не показываем, пока источник недоступен.</p>
         {% elif plan_code == "free" %}

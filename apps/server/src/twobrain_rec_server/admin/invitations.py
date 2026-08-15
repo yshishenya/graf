@@ -18,11 +18,9 @@ from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.auth.audit import write_onboarding_audit_event
 from twobrain_rec_server.auth.workspace_onboarding import create_or_reuse_join_offer
 from twobrain_rec_server.db.models import (
-    UserIdentity,
     Workspace,
     WorkspaceInvitation,
     WorkspaceJoinOffer,
-    WorkspaceMembership,
 )
 from twobrain_rec_server.db.tenant_context import WorkspaceAuthContext, apply_tenant_context
 
@@ -75,6 +73,13 @@ async def create_workspace_invitation(
     expires_at: datetime | None = None,
 ) -> WorkspaceInvitation:
     _ensure_role_allowed(context, invited_role)
+    workspace = await db.get(Workspace, context.workspace_id)
+    if workspace is None or workspace.kind != "corporate":
+        raise ProblemDetail(
+            status=403,
+            code="workspace_invitation_unavailable",
+            title="Workspace invitation unavailable",
+        )
     normalized = normalize_invitation_target(target_contact)
     if not normalized:
         raise ProblemDetail(
@@ -187,57 +192,6 @@ async def resend_workspace_invitation(
     return invitation
 
 
-async def complete_workspace_invitation(
-    db: AsyncSession,
-    *,
-    workspace_id: UUID,
-    invitation_id: UUID,
-    completed_user_id: UUID,
-    provider: str | None,
-    login_contacts: Iterable[str],
-) -> WorkspaceInvitation:
-    invitation = await _load_invitation(db, workspace_id, invitation_id)
-    await _ensure_invitation_completable(invitation, provider=provider)
-    contacts = {normalize_invitation_target(value) for value in login_contacts if value}
-    if invitation.target_contact not in contacts:
-        raise ProblemDetail(
-            status=403, code="invitation_identity_mismatch", title="Invitation identity mismatch"
-        )
-    user = await db.get(UserIdentity, completed_user_id)
-    if user is None or user.status != "active":
-        raise ProblemDetail(
-            status=403, code="invitation_identity_mismatch", title="Invitation identity mismatch"
-        )
-    membership = await db.get(
-        WorkspaceMembership, {"workspace_id": workspace_id, "user_id": completed_user_id}
-    )
-    if membership is None:
-        membership = WorkspaceMembership(
-            workspace_id=workspace_id,
-            user_id=completed_user_id,
-            role=invitation.invited_role,
-            status="active",
-        )
-        db.add(membership)
-    invitation.status = "completed"
-    invitation.completed_by_user_id = completed_user_id
-    invitation.completed_membership_id = f"{workspace_id}:{completed_user_id}"
-    invitation.completed_at = datetime.now(UTC)
-    completed_role = membership.role
-    await write_admin_audit_event(
-        db,
-        workspace_id=workspace_id,
-        actor_user_id=completed_user_id,
-        actor_role=completed_role,
-        action="invite_completed",
-        target_kind="invitation",
-        target_id=str(invitation.id),
-        outcome="completed",
-        metadata={"role": completed_role, "source": "admin", "status": membership.status},
-    )
-    return invitation
-
-
 async def create_matching_join_offers_after_login(
     db: AsyncSession,
     *,
@@ -282,7 +236,11 @@ async def create_matching_join_offers_after_login(
             ),
         )
         workspace = await db.get(Workspace, invitation.workspace_id)
-        if workspace is None:
+        if (
+            workspace is None
+            or workspace.kind != "corporate"
+            or workspace.id == bootstrap_workspace_id
+        ):
             continue
         existing_offer = await db.scalar(
             select(WorkspaceJoinOffer).where(
@@ -318,23 +276,6 @@ async def create_matching_join_offers_after_login(
         ),
     )
     return tuple(offers)
-
-
-async def find_matching_pending_invitation(
-    db: AsyncSession,
-    *,
-    workspace_id: UUID,
-    provider: str,
-    contacts: Iterable[str],
-) -> WorkspaceInvitation | None:
-    invitations = await find_matching_pending_invitations(
-        db,
-        organization_id=None,
-        workspace_id=workspace_id,
-        provider=provider,
-        contacts=contacts,
-    )
-    return invitations[0] if invitations else None
 
 
 async def find_matching_pending_invitations(
@@ -437,22 +378,3 @@ async def _load_invitation(
     if invitation is None or invitation.workspace_id != workspace_id:
         raise ProblemDetail(status=404, code="invitation_not_found", title="Invitation not found")
     return invitation
-
-
-async def _ensure_invitation_completable(
-    invitation: WorkspaceInvitation, *, provider: str | None
-) -> None:
-    status = invitation_runtime_status(invitation)
-    if status == "expired":
-        invitation.status = "expired"
-        raise ProblemDetail(status=409, code="invitation_expired", title="Invitation expired")
-    if status == "revoked":
-        raise ProblemDetail(status=409, code="invitation_revoked", title="Invitation revoked")
-    if status == "completed":
-        raise ProblemDetail(
-            status=409, code="invitation_already_completed", title="Invitation already completed"
-        )
-    if invitation.target_provider is not None and provider != invitation.target_provider:
-        raise ProblemDetail(
-            status=403, code="invitation_identity_mismatch", title="Invitation identity mismatch"
-        )
