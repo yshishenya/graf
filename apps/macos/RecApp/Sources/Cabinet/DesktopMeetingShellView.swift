@@ -4,23 +4,23 @@ import TwoBrainRecShared
 
 public enum DesktopMeetingShellChrome {
     public static let spacingSmall: CGFloat = 8
-    public static let spacingMedium: CGFloat = 12
+    public static let spacingMedium: CGFloat = 16
     public static let spacingLarge: CGFloat = 16
     public static let spacingXLarge: CGFloat = 24
     public static let controlHeight: CGFloat = 36
     public static let minimumInteractiveTarget: CGFloat = 40
     public static let collapsedInspectorWidth: CGFloat = 52
     public static let expandedInspectorWidth: CGFloat = 308
-    public static let shellBackgroundHex = "#191a1c"
-    public static let shellRailHex = "#202224"
-    public static let shellSurfaceHex = "#242629"
+    public static let shellBackgroundHex = "#0a0a0b"
+    public static let shellRailHex = "#121214"
+    public static let shellSurfaceHex = "#1c1c1f"
     public static let recordingStripHex = "#342087"
     public static let shellAccentHex = "#8c73ff"
     public static let webEmbeddedBackgroundHex = shellBackgroundHex
-    public static let shellBackgroundColor = Color(red: 0.098, green: 0.102, blue: 0.110)
-    public static let shellRailColor = Color(red: 0.125, green: 0.133, blue: 0.141)
-    public static let shellSurfaceColor = Color(red: 0.141, green: 0.149, blue: 0.161)
-    public static let shellStrokeColor = Color.white.opacity(0.08)
+    public static let shellBackgroundColor = Color(red: 0.039, green: 0.039, blue: 0.043)
+    public static let shellRailColor = Color(red: 0.070, green: 0.070, blue: 0.078)
+    public static let shellSurfaceColor = Color(red: 0.110, green: 0.110, blue: 0.121)
+    public static let shellStrokeColor = Color.white.opacity(0.05)
     public static let shellHighContrastStrokeColor = Color.white.opacity(0.42)
     public static let recordingStripColor = Color(red: 0.204, green: 0.125, blue: 0.529)
     public static let shellAccentColor = Color(red: 0.549, green: 0.451, blue: 1.000)
@@ -36,13 +36,13 @@ public enum DesktopMeetingShellChrome {
     public static let appUpdateAccessibilityLabel = "Доступно обновление GRAF. Открыть проверку обновлений."
     public static let appUpdateHitSize: CGFloat = 40
     public static let webEmbeddedBackgroundNSColor = NSColor(
-        srgbRed: 0.098,
-        green: 0.102,
-        blue: 0.110,
+        srgbRed: 0.039,
+        green: 0.039,
+        blue: 0.043,
         alpha: 1
     )
     public static let inspectorToggleHitSize: CGFloat = 44
-    public static let inspectorToggleCornerRadius: CGFloat = 10
+    public static let inspectorToggleCornerRadius: CGFloat = 12
     public static let inspectorToggleTopInset: CGFloat = 10
     public static let inspectorToggleTrailingInset: CGFloat = 4
     public static let inspectorToggleCollapsedSymbol = "chevron.left.2"
@@ -1195,7 +1195,7 @@ private struct RecordingTitlebarHUD: View {
                         .font(.system(size: 12, weight: .bold))
                         .foregroundStyle(.green)
                     Text(CaptureStatusItem.statusLabel(for: session))
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
                         .lineLimit(1)
                 }
 
@@ -1219,11 +1219,12 @@ private struct RecordingTitlebarHUD: View {
             .padding(.trailing, 6)
             .frame(height: 32)
             .background(
-                Capsule()
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .fill(DesktopMeetingShellChrome.shellSurfaceColor)
+                    .shadow(color: Color.black.opacity(0.2), radius: 4, x: 0, y: 2)
             )
             .overlay(
-                Capsule()
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .stroke(DesktopMeetingShellChrome.recordingStripColor.opacity(0.58), lineWidth: 1)
             )
 
