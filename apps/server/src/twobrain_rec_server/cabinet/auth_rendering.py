@@ -209,6 +209,9 @@ def _login_error_message(error: str | None) -> str | None:
         return None
     messages = {
         "missing_auth_context": "Нужен вход, чтобы открыть кабинет встреч.",
+        "auth_handoff_invalid": "Не удалось безопасно открыть тарифы. Войдите ещё раз.",
+        "auth_handoff_session_invalid": "Сессия приложения истекла. Войдите снова.",
+        "auth_handoff_expired": "Ссылка из приложения истекла. Войдите снова.",
         "auth_session_invalid": "Сессия не найдена. Войдите снова.",
         "auth_session_expired": "Сессия истекла. Войдите снова.",
         "device_revoked": "Доступ этого устройства отозван. Войдите с доверенного браузера.",

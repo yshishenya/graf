@@ -5,6 +5,30 @@ import TwoBrainRecAppCore
 import XCTest
 
 final class DesktopCabinetBillingHandoffTests: XCTestCase {
+    func testBrowserHandoffURLCarriesOnlyOpaqueState() throws {
+        let billingURL = try XCTUnwrap(URL(string: "https://rec.2brain.pro/billing"))
+        let handoff = try XCTUnwrap(
+            DesktopCabinetBillingHandoff.browserURL(for: billingURL, state: "opaque-state-123456")
+        )
+
+        XCTAssertEqual(handoff.path, "/billing/handoff")
+        XCTAssertEqual(handoff.query, "state=opaque-state-123456")
+        XCTAssertFalse(handoff.absoluteString.contains("X-Auth-Session"))
+        XCTAssertFalse(handoff.absoluteString.contains("amount"))
+    }
+
+    func testHandoffEndpointStaysOnTheBillingOrigin() throws {
+        let billingURL = try XCTUnwrap(
+            URL(string: "https://user:secret@rec.2brain.pro/billing/checkout?amount=790")
+        )
+        let endpoint = try XCTUnwrap(DesktopCabinetBillingHandoff.endpointURL(for: billingURL))
+
+        XCTAssertEqual(endpoint.absoluteString, "https://rec.2brain.pro/api/v1/cabinet/billing/handoff")
+        XCTAssertNil(endpoint.query)
+        XCTAssertNil(endpoint.user)
+        XCTAssertNil(endpoint.password)
+    }
+
     func testBillingRoutesLeaveTheEmbeddedCabinetWithoutFinancialQueryData() throws {
         let policy = DesktopCabinetRoutePolicy(
             baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev"))

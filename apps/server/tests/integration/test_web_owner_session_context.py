@@ -6,6 +6,7 @@ from html import unescape
 from urllib.parse import parse_qs, urlsplit
 from uuid import UUID, uuid4
 
+from cryptography.fernet import Fernet
 from sqlalchemy import select
 
 from tests.fakes.auth_contexts import DEVICE_ID, USER_ID, WORKSPACE_ID
@@ -13,6 +14,7 @@ from tests.fakes.auth_providers import fake_provider_map
 from tests.fixtures.cabinet import seed_cabinet_meetings
 from twobrain_rec_server.api.auth import BROWSER_AUTH_STATE_COOKIE_NAME
 from twobrain_rec_server.auth import email_delivery
+from twobrain_rec_server.auth.browser_handoff import DESKTOP_BILLING_HANDOFF_PROVIDER
 from twobrain_rec_server.auth.csrf import issue_csrf_token
 from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
 from twobrain_rec_server.auth.sessions import hash_token
@@ -986,6 +988,42 @@ def test_billing_page_uses_normal_login_handoff_without_legacy_error(client) -> 
     assert "next=%2Fbilling" in location
     assert "error=missing_auth_context" in location
     assert "legacy_header_auth_disabled" not in location
+
+
+def test_desktop_billing_handoff_sets_browser_session_once(client, tmp_path) -> None:
+    client.portal.call(_seed_owner_review_session, client)
+    key_file = tmp_path / "credential-encryption-key"
+    key_file.write_bytes(Fernet.generate_key())
+    client.app.state.settings.credential_encryption_key_file = key_file
+
+    response = client.post(
+        "/api/v1/cabinet/billing/handoff",
+        headers={"X-Auth-Session": OWNER_REVIEW_TEST_TOKEN},
+    )
+
+    assert response.status_code == 200
+    state = response.json()["state"]
+    assert state
+    handoff = client.get(f"/billing/handoff?state={state}", follow_redirects=False)
+    assert handoff.status_code == 303
+    assert handoff.headers["location"] == "/billing"
+    assert f"{AUTH_SESSION_COOKIE_NAME}=" in handoff.headers["set-cookie"]
+
+    async def read_state() -> tuple[str, str | None]:
+        async with client.app_state["sessionmaker"]() as db:
+            row = await db.scalar(
+                select(AuthCallbackState).where(
+                    AuthCallbackState.provider == DESKTOP_BILLING_HANDOFF_PROVIDER,
+                    AuthCallbackState.state_nonce == state,
+                )
+            )
+            assert row is not None
+            return row.result, row.error_code
+
+    assert client.portal.call(read_state) == ("completed", None)
+    replay = client.get(f"/billing/handoff?state={state}", follow_redirects=False)
+    assert replay.status_code == 303
+    assert replay.headers["location"] == "/login?next=%2Fbilling&error=auth_handoff_invalid"
 
 
 def test_meetings_page_rejects_invalid_owner_session_cookie(client) -> None:

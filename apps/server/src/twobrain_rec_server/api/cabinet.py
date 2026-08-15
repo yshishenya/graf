@@ -72,13 +72,20 @@ from twobrain_rec_server.api.upload_stream import (
     read_manual_media_upload_body,
 )
 from twobrain_rec_server.auth import email_delivery
+from twobrain_rec_server.auth.browser_handoff import (
+    DESKTOP_BILLING_HANDOFF_PROVIDER,
+    DESKTOP_BILLING_HANDOFF_TTL_SECONDS,
+    seal_desktop_billing_session,
+)
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, DeviceContext, TenantScope
 from twobrain_rec_server.auth.dependencies import (
     get_device_context,
     get_principal,
     get_tenant_scope,
+    get_web_owner_tenant_scope,
     require_web_csrf,
 )
+from twobrain_rec_server.auth.sessions import callback_expiry, issue_callback_nonce
 from twobrain_rec_server.cabinet.access import (
     ShareRecipientAccessProof,
     accept_share_invitation,
@@ -121,6 +128,7 @@ from twobrain_rec_server.cabinet.rendering import render_shared_meeting_summary_
 from twobrain_rec_server.cabinet.speakers import candidate_speaker_attribution_is_current
 from twobrain_rec_server.cabinet.templates import cabinet_html_response
 from twobrain_rec_server.db.models import (
+    AuthCallbackState,
     ExternalIdentity,
     MediaRevision,
     Meeting,
@@ -134,7 +142,11 @@ from twobrain_rec_server.db.models import (
     Workspace,
     WorkspaceMembership,
 )
-from twobrain_rec_server.db.tenant_context import TenantDatabaseContext, apply_tenant_context
+from twobrain_rec_server.db.tenant_context import (
+    TenantDatabaseContext,
+    WorkspaceAuthContext,
+    apply_tenant_context,
+)
 from twobrain_rec_server.deletion.local_purge import (
     acknowledge_local_purge_task,
     list_local_purge_tasks,
@@ -180,10 +192,68 @@ from twobrain_rec_server.workflows.temporal_client import (
 router = APIRouter(prefix="/api/v1", tags=["cabinet"])
 
 TenantDependency = Depends(get_tenant_scope)
+WebOwnerTenantDependency = Depends(get_web_owner_tenant_scope)
 PrincipalDependency = Depends(get_principal)
 DeviceDependency = Depends(get_device_context)
 WebCSRFDependency = Depends(require_web_csrf)
 DbDependency = Depends(get_request_db_session)
+
+
+@router.post("/cabinet/billing/handoff", include_in_schema=False)
+async def create_desktop_billing_handoff(
+    request: Request,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    tenant_scope: TenantScope = WebOwnerTenantDependency,
+    _csrf: None = WebCSRFDependency,
+    x_auth_session: str | None = Header(default=None, alias="X-Auth-Session", include_in_schema=False),
+) -> JSONResponse:
+    """Create a short-lived, one-use browser exchange for the native desktop session."""
+    session_token = (x_auth_session or "").strip()
+    if not session_token or not principal.auth_via_session:
+        raise ProblemDetail(
+            status=401,
+            code="auth_session_required",
+            title="A validated desktop auth session is required",
+        )
+    key_file = getattr(request.app.state.settings, "credential_encryption_key_file", None)
+    sessionmaker = getattr(request.app.state, "db_sessionmaker", None)
+    if key_file is None or sessionmaker is None:
+        raise ProblemDetail(
+            status=503,
+            code="auth_handoff_unavailable",
+            title="Browser handoff is temporarily unavailable",
+        )
+    key = key_file.read_bytes().strip()
+    if not key:
+        raise ProblemDetail(
+            status=503,
+            code="auth_handoff_unavailable",
+            title="Browser handoff is temporarily unavailable",
+        )
+
+    state_nonce = issue_callback_nonce()
+    async with sessionmaker() as db:
+        await apply_tenant_context(
+            db,
+            WorkspaceAuthContext(
+                organization_id=tenant_scope.organization_id,
+                workspace_id=tenant_scope.workspace_id,
+                user_id=principal.user_id,
+            ),
+        )
+        db.add(
+            AuthCallbackState(
+                provider=DESKTOP_BILLING_HANDOFF_PROVIDER,
+                state_nonce=state_nonce,
+                workspace_id=tenant_scope.workspace_id,
+                requested_redirect="/billing",
+                expected_state=seal_desktop_billing_session(session_token, key=key),
+                expires_at=callback_expiry(ttl_seconds=DESKTOP_BILLING_HANDOFF_TTL_SECONDS),
+                result="pending",
+            )
+        )
+        await db.commit()
+    return JSONResponse({"state": state_nonce})
 
 
 async def _send_internal_share_notification(

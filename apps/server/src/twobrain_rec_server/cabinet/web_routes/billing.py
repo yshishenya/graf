@@ -7,14 +7,19 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 import httpx
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from twobrain_rec_server.auth.browser_handoff import (
+    DESKTOP_BILLING_HANDOFF_PROVIDER,
+    open_desktop_billing_session,
+)
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
 from twobrain_rec_server.auth.rate_limit import enforce_auth_rate_limits
+from twobrain_rec_server.auth.sessions import hash_token
 from twobrain_rec_server.billing.catalog import (
     FREE_PROCESSING_SECONDS,
     FREE_STORAGE_BYTES,
@@ -73,7 +78,9 @@ from twobrain_rec_server.billing.yookassa import (
 )
 from twobrain_rec_server.cabinet.rendering_shared import _page_shell
 from twobrain_rec_server.cabinet.templates import cabinet_html_response
+from twobrain_rec_server.cabinet.web_routes.auth_email_flow import _set_browser_auth_cookie
 from twobrain_rec_server.cabinet.web_routes.support import (
+    LoginDbDependency,
     PrincipalDependency,
     WebCSRFDependency,
     WebDbDependency,
@@ -81,6 +88,8 @@ from twobrain_rec_server.cabinet.web_routes.support import (
     _csrf_token_for_principal,
 )
 from twobrain_rec_server.db.models import (
+    AuthCallbackState,
+    AuthSession,
     BillingAuditEvent,
     BillingInvoice,
     BillingOperation,
@@ -100,8 +109,10 @@ from twobrain_rec_server.db.models import (
     WorkspaceSubscription,
 )
 from twobrain_rec_server.db.tenant_context import (
+    AuthCallbackLookupContext,
     AuthReferralLookupContext,
     AuthReferralUserLookupContext,
+    AuthSessionLookupContext,
     apply_tenant_context,
     apply_tenant_scope,
 )
@@ -114,6 +125,77 @@ router = APIRouter(tags=["cabinet-web"])
 _CHECKOUT_PROMO_COOKIE = "graf_checkout_promo"
 _CHECKOUT_PROMO_COOKIE_MAX_AGE = 5 * 60
 _BILLING_OFFER_VERSION = "billing-personal-v1"
+
+
+@router.get("/billing/handoff", include_in_schema=False)
+async def billing_browser_handoff(
+    request: Request,
+    state: str = Query(min_length=16, max_length=128),
+    db: AsyncSession | None = LoginDbDependency,
+) -> RedirectResponse:
+    """Exchange one native desktop handoff for the normal browser session cookie."""
+    fallback = RedirectResponse(
+        "/login?next=%2Fbilling&error=auth_handoff_invalid",
+        status_code=303,
+    )
+    if db is None:
+        return fallback
+    key_file = getattr(request.app.state.settings, "credential_encryption_key_file", None)
+    if key_file is None:
+        return fallback
+    key = key_file.read_bytes().strip()
+    if not key:
+        return fallback
+    now = datetime.now(UTC)
+    await apply_tenant_context(db, AuthCallbackLookupContext(state_nonce=state))
+    callback_state = await db.scalar(
+        select(AuthCallbackState)
+        .where(
+            AuthCallbackState.provider == DESKTOP_BILLING_HANDOFF_PROVIDER,
+            AuthCallbackState.state_nonce == state,
+        )
+        .with_for_update()
+    )
+    if callback_state is None or callback_state.result != "pending":
+        return fallback
+    if callback_state.expires_at <= now:
+        callback_state.used_at = now
+        callback_state.result = "expired"
+        callback_state.error_code = "auth_handoff_expired"
+        await db.commit()
+        return fallback
+
+    session_token = open_desktop_billing_session(callback_state.expected_state, key=key)
+    if session_token is None:
+        callback_state.used_at = now
+        callback_state.result = "failed"
+        callback_state.error_code = "auth_handoff_invalid"
+        await db.commit()
+        return fallback
+
+    await apply_tenant_context(
+        db,
+        AuthSessionLookupContext(session_token_hash=hash_token(session_token)),
+    )
+    auth_session = await db.scalar(
+        select(AuthSession).where(AuthSession.session_token_hash == hash_token(session_token))
+    )
+    if auth_session is None or auth_session.status != "active" or auth_session.expires_at <= now:
+        await apply_tenant_context(db, AuthCallbackLookupContext(state_nonce=state))
+        callback_state.used_at = now
+        callback_state.result = "failed"
+        callback_state.error_code = "auth_handoff_session_invalid"
+        await db.commit()
+        return fallback
+
+    await apply_tenant_context(db, AuthCallbackLookupContext(state_nonce=state))
+    callback_state.used_at = now
+    callback_state.result = "completed"
+    callback_state.error_code = None
+    await db.commit()
+    redirect = RedirectResponse("/billing", status_code=303)
+    _set_browser_auth_cookie(redirect, token=session_token, expires_at=auth_session.expires_at)
+    return redirect
 
 
 def _checkout_result_redirect(

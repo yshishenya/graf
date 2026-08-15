@@ -1147,6 +1147,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
 
     public final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, WKDownloadDelegate {
         private let routePolicy: DesktopCabinetRoutePolicy
+        private let desktopHeaders: [String: String]
         private let navigationRequestPolicy: DesktopCabinetNavigationRequestPolicy
         private let navigationEventLogger: NavigationEventLogger?
         private var authContinuationActive = false
@@ -1173,6 +1174,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             navigationController: EmbeddedCabinetNavigationController
         ) {
             self.routePolicy = routePolicy
+            self.desktopHeaders = desktopHeaders
             navigationRequestPolicy = DesktopCabinetNavigationRequestPolicy(
                 routePolicy: routePolicy,
                 desktopHeaders: desktopHeaders
@@ -1366,8 +1368,20 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                     decisionHandler(.cancel)
                     return
                 }
-                NSWorkspace.shared.open(sanitizedURL)
                 decisionHandler(.cancel)
+                if decision.reason == .openBrowserOwnedBilling {
+                    Task { @MainActor [weak self] in
+                        guard let self, self.isActive else { return }
+                        let handoffURL = await DesktopCabinetBillingHandoff.request(
+                            for: sanitizedURL,
+                            desktopHeaders: self.desktopHeaders
+                        )
+                        guard self.isActive else { return }
+                        NSWorkspace.shared.open(handoffURL ?? sanitizedURL)
+                    }
+                } else {
+                    NSWorkspace.shared.open(sanitizedURL)
+                }
             case .blockWithMessage:
                 authContinuationActive = false
                 navigationController.cancelPendingNavigation(webView: webView)
