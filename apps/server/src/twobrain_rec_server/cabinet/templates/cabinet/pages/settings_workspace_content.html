@@ -22,7 +22,7 @@
       <ul class="settings-list" aria-label="Доступные пространства">
         {% for space in workspace_spaces %}
         <li class="settings-list-item"{% if space.active %} aria-current="true"{% endif %}>
-          <div><strong>{{ space.name }}</span><span class="settings-list-item__desc">{{ "Личное" if space.kind == "personal" else "Рабочее пространство" }} · {{ space.role_label }}</span></div>
+          <div class="settings-list-item__content"><span class="settings-list-item__title">{{ space.name }}</span><span class="settings-list-item__desc">{{ "Личное" if space.kind == "personal" else "Рабочее пространство" }} · {{ space.role_label }}</span></div>
           {% if space.active %}
           <span class="settings-status-badge">Текущее</span>
           {% elif workspace_switch_available %}

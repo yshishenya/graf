@@ -159,6 +159,8 @@ def test_active_workspace_selector_is_accessible_and_uses_server_scoped_activati
     assert "Текущее" in page
     assert 'aria-current="true"' in page
     assert '<span class="settings-status-badge">Текущее</span>' in page
+    assert '<div class="settings-list-item__content"><span class="settings-list-item__title">Моё пространство</span>' in page
+    assert '<div class="settings-list-item__content"><span class="settings-list-item__title">Команда продукта</span>' in page
     assert '<span class="settings-status-badge" role="status">Текущее</span>' not in page
     assert "Куда сохраняются новые встречи" in page
     assert ">Выбрать</button>" in page

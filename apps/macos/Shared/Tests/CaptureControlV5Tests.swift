@@ -442,7 +442,7 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertTrue(label.contains("detect_and_ask"))
         XCTAssertTrue(settingsSource.contains("MeetingDetectionSettingsView"))
         XCTAssertTrue(settingsSource.contains("promptToggleTitle = \"Запрашивать запись\""))
-        XCTAssertTrue(settingsSource.contains("Toggle(\"\", isOn: recordingPromptBinding)"))
+        XCTAssertTrue(settingsSource.contains("Toggle(isOn: recordingPromptBinding)"))
         XCTAssertTrue(settingsSource.contains("ScrollView"))
         XCTAssertTrue(settingsSource.contains("pageTitle = \"Автозапись\""))
         XCTAssertTrue(settingsSource.contains("ForEach(promptCapableTargets"))
