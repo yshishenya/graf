@@ -130,6 +130,12 @@
 - [X] T063 Bump the changed consent edition to `2026-08-13.1` in `apps/server/src/twobrain_rec_server/config.py`, `infra/docker-compose.yml`, `infra/env/rec.production.env.example` and their focused contracts
 - [X] T064 Run focused auth/public contracts, browser QA and `infra/scripts/ci-local.sh --fast`; record the final trust-UX closeout in `CHANGELOG.md`
 
+## Phase 17: Frontend-skill UX refinement
+
+- [X] T065 [P] Update hero CTA semantics and outcome heading in `apps/server/src/twobrain_rec_server/public/templates/public/landing.html` with matching analytics and copy contracts in `apps/server/tests/unit/test_public_landing.py` and `apps/server/tests/contract/test_public_analytics_contract.py`
+- [X] T066 [P] Preserve readable mobile product proof with an intentional focus crop in `apps/server/src/twobrain_rec_server/public/static/public/landing.css` and `apps/server/tests/contract/test_public_landing_contract.py`
+- [X] T067 Capture fresh 1440, 390 and 320 states, run the Feature 142 focused quickstart and record the frontend-skill visual/a11y review in `specs/142-launch-landing-redesign/design-qa.md`
+
 ## Dependencies
 
 - T001–T005 are foundational.

@@ -1,13 +1,14 @@
 # Public landing B2C brief
 
 Status: working product/copy brief for the implemented public landing slice.
-This is not a production release spec yet.
+Feature 142 and its current contracts are the implementation source of truth.
 
 ## Goal
 
-The landing page should convert a visitor directly into the login page and
-first use. It should feel like a calm consumer productivity product, not an
-enterprise security page and not a technical architecture explainer.
+The landing page should move a new visitor to the download path while keeping
+login obvious for returning users. It should feel like a calm consumer
+productivity product, not an enterprise security page or a technical
+architecture explainer.
 
 The page has one primary path:
 
@@ -15,13 +16,15 @@ The page has one primary path:
 Начать -> вход -> кабинет -> скачать приложение -> включить автозапись -> готовые итоги встречи
 ```
 
-Do not use a secondary "see how it works" CTA on the first screen.
+The secondary hero CTA may jump to the first product-proof chapter; it must not
+send a new visitor into a login wall. Login remains visible in the header and
+final CTA.
 
 ## Positioning
 
-GRAF is an AI meeting recorder that automatically records online meetings in
-the conferencing apps people already use, then turns the conversation into a
-transcript, summary, decisions, and tasks.
+GRAF is an AI meeting recorder that can automatically capture selected meeting
+applications, with manual recording available for other supported calls, then
+turns the conversation into a transcript, summary, decisions, and tasks.
 
 The simple promise:
 
@@ -29,22 +32,24 @@ The simple promise:
 
 ## Hero copy
 
-Recommended H1:
+Current H1:
 
 ```text
-Встреча останется с вами
+Встреча закончится
+Главное останется
 ```
 
-Recommended subcopy:
+Current subcopy:
 
 ```text
-GRAF сам записывает звонок и собирает главное после него.
+Включите автозапись для нужных приложений — без бота в звонке. После встречи
+GRAF сохранит расшифровку, решения и следующие шаги.
 ```
 
 Primary CTA:
 
 ```text
-Начать
+Скачать GRAF
 ```
 
 ## Message hierarchy
@@ -69,8 +74,8 @@ Every major section should answer one conversion question:
 - What do I get after the meeting?
 - What is the next click?
 
-Avoid making the user choose between learning and starting. The next click is
-always the login page.
+The hero's next click is either the download path or the first proof chapter;
+returning users can use the header or final login CTA.
 
 ## Start and download path
 
@@ -80,10 +85,16 @@ The landing primary CTA opens:
 /download
 ```
 
-The secondary login CTA opens:
+The final/header login CTA opens:
 
 ```text
 /login?next=/meetings
+```
+
+The hero product CTA opens:
+
+```text
+#how
 ```
 
 The `/download` handoff route serves the current installer package for the
@@ -115,14 +126,14 @@ GRAF синхронизируется с календарем...
 ### Hero
 
 - Wordmark.
-- H1: "Встреча останется с вами".
+- H1: "Встреча закончится / Главное останется".
 - Subcopy focused on automatic recording and meeting results.
-- One CTA: "Начать".
+- Primary CTA: "Скачать GRAF"; secondary proof link: "Посмотреть продукт".
 - Product visual showing an upcoming/active meeting becoming transcript,
   summary, and tasks.
-- Compatibility strip: lead with "Любой сервис для созвонов" and use a compact
-  moving wordmark rail with Russian and global conferencing services as
-  examples, not as an exhaustive dependency list.
+- Compatibility rail: use the current registry-driven application list as
+  examples of approved auto-record targets, not as partner logos or an
+  exhaustive compatibility promise.
 
 ### Core benefits
 
@@ -133,9 +144,10 @@ GRAF синхронизируется с календарем...
 
 ### How it works
 
-1. Включите автозапись.
-2. Говорите как обычно.
-3. Получайте итоги.
+1. Выберите приложения для автозаписи.
+2. Говорите как обычно; активная запись всегда видна и управляется кнопками
+   «Пауза» и «Остановить».
+3. Получайте расшифровку, решения и следующие шаги.
 
 ### After the meeting
 

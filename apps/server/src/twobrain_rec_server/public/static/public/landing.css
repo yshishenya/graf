@@ -372,6 +372,7 @@ h1 span {
 }
 
 .hero-proof-window {
+  position: relative;
   padding: 12px;
   overflow: hidden;
   border: 1px solid rgba(232, 226, 242, 0.2);
@@ -394,7 +395,7 @@ h1 span {
   display: flex;
   width: 200%;
   height: 100%;
-  animation: hero-proof-track 9s both;
+  animation: hero-proof-track 9s infinite alternate;
   animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
   will-change: transform;
 }
@@ -449,7 +450,41 @@ h1 span {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 6px;
-  padding: 10px 8px 2px;
+  padding: 10px 96px 2px 8px;
+}
+
+.hero-proof-toggle {
+  position: absolute;
+  right: 14px;
+  bottom: 5px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 5px 10px;
+  border: 1px solid rgba(247, 244, 250, 0.18);
+  border-radius: 999px;
+  color: rgba(247, 244, 250, 0.78);
+  font-size: 0.68rem;
+  font-weight: 650;
+  background: rgba(9, 8, 13, 0.76);
+  cursor: pointer;
+  backdrop-filter: blur(12px);
+}
+
+.hero-proof-toggle:hover {
+  border-color: rgba(200, 186, 255, 0.5);
+  color: var(--text);
+}
+
+.motion-toggle-input:focus-visible + .hero-proof-toggle {
+  outline: 2px solid var(--violet-soft);
+  outline-offset: 4px;
+}
+
+#pause-hero-proof:checked ~ .hero-proof-stack .hero-proof-track,
+#pause-hero-proof:checked ~ .hero-proof-progress .hero-proof-progress-segment::after {
+  animation-play-state: paused;
 }
 
 .hero-proof-progress-segment {
@@ -470,11 +505,11 @@ h1 span {
 }
 
 .hero-proof-progress-transcript::after {
-  animation: hero-proof-progress-transcript 9s both;
+  animation: hero-proof-progress-transcript 9s infinite alternate;
 }
 
 .hero-proof-progress-outcome::after {
-  animation: hero-proof-progress-outcome 9s both;
+  animation: hero-proof-progress-outcome 9s infinite alternate;
 }
 
 .hero-product figcaption,
@@ -589,8 +624,6 @@ h2 {
   font-size: clamp(1.03rem, 1.35vw, 1.16rem);
   line-height: 1.64;
   text-wrap: pretty;
-  font-size: 1.15rem;
-  color: var(--soft);
 }
 
 .proof-frame {
@@ -689,9 +722,40 @@ h2 {
 }
 
 .capture-safety {
-  margin: 22px 0 0;
+  margin: 0;
   color: var(--muted);
   font-size: 0.86rem;
+}
+
+.capture-safety-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.64fr) minmax(0, 1.36fr);
+  gap: clamp(28px, 6vw, 84px);
+  align-items: center;
+  margin-top: 28px;
+  padding: 26px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.capture-safety-copy .eyebrow {
+  margin-bottom: 10px;
+}
+
+.recording-control-proof {
+  margin: 0;
+}
+
+.recording-control-proof img {
+  width: 100%;
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  background: #242426;
+  box-shadow: 0 20px 52px rgba(0, 0, 0, 0.28);
+}
+
+.recording-control-proof figcaption {
+  margin-top: 10px;
 }
 
 .calendar-context {
@@ -809,15 +873,18 @@ h2 {
 }
 
 .when-paused,
-.motion-toggle-input:checked + .motion-toggle .when-running {
+.motion-toggle-input:checked + .motion-toggle .when-running,
+.motion-toggle-input:checked + .hero-proof-toggle .when-running {
   display: none;
 }
 
-.motion-toggle-input:checked + .motion-toggle .when-paused {
+.motion-toggle-input:checked + .motion-toggle .when-paused,
+.motion-toggle-input:checked + .hero-proof-toggle .when-paused {
   display: inline;
 }
 
 .platform-rail {
+  position: relative;
   width: 100%;
   overflow: hidden;
   border-top: 1px solid var(--line);
@@ -981,6 +1048,10 @@ h2 {
   padding: clamp(90px, 9vw, 128px) 24px 56px;
   border-top: 1px solid var(--line);
   text-align: center;
+}
+
+.chapter-trust + .final-cta {
+  margin-top: clamp(72px, 8vw, 112px);
 }
 
 @keyframes section-reveal {
@@ -1276,23 +1347,23 @@ h2 {
 }
 
 @media (max-width: 1100px) {
+  .hero-product::before {
+    display: none;
+  }
+
   .hero {
-    grid-template-columns: 1fr;
-    gap: 42px;
+    grid-template-columns: minmax(380px, 0.94fr) minmax(480px, 1.06fr);
+    gap: 28px;
     min-height: auto;
+    padding-top: 82px;
+  }
+
+  h1 {
+    font-size: clamp(2.35rem, 3.6vw, 3.1rem);
   }
 
   .hero-product {
-    width: min(100%, 720px);
-    margin: 0;
-  }
-
-  .site-header {
-    grid-template-columns: 1fr auto;
-  }
-
-  .top-nav {
-    display: none;
+    width: 100%;
   }
 
   .outcome-proof-grid,
@@ -1348,7 +1419,12 @@ h2 {
   }
 
   .site-header {
+    grid-template-columns: 1fr auto;
     gap: 10px;
+  }
+
+  .top-nav {
+    display: none;
   }
 
   .brand img {
@@ -1375,6 +1451,9 @@ h2 {
   }
 
   .hero {
+    grid-template-columns: 1fr;
+    gap: 42px;
+    min-height: auto;
     padding-top: 62px;
   }
 
@@ -1423,7 +1502,15 @@ h2 {
     border-radius: 20px;
   }
 
+  .hero-proof-toggle {
+    right: 16px;
+    bottom: 5px;
+  }
+
   .hero-proof-stack {
+    /* Intentional mobile focus crop: enough transcript stays readable without
+       turning the hero into a full-height screenshot wall. */
+    aspect-ratio: 390 / 620;
     border-radius: 12px;
     transform: none;
   }
@@ -1435,6 +1522,9 @@ h2 {
   }
 
   .hero-outcome-image {
+    height: 100%;
+    object-fit: cover;
+    object-position: top center;
     border-radius: 12px;
   }
 
@@ -1516,6 +1606,13 @@ h2 {
     padding: 26px 0;
   }
 
+  .capture-safety-grid {
+    grid-template-columns: 1fr;
+    gap: 22px;
+    margin-top: 24px;
+    padding: 22px 0;
+  }
+
   .calendar-context .eyebrow {
     grid-row: auto;
     margin: 0 0 4px;
@@ -1543,7 +1640,17 @@ h2 {
     display: none;
   }
 
+  #pause-platform-rail {
+    display: none;
+  }
+
+  .hero-proof-toggle {
+    right: 14px;
+    bottom: 5px;
+  }
+
   .platform-rail {
+    position: relative;
     width: calc(100% + var(--page-pad));
     overflow-x: auto;
     padding-right: var(--page-pad);
@@ -1551,6 +1658,17 @@ h2 {
     mask-image: none;
     scroll-snap-type: x proximity;
     scrollbar-width: thin;
+  }
+
+  .platform-rail::after {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 28px;
+    background: linear-gradient(90deg, transparent, var(--bg-deep));
+    content: "";
+    pointer-events: none;
   }
 
   .platform-track {
@@ -1671,6 +1789,27 @@ h2 {
   }
 }
 
+@media (min-width: 821px) and (max-width: 1000px) {
+  .hero {
+    grid-template-columns: 1fr;
+    gap: 42px;
+    min-height: auto;
+    padding-top: 82px;
+  }
+
+  h1 {
+    font-size: clamp(3rem, 5.4vw, 3.9rem);
+  }
+
+  .hero-lede {
+    font-size: 1.04rem;
+  }
+
+  .hero-product {
+    width: min(100%, 720px);
+  }
+}
+
 @media (max-width: 320px) {
   :root {
     --page-pad: 14px;
@@ -1687,7 +1826,7 @@ h2 {
   }
 
   h1 {
-    font-size: 2.62rem;
+    font-size: 2.45rem;
   }
 
   h2 {
@@ -1731,7 +1870,7 @@ h2 {
 
   .hero-proof-track {
     animation: none;
-    transform: translateX(-50%);
+    transform: translateX(0);
   }
 
   .hero-proof-progress-transcript::after,
@@ -1740,14 +1879,26 @@ h2 {
   }
 
   .hero-proof-progress-transcript::after {
-    transform: scaleX(0.25);
-  }
-
-  .hero-proof-progress-outcome::after {
     transform: scaleX(1);
   }
 
+  .hero-proof-progress-outcome::after {
+    transform: scaleX(0);
+  }
+
   .motion-toggle {
+    display: none;
+  }
+
+  #pause-platform-rail {
+    display: none;
+  }
+
+  .hero-proof-toggle {
+    display: none;
+  }
+
+  #pause-hero-proof {
     display: none;
   }
 

@@ -308,3 +308,66 @@ for `public/static/public/downloads/graf-local.pkg`; `spctl` acceptance is only
 the local `security disabled` override and is not launch evidence.
 
 historical final status: blocked
+
+## Frontend-skill refinement — 2026-08-16
+
+- Fresh public-browser fixture captures were reviewed at 1440×1000, 1024×900,
+  390×844 and 320×800; the reduced-motion state was also captured at 390×844.
+- The fixture used the current landing CSS and current product proof assets,
+  with the updated hero copy, outcome heading, synthetic-data labels and native
+  pause control injected into the public DOM. No private meeting data or
+  credentials are present in the evidence.
+- Desktop hierarchy keeps the product proof beside the promise; the 1024px
+  tablet state removes the atmospheric pseudo-layer so it cannot cover the
+  hero actions.
+- Mobile proof uses the intentional 390/620 focus crop and keeps transcript
+  rows, timecodes and the pause rail legible without turning the first screen
+  into a full-height screenshot wall.
+- The second hero proof is lazy/deferred, focus styling is visible for the
+  pause control, and `prefers-reduced-motion` holds the transcript state while
+  removing the hidden control from the tab order.
+- Synthetic-data wording is consistent in image alt text and the visible
+  caption; the page does not claim universal capture, named models, pricing or
+  Russia-only processing.
+- Focused Feature 142 public suite: `41 passed, 1 warning` using the disposable
+  PostgreSQL harness (`run_local_postgres_tests.sh --focused`).
+- `git diff --check`: passed. Browser review: no horizontal overflow at the
+  checked widths; no actionable P0/P1/P2 visual or accessibility findings.
+- Evidence: `evidence/frontend-skill-v1/landing-{1440,1024,390,320}.png` and
+  `landing-390-reduced-motion.png`.
+
+## Frontend-skill refinement v2 — 2026-08-16
+
+- Rechecked the current server-rendered page at 1440×1000, 1024×900,
+  390×844 and 320×800 with fresh browser captures. `scrollWidth` equals the
+  viewport width at every checked size.
+- The hero proof now loops between transcript and outcome with a native
+  checkbox pause/resume control. The control reports a real paused/running CSS
+  animation state; reduced-motion and mobile hide the unrelated service-rail
+  pause input from the tab order.
+- The hero product panels are hidden from assistive technology as a moving
+  visual pair and have one concise screen-reader description, avoiding duplicate
+  announcements of both carousel states. The proof CTA uses the allowlisted
+  `section` analytics target and dispatches correctly.
+- Chapter 01 now includes a separate current GRAF Pause/Stop proof, while the
+  auto-record screenshot is cleaned of macOS bundle identifiers and keeps only
+  human-readable application names and the product setting.
+- Heavy transcript, outcome and auto-record proofs now expose WebP sources with
+  the original PNG fallback. The above-fold second proof is eager so the first
+  transition cannot reveal an empty panel.
+- Tablet composition keeps the hero side-by-side at 1024px with a compact
+  two-line headline and stacks it below 1000px; 320px uses a dedicated smaller
+  type scale. Header anchors remain available at tablet widths.
+- Copy and metadata were reconciled with the current product truth: selected
+  auto-record targets, manual fallback for other supported calls, calendar as
+  context, Russian/local model wording, and no price, YooKassa or Russia-only
+  processing claim. Open Graph locale/site and Twitter title/description are
+  now explicit.
+- Focused Feature 142 public suite: `42 passed, 1 warning` using the disposable
+  PostgreSQL harness. Public Ruff checks pass; `git diff --check` passes.
+- Repository fast gate: `1088 passed, 1 warning`; no-legacy-audio guard, server
+  lint and Python compile all pass.
+
+Current visual result: passed. Remaining release gates are the existing
+operator/data-residency and billing approvals in T058–T059; this UI pass does
+not change those gates.

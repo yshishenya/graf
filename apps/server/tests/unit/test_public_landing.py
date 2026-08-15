@@ -10,12 +10,14 @@ def test_public_landing_is_self_serve_entry(client) -> None:
     assert response.status_code == 200
     assert "Встреча закончится" in response.text
     assert "Главное останется" in response.text
-    assert "GRAF записывает звук встречи на компьютере" in response.text
+    assert "Включите автозапись для нужных приложений" in response.text
+    assert "без бота в звонке" in response.text
+    assert "отдельной интеграции" not in response.text
     assert "регистрац" not in response.text.lower()
     assert "Выберите приложения. GRAF подхватит встречу" in response.text
     assert "запускает запись по вашему правилу" in response.text
     assert "79" in response.text
-    assert "приложений в текущем" in response.text
+    assert "приложений с доступной автозаписью" in response.text
     assert "Запись не зависит от сервиса встречи" in response.text
     assert "Любой сервис для созвонов" not in response.text
     assert "всех приложениях" not in response.text.lower()
@@ -32,13 +34,15 @@ def test_public_landing_is_self_serve_entry(client) -> None:
     assert "Календарь подскажет название встречи" in response.text
     assert "SberJazz" not in response.text
     assert "через минуты" not in response.text
-    assert "После встречи понятно, что делать дальше" in response.text
+    assert "Сразу понятно, что делать дальше" in response.text
     assert "Запустить двухнедельный пилот в понедельник" in response.text
     assert "Продажи готовят список участников и календарь встреч" in response.text
     assert "Активная запись всегда видна" in response.text
     assert "Остановить её можно одним действием" in response.text
     assert "Как работает автозапись" not in response.text
     assert "данные встречи созданы для демонстрации" in response.text.lower()
+    assert "Демонстрационный экран итогов" in response.text
+    assert "Реальный экран итогов" not in response.text
     assert "Российские и локально развёрнутые модели" in response.text
     assert "остаётся в управляемом контуре" not in response.text
     assert "ничего за рубеж" not in response.text.lower()
@@ -48,11 +52,23 @@ def test_public_landing_is_self_serve_entry(client) -> None:
     assert response.text.count('href="/login?next=/meetings"') >= 2
     assert 'href="/sign-up?next=/meetings"' not in response.text
     assert "Посмотреть продукт" in response.text
+    assert response.text.count('data-analytics-cta="hero_product"') == 1
+    assert response.text.count('data-analytics-target="section"') >= 1
     assert 'role="group"' in response.text
     assert 'aria-label="Два экрана одной демонстрационной встречи: расшифровка и итоги"' in response.text
+    assert 'id="pause-hero-proof"' in response.text
+    assert 'for="pause-hero-proof"' in response.text
+    assert response.text.index('id="pause-hero-proof"') < response.text.index('class="hero-proof-stack"')
+    assert 'loading="lazy"' in response.text
+    assert response.text.count("Демонстрационный экран") >= 3
+    assert "Итоги той же встречи: резюме" not in response.text
     assert 'class="hero-proof-panel hero-proof-panel-transcript"' in response.text
     assert 'class="hero-proof-panel hero-proof-panel-outcome"' in response.text
     assert 'class="hero-proof-progress"' in response.text
+    assert 'aria-describedby="hero-proof-description"' in response.text
+    assert 'aria-hidden="true"' in response.text
+    assert 'landing-recording-proof-focus.png?v=' in response.text
+    assert "Панель активной записи GRAF" in response.text
     assert 'hero-proof-input' not in response.text
     assert ">01<" in response.text
     assert ">02<" in response.text
@@ -69,19 +85,24 @@ def test_public_landing_uses_local_static_assets(client) -> None:
     assert "/static/public/landing-autorecord-proof-control-mobile.png?v=" in response.text
     assert "/static/public/landing-autorecord-proof-toggle-mobile.png?v=" in response.text
     assert "/static/public/landing-recording-proof.png?v=" not in response.text
-    assert "/static/public/landing-recording-proof-focus.png?v=" not in response.text
+    assert "/static/public/landing-recording-proof-focus.png?v=" in response.text
     assert "/static/public/landing-transcript-proof.png?v=" in response.text
+    assert "/static/public/landing-transcript-proof.webp?v=" in response.text
     assert "/static/public/landing-transcript-proof-mobile.png?v=" in response.text
+    assert "/static/public/landing-transcript-proof-mobile.webp?v=" in response.text
     assert "/static/public/landing-outcome-proof.png?v=" in response.text
+    assert "/static/public/landing-outcome-proof.webp?v=" in response.text
     assert "/static/public/landing-outcome-proof-mobile.png?v=" in response.text
+    assert "/static/public/landing-outcome-proof-mobile.webp?v=" in response.text
+    assert "/static/public/landing-autorecord-proof-focus.webp?v=" in response.text
     assert "/static/public/landing-outcome-proof-focus.png?v=" not in response.text
     assert "/static/public/landing-hero-product.png?v=" not in response.text
     assert "/static/cabinet/graf-wordmark-dark@2x.png?v=" in response.text
     assert "/static/cabinet/favicon.ico?v=" in response.text
     assert 'width="1487"' in response.text
     assert 'height="1058"' in response.text
-    assert 'width="3040"' in response.text
-    assert 'height="2000"' in response.text
+    assert 'width="1546"' in response.text
+    assert 'height="1017"' in response.text
     assert "/static/public/fonts/onest-cyrillic.woff2?v=" in response.text
     assert "/static/public/fonts/onest-latin.woff2?v=" in response.text
     assert "https://rec.2brain.pro/" in response.text
@@ -160,8 +181,9 @@ def test_public_landing_analytics_attributes_do_not_change_cta_destinations(clie
     assert 'data-analytics-cta="header_download"' in response.text
     assert 'data-analytics-cta="hero_download"' in response.text
     assert 'data-analytics-cta="final_download"' in response.text
-    assert 'data-analytics-cta="hero_login"' in response.text
-    assert 'data-analytics-target="login"' in response.text
+    assert 'data-analytics-cta="hero_product"' in response.text
+    assert 'data-analytics-target="section"' in response.text
+    assert 'href="#how"' in response.text
     assert response.text.count('href="/login?next=/meetings"') >= 1
     assert response.text.count('data-analytics-target="login"') >= 1
     assert 'data-analytics-cta="final_login"' in response.text
