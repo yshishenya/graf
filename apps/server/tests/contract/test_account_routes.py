@@ -91,7 +91,7 @@ def test_workspace_settings_copy_keeps_role_boundary_and_no_js_switch_fallback()
     )
 
     assert "Участник" in page
-    assert "Принятие приглашения не переносит личные записи" in page
+    assert "Присоединение добавит рабочее пространство, но не перенесёт личные встречи." in page
     assert "return_to_settings=true" in page
     assert 'method="post"' in page
 

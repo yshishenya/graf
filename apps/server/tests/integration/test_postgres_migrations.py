@@ -110,7 +110,9 @@ async def _seed_identity(sessionmaker) -> None:
                     id=WORKSPACE_ID,
                     organization_id=ORG_ID,
                     slug="local-workspace",
-                    name="Local Workspace",
+                    name="Моё пространство",
+                    kind="personal",
+                    owner_user_id=USER_ID,
                 ),
                 UserIdentity(
                     id=USER_ID,
@@ -513,6 +515,7 @@ def test_clean_database_migrates_and_accepts_seeded_identity_request(
         minio_access_key="test",
         minio_secret_key="test",
         minio_bucket="test-bucket",
+        web_login_workspace_id=UUID("20000000-0000-0000-0000-000000000000"),
     )
     import asyncio
 

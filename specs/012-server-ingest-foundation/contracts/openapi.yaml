@@ -76,21 +76,13 @@ paths:
       - auth
       summary: List Providers
       operationId: list_providers_api_v1_auth_providers_get
-      parameters:
-      - name: workspace_id
-        in: query
-        required: true
-        schema:
-          type: string
-          format: uuid
-          title: Workspace Id
       responses:
         '200':
           description: Successful Response
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AuthProvidersResponse'
+                $ref: '#/components/schemas/PublicAuthProvidersResponse'
         '400':
           description: Bad request
           content:
@@ -147,6 +139,30 @@ paths:
           type: string
           format: uuid
           title: Workspace Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
       responses:
         '200':
           description: Successful Response
@@ -4721,65 +4737,6 @@ paths:
                 type: object
                 additionalProperties: true
                 title: Response Resendadmininvitation
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-  /api/v1/admin/invitations/{invitation_id}/complete:
-    post:
-      tags:
-      - admin
-      summary: Complete Admin Invitation
-      operationId: completeAdminInvitation
-      parameters:
-      - name: invitation_id
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-          title: Invitation Id
-      - name: X-User-Id
-        in: header
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: X-User-Id
-      - name: X-Organization-Id
-        in: header
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: X-Organization-Id
-      - name: X-Workspace-Id
-        in: header
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: X-Workspace-Id
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/InvitationCompleteRequest'
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                type: object
-                additionalProperties: true
-                title: Response Completeadmininvitation
         '422':
           description: Validation Error
           content:
@@ -9663,19 +9620,39 @@ components:
           $ref: '#/components/schemas/_ConsentCopy'
       type: object
       required:
-      - workspace_id
       - providers
       - residency
       - enrollment
       - consent_version
       - consent
+      - workspace_id
       title: AuthProvidersResponse
+    PublicAuthProvidersResponse:
+      properties:
+        providers:
+          items:
+            $ref: '#/components/schemas/_ProviderEntry'
+          type: array
+          title: Providers
+        residency:
+          $ref: '#/components/schemas/_ResidencyState'
+        enrollment:
+          $ref: '#/components/schemas/_EnrollmentState'
+        consent_version:
+          type: string
+          title: Consent Version
+        consent:
+          $ref: '#/components/schemas/_ConsentCopy'
+      type: object
+      required:
+      - providers
+      - residency
+      - enrollment
+      - consent_version
+      - consent
+      title: PublicAuthProvidersResponse
     AuthStartRequest:
       properties:
-        workspace_id:
-          type: string
-          format: uuid
-          title: Workspace Id
         workspace_return_url:
           anyOf:
           - type: string
@@ -9687,9 +9664,8 @@ components:
             format: uuid
           - type: 'null'
           title: Continue Session Id
+      additionalProperties: false
       type: object
-      required:
-      - workspace_id
       title: AuthStartRequest
     AuthStartResponse:
       properties:
@@ -11580,29 +11556,6 @@ components:
           default: ok
       type: object
       title: HealthResponse
-    InvitationCompleteRequest:
-      properties:
-        workspace_id:
-          type: string
-          format: uuid
-          title: Workspace Id
-        login_contact:
-          type: string
-          maxLength: 240
-          minLength: 1
-          title: Login Contact
-        provider:
-          anyOf:
-          - type: string
-            maxLength: 64
-          - type: 'null'
-          title: Provider
-      additionalProperties: false
-      type: object
-      required:
-      - workspace_id
-      - login_contact
-      title: InvitationCompleteRequest
     InvitationCreateRequest:
       properties:
         target_contact:
