@@ -214,7 +214,7 @@ def test_public_pages_render_stable_conversion_labels_in_render_only_mode(
         "header_download",
         "hero_download",
         "final_download",
-        "hero_login",
+        "hero_product",
         "final_login",
     )
     for cta_location in landing_cta_labels:

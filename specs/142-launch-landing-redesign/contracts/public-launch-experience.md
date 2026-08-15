@@ -18,7 +18,7 @@ The page order is:
 
 1. Minimal header.
 2. Platform-neutral hero.
-3. `01 / В привычных сервисах` — truthful recording scope and visible Pause/Stop state.
+3. `01 / Автозапись для выбранных приложений` — truthful recording scope and visible Pause/Stop state.
 4. `02 / После встречи` — real outcome UI and source-backed value.
 5. `03 / Инфраструктура` — Russian and locally deployed models without implying that every processor or trace stays in Russia.
 6. Final download/login CTA and muted platform note.
@@ -34,7 +34,7 @@ The selected visual reference is `../design/selected-direction-3.png`. Its gener
 | Service rail | Curated native targets from registry `2026.07.21.1` | Text pills indicate where GRAF may suggest recording; they are not partner logos or a universal compatibility matrix. |
 | Browser note | `Google Meet и другие браузерные встречи — с ручным стартом записи.` | Browser targets remain `manual_or_browser_only`. |
 | Outcome | `Сразу понятно, что делать дальше` | Real accepted-outcome UI proves `Кратко`, `Действия`, `Решения`, `Источник`. |
-| AI | `Модели под задачу, данные под контролем` | Supporting copy distinguishes model choice from data residency and links to the current processor/cross-border disclosure; no fully local or zero-egress promise. |
+| AI | `Российские и локально развёрнутые модели` | Supporting copy distinguishes model choice from data residency and links to the current processor/cross-border disclosure; no fully local or zero-egress promise. |
 | Control | `Состояние, пауза и остановка всегда рядом` | Rendered from the current `CaptureStatusItem` with a synthetic active session. |
 | Platforms | `macOS — доступно сейчас · Windows и Linux — скоро` | Product owner explicitly accepted the undated roadmap status; only macOS is actionable. |
 | Payment | Not published | Price and YooKassa remain blocked until the approved catalog and checkout are live. |

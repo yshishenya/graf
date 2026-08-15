@@ -27,14 +27,19 @@ def test_public_landing_static_assets_are_local_to_server_package() -> None:
     assert (PUBLIC_STATIC_DIR / "landing-recording-proof.png").is_file()
     assert (PUBLIC_STATIC_DIR / "landing-recording-proof-focus.png").is_file()
     assert (PUBLIC_STATIC_DIR / "landing-autorecord-proof-focus.png").is_file()
+    assert (PUBLIC_STATIC_DIR / "landing-autorecord-proof-focus.webp").is_file()
     assert (PUBLIC_STATIC_DIR / "landing-autorecord-proof-control-mobile.png").is_file()
     assert (PUBLIC_STATIC_DIR / "landing-autorecord-proof-toggle-mobile.png").is_file()
     assert (PUBLIC_STATIC_DIR / "landing-transcript-proof.png").is_file()
+    assert (PUBLIC_STATIC_DIR / "landing-transcript-proof.webp").is_file()
     assert (PUBLIC_STATIC_DIR / "landing-transcript-proof-mobile.png").is_file()
+    assert (PUBLIC_STATIC_DIR / "landing-transcript-proof-mobile.webp").is_file()
     assert (PUBLIC_STATIC_DIR / "landing-outcome-proof.png").is_file()
+    assert (PUBLIC_STATIC_DIR / "landing-outcome-proof.webp").is_file()
     assert (PUBLIC_STATIC_DIR / "landing-outcome-proof-focus.png").is_file()
     assert (PUBLIC_STATIC_DIR / "landing-outcome-proof-focus-mobile.png").is_file()
     assert (PUBLIC_STATIC_DIR / "landing-outcome-proof-mobile.png").is_file()
+    assert (PUBLIC_STATIC_DIR / "landing-outcome-proof-mobile.webp").is_file()
     assert (PUBLIC_STATIC_DIR / "fonts" / "onest-cyrillic.woff2").is_file()
     assert (PUBLIC_STATIC_DIR / "fonts" / "onest-latin.woff2").is_file()
     assert (PUBLIC_STATIC_DIR / "fonts" / "OFL.txt").is_file()
@@ -141,8 +146,17 @@ def test_public_landing_css_keeps_accessible_focus_and_stable_motion() -> None:
     assert "animation-timeline: view()" in content
     assert 'url("landing-atmosphere.jpg")' in content
     assert "hero-proof-track" in content
+    assert "animation: hero-proof-track 9s infinite alternate" in content
     assert "hero-proof-progress-transcript" in content
+    assert "animation: hero-proof-progress-transcript 9s infinite alternate" in content
     assert "hero-proof-progress" in content
+    assert "pause-hero-proof" in content
+    assert "animation-play-state: paused" in content
+    assert "hero-proof-toggle" in content
+    assert "aspect-ratio: 390 / 620" in content
+    assert "object-position: top center" in content
+    assert "#pause-platform-rail" in content
+    assert "display: none" in content
     assert "hero-proof-tabs" not in content
     assert "transition: all" not in content
     assert "overflow-x: hidden" not in content
@@ -151,6 +165,14 @@ def test_public_landing_css_keeps_accessible_focus_and_stable_motion() -> None:
     assert ".legal-page h1" in content
     assert ".legal-section code" in content
     assert "overflow-wrap: anywhere" in content
+
+
+def test_public_landing_hero_product_cta_uses_allowlisted_section_target() -> None:
+    content = (PUBLIC_TEMPLATE_DIR / "landing.html").read_text(encoding="utf-8")
+
+    assert 'data-analytics-cta="hero_product"' in content
+    assert 'data-analytics-target="section"' in content
+    assert 'data-analytics-target="hero_product"' not in content
 
 
 def test_public_cookie_preferences_use_dark_contrast_tokens() -> None:
@@ -183,6 +205,9 @@ def test_public_html_security_headers_discovery_and_canonical_are_shared() -> No
             assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
             assert f'<link rel="canonical" href="https://rec.2brain.pro{path}">' in response.text
             assert 'property="og:title"' in response.text
+            assert 'property="og:locale" content="ru_RU"' in response.text
+            assert 'name="twitter:title"' in response.text
+            assert 'name="twitter:description"' in response.text
 
         robots = client.get("/robots.txt")
         sitemap = client.get("/sitemap.xml")
