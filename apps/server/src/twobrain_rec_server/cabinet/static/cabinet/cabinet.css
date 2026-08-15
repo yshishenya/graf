@@ -1957,10 +1957,10 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 .settings-boundary-list li { display: grid; gap: 3px; padding-top: 10px; border-top: 1px solid var(--line-soft); }
 .settings-boundary-list span { color: var(--muted); }
 .settings-choice-list { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
-/* .settings-choice-row { display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 12px 0; border-top: 1px solid var(--line-soft); }
-/* .settings-choice-row > div:first-child { display: grid; gap: 3px; min-width: 0; }
-/* .settings-choice-row .muted { overflow-wrap: anywhere; }
-/* .settings-choice-row .settings-actions { flex: 0 0 auto; }
+.settings-choice-row { display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 12px 0; border-top: 1px solid var(--line-soft); }
+.settings-choice-row > div:first-child { display: grid; gap: 3px; min-width: 0; }
+.settings-choice-row .muted { overflow-wrap: anywhere; }
+.settings-choice-row .settings-actions { flex: 0 0 auto; }
 .settings-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .settings-status { padding: 10px 12px; border: 1px solid rgba(47,201,166,.3); border-radius: 8px; color: #b5f1df; background: rgba(47,201,166,.08); }
 .settings-form-status { margin: 0; color: var(--amber); font-size: 12px; font-weight: 700; }
@@ -1997,11 +1997,11 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   .settings-page > .settings-page__content,
   .calendar-settings > .calendar-settings__content { grid-column: 1; }
   .settings-section__heading,
-  /* .settings-choice-row { align-items: stretch; flex-direction: column; }
+  .settings-choice-row, .settings-list-item { align-items: stretch; flex-direction: column; }
   .settings-overview { grid-template-columns: 1fr; }
   .settings-section__heading .button,
-  /* .settings-choice-row .settings-actions,
-  .settings-list-item form { align-self: flex-start; }
+  .settings-choice-row .settings-actions, .settings-list-item .settings-actions,
+  .settings-choice-row form, .settings-list-item form { align-self: flex-start; }
 }
 .meeting-title { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 650; }
 .meeting-toolbar {

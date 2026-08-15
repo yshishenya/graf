@@ -55,7 +55,7 @@
       {% if account_surface.providers %}
       <ul class="settings-list" aria-label="Подключённые способы входа">
         {% for provider in account_surface.providers %}
-        <li class="settings-list-item"><div><strong>{{ provider.label }}</strong><span class="muted">{{ provider.status_label }}{% if provider.primary %} · Основной{% endif %}</span></div>{% if provider.can_unlink and provider.identity_id %}<form action="{{ '/desktop/settings/account/providers/' if embedded else '/settings/account/providers/' }}{{ provider.identity_id }}/unlink" method="post">{{ sections.csrf_field(csrf_token) }}<button class="button quiet" type="submit" data-confirm="Отключить этот способ входа?">Отключить</button></form>{% endif %}</li>
+        <li class="settings-list-item"><div class="settings-list-item__content"><span class="settings-list-item__title">{{ provider.label }}</span><span class="settings-list-item__desc">{{ provider.status_label }}{% if provider.primary %} · Основной{% endif %}</span></div>{% if provider.can_unlink and provider.identity_id %}<form action="{{ '/desktop/settings/account/providers/' if embedded else '/settings/account/providers/' }}{{ provider.identity_id }}/unlink" method="post">{{ sections.csrf_field(csrf_token) }}<button class="button quiet" type="submit" data-confirm="Отключить этот способ входа?">Отключить</button></form>{% endif %}</li>
         {% endfor %}
       </ul>
       {% else %}<p class="settings-empty-state" role="status">Подключённых способов входа пока нет.</p>{% endif %}
@@ -79,8 +79,7 @@
       {% if account_surface.devices %}
       <ul class="settings-list" aria-label="Зарегистрированные устройства">
         {% for device in account_surface.devices %}
-        <li class="settings-list-item">
-          <div><strong>{{ device.platform_label }}{% if device.current %} · Текущее устройство{% endif %}</strong><span class="muted">{{ device.status_label }} · {{ device.version_label }}{% if device.last_seen_at %} · Последняя активность: {{ device.last_seen_at.strftime("%Y-%m-%d %H:%M UTC") }}{% endif %}</span></div>
+        <li class="settings-list-item"><div class="settings-list-item__content"><span class="settings-list-item__title">{{ device.platform_label }}{% if device.current %} · Текущее устройство{% endif %}</span><span class="settings-list-item__desc">{{ device.status_label }} · {{ device.version_label }}{% if device.last_seen_at %} · Последняя активность: {{ device.last_seen_at.strftime("%Y-%m-%d %H:%M UTC") }}{% endif %}</span></div>
           {% if device.can_revoke %}
           <form action="{{ "/desktop/settings/account/devices/" if embedded else "/settings/account/devices/" }}{{ device.device_id }}/revoke" method="post">{{ sections.csrf_field(csrf_token) }}<button class="button quiet" type="submit" data-confirm="Отозвать это устройство?">Отозвать</button></form>
           {% endif %}
@@ -98,7 +97,7 @@
       {% if account_surface.sessions %}
       <ul class="settings-list" aria-label="Активные сессии">
         {% for session in account_surface.sessions %}
-        <li class="settings-list-item"><div><strong>{{ session.provider_label }}{% if session.current %} · Текущая сессия{% endif %}</strong><span class="muted">{{ session.status_label }}{% if session.last_seen_at %} · Последняя активность: {{ session.last_seen_at.strftime("%Y-%m-%d %H:%M UTC") }}{% endif %}</span></div>{% if session.can_revoke %}<form action="{{ '/desktop/settings/account/sessions/' if embedded else '/settings/account/sessions/' }}{{ session.session_id }}/revoke" method="post">{{ sections.csrf_field(csrf_token) }}<button class="button quiet" type="submit" data-confirm="Завершить этот сеанс?">Завершить сеанс</button></form>{% endif %}</li>
+        <li class="settings-list-item"><div class="settings-list-item__content"><span class="settings-list-item__title">{{ session.provider_label }}{% if session.current %} · Текущая сессия{% endif %}</span><span class="settings-list-item__desc">{{ session.status_label }}{% if session.last_seen_at %} · Последняя активность: {{ session.last_seen_at.strftime("%Y-%m-%d %H:%M UTC") }}{% endif %}</span></div>{% if session.can_revoke %}<form action="{{ '/desktop/settings/account/sessions/' if embedded else '/settings/account/sessions/' }}{{ session.session_id }}/revoke" method="post">{{ sections.csrf_field(csrf_token) }}<button class="button quiet" type="submit" data-confirm="Завершить этот сеанс?">Завершить сеанс</button></form>{% endif %}</li>
         {% endfor %}
       </ul>
       {% else %}<p class="settings-empty-state" role="status">Активных сессий не найдено.</p>{% endif %}
