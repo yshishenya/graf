@@ -21,7 +21,9 @@ def _active_files() -> list[Path]:
             files.extend(
                 candidate
                 for candidate in path.rglob("*")
-                if candidate.is_file() and "__pycache__" not in candidate.parts
+                if candidate.is_file()
+                and "__pycache__" not in candidate.parts
+                and "tests" not in candidate.parts
             )
     return files
 

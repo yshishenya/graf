@@ -8,7 +8,7 @@
         <h1>Запись встреч</h1>
       </div>
     </header>
-    <section class="settings-section settings-handoff-card" aria-labelledby="recording-handoff-title" data-recording-handoff>
+    <section class="settings-section" aria-labelledby="recording-handoff-title" data-recording-handoff>
       <span class="settings-scope-badge">На этом Mac</span>
       <h2 id="recording-handoff-title">Настройка записи находится в приложении GRAF</h2>
       <p>Эти настройки действуют только на этом Mac.</p>
@@ -22,7 +22,7 @@
       {% endif %}
     </section>
 
-    <section class="settings-section settings-unavailable-card" aria-labelledby="recording-unavailable-title">
+    <section class="settings-section" aria-labelledby="recording-unavailable-title">
       <h2 id="recording-unavailable-title">Нет приложения GRAF?</h2>
       <p class="muted">Скачайте приложение для macOS, чтобы управлять записями.</p>
       {% if not embedded %}<a class="button quiet" href="/download">Скачать GRAF для macOS</a>{% endif %}
