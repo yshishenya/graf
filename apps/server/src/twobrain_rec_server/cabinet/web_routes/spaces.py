@@ -58,6 +58,7 @@ async def list_accessible_spaces(
         db,
         organization_id=principal.organization_id,
         current_workspace_id=tenant_scope.workspace_id,
+        internal_workspace_id=request.app.state.settings.web_login_workspace_id,
         user_id=principal.user_id,
     )
     return JSONResponse(
@@ -110,6 +111,7 @@ async def activate_accessible_space(
         db,
         organization_id=principal.organization_id,
         current_workspace_id=tenant_scope.workspace_id,
+        internal_workspace_id=request.app.state.settings.web_login_workspace_id,
         user_id=principal.user_id,
         current_session_id=principal.session_id,
         target_workspace_id=workspace_id,
@@ -147,6 +149,7 @@ async def activate_accessible_space(
 
 @router.get("/settings/join-offers", include_in_schema=False)
 async def list_workspace_offers(
+    request: Request,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = LoginDbDependency,
 ) -> JSONResponse:
@@ -159,6 +162,7 @@ async def list_workspace_offers(
         db,
         organization_id=principal.organization_id,
         current_workspace_id=current_workspace_id,
+        internal_workspace_id=request.app.state.settings.web_login_workspace_id,
         user_id=principal.user_id,
     )
     await db.commit()
@@ -207,6 +211,7 @@ async def decide_workspace_offer(
             db,
             organization_id=principal.organization_id,
             current_workspace_id=current_workspace_id,
+            internal_workspace_id=request.app.state.settings.web_login_workspace_id,
             user_id=principal.user_id,
             offer_id=offer_id,
             action=action,

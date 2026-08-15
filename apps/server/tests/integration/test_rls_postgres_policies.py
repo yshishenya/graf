@@ -28,7 +28,6 @@ from twobrain_rec_server.auth.context import AuthenticatedPrincipal
 from twobrain_rec_server.auth.provider_links import confirm_provider_link
 from twobrain_rec_server.auth.workspace_onboarding import activate_workspace_session
 from twobrain_rec_server.cabinet.auth_return import resolve_browser_auth_return_path
-from twobrain_rec_server.cli.workspace_migration_report import workspace_migration_report
 from twobrain_rec_server.config import Settings, get_settings
 from twobrain_rec_server.db.models import (
     AuthAuditEvent,
@@ -847,35 +846,6 @@ async def test_content_export_sources_and_audit_sink_are_tenant_isolated(
 
 
 @pytest.mark.asyncio
-async def test_workspace_migration_report_runs_with_maintenance_rls_context(
-    rls_engine: AsyncEngine,
-    migrated_postgres_urls: MigratedPostgresUrls,
-) -> None:
-    ids = await _seed_probe_rows(rls_engine)
-
-    report = await workspace_migration_report(
-        migrated_postgres_urls.probe_url,
-        bootstrap_workspace_id=ids["workspace_a"],
-    )
-
-    assert report == {
-        "report_schema": "workspace_migration_report.v1",
-        "report_result": "pass",
-        "mode": "read_only_metadata_only",
-        "bootstrap_user_count": 1,
-        "bootstrap_active_user_count": 1,
-        "bootstrap_inactive_user_count": 0,
-        "bootstrap_users_with_personal_space_count": 0,
-        "bootstrap_users_without_personal_space_count": 1,
-        "bootstrap_workspace_recording_count": 1,
-        "bootstrap_workspace_recording_owner_count": 1,
-        "membership_changes": 0,
-        "recording_reassignments": 0,
-        "write_operations": 0,
-    }
-
-
-@pytest.mark.asyncio
 async def test_join_offers_are_visible_only_to_their_owner(rls_engine: AsyncEngine) -> None:
     ids = await _seed_probe_rows(rls_engine)
     offer_ids = {"a": uuid4(), "b": uuid4()}
@@ -1061,6 +1031,7 @@ async def test_active_space_switch_replaces_session_inside_rls_context(rls_engin
             db,
             organization_id=ids["org_a"],
             current_workspace_id=ids["workspace_a"],
+            internal_workspace_id=uuid4(),
             user_id=ids["user_a"],
             current_session_id=ids["session_a"],
             target_workspace_id=target_workspace_id,

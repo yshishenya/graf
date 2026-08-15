@@ -16,7 +16,6 @@ from twobrain_rec_server.auth.audit import write_auth_audit_event
 from twobrain_rec_server.auth.policy import (
     is_provider_enabled_in_policy,
     load_workspace_auth_policy,
-    requires_explicit_corporate_enrollment,
 )
 from twobrain_rec_server.auth.provider_links import (
     ProviderLinkError,
@@ -199,7 +198,6 @@ async def _create_scoped_user(
     provider: str,
     provider_subject: str,
     profile: dict[str, str | bool | None],
-    role: str | None = None,
 ) -> UserIdentity:
     try:
         async with db.begin_nested():
@@ -219,15 +217,6 @@ async def _create_scoped_user(
                     context_kind="auth_bootstrap",
                 ),
             )
-            if role is not None:
-                db.add(
-                    WorkspaceMembership(
-                        workspace_id=workspace_id,
-                        user_id=user.id,
-                        role=role,
-                        status="active",
-                    )
-                )
             db.add(
                 ExternalIdentity(
                     user_id=user.id,
@@ -351,6 +340,7 @@ async def _get_or_create_user_from_provider_claims(
     *,
     organization_id: UUID,
     workspace_id: UUID,
+    auth_bootstrap_workspace_id: UUID,
     provider: str,
     provider_subject: str,
     provider_username: str | None,
@@ -398,7 +388,7 @@ async def _get_or_create_user_from_provider_claims(
         await create_matching_join_offers_after_login(
             db,
             organization_id=organization_id,
-            bootstrap_workspace_id=workspace_id,
+            bootstrap_workspace_id=auth_bootstrap_workspace_id,
             user_id=user.id,
             provider=provider,
             provider_subject=provider_subject,
@@ -440,7 +430,7 @@ async def _get_or_create_user_from_provider_claims(
     await create_matching_join_offers_after_login(
         db,
         organization_id=organization_id,
-        bootstrap_workspace_id=workspace_id,
+        bootstrap_workspace_id=auth_bootstrap_workspace_id,
         user_id=user.id,
         provider=provider,
         provider_subject=provider_subject,
@@ -458,6 +448,7 @@ async def resolve_callback_to_user(
     query: dict[str, str],
     state_nonce: str,
     provider_credentials: ProviderCredentials,
+    auth_bootstrap_workspace_id: UUID,
     session_ttl_seconds: int,
     actor_ip: str | None = None,
     request_id: str | None = None,
@@ -616,6 +607,7 @@ async def resolve_callback_to_user(
             db,
             organization_id=workspace.organization_id,
             workspace_id=workspace.id,
+            auth_bootstrap_workspace_id=auth_bootstrap_workspace_id,
             provider=identity.provider,
             provider_subject=identity.normalized_subject(),
             provider_username=identity.provider_username,
@@ -643,22 +635,20 @@ async def resolve_callback_to_user(
         organization_id=workspace.organization_id,
         user_id=user.id,
     )
-    membership = await db.scalar(
-        select(WorkspaceMembership).where(
-            WorkspaceMembership.workspace_id == workspace.id,
-            WorkspaceMembership.user_id == user.id,
-            WorkspaceMembership.status == "active",
-        )
-    )
-    if membership is None:
-        if not requires_explicit_corporate_enrollment():
-            raise CallbackFlowError(
-                "corporate_enrollment_not_supported",
-                "automatic corporate enrollment is not supported",
-            )
-        # Provider/email claims only create safe personal access.  A corporate
-        # membership can be created later by an explicit accepted join offer.
+    if workspace.id == auth_bootstrap_workspace_id:
         workspace = personal_workspace
+    else:
+        membership = await db.scalar(
+            select(WorkspaceMembership).where(
+                WorkspaceMembership.workspace_id == workspace.id,
+                WorkspaceMembership.user_id == user.id,
+                WorkspaceMembership.status == "active",
+            )
+        )
+        if membership is None:
+            # Provider claims never create corporate access. An accepted join
+            # offer is the only customer enrollment path.
+            workspace = personal_workspace
     if registered:
         await bind_referral_attribution(
             db,

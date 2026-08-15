@@ -25,6 +25,7 @@ from twobrain_rec_server.db.models import (
 from twobrain_rec_server.db.tenant_context import (
     AuthSessionLookupContext,
     TenantDatabaseContext,
+    WorkspaceAuthContext,
     apply_tenant_context,
 )
 
@@ -48,8 +49,7 @@ def _parse_uuid(value: str | None, header_name: str) -> UUID:
             status=401,
             code="missing_auth_context",
             title="Missing authentication context",
-            detail=f"{header_name} is required for auth context."
-            " Use session token or legacy headers.",
+            detail=f"{header_name} is required for auth context. Use session token or legacy headers.",
         )
     try:
         return UUID(value)
@@ -160,7 +160,9 @@ def _desktop_calendar_context_from_cookie(
     try:
         payload, signature = token.rsplit(".", 1)
     except ValueError as exc:
-        raise ProblemDetail(status=401, code="desktop_calendar_auth_invalid", title="Desktop auth cookie is invalid") from exc
+        raise ProblemDetail(
+            status=401, code="desktop_calendar_auth_invalid", title="Desktop auth cookie is invalid"
+        ) from exc
     expected = _sign_desktop_calendar_payload(payload, secret=_desktop_calendar_auth_secret(request))
     if not hmac.compare_digest(signature, expected):
         raise ProblemDetail(status=401, code="desktop_calendar_auth_invalid", title="Desktop auth cookie is invalid")
@@ -182,7 +184,9 @@ def _desktop_calendar_context_from_cookie(
         UnicodeDecodeError,
         ValueError,
     ) as exc:
-        raise ProblemDetail(status=401, code="desktop_calendar_auth_invalid", title="Desktop auth cookie is invalid") from exc
+        raise ProblemDetail(
+            status=401, code="desktop_calendar_auth_invalid", title="Desktop auth cookie is invalid"
+        ) from exc
 
 
 def set_desktop_calendar_auth_cookie(
@@ -244,10 +248,57 @@ async def _principal_from_session_token(request: Request, token: str) -> Authent
 
         user = await db.get(UserIdentity, session.user_id)
         if user is None or user.status != "active":
+            session.status = "revoked"
+            await db.commit()
             raise ProblemDetail(
                 status=403,
                 code="auth_session_rejected",
                 title="Session owner is not active",
+            )
+        internal_workspace_id = request.app.state.settings.web_login_workspace_id
+        if internal_workspace_id is None:
+            raise ProblemDetail(
+                status=503,
+                code="auth_context_unavailable",
+                title="Authentication context unavailable",
+            )
+        await apply_tenant_context(
+            db,
+            WorkspaceAuthContext(
+                workspace_id=session.workspace_id,
+                organization_id=user.organization_id,
+                user_id=user.id,
+                context_kind="auth_bootstrap",
+            ),
+        )
+        workspace = await db.get(Workspace, session.workspace_id)
+        membership = await db.scalar(
+            select(WorkspaceMembership).where(
+                WorkspaceMembership.workspace_id == session.workspace_id,
+                WorkspaceMembership.user_id == user.id,
+            )
+        )
+        personal_owner_is_valid = workspace is not None and (
+            workspace.kind != "personal"
+            or (workspace.owner_user_id == user.id and membership is not None and membership.role == "owner")
+        )
+        if (
+            session.workspace_id == internal_workspace_id
+            or workspace is None
+            or workspace.organization_id != user.organization_id
+            or membership is None
+            or membership.status != "active"
+            or not personal_owner_is_valid
+        ):
+            session.status = "revoked"
+            await db.commit()
+            raise ProblemDetail(
+                status=403,
+                code="workspace_scope_denied",
+                title="Workspace scope denied",
+                headers={"X-GRAF-Cabinet-Recovery": "reselect-space"}
+                if request.url.path.startswith("/desktop/")
+                else None,
             )
         return AuthenticatedPrincipal(
             user_id=user.id,
@@ -364,7 +415,9 @@ async def get_device_context(
     x_device_id: str | None = Header(default=None, alias="X-Device-Id"),
     x_workspace_id: str | None = Header(default=None, alias="X-Workspace-Id"),
     x_client_version: str | None = Header(default=None, alias="X-Client-Version"),
-    x_device_registration_state: str | None = Header(default=None, alias="X-Device-Registration-State", include_in_schema=False),
+    x_device_registration_state: str | None = Header(
+        default=None, alias="X-Device-Registration-State", include_in_schema=False
+    ),
     x_device_trust_state: str | None = Header(default=None, alias="X-Device-Trust-State", include_in_schema=False),
 ) -> DeviceContext:
     session_token = _extract_session_token(authorization, x_auth_session, auth_session_cookie)
@@ -378,7 +431,11 @@ async def get_device_context(
                 registration_state=x_device_registration_state,
                 trust_state=x_device_trust_state,
             )
-        if principal is not None and principal.session_device_id is not None and principal.session_workspace_id is not None:
+        if (
+            principal is not None
+            and principal.session_device_id is not None
+            and principal.session_workspace_id is not None
+        ):
             return DeviceContext(
                 device_id=principal.session_device_id,
                 workspace_id=principal.session_workspace_id,
@@ -517,6 +574,19 @@ async def _validate_tenant_scope(
     workspace_id: UUID,
     device_id: UUID,
 ) -> TenantScope:
+    internal_workspace_id = request.app.state.settings.web_login_workspace_id
+    if internal_workspace_id is None:
+        raise ProblemDetail(
+            status=503,
+            code="auth_context_unavailable",
+            title="Authentication context unavailable",
+        )
+    if workspace_id == internal_workspace_id:
+        raise ProblemDetail(
+            status=403,
+            code="workspace_scope_denied",
+            title="Workspace scope denied",
+        )
     if workspace_id not in principal.workspace_ids:
         raise ProblemDetail(
             status=403,

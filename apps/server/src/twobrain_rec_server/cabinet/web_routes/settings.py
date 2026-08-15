@@ -91,12 +91,14 @@ async def _render_settings(
             db,
             organization_id=principal.organization_id,
             current_workspace_id=tenant_scope.workspace_id,
+            internal_workspace_id=request.app.state.settings.web_login_workspace_id,
             user_id=principal.user_id,
         )
         workspace_spaces = await list_active_workspaces(
             db,
             organization_id=principal.organization_id,
             current_workspace_id=tenant_scope.workspace_id,
+            internal_workspace_id=request.app.state.settings.web_login_workspace_id,
             user_id=principal.user_id,
         )
     elif category == "account" and db is not None:

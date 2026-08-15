@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from tests.fakes.auth_contexts import (
+    AUTH_BOOTSTRAP_WORKSPACE_ID,
     DEVICE_ID,
     ORG_ID,
     REVOKED_DEVICE_ID,
@@ -76,6 +77,13 @@ async def _seed_database(app: FastAPI) -> None:
         session.add_all(
             [
                 Organization(id=ORG_ID, slug="e2e-org", name="Feature 099 E2E"),
+                Workspace(
+                    id=AUTH_BOOTSTRAP_WORKSPACE_ID,
+                    organization_id=ORG_ID,
+                    slug="e2e-auth-bootstrap",
+                    name="Feature 099 Auth Bootstrap",
+                    kind="corporate",
+                ),
                 Workspace(
                     id=WORKSPACE_ID,
                     organization_id=ORG_ID,
@@ -309,7 +317,7 @@ def create_harness(
         minio_secret_key="test",
         minio_bucket="test-bucket",
         public_base_url=origin,
-        web_login_workspace_id=WORKSPACE_ID,
+        web_login_workspace_id=AUTH_BOOTSTRAP_WORKSPACE_ID,
         legacy_header_auth_enabled=True,
     )
     app = create_app(settings)

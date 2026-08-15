@@ -46,6 +46,7 @@ from twobrain_rec_server.db.models import (
     BillingInvoice,
     BillingOperation,
     BillingWebhookEvent,
+    Workspace,
     WorkspaceMembership,
 )
 
@@ -90,12 +91,45 @@ async def reconcile_pending_initial_checkout_operations(
         )
     )
     counters = {"processed": 0, "succeeded": 0, "canceled": 0, "pending": 0, "failed": 0}
+    valid_operations: list[BillingOperation] = []
+    for operation in operations:
+        counters["processed"] += 1
+        workspace = await db.scalar(
+            select(Workspace)
+            .join(
+                WorkspaceMembership,
+                (WorkspaceMembership.workspace_id == Workspace.id)
+                & (WorkspaceMembership.user_id == Workspace.owner_user_id),
+            )
+            .where(
+                Workspace.id == operation.workspace_id,
+                Workspace.kind == "personal",
+                WorkspaceMembership.role == "owner",
+                WorkspaceMembership.status == "active",
+            )
+            .with_for_update()
+        )
+        if workspace is not None:
+            valid_operations.append(operation)
+            continue
+        operation.state = "manual_resolution"
+        invoice = await db.scalar(
+            select(BillingInvoice)
+            .where(BillingInvoice.operation_id == operation.id)
+            .with_for_update()
+        )
+        if invoice is not None:
+            invoice.status = "manual_resolution"
+        counters["failed"] += 1
+    if not valid_operations:
+        return counters
     try:
         async with YooKassaClient(settings) as provider:
             environment = provider_environment(settings.billing_yookassa_environment)
-            scope = ProviderScope(environment=environment, shop_id=settings.billing_yookassa_shop_id)
-            for operation in operations:
-                counters["processed"] += 1
+            scope = ProviderScope(
+                environment=environment, shop_id=settings.billing_yookassa_shop_id
+            )
+            for operation in valid_operations:
                 try:
                     payload = await provider.get_payment(operation.provider_id or "")
                     observation = extract_payment_observation(payload, scope=scope)
@@ -110,7 +144,9 @@ async def reconcile_pending_initial_checkout_operations(
                             recurring_method_confirmed=saved_bank_card_confirmed(payload),
                             saved_payment_method=extract_saved_bank_card(payload),
                             payment_method_label=extract_payment_method_label(payload),
-                            payment_method_key=read_billing_encryption_key(settings.credential_encryption_key_file),
+                            payment_method_key=read_billing_encryption_key(
+                                settings.credential_encryption_key_file
+                            ),
                             receipt_registration=observation.receipt_registration,
                             defer_referral_reward=defer_referral_reward,
                         )
@@ -133,7 +169,9 @@ async def reconcile_pending_initial_checkout_operations(
                         )
                         operation.state = "canceled"
                         invoice = await db.scalar(
-                            select(BillingInvoice).where(BillingInvoice.operation_id == operation.id).with_for_update()
+                            select(BillingInvoice)
+                            .where(BillingInvoice.operation_id == operation.id)
+                            .with_for_update()
                         )
                         if invoice is not None:
                             invoice.status = "canceled"
@@ -150,7 +188,7 @@ async def reconcile_pending_initial_checkout_operations(
                 ):
                     counters["failed"] += 1
     except (YooKassaConfigurationError, ValueError):
-        counters["failed"] += len(operations)
+        counters["failed"] += len(valid_operations)
     return counters
 
 
@@ -239,7 +277,15 @@ async def reconcile_pending_webhook_events(
                     result = await _reconcile_event(db, settings, provider, event)
                     event.state = (
                         "reconciled"
-                        if result in {"granted", "duplicate", "refused", "observed", "inserted", "receipt_observed"}
+                        if result
+                        in {
+                            "granted",
+                            "duplicate",
+                            "refused",
+                            "observed",
+                            "inserted",
+                            "receipt_observed",
+                        }
                         else "reconciliation_gap"
                     )
                     event.metadata_json = {
@@ -269,6 +315,23 @@ async def _reconcile_event(
     provider: YooKassaClient,
     event: BillingWebhookEvent,
 ) -> str:
+    workspace = await db.get(Workspace, event.workspace_id)
+    owner = None
+    if (
+        workspace is not None
+        and workspace.kind == "personal"
+        and workspace.owner_user_id is not None
+    ):
+        owner = await db.scalar(
+            select(WorkspaceMembership).where(
+                WorkspaceMembership.workspace_id == event.workspace_id,
+                WorkspaceMembership.user_id == workspace.owner_user_id,
+                WorkspaceMembership.role == "owner",
+                WorkspaceMembership.status == "active",
+            )
+        )
+    if owner is None:
+        return "workspace_scope_invalid"
     environment = provider_environment(settings.billing_yookassa_environment)
     scope = ProviderScope(environment=environment, shop_id=settings.billing_yookassa_shop_id)
     if event.event_type.startswith("payment."):
@@ -309,7 +372,9 @@ async def _reconcile_event(
                 recurring_method_confirmed=saved_bank_card_confirmed(payload),
                 saved_payment_method=extract_saved_bank_card(payload),
                 payment_method_label=extract_payment_method_label(payload),
-                payment_method_key=read_billing_encryption_key(settings.credential_encryption_key_file),
+                payment_method_key=read_billing_encryption_key(
+                    settings.credential_encryption_key_file
+                ),
                 receipt_registration=observation.receipt_registration,
             )
         if observation.status == "canceled":
@@ -330,7 +395,9 @@ async def _reconcile_event(
             if operation is not None and operation.kind == "initial_checkout":
                 operation.state = "canceled"
                 invoice = await db.scalar(
-                    select(BillingInvoice).where(BillingInvoice.operation_id == operation.id).with_for_update()
+                    select(BillingInvoice)
+                    .where(BillingInvoice.operation_id == operation.id)
+                    .with_for_update()
                 )
                 if invoice is not None:
                     invoice.status = "canceled"
@@ -340,7 +407,9 @@ async def _reconcile_event(
         if candidate is None:
             raise ProviderObservationError("provider refund was not found in GET/list backstop")
         observation = extract_refund_observation(candidate, scope=scope)
-        return await record_observed_refund(db, workspace_id=event.workspace_id, observation=observation)
+        return await record_observed_refund(
+            db, workspace_id=event.workspace_id, observation=observation
+        )
     if event.event_type == "payment_method.active":
         # The payment.succeeded authoritative GET remains the only path that
         # grants recurring authority. This provider signal is retained as a
@@ -359,7 +428,9 @@ async def _reconcile_event(
         if result == "unmatched":
             raise ProviderObservationError("provider receipt parent was not found")
         if result == "conflict":
-            raise ProviderObservationError("provider receipt observation conflicts with stored truth")
+            raise ProviderObservationError(
+                "provider receipt observation conflicts with stored truth"
+            )
         if observation.parent_kind == "payment" and result in {"inserted", "updated"}:
             operation = await db.scalar(
                 select(BillingOperation).where(

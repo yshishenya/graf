@@ -53,6 +53,8 @@ from twobrain_rec_server.db.models import (
     Meeting,
     MeetingShareInvitation,
     UserIdentity,
+    Workspace,
+    WorkspaceMembership,
     WorkspaceSubscription,
 )
 from twobrain_rec_server.db.session import create_engine, create_sessionmaker
@@ -225,7 +227,22 @@ async def run_billing_renewal_reconciler(settings: Any, temporal_client: object)
                     rows = (
                         await db.execute(
                             select(BillingOperation.id, BillingOperation.workspace_id)
+                            .join(Workspace, Workspace.id == BillingOperation.workspace_id)
+                            .join(
+                                WorkspaceSubscription,
+                                WorkspaceSubscription.workspace_id == BillingOperation.workspace_id,
+                            )
+                            .join(
+                                WorkspaceMembership,
+                                WorkspaceMembership.workspace_id == BillingOperation.workspace_id,
+                            )
                             .where(
+                                Workspace.kind == "personal",
+                                Workspace.owner_user_id == WorkspaceSubscription.billing_owner_id,
+                                WorkspaceMembership.user_id
+                                == WorkspaceSubscription.billing_owner_id,
+                                WorkspaceMembership.role == "owner",
+                                WorkspaceMembership.status == "active",
                                 BillingOperation.kind == "renewal",
                                 BillingOperation.provider_id.is_not(None),
                                 BillingOperation.state.in_(BILLING_RENEWAL_RECONCILE_STATES),
@@ -309,16 +326,24 @@ async def run_billing_notification_reconciler(settings: Any) -> None:
                                 verified_email.c.email,
                                 BillingNotificationPreference.optional_email_enabled,
                             )
-                            .join(verified_email, verified_email.c.user_id == BillingNotificationDelivery.recipient_id)
+                            .join(
+                                verified_email,
+                                verified_email.c.user_id
+                                == BillingNotificationDelivery.recipient_id,
+                            )
                             .outerjoin(
                                 BillingNotificationPreference,
-                                BillingNotificationPreference.user_id == BillingNotificationDelivery.recipient_id,
+                                BillingNotificationPreference.user_id
+                                == BillingNotificationDelivery.recipient_id,
                             )
                             .where(
                                 BillingNotificationDelivery.channel == "email",
                                 BillingNotificationDelivery.state.in_(("pending", "retry")),
                             )
-                            .order_by(BillingNotificationDelivery.created_at, BillingNotificationDelivery.id)
+                            .order_by(
+                                BillingNotificationDelivery.created_at,
+                                BillingNotificationDelivery.id,
+                            )
                             .limit(50)
                         )
                     ).all()
@@ -336,7 +361,10 @@ async def run_billing_notification_reconciler(settings: Any) -> None:
                                     .where(BillingNotificationDelivery.id == row.id)
                                     .with_for_update()
                                 )
-                                if suppressed is not None and suppressed.state in {"pending", "retry"}:
+                                if suppressed is not None and suppressed.state in {
+                                    "pending",
+                                    "retry",
+                                }:
                                     suppressed.state = "suppressed"
                                 await db.commit()
                             continue
@@ -350,12 +378,24 @@ async def run_billing_notification_reconciler(settings: Any) -> None:
                         )
                         action_path = (row.safe_payload or {}).get("action_path")
                         base_url = str(getattr(settings, "public_base_url", "")).rstrip("/")
-                        action_url = f"{base_url}{action_path}" if base_url and isinstance(action_path, str) else None
-                        plain = body if action_url is None else f"{body}\n\nОткрыть кабинет: {action_url}"
+                        action_url = (
+                            f"{base_url}{action_path}"
+                            if base_url and isinstance(action_path, str)
+                            else None
+                        )
+                        plain = (
+                            body
+                            if action_url is None
+                            else f"{body}\n\nОткрыть кабинет: {action_url}"
+                        )
                         html = (
                             f"<div style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;"
-                            f"max-width:560px;line-height:1.5\"><h1>{escape(title)}</h1><p>{escape(body)}</p>"
-                            + (f"<p><a href=\"{escape(action_url, quote=True)}\">Открыть кабинет</a></p>" if action_url else "")
+                            f'max-width:560px;line-height:1.5"><h1>{escape(title)}</h1><p>{escape(body)}</p>'
+                            + (
+                                f'<p><a href="{escape(action_url, quote=True)}">Открыть кабинет</a></p>'
+                                if action_url
+                                else ""
+                            )
                             + "</div>"
                         )
                         await send_billing_notification(
@@ -403,7 +443,9 @@ async def run_billing_notification_reconciler(settings: Any) -> None:
         await engine.dispose()
 
 
-async def run_account_closure_reconciler(settings: Any, temporal_client: object | None = None) -> None:
+async def run_account_closure_reconciler(
+    settings: Any, temporal_client: object | None = None
+) -> None:
     """Finalize due account-close cooling windows durably.
 
     The row is the source of truth and the loop is restart-safe.  A future
@@ -509,7 +551,9 @@ async def run_billing_reconciliation_activity(payload: dict[str, str]) -> dict[s
             await apply_tenant_context(db, context)
             counters = await reconcile_billing_maintenance(db)
             webhook_counters = await reconcile_pending_webhook_events(db, settings)
-            initial_checkout_counters = await reconcile_pending_initial_checkout_operations(db, settings)
+            initial_checkout_counters = await reconcile_pending_initial_checkout_operations(
+                db, settings
+            )
             await db.commit()
         return {
             "run_id": safe_payload["run_id"],
@@ -554,10 +598,12 @@ async def run_billing_renewal_activity(payload: dict[str, str]) -> dict[str, str
         async with sessionmaker() as db:
             await apply_tenant_context(db, context)
             operation = await db.scalar(
-                select(BillingOperation).where(
+                select(BillingOperation)
+                .where(
                     BillingOperation.id == operation_id,
                     BillingOperation.workspace_id == workspace_id,
                 )
+                .with_for_update()
             )
             if operation is None or operation.kind != "renewal":
                 raise ApplicationError(
@@ -574,10 +620,12 @@ async def run_billing_renewal_activity(payload: dict[str, str]) -> dict[str, str
                     non_retryable=True,
                 )
             invoice = await db.scalar(
-                select(BillingInvoice).where(
+                select(BillingInvoice)
+                .where(
                     BillingInvoice.operation_id == operation_id,
                     BillingInvoice.workspace_id == workspace_id,
                 )
+                .with_for_update()
             )
             if invoice is None:
                 raise ApplicationError(
@@ -585,6 +633,44 @@ async def run_billing_renewal_activity(payload: dict[str, str]) -> dict[str, str
                     type="BillingRenewalProviderMismatch",
                     non_retryable=True,
                 )
+            workspace = await db.get(Workspace, workspace_id)
+            subscription = await db.scalar(
+                select(WorkspaceSubscription)
+                .where(WorkspaceSubscription.workspace_id == workspace_id)
+                .with_for_update()
+            )
+            owner = None
+            if (
+                workspace is not None
+                and workspace.kind == "personal"
+                and workspace.owner_user_id is not None
+            ):
+                owner = await db.scalar(
+                    select(WorkspaceMembership)
+                    .where(
+                        WorkspaceMembership.workspace_id == workspace_id,
+                        WorkspaceMembership.user_id == workspace.owner_user_id,
+                        WorkspaceMembership.role == "owner",
+                        WorkspaceMembership.status == "active",
+                    )
+                    .with_for_update()
+                )
+            if (
+                owner is None
+                or subscription is None
+                or subscription.billing_owner_id != owner.user_id
+            ):
+                operation.state = "manual_resolution"
+                invoice.status = "manual_resolution"
+                if subscription is not None:
+                    if subscription.recurring_allowed:
+                        subscription.recurring_allowed = False
+                        subscription.recurring_authority_version = (
+                            subscription.recurring_authority_version or 0
+                        ) + 1
+                    subscription.renewal_resolution = "workspace_scope_invalid"
+                await db.commit()
+                return {"operation_id": str(operation_id), "status": "manual_resolution"}
             provider_id = operation.provider_id
 
         try:
@@ -655,8 +741,14 @@ async def run_billing_renewal_activity(payload: dict[str, str]) -> dict[str, str
 
             if provider_status == "succeeded":
                 grant_starts_at = now
-                if not key_expired and subscription is not None and subscription.paid_through is not None:
-                    grant_starts_at = max(grant_starts_at, subscription.paid_through.astimezone(UTC))
+                if (
+                    not key_expired
+                    and subscription is not None
+                    and subscription.paid_through is not None
+                ):
+                    grant_starts_at = max(
+                        grant_starts_at, subscription.paid_through.astimezone(UTC)
+                    )
                 grant_status = await grant_confirmed_renewal(
                     db,
                     workspace_id=workspace_id,
@@ -794,9 +886,7 @@ async def run_deletion_purge_reconciler(settings: Any, temporal_client: object) 
                         await reconcile_source_retention_purges(
                             db,
                             storage=storage,
-                            retention_period=timedelta(
-                                days=settings.retention_source_audio_days
-                            ),
+                            retention_period=timedelta(days=settings.retention_source_audio_days),
                             policy_version=settings.retention_source_audio_policy_version,
                             backup_expiry_days=settings.retention_backup_expiry_days,
                             limit=20,
@@ -1151,8 +1241,12 @@ async def finalize_outcome_generation_failure_activity(
             sessionmaker,
             workspace_id=UUID(str(payload["workspace_id"])),
             candidate_id=UUID(str(payload["candidate_id"])),
-            failure_code=str(payload.get("failure_code") or "summary_generation_retries_exhausted")[:120],
-            failure_reason=(str(payload["failure_reason"]) if payload.get("failure_reason") else None),
+            failure_code=str(payload.get("failure_code") or "summary_generation_retries_exhausted")[
+                :120
+            ],
+            failure_reason=(
+                str(payload["failure_reason"]) if payload.get("failure_reason") else None
+            ),
         )
         return {"candidate_id": str(payload["candidate_id"]), "status": "failed"}
     finally:
@@ -1173,12 +1267,8 @@ async def publish_outcome_observability_activity(payload: dict[str, Any]) -> dic
             candidate_id=UUID(str(payload["candidate_id"])),
             settings=settings,
             activity_attempt=info.attempt,
-            temporal_workflow_id=str(
-                payload.get("generation_workflow_id") or info.workflow_id
-            ),
-            temporal_run_id=str(
-                payload.get("generation_workflow_run_id") or info.workflow_run_id
-            ),
+            temporal_workflow_id=str(payload.get("generation_workflow_id") or info.workflow_id),
+            temporal_run_id=str(payload.get("generation_workflow_run_id") or info.workflow_run_id),
             temporal_activity_id=info.activity_id,
         )
         return {"candidate_id": str(payload["candidate_id"]), **result}
@@ -1781,9 +1871,7 @@ async def run_worker() -> None:
 
     settings = get_settings()
     if settings.prompt_optimization_enabled:
-        raise RuntimeError(
-            "prompt optimization must run in the operations-only worker"
-        )
+        raise RuntimeError("prompt optimization must run in the operations-only worker")
     processing_client = await connect_temporal_client(settings)
     processing_activity = activity.defn(name="run_processing_pipeline_activity")(
         run_processing_pipeline_activity
@@ -1817,9 +1905,9 @@ async def run_worker() -> None:
     invitation_activity = activity.defn(name="deliver_meeting_invitation_activity")(
         deliver_meeting_invitation_activity
     )
-    account_created_email_activity = activity.defn(
-        name="send_account_created_email_activity"
-    )(send_account_created_email_activity)
+    account_created_email_activity = activity.defn(name="send_account_created_email_activity")(
+        send_account_created_email_activity
+    )
     processing_worker = Worker(
         processing_client,
         task_queue=settings.temporal_task_queue,

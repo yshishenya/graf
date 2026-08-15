@@ -2,7 +2,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.problems import ProblemDetail
@@ -22,14 +23,6 @@ from twobrain_rec_server.db.tenant_context import (
     WorkspaceAuthContext,
     apply_tenant_context,
 )
-
-JOIN_OFFER_TRANSITIONS = {
-    "offered": frozenset(("accepted", "rejected", "expired", "revoked")),
-    "accepted": frozenset(),
-    "rejected": frozenset(),
-    "expired": frozenset(),
-    "revoked": frozenset(),
-}
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,10 +64,6 @@ class ActivatedWorkspaceSession:
     issued_session: IssuedAuthSession
 
 
-def can_transition_join_offer(current: str, target: str) -> bool:
-    return target in JOIN_OFFER_TRANSITIONS.get(current, frozenset())
-
-
 async def ensure_personal_workspace(
     db: AsyncSession,
     *,
@@ -91,31 +80,57 @@ async def ensure_personal_workspace(
         )
     )
     if workspace is None:
-        workspace = Workspace(
-            organization_id=organization_id,
-            owner_user_id=user_id,
-            kind="personal",
-            slug=f"personal-{user_id.hex}",
-            name="Личное пространство",
-        )
-        db.add(workspace)
-        await db.flush()
+        try:
+            async with db.begin_nested():
+                candidate = Workspace(
+                    organization_id=organization_id,
+                    owner_user_id=user_id,
+                    kind="personal",
+                    slug=f"personal-{user_id.hex}",
+                    name="Моё пространство",
+                )
+                db.add(candidate)
+                await db.flush()
+            workspace = candidate
+        except IntegrityError:
+            workspace = await db.scalar(
+                select(Workspace).where(
+                    Workspace.organization_id == organization_id,
+                    Workspace.owner_user_id == user_id,
+                    Workspace.kind == "personal",
+                )
+            )
+            if workspace is None:
+                raise
+    elif workspace.name != "Моё пространство":
+        workspace.name = "Моё пространство"
 
     membership = await db.get(
         WorkspaceMembership,
         {"workspace_id": workspace.id, "user_id": user_id},
     )
     if membership is None:
-        db.add(
-            WorkspaceMembership(
-                workspace_id=workspace.id,
-                user_id=user_id,
-                role="owner",
-                status="active",
+        try:
+            async with db.begin_nested():
+                db.add(
+                    WorkspaceMembership(
+                        workspace_id=workspace.id,
+                        user_id=user_id,
+                        role="owner",
+                        status="active",
+                    )
+                )
+                await db.flush()
+        except IntegrityError:
+            membership = await db.get(
+                WorkspaceMembership,
+                {"workspace_id": workspace.id, "user_id": user_id},
             )
-        )
-        await db.flush()
-    elif membership.status != "active":
+            if membership is None:
+                raise
+            membership.status = "active"
+            membership.role = "owner"
+    elif membership.status != "active" or membership.role != "owner":
         membership.status = "active"
         membership.role = "owner"
 
@@ -158,6 +173,7 @@ async def list_active_workspaces(
     *,
     organization_id: UUID,
     current_workspace_id: UUID,
+    internal_workspace_id: UUID,
     user_id: UUID,
 ) -> tuple[WorkspaceAccessView, ...]:
     """List only server-verified active spaces for the current user.
@@ -171,7 +187,7 @@ async def list_active_workspaces(
     await apply_tenant_context(
         db,
         WorkspaceAuthContext(
-            workspace_id=current_workspace_id,
+            workspace_id=internal_workspace_id,
             organization_id=organization_id,
             user_id=user_id,
             context_kind="auth_bootstrap",
@@ -183,8 +199,17 @@ async def list_active_workspaces(
             .join(WorkspaceMembership, WorkspaceMembership.workspace_id == Workspace.id)
             .where(
                 Workspace.organization_id == organization_id,
+                Workspace.id != internal_workspace_id,
                 WorkspaceMembership.user_id == user_id,
                 WorkspaceMembership.status == "active",
+                or_(
+                    Workspace.kind == "corporate",
+                    and_(
+                        Workspace.kind == "personal",
+                        Workspace.owner_user_id == user_id,
+                        WorkspaceMembership.role == "owner",
+                    ),
+                ),
             )
             .order_by(Workspace.kind.desc(), Workspace.name, Workspace.id)
         )
@@ -192,7 +217,7 @@ async def list_active_workspaces(
     return tuple(
         WorkspaceAccessView(
             id=workspace.id,
-            name=workspace.name,
+            name="Моё пространство" if workspace.kind == "personal" else workspace.name,
             kind=workspace.kind,
             role=membership.role,
             active=workspace.id == current_workspace_id,
@@ -206,6 +231,7 @@ async def activate_workspace_session(
     *,
     organization_id: UUID,
     current_workspace_id: UUID,
+    internal_workspace_id: UUID,
     user_id: UUID,
     current_session_id: UUID,
     target_workspace_id: UUID,
@@ -218,7 +244,18 @@ async def activate_workspace_session(
     upload sessions retain their original workspace IDs.
     """
 
-    current_session = await db.get(AuthSession, current_session_id)
+    if target_workspace_id == internal_workspace_id:
+        raise ProblemDetail(
+            status=404,
+            code="workspace_activation_unavailable",
+            title="Workspace activation unavailable",
+        )
+
+    current_session = await db.scalar(
+        select(AuthSession)
+        .where(AuthSession.id == current_session_id)
+        .with_for_update()
+    )
     if (
         current_session is None
         or current_session.user_id != user_id
@@ -231,6 +268,7 @@ async def activate_workspace_session(
         db,
         organization_id=organization_id,
         current_workspace_id=current_workspace_id,
+        internal_workspace_id=internal_workspace_id,
         user_id=user_id,
     )
     target = next((space for space in spaces if space.id == target_workspace_id), None)
@@ -345,6 +383,7 @@ async def list_workspace_join_offers(
     *,
     organization_id: UUID,
     current_workspace_id: UUID,
+    internal_workspace_id: UUID | None,
     user_id: UUID,
 ) -> tuple[WorkspaceJoinOfferView, ...]:
     """Return only the current user's still-actionable offer labels."""
@@ -356,16 +395,20 @@ async def list_workspace_join_offers(
             user_id=user_id,
         ),
     )
-    offers = list(
-        await db.scalars(
-            select(WorkspaceJoinOffer)
-            .where(
-                WorkspaceJoinOffer.user_id == user_id,
-                WorkspaceJoinOffer.status == "offered",
-            )
-            .order_by(WorkspaceJoinOffer.workspace_name, WorkspaceJoinOffer.id)
+    query = (
+        select(WorkspaceJoinOffer)
+        .join(Workspace, Workspace.id == WorkspaceJoinOffer.workspace_id)
+        .where(
+            WorkspaceJoinOffer.user_id == user_id,
+            WorkspaceJoinOffer.status == "offered",
+            Workspace.organization_id == organization_id,
+            Workspace.kind == "corporate",
         )
+        .order_by(WorkspaceJoinOffer.workspace_name, WorkspaceJoinOffer.id)
     )
+    if internal_workspace_id is not None:
+        query = query.where(WorkspaceJoinOffer.workspace_id != internal_workspace_id)
+    offers = list(await db.scalars(query))
     views: list[WorkspaceJoinOfferView] = []
     for offer in offers:
         if not join_offer_is_actionable(offer):
@@ -387,6 +430,7 @@ async def decide_workspace_join_offer(
     *,
     organization_id: UUID,
     current_workspace_id: UUID,
+    internal_workspace_id: UUID,
     user_id: UUID,
     offer_id: UUID,
     action: str,
@@ -403,13 +447,17 @@ async def decide_workspace_join_offer(
         ),
     )
     offer = await db.scalar(
-        select(WorkspaceJoinOffer).where(
+        select(WorkspaceJoinOffer)
+        .where(
             WorkspaceJoinOffer.id == offer_id,
             WorkspaceJoinOffer.user_id == user_id,
         )
+        .with_for_update()
     )
     if offer is None:
         raise ProblemDetail(status=404, code="workspace_join_offer_not_found", title="Join offer not found")
+    if offer.workspace_id == internal_workspace_id:
+        raise ProblemDetail(status=409, code="workspace_join_offer_unavailable", title="Join offer unavailable")
     expected_status = "accepted" if action == "accept" else "rejected"
     if offer.status == expected_status:
         return offer, True
@@ -447,8 +495,22 @@ async def decide_workspace_join_offer(
             context_kind="auth_bootstrap",
         ),
     )
-    invitation = await db.get(WorkspaceInvitation, offer.invitation_id)
+    invitation = await db.scalar(
+        select(WorkspaceInvitation)
+        .where(WorkspaceInvitation.id == offer.invitation_id)
+        .with_for_update()
+    )
     if invitation is None or invitation.workspace_id != offer.workspace_id:
+        await _mark_join_offer_unavailable(
+            db,
+            offer,
+            organization_id=organization_id,
+            current_workspace_id=current_workspace_id,
+            user_id=user_id,
+            status="revoked",
+        )
+    workspace = await db.get(Workspace, offer.workspace_id)
+    if workspace is None or workspace.kind != "corporate":
         await _mark_join_offer_unavailable(
             db,
             offer,

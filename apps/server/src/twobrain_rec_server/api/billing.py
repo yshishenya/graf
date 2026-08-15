@@ -16,7 +16,7 @@ from twobrain_rec_server.billing.provider_events import (
     validate_webhook_secret,
 )
 from twobrain_rec_server.billing.yookassa import YooKassaConfigurationError, read_webhook_secret
-from twobrain_rec_server.db.models import BillingWebhookEvent
+from twobrain_rec_server.db.models import BillingWebhookEvent, Workspace
 from twobrain_rec_server.db.tenant_context import WorkspaceAuthContext, apply_tenant_context
 
 router = APIRouter(prefix="/api/v1/billing", tags=["billing"])
@@ -124,6 +124,8 @@ async def _handle_billing_webhook(
         # safely attached to a tenant. Return a retryable response rather than
         # acknowledging an event that would otherwise be lost.
         return JSONResponse(status_code=503, content={"status": "deferred_without_workspace"})
+    if event.workspace_id == settings.web_login_workspace_id:
+        return JSONResponse(status_code=200, content={"status": "ignored_workspace_scope"})
 
     sessionmaker = getattr(request.app.state, "db_sessionmaker", None)
     if sessionmaker is None:
@@ -131,6 +133,17 @@ async def _handle_billing_webhook(
     try:
         async with sessionmaker() as db:
             await apply_tenant_context(db, WorkspaceAuthContext(workspace_id=event.workspace_id))
+            workspace = await db.get(Workspace, event.workspace_id)
+            if workspace is None:
+                return JSONResponse(
+                    status_code=200,
+                    content={"status": "ignored_workspace_scope"},
+                )
+            if workspace.kind != "personal" or workspace.owner_user_id is None:
+                return JSONResponse(
+                    status_code=200,
+                    content={"status": "ignored_workspace_scope"},
+                )
             existing = await db.scalar(
                 select(BillingWebhookEvent).where(
                     BillingWebhookEvent.workspace_id == event.workspace_id,

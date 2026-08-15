@@ -10,13 +10,18 @@ from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from tests.fakes.auth_contexts import DEVICE_ID, ORG_ID, USER_ID, WORKSPACE_ID
+from tests.fakes.auth_contexts import (
+    AUTH_BOOTSTRAP_WORKSPACE_ID,
+    DEVICE_ID,
+    ORG_ID,
+    USER_ID,
+    WORKSPACE_ID,
+)
 from tests.fakes.auth_providers import fake_provider_map
 from twobrain_rec_server.api.auth import router as auth_api_router
 from twobrain_rec_server.auth.audit import write_auth_audit_event
 from twobrain_rec_server.auth.csrf import issue_csrf_token
 from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
-from twobrain_rec_server.auth.policy import requires_explicit_corporate_enrollment
 from twobrain_rec_server.auth.sessions import issue_auth_session
 from twobrain_rec_server.auth.workspace_onboarding import ensure_personal_workspace
 from twobrain_rec_server.db.models import (
@@ -87,7 +92,11 @@ class FakeProviderHttpClient:
             assert params is not None
             if params.get("code") != "VALID-VK-CODE":
                 return {"error": "invalid_grant"}
-            return {"access_token": "verified-vk-token", "user_id": "VK-USER-42", "email": "verified-vk@example.ru"}
+            return {
+                "access_token": "verified-vk-token",
+                "user_id": "VK-USER-42",
+                "email": "verified-vk@example.ru",
+            }
         if "api.vk.com/method/users.get" in url:
             assert params is not None
             assert params["access_token"] == "verified-vk-token"
@@ -124,7 +133,12 @@ def test_authenticated_auth_mutation_routes_require_web_csrf_dependency() -> Non
     }
     route_dependencies = {}
     for route in auth_api_router.routes:
-        if not isinstance(route, APIRoute) or not (route.methods or set()) & {"POST", "PUT", "PATCH", "DELETE"}:
+        if not isinstance(route, APIRoute) or not (route.methods or set()) & {
+            "POST",
+            "PUT",
+            "PATCH",
+            "DELETE",
+        }:
             continue
         route_dependencies[route.path] = {
             getattr(dependency.call, "__name__", "")
@@ -161,10 +175,10 @@ def _set_provider_self_enrollment(client: TestClient, enabled: bool) -> None:
     async def update_policy() -> None:
         async with client.app_state["sessionmaker"]() as db:
             policy = await db.scalar(
-                select(WorkspaceAuthPolicy).where(WorkspaceAuthPolicy.workspace_id == WORKSPACE_ID)
+                select(WorkspaceAuthPolicy).where(WorkspaceAuthPolicy.workspace_id == AUTH_BOOTSTRAP_WORKSPACE_ID)
             )
             if policy is None:
-                policy = WorkspaceAuthPolicy(workspace_id=WORKSPACE_ID)
+                policy = WorkspaceAuthPolicy(workspace_id=AUTH_BOOTSTRAP_WORKSPACE_ID)
                 db.add(policy)
             policy.allow_provider_self_enrollment = enabled
             await db.commit()
@@ -177,19 +191,23 @@ def _set_provider_self_enrollment(client: TestClient, enabled: bool) -> None:
 def _patch_fake_providers(monkeypatch, client: TestClient, *, allow_self_enrollment: bool = True) -> None:
     provider_map = fake_provider_map()
     monkeypatch.setattr("twobrain_rec_server.api.auth.build_provider_registry", lambda: provider_map)
-    monkeypatch.setattr("twobrain_rec_server.auth.callbacks.get_provider_adapter", lambda provider: provider_map[provider])
+    monkeypatch.setattr(
+        "twobrain_rec_server.auth.callbacks.get_provider_adapter",
+        lambda provider: provider_map[provider],
+    )
     monkeypatch.setattr("twobrain_rec_server.api.auth.get_provider_adapter", lambda provider: provider_map[provider])
     # keep compatibility with direct import of provider resolver
-    monkeypatch.setattr("twobrain_rec_server.auth.providers.get_provider_adapter", lambda provider: provider_map[provider])
+    monkeypatch.setattr(
+        "twobrain_rec_server.auth.providers.get_provider_adapter",
+        lambda provider: provider_map[provider],
+    )
     _set_provider_self_enrollment(client, allow_self_enrollment)
 
 
 def _load_auth_audit_events(client: TestClient) -> list[AuthAuditEvent]:
     async def load() -> list[AuthAuditEvent]:
         async with client.app_state["sessionmaker"]() as db:
-            return list(
-                (await db.scalars(select(AuthAuditEvent).order_by(AuthAuditEvent.created_at))).all()
-            )
+            return list((await db.scalars(select(AuthAuditEvent).order_by(AuthAuditEvent.created_at))).all())
 
     import asyncio
 
@@ -228,11 +246,16 @@ def test_auth_audit_metadata_hashes_sensitive_values(client: TestClient) -> None
     assert len(metadata["device_public_id_sha256"]) == 64
 
 
-def test_auth_provider_list_reflects_workspace_policy(monkeypatch, client: TestClient) -> None:
+def test_public_provider_list_hides_internal_anchor_and_customer_policy_stays_scoped(
+    monkeypatch,
+    client: TestClient,
+) -> None:
     _patch_fake_providers(monkeypatch, client)
 
-    response = client.get(f"/api/v1/auth/providers?workspace_id={WORKSPACE_ID}")
+    response = client.get("/api/v1/auth/providers")
     assert response.status_code == 200
+    assert "workspace_id" not in response.json()
+    assert str(AUTH_BOOTSTRAP_WORKSPACE_ID) not in response.text
     assert response.json()["consent"]["language"] == "ru"
     assert response.json()["consent"]["version"] == "v1"
     assert "OAuth" in response.json()["consent"]["content_markdown"]
@@ -252,10 +275,20 @@ def test_auth_provider_list_reflects_workspace_policy(monkeypatch, client: TestC
     assert len(policy_vk_entries) == 1
     assert policy_vk_entries[0]["enabled"] is False
 
-    response = client.get(f"/api/v1/auth/providers?workspace_id={WORKSPACE_ID}")
-    assert response.status_code == 200
-    providers = response.json()["providers"]
-    assert "vk" not in {entry["provider"] for entry in providers}
+    customer_policy = client.get(
+        "/api/v1/auth/policy",
+        params={"workspace_id": str(WORKSPACE_ID)},
+        headers=auth_headers(),
+    )
+    assert customer_policy.status_code == 200
+    customer_providers = customer_policy.json()["providers"]
+    customer_vk = [entry for entry in customer_providers if entry["provider"] == "vk"]
+    assert len(customer_vk) == 1
+    assert customer_vk[0]["enabled"] is False
+
+    public_again = client.get("/api/v1/auth/providers")
+    assert public_again.status_code == 200
+    assert str(AUTH_BOOTSTRAP_WORKSPACE_ID) not in public_again.text
 
     events = _load_auth_audit_events(client)
     policy_events = [event for event in events if event.event_type == "workspace_auth_policy_updated"]
@@ -263,18 +296,118 @@ def test_auth_provider_list_reflects_workspace_policy(monkeypatch, client: TestC
     assert policy_events[0].metadata_json["changed_fields"] == ["allow_vk"]
 
 
+def test_public_provider_start_rejects_client_supplied_workspace_target(
+    monkeypatch,
+    client: TestClient,
+) -> None:
+    _patch_fake_providers(monkeypatch, client)
+
+    listed = client.get(
+        "/api/v1/auth/providers",
+        params={"workspace_id": str(AUTH_BOOTSTRAP_WORKSPACE_ID)},
+    )
+    response = client.post(
+        "/api/v1/auth/providers/yandex/start",
+        json={
+            "workspace_id": str(AUTH_BOOTSTRAP_WORKSPACE_ID),
+            "workspace_return_url": "app://auth-callback",
+        },
+    )
+
+    assert listed.status_code == 400
+    assert listed.json()["code"] == "workspace_target_not_allowed"
+    assert response.status_code == 422
+
+    query_target = client.post(
+        "/api/v1/auth/providers/yandex/start",
+        params={"workspace_id": str(AUTH_BOOTSTRAP_WORKSPACE_ID)},
+        json={"workspace_return_url": "app://auth-callback"},
+    )
+    assert query_target.status_code == 400
+    assert query_target.json()["code"] == "workspace_target_not_allowed"
+
+    internal_policy = client.get(
+        "/api/v1/auth/policy",
+        params={"workspace_id": str(AUTH_BOOTSTRAP_WORKSPACE_ID)},
+        headers=auth_headers(),
+    )
+    assert internal_policy.status_code == 404
+    assert internal_policy.json()["code"] == "workspace_policy_unavailable"
+    assert str(AUTH_BOOTSTRAP_WORKSPACE_ID) not in internal_policy.text
+
+
+def test_customer_auth_policy_requires_active_membership(client: TestClient) -> None:
+    unauthenticated = client.get(
+        "/api/v1/auth/policy",
+        params={"workspace_id": str(WORKSPACE_ID)},
+    )
+
+    assert unauthenticated.status_code == 401
+    assert unauthenticated.json()["code"] == "missing_auth_context"
+
+
+def test_auth_callback_fails_closed_before_provider_work_without_internal_anchor(
+    monkeypatch,
+    client: TestClient,
+) -> None:
+    _patch_fake_providers(monkeypatch, client)
+    started = client.post(
+        "/api/v1/auth/providers/yandex/start",
+        json={"workspace_return_url": "app://auth-callback"},
+    )
+    assert started.status_code == 200
+
+    async def unexpected_callback_resolution(*args, **kwargs):
+        raise AssertionError("provider callback resolution must not start without internal anchor")
+
+    monkeypatch.setattr(
+        "twobrain_rec_server.api.auth.resolve_callback_to_user",
+        unexpected_callback_resolution,
+    )
+    original_workspace_id = client.app.state.settings.web_login_workspace_id
+    client.app.state.settings.web_login_workspace_id = None
+    try:
+        callback = client.get(
+            "/api/v1/auth/callback/yandex",
+            params={"state": started.json()["state_nonce"], "code": "MISSING-ANCHOR-USER"},
+        )
+    finally:
+        client.app.state.settings.web_login_workspace_id = original_workspace_id
+
+    assert callback.status_code == 503
+    assert callback.json()["code"] == "auth_dependency_unavailable"
+
+
+def test_public_auth_fails_closed_without_configured_internal_anchor(
+    monkeypatch,
+    client: TestClient,
+) -> None:
+    _patch_fake_providers(monkeypatch, client)
+    original_workspace_id = client.app.state.settings.web_login_workspace_id
+    client.app.state.settings.web_login_workspace_id = None
+    try:
+        providers = client.get("/api/v1/auth/providers")
+        started = client.post(
+            "/api/v1/auth/providers/yandex/start",
+            json={"workspace_return_url": "app://auth-callback"},
+        )
+    finally:
+        client.app.state.settings.web_login_workspace_id = original_workspace_id
+
+    assert providers.status_code == 503
+    assert providers.json()["code"] == "auth_dependency_unavailable"
+    assert started.status_code == 503
+    assert started.json()["code"] == "auth_dependency_unavailable"
+
+
 def test_auth_policy_read_endpoints_do_not_create_rows(client: TestClient) -> None:
     async def count_policy_rows() -> tuple[int, int]:
         async with client.app_state["sessionmaker"]() as db:
             policies = (
-                await db.scalars(
-                    select(WorkspaceAuthPolicy).where(WorkspaceAuthPolicy.workspace_id == WORKSPACE_ID)
-                )
+                await db.scalars(select(WorkspaceAuthPolicy).where(WorkspaceAuthPolicy.workspace_id == WORKSPACE_ID))
             ).all()
             consent = (
-                await db.scalars(
-                    select(WorkspaceConsentCopy).where(WorkspaceConsentCopy.workspace_id == WORKSPACE_ID)
-                )
+                await db.scalars(select(WorkspaceConsentCopy).where(WorkspaceConsentCopy.workspace_id == WORKSPACE_ID))
             ).all()
             return len(policies), len(consent)
 
@@ -282,7 +415,7 @@ def test_auth_policy_read_endpoints_do_not_create_rows(client: TestClient) -> No
 
     assert asyncio.run(count_policy_rows()) == (0, 0)
 
-    providers = client.get(f"/api/v1/auth/providers?workspace_id={WORKSPACE_ID}")
+    providers = client.get("/api/v1/auth/providers")
     assert providers.status_code == 200
     assert providers.json()["consent"]["language"] == "ru"
 
@@ -302,7 +435,7 @@ def test_auth_callback_returns_session_and_me_shapes_primary_link(monkeypatch, c
 
     start = client.post(
         "/api/v1/auth/providers/yandex/start",
-        json={"workspace_id": str(WORKSPACE_ID), "workspace_return_url": "app://auth-callback"},
+        json={"workspace_return_url": "app://auth-callback"},
     )
     assert start.status_code == 200
     start_payload = start.json()
@@ -313,7 +446,7 @@ def test_auth_callback_returns_session_and_me_shapes_primary_link(monkeypatch, c
             rows = (
                 await db.scalars(
                     select(WorkspaceConsentCopy).where(
-                        WorkspaceConsentCopy.workspace_id == WORKSPACE_ID,
+                        WorkspaceConsentCopy.workspace_id == AUTH_BOOTSTRAP_WORKSPACE_ID,
                         WorkspaceConsentCopy.language == "ru",
                         WorkspaceConsentCopy.version == "v1",
                     )
@@ -388,11 +521,56 @@ def test_auth_callback_returns_session_and_me_shapes_primary_link(monkeypatch, c
     assert len(failures[0].metadata_json["state_nonce_sha256"]) == 64
 
 
+def test_provider_callback_ignores_stale_internal_membership(monkeypatch, client: TestClient) -> None:
+    _patch_fake_providers(monkeypatch, client)
+
+    def callback() -> dict[str, str]:
+        started = client.post(
+            "/api/v1/auth/providers/yandex/start",
+            json={
+                "workspace_return_url": "app://auth-callback",
+            },
+        )
+        assert started.status_code == 200
+        assert str(AUTH_BOOTSTRAP_WORKSPACE_ID) not in started.text
+        assert str(AUTH_BOOTSTRAP_WORKSPACE_ID) not in started.json()["authorization_url"]
+        completed = client.get(
+            "/api/v1/auth/callback/yandex",
+            params={"state": started.json()["state_nonce"], "code": "STALE-INTERNAL-USER"},
+        )
+        assert completed.status_code == 200
+        return completed.json()
+
+    first = callback()
+    first_workspace_id = UUID(first["workspace_id"])
+    assert first_workspace_id != AUTH_BOOTSTRAP_WORKSPACE_ID
+
+    async def seed_stale_membership() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            db.add(
+                WorkspaceMembership(
+                    workspace_id=AUTH_BOOTSTRAP_WORKSPACE_ID,
+                    user_id=UUID(first["user_id"]),
+                    role="owner",
+                    status="active",
+                )
+            )
+            await db.commit()
+
+    import asyncio
+
+    asyncio.run(seed_stale_membership())
+    second = callback()
+
+    assert UUID(second["workspace_id"]) == first_workspace_id
+    assert UUID(second["workspace_id"]) != AUTH_BOOTSTRAP_WORKSPACE_ID
+
+
 def test_provider_link_start_requires_session_csrf_and_creates_bound_state(monkeypatch, client: TestClient) -> None:
     _patch_fake_providers(monkeypatch, client)
     started = client.post(
         "/api/v1/auth/providers/yandex/start",
-        json={"workspace_id": str(WORKSPACE_ID), "workspace_return_url": "app://auth-callback"},
+        json={"workspace_return_url": "app://auth-callback"},
     )
     callback = client.get(
         "/api/v1/auth/callback/yandex",
@@ -441,7 +619,7 @@ def test_provider_link_start_rechecks_disabled_provider_without_creating_intent(
     _patch_fake_providers(monkeypatch, client)
     started = client.post(
         "/api/v1/auth/providers/yandex/start",
-        json={"workspace_id": str(WORKSPACE_ID), "workspace_return_url": "app://auth-callback"},
+        json={"workspace_return_url": "app://auth-callback"},
     )
     login = client.get(
         "/api/v1/auth/callback/yandex",
@@ -491,7 +669,7 @@ def test_provider_link_callback_stores_candidate_without_changing_login_session(
     _patch_fake_providers(monkeypatch, client)
     started = client.post(
         "/api/v1/auth/providers/yandex/start",
-        json={"workspace_id": str(WORKSPACE_ID), "workspace_return_url": "app://auth-callback"},
+        json={"workspace_return_url": "app://auth-callback"},
     )
     login = client.get(
         "/api/v1/auth/callback/yandex",
@@ -528,11 +706,7 @@ def test_provider_link_callback_stores_candidate_without_changing_login_session(
             link = await db.get(WorkspaceProviderLinkState, link_id)
             assert link is not None
             sessions = list(
-                (
-                    await db.scalars(
-                        select(AuthSession).where(AuthSession.workspace_id == login_workspace_id)
-                    )
-                ).all()
+                (await db.scalars(select(AuthSession).where(AuthSession.workspace_id == login_workspace_id))).all()
             )
             linked_identity = await db.scalar(
                 select(ExternalIdentity).where(
@@ -580,11 +754,7 @@ def test_provider_link_callback_stores_candidate_without_changing_login_session(
             identity = await db.get(ExternalIdentity, link.target_provider_identity_id)
             assert identity is not None
             sessions = list(
-                (
-                    await db.scalars(
-                        select(AuthSession).where(AuthSession.workspace_id == login_workspace_id)
-                    )
-                ).all()
+                (await db.scalars(select(AuthSession).where(AuthSession.workspace_id == login_workspace_id))).all()
             )
             return link, identity, sessions
 
@@ -661,7 +831,7 @@ def test_provider_link_callback_replay_scrubs_pending_candidate(monkeypatch, cli
     _patch_fake_providers(monkeypatch, client)
     started = client.post(
         "/api/v1/auth/providers/yandex/start",
-        json={"workspace_id": str(WORKSPACE_ID), "workspace_return_url": "app://auth-callback"},
+        json={"workspace_return_url": "app://auth-callback"},
     )
     login = client.get(
         "/api/v1/auth/callback/yandex",
@@ -721,7 +891,7 @@ def test_provider_link_confirmation_expiry_scrubs_candidate(monkeypatch, client:
     _patch_fake_providers(monkeypatch, client)
     started = client.post(
         "/api/v1/auth/providers/yandex/start",
-        json={"workspace_id": str(WORKSPACE_ID), "workspace_return_url": "app://auth-callback"},
+        json={"workspace_return_url": "app://auth-callback"},
     )
     login = client.get(
         "/api/v1/auth/callback/yandex",
@@ -791,14 +961,12 @@ def test_provider_link_confirmation_expiry_scrubs_candidate(monkeypatch, client:
     assert str(link_id) not in str(expired_event.metadata_json)
 
 
-def test_provider_link_confirmation_rejects_foreign_identity_without_transfer(
-    monkeypatch, client: TestClient
-) -> None:
+def test_provider_link_confirmation_rejects_foreign_identity_without_transfer(monkeypatch, client: TestClient) -> None:
     _patch_fake_providers(monkeypatch, client)
     other_user_id = uuid4()
     started = client.post(
         "/api/v1/auth/providers/yandex/start",
-        json={"workspace_id": str(WORKSPACE_ID), "workspace_return_url": "app://auth-callback"},
+        json={"workspace_return_url": "app://auth-callback"},
     )
     login = client.get(
         "/api/v1/auth/callback/yandex",
@@ -887,13 +1055,11 @@ def test_provider_link_confirmation_rejects_foreign_identity_without_transfer(
     assert "foreign-user" not in str(conflict_event.metadata_json)
 
 
-def test_provider_link_confirmation_requires_the_initiating_session(
-    monkeypatch, client: TestClient
-) -> None:
+def test_provider_link_confirmation_requires_the_initiating_session(monkeypatch, client: TestClient) -> None:
     _patch_fake_providers(monkeypatch, client)
     started = client.post(
         "/api/v1/auth/providers/yandex/start",
-        json={"workspace_id": str(WORKSPACE_ID), "workspace_return_url": "app://auth-callback"},
+        json={"workspace_return_url": "app://auth-callback"},
     )
     login = client.get(
         "/api/v1/auth/callback/yandex",
@@ -1106,10 +1272,12 @@ def test_owner_session_cookie_can_create_desktop_meeting_without_legacy_device_h
     assert payload["status"] == "draft"
 
 
-def test_builtin_provider_callback_fails_closed_without_verified_exchange(client: TestClient) -> None:
+def test_builtin_provider_callback_fails_closed_without_verified_exchange(
+    client: TestClient,
+) -> None:
     start = client.post(
         "/api/v1/auth/providers/yandex/start",
-        json={"workspace_id": str(WORKSPACE_ID), "workspace_return_url": "app://auth-callback"},
+        json={"workspace_return_url": "app://auth-callback"},
     )
     assert start.status_code == 200
     state_nonce = start.json()["state_nonce"]
@@ -1138,7 +1306,7 @@ def test_yandex_callback_uses_verified_profile_not_raw_code(monkeypatch, tmp_pat
 
     start = client.post(
         "/api/v1/auth/providers/yandex/start",
-        json={"workspace_id": str(WORKSPACE_ID), "workspace_return_url": "app://auth-callback"},
+        json={"workspace_return_url": "app://auth-callback"},
     )
     assert start.status_code == 200
 
@@ -1170,7 +1338,7 @@ def test_provider_start_uses_public_auth_base_url_for_redirect_uri(client: TestC
 
     start = client.post(
         "/api/v1/auth/providers/yandex/start",
-        json={"workspace_id": str(WORKSPACE_ID), "workspace_return_url": "/meetings"},
+        json={"workspace_return_url": "/meetings"},
     )
 
     assert start.status_code == 200
@@ -1183,7 +1351,7 @@ def test_vk_provider_start_uses_public_auth_base_url_and_vk_client_id(client: Te
 
     start = client.post(
         "/api/v1/auth/providers/vk/start",
-        json={"workspace_id": str(WORKSPACE_ID), "workspace_return_url": "/meetings"},
+        json={"workspace_return_url": "/meetings"},
     )
 
     assert start.status_code == 200
@@ -1203,13 +1371,17 @@ def test_vk_callback_uses_verified_profile_not_raw_code(monkeypatch, tmp_path, c
 
     start = client.post(
         "/api/v1/auth/providers/vk/start",
-        json={"workspace_id": str(WORKSPACE_ID), "workspace_return_url": "app://auth-callback"},
+        json={"workspace_return_url": "app://auth-callback"},
     )
     assert start.status_code == 200
 
     response = client.get(
         "/api/v1/auth/callback/vk",
-        params={"state": start.json()["state_nonce"], "code": "VALID-VK-CODE", "device_id": "VK-DEVICE"},
+        params={
+            "state": start.json()["state_nonce"],
+            "code": "VALID-VK-CODE",
+            "device_id": "VK-DEVICE",
+        },
     )
 
     assert response.status_code == 200
@@ -1243,7 +1415,7 @@ def test_telegram_callback_rejects_forged_signature(tmp_path, client: TestClient
 
     start = client.post(
         "/api/v1/auth/providers/telegram/start",
-        json={"workspace_id": str(WORKSPACE_ID), "workspace_return_url": "app://auth-callback"},
+        json={"workspace_return_url": "app://auth-callback"},
     )
     assert start.status_code == 200
     state_nonce = start.json()["state_nonce"]
@@ -1264,7 +1436,7 @@ def test_telegram_callback_rejects_forged_signature(tmp_path, client: TestClient
 
     retry = client.post(
         "/api/v1/auth/providers/telegram/start",
-        json={"workspace_id": str(WORKSPACE_ID), "workspace_return_url": "app://auth-callback"},
+        json={"workspace_return_url": "app://auth-callback"},
     )
     assert retry.status_code == 200
     valid = client.get(
@@ -1286,7 +1458,7 @@ def test_provider_callback_creates_personal_space_when_corporate_enrollment_is_d
 
     start = client.post(
         "/api/v1/auth/providers/yandex/start",
-        json={"workspace_id": str(WORKSPACE_ID), "workspace_return_url": "app://auth-callback"},
+        json={"workspace_return_url": "app://auth-callback"},
     )
     assert start.status_code == 200
     state_nonce = start.json()["state_nonce"]
@@ -1359,7 +1531,7 @@ def test_provider_domain_claim_never_auto_joins_or_discloses_corporate_space(mon
     asyncio.run(seed_corporate_space())
     start = client.post(
         "/api/v1/auth/providers/yandex/start",
-        json={"workspace_id": str(WORKSPACE_ID), "workspace_return_url": "app://auth-callback"},
+        json={"workspace_return_url": "app://auth-callback"},
     )
     callback = client.get(
         "/api/v1/auth/callback/yandex",
@@ -1374,7 +1546,6 @@ def test_provider_domain_claim_never_auto_joins_or_discloses_corporate_space(mon
     assert corporate_name not in callback.text
     payload = callback.json()
     assert payload["workspace_id"] != str(corporate_workspace_id)
-    assert requires_explicit_corporate_enrollment() is True
 
     async def load() -> tuple[list[WorkspaceMembership], list[WorkspaceJoinOffer]]:
         async with client.app_state["sessionmaker"]() as db:
@@ -1398,36 +1569,36 @@ def test_provider_domain_claim_never_auto_joins_or_discloses_corporate_space(mon
     assert offers == []
 
 
-def test_email_signup_reuses_new_and_legacy_identities_without_bootstrap_enrollment(
+def test_email_signup_reuses_new_and_existing_identities_without_internal_enrollment(
     client: TestClient,
 ) -> None:
     new_email = "new-personal@example.test"
-    legacy_email = "legacy-personal@example.test"
-    legacy_user_id = uuid4()
+    existing_email = "existing-personal@example.test"
+    existing_user_id = uuid4()
 
-    async def seed_legacy_user() -> None:
+    async def seed_existing_user_with_stale_internal_membership() -> None:
         async with client.app_state["sessionmaker"]() as db:
             db.add(
                 UserIdentity(
-                    id=legacy_user_id,
+                    id=existing_user_id,
                     organization_id=ORG_ID,
-                    external_subject=f"email:{legacy_email}",
-                    display_name="Legacy person",
+                    external_subject=f"email:{existing_email}",
+                    display_name="Existing person",
                 )
             )
             await db.flush()
             db.add_all(
                 (
                     ExternalIdentity(
-                        user_id=legacy_user_id,
+                        user_id=existing_user_id,
                         provider="email",
-                        provider_subject=legacy_email,
-                        email=legacy_email,
+                        provider_subject=existing_email,
+                        email=existing_email,
                         is_verified=True,
                     ),
                     WorkspaceMembership(
-                        workspace_id=WORKSPACE_ID,
-                        user_id=legacy_user_id,
+                        workspace_id=AUTH_BOOTSTRAP_WORKSPACE_ID,
+                        user_id=existing_user_id,
                         role="member",
                         status="active",
                     ),
@@ -1437,7 +1608,7 @@ def test_email_signup_reuses_new_and_legacy_identities_without_bootstrap_enrollm
 
     import asyncio
 
-    asyncio.run(seed_legacy_user())
+    asyncio.run(seed_existing_user_with_stale_internal_membership())
 
     def complete_signup(email: str) -> str:
         started = client.post("/sign-up/email/start", data={"email": email, "next": "/meetings"})
@@ -1464,20 +1635,18 @@ def test_email_signup_reuses_new_and_legacy_identities_without_bootstrap_enrollm
 
     first_new_token = complete_signup(new_email)
     second_new_token = complete_signup(new_email)
-    first_legacy_token = complete_signup(legacy_email)
-    second_legacy_token = complete_signup(legacy_email)
+    first_existing_token = complete_signup(existing_email)
+    second_existing_token = complete_signup(existing_email)
 
     async def load_result() -> tuple[int, int, int, int, set[UUID]]:
         async with client.app_state["sessionmaker"]() as db:
-            new_identity = await db.scalar(
-                select(ExternalIdentity).where(ExternalIdentity.email == new_email)
-            )
+            new_identity = await db.scalar(select(ExternalIdentity).where(ExternalIdentity.email == new_email))
             assert new_identity is not None
-            legacy_identity = await db.scalar(
-                select(ExternalIdentity).where(ExternalIdentity.email == legacy_email)
+            existing_identity = await db.scalar(
+                select(ExternalIdentity).where(ExternalIdentity.email == existing_email)
             )
-            assert legacy_identity is not None
-            assert legacy_identity.user_id == legacy_user_id
+            assert existing_identity is not None
+            assert existing_identity.user_id == existing_user_id
             new_personal_spaces = list(
                 await db.scalars(
                     select(Workspace).where(
@@ -1486,10 +1655,10 @@ def test_email_signup_reuses_new_and_legacy_identities_without_bootstrap_enrollm
                     )
                 )
             )
-            legacy_personal_spaces = list(
+            existing_personal_spaces = list(
                 await db.scalars(
                     select(Workspace).where(
-                        Workspace.owner_user_id == legacy_user_id,
+                        Workspace.owner_user_id == existing_user_id,
                         Workspace.kind == "personal",
                     )
                 )
@@ -1497,8 +1666,8 @@ def test_email_signup_reuses_new_and_legacy_identities_without_bootstrap_enrollm
             bootstrap_memberships = list(
                 await db.scalars(
                     select(WorkspaceMembership).where(
-                        WorkspaceMembership.workspace_id == WORKSPACE_ID,
-                        WorkspaceMembership.user_id.in_((new_identity.user_id, legacy_user_id)),
+                        WorkspaceMembership.workspace_id == AUTH_BOOTSTRAP_WORKSPACE_ID,
+                        WorkspaceMembership.user_id.in_((new_identity.user_id, existing_user_id)),
                     )
                 )
             )
@@ -1511,8 +1680,8 @@ def test_email_signup_reuses_new_and_legacy_identities_without_bootstrap_enrollm
                                 for token in (
                                     first_new_token,
                                     second_new_token,
-                                    first_legacy_token,
-                                    second_legacy_token,
+                                    first_existing_token,
+                                    second_existing_token,
                                 )
                             )
                         )
@@ -1520,23 +1689,21 @@ def test_email_signup_reuses_new_and_legacy_identities_without_bootstrap_enrollm
                 )
             )
             assert len(new_personal_spaces) == 1
-            assert len(legacy_personal_spaces) == 1
+            assert len(existing_personal_spaces) == 1
             return (
                 len(new_personal_spaces),
-                len(legacy_personal_spaces),
+                len(existing_personal_spaces),
                 len(bootstrap_memberships),
                 len(sessions),
                 {session.workspace_id for session in sessions},
             )
 
-    new_spaces, legacy_spaces, bootstrap_memberships, session_count, session_workspaces = asyncio.run(
-        load_result()
-    )
+    new_spaces, existing_spaces, bootstrap_memberships, session_count, session_workspaces = asyncio.run(load_result())
     assert new_spaces == 1
-    assert legacy_spaces == 1
+    assert existing_spaces == 1
     assert bootstrap_memberships == 1
     assert session_count == 4
-    assert WORKSPACE_ID not in session_workspaces
+    assert AUTH_BOOTSTRAP_WORKSPACE_ID not in session_workspaces
 
 
 def test_provider_callback_creates_offer_and_personal_space_without_auto_join(monkeypatch, client: TestClient) -> None:
@@ -1561,7 +1728,7 @@ def test_provider_callback_creates_offer_and_personal_space_without_auto_join(mo
 
     start = client.post(
         "/api/v1/auth/providers/yandex/start",
-        json={"workspace_id": str(WORKSPACE_ID), "workspace_return_url": "app://auth-callback"},
+        json={"workspace_return_url": "app://auth-callback"},
     )
     callback = client.get(
         "/api/v1/auth/callback/yandex",
@@ -1617,7 +1784,7 @@ def test_auth_callback_provider_unavailable_returns_service_unavailable(monkeypa
 
     start = client.post(
         "/api/v1/auth/providers/yandex/start",
-        json={"workspace_id": str(WORKSPACE_ID), "workspace_return_url": "app://auth-callback"},
+        json={"workspace_return_url": "app://auth-callback"},
     )
     assert start.status_code == 200
     state_nonce = start.json()["state_nonce"]
@@ -1638,7 +1805,7 @@ def test_auth_callback_user_denied_returns_forbidden(monkeypatch, client: TestCl
 
     start = client.post(
         "/api/v1/auth/providers/yandex/start",
-        json={"workspace_id": str(WORKSPACE_ID), "workspace_return_url": "app://auth-callback"},
+        json={"workspace_return_url": "app://auth-callback"},
     )
     assert start.status_code == 200
     state_nonce = start.json()["state_nonce"]
@@ -1659,7 +1826,7 @@ def test_auth_callback_without_state_is_invalid(monkeypatch, client: TestClient)
 
     start = client.post(
         "/api/v1/auth/providers/yandex/start",
-        json={"workspace_id": str(WORKSPACE_ID), "workspace_return_url": "app://auth-callback"},
+        json={"workspace_return_url": "app://auth-callback"},
     )
     assert start.status_code == 200
 
@@ -1717,7 +1884,7 @@ def test_auth_callback_fails_for_identity_bound_to_other_organization(monkeypatc
     seed_conflicting_identity()
     start = client.post(
         "/api/v1/auth/providers/yandex/start",
-        json={"workspace_id": str(WORKSPACE_ID), "workspace_return_url": "app://auth-callback"},
+        json={"workspace_return_url": "app://auth-callback"},
     )
     assert start.status_code == 200
     state_nonce = start.json()["state_nonce"]
@@ -1763,7 +1930,7 @@ def test_auth_callback_fails_for_inactive_identity_owner(monkeypatch, client: Te
     seed_inactive_identity()
     start = client.post(
         "/api/v1/auth/providers/yandex/start",
-        json={"workspace_id": str(WORKSPACE_ID), "workspace_return_url": "app://auth-callback"},
+        json={"workspace_return_url": "app://auth-callback"},
     )
     assert start.status_code == 200
     state_nonce = start.json()["state_nonce"]
@@ -1780,12 +1947,17 @@ def test_auth_link_rejects_raw_candidate_subject(monkeypatch, client: TestClient
 
     start = client.post(
         "/api/v1/auth/providers/yandex/start",
-        json={"workspace_id": str(WORKSPACE_ID), "workspace_return_url": "app://auth-callback"},
+        json={"workspace_return_url": "app://auth-callback"},
     )
     state_nonce = start.json()["state_nonce"]
     callback_payload = client.get(
         "/api/v1/auth/callback/yandex",
-        params={"state": state_nonce, "code": "TEST-YA-USER", "email": "candidate@example.com", "phone": "+79990001111"},
+        params={
+            "state": state_nonce,
+            "code": "TEST-YA-USER",
+            "email": "candidate@example.com",
+            "phone": "+79990001111",
+        },
     ).json()
 
     response = client.post(
@@ -1835,7 +2007,7 @@ def test_auth_link_rejects_direct_subject_without_leaking_conflict(monkeypatch, 
 
     start = client.post(
         "/api/v1/auth/providers/yandex/start",
-        json={"workspace_id": str(WORKSPACE_ID), "workspace_return_url": "app://auth-callback"},
+        json={"workspace_return_url": "app://auth-callback"},
     )
     state_nonce = start.json()["state_nonce"]
     callback_payload = client.get(
@@ -1847,7 +2019,9 @@ def test_auth_link_rejects_direct_subject_without_leaking_conflict(monkeypatch, 
         async with client.app_state["sessionmaker"]() as db:
             db.add(UserIdentity(id=other_user_id, organization_id=ORG_ID, external_subject=str(other_user_id)))
             await db.flush()
-            db.add(WorkspaceMembership(workspace_id=WORKSPACE_ID, user_id=other_user_id, role="member", status="active"))
+            db.add(
+                WorkspaceMembership(workspace_id=WORKSPACE_ID, user_id=other_user_id, role="member", status="active")
+            )
             db.add(
                 ExternalIdentity(
                     user_id=other_user_id,
@@ -1889,7 +2063,7 @@ def test_auth_device_register_revoke_blocks_session_bound_ingest(monkeypatch, cl
 
     start = client.post(
         "/api/v1/auth/providers/yandex/start",
-        json={"workspace_id": str(WORKSPACE_ID), "workspace_return_url": "app://auth-callback"},
+        json={"workspace_return_url": "app://auth-callback"},
     )
     state_nonce = start.json()["state_nonce"]
     callback_payload = client.get(
@@ -1980,7 +2154,9 @@ def test_workspace_owner_can_revoke_another_user_device(client: TestClient) -> N
         async with client.app_state["sessionmaker"]() as db:
             db.add(UserIdentity(id=other_user_id, organization_id=ORG_ID, external_subject=str(other_user_id)))
             await db.flush()
-            db.add(WorkspaceMembership(workspace_id=WORKSPACE_ID, user_id=other_user_id, role="member", status="active"))
+            db.add(
+                WorkspaceMembership(workspace_id=WORKSPACE_ID, user_id=other_user_id, role="member", status="active")
+            )
             db.add(
                 RegisteredDevice(
                     id=other_device_id,
@@ -2014,7 +2190,14 @@ def test_workspace_member_cannot_revoke_another_user_device(client: TestClient) 
         async with client.app_state["sessionmaker"]() as db:
             db.add(UserIdentity(id=member_user_id, organization_id=ORG_ID, external_subject=str(member_user_id)))
             await db.flush()
-            db.add(WorkspaceMembership(workspace_id=WORKSPACE_ID, user_id=member_user_id, role="member", status="active"))
+            db.add(
+                WorkspaceMembership(
+                    workspace_id=WORKSPACE_ID,
+                    user_id=member_user_id,
+                    role="member",
+                    status="active",
+                )
+            )
             db.add(
                 RegisteredDevice(
                     id=owner_device_id,
@@ -2066,6 +2249,14 @@ def test_active_space_list_and_switch_replace_the_scoped_session(client: TestCli
                     last_heartbeat_at=datetime.now(UTC),
                 )
             )
+            db.add(
+                WorkspaceMembership(
+                    workspace_id=AUTH_BOOTSTRAP_WORKSPACE_ID,
+                    user_id=USER_ID,
+                    role="owner",
+                    status="active",
+                )
+            )
             await db.commit()
             return current.token, current.id, personal.id
 
@@ -2077,16 +2268,24 @@ def test_active_space_list_and_switch_replace_the_scoped_session(client: TestCli
     listed = client.get("/settings/spaces")
     assert listed.status_code == 200
     spaces = {space["id"]: space for space in listed.json()["spaces"]}
+    assert str(AUTH_BOOTSTRAP_WORKSPACE_ID) not in spaces
     assert spaces[str(WORKSPACE_ID)]["active"] is True
     assert spaces[str(personal_workspace_id)] == {
         "id": str(personal_workspace_id),
-        "name": "Личное пространство",
+        "name": "Моё пространство",
         "kind": "personal",
         "role": "owner",
         "active": False,
     }
 
     csrf = issue_csrf_token(session_id=session_id, secret=client.app.state.web_csrf_secret)
+    denied_internal = client.post(
+        f"/settings/spaces/{AUTH_BOOTSTRAP_WORKSPACE_ID}/activate",
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert denied_internal.status_code == 404
+    assert denied_internal.json()["code"] == "workspace_activation_unavailable"
+
     activated = client.post(
         f"/settings/spaces/{personal_workspace_id}/activate",
         headers={"X-CSRF-Token": csrf},
@@ -2094,7 +2293,7 @@ def test_active_space_list_and_switch_replace_the_scoped_session(client: TestCli
     assert activated.status_code == 200
     assert activated.json()["active_space"] == {
         "id": str(personal_workspace_id),
-        "name": "Личное пространство",
+        "name": "Моё пространство",
         "kind": "personal",
         "role": "owner",
         "active": True,
@@ -2102,16 +2301,14 @@ def test_active_space_list_and_switch_replace_the_scoped_session(client: TestCli
     assert AUTH_SESSION_COOKIE_NAME in activated.headers["set-cookie"]
     assert "HttpOnly" in activated.headers["set-cookie"]
     assert "Secure" in activated.headers["set-cookie"]
-    replacement_match = re.search(
-        rf"{re.escape(AUTH_SESSION_COOKIE_NAME)}=([^;]+)", activated.headers["set-cookie"]
-    )
+    replacement_match = re.search(rf"{re.escape(AUTH_SESSION_COOKIE_NAME)}=([^;]+)", activated.headers["set-cookie"])
     assert replacement_match is not None
     client.cookies.set(AUTH_SESSION_COOKIE_NAME, replacement_match.group(1))
 
     current_settings = client.get("/settings/workspace")
     assert current_settings.status_code == 200
-    assert "Активное пространство" in current_settings.text
-    assert "Сейчас выбрано" in current_settings.text
+    assert "Куда сохраняются новые встречи" in current_settings.text
+    assert "Текущее" in current_settings.text
     assert 'name="workspace_id"' not in current_settings.text
 
     client.cookies.clear()
@@ -2148,8 +2345,10 @@ def test_active_space_list_and_switch_replace_the_scoped_session(client: TestCli
     assert bindings[0].device_state == "trusted"
 
 
-def test_workspace_join_offers_require_explicit_csrf_protected_decisions(client: TestClient) -> None:
-    async def seed() -> tuple[str, UUID, UUID, UUID]:
+def test_workspace_join_offers_require_explicit_csrf_protected_decisions(
+    client: TestClient,
+) -> None:
+    async def seed() -> tuple[str, UUID, UUID, UUID, UUID]:
         async with client.app_state["sessionmaker"]() as db:
             accepted_workspace = Workspace(
                 organization_id=ORG_ID,
@@ -2179,7 +2378,14 @@ def test_workspace_join_offers_require_explicit_csrf_protected_decisions(client:
                 created_by_user_id=USER_ID,
                 expires_at=datetime.now(UTC) + timedelta(days=1),
             )
-            db.add_all((accepted_invitation, rejected_invitation))
+            internal_invitation = WorkspaceInvitation(
+                workspace_id=AUTH_BOOTSTRAP_WORKSPACE_ID,
+                target_contact="offer-owner@example.test",
+                invited_role="owner",
+                created_by_user_id=USER_ID,
+                expires_at=datetime.now(UTC) + timedelta(days=1),
+            )
+            db.add_all((accepted_invitation, rejected_invitation, internal_invitation))
             await db.flush()
             accepted_offer = WorkspaceJoinOffer(
                 workspace_id=accepted_workspace.id,
@@ -2197,7 +2403,15 @@ def test_workspace_join_offers_require_explicit_csrf_protected_decisions(client:
                 invited_role=rejected_invitation.invited_role,
                 expires_at=rejected_invitation.expires_at,
             )
-            db.add_all((accepted_offer, rejected_offer))
+            internal_offer = WorkspaceJoinOffer(
+                workspace_id=AUTH_BOOTSTRAP_WORKSPACE_ID,
+                user_id=USER_ID,
+                invitation_id=internal_invitation.id,
+                workspace_name="Internal Auth Bootstrap",
+                invited_role=internal_invitation.invited_role,
+                expires_at=internal_invitation.expires_at,
+            )
+            db.add_all((accepted_offer, rejected_offer, internal_offer))
             session = await issue_auth_session(
                 db,
                 user_id=USER_ID,
@@ -2214,11 +2428,17 @@ def test_workspace_join_offers_require_explicit_csrf_protected_decisions(client:
                 )
             )
             await db.commit()
-            return session.token, session.id, accepted_offer.id, rejected_offer.id
+            return (
+                session.token,
+                session.id,
+                accepted_offer.id,
+                rejected_offer.id,
+                internal_offer.id,
+            )
 
     import asyncio
 
-    token, session_id, accepted_offer_id, rejected_offer_id = asyncio.run(seed())
+    token, session_id, accepted_offer_id, rejected_offer_id, internal_offer_id = asyncio.run(seed())
     csrf = issue_csrf_token(session_id=session_id, secret=client.app.state.web_csrf_secret)
     client.cookies.set(AUTH_SESSION_COOKIE_NAME, token)
 
@@ -2232,12 +2452,19 @@ def test_workspace_join_offers_require_explicit_csrf_protected_decisions(client:
 
     settings = client.get("/settings/workspace")
     assert settings.status_code == 200
-    assert "Приглашения в команды" in settings.text
+    assert "Приглашения в рабочие пространства" in settings.text
     assert "Команда для принятия" in settings.text
     assert "offer-owner@example.test" not in settings.text
 
     missing_csrf = client.post(f"/settings/join-offers/{accepted_offer_id}/accept")
     assert missing_csrf.status_code == 403
+
+    denied_internal = client.post(
+        f"/settings/join-offers/{internal_offer_id}/accept",
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert denied_internal.status_code == 409
+    assert denied_internal.json()["code"] == "workspace_join_offer_unavailable"
 
     accepted = client.post(
         f"/settings/join-offers/{accepted_offer_id}/accept",

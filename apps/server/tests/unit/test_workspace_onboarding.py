@@ -2,23 +2,38 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime, timedelta
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import select
 
-from tests.fakes.auth_contexts import ORG_ID, USER_ID, WORKSPACE_ID
-from twobrain_rec_server.admin.invitations import create_matching_join_offers_after_login
+from tests.fakes.auth_contexts import (
+    AUTH_BOOTSTRAP_WORKSPACE_ID,
+    ORG_ID,
+    PERSONAL_WORKSPACE_ID,
+    USER_ID,
+    WORKSPACE_ID,
+)
+from twobrain_rec_server.admin.invitations import (
+    create_matching_join_offers_after_login,
+    create_workspace_invitation,
+)
+from twobrain_rec_server.admin.queries import AdminWorkspaceContext
 from twobrain_rec_server.api.problems import ProblemDetail
+from twobrain_rec_server.auth.sessions import issue_auth_session
 from twobrain_rec_server.auth.workspace_onboarding import (
-    can_transition_join_offer,
+    activate_workspace_session,
     create_or_reuse_join_offer,
     decide_workspace_join_offer,
     ensure_personal_workspace,
     join_offer_is_actionable,
     list_active_workspaces,
+    list_workspace_join_offers,
 )
 from twobrain_rec_server.db.models import (
+    AuthSession,
+    Organization,
+    UserIdentity,
     Workspace,
     WorkspaceInvitation,
     WorkspaceJoinOffer,
@@ -62,19 +77,19 @@ def test_join_offer_is_bound_to_one_user_and_invitation() -> None:
     assert offer.expires_at > now
 
 
-def test_join_offer_transition_is_terminal_after_acceptance_or_rejection() -> None:
-    assert can_transition_join_offer("offered", "accepted")
-    assert can_transition_join_offer("offered", "rejected")
-    assert not can_transition_join_offer("accepted", "offered")
-    assert not can_transition_join_offer("rejected", "accepted")
-
-
 def test_personal_workspace_helper_is_idempotent_and_keeps_one_owner_membership(client) -> None:
     async def exercise() -> tuple[Workspace, int, WorkspaceMembership]:
         async with client.app_state["sessionmaker"]() as db:
             first = await ensure_personal_workspace(
                 db, organization_id=ORG_ID, user_id=USER_ID
             )
+            membership = await db.get(
+                WorkspaceMembership,
+                {"workspace_id": first.id, "user_id": USER_ID},
+            )
+            assert membership is not None
+            membership.role = "member"
+            await db.flush()
             second = await ensure_personal_workspace(
                 db, organization_id=ORG_ID, user_id=USER_ID
             )
@@ -97,6 +112,49 @@ def test_personal_workspace_helper_is_idempotent_and_keeps_one_owner_membership(
     assert membership.status == "active"
 
 
+def test_personal_workspace_helper_converges_under_concurrent_creation(client) -> None:
+    concurrent_user_id = UUID("30000000-0000-0000-0000-000000000088")
+
+    async def exercise() -> tuple[set[UUID], int]:
+        async with client.app_state["sessionmaker"]() as db:
+            db.add(
+                UserIdentity(
+                    id=concurrent_user_id,
+                    organization_id=ORG_ID,
+                    external_subject="concurrent-personal-owner",
+                )
+            )
+            await db.commit()
+
+        async def create() -> UUID:
+            async with client.app_state["sessionmaker"]() as db:
+                workspace = await ensure_personal_workspace(
+                    db,
+                    organization_id=ORG_ID,
+                    user_id=concurrent_user_id,
+                )
+                await db.commit()
+                return workspace.id
+
+        workspace_ids = set(await asyncio.gather(create(), create()))
+        async with client.app_state["sessionmaker"]() as db:
+            memberships = list(
+                await db.scalars(
+                    select(WorkspaceMembership).where(
+                        WorkspaceMembership.user_id == concurrent_user_id,
+                        WorkspaceMembership.role == "owner",
+                        WorkspaceMembership.status == "active",
+                    )
+                )
+            )
+        return workspace_ids, len(memberships)
+
+    workspace_ids, membership_count = asyncio.run(exercise())
+
+    assert len(workspace_ids) == 1
+    assert membership_count == 1
+
+
 def test_join_offer_is_not_actionable_after_expiry() -> None:
     offer = WorkspaceJoinOffer(
         workspace_id=uuid4(),
@@ -111,14 +169,342 @@ def test_join_offer_is_not_actionable_after_expiry() -> None:
     assert not join_offer_is_actionable(offer)
 
 
+def test_join_offer_listing_includes_only_actionable_corporate_workspaces(client) -> None:
+    other_organization_id = UUID("10000000-0000-0000-0000-000000000099")
+
+    async def exercise() -> tuple[tuple[object, ...], str]:
+        async with client.app_state["sessionmaker"]() as db:
+            other_organization = Organization(
+                id=other_organization_id,
+                slug="other-offer-org",
+                name="Other Offer Org",
+            )
+            actionable_workspace = Workspace(
+                organization_id=ORG_ID,
+                slug="actionable-offer-team",
+                name="Доступная команда",
+                kind="corporate",
+            )
+            expired_workspace = Workspace(
+                organization_id=ORG_ID,
+                slug="expired-listed-offer-team",
+                name="Истёкшая команда",
+                kind="corporate",
+            )
+            foreign_workspace = Workspace(
+                organization_id=other_organization_id,
+                slug="foreign-offer-team",
+                name="Чужая команда",
+                kind="corporate",
+            )
+            db.add_all(
+                (
+                    other_organization,
+                    actionable_workspace,
+                    expired_workspace,
+                    foreign_workspace,
+                )
+            )
+            await db.flush()
+
+            workspace_cases = (
+                (actionable_workspace, datetime.now(UTC) + timedelta(days=1)),
+                (expired_workspace, datetime.now(UTC) - timedelta(seconds=1)),
+                (
+                    await db.get(Workspace, PERSONAL_WORKSPACE_ID),
+                    datetime.now(UTC) + timedelta(days=1),
+                ),
+                (
+                    await db.get(Workspace, AUTH_BOOTSTRAP_WORKSPACE_ID),
+                    datetime.now(UTC) + timedelta(days=1),
+                ),
+                (foreign_workspace, datetime.now(UTC) + timedelta(days=1)),
+            )
+            offers: list[WorkspaceJoinOffer] = []
+            for index, (workspace, expires_at) in enumerate(workspace_cases):
+                assert workspace is not None
+                invitation = WorkspaceInvitation(
+                    workspace_id=workspace.id,
+                    target_contact=f"listed-offer-{index}@example.test",
+                    invited_role="member",
+                    created_by_user_id=USER_ID,
+                    expires_at=expires_at,
+                )
+                db.add(invitation)
+                await db.flush()
+                offer = WorkspaceJoinOffer(
+                    workspace_id=workspace.id,
+                    user_id=USER_ID,
+                    invitation_id=invitation.id,
+                    workspace_name=workspace.name,
+                    invited_role=invitation.invited_role,
+                    expires_at=expires_at,
+                )
+                db.add(offer)
+                offers.append(offer)
+            await db.flush()
+
+            listed = await list_workspace_join_offers(
+                db,
+                organization_id=ORG_ID,
+                current_workspace_id=WORKSPACE_ID,
+                internal_workspace_id=AUTH_BOOTSTRAP_WORKSPACE_ID,
+                user_id=USER_ID,
+            )
+            await db.flush()
+            expired_status = offers[1].status
+            await db.commit()
+            return listed, expired_status
+
+    listed, expired_status = asyncio.run(exercise())
+
+    assert [offer.workspace_name for offer in listed] == ["Доступная команда"]
+    assert expired_status == "expired"
+
+
+def test_workspace_activation_serializes_competing_replacements(client) -> None:
+    async def exercise() -> tuple[list[str], str, int]:
+        async with client.app_state["sessionmaker"]() as db:
+            current = await issue_auth_session(
+                db,
+                user_id=USER_ID,
+                workspace_id=WORKSPACE_ID,
+                provider="activation-race-test",
+            )
+            await db.commit()
+
+        async def activate() -> str:
+            async with client.app_state["sessionmaker"]() as db:
+                try:
+                    await activate_workspace_session(
+                        db,
+                        organization_id=ORG_ID,
+                        current_workspace_id=WORKSPACE_ID,
+                        internal_workspace_id=AUTH_BOOTSTRAP_WORKSPACE_ID,
+                        user_id=USER_ID,
+                        current_session_id=current.id,
+                        target_workspace_id=PERSONAL_WORKSPACE_ID,
+                    )
+                    await db.commit()
+                    return "activated"
+                except ProblemDetail as exc:
+                    await db.rollback()
+                    return exc.code
+
+        results = await asyncio.gather(activate(), activate())
+        async with client.app_state["sessionmaker"]() as db:
+            source = await db.get(AuthSession, current.id)
+            assert source is not None
+            replacements = list(
+                await db.scalars(
+                    select(AuthSession).where(
+                        AuthSession.user_id == USER_ID,
+                        AuthSession.workspace_id == PERSONAL_WORKSPACE_ID,
+                        AuthSession.provider == "activation-race-test",
+                        AuthSession.status == "active",
+                    )
+                )
+            )
+            return results, source.status, len(replacements)
+
+    results, source_status, replacement_count = asyncio.run(exercise())
+
+    assert sorted(results) == ["activated", "auth_session_invalid"]
+    assert source_status == "replaced"
+    assert replacement_count == 1
+
+
+def test_stale_membership_cannot_list_or_activate_another_users_personal_workspace(
+    client,
+) -> None:
+    other_user_id = UUID("30000000-0000-0000-0000-000000000089")
+
+    async def exercise() -> tuple[set[UUID], str]:
+        async with client.app_state["sessionmaker"]() as db:
+            db.add(
+                UserIdentity(
+                    id=other_user_id,
+                    organization_id=ORG_ID,
+                    external_subject="other-personal-owner",
+                )
+            )
+            await db.flush()
+            other_personal = Workspace(
+                organization_id=ORG_ID,
+                owner_user_id=other_user_id,
+                slug="other-users-personal",
+                name="Моё пространство",
+                kind="personal",
+            )
+            db.add(other_personal)
+            await db.flush()
+            db.add_all(
+                (
+                    WorkspaceMembership(
+                        workspace_id=other_personal.id,
+                        user_id=other_user_id,
+                        role="owner",
+                        status="active",
+                    ),
+                    WorkspaceMembership(
+                        workspace_id=other_personal.id,
+                        user_id=USER_ID,
+                        role="member",
+                        status="active",
+                    ),
+                )
+            )
+            current = await issue_auth_session(
+                db,
+                user_id=USER_ID,
+                workspace_id=WORKSPACE_ID,
+                provider="stale-personal-membership-test",
+            )
+            await db.commit()
+
+            spaces = await list_active_workspaces(
+                db,
+                organization_id=ORG_ID,
+                current_workspace_id=WORKSPACE_ID,
+                internal_workspace_id=AUTH_BOOTSTRAP_WORKSPACE_ID,
+                user_id=USER_ID,
+            )
+            try:
+                await activate_workspace_session(
+                    db,
+                    organization_id=ORG_ID,
+                    current_workspace_id=WORKSPACE_ID,
+                    internal_workspace_id=AUTH_BOOTSTRAP_WORKSPACE_ID,
+                    user_id=USER_ID,
+                    current_session_id=current.id,
+                    target_workspace_id=other_personal.id,
+                )
+            except ProblemDetail as exc:
+                activation_code = exc.code
+            else:
+                activation_code = "activated"
+            await db.rollback()
+            return {space.id for space in spaces}, activation_code
+
+    visible_workspace_ids, activation_code = asyncio.run(exercise())
+
+    assert activation_code == "workspace_activation_unavailable"
+    assert visible_workspace_ids == {WORKSPACE_ID, PERSONAL_WORKSPACE_ID}
+
+
+def test_join_offer_decision_serializes_opposite_actions_and_replays_winner(client) -> None:
+    async def exercise() -> tuple[list[str], str, bool, int]:
+        async with client.app_state["sessionmaker"]() as db:
+            workspace = Workspace(
+                organization_id=ORG_ID,
+                slug="decision-race-team",
+                name="Команда решения",
+                kind="corporate",
+            )
+            db.add(workspace)
+            await db.flush()
+            invitation = WorkspaceInvitation(
+                workspace_id=workspace.id,
+                target_contact="decision-race@example.test",
+                invited_role="member",
+                created_by_user_id=USER_ID,
+                expires_at=datetime.now(UTC) + timedelta(days=1),
+            )
+            db.add(invitation)
+            await db.flush()
+            offer = WorkspaceJoinOffer(
+                workspace_id=workspace.id,
+                user_id=USER_ID,
+                invitation_id=invitation.id,
+                workspace_name=workspace.name,
+                invited_role=invitation.invited_role,
+                expires_at=invitation.expires_at,
+            )
+            db.add(offer)
+            await db.commit()
+            offer_id = offer.id
+            workspace_id = workspace.id
+
+        async def decide(action: str) -> str:
+            async with client.app_state["sessionmaker"]() as db:
+                try:
+                    decided, _ = await decide_workspace_join_offer(
+                        db,
+                        organization_id=ORG_ID,
+                        current_workspace_id=WORKSPACE_ID,
+                        internal_workspace_id=AUTH_BOOTSTRAP_WORKSPACE_ID,
+                        user_id=USER_ID,
+                        offer_id=offer_id,
+                        action=action,
+                    )
+                    await db.commit()
+                    return decided.status
+                except ProblemDetail as exc:
+                    await db.rollback()
+                    return exc.code
+
+        results = await asyncio.gather(decide("accept"), decide("reject"))
+        async with client.app_state["sessionmaker"]() as db:
+            terminal_offer = await db.get(WorkspaceJoinOffer, offer_id)
+            assert terminal_offer is not None
+            replay_action = "accept" if terminal_offer.status == "accepted" else "reject"
+            _, idempotent = await decide_workspace_join_offer(
+                db,
+                organization_id=ORG_ID,
+                current_workspace_id=WORKSPACE_ID,
+                internal_workspace_id=AUTH_BOOTSTRAP_WORKSPACE_ID,
+                user_id=USER_ID,
+                offer_id=offer_id,
+                action=replay_action,
+            )
+            membership = await db.get(
+                WorkspaceMembership,
+                {"workspace_id": workspace_id, "user_id": USER_ID},
+            )
+            await db.commit()
+            return results, terminal_offer.status, idempotent, int(membership is not None)
+
+    results, terminal_status, replay_idempotent, membership_count = asyncio.run(exercise())
+
+    assert "workspace_join_offer_unavailable" in results
+    assert terminal_status in {"accepted", "rejected"}
+    assert replay_idempotent is True
+    assert membership_count == int(terminal_status == "accepted")
+
+
+def test_personal_workspace_cannot_be_an_invitation_target(client) -> None:
+    async def exercise() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            with pytest.raises(ProblemDetail) as error:
+                await create_workspace_invitation(
+                    db,
+                    context=AdminWorkspaceContext(
+                        workspace_id=PERSONAL_WORKSPACE_ID,
+                        workspace_name="Моё пространство",
+                        actor_user_id=USER_ID,
+                        actor_role="owner",
+                    ),
+                    target_contact="member@example.test",
+                    invited_role="member",
+                )
+            assert error.value.code == "workspace_invitation_unavailable"
+
+    asyncio.run(exercise())
+
+
 def test_join_offer_helper_is_idempotent_and_active_spaces_exclude_revoked(client) -> None:
     async def exercise() -> tuple[WorkspaceJoinOffer, WorkspaceJoinOffer, tuple[object, ...]]:
         async with client.app_state["sessionmaker"]() as db:
-            personal = await ensure_personal_workspace(
-                db, organization_id=ORG_ID, user_id=USER_ID
+            corporate = Workspace(
+                organization_id=ORG_ID,
+                slug="offer-helper-team",
+                name="Команда для предложения",
+                kind="corporate",
             )
+            db.add(corporate)
+            await db.flush()
             invitation = WorkspaceInvitation(
-                workspace_id=personal.id,
+                workspace_id=corporate.id,
                 target_contact="offer-test@example.test",
                 invited_role="member",
                 created_by_user_id=USER_ID,
@@ -128,19 +514,19 @@ def test_join_offer_helper_is_idempotent_and_active_spaces_exclude_revoked(clien
             await db.flush()
             first = await create_or_reuse_join_offer(
                 db,
-                workspace_id=personal.id,
+                workspace_id=corporate.id,
                 user_id=USER_ID,
                 invitation_id=invitation.id,
-                workspace_name=personal.name,
+                workspace_name=corporate.name,
                 invited_role=invitation.invited_role,
                 expires_at=invitation.expires_at,
             )
             second = await create_or_reuse_join_offer(
                 db,
-                workspace_id=personal.id,
+                workspace_id=corporate.id,
                 user_id=USER_ID,
                 invitation_id=invitation.id,
-                workspace_name=personal.name,
+                workspace_name=corporate.name,
                 invited_role=invitation.invited_role,
                 expires_at=invitation.expires_at,
             )
@@ -148,6 +534,7 @@ def test_join_offer_helper_is_idempotent_and_active_spaces_exclude_revoked(clien
                 db,
                 organization_id=ORG_ID,
                 current_workspace_id=WORKSPACE_ID,
+                internal_workspace_id=AUTH_BOOTSTRAP_WORKSPACE_ID,
                 user_id=USER_ID,
             )
             await db.commit()
@@ -156,7 +543,7 @@ def test_join_offer_helper_is_idempotent_and_active_spaces_exclude_revoked(clien
     first, second, active_spaces = asyncio.run(exercise())
 
     assert first.id == second.id
-    assert {workspace.id for workspace in active_spaces} >= {first.workspace_id}
+    assert first.workspace_id not in {workspace.id for workspace in active_spaces}
 
 
 def test_matching_invitations_create_distinct_offers_without_membership_and_replay_is_safe(client) -> None:
@@ -207,7 +594,7 @@ def test_matching_invitations_create_distinct_offers_without_membership_and_repl
             first = await create_matching_join_offers_after_login(
                 db,
                 organization_id=ORG_ID,
-                bootstrap_workspace_id=WORKSPACE_ID,
+                bootstrap_workspace_id=AUTH_BOOTSTRAP_WORKSPACE_ID,
                 user_id=USER_ID,
                 provider="yandex",
                 provider_subject="unrelated-subject",
@@ -218,7 +605,7 @@ def test_matching_invitations_create_distinct_offers_without_membership_and_repl
             second = await create_matching_join_offers_after_login(
                 db,
                 organization_id=ORG_ID,
-                bootstrap_workspace_id=WORKSPACE_ID,
+                bootstrap_workspace_id=AUTH_BOOTSTRAP_WORKSPACE_ID,
                 user_id=USER_ID,
                 provider="yandex",
                 provider_subject="unrelated-subject",
@@ -313,6 +700,7 @@ def test_expired_or_revoked_offer_never_creates_membership(client) -> None:
                         db,
                         organization_id=ORG_ID,
                         current_workspace_id=WORKSPACE_ID,
+                        internal_workspace_id=AUTH_BOOTSTRAP_WORKSPACE_ID,
                         user_id=USER_ID,
                         offer_id=offer.id,
                         action="accept",

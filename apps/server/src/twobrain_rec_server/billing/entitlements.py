@@ -55,9 +55,17 @@ def effective_plan_code(
     """Apply the authoritative cutoff before projecting paid capabilities."""
     current = now.astimezone(UTC)
     if plan_code == "trial":
-        return "trial" if trial_ends_at is not None and trial_ends_at.astimezone(UTC) > current else "free"
+        return (
+            "trial"
+            if trial_ends_at is not None and trial_ends_at.astimezone(UTC) > current
+            else "free"
+        )
     if plan_code == "personal":
-        return "personal" if paid_through is not None and paid_through.astimezone(UTC) > current else "free"
+        return (
+            "personal"
+            if paid_through is not None and paid_through.astimezone(UTC) > current
+            else "free"
+        )
     return "free" if state not in {"free", "trial", "personal"} else plan_code
 
 
@@ -96,14 +104,20 @@ def _add_paid_interval(moment: datetime, cycle: str) -> datetime:
     if cycle == "month":
         year = moment.year + (moment.month == 12)
         month = 1 if moment.month == 12 else moment.month + 1
-        return moment.replace(year=year, month=month, day=min(moment.day, calendar.monthrange(year, month)[1]))
+        return moment.replace(
+            year=year, month=month, day=min(moment.day, calendar.monthrange(year, month)[1])
+        )
     if cycle == "year":
         year = moment.year + 1
-        return moment.replace(year=year, day=min(moment.day, calendar.monthrange(year, moment.month)[1]))
+        return moment.replace(
+            year=year, day=min(moment.day, calendar.monthrange(year, moment.month)[1])
+        )
     raise ValueError("paid cycle is invalid")
 
 
-def recurring_actor_matches_current_owner(*, snapshot_actor: object, current_owner_id: UUID) -> bool:
+def recurring_actor_matches_current_owner(
+    *, snapshot_actor: object, current_owner_id: UUID
+) -> bool:
     try:
         return UUID(str(snapshot_actor)) == current_owner_id
     except (TypeError, ValueError):
@@ -142,7 +156,10 @@ async def grant_confirmed_payment(
     await lock_storage_workspace(db, workspace_id)
     operation = await db.scalar(
         select(BillingOperation)
-        .where(BillingOperation.workspace_id == workspace_id, BillingOperation.provider_id == provider_payment_id)
+        .where(
+            BillingOperation.workspace_id == workspace_id,
+            BillingOperation.provider_id == provider_payment_id,
+        )
         .with_for_update()
     )
     if operation is None:
@@ -160,7 +177,10 @@ async def grant_confirmed_payment(
         return "refused"
     existing_grant = await db.scalar(
         select(BillingEntitlementGrant)
-        .where(BillingEntitlementGrant.workspace_id == workspace_id, BillingEntitlementGrant.invoice_id == invoice.id)
+        .where(
+            BillingEntitlementGrant.workspace_id == workspace_id,
+            BillingEntitlementGrant.invoice_id == invoice.id,
+        )
         .with_for_update()
     )
     if existing_grant is not None:
@@ -168,7 +188,11 @@ async def grant_confirmed_payment(
             snapshot = operation.request_snapshot
             cycle = snapshot.get("cycle") if isinstance(snapshot, dict) else None
             try:
-                payer_user_id = UUID(str(snapshot["billing_actor_user_id"])) if isinstance(snapshot, dict) else None
+                payer_user_id = (
+                    UUID(str(snapshot["billing_actor_user_id"]))
+                    if isinstance(snapshot, dict)
+                    else None
+                )
             except (KeyError, TypeError, ValueError):
                 payer_user_id = None
             if payer_user_id is not None and cycle in {"month", "year"}:
@@ -207,12 +231,15 @@ async def grant_confirmed_payment(
         select(Workspace).where(Workspace.id == workspace_id).with_for_update()
     )
     owner = await db.scalar(
-        select(WorkspaceMembership).where(
+        select(WorkspaceMembership)
+        .where(
             WorkspaceMembership.workspace_id == workspace_id,
-            WorkspaceMembership.user_id == (workspace.owner_user_id if workspace is not None else None),
+            WorkspaceMembership.user_id
+            == (workspace.owner_user_id if workspace is not None else None),
             WorkspaceMembership.role == "owner",
             WorkspaceMembership.status == "active",
         )
+        .with_for_update()
     )
     if workspace is None or workspace.kind != "personal" or owner is None:
         operation.state = "reconciliation_gap"
@@ -237,7 +264,9 @@ async def grant_confirmed_payment(
         )
     )
     subscription = await db.scalar(
-        select(WorkspaceSubscription).where(WorkspaceSubscription.workspace_id == workspace_id).with_for_update()
+        select(WorkspaceSubscription)
+        .where(WorkspaceSubscription.workspace_id == workspace_id)
+        .with_for_update()
     )
     if subscription is None:
         subscription = WorkspaceSubscription(workspace_id=workspace_id)
@@ -252,7 +281,11 @@ async def grant_confirmed_payment(
     )
     subscription.paid_through = paid_through
     subscription.billing_anchor = paid_at
-    if saved_payment_method is not None and payment_method_key is not None and recurring_actor_matches:
+    if (
+        saved_payment_method is not None
+        and payment_method_key is not None
+        and recurring_actor_matches
+    ):
         methods = await db.scalars(
             select(BillingPaymentMethod)
             .where(
@@ -268,7 +301,9 @@ async def grant_confirmed_payment(
             BillingPaymentMethod(
                 workspace_id=workspace_id,
                 owner_user_id=owner.user_id,
-                encrypted_provider_ref=seal_provider_reference(saved_payment_method.provider_ref, payment_method_key),
+                encrypted_provider_ref=seal_provider_reference(
+                    saved_payment_method.provider_ref, payment_method_key
+                ),
                 key_version=validate_payment_method_key_version(payment_method_key_version),
                 kind=saved_payment_method.kind,
                 masked_label=saved_payment_method.masked_label,
@@ -288,7 +323,10 @@ async def grant_confirmed_payment(
     subscription.application_version = (subscription.application_version or 0) + 1
     invoice.status = "succeeded"
     if payment_method_label and "payment_method_label" not in invoice.plan_snapshot:
-        invoice.plan_snapshot = {**invoice.plan_snapshot, "payment_method_label": payment_method_label}
+        invoice.plan_snapshot = {
+            **invoice.plan_snapshot,
+            "payment_method_label": payment_method_label,
+        }
     operation.state = "succeeded"
     await redeem_invoice_promo(db, invoice_id=invoice.id, now=paid_at)
     if not defer_referral_reward:
@@ -316,7 +354,9 @@ async def grant_confirmed_payment(
             metadata_json=metadata_only(
                 {
                     "currency": currency,
-                    "recurring_authority": "current_owner" if recurring_actor_matches else "owner_changed",
+                    "recurring_authority": "current_owner"
+                    if recurring_actor_matches
+                    else "owner_changed",
                 }
             ),
         )
@@ -337,7 +377,10 @@ async def grant_confirmed_payment(
             recipient_id=owner.user_id,
             event_id=f"receipt:{invoice.id}:available",
             kind=BillingNotification.RECEIPT_AVAILABLE,
-            payload={"invoice": invoice.safe_number, "action_path": f"/billing/invoices/{invoice.safe_number}"},
+            payload={
+                "invoice": invoice.safe_number,
+                "action_path": f"/billing/invoices/{invoice.safe_number}",
+            },
             marketing_allowed=False,
         )
     await db.flush()
@@ -392,14 +435,62 @@ async def grant_confirmed_renewal(
         operation.state = "reconciliation_gap"
         return "snapshot_invalid"
     subscription = await db.scalar(
-        select(WorkspaceSubscription).where(WorkspaceSubscription.workspace_id == workspace_id).with_for_update()
+        select(WorkspaceSubscription)
+        .where(WorkspaceSubscription.workspace_id == workspace_id)
+        .with_for_update()
     )
     if subscription is None:
         operation.state = "reconciliation_gap"
         return "subscription_missing"
+    workspace = await db.scalar(
+        select(Workspace).where(Workspace.id == workspace_id).with_for_update()
+    )
+    owner = await db.scalar(
+        select(WorkspaceMembership)
+        .where(
+            WorkspaceMembership.workspace_id == workspace_id,
+            WorkspaceMembership.user_id
+            == (workspace.owner_user_id if workspace is not None else None),
+            WorkspaceMembership.role == "owner",
+            WorkspaceMembership.status == "active",
+        )
+        .with_for_update()
+    )
+    if (
+        workspace is None
+        or workspace.kind != "personal"
+        or owner is None
+        or subscription.billing_owner_id != owner.user_id
+    ):
+        operation.state = "succeeded_refused"
+        invoice.status = "succeeded"
+        if subscription.recurring_allowed:
+            subscription.recurring_allowed = False
+            subscription.recurring_authority_version = (
+                subscription.recurring_authority_version or 0
+            ) + 1
+        subscription.renewal_resolution = "workspace_scope_invalid"
+        db.add(
+            BillingAuditEvent(
+                workspace_id=workspace_id,
+                actor_user_id=subscription.billing_owner_id,
+                action="renewal_success_refused",
+                target_kind="billing_operation",
+                target_ref=invoice.safe_number,
+                outcome="blocked",
+                reason_code="workspace_scope_invalid",
+                metadata_json={},
+            )
+        )
+        await db.flush()
+        return "refused"
     expected_authority = snapshot.get("recurring_authority_version")
     authority_matches = (
         subscription.recurring_allowed
+        and recurring_actor_matches_current_owner(
+            snapshot_actor=snapshot.get("billing_actor_user_id"),
+            current_owner_id=owner.user_id,
+        )
         and isinstance(expected_authority, int)
         and not isinstance(expected_authority, bool)
         and expected_authority == subscription.recurring_authority_version

@@ -3,7 +3,7 @@ from __future__ import annotations
 from contextlib import AbstractAsyncContextManager
 
 from tests.contract.test_auth_contracts import auth_headers
-from tests.fakes.auth_contexts import WORKSPACE_ID
+from tests.fakes.auth_contexts import AUTH_BOOTSTRAP_WORKSPACE_ID, WORKSPACE_ID
 from twobrain_rec_server.auth.audit import denied_auth_access_metadata
 
 
@@ -36,11 +36,11 @@ def test_public_auth_provider_list_sets_workspace_context(client) -> None:
     tracking = TrackingSessionFactory(client.app_state["sessionmaker"])
     client.app.state.db_sessionmaker = tracking
 
-    response = client.get(f"/api/v1/auth/providers?workspace_id={WORKSPACE_ID}")
+    response = client.get("/api/v1/auth/providers")
 
     assert response.status_code == 200
     assert tracking.contexts[-1]["app.context_kind"] == "auth_public"
-    assert tracking.contexts[-1]["app.workspace_id"] == str(WORKSPACE_ID)
+    assert tracking.contexts[-1]["app.workspace_id"] == str(AUTH_BOOTSTRAP_WORKSPACE_ID)
 
 
 def test_authenticated_auth_policy_update_sets_request_context(client) -> None:

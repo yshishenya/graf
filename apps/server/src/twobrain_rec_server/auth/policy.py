@@ -123,18 +123,6 @@ def is_provider_enabled_in_policy(policy: WorkspaceAuthPolicy, provider: str) ->
     return _provider_toggle(policy, provider)
 
 
-def requires_explicit_corporate_enrollment() -> bool:
-    """Keep v1 corporate enrollment invite/admin-approval only.
-
-    A verified provider or email-domain claim is not evidence that a person may
-    join a corporate workspace.  Domain discovery is intentionally not a v1
-    enrollment mechanism; a later policy must add ownership and ambiguity
-    safeguards before this can change.
-    """
-
-    return True
-
-
 async def load_workspace_auth_policy(
     db: AsyncSession,
     workspace_id: UUID,

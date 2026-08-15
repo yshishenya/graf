@@ -13,7 +13,9 @@ from twobrain_rec_server.billing.payment_methods import seal_provider_reference
 from twobrain_rec_server.billing.renewal_charge import (
     RENEWAL_CANDIDATE_STATES,
     charge_renewal_operation,
+    pending_renewal_charge_candidates,
     plan_due_renewals,
+    project_renewal_cutoffs,
     renewal_invoice_number,
     renewal_operation_key,
 )
@@ -24,6 +26,8 @@ from twobrain_rec_server.db.models import (
     BillingOperation,
     BillingPaymentMethod,
     BillingPlanVersion,
+    Workspace,
+    WorkspaceMembership,
     WorkspaceSubscription,
 )
 
@@ -39,12 +43,32 @@ class FakeDb:
         self.commits = 0
         self.rollbacks = 0
         self.added: list[object] = []
+        self.workspace = Workspace(
+            id=WORKSPACE_ID,
+            organization_id=UUID("44444444-4444-4444-8444-444444444444"),
+            slug="personal-owner",
+            name="Моё пространство",
+            kind="personal",
+            owner_user_id=OWNER_ID,
+        )
+        self.membership = WorkspaceMembership(
+            workspace_id=WORKSPACE_ID,
+            user_id=OWNER_ID,
+            role="owner",
+            status="active",
+        )
 
     async def rollback(self) -> None:
         self.rollbacks += 1
 
     async def scalar(self, _query: object) -> object:
+        descriptions = getattr(_query, "column_descriptions", ())
+        if descriptions and descriptions[0].get("entity") is WorkspaceMembership:
+            return self.membership
         return next(self._values)
+
+    async def get(self, model: object, _key: object) -> object | None:
+        return self.workspace if model is Workspace else None
 
     async def flush(self) -> None:
         return None
@@ -59,6 +83,7 @@ class FakeDb:
 class PlanningDb(FakeDb):
     def __init__(self, values: list[object]) -> None:
         super().__init__(values)
+
     async def scalars(self, _query: object) -> list[WorkspaceSubscription]:
         return [next(self._values)]  # type: ignore[return-value]
 
@@ -116,7 +141,9 @@ def _settings(tmp_path: Path) -> Settings:
     )
 
 
-def _rows(tmp_path: Path) -> tuple[WorkspaceSubscription, BillingOperation, BillingInvoice, BillingPaymentMethod]:
+def _rows(
+    tmp_path: Path,
+) -> tuple[WorkspaceSubscription, BillingOperation, BillingInvoice, BillingPaymentMethod]:
     key_path = tmp_path / "billing-key"
     key = key_path.read_bytes()
     subscription = WorkspaceSubscription(
@@ -138,6 +165,7 @@ def _rows(tmp_path: Path) -> tuple[WorkspaceSubscription, BillingOperation, Bill
         provider_key_expires_at=PAID_THROUGH + timedelta(hours=24),
         request_snapshot={
             "cycle": "month",
+            "billing_actor_user_id": str(OWNER_ID),
             "recurring_authority_version": 4,
             "paid_through_at": PAID_THROUGH.isoformat(),
         },
@@ -220,6 +248,76 @@ async def test_planner_persists_approved_catalog_and_receipt_snapshot() -> None:
 
 
 @pytest.mark.asyncio
+async def test_planner_query_requires_active_personal_owner() -> None:
+    class EmptyPlanningDb:
+        query = None
+
+        async def scalars(self, query):
+            self.query = query
+            return []
+
+        async def flush(self):
+            return None
+
+    db = EmptyPlanningDb()
+
+    assert await plan_due_renewals(db, now=datetime(2026, 8, 8, tzinfo=UTC)) == ()
+    query = str(db.query)
+    assert "JOIN workspace_memberships" in query
+    assert "workspace_memberships.role" in query
+    assert "workspace_memberships.status" in query
+    assert "workspaces.kind" in query
+
+
+@pytest.mark.asyncio
+async def test_charge_candidate_query_requires_active_personal_owner() -> None:
+    class Rows:
+        def all(self):
+            return []
+
+    class EmptyCandidateDb:
+        query = None
+
+        async def execute(self, query):
+            self.query = query
+            return Rows()
+
+    db = EmptyCandidateDb()
+
+    assert await pending_renewal_charge_candidates(db, now=PAID_THROUGH) == ()
+    query = str(db.query)
+    assert "JOIN workspace_memberships" in query
+    assert "workspace_memberships.role" in query
+    assert "workspace_memberships.status" in query
+    assert "workspaces.kind" in query
+
+
+@pytest.mark.asyncio
+async def test_cutoff_revokes_invalid_corporate_renewal_authority() -> None:
+    subscription = WorkspaceSubscription(
+        workspace_id=WORKSPACE_ID,
+        billing_owner_id=OWNER_ID,
+        state="personal",
+        plan_code="personal",
+        cycle="month",
+        paid_through=PAID_THROUGH,
+        recurring_allowed=True,
+        recurring_authority_version=2,
+    )
+    db = PlanningDb([subscription, None, None])
+    db.workspace.kind = "corporate"
+
+    projected = await project_renewal_cutoffs(db, now=PAID_THROUGH)
+
+    assert projected == 1
+    assert subscription.state == "free"
+    assert subscription.plan_code == "free"
+    assert subscription.recurring_allowed is False
+    assert subscription.recurring_authority_version == 3
+    assert subscription.renewal_resolution == "workspace_scope_invalid"
+
+
+@pytest.mark.asyncio
 async def test_charge_uses_saved_method_and_authority_snapshot(monkeypatch, tmp_path: Path) -> None:
     settings = _settings(tmp_path)
     subscription, operation, invoice, method = _rows(tmp_path)
@@ -244,6 +342,129 @@ async def test_charge_uses_saved_method_and_authority_snapshot(monkeypatch, tmp_
     assert operation.provider_id == "pay-renewal-1"
     assert provider.calls[0]["payment_method_id"] == "pm-card-1"
     assert provider.calls[0]["idempotence_key"] == "renewal:period-1"
+
+
+@pytest.mark.asyncio
+async def test_charge_rejects_non_personal_workspace_before_provider_call(
+    monkeypatch, tmp_path: Path
+) -> None:
+    settings = _settings(tmp_path)
+    subscription, operation, invoice, _method = _rows(tmp_path)
+    provider = FakeProvider({"id": "must-not-be-called"})
+    db = FakeDb([subscription, operation, invoice])
+    db.workspace.kind = "corporate"
+    monkeypatch.setattr(
+        "twobrain_rec_server.billing.renewal_charge.YooKassaClient",
+        lambda _settings: provider,
+    )
+
+    result = await charge_renewal_operation(
+        db,
+        settings,
+        operation_id=OPERATION_ID,
+        workspace_id=WORKSPACE_ID,
+        now=PAID_THROUGH,
+    )
+
+    assert result.status == "manual_resolution"
+    assert provider.calls == []
+    assert subscription.recurring_allowed is False
+    assert subscription.recurring_authority_version == 5
+    assert subscription.renewal_resolution == "workspace_scope_invalid"
+
+
+@pytest.mark.asyncio
+async def test_charge_rejects_revoked_owner_before_provider_call(
+    monkeypatch, tmp_path: Path
+) -> None:
+    settings = _settings(tmp_path)
+    subscription, operation, invoice, _method = _rows(tmp_path)
+    provider = FakeProvider({"id": "must-not-be-called"})
+    db = FakeDb([subscription, operation, invoice])
+    db.membership = None
+    monkeypatch.setattr(
+        "twobrain_rec_server.billing.renewal_charge.YooKassaClient",
+        lambda _settings: provider,
+    )
+
+    result = await charge_renewal_operation(
+        db,
+        settings,
+        operation_id=OPERATION_ID,
+        workspace_id=WORKSPACE_ID,
+        now=PAID_THROUGH,
+    )
+
+    assert result.status == "manual_resolution"
+    assert provider.calls == []
+    assert subscription.recurring_allowed is False
+    assert subscription.recurring_authority_version == 5
+    assert subscription.renewal_resolution == "workspace_scope_invalid"
+
+
+@pytest.mark.asyncio
+async def test_charge_rejects_stale_billing_actor_before_decrypt_or_provider(
+    monkeypatch, tmp_path: Path
+) -> None:
+    settings = _settings(tmp_path)
+    subscription, operation, invoice, method = _rows(tmp_path)
+    operation.request_snapshot["billing_actor_user_id"] = str(
+        UUID("55555555-5555-4555-8555-555555555555")
+    )
+    provider = FakeProvider({"id": "must-not-be-called"})
+    monkeypatch.setattr(
+        "twobrain_rec_server.billing.renewal_charge.read_billing_encryption_key",
+        lambda _path: (_ for _ in ()).throw(AssertionError("must reject before decrypt")),
+    )
+    monkeypatch.setattr(
+        "twobrain_rec_server.billing.renewal_charge.YooKassaClient",
+        lambda _settings: provider,
+    )
+
+    result = await charge_renewal_operation(
+        FakeDb([subscription, operation, invoice, method]),
+        settings,
+        operation_id=OPERATION_ID,
+        workspace_id=WORKSPACE_ID,
+        now=PAID_THROUGH,
+    )
+
+    assert result.status == "manual_resolution"
+    assert operation.state == "manual_resolution"
+    assert invoice.status == "manual_resolution"
+    assert provider.calls == []
+
+
+@pytest.mark.asyncio
+async def test_charge_rejects_boolean_authority_version_before_decrypt_or_provider(
+    monkeypatch, tmp_path: Path
+) -> None:
+    settings = _settings(tmp_path)
+    subscription, operation, invoice, method = _rows(tmp_path)
+    subscription.recurring_authority_version = 1
+    operation.request_snapshot["recurring_authority_version"] = True
+    provider = FakeProvider({"id": "must-not-be-called"})
+    monkeypatch.setattr(
+        "twobrain_rec_server.billing.renewal_charge.read_billing_encryption_key",
+        lambda _path: (_ for _ in ()).throw(AssertionError("must reject before decrypt")),
+    )
+    monkeypatch.setattr(
+        "twobrain_rec_server.billing.renewal_charge.YooKassaClient",
+        lambda _settings: provider,
+    )
+
+    result = await charge_renewal_operation(
+        FakeDb([subscription, operation, invoice, method]),
+        settings,
+        operation_id=OPERATION_ID,
+        workspace_id=WORKSPACE_ID,
+        now=PAID_THROUGH,
+    )
+
+    assert result.status == "manual_resolution"
+    assert operation.state == "manual_resolution"
+    assert invoice.status == "manual_resolution"
+    assert provider.calls == []
 
 
 @pytest.mark.asyncio
@@ -301,7 +522,9 @@ async def test_charge_waits_until_paid_through_boundary(monkeypatch, tmp_path: P
 
 
 @pytest.mark.asyncio
-async def test_transport_unknown_never_retries_without_provider_id(monkeypatch, tmp_path: Path) -> None:
+async def test_transport_unknown_never_retries_without_provider_id(
+    monkeypatch, tmp_path: Path
+) -> None:
     settings = _settings(tmp_path)
     subscription, operation, invoice, method = _rows(tmp_path)
     provider = FakeProvider(httpx.ReadTimeout("timeout"))
@@ -351,7 +574,9 @@ async def test_confirmed_provider_decline_turns_authority_off(monkeypatch, tmp_p
 
 
 @pytest.mark.asyncio
-async def test_schedule_change_cancels_stale_operation_without_provider_call(monkeypatch, tmp_path: Path) -> None:
+async def test_schedule_change_cancels_stale_operation_without_provider_call(
+    monkeypatch, tmp_path: Path
+) -> None:
     settings = _settings(tmp_path)
     subscription, operation, invoice, method = _rows(tmp_path)
     subscription.paid_through = PAID_THROUGH + timedelta(days=3)

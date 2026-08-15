@@ -51,6 +51,8 @@ from twobrain_rec_server.db.models import (
     BillingOperation,
     BillingPaymentMethod,
     BillingPlanVersion,
+    Workspace,
+    WorkspaceMembership,
     WorkspaceSubscription,
 )
 
@@ -111,8 +113,12 @@ async def _approved_catalog(
     return None
 
 
-def _snapshot(*, subscription: WorkspaceSubscription, catalog: PlanCatalogSnapshot) -> dict[str, object]:
-    paid_through = _utc(subscription.paid_through) if subscription.paid_through is not None else None
+def _snapshot(
+    *, subscription: WorkspaceSubscription, catalog: PlanCatalogSnapshot
+) -> dict[str, object]:
+    paid_through = (
+        _utc(subscription.paid_through) if subscription.paid_through is not None else None
+    )
     return {
         "plan_code": "personal",
         "cycle": subscription.cycle,
@@ -121,7 +127,9 @@ def _snapshot(*, subscription: WorkspaceSubscription, catalog: PlanCatalogSnapsh
         "currency": catalog.currency,
         "catalog_snapshot": catalog.as_dict(),
         "storage_capacity_bytes": subscription.capacity_bytes,
-        "billing_actor_user_id": str(subscription.billing_owner_id) if subscription.billing_owner_id else None,
+        "billing_actor_user_id": str(subscription.billing_owner_id)
+        if subscription.billing_owner_id
+        else None,
         "recurring_authority_version": subscription.recurring_authority_version,
         "paid_through_at": paid_through.isoformat() if paid_through is not None else None,
         "purchased_duration": subscription.cycle,
@@ -149,7 +157,17 @@ async def plan_due_renewals(
         raise ValueError("renewal provider floor must be positive")
     query = (
         select(WorkspaceSubscription)
+        .join(Workspace, Workspace.id == WorkspaceSubscription.workspace_id)
+        .join(
+            WorkspaceMembership,
+            WorkspaceMembership.workspace_id == WorkspaceSubscription.workspace_id,
+        )
         .where(
+            Workspace.kind == "personal",
+            Workspace.owner_user_id == WorkspaceSubscription.billing_owner_id,
+            WorkspaceMembership.user_id == WorkspaceSubscription.billing_owner_id,
+            WorkspaceMembership.role == "owner",
+            WorkspaceMembership.status == "active",
             WorkspaceSubscription.state == "personal",
             WorkspaceSubscription.plan_code == "personal",
             WorkspaceSubscription.recurring_allowed.is_(True),
@@ -172,7 +190,11 @@ async def plan_due_renewals(
             or subscription.paid_through is None
         ):
             subscription.renewal_resolution = (
-                "provider_floor" if catalog is not None and catalog.amount_minor is not None and catalog.amount_minor < provider_floor_minor else "catalog_not_approved"
+                "provider_floor"
+                if catalog is not None
+                and catalog.amount_minor is not None
+                and catalog.amount_minor < provider_floor_minor
+                else "catalog_not_approved"
             )
             continue
         default_method = await db.scalar(
@@ -277,7 +299,21 @@ async def pending_renewal_charge_candidates(
     current = _utc(now or datetime.now(UTC))
     rows = await db.execute(
         select(BillingOperation.id, BillingOperation.workspace_id)
+        .join(Workspace, Workspace.id == BillingOperation.workspace_id)
+        .join(
+            WorkspaceSubscription,
+            WorkspaceSubscription.workspace_id == BillingOperation.workspace_id,
+        )
+        .join(
+            WorkspaceMembership,
+            WorkspaceMembership.workspace_id == BillingOperation.workspace_id,
+        )
         .where(
+            Workspace.kind == "personal",
+            Workspace.owner_user_id == WorkspaceSubscription.billing_owner_id,
+            WorkspaceMembership.user_id == WorkspaceSubscription.billing_owner_id,
+            WorkspaceMembership.role == "owner",
+            WorkspaceMembership.status == "active",
             BillingOperation.kind == "renewal",
             BillingOperation.provider_id.is_(None),
             BillingOperation.state.in_(RENEWAL_CANDIDATE_STATES),
@@ -355,6 +391,21 @@ async def project_renewal_cutoffs(
     )
     projected = 0
     for subscription in await db.scalars(query):
+        workspace = await db.get(Workspace, subscription.workspace_id)
+        owner = await db.scalar(
+            select(WorkspaceMembership).where(
+                WorkspaceMembership.workspace_id == subscription.workspace_id,
+                WorkspaceMembership.user_id == subscription.billing_owner_id,
+                WorkspaceMembership.role == "owner",
+                WorkspaceMembership.status == "active",
+            )
+        )
+        scope_valid = (
+            workspace is not None
+            and workspace.kind == "personal"
+            and workspace.owner_user_id == subscription.billing_owner_id
+            and owner is not None
+        )
         operation = await db.scalar(
             select(BillingOperation)
             .where(
@@ -366,10 +417,34 @@ async def project_renewal_cutoffs(
         )
         state = operation.state if operation is not None else None
         pending = state in RENEWAL_PROVIDER_STATES
+        if not scope_valid:
+            _project_free(subscription)
+            if subscription.recurring_allowed:
+                subscription.recurring_allowed = False
+                subscription.recurring_authority_version = (
+                    subscription.recurring_authority_version or 0
+                ) + 1
+            subscription.renewal_resolution = "workspace_scope_invalid"
+            db.add(
+                BillingAuditEvent(
+                    workspace_id=subscription.workspace_id,
+                    actor_user_id=subscription.billing_owner_id,
+                    action="renewal.cutoff_projected_free",
+                    target_kind="workspace_subscription",
+                    target_ref=None,
+                    outcome="blocked",
+                    reason_code="workspace_scope_invalid",
+                    metadata_json={"no_grace": "true"},
+                )
+            )
+            projected += 1
+            continue
         if subscription.state == "free" and subscription.plan_code == "free":
             if state == "provider_key_expired" and subscription.recurring_allowed:
                 subscription.recurring_allowed = False
-                subscription.recurring_authority_version = (subscription.recurring_authority_version or 0) + 1
+                subscription.recurring_authority_version = (
+                    subscription.recurring_authority_version or 0
+                ) + 1
                 subscription.renewal_resolution = "manual_resume_required"
             continue
         _project_free(subscription)
@@ -379,7 +454,9 @@ async def project_renewal_cutoffs(
             )
         else:
             subscription.recurring_allowed = False
-            subscription.recurring_authority_version = (subscription.recurring_authority_version or 0) + 1
+            subscription.recurring_authority_version = (
+                subscription.recurring_authority_version or 0
+            ) + 1
             subscription.renewal_resolution = "manual_resume_required"
         db.add(
             BillingAuditEvent(
@@ -441,6 +518,38 @@ async def charge_renewal_operation(
         operation.state = "manual_resolution"
         await db.commit()
         return RenewalChargeResult(operation_id, "manual_resolution")
+    workspace = await db.get(Workspace, workspace_id)
+    owner = await db.scalar(
+        select(WorkspaceMembership)
+        .where(
+            WorkspaceMembership.workspace_id == workspace_id,
+            WorkspaceMembership.user_id == subscription.billing_owner_id,
+            WorkspaceMembership.role == "owner",
+            WorkspaceMembership.status == "active",
+        )
+        .with_for_update()
+    )
+    try:
+        billing_actor_id = UUID(str(operation.request_snapshot.get("billing_actor_user_id")))
+    except (TypeError, ValueError):
+        billing_actor_id = None
+    if (
+        workspace is None
+        or workspace.kind != "personal"
+        or workspace.owner_user_id != subscription.billing_owner_id
+        or owner is None
+        or billing_actor_id != subscription.billing_owner_id
+    ):
+        operation.state = "manual_resolution"
+        invoice.status = "manual_resolution"
+        if subscription.recurring_allowed:
+            subscription.recurring_allowed = False
+            subscription.recurring_authority_version = (
+                subscription.recurring_authority_version or 0
+            ) + 1
+        subscription.renewal_resolution = "workspace_scope_invalid"
+        await db.commit()
+        return RenewalChargeResult(operation_id, "manual_resolution")
     expected_paid_through = operation.request_snapshot.get("paid_through_at")
     current_paid_through = (
         _utc(subscription.paid_through).isoformat()
@@ -465,11 +574,16 @@ async def charge_renewal_operation(
         # starts at the exact paid-through boundary, never earlier.
         await db.rollback()
         return RenewalChargeResult(operation_id, "scheduled")
-    if operation.provider_key_expires_at is None or _utc(operation.provider_key_expires_at) <= current:
+    if (
+        operation.provider_key_expires_at is None
+        or _utc(operation.provider_key_expires_at) <= current
+    ):
         operation.state = "manual_resolution"
         invoice.status = "manual_resolution"
         subscription.recurring_allowed = False
-        subscription.recurring_authority_version = (subscription.recurring_authority_version or 0) + 1
+        subscription.recurring_authority_version = (
+            subscription.recurring_authority_version or 0
+        ) + 1
         subscription.renewal_resolution = "provider_key_expired"
         _record_charge_audit(
             db,
@@ -490,6 +604,7 @@ async def charge_renewal_operation(
             subscription.billing_owner_id is None
             or not subscription.recurring_allowed
             or not isinstance(expected_version, int)
+            or isinstance(expected_version, bool)
         ):
             raise ValueError("recurring authority is unavailable")
         require_authority_version(
@@ -585,7 +700,9 @@ async def charge_renewal_operation(
             operation.state = "canceled"
             invoice.status = "canceled"
             subscription.recurring_allowed = False
-            subscription.recurring_authority_version = (subscription.recurring_authority_version or 0) + 1
+            subscription.recurring_authority_version = (
+                subscription.recurring_authority_version or 0
+            ) + 1
             subscription.renewal_resolution = "canceled"
             if subscription.paid_through is not None and _utc(subscription.paid_through) <= current:
                 _project_free(subscription)

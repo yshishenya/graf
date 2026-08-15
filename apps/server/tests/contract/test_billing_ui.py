@@ -244,6 +244,40 @@ def test_billing_overview_hides_usage_cta_when_data_is_unavailable() -> None:
     assert 'href="/billing/checkout"' not in html
 
 
+def test_corporate_billing_context_points_to_personal_workspace_without_catalog_cta() -> None:
+    html = render_template(
+        "cabinet/pages/billing_overview_content.html",
+        embedded=False,
+        settings_navigation=settings_category_navigation(active="billing"),
+        settings_active="billing",
+        plan=plan_descriptor("free"),
+        plan_code="free",
+        billing_data_available=True,
+        billing_enabled=True,
+        billing_owner=False,
+        billing_result="personal_only",
+        processing_used_label="0 мин 0 сек",
+        free_processing_limit_label="300 минут",
+        processing_threshold="normal",
+        storage_capacity_label="250 MB",
+        storage_threshold="normal",
+        storage_used=0,
+        storage_threshold_label="В норме",
+        trial_result=None,
+        bonus_until_label=None,
+        latest_invoice=None,
+        latest_operation_label=None,
+        latest_operation_state=None,
+        next_charge_label=None,
+        next_charge_amount_label=None,
+        payment_method_label=None,
+    )
+
+    assert "Личный тариф оформляется для «Моего пространства»" in html
+    assert 'href="/settings/workspace"' in html
+    assert 'href="/billing/checkout"' not in html
+
+
 def test_billing_disabled_does_not_render_recovery_checkout_cta() -> None:
     html = render_template(
         "cabinet/pages/billing_overview_content.html",

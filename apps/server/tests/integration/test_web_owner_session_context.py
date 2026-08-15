@@ -9,7 +9,14 @@ from uuid import UUID, uuid4
 from cryptography.fernet import Fernet
 from sqlalchemy import select
 
-from tests.fakes.auth_contexts import DEVICE_ID, USER_ID, WORKSPACE_ID
+from tests.fakes.auth_contexts import (
+    AUTH_BOOTSTRAP_WORKSPACE_ID,
+    DEVICE_ID,
+    ORG_ID,
+    PERSONAL_WORKSPACE_ID,
+    USER_ID,
+    WORKSPACE_ID,
+)
 from tests.fakes.auth_providers import fake_provider_map
 from tests.fixtures.cabinet import seed_cabinet_meetings
 from twobrain_rec_server.api.auth import BROWSER_AUTH_STATE_COOKIE_NAME
@@ -18,16 +25,19 @@ from twobrain_rec_server.auth.browser_handoff import DESKTOP_BILLING_HANDOFF_PRO
 from twobrain_rec_server.auth.csrf import issue_csrf_token
 from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
 from twobrain_rec_server.auth.sessions import hash_token
+from twobrain_rec_server.auth.workspace_onboarding import ensure_personal_workspace
 from twobrain_rec_server.db.models import (
     AuthAuditEvent,
     AuthCallbackState,
     AuthSession,
     AuthSessionDeviceBinding,
     ExternalIdentity,
+    RegisteredDevice,
     UserIdentity,
     Workspace,
     WorkspaceAuthPolicy,
     WorkspaceMembership,
+    WorkspaceSubscription,
 )
 
 OWNER_REVIEW_TEST_TOKEN = "owner-review-session-cookie-token"
@@ -52,9 +62,11 @@ async def _link_owner_email_identity(client) -> None:
 
 async def _set_workspace_yandex_policy(client, enabled: bool) -> None:
     async with client.app_state["sessionmaker"]() as db:
-        policy = await db.scalar(select(WorkspaceAuthPolicy).where(WorkspaceAuthPolicy.workspace_id == WORKSPACE_ID))
+        policy = await db.scalar(
+            select(WorkspaceAuthPolicy).where(WorkspaceAuthPolicy.workspace_id == AUTH_BOOTSTRAP_WORKSPACE_ID)
+        )
         if policy is None:
-            policy = WorkspaceAuthPolicy(workspace_id=WORKSPACE_ID)
+            policy = WorkspaceAuthPolicy(workspace_id=AUTH_BOOTSTRAP_WORKSPACE_ID)
             db.add(policy)
         policy.allow_yandex = enabled
         await db.commit()
@@ -62,9 +74,11 @@ async def _set_workspace_yandex_policy(client, enabled: bool) -> None:
 
 async def _set_workspace_vk_policy(client, enabled: bool) -> None:
     async with client.app_state["sessionmaker"]() as db:
-        policy = await db.scalar(select(WorkspaceAuthPolicy).where(WorkspaceAuthPolicy.workspace_id == WORKSPACE_ID))
+        policy = await db.scalar(
+            select(WorkspaceAuthPolicy).where(WorkspaceAuthPolicy.workspace_id == AUTH_BOOTSTRAP_WORKSPACE_ID)
+        )
         if policy is None:
-            policy = WorkspaceAuthPolicy(workspace_id=WORKSPACE_ID)
+            policy = WorkspaceAuthPolicy(workspace_id=AUTH_BOOTSTRAP_WORKSPACE_ID)
             db.add(policy)
         policy.allow_vk = enabled
         await db.commit()
@@ -72,9 +86,11 @@ async def _set_workspace_vk_policy(client, enabled: bool) -> None:
 
 async def _set_workspace_self_enrollment_policy(client, enabled: bool) -> None:
     async with client.app_state["sessionmaker"]() as db:
-        policy = await db.scalar(select(WorkspaceAuthPolicy).where(WorkspaceAuthPolicy.workspace_id == WORKSPACE_ID))
+        policy = await db.scalar(
+            select(WorkspaceAuthPolicy).where(WorkspaceAuthPolicy.workspace_id == AUTH_BOOTSTRAP_WORKSPACE_ID)
+        )
         if policy is None:
-            policy = WorkspaceAuthPolicy(workspace_id=WORKSPACE_ID)
+            policy = WorkspaceAuthPolicy(workspace_id=AUTH_BOOTSTRAP_WORKSPACE_ID)
             db.add(policy)
         policy.allow_provider_self_enrollment = enabled
         await db.commit()
@@ -97,9 +113,7 @@ async def _link_owner_yandex_identity(client, *, subject: str) -> None:
 
 def _patch_browser_provider_callbacks(monkeypatch) -> None:
     provider_map = fake_provider_map()
-    monkeypatch.setattr(
-        "twobrain_rec_server.api.auth.build_provider_registry", lambda: provider_map
-    )
+    monkeypatch.setattr("twobrain_rec_server.api.auth.build_provider_registry", lambda: provider_map)
     monkeypatch.setattr(
         "twobrain_rec_server.auth.callbacks.get_provider_adapter",
         lambda provider: provider_map[provider],
@@ -160,6 +174,45 @@ async def _seed_owner_review_session(
 
 def test_web_owner_session_scaffold_defines_cookie_name_contract() -> None:
     assert AUTH_SESSION_COOKIE_NAME == "__Host-twobrain_rec_owner_session"
+
+
+def test_revoked_workspace_session_is_rejected_before_direct_auth_mutation(client) -> None:
+    async def seed() -> tuple[str, UUID]:
+        async with client.app_state["sessionmaker"]() as db:
+            session = await _seed_owner_review_session(client, token="revoked-direct-auth-session")
+            membership = await db.get(
+                WorkspaceMembership,
+                {"workspace_id": WORKSPACE_ID, "user_id": USER_ID},
+            )
+            assert membership is not None
+            membership.status = "revoked"
+            await db.commit()
+            return "revoked-direct-auth-session", session.id
+
+    token, session_id = client.portal.call(seed)
+    response = client.post(
+        "/api/v1/auth/devices/register",
+        headers={"X-Auth-Session": token, "X-Workspace-Id": str(WORKSPACE_ID)},
+        json={
+            "device_public_id": "revoked-session-must-not-register",
+            "platform": "macos",
+            "client_version": "2026.08.15.1",
+        },
+    )
+
+    assert response.status_code == 403
+    assert response.json()["code"] == "workspace_scope_denied"
+
+    async def read_result() -> tuple[str, bool]:
+        async with client.app_state["sessionmaker"]() as db:
+            session = await db.get(AuthSession, session_id)
+            device = await db.scalar(
+                select(RegisteredDevice).where(RegisteredDevice.device_public_id == "revoked-session-must-not-register")
+            )
+            assert session is not None
+            return session.status, device is not None
+
+    assert client.portal.call(read_result) == ("revoked", False)
 
 
 def test_browser_icon_probe_routes_do_not_pollute_cabinet_with_404(client) -> None:
@@ -225,11 +278,7 @@ def test_browser_logout_revokes_session_clears_cookie_and_redirects_to_login(cli
             auth_session = await db.get(AuthSession, session.id)
             assert auth_session is not None
             events = list(
-                (
-                    await db.scalars(
-                        select(AuthAuditEvent).where(AuthAuditEvent.event_type == "browser_logout")
-                    )
-                ).all()
+                (await db.scalars(select(AuthAuditEvent).where(AuthAuditEvent.event_type == "browser_logout"))).all()
             )
             return auth_session.status, events
 
@@ -288,11 +337,7 @@ def test_embedded_logout_uses_allowed_meetings_post_route(client) -> None:
             auth_session = await db.get(AuthSession, session.id)
             assert auth_session is not None
             events = list(
-                (
-                    await db.scalars(
-                        select(AuthAuditEvent).where(AuthAuditEvent.event_type == "browser_logout")
-                    )
-                ).all()
+                (await db.scalars(select(AuthAuditEvent).where(AuthAuditEvent.event_type == "browser_logout"))).all()
             )
             return auth_session.status, events
 
@@ -391,6 +436,8 @@ def test_browser_yandex_login_start_redirects_to_provider(client) -> None:
     assert response.status_code == 303
     assert response.headers["location"].startswith("https://oauth.yandex.ru/authorize?")
     assert "state=" in response.headers["location"]
+    assert parse_qs(urlsplit(response.headers["location"]).query)["workspace_id"] == ["public"]
+    assert str(AUTH_BOOTSTRAP_WORKSPACE_ID) not in response.headers["location"]
     assert "redirect_uri=http%3A%2F%2Ftestserver%2Fapi%2Fv1%2Fauth%2Fcallback%2Fyandex" in response.headers["location"]
     set_cookie = response.headers["set-cookie"]
     assert f"{BROWSER_AUTH_STATE_COOKIE_NAME}=" in set_cookie
@@ -436,9 +483,7 @@ def test_browser_provider_callback_keeps_only_authorized_detail_return(monkeypat
     )
 
     assert allowed_callback.status_code == 303
-    assert allowed_callback.headers["location"] == (
-        f"/meetings/{seeds.ready_id}?calendar_context_action=change"
-    )
+    assert allowed_callback.headers["location"] == "/meetings"
 
     client.cookies.clear()
     client.portal.call(_set_workspace_self_enrollment_policy, client, True)
@@ -471,6 +516,8 @@ def test_browser_vk_login_start_redirects_to_provider(client) -> None:
     assert response.headers["location"].startswith("https://id.vk.ru/authorize?")
     assert "client_id=twobrain-vk-client-id" in response.headers["location"]
     assert "state=" in response.headers["location"]
+    assert parse_qs(urlsplit(response.headers["location"]).query)["workspace_id"] == ["public"]
+    assert str(AUTH_BOOTSTRAP_WORKSPACE_ID) not in response.headers["location"]
     assert "scope=email+phone" in response.headers["location"]
     assert "code_challenge_method=S256" in response.headers["location"]
     assert "redirect_uri=http%3A%2F%2Ftestserver%2Fapi%2Fv1%2Fauth%2Fcallback%2Fvk" in response.headers["location"]
@@ -531,7 +578,9 @@ def test_browser_vk_disabled_hides_action_and_fails_closed(client) -> None:
     assert 'action="/login/email/start"' in start.text
 
 
-def test_browser_email_login_ignores_public_workspace_id_and_uses_internal_bootstrap(client) -> None:
+def test_browser_email_login_ignores_public_workspace_id_and_uses_internal_bootstrap(
+    client,
+) -> None:
     client.portal.call(_link_owner_email_identity, client)
 
     response = client.post(
@@ -569,7 +618,9 @@ def test_browser_email_login_start_is_durably_rate_limited(client) -> None:
     assert "Слишком много попыток" in blocked.text
 
 
-def test_browser_email_login_flow_sets_cookie_binds_browser_device_and_opens_meetings(client) -> None:
+def test_browser_email_login_flow_sets_cookie_binds_browser_device_and_opens_meetings(
+    client,
+) -> None:
     seed_cabinet_meetings(client)
     client.portal.call(_link_owner_email_identity, client)
 
@@ -608,7 +659,7 @@ def test_browser_email_login_flow_sets_cookie_binds_browser_device_and_opens_mee
 
     meetings = client.get("/meetings")
     assert meetings.status_code == 200
-    assert "Проектный синк" in meetings.text
+    assert "Проектный синк" not in meetings.text
     assert "missing_auth_context" not in meetings.text
 
 
@@ -684,7 +735,12 @@ def test_browser_email_login_wrong_code_consumes_state(client) -> None:
 
     wrong = client.post(
         "/login/email/verify",
-        data={"email": BROWSER_OWNER_EMAIL, "code": wrong_code, "state": state, "next": "/meetings"},
+        data={
+            "email": BROWSER_OWNER_EMAIL,
+            "code": wrong_code,
+            "state": state,
+            "next": "/meetings",
+        },
         follow_redirects=False,
     )
     replay = client.post(
@@ -746,9 +802,7 @@ def test_browser_email_signup_flow_creates_user_and_opens_meetings(client) -> No
 
     async def read_created_identity():
         async with client.app_state["sessionmaker"]() as db:
-            identity = await db.scalar(
-                select(ExternalIdentity).where(ExternalIdentity.email == signup_email)
-            )
+            identity = await db.scalar(select(ExternalIdentity).where(ExternalIdentity.email == signup_email))
             assert identity is not None
             user = await db.get(UserIdentity, identity.user_id)
             assert user is not None
@@ -800,9 +854,7 @@ def test_browser_email_login_reuses_personal_space_after_signup(client) -> None:
         data={"email": signup_email, "next": "/meetings"},
     )
     login_state_match = re.search(r'name="state" value="([^"]+)"', login_started.text)
-    login_code_match = re.search(
-        r"Код для локальной проверки: <strong>(\d{6})</strong>", login_started.text
-    )
+    login_code_match = re.search(r"Код для локальной проверки: <strong>(\d{6})</strong>", login_started.text)
     assert login_started.status_code == 200
     assert login_state_match is not None
     assert login_code_match is not None
@@ -821,9 +873,7 @@ def test_browser_email_login_reuses_personal_space_after_signup(client) -> None:
 
     async def read_login_session() -> tuple[UUID, UUID]:
         async with client.app_state["sessionmaker"]() as db:
-            identity = await db.scalar(
-                select(ExternalIdentity).where(ExternalIdentity.email == signup_email)
-            )
+            identity = await db.scalar(select(ExternalIdentity).where(ExternalIdentity.email == signup_email))
             assert identity is not None
             personal = await db.scalar(
                 select(Workspace).where(
@@ -834,14 +884,113 @@ def test_browser_email_login_reuses_personal_space_after_signup(client) -> None:
             assert personal is not None
             token = callback.cookies.get(AUTH_SESSION_COOKIE_NAME)
             assert token is not None
-            session = await db.scalar(
-                select(AuthSession).where(AuthSession.session_token_hash == hash_token(token))
-            )
+            session = await db.scalar(select(AuthSession).where(AuthSession.session_token_hash == hash_token(token)))
             assert session is not None
             return session.workspace_id, personal.id
 
     workspace_id, personal_workspace_id = client.portal.call(read_login_session)
     assert workspace_id == personal_workspace_id
+
+
+def test_browser_email_signup_fails_closed_for_ambiguous_existing_users(client) -> None:
+    ambiguous_email = "ambiguous-owner@example.test"
+    first_user_id = uuid4()
+    second_user_id = uuid4()
+
+    async def seed() -> UUID:
+        async with client.app_state["sessionmaker"]() as db:
+            db.add_all(
+                (
+                    UserIdentity(
+                        id=first_user_id,
+                        organization_id=ORG_ID,
+                        external_subject=str(first_user_id),
+                        status="active",
+                    ),
+                    UserIdentity(
+                        id=second_user_id,
+                        organization_id=ORG_ID,
+                        external_subject=str(second_user_id),
+                        status="active",
+                    ),
+                )
+            )
+            await db.flush()
+            db.add_all(
+                (
+                    ExternalIdentity(
+                        user_id=first_user_id,
+                        provider="email",
+                        provider_subject=ambiguous_email,
+                        email=ambiguous_email,
+                        is_active=True,
+                        is_verified=True,
+                    ),
+                    ExternalIdentity(
+                        user_id=second_user_id,
+                        provider="email",
+                        provider_subject=f"duplicate:{ambiguous_email}",
+                        email=ambiguous_email.upper(),
+                        is_active=True,
+                        is_verified=True,
+                    ),
+                )
+            )
+            personal = await ensure_personal_workspace(
+                db,
+                organization_id=ORG_ID,
+                user_id=first_user_id,
+            )
+            await db.commit()
+            return personal.id
+
+    first_personal_id = client.portal.call(seed)
+    start = client.post(
+        "/sign-up/email/start",
+        data={"email": ambiguous_email, "next": "/meetings"},
+    )
+    state_match = re.search(r'name="state" value="([^"]+)"', start.text)
+    code_match = re.search(r"Код для локальной проверки: <strong>(\d{6})</strong>", start.text)
+    assert start.status_code == 200
+    assert state_match is not None
+    assert code_match is not None
+
+    completed = client.post(
+        "/sign-up/email/verify",
+        data={
+            "email": ambiguous_email,
+            "code": code_match.group(1),
+            "state": state_match.group(1),
+            "next": "/meetings",
+        },
+        follow_redirects=False,
+    )
+
+    assert completed.status_code == 400
+    assert completed.cookies.get(AUTH_SESSION_COOKIE_NAME) is None
+    assert str(AUTH_BOOTSTRAP_WORKSPACE_ID) not in completed.text
+
+    async def read_result() -> tuple[int, int, tuple[str, str | None]]:
+        async with client.app_state["sessionmaker"]() as db:
+            sessions = list(
+                await db.scalars(select(AuthSession).where(AuthSession.user_id.in_((first_user_id, second_user_id))))
+            )
+            personal_spaces = list(
+                await db.scalars(
+                    select(Workspace).where(
+                        Workspace.owner_user_id.in_((first_user_id, second_user_id)),
+                        Workspace.kind == "personal",
+                    )
+                )
+            )
+            state = await db.scalar(
+                select(AuthCallbackState).where(AuthCallbackState.state_nonce == state_match.group(1))
+            )
+            assert state is not None
+            assert {workspace.id for workspace in personal_spaces} == {first_personal_id}
+            return len(sessions), len(personal_spaces), (state.result, state.error_code)
+
+    assert client.portal.call(read_result) == (0, 1, ("failed", "email_code_invalid"))
 
 
 def test_browser_email_signup_code_is_bound_to_started_email(client) -> None:
@@ -885,7 +1034,9 @@ def test_browser_email_signup_code_is_bound_to_started_email(client) -> None:
     assert client.portal.call(read_rejected_signup) == ("failed", "email_code_invalid", None)
 
 
-def test_browser_email_signup_creates_a_personal_space_when_corporate_enrollment_is_disabled(client) -> None:
+def test_browser_email_signup_creates_a_personal_space_when_corporate_enrollment_is_disabled(
+    client,
+) -> None:
     signup_email = "closed-signup@example.test"
 
     start = client.post(
@@ -988,6 +1139,84 @@ def test_billing_page_uses_normal_login_handoff_without_legacy_error(client) -> 
     assert "next=%2Fbilling" in location
     assert "error=missing_auth_context" in location
     assert "legacy_header_auth_disabled" not in location
+
+
+def test_corporate_workspace_cannot_open_personal_plan_catalog(client) -> None:
+    client.portal.call(_seed_owner_review_session, client)
+    client.cookies.set(AUTH_SESSION_COOKIE_NAME, OWNER_REVIEW_TEST_TOKEN)
+
+    response = client.get("/billing/plans", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/billing?result=personal_only"
+
+
+def test_personal_owner_with_other_billing_owner_can_read_plan_catalog(client) -> None:
+    token = "personal-other-billing-owner-token"
+    device_id = UUID("70000000-0000-4000-8000-000000000007")
+    billing_owner_id = UUID("80000000-0000-4000-8000-000000000008")
+
+    async def seed() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            db.add(
+                UserIdentity(
+                    id=billing_owner_id,
+                    organization_id=ORG_ID,
+                    external_subject=str(billing_owner_id),
+                    display_name="Historical billing owner",
+                )
+            )
+            await db.flush()
+            db.add(
+                RegisteredDevice(
+                    id=device_id,
+                    workspace_id=PERSONAL_WORKSPACE_ID,
+                    user_id=USER_ID,
+                    device_public_id="personal-plan-reader",
+                    status="active",
+                    registration_state="approved",
+                )
+            )
+            await db.flush()
+            session = AuthSession(
+                id=uuid4(),
+                user_id=USER_ID,
+                workspace_id=PERSONAL_WORKSPACE_ID,
+                device_id=device_id,
+                provider="billing-plan-test",
+                session_token_hash=hash_token(token),
+                status="active",
+                issued_at=datetime.now(UTC) - timedelta(minutes=1),
+                expires_at=datetime.now(UTC) + timedelta(minutes=15),
+                claims_fingerprint="billing-plan-other-owner",
+            )
+            db.add(session)
+            db.add(
+                WorkspaceSubscription(
+                    workspace_id=PERSONAL_WORKSPACE_ID,
+                    billing_owner_id=billing_owner_id,
+                    state="free",
+                    plan_code="free",
+                )
+            )
+            await db.flush()
+            db.add(
+                AuthSessionDeviceBinding(
+                    auth_session_id=session.id,
+                    registered_device_id=device_id,
+                    device_state="trusted",
+                )
+            )
+            await db.commit()
+
+    client.portal.call(seed)
+    client.cookies.set(AUTH_SESSION_COOKIE_NAME, token)
+
+    response = client.get("/billing/plans", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "Тарифы" in response.text
+    assert 'href="/billing/checkout"' not in response.text
 
 
 def test_desktop_billing_handoff_sets_browser_session_once(client, tmp_path) -> None:

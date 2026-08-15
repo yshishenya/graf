@@ -18,7 +18,6 @@ from twobrain_rec_server.admin.files import (
     record_admin_review_access,
 )
 from twobrain_rec_server.admin.invitations import (
-    complete_workspace_invitation,
     create_workspace_invitation,
     invitation_to_dict,
     resend_workspace_invitation,
@@ -50,7 +49,6 @@ from twobrain_rec_server.auth.dependencies import (
 from twobrain_rec_server.cabinet.egress import create_export_package, download_artifact
 from twobrain_rec_server.cabinet.queries import latest_processing_result
 from twobrain_rec_server.db.models import Meeting
-from twobrain_rec_server.db.tenant_context import TenantDatabaseContext, apply_tenant_context
 from twobrain_rec_server.deletion.report import BOUNDED_DELETE_COPY
 from twobrain_rec_server.deletion.service import (
     deletion_report_response,
@@ -100,14 +98,6 @@ class InvitationRevokeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     reason_code: str | None = Field(default=None, max_length=120)
-
-
-class InvitationCompleteRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    workspace_id: UUID
-    login_contact: str = Field(min_length=1, max_length=240)
-    provider: str | None = Field(default=None, max_length=64)
 
 
 class MembershipPatchRequest(BaseModel):
@@ -463,47 +453,6 @@ async def resend_admin_invitation(
         ) from exc
     await db.commit()
     return invitation_to_dict(invitation)
-
-
-@router.post(
-    "/invitations/{invitation_id}/complete",
-    operation_id="completeAdminInvitation",
-    dependencies=[WebCSRFDependency],
-)
-async def complete_admin_invitation(
-    invitation_id: UUID,
-    payload: InvitationCompleteRequest,
-    request: Request,
-    principal: AuthenticatedPrincipal = PrincipalDependency,
-) -> dict[str, object]:
-    if payload.workspace_id not in principal.workspace_ids:
-        raise ProblemDetail(
-            status=403, code="workspace_scope_denied", title="Workspace scope denied"
-        )
-    sessionmaker = getattr(request.app.state, "db_sessionmaker", None)
-    if sessionmaker is None:
-        raise ProblemDetail(
-            status=503, code="admin_store_unavailable", title="Admin store unavailable"
-        )
-    async with sessionmaker() as db:
-        await apply_tenant_context(
-            db,
-            TenantDatabaseContext(
-                organization_id=principal.organization_id,
-                workspace_id=payload.workspace_id,
-                user_id=principal.user_id,
-            ),
-        )
-        invitation = await complete_workspace_invitation(
-            db,
-            workspace_id=payload.workspace_id,
-            invitation_id=invitation_id,
-            completed_user_id=principal.user_id,
-            provider=payload.provider,
-            login_contacts=[payload.login_contact, principal.subject],
-        )
-        await db.commit()
-        return invitation_to_dict(invitation)
 
 
 @router.patch(

@@ -1,6 +1,26 @@
 # Текущий статус продукта
 
-Date: 2026-08-13
+Date: 2026-08-15
+
+## Implementation update (2026-08-15) — Feature 150 workspace clean cut
+
+- Configured login workspace остаётся только внутренним auth-policy/RLS anchor
+  и больше не может стать пользовательским tenant даже при stale membership,
+  device или session.
+- Signup и повторный вход сходятся в одно `Моё пространство`; selector и
+  activation не показывают и не принимают internal anchor, а корпоративный
+  доступ возникает только после явного принятия валидного приглашения.
+- Старый admin invitation-completion endpoint и его отдельный membership path
+  удалены; единственный пользовательский переход — принятие join offer.
+- Self-serve catalog и checkout остаются personal-owner only. Постоянный
+  bootstrap migration-report удалён; одноразовые pre-launch inventory/cleanup
+  и production deploy остаются отдельными gated действиями.
+- Session-backed auth/device routes повторно проверяют active membership и
+  personal-owner invariant; ambiguous normalized email и отсутствующий internal
+  anchor завершаются fail closed.
+- Renewal planning, provider mutation, worker observation, cutoff, entitlement
+  и webhook reconciliation требуют действующего personal owner. Invalid history
+  становится terminal/manual-resolution до provider mutation и не выдаёт доступ.
 
 ## Audit update (2026-08-14) — settings browser auth handoff
 
