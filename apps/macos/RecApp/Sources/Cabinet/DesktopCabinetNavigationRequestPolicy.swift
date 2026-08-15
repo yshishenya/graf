@@ -47,7 +47,8 @@ public struct DesktopCabinetNavigationRequestPolicy: Equatable {
             kind == .meetingDeletionReport ||
             kind == .artifactDownload ||
             kind == .settings ||
-            kind == .calendarSettings
+            kind == .calendarSettings ||
+            kind == .billing
     }
 
     private func requestNeedsDesktopHeaders(_ request: URLRequest) -> Bool {

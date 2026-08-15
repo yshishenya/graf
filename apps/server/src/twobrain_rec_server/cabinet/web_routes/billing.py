@@ -127,6 +127,11 @@ _CHECKOUT_PROMO_COOKIE_MAX_AGE = 5 * 60
 _BILLING_OFFER_VERSION = "billing-personal-v1"
 
 
+def _is_embedded_request(request: Request) -> bool:
+    """Presentation hint only; auth and tenant checks remain server-owned."""
+    return request.headers.get("X-GRAF-Client", "").lower() == "desktop"
+
+
 @router.get("/billing/handoff", include_in_schema=False)
 async def billing_browser_handoff(
     request: Request,
@@ -725,7 +730,7 @@ async def billing_overview_page(
         recurring_next_charge_label = "проверяем результат предыдущего списания"
     content = _page_shell(
         "Тариф и оплата",
-        embedded=False,
+        embedded=_is_embedded_request(request),
         active_nav="settings",
         settings_active="billing",
         csrf_token=_csrf_token_for_principal(request, principal, tenant_scope=tenant_scope),
@@ -861,7 +866,7 @@ async def billing_plans_page(
         )
     content = _page_shell(
         "Тарифы",
-        embedded=False,
+        embedded=_is_embedded_request(request),
         active_nav="settings",
         settings_active="billing",
         csrf_token=_csrf_token_for_principal(request, principal, tenant_scope=tenant_scope),
@@ -938,7 +943,7 @@ async def billing_discounts_page(
             )
     content = _page_shell(
         "Скидки",
-        embedded=False,
+        embedded=_is_embedded_request(request),
         active_nav="settings",
         settings_active="billing",
         csrf_token=_csrf_token_for_principal(request, principal, tenant_scope=tenant_scope),
@@ -1072,7 +1077,7 @@ async def billing_checkout_status_page(
     operation_state = operation.state if operation is not None else None
     content = _page_shell(
         "Статус платежа",
-        embedded=False,
+        embedded=_is_embedded_request(request),
         active_nav="settings",
         settings_active="billing",
         csrf_token=_csrf_token_for_principal(request, principal, tenant_scope=tenant_scope),
@@ -1303,7 +1308,7 @@ async def billing_usage_page(
         )
     content = _page_shell(
         "Использование и хранение",
-        embedded=False,
+        embedded=_is_embedded_request(request),
         active_nav="settings",
         settings_active="billing",
         csrf_token=_csrf_token_for_principal(request, principal, tenant_scope=tenant_scope),
@@ -1386,7 +1391,7 @@ async def billing_subscription_page(
         )
     content = _page_shell(
         "Управление подпиской",
-        embedded=False,
+        embedded=_is_embedded_request(request),
         active_nav="settings",
         settings_active="billing",
         csrf_token=_csrf_token_for_principal(request, principal, tenant_scope=tenant_scope),
@@ -1445,7 +1450,7 @@ async def billing_payment_method_page(
         )
     content = _page_shell(
         "Способ оплаты",
-        embedded=False,
+        embedded=_is_embedded_request(request),
         active_nav="settings",
         settings_active="billing",
         csrf_token=_csrf_token_for_principal(request, principal, tenant_scope=tenant_scope),
@@ -1523,7 +1528,7 @@ async def billing_storage_page(
     if db is None:
         content = _page_shell(
             "Увеличение хранилища",
-            embedded=False,
+            embedded=_is_embedded_request(request),
             active_nav="settings",
             settings_active="billing",
             csrf_token=_csrf_token_for_principal(request, principal, tenant_scope=tenant_scope),
@@ -1567,7 +1572,7 @@ async def billing_storage_page(
     )
     content = _page_shell(
         "Увеличение хранилища",
-        embedded=False,
+        embedded=_is_embedded_request(request),
         active_nav="settings",
         settings_active="billing",
         csrf_token=_csrf_token_for_principal(request, principal, tenant_scope=tenant_scope),
@@ -1763,7 +1768,7 @@ async def billing_checkout_page(
     offer_version = monthly_catalog.offer_version if monthly_catalog is not None else _BILLING_OFFER_VERSION
     content = _page_shell(
         "Выбор тарифа",
-        embedded=False,
+        embedded=_is_embedded_request(request),
         active_nav="settings",
         settings_active="billing",
         csrf_token=_csrf_token_for_principal(request, principal, tenant_scope=tenant_scope),
@@ -2321,7 +2326,7 @@ async def billing_history_page(
             )
     content = _page_shell(
         "История платежей",
-        embedded=False,
+        embedded=_is_embedded_request(request),
         active_nav="settings",
         settings_active="billing",
         csrf_token=_csrf_token_for_principal(request, principal, tenant_scope=tenant_scope),
@@ -2385,7 +2390,7 @@ async def billing_invoice_detail_page(
             refund_mailto = None
     content = _page_shell(
         "Платёж",
-        embedded=False,
+        embedded=_is_embedded_request(request),
         active_nav="settings",
         settings_active="billing",
         csrf_token=_csrf_token_for_principal(request, principal, tenant_scope=tenant_scope),

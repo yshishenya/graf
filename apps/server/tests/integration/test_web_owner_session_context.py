@@ -990,6 +990,19 @@ def test_billing_page_uses_normal_login_handoff_without_legacy_error(client) -> 
     assert "legacy_header_auth_disabled" not in location
 
 
+def test_desktop_billing_page_renders_embedded_shell_with_validated_session(client) -> None:
+    client.portal.call(_seed_owner_review_session, client)
+    response = client.get(
+        "/billing",
+        headers={"Accept": "text/html", "X-Auth-Session": OWNER_REVIEW_TEST_TOKEN, "X-GRAF-Client": "desktop"},
+    )
+
+    assert response.status_code == 200
+    assert 'data-surface-mode="desktop_embedded"' in response.text
+    assert 'href="/desktop/settings"' in response.text
+    assert "legacy_header_auth_disabled" not in response.text
+
+
 def test_desktop_billing_handoff_sets_browser_session_once(client, tmp_path) -> None:
     client.portal.call(_seed_owner_review_session, client)
     key_file = tmp_path / "credential-encryption-key"

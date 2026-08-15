@@ -9,6 +9,7 @@ public enum DesktopCabinetRouteKind: String, Equatable, Sendable {
     case settings
     case calendarSettings
     case meetingDetectionSettings
+    case billing
     case admin
     case authLogin
     case authSignup
@@ -46,6 +47,7 @@ public enum DesktopCabinetRouteDecisionReason: String, Equatable, Sendable {
     case allowedSettings = "allowed_settings"
     case allowedCalendarSettings = "allowed_calendar_settings"
     case allowedMeetingDetectionSettings = "allowed_meeting_detection_settings"
+    case allowedBilling = "allowed_billing"
     case allowedAuthLogin = "allowed_auth_login"
     case allowedAuthSignup = "allowed_auth_signup"
     case allowedAuthProvider = "allowed_auth_provider"
@@ -56,7 +58,6 @@ public enum DesktopCabinetRouteDecisionReason: String, Equatable, Sendable {
     case blockedReviewUnavailable = "blocked_review_unavailable"
     case blockedUnknownRoute = "blocked_unknown_route"
     case openExternalSafeLink = "open_external_safe_link"
-    case openBrowserOwnedBilling = "open_browser_owned_billing"
     case openBrowserOwnedAccount = "open_browser_owned_account"
     case openBrowserOwnedAdmin = "open_browser_owned_admin"
     case invalidURL = "invalid_url"
@@ -88,7 +89,11 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
         self.baseURL = DesktopCabinetConfiguration(baseURL: baseURL).baseURL
     }
 
-    public func decision(for url: URL, allowExternalAuthProvider: Bool = false) -> DesktopCabinetRouteDecision {
+    public func decision(
+        for url: URL,
+        allowExternalAuthProvider: Bool = false,
+        allowExternalPaymentProvider: Bool = false
+    ) -> DesktopCabinetRouteDecision {
         guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
             return block(path: url.path, kind: .unsupported, reason: .invalidURL, message: "This meeting route cannot be opened.")
         }
@@ -101,7 +106,7 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
                     userMessage: "Auth provider"
                 )
             }
-            return externalDecision(for: url)
+            return externalDecision(for: url, allowExternalPaymentProvider: allowExternalPaymentProvider)
         }
 
         let path = normalizedPath(url.path)
@@ -242,12 +247,12 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
                 userMessage: "Open workspace admin in your browser."
             )
         }
-        if isBrowserOwnedBillingRoute(components) {
+        if isBillingRoute(components) {
             return DesktopCabinetRouteDecision(
-                route: DesktopCabinetRoute(path: path, kind: .external),
-                decision: .openExternally,
-                reason: .openBrowserOwnedBilling,
-                userMessage: "Откройте тариф и оплату в браузере."
+                route: DesktopCabinetRoute(path: path, kind: .billing),
+                decision: .allow,
+                reason: .allowedBilling,
+                userMessage: "Тарифы и оплата"
             )
         }
         if isBrowserOwnedAccountRoute(components) {
@@ -315,11 +320,22 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
             (url.port ?? defaultPort(for: url.scheme)) == (baseURL.port ?? defaultPort(for: baseURL.scheme))
     }
 
-    private func externalDecision(for url: URL) -> DesktopCabinetRouteDecision {
+    private func externalDecision(
+        for url: URL,
+        allowExternalPaymentProvider: Bool
+    ) -> DesktopCabinetRouteDecision {
         guard url.scheme?.lowercased() == "https" else {
             return block(path: normalizedPath(url.path), kind: .external, reason: .blockedUnknownRoute, message: "External links must use HTTPS.")
         }
         let host = url.host?.lowercased() ?? ""
+        if allowExternalPaymentProvider && Self.allowedPaymentProviderHosts.contains(host) {
+            return DesktopCabinetRouteDecision(
+                route: DesktopCabinetRoute(path: normalizedPath(url.path), kind: .external),
+                decision: .allow,
+                reason: .openExternalSafeLink,
+                userMessage: "Платёжная страница"
+            )
+        }
         if host == "docs.2brain.dev" || host == "help.2brain.dev" {
             return DesktopCabinetRouteDecision(
                 route: DesktopCabinetRoute(path: normalizedPath(url.path), kind: .external),
@@ -509,7 +525,7 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
         components.first?.lowercased() == "admin"
     }
 
-    private func isBrowserOwnedBillingRoute(_ components: [String]) -> Bool {
+    private func isBillingRoute(_ components: [String]) -> Bool {
         guard components.first == "billing" else { return false }
         if components.count == 1 { return true }
         if components.count == 2 {
@@ -521,6 +537,14 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
         }
         return components.count == 3 && components[1] == "invoices" && isSafeMeetingId(components[2])
     }
+
+    private static let allowedPaymentProviderHosts: Set<String> = [
+        "api.yookassa.ru",
+        "api.yookassa.test",
+        "yookassa.ru",
+        "yookassa.test",
+        "yoomoney.ru"
+    ]
 
     private func isBrowserOwnedAccountRoute(_ components: [String]) -> Bool {
         components == ["referrals"] || components == ["account", "referrals"]

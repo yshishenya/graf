@@ -35,6 +35,7 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         XCTAssertEqual(sameOriginRequest.value(forHTTPHeaderField: "X-Device-Id"), "device-033")
         XCTAssertEqual(sameOriginRequest.value(forHTTPHeaderField: "X-User-Id"), "user-033")
         XCTAssertEqual(sameOriginRequest.value(forHTTPHeaderField: "X-Organization-Id"), "organization-033")
+        XCTAssertEqual(sameOriginRequest.value(forHTTPHeaderField: "X-GRAF-Client"), "desktop")
 
         for externalURL in [
             "https://attacker.example/oauth/authorize?state=state",
@@ -54,6 +55,7 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
             ] {
                 XCTAssertNil(externalProviderRequest.value(forHTTPHeaderField: header), externalURL)
             }
+            XCTAssertNil(externalProviderRequest.value(forHTTPHeaderField: "X-GRAF-Client"), externalURL)
         }
     }
 
@@ -241,6 +243,7 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         XCTAssertEqual(EmbeddedCabinetWebView.finishedState(for: .meetingDetail), .ready)
         XCTAssertEqual(EmbeddedCabinetWebView.finishedState(for: .settings), .ready)
         XCTAssertEqual(EmbeddedCabinetWebView.finishedState(for: .calendarSettings), .ready)
+        XCTAssertEqual(EmbeddedCabinetWebView.finishedState(for: .billing), .ready)
         XCTAssertEqual(EmbeddedCabinetWebView.finishedState(for: .authLogin), .expiredSession)
         XCTAssertEqual(EmbeddedCabinetWebView.finishedState(for: .authSignup), .expiredSession)
         XCTAssertEqual(EmbeddedCabinetWebView.finishedState(for: .authProvider), .expiredSession)

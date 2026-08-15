@@ -110,6 +110,7 @@ public struct DesktopCabinetConfiguration: Equatable, Sendable {
         for (header, value) in headers {
             request.setValue(value, forHTTPHeaderField: header)
         }
+        request.setValue("desktop", forHTTPHeaderField: "X-GRAF-Client")
         return request
     }
 
