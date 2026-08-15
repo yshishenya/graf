@@ -9,7 +9,7 @@
         <h1>Итоги</h1>
       </div>
     </header>
-    <section class="settings-section cabinet-card summary-format-settings" id="summary-formats" aria-labelledby="summary-formats-title" data-summary-template-settings data-template-endpoint="/api/v1/cabinet/summary-templates" data-summary-default-endpoint="/api/v1/cabinet/summary-templates/default">
+    <section class="settings-section summary-format-settings" id="summary-formats" aria-labelledby="summary-formats-title" data-summary-template-settings data-template-endpoint="/api/v1/cabinet/summary-templates" data-summary-default-endpoint="/api/v1/cabinet/summary-templates/default">
       <div class="settings-section__heading">
         <div>
           <span class="settings-scope-badge">В этом пространстве</span>
@@ -29,8 +29,7 @@
           <h3>Встроенные</h3>
           <div class="summary-template-list">
             {% for format in summary_formats %}
-            <article class="summary-template-row" data-summary-template-built-in data-template-key="{{ format.key }}" data-template-name="{{ format.name }}" data-template-purpose="{{ format.purpose }}" data-template-sections="{{ format.sections|join(',') }}">
-              <div><strong>{{ format.name }}</strong><span class="muted">{{ format.purpose }}</span></div>
+            <article class="summary-template-row" data-summary-template-built-in data-template-key="{{ format.key }}" data-template-name="{{ format.name }}" data-template-purpose="{{ format.purpose }}" data-template-sections="{{ format.sections|join(',') }}"><div class="settings-list-item__content"><span class="settings-list-item__title">{{ format.name }}</span><span class="settings-list-item__desc">{{ format.purpose }}</span></div>
               <button type="button" class="button quiet" data-summary-template-copy>Создать копию</button>
             </article>
             {% endfor %}

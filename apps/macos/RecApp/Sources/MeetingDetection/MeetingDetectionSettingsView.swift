@@ -102,85 +102,61 @@ public struct MeetingDetectionSettingsView: View {
                 Label(Self.pageTitle, systemImage: "dot.radiowaves.left.and.right")
                     .font(.headline)
 
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(alignment: .firstTextBaseline, spacing: 12) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(Self.assistedAutoStartTitle)
-                                .font(.subheadline)
-                                .fontWeight(.semibold)
-                            Text(Self.assistedAutoStartDetail)
-                                .font(.callout)
-                                .foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                            Text(assistedAutoStartPolicyStatus)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                Form {
+                    Section {
+                        Toggle(isOn: assistedAutoStartBinding) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(Self.assistedAutoStartTitle)
+                                    .fontWeight(.medium)
+                                Text(Self.assistedAutoStartDetail)
+                                    .font(.callout)
+                                    .foregroundStyle(.secondary)
+                                Text(assistedAutoStartPolicyStatus)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
-                        Spacer()
-                        Toggle("", isOn: assistedAutoStartBinding)
-                            .toggleStyle(.switch)
-                            .labelsHidden()
-                            .disabled(currentPolicy?.isActive() != true)
-                            .accessibilityLabel(Self.assistedAutoStartTitle)
-                    }
-                }
+                        .toggleStyle(.switch)
+                        .disabled(currentPolicy?.isActive() != true)
+                        .accessibilityLabel(Self.assistedAutoStartTitle)
 
-                Divider()
-
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(alignment: .firstTextBaseline, spacing: 12) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(Self.promptToggleTitle)
-                                .font(.subheadline)
-                                .fontWeight(.semibold)
-                            Text(Self.promptToggleDetail)
-                                .font(.callout)
-                                .foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
+                        Toggle(isOn: recordingPromptBinding) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(Self.promptToggleTitle)
+                                    .fontWeight(.medium)
+                                Text(Self.promptToggleDetail)
+                                    .font(.callout)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
-                        Spacer()
-                        Toggle("", isOn: recordingPromptBinding)
-                            .toggleStyle(.switch)
-                            .labelsHidden()
-                            .accessibilityLabel(Self.promptToggleTitle)
-                            .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.meetingDetectionRecordingToggle)
-                    }
-                }
-
-                Divider()
-
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(alignment: .firstTextBaseline) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(Self.autoRecordSectionTitle)
-                                .font(.subheadline)
-                                .fontWeight(.semibold)
-                            Text(
-                                settings.detectionMode == .detectAndAsk
-                                    ? Self.autoRecordSectionDetail
-                                    : Self.autoRecordDisabledSectionDetail
-                            )
-                                .font(.callout)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Button(Self.selectAllTitle, action: selectAllAutoRecordTargets)
-                            .disabled(promptCapableTargets.isEmpty)
-                        Button(Self.clearAllTitle, action: clearAutoRecordTargets)
-                            .disabled(settings.autoRecordTargetIds.isEmpty)
+                        .toggleStyle(.switch)
+                        .accessibilityLabel(Self.promptToggleTitle)
+                        .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.meetingDetectionRecordingToggle)
                     }
 
-                    if promptCapableTargets.isEmpty {
-                        Text("Список появится после загрузки реестра.")
+                    Section(header: Text(Self.autoRecordSectionTitle).fontWeight(.medium)) {
+                        Text(settings.detectionMode == .detectAndAsk ? Self.autoRecordSectionDetail : Self.autoRecordDisabledSectionDetail)
                             .font(.callout)
                             .foregroundStyle(.secondary)
-                    } else {
-                        VStack(alignment: .leading, spacing: 8) {
+                            .padding(.bottom, 4)
+
+                        HStack {
+                            Spacer()
+                            Button(Self.selectAllTitle, action: selectAllAutoRecordTargets)
+                                .disabled(promptCapableTargets.isEmpty)
+                            Button(Self.clearAllTitle, action: clearAutoRecordTargets)
+                                .disabled(settings.autoRecordTargetIds.isEmpty)
+                        }
+
+                        if promptCapableTargets.isEmpty {
+                            Text("Список появится после загрузки реестра.")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                        } else {
                             ForEach(promptCapableTargets, id: \.id) { target in
                                 Toggle(isOn: autoRecordBinding(for: target.id)) {
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(target.displayName)
-                                            .font(.callout)
                                         if let bundleID = target.nativeBundleIds.first {
                                             Text(bundleID)
                                                 .font(.caption)
@@ -193,6 +169,7 @@ public struct MeetingDetectionSettingsView: View {
                         }
                     }
                 }
+                .formStyle(.grouped)
 
                 if let saveError {
                     Label(saveError, systemImage: "exclamationmark.triangle.fill")
@@ -203,8 +180,8 @@ public struct MeetingDetectionSettingsView: View {
 
                 Spacer()
             }
-            .padding(.horizontal, 34)
-            .padding(.vertical, 28)
+
+
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

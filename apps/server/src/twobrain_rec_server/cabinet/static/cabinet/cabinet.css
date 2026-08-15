@@ -1771,11 +1771,62 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 }
 .settings-section {
   max-width: 920px;
+  padding: 0 0 24px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.settings-section__heading {
+  margin-bottom: 8px;
+}
+.settings-section__heading h2 {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.settings-list {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.settings-list-item {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
   padding: 16px;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  border-bottom: 1px solid var(--line);
   gap: 16px;
-  align-items: stretch;
+}
+.settings-list-item:last-child {
+  border-bottom: none;
+}
+.settings-list-item__content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.settings-list-item__title {
+  font-weight: 500;
+  color: var(--text);
+}
+.settings-list-item__desc {
+  font-size: 13px;
+  color: var(--muted);
+}
+.settings-list-item__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+@media (forced-colors: active) {
+  .settings-list {
+    border: 1px solid CanvasText;
+  }
+  .settings-list-item {
+    border-bottom: 1px solid CanvasText;
+  }
 }
 .settings-section p { margin: 0; }
 .settings-overview {
@@ -1946,11 +1997,11 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   .settings-page > .settings-page__content,
   .calendar-settings > .calendar-settings__content { grid-column: 1; }
   .settings-section__heading,
-  .settings-choice-row { align-items: stretch; flex-direction: column; }
+  .settings-choice-row, .settings-list-item { align-items: stretch; flex-direction: column; }
   .settings-overview { grid-template-columns: 1fr; }
   .settings-section__heading .button,
-  .settings-choice-row .settings-actions,
-  .settings-choice-row form { align-self: flex-start; }
+  .settings-choice-row .settings-actions, .settings-list-item .settings-actions,
+  .settings-choice-row form, .settings-list-item form { align-self: flex-start; }
 }
 .meeting-title { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 650; }
 .meeting-toolbar {
@@ -4439,4 +4490,42 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   .summary-template-dialog,
   .share-scope-disclosure,
   .share-viewer-row { border-color: CanvasText; }
+}
+
+/* Additional settings redesign styles */
+.settings-overview {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 920px;
+}
+.settings-overview-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  min-height: auto;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-2);
+  text-decoration: none;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.settings-overview-card:hover {
+  border-color: var(--accent);
+  background: var(--surface-3);
+}
+.settings-overview-card h3 {
+  font-size: 16px;
+  font-weight: 500;
+}
+.settings-overview-card__link {
+  margin-top: 4px;
+  font-size: 14px;
+}
+@media (forced-colors: active) {
+  .settings-overview-card {
+    border: 1px solid CanvasText;
+  }
 }

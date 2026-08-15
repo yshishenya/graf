@@ -21,7 +21,7 @@
     {% else %}
     {% if profile_result %}<p class="settings-status" role="status" aria-live="polite">{{ profile_result }}</p>{% endif %}
     {% if preferences_result %}<p class="settings-status" role="status" aria-live="polite">{{ preferences_result }}</p>{% endif %}
-    <section class="settings-section cabinet-card" aria-labelledby="account-profile-title">
+    <section class="settings-section" aria-labelledby="account-profile-title">
       <div class="settings-section__heading"><div><span class="settings-scope-badge">Личная настройка</span><h2 id="account-profile-title">Профиль</h2><p class="muted">Имя отображается в кабинете. Подтверждённый способ входа нельзя изменить из этого поля.</p></div></div>
       {% if account_surface.profile %}
       <form class="account-profile-form" data-settings-form method="post" action="{{ '/desktop/settings/account/profile' if embedded else '/settings/account/profile' }}">
@@ -34,7 +34,7 @@
       </form>
       {% endif %}
     </section>
-    <section class="settings-section cabinet-card" aria-labelledby="account-preferences-title">
+    <section class="settings-section" aria-labelledby="account-preferences-title">
       <div class="settings-section__heading"><div><span class="settings-scope-badge">Личная настройка</span><h2 id="account-preferences-title">Язык, часовой пояс и тема</h2><p class="muted">Тема применяется сразу. Язык и часовой пояс сохраняются после отправки формы и действуют на всех ваших устройствах.</p></div></div>
       <form class="account-preferences-form" data-account-preferences data-settings-form method="post" action="{{ '/desktop/settings/account/preferences' if embedded else '/settings/account/preferences' }}">
         {{ sections.csrf_field(csrf_token) }}
@@ -48,14 +48,14 @@
       </form>
       <noscript><p class="muted">Без JavaScript сохранение работает обычной кнопкой формы; предпросмотр применится после обновления страницы.</p></noscript>
     </section>
-    <section class="settings-section cabinet-card" aria-labelledby="account-providers-title">
+    <section class="settings-section" aria-labelledby="account-providers-title">
       <div class="settings-section__heading">
         <div><span class="settings-scope-badge">Личная настройка</span><h2 id="account-providers-title">Способы входа</h2><p class="muted">Подключённые провайдеры относятся к вашему аккаунту, а не к отдельному пространству.</p></div>
       </div>
       {% if account_surface.providers %}
-      <ul class="settings-choice-list" aria-label="Подключённые способы входа">
+      <ul class="settings-list" aria-label="Подключённые способы входа">
         {% for provider in account_surface.providers %}
-        <li class="settings-choice-row"><div><strong>{{ provider.label }}</strong><span class="muted">{{ provider.status_label }}{% if provider.primary %} · Основной{% endif %}</span></div>{% if provider.can_unlink and provider.identity_id %}<form action="{{ '/desktop/settings/account/providers/' if embedded else '/settings/account/providers/' }}{{ provider.identity_id }}/unlink" method="post">{{ sections.csrf_field(csrf_token) }}<button class="button quiet" type="submit" data-confirm="Отключить этот способ входа?">Отключить</button></form>{% endif %}</li>
+        <li class="settings-list-item"><div class="settings-list-item__content"><span class="settings-list-item__title">{{ provider.label }}</span><span class="settings-list-item__desc">{{ provider.status_label }}{% if provider.primary %} · Основной{% endif %}</span></div>{% if provider.can_unlink and provider.identity_id %}<form action="{{ '/desktop/settings/account/providers/' if embedded else '/settings/account/providers/' }}{{ provider.identity_id }}/unlink" method="post">{{ sections.csrf_field(csrf_token) }}<button class="button quiet" type="submit" data-confirm="Отключить этот способ входа?">Отключить</button></form>{% endif %}</li>
         {% endfor %}
       </ul>
       {% else %}<p class="settings-empty-state" role="status">Подключённых способов входа пока нет.</p>{% endif %}
@@ -70,17 +70,16 @@
     </section>
     <noscript><p class="settings-status" role="status">Настройки аккаунта работают без JavaScript: отправка форм откроет страницу с результатом.</p></noscript>
 
-    <section class="settings-section cabinet-card" aria-labelledby="account-devices-title">
+    <section class="settings-section" aria-labelledby="account-devices-title">
       <div class="settings-section__heading"><div><span class="settings-scope-badge">Личная настройка</span><h2 id="account-devices-title">Зарегистрированные устройства</h2><p class="muted">Список показывает только безопасные метаданные. Кнопка ниже завершит доступ на остальных устройствах, текущее устройство останется активным.</p></div></div>
       <form class="settings-actions" action="{{ '/desktop/settings/account/devices/revoke-others' if embedded else '/settings/account/devices/revoke-others' }}" method="post">
         {{ sections.csrf_field(csrf_token) }}
         <button class="button quiet" type="submit" data-confirm="Выйти на всех остальных устройствах?">Выйти на всех устройствах</button>
       </form>
       {% if account_surface.devices %}
-      <ul class="settings-choice-list" aria-label="Зарегистрированные устройства">
+      <ul class="settings-list" aria-label="Зарегистрированные устройства">
         {% for device in account_surface.devices %}
-        <li class="settings-choice-row">
-          <div><strong>{{ device.platform_label }}{% if device.current %} · Текущее устройство{% endif %}</strong><span class="muted">{{ device.status_label }} · {{ device.version_label }}{% if device.last_seen_at %} · Последняя активность: {{ device.last_seen_at.strftime("%Y-%m-%d %H:%M UTC") }}{% endif %}</span></div>
+        <li class="settings-list-item"><div class="settings-list-item__content"><span class="settings-list-item__title">{{ device.platform_label }}{% if device.current %} · Текущее устройство{% endif %}</span><span class="settings-list-item__desc">{{ device.status_label }} · {{ device.version_label }}{% if device.last_seen_at %} · Последняя активность: {{ device.last_seen_at.strftime("%Y-%m-%d %H:%M UTC") }}{% endif %}</span></div>
           {% if device.can_revoke %}
           <form action="{{ "/desktop/settings/account/devices/" if embedded else "/settings/account/devices/" }}{{ device.device_id }}/revoke" method="post">{{ sections.csrf_field(csrf_token) }}<button class="button quiet" type="submit" data-confirm="Отозвать это устройство?">Отозвать</button></form>
           {% endif %}
@@ -89,26 +88,26 @@
       </ul>
       {% else %}<p class="settings-empty-state" role="status">Зарегистрированных устройств пока нет.</p>{% endif %}
     </section>
-    <section class="settings-section cabinet-card" aria-labelledby="account-sessions-title">
+    <section class="settings-section" aria-labelledby="account-sessions-title">
       <div class="settings-section__heading"><div><span class="settings-scope-badge">Личная настройка</span><h2 id="account-sessions-title">Активные сессии</h2><p class="muted">Отозванная сессия теряет доступ. Текущую сессию можно завершить через «Выйти».</p></div></div>
       <form class="settings-actions" action="{{ '/desktop/settings/account/sessions/revoke-others' if embedded else '/settings/account/sessions/revoke-others' }}" method="post">
         {{ sections.csrf_field(csrf_token) }}
         <button class="button quiet" type="submit" data-confirm="Завершить остальные сеансы?">Завершить остальные сеансы</button>
       </form>
       {% if account_surface.sessions %}
-      <ul class="settings-choice-list" aria-label="Активные сессии">
+      <ul class="settings-list" aria-label="Активные сессии">
         {% for session in account_surface.sessions %}
-        <li class="settings-choice-row"><div><strong>{{ session.provider_label }}{% if session.current %} · Текущая сессия{% endif %}</strong><span class="muted">{{ session.status_label }}{% if session.last_seen_at %} · Последняя активность: {{ session.last_seen_at.strftime("%Y-%m-%d %H:%M UTC") }}{% endif %}</span></div>{% if session.can_revoke %}<form action="{{ '/desktop/settings/account/sessions/' if embedded else '/settings/account/sessions/' }}{{ session.session_id }}/revoke" method="post">{{ sections.csrf_field(csrf_token) }}<button class="button quiet" type="submit" data-confirm="Завершить этот сеанс?">Завершить сеанс</button></form>{% endif %}</li>
+        <li class="settings-list-item"><div class="settings-list-item__content"><span class="settings-list-item__title">{{ session.provider_label }}{% if session.current %} · Текущая сессия{% endif %}</span><span class="settings-list-item__desc">{{ session.status_label }}{% if session.last_seen_at %} · Последняя активность: {{ session.last_seen_at.strftime("%Y-%m-%d %H:%M UTC") }}{% endif %}</span></div>{% if session.can_revoke %}<form action="{{ '/desktop/settings/account/sessions/' if embedded else '/settings/account/sessions/' }}{{ session.session_id }}/revoke" method="post">{{ sections.csrf_field(csrf_token) }}<button class="button quiet" type="submit" data-confirm="Завершить этот сеанс?">Завершить сеанс</button></form>{% endif %}</li>
         {% endfor %}
       </ul>
       {% else %}<p class="settings-empty-state" role="status">Активных сессий не найдено.</p>{% endif %}
     </section>
-    <section class="settings-section settings-boundary-card" aria-labelledby="account-notifications-title">
+    <section class="settings-section" aria-labelledby="account-notifications-title">
       <h2 id="account-notifications-title">Уведомления</h2>
       <p class="muted">Управление уведомлениями. Важные системные и финансовые сообщения отключить нельзя.</p>
       <a class="button quiet" href="{{ "/desktop/settings/notifications" if embedded else "/settings/notifications" }}">Настроить уведомления</a>
     </section>
-    <section class="settings-section settings-boundary-card account-close-card" aria-labelledby="account-close-title">
+    <section class="settings-section account-close-card" aria-labelledby="account-close-title">
       <span class="settings-scope-badge">Необратимое действие</span>
       <h2 id="account-close-title">Закрытие аккаунта</h2>
       {% if account_surface.account_close %}
