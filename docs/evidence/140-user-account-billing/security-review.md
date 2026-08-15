@@ -1,6 +1,6 @@
 # Billing security and redaction review (automated interim)
 
-**Дата**: 2026-08-11
+**Дата**: 2026-08-15
 **Lane**: high-risk backend/privacy; checkout remains disabled by default.
 
 Проверено локально:
@@ -50,6 +50,10 @@
 - Desktop billing handoff allowlist покрывает plans/discounts/checkout return и
   checkout status; paid usage показывает фактически принятое время без
   fabricated paid allowance.
+- Дополнительная проверка закрыла transport-bypass: destructive account routes
+  принимают только cookie-сессию браузера и отклоняют Bearer/
+  `X-Auth-Session`, а также смешанный запрос с cookie. Регрессия покрыта
+  unit-тестом и disposable PostgreSQL account-lifecycle прогоном (13 passed).
 
 Команды evidence: `uv run ruff check src tests`, focused billing/security/UI и
 PostHog autocapture tests (43 targeted checks), `git diff --check`. Стандартный

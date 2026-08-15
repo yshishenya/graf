@@ -35,6 +35,22 @@ DESKTOP_CALENDAR_AUTH_COOKIE_PATH = "/desktop/settings/integrations/calendar"
 DESKTOP_CALENDAR_AUTH_COOKIE_MAX_AGE_SECONDS = 15 * 60
 
 
+def is_web_cookie_session(request: Request) -> bool:
+    """Return true only for the browser's cookie session transport.
+
+    Bearer and ``X-Auth-Session`` are valid session transports for API and
+    desktop callers, but they are not browser proof for destructive cabinet
+    actions. If both transports are present, fail closed.
+    """
+    cookie = request.cookies.get(AUTH_SESSION_COOKIE_NAME)
+    if not cookie or not cookie.strip():
+        return False
+    return not any(
+        (request.headers.get(header) or "").strip()
+        for header in ("Authorization", "X-Auth-Session")
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class _DesktopCalendarAuthContext:
     user_id: UUID

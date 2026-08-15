@@ -42,6 +42,16 @@ Checkout, binding и renewal mutation нельзя включать, пока в
 Finance/Accounting, Legal, Security и QA не внесут версии решений и exact-SHA
 evidence в launch runbook.
 
+### Security remediation 2026-08-15
+
+Header/bearer transport bypass for destructive browser account actions was
+fixed: closing an account and revoking sessions/devices now require the
+cookie-only browser session, including a fail-closed mixed cookie+header case.
+Unit, focused lifecycle and disposable PostgreSQL checks pass. The separate
+FR-018 requirement for a recent step-up re-authentication proof (rather than
+only a valid cookie session) is still not implemented and remains a P1 launch
+gate until Product/Security approve the exact flow and TTL.
+
 ## Повторный runtime-аудит 2026-08-07
 
 После повторной проверки выявлены дополнительные блокеры, которые нельзя
