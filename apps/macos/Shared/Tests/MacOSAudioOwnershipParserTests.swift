@@ -28,6 +28,39 @@ final class MacOSAudioOwnershipParserTests: XCTestCase {
         XCTAssertEqual(event.state, .inactive)
     }
 
+    func testParsesAudioHALAssertionDidInvalidateAsInactive() throws {
+        let event = try XCTUnwrap(MacOSAudioOwnershipParser().parse(
+            line: #"<RBAssertion| identifier:412-81445-989880 target:[app<application.ru.yandex.desktop.telemost.216958610.216958636(501)>:81445] explanation:"AudioHAL" did invalidate originator:[app<application.ru.yandex.desktop.telemost.216958610.216958636(501)>:81445] transientState:<RBAssertionTransientState| policies:["#,
+            observedAt: Date(timeIntervalSince1970: 92)
+        ))
+
+        XCTAssertEqual(event.bundleID, "ru.yandex.desktop.telemost")
+        XCTAssertEqual(event.processID, 81445)
+        XCTAssertEqual(event.state, .inactive)
+    }
+
+    func testParsesAudioHALAssertionInvalidatedAsInactive() throws {
+        let event = try XCTUnwrap(MacOSAudioOwnershipParser().parse(
+            line: #"<RBAssertion| identifier:412-81445-989880 target:[app<application.ru.yandex.desktop.telemost.216958610.216958636(501)>:81445] explanation:"AudioHAL" invalidated originator:[app<application.ru.yandex.desktop.telemost.216958610.216958636(501)>:81445] transientState:<RBAssertionTransientState| policies:["#,
+            observedAt: Date(timeIntervalSince1970: 93)
+        ))
+
+        XCTAssertEqual(event.bundleID, "ru.yandex.desktop.telemost")
+        XCTAssertEqual(event.processID, 81445)
+        XCTAssertEqual(event.state, .inactive)
+    }
+
+    func testParsesAudioHALAssertionInactiveAsInactive() throws {
+        let event = try XCTUnwrap(MacOSAudioOwnershipParser().parse(
+            line: #"<RBAssertion| identifier:412-81445-989880 target:[app<application.ru.yandex.desktop.telemost.216958610.216958636(501)>:81445] explanation:"AudioHAL" inactive originator:[app<application.ru.yandex.desktop.telemost.216958610.216958636(501)>:81445] transientState:<RBAssertionTransientState| policies:["#,
+            observedAt: Date(timeIntervalSince1970: 94)
+        ))
+
+        XCTAssertEqual(event.bundleID, "ru.yandex.desktop.telemost")
+        XCTAssertEqual(event.processID, 81445)
+        XCTAssertEqual(event.state, .inactive)
+    }
+
     func testParsesControlCenterSensorIndicatorMicrophoneAttributions() {
         let parser = MacOSAudioOwnershipParser()
 
