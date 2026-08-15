@@ -91,7 +91,7 @@ public enum EmbeddedCabinetNavigationPolicy {
     private static func isProtectedDocumentRoute(_ kind: DesktopCabinetRouteKind?) -> Bool {
         switch kind {
         case .meetingList, .meetingDetail, .meetingShare, .meetingDeletionReport,
-             .settings, .calendarSettings, .meetingDetectionSettings:
+             .settings, .calendarSettings, .meetingDetectionSettings, .billing:
             return true
         default:
             return false
@@ -599,7 +599,7 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
         let kind = routePolicy.decision(for: url).route.kind
         switch kind {
         case .meetingList, .meetingDetail, .meetingShare, .meetingDeletionReport,
-             .settings, .calendarSettings, .meetingDetectionSettings:
+             .settings, .calendarSettings, .meetingDetectionSettings, .billing:
             return true
         default:
             return false
@@ -747,7 +747,7 @@ public final class EmbeddedCabinetSupportIncidentBridge: DesktopSupportIncidentS
         switch decision.route.kind {
         case .meetingList, .meetingDetail, .meetingShare, .meetingDeletionReport:
             return true
-        case .artifactDownload, .settings, .calendarSettings, .meetingDetectionSettings, .admin, .authLogin, .authSignup,
+        case .artifactDownload, .settings, .calendarSettings, .meetingDetectionSettings, .billing, .admin, .authLogin, .authSignup,
              .authProvider, .authCallback, .unsupported, .external, .forbiddenAction:
             return false
         }
@@ -1036,7 +1036,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         switch routeKind {
         case .authLogin, .authSignup, .authProvider, .authCallback:
             return .expiredSession
-        case .meetingList, .meetingDetail, .meetingShare, .meetingDeletionReport, .settings, .calendarSettings, .meetingDetectionSettings:
+        case .meetingList, .meetingDetail, .meetingShare, .meetingDeletionReport, .settings, .calendarSettings, .meetingDetectionSettings, .billing:
             return .ready
         case .artifactDownload:
             return .ready
@@ -1151,6 +1151,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         private let navigationRequestPolicy: DesktopCabinetNavigationRequestPolicy
         private let navigationEventLogger: NavigationEventLogger?
         private var authContinuationActive = false
+        private var paymentProviderNavigationActive = false
         private var showsAppUpdateBadge: Bool
         private var onCheckForUpdates: CheckForUpdatesAction
         private let onOpenMeetingDetectionSettings: OpenMeetingDetectionSettingsAction
@@ -1308,9 +1309,11 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 allowExternalAuthProvider: authContinuationActive || isAuthRoute(webView.url)
             )
 
+            let allowExternalPaymentProvider = isBillingCheckoutRoute(webView.url)
             let decision = routePolicy.decision(
                 for: url,
-                allowExternalAuthProvider: authContinuationActive || isAuthRoute(webView.url)
+                allowExternalAuthProvider: authContinuationActive || isAuthRoute(webView.url),
+                allowExternalPaymentProvider: allowExternalPaymentProvider
             )
             if decision.decision == .allow,
                decision.route.kind == .meetingDetectionSettings {
@@ -1321,6 +1324,9 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             }
             switch decision.decision {
             case .allow:
+                if decision.route.kind == .external, allowExternalPaymentProvider {
+                    paymentProviderNavigationActive = true
+                }
                 updateAuthContinuation(for: decision.route.kind)
                 switch navigationRequestPolicy.decision(
                     forNavigationRequest: navigationAction.request,
@@ -1369,19 +1375,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                     return
                 }
                 decisionHandler(.cancel)
-                if decision.reason == .openBrowserOwnedBilling {
-                    Task { @MainActor [weak self] in
-                        guard let self, self.isActive else { return }
-                        let handoffURL = await DesktopCabinetBillingHandoff.request(
-                            for: sanitizedURL,
-                            desktopHeaders: self.desktopHeaders
-                        )
-                        guard self.isActive else { return }
-                        NSWorkspace.shared.open(handoffURL ?? sanitizedURL)
-                    }
-                } else {
-                    NSWorkspace.shared.open(sanitizedURL)
-                }
+                NSWorkspace.shared.open(sanitizedURL)
             case .blockWithMessage:
                 authContinuationActive = false
                 navigationController.cancelPendingNavigation(webView: webView)
@@ -1547,8 +1541,16 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             guard let url = webView.url else {
                 return
             }
-            let routeDecision = routePolicy.decision(for: url, allowExternalAuthProvider: authContinuationActive)
+            let routeDecision = routePolicy.decision(
+                for: url,
+                allowExternalAuthProvider: authContinuationActive,
+                allowExternalPaymentProvider: paymentProviderNavigationActive
+            )
             guard routeDecision.decision == .allow else {
+                return
+            }
+            if routeDecision.route.kind == .external, paymentProviderNavigationActive {
+                paymentProviderNavigationActive = false
                 return
             }
             if routeDecision.route.kind == .artifactDownload {
@@ -1771,6 +1773,12 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 .authProvider,
                 .authCallback
             ].contains(routeKind)
+        }
+
+        private func isBillingCheckoutRoute(_ url: URL?) -> Bool {
+            guard let url else { return false }
+            let components = routePolicy.decision(for: url).route
+            return components.kind == .billing && components.path.hasPrefix("/billing/checkout")
         }
     }
 

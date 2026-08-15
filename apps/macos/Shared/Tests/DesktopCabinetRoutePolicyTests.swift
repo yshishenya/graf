@@ -48,9 +48,9 @@ final class DesktopCabinetRoutePolicyTests: XCTestCase {
 
         for route in ["/billing", "/billing/plans", "/billing/usage", "/billing/subscription", "/billing/payment-method", "/billing/storage", "/billing/discounts", "/billing/checkout", "/billing/checkout/return", "/billing/checkout/status/INV-2026-0001", "/billing/history", "/billing/invoices/INV-2026-0001"] {
             let billing = policy.decision(for: try url(route))
-            XCTAssertEqual(billing.decision, .openExternally, route)
-            XCTAssertEqual(billing.route.kind, .external, route)
-            XCTAssertEqual(billing.reason, .openBrowserOwnedBilling, route)
+            XCTAssertEqual(billing.decision, .allow, route)
+            XCTAssertEqual(billing.route.kind, .billing, route)
+            XCTAssertEqual(billing.reason, .allowedBilling, route)
         }
 
         let meetingDetectionSettings = policy.decision(for: try url("/desktop/settings/meeting-detection"))

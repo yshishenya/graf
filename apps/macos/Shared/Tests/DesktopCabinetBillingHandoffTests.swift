@@ -29,15 +29,16 @@ final class DesktopCabinetBillingHandoffTests: XCTestCase {
         XCTAssertNil(endpoint.password)
     }
 
-    func testBillingRoutesLeaveTheEmbeddedCabinetWithoutFinancialQueryData() throws {
+    func testBillingRoutesStayInsideTheEmbeddedCabinet() throws {
         let policy = DesktopCabinetRoutePolicy(
             baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev"))
         )
 
         for path in ["/billing", "/billing/plans", "/billing/usage", "/billing/subscription", "/billing/payment-method", "/billing/storage", "/billing/checkout", "/billing/checkout/return", "/billing/checkout/status/INV-2026-0001", "/billing/discounts", "/billing/history", "/billing/invoices/INV-2026-0001"] {
             let decision = policy.decision(for: try XCTUnwrap(URL(string: "https://rec.2brain.dev\(path)")))
-            XCTAssertEqual(decision.decision, .openExternally, path)
-            XCTAssertEqual(decision.reason, .openBrowserOwnedBilling, path)
+            XCTAssertEqual(decision.decision, .allow, path)
+            XCTAssertEqual(decision.route.kind, .billing, path)
+            XCTAssertEqual(decision.reason, .allowedBilling, path)
             XCTAssertNil(URL(string: "https://rec.2brain.dev\(path)")?.query)
         }
     }
@@ -61,18 +62,13 @@ final class DesktopCabinetBillingHandoffTests: XCTestCase {
         }
     }
 
-    func testExternalBillingHandoffStripsFinancialAndProviderQueryData() throws {
+    func testBillingRouteDoesNotProduceAnExternalHandoffURL() throws {
         let policy = DesktopCabinetRoutePolicy(
             baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev"))
         )
         let source = try XCTUnwrap(URL(string: "https://user:secret@rec.2brain.dev/billing/checkout?amount=790&provider_id=pay_033#payment"))
 
-        let sanitized = try XCTUnwrap(policy.sanitizedExternalURL(for: source))
-        XCTAssertEqual(sanitized.absoluteString, "https://rec.2brain.dev/billing/checkout")
-        XCTAssertNil(sanitized.query)
-        XCTAssertNil(sanitized.fragment)
-        XCTAssertNil(sanitized.user)
-        XCTAssertNil(sanitized.password)
+        XCTAssertNil(policy.sanitizedExternalURL(for: source))
     }
 
     func testUnsafeRouteCannotBeSanitizedForExternalHandoff() throws {
@@ -92,6 +88,27 @@ final class DesktopCabinetBillingHandoffTests: XCTestCase {
 
         XCTAssertEqual(policy.decision(for: source).decision, .blockWithMessage)
         XCTAssertNil(policy.sanitizedExternalURL(for: source))
+    }
+
+    func testOnlyAllowlistedPaymentProviderLoadsDuringCheckout() throws {
+        let policy = DesktopCabinetRoutePolicy(
+            baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev"))
+        )
+        let provider = try XCTUnwrap(URL(string: "https://yookassa.test/checkout/abc"))
+        let evil = try XCTUnwrap(URL(string: "https://evil.example/checkout/abc"))
+
+        XCTAssertEqual(
+            policy.decision(for: provider, allowExternalPaymentProvider: true).decision,
+            .allow
+        )
+        XCTAssertEqual(
+            policy.decision(for: provider, allowExternalPaymentProvider: true).reason,
+            .openExternalSafeLink
+        )
+        XCTAssertEqual(
+            policy.decision(for: evil, allowExternalPaymentProvider: true).decision,
+            .blockWithMessage
+        )
     }
 }
 #endif
