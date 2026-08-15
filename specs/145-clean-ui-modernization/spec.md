@@ -2,7 +2,7 @@
 
 **Feature Branch**: `145-clean-ui-modernization`
 **Created**: 2026-08-08
-**Status**: Draft
+**Status**: Implemented and validated
 
 ## Goal
 Implement a safe, UI-only modernization of the web cabinet and macOS application, mirroring the bento-card aesthetic (dark theme, glassmorphism, rounded corners) without breaking existing server logic or introducing external dependencies like Google Fonts.

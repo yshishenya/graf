@@ -7,17 +7,15 @@
 прямо указано в их документации.
 
 ## [Unreleased]
-- Modernize Web and macOS Application UI (Feature 145)
-  - Align macOS native SwiftUI interface with the dark, glassmorphic bento-card aesthetic of the web cabinet.
-  - Implement rounded corners, updated typography weights, and `Material` usage across `DesktopMeetingShellView` and `CaptureControlViewCore`.
-  - Use modern web system font stacks without relying on external Google Fonts.
-  - Implement smooth transitions and glow interactions for cabinet elements.
 
 ### Добавлено
 - _Пока нет записей._
 
 ### Изменено
-- _Пока нет записей._
+- Feature 144/145: web-кабинет и нативный macOS shell приведены к единой
+  тёмной визуальной системе с более мягкими радиусами и иерархией поверхностей.
+- В SwiftUI обновлены цвета, расстояния, скругления, тени и веса шрифта; в
+  кабинете обновлены радиусы карточек и состояний без внешних шрифтов.
 
 ### Исправлено
 - _Пока нет записей._
@@ -26,7 +24,7 @@
 - _Пока нет записей._
 
 ### Документы
-- _Пока нет записей._
+- Добавлены спецификация, UI-контракт и quickstart для чистого UI-only среза.
 
 ### Операции
 - _Пока нет записей._
