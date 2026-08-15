@@ -15,7 +15,7 @@
         <div>
           <span class="settings-scope-badge">В этом пространстве</span>
           <h2 id="active-workspace-title">Активное пространство</h2>
-          <p class="muted">Новые записи и загрузки останутся в выбранном пространстве. Уже начатые действия не переносятся автоматически.</p>
+          <p class="muted">Выбор рабочего пространства для новых записей. Текущие процессы завершатся там, где были начаты.</p>
         </div>
       </div>
       {% if workspace_spaces %}
@@ -44,7 +44,7 @@
         <div>
           <span class="settings-scope-badge">Личная настройка</span>
           <h2 id="workspace-join-offers-title">Приглашения в команды</h2>
-          <p class="muted">Выбирайте команды сами. Принятие приглашения не переносит личные записи.</p>
+          <p class="muted">Управление приглашениями. Личные записи не переносятся.</p>
         </div>
       </div>
       {% if workspace_offer_result %}<p class="settings-status" role="status" aria-live="polite">{{ workspace_offer_result }}</p>{% endif %}

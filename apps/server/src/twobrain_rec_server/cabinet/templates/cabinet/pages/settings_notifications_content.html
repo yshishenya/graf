@@ -10,13 +10,13 @@
       {% if notification_result %}<p class="settings-status" role="status" aria-live="polite">{{ notification_result }}</p>{% endif %}
       <section class="settings-section cabinet-card" aria-labelledby="notification-preferences-title">
         <div class="settings-section__heading">
-          <div><span class="settings-scope-badge">Личная настройка</span><h2 id="notification-preferences-title">Дополнительные уведомления</h2><p class="muted">Выберите каналы для необязательных подсказок. Финансовые, юридические и сообщения о безопасности нельзя отключить.</p></div>
+          <div><span class="settings-scope-badge">Личная настройка</span><h2 id="notification-preferences-title">Дополнительные уведомления</h2><p class="muted">Выберите каналы для необязательных подсказок. Важные системные сообщения отключить нельзя.</p></div>
         </div>
         {{ notifications_ui.preferences_form(notification_preferences, csrf_token, embedded=embedded) }}
       </section>
       <section class="settings-section settings-boundary-card" aria-labelledby="notification-legal-title">
         <h2 id="notification-legal-title">Обязательные сообщения</h2>
-        <p class="muted">Мы всегда можем сообщить о платеже, чеке, продлении, ограничении fair use, безопасности и закрытии аккаунта. Эти сообщения не являются рекламой и нужны для защиты доступа и финансовой информации.</p>
+        <p class="muted">Мы всегда можем сообщить о важных событиях (платеж, безопасность, аккаунт). Эти сообщения нужны для защиты доступа.</p>
         <a class="button quiet" href="/billing">Открыть тариф и оплату</a>
       </section>
       <noscript><p class="settings-status" role="status">Сохранение уведомлений работает без JavaScript: после отправки откроется подтверждение.</p></noscript>
