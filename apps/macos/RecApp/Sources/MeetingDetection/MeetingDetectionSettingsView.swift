@@ -50,6 +50,7 @@ public struct MeetingDetectionSettingsView: View {
         }
         .frame(width: 760, height: 500)
         .background(Color(nsColor: .windowBackgroundColor))
+        .tint(DesktopMeetingShellChrome.shellAccentColor)
         .onAppear {
             reloadRegistryTargets()
         }
@@ -147,6 +148,7 @@ public struct MeetingDetectionSettingsView: View {
                             Button(Self.clearAllTitle, action: clearAutoRecordTargets)
                                 .disabled(settings.autoRecordTargetIds.isEmpty)
                         }
+                        .buttonStyle(DesktopWebButtonStyle(.secondary))
 
                         if promptCapableTargets.isEmpty {
                             Text("Список появится после загрузки реестра.")

@@ -120,7 +120,7 @@ public struct CaptureControlView: View {
                             .lineLimit(1)
                             .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(DesktopWebButtonStyle(.primary))
                     .frame(maxWidth: .infinity, minHeight: DesktopMeetingShellChrome.controlHeight)
                     .disabled(!Self.shouldEnableRecordButton(for: session, recordDisabled: recordDisabled))
                     .keyboardShortcut("r", modifiers: [.command, .shift])
@@ -143,7 +143,7 @@ public struct CaptureControlView: View {
                         if !readinessStatus.isReady {
                             Spacer(minLength: 4)
                             Button("Настроить доступы", action: onPermissionRecovery)
-                                .controlSize(.small)
+                                .buttonStyle(DesktopWebButtonStyle(.secondary))
                                 .accessibilityLabel("Настроить доступы к микрофону и системному звуку")
                         }
                     }
@@ -588,8 +588,7 @@ private struct CalendarPromptView: View {
                         Label(prompt.primaryActionTitle, systemImage: prompt.kind == .join ? "arrow.up.right.square" : "record.circle")
                     }
                     .font(.caption)
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
+                    .buttonStyle(DesktopWebButtonStyle(.primary))
                     .accessibilityLabel(prompt.primaryActionTitle)
                     .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.calendarPromptPrimaryButton)
                 } else {
@@ -606,8 +605,7 @@ private struct CalendarPromptView: View {
                             )
                         }
                         .font(.caption)
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
+                        .buttonStyle(DesktopWebButtonStyle(.secondary))
                         .accessibilityLabel(choice.title)
                     }
                 }
@@ -618,8 +616,7 @@ private struct CalendarPromptView: View {
                     Label(prompt.dismissActionTitle, systemImage: "xmark")
                 }
                 .font(.caption)
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+                .buttonStyle(DesktopWebButtonStyle(.secondary))
                 .accessibilityLabel(prompt.dismissActionTitle)
                 .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.calendarPromptDismissButton)
             }
