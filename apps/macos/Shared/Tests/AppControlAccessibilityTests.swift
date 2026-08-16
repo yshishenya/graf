@@ -117,6 +117,10 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertTrue(source.contains(".accessibilityElement(children: .contain)"))
         XCTAssertTrue(source.contains(".accessibilityElement(children: .combine)"))
         XCTAssertTrue(source.contains(".accessibilityIdentifier(SystemAudioAccessibilityIdentifier.statusSurface)"))
+        XCTAssertTrue(source.contains("SystemAudioAccessibilityIdentifier.recordingSource"))
+        XCTAssertTrue(source.contains("sourceAccessibilityLabel(for: session)"))
+        XCTAssertTrue(source.contains(".help(Self.sourceAccessibilityLabel(for: session)"))
+        XCTAssertTrue(source.contains(".lineLimit(1)"))
         XCTAssertTrue(source.contains(".accessibilityRemoveTraits(.isSelected)"))
         XCTAssertTrue(source.contains("VStack(alignment: .leading, spacing: 8)"))
         XCTAssertGreaterThanOrEqual(
@@ -128,6 +132,17 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertTrue(source.contains("checkmark.circle.fill"))
         XCTAssertTrue(source.contains("session.state == .stopped || session.state == .finalized"))
         XCTAssertFalse(source.contains(".keyboardShortcut(.escape, modifiers: [])"))
+    }
+
+    func testRecordingSourceUsesSharedAccessibilityContract() {
+        XCTAssertEqual(SystemAudioAccessibilityIdentifier.recordingSource, "systemAudio.status.source")
+        XCTAssertEqual(SystemAudioStatusLabels.recordingSourceTitle, "Источник")
+        XCTAssertEqual(SystemAudioStatusLabels.recordingSourceSystemAudio, "Системный звук")
+        XCTAssertEqual(SystemAudioStatusLabels.recordingSourceUnknown, "Источник не определён")
+        XCTAssertEqual(
+            SystemAudioStatusLabels.recordingSourceAccessibilityLabel("Zoom"),
+            "Источник: Zoom"
+        )
     }
 
     func testDesktopCaptureChromeUsesFeature104DensityAndContrastContracts() throws {
