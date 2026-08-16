@@ -10,14 +10,15 @@ def test_public_landing_is_self_serve_entry(client) -> None:
     assert response.status_code == 200
     assert "Звоните как привыкли" in response.text
     assert "Запись ведите в GRAF" in response.text
-    assert "Запустите GRAF отдельно перед звонком" in response.text
+    assert "Включите автозапись для поддерживаемого приложения" in response.text
     assert "без бота в звонке" in response.text
     assert "без привязки к сервису встречи" in response.text
     assert "регистрац" not in response.text.lower()
     assert "Управляйте записью сами" in response.text
-    assert "Подключитесь к звонку как обычно" in response.text
-    assert "Запустите запись в GRAF" in response.text
-    assert "Приостановите или завершите запись одним действием" in response.text
+    assert "GRAF сам начнёт запись при обнаружении встречи" in response.text
+    assert "GRAF завершит запись после окончания звонка" in response.text
+    assert "Запустите запись в GRAF" not in response.text
+    assert "Подключитесь к звонку как обычно" not in response.text
     assert "От реплики к следующему действию" in response.text
     assert "Расшифровка сохраняет контекст" in response.text
     assert "Краткий итог и следующие действия" in response.text
