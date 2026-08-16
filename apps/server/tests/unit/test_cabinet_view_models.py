@@ -394,6 +394,39 @@ def test_meeting_list_row_presentation_preserves_authoritative_generated_looking
     assert presentation.open_accessible_name == "Открыть встречу Запись 21 июл, 19:22"
 
 
+def test_recording_display_title_uses_calendar_title_and_recording_time_without_mutation() -> None:
+    meeting = _meeting()
+    meeting.title = "Планирование релиза"
+    meeting.title_source = "calendar"
+    meeting.recording_display_timezone_offset_minutes = 180
+
+    assert view_models.recording_display_title(meeting) == "Планирование релиза — 16 июн, 11:00"
+    assert meeting.title == "Планирование релиза"
+
+
+def test_recording_display_title_uses_app_context_then_generic_fallback() -> None:
+    app_context = _meeting()
+    app_context.title = "Zoom - 2026-06-16 08:00"
+    app_context.title_source = "app_context"
+    app_context.recording_display_timezone_offset_minutes = 180
+
+    generic = _meeting()
+    generic.title = None
+    generic.title_source = "generic"
+    generic.recording_display_timezone_offset_minutes = 180
+
+    assert view_models.recording_display_title(app_context) == "Zoom — 16 июн, 11:00"
+    assert view_models.recording_display_title(generic) == "Запись 16 июн, 11:00"
+
+
+def test_recording_display_title_preserves_authoritative_user_title() -> None:
+    meeting = _meeting()
+    meeting.title = "Моя встреча"
+    meeting.title_source = "user_confirmed"
+
+    assert view_models.recording_display_title(meeting) == "Моя встреча"
+
+
 def test_meeting_list_title_neutralizes_generated_capture_without_rewriting_source() -> None:
     generated = _meeting()
     generated.title = "Current display system audio - 2026-07-13 12:14"
@@ -405,7 +438,7 @@ def test_meeting_list_title_neutralizes_generated_capture_without_rewriting_sour
     derived.title = "Quarterly_sync.mp3"
     derived.title_source = "file_name_derived"
 
-    assert view_models.meeting_list_title(generated) == "Запись"
+    assert view_models.meeting_list_title(generated) == "Запись 13 июл, 12:14"
     assert view_models.meeting_list_title(upload, source="manual_upload") == "Загруженная запись"
     assert view_models.meeting_list_title(derived, source="manual_upload") == "Quarterly sync"
     assert generated.title == "Current display system audio - 2026-07-13 12:14"
@@ -419,12 +452,17 @@ def test_meeting_list_title_preserves_authoritative_fallback_looking_title(
     meeting.title = "Запись без названия"
     meeting.title_source = title_source
 
-    assert view_models.meeting_list_title(meeting) == "Запись без названия"
+    expected = (
+        "Запись без названия — 16 июн, 08:00"
+        if title_source == "calendar"
+        else "Запись без названия"
+    )
+    assert view_models.meeting_list_title(meeting) == expected
 
     item = _list_item(title=view_models.meeting_list_title(meeting))
     presentation = view_models.meeting_list_row_presentation(item, time_basis="meeting")
-    assert presentation.display_title == "Запись без названия"
-    assert presentation.open_accessible_name == "Открыть встречу Запись без названия"
+    assert presentation.display_title == expected
+    assert presentation.open_accessible_name == f"Открыть встречу {expected}"
 
 
 @pytest.mark.parametrize(
@@ -798,7 +836,7 @@ def test_safe_title_preserves_authoritative_calendar_user_and_upload_titles() ->
     derived.title = "Quarterly_sync.mp3"
     derived.title_source = "file_name_derived"
 
-    assert view_models.safe_title(calendar) == "Meeting - 2026-07-13 12:14"
+    assert view_models.safe_title(calendar) == "Meeting - 2026-07-13 12:14 — 16 июн, 08:00"
     assert view_models.safe_title(user) == "Roadmap.mp3"
     assert view_models.safe_title(upload) == "Quarterly_sync.mp3"
     assert view_models.safe_title(derived) == "Quarterly sync"

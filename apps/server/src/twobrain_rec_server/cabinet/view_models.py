@@ -484,6 +484,9 @@ GENERATED_CAPTURE_TITLE_RE = re.compile(
     r"\s*-\s*\d{4}-\d{2}-\d{2}(?:[ T]\d{1,2}:\d{2})?$",
     re.IGNORECASE,
 )
+GENERATED_CAPTURE_TITLE_SUFFIX_RE = re.compile(
+    r"\s*-\s*\d{4}-\d{2}-\d{2}(?:[ T]\d{1,2}:\d{2})?$"
+)
 AUTHORITATIVE_TITLE_SOURCES = frozenset({"user_confirmed", "calendar", "upload_provided"})
 CALENDAR_PROVIDER_UI: dict[str, tuple[str, str, str]] = {
     "caldav_yandex": (
@@ -1777,38 +1780,43 @@ def meeting_media_label(item: MeetingListItem) -> str:
 
 def meeting_list_title(meeting: Meeting, *, source: str | None = None) -> str:
     title = safe_title_candidate(meeting.title)
-    projected = safe_title(meeting, source=source)
-    if title is None:
-        return projected if projected == "Загруженная запись" else "Запись"
     if (
-        meeting.title_source not in AUTHORITATIVE_TITLE_SOURCES
-        and GENERATED_CAPTURE_TITLE_RE.fullmatch(title)
+        title
+        and meeting.title_source not in AUTHORITATIVE_TITLE_SOURCES
+        and MEDIA_FILENAME_EXTENSION_RE.search(title)
     ):
-        return "Запись"
+        return _clean_file_title(title)
+    projected = recording_display_title(meeting, source=source)
     if (
         projected == "Запись без названия"
         and meeting.title_source not in AUTHORITATIVE_TITLE_SOURCES
     ):
         return "Запись"
-    if (
-        meeting.title_source not in AUTHORITATIVE_TITLE_SOURCES
-        and MEDIA_FILENAME_EXTENSION_RE.search(title)
-    ):
-        return _clean_file_title(title)
     return projected
 
 
 def safe_title(meeting: Meeting, *, source: str | None = None) -> str:
+    return recording_display_title(meeting, source=source)
+
+
+def recording_display_title(meeting: Meeting, *, source: str | None = None) -> str:
     title = safe_title_candidate(meeting.title)
     if title:
         if meeting.title_source in AUTHORITATIVE_TITLE_SOURCES:
+            if meeting.title_source == "calendar":
+                return _with_recording_time(_authoritative_title(title), meeting)
             return _authoritative_title(title)
         if GENERATED_MANUAL_UPLOAD_RE.fullmatch(title):
             return "Загруженная запись"
+        if meeting.title_source == "app_context":
+            app_title = GENERATED_CAPTURE_TITLE_SUFFIX_RE.sub("", title).strip()
+            return _with_recording_time(_authoritative_title(app_title), meeting)
         if GENERATED_CAPTURE_TITLE_RE.fullmatch(title):
             return _generated_recording_title(meeting) or "Запись без названия"
         if LEGACY_SERIALIZED_MEDIA_FILENAME_EXTENSION_RE.search(title):
             return _clean_legacy_file_title(title)
+        if meeting.title_source == "file_name_derived":
+            return _clean_file_title(title)
         return media_filename_leaf(title) or "Запись без названия"
 
     if source == "manual_upload" or GENERATED_MANUAL_UPLOAD_RE.fullmatch(
@@ -1836,11 +1844,27 @@ def _generated_recording_title(meeting: Meeting) -> str | None:
     started_at = meeting.started_at
     if started_at is None:
         return None
-    started_at = _localized_datetime(
-        started_at,
+    return _recording_time_label(meeting, prefix="Запись")
+
+
+def _with_recording_time(title: str, meeting: Meeting) -> str:
+    if meeting.started_at is None:
+        return title or "Запись"
+    return _recording_time_label(meeting, prefix=title or "Запись", separator=" — ")
+
+
+def _recording_time_label(
+    meeting: Meeting,
+    *,
+    prefix: str,
+    separator: str = " ",
+) -> str:
+    time_label = meeting_list_time_label(
+        meeting.started_at,
         timezone_offset_minutes=meeting.recording_display_timezone_offset_minutes,
+        time_basis="meeting",
     )
-    return f"Запись {started_at.day} {SHORT_MONTH_LABELS[started_at.month]}, {started_at:%H:%M}"
+    return f"{prefix}{separator}{time_label}"
 
 
 def safe_title_candidate(raw: str | None) -> str | None:
