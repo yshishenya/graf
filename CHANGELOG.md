@@ -22,7 +22,9 @@
 - _Пока нет записей._
 
 ### Документы
-- _Пока нет записей._
+- Зафиксирован единый процесс разработки и редких релизов: focused checks во
+  время работы, `ci-local.sh --fast` перед PR, полный CI на release candidate и
+  обязательный повторный full gate на pinned SHA при production deploy.
 
 ### Операции
 - Добавлены `infra/scripts/start-local.sh` и локальный Compose; production deploy не затронут.

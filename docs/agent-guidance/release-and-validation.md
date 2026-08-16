@@ -52,6 +52,112 @@ Do not rerun full local CI after every small edit inside a slice. Accumulate
 focused checks while developing, use the fast lane for PR feedback, and rely on
 the full exact-SHA gate during the approved production deployment.
 
+## Development-To-Release Workflow
+
+Use this sequence for every batch of work. A release may happen rarely; the
+validation boundary does not become weaker because several changes were
+accumulated.
+
+### 1. Local development
+
+1. Start with the feature `quickstart.md` when one exists.
+2. Run focused tests for the files and behavior being changed.
+3. Before calling a feature slice ready, run:
+
+   ```sh
+   infra/scripts/ci-local.sh --fast
+   ```
+
+The fast lane is the normal feedback loop. It is not a release approval and it
+does not replace the full lane for a release candidate.
+
+### 2. PR and merge
+
+The PR must record the selected risk/validation lane, commands, result, and
+commit SHA. GitHub Actions are disabled, so this evidence is supplied by the
+author. Do not run full CI after every local edit or every small commit.
+
+Before merging a significant or high-risk slice, the fast lane and the feature
+quickstart must pass. If the change affects capture, privacy, auth, storage,
+infrastructure, deletion, diagnostics, deployment, UX/QA expectations, or a
+shared code path, focused tests alone are insufficient.
+
+### 3. Release candidate
+
+When the batch is approved for release, prepare the CalVer release metadata
+before the final validation:
+
+```sh
+./scripts/prepare-release.sh YYYY.MM.DD.N
+```
+
+Review the changelog and release metadata, commit that release-prep change, and
+use the resulting commit as the candidate. The full lane must run after this
+step, because release metadata is part of what will be shipped.
+
+Run the full lane only when a release candidate is assembled or when a broad
+diagnostic is needed:
+
+```sh
+infra/scripts/ci-local.sh --full
+```
+
+The candidate is the exact commit that passed. If any code, configuration,
+release metadata, or dependency lockfile changes after that run, the full result
+is invalid and must be repeated. Do not use `origin/<branch>` or a moving branch
+as the evidence identity; record and deploy the exact SHA.
+
+There are two supported release paths:
+
+- **Economical**: run the CD dry-run, obtain approval, then let
+  `cd-remote.sh --execute` perform the mandatory full gate immediately before
+  deployment.
+- **Preflighted**: run `ci-local.sh --full` first to find issues before asking
+  for production approval; `--execute` still repeats the full gate on the same
+  SHA as the authoritative boundary.
+
+### 4. Production gate
+
+Run the dry-run first:
+
+```sh
+infra/scripts/cd-remote.sh --dry-run --branch <branch>
+```
+
+After explicit production approval, run:
+
+```sh
+infra/scripts/cd-remote.sh --execute --branch <branch>
+```
+
+`--execute` requires a clean, synchronized worktree, pins the SHA, runs
+`ci-local.sh --full`, and only then proceeds to backup, migration, deployment,
+health checks, smoke, and guarded rollback. `--skip-local-ci` is an incident
+exception only: it requires explicit approval and a written reason for the
+accepted risk.
+
+### 5. Closeout
+
+After a successful deployment, retain metadata-only evidence for the exact SHA,
+full-CI result, deploy result, health/smoke checks, and rollback status. Update
+the Russian changelog and create the matching CalVer tag and GitHub Release.
+Do not claim a release is complete when full CI, smoke, notarization, or
+rollback evidence is missing.
+
+### Full CI decision rule
+
+Use this rule when deciding whether to spend the longer run:
+
+- local edit: focused check;
+- ready slice or PR: `--fast`;
+- release candidate: `--full`;
+- approved production execution: `--full` is mandatory and is run by
+  `cd-remote.sh --execute`;
+- new commit after full CI: full CI must be repeated.
+
+An interrupted run is not a passing full-CI result. Focused tests and the fast
+lane must not be counted as full CI in release evidence.
+
 ## Public macOS Signing And Migration
 
 The active public macOS path is Developer ID-only. A releasable app uses
