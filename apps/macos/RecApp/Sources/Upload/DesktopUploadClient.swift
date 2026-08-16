@@ -294,6 +294,7 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
     public static let uploadBearerTokenEnvironmentKey = "GRAF_UPLOAD_BEARER_TOKEN"
     public static let legacyUploadBearerTokenEnvironmentKey = "TWO_BRAIN_REC_UPLOAD_BEARER_TOKEN"
     public static let ownerSessionCookieName = "__Host-twobrain_rec_owner_session"
+    public static let localOwnerSessionCookieName = "graf_dev_owner_session"
     public static let desktopCalendarUpcomingPath = "/api/v1/desktop/calendar/upcoming"
     public static let meetingDetectionTargetRegistryPath = "/api/v1/desktop/meeting-detection/target-registry"
     public static let meetingDetectionTelemetryPath = "/api/v1/desktop/meeting-detection/telemetry"
@@ -421,12 +422,13 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
     }
 
     public static func defaultAuthSessionToken(for url: URL) -> String? {
-        authSessionToken(from: HTTPCookieStorage.shared.cookies(for: url) ?? [])
+        authSessionToken(from: HTTPCookieStorage.shared.cookies(for: url) ?? [], url)
     }
 
-    public static func authSessionToken(from cookies: [HTTPCookie]) -> String? {
-        cookies.first { cookie in
-            cookie.name == ownerSessionCookieName &&
+    public static func authSessionToken(from cookies: [HTTPCookie], _ url: URL? = nil) -> String? {
+        let cookieName = url.map(DesktopCabinetConfiguration.authSessionCookieName(for:)) ?? ownerSessionCookieName
+        return cookies.first { cookie in
+            cookie.name == cookieName &&
                 !cookie.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }?.value
     }

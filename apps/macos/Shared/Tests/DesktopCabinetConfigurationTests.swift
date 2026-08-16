@@ -5,6 +5,21 @@ import TwoBrainRecAppCore
 import XCTest
 
 final class DesktopCabinetConfigurationTests: XCTestCase {
+    func testAuthSessionCookieNameFollowsOrigin() throws {
+        XCTAssertEqual(
+            DesktopCabinetConfiguration.authSessionCookieName(
+                for: try XCTUnwrap(URL(string: "http://127.0.0.1:8081/meetings"))
+            ),
+            DesktopCabinetConfiguration.localAuthSessionCookieName
+        )
+        XCTAssertEqual(
+            DesktopCabinetConfiguration.authSessionCookieName(
+                for: try XCTUnwrap(URL(string: "https://rec.2brain.pro/meetings"))
+            ),
+            DesktopCabinetConfiguration.productionAuthSessionCookieName
+        )
+    }
+
     func testConfigurationAcceptsHttpOriginsAndBuildsDesktopRoutes() throws {
         let configuration = try XCTUnwrap(DesktopCabinetConfiguration(
             rawBaseURL: "https://rec.2brain.dev/base/",
