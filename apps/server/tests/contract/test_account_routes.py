@@ -110,6 +110,7 @@ def test_account_security_renders_bulk_result_as_persistent_status() -> None:
 def test_account_ia_aliases_cover_profile_security_and_notifications() -> None:
     paths = {route.path for route in router.routes if isinstance(route, APIRoute)}
     assert {
+        "/account/settings",
         "/account/profile",
         "/account/security",
         "/account/notifications",

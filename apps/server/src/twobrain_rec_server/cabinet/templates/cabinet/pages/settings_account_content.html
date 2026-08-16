@@ -10,7 +10,7 @@
         <h1>Аккаунт и безопасность</h1>
       </div>
     </header>
-    {{ account_ui.navigation(embedded=embedded, active=account_active, csrf_token=csrf_token) }}
+    {% if show_account_navigation %}{{ account_ui.navigation(embedded=embedded, active=account_active, csrf_token=csrf_token) }}{% endif %}
     {% if provider_link_result %}<p class="settings-status" role="status" aria-live="polite">{{ provider_link_result }}</p>{% endif %}
     {% if provider_unlink_result %}<p class="settings-status" role="status" aria-live="polite">{{ provider_unlink_result }}</p>{% endif %}
     {% if device_revoke_result %}<p class="settings-status" role="status" aria-live="polite">{{ device_revoke_result }}</p>{% endif %}
@@ -120,11 +120,11 @@
       {% endif %}
       {% else %}
       <p class="muted">После подтверждения начнется 7-дневный период отмены. Доступ сохраняется, будущие списания отключаются.</p>
-      <p class="muted">Для подтверждения введите: <strong>Закрыть аккаунт</strong>.</p>
+      <p id="account-close-confirmation" class="muted">Для подтверждения введите: <strong>Закрыть аккаунт</strong>.</p>
       <form action="{{ "/desktop/settings/account/close" if embedded else "/settings/account/close" }}" method="post">
         {{ sections.csrf_field(csrf_token) }}
         <label class="field-label" for="account-close-confirm">Подтверждение</label>
-        <input id="account-close-confirm" name="confirm_close" type="text" required autocomplete="off" aria-describedby="account-close-help">
+        <input id="account-close-confirm" name="confirm_close" type="text" required autocomplete="off" aria-describedby="account-close-confirmation account-close-help">
         <p id="account-close-help" class="muted">Мы не удаляем данные до окончания периода отмены.</p>
         <button class="button quiet" type="submit">Запланировать закрытие</button>
       </form>

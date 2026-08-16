@@ -3,6 +3,7 @@
 ## Navigation
 
 - The overview contains the seven supported settings categories from `settings_category_navigation()`.
+- The settings rail starts with a separate `Обзор` link to `/settings` (or `/desktop/settings`) before the four grouped category sections.
 - Every category card and rail link resolves to its existing server route.
 - The active rail item has both a visual selected state and `aria-current="page"`.
 

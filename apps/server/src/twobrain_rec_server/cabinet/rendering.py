@@ -268,6 +268,7 @@ def render_settings_page(
     provider_unlink_result: str | None = None,
     account_active: str = "profile",
     notification_preferences: object | None = None,
+    show_account_navigation: bool = True,
 ) -> str:
     offer_result_copy = {
         "accepted": "Рабочее пространство добавлено. Текущее пространство не изменилось.",
@@ -347,6 +348,7 @@ def render_settings_page(
         ),
         "account_active": account_active,
         "notification_preferences": notification_preferences or NotificationPreferences(),
+        "show_account_navigation": show_account_navigation,
     }
     return _page_shell(
         titles[resolved_category],

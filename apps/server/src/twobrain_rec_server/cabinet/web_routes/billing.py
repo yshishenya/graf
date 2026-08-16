@@ -576,6 +576,12 @@ async def settings_billing_alias() -> RedirectResponse:
     return RedirectResponse("/billing", status_code=307)
 
 
+@router.get("/account/billing", include_in_schema=False)
+async def account_billing_alias() -> RedirectResponse:
+    """Keep the legacy account link in the canonical billing surface."""
+    return RedirectResponse("/billing", status_code=307)
+
+
 @router.get("/billing", response_class=HTMLResponse, include_in_schema=False)
 async def billing_overview_page(
     request: Request,
@@ -961,6 +967,7 @@ async def billing_discounts_page(
         redemptions=redemptions,
         billing_owner=billing_owner,
         billing_enabled=bool(request.app.state.settings.billing_checkout_enabled),
+        checkout_promo_active=bool(request.cookies.get(_CHECKOUT_PROMO_COOKIE)),
         result=request.query_params.get("result"),
     )
     return cabinet_html_response(content)

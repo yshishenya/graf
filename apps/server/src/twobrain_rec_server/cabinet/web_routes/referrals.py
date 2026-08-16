@@ -165,7 +165,7 @@ async def referrals_page(
         "Пригласить друзей",
         embedded=False,
         active_nav="settings",
-        settings_active="billing",
+        settings_active="account",
         csrf_token=_csrf_token_for_principal(request, principal, tenant_scope=tenant_scope),
         product_analytics_provider=build_request_browser_provider_context(
             request,

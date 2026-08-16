@@ -36,6 +36,7 @@ def test_settings_overview_exposes_supported_categories_and_group_labels() -> No
 
 def test_settings_sidebar_exposes_grouped_canonical_links_and_active_state() -> None:
     expected_ids = (
+        "overview",
         "recording",
         "summaries",
         "calendar",
@@ -76,14 +77,15 @@ def test_settings_sidebar_exposes_grouped_canonical_links_and_active_state() -> 
                 re.findall(r'class="settings-navigation__group-label"[^>]*>([^<]+)', markup)
             ) == expected_groups
             if category == "overview":
-                assert markup.count('aria-current="page"') == 0
+                assert markup.count('aria-current="page"') == 1
+                assert 'data-settings-nav="overview"' in markup
             else:
                 assert markup.count('aria-current="page"') == 1
                 assert f'data-settings-nav="{category}"' in markup
             assert "settings-navigation__item-icon" in markup
             assert "<small>" not in markup
             assert 'role="group"' in markup
-            assert f'href="{"/desktop" if embedded else ""}/meetings"' in markup
+            assert "settings-navigation__back" not in markup
             for category_id, suffix in expected_suffixes.items():
                 expected_href = (
                     "/billing" if embedded and category_id == "billing" else prefix + suffix
@@ -104,22 +106,21 @@ def test_settings_sidebar_exposes_grouped_canonical_links_and_active_state() -> 
                 )
 
 
-def test_settings_sidebar_uses_vertical_accessible_layout_without_horizontal_only_menu() -> None:
+def test_settings_sidebar_keeps_desktop_rail_and_compact_mobile_scroller() -> None:
     root = Path(__file__).resolve().parents[2]
     css = (root / "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css").read_text(
         encoding="utf-8"
     )
     navigation_css = css[css.index(".settings-navigation {") : css.index(".settings-scope-badge")]
-    back_css = css[
-        css.index(".settings-navigation__back {") : css.index(".settings-navigation__back:hover")
-    ]
 
+    mobile_css = css[css.index("@media (max-width: 640px)") :]
     assert "overflow-x: auto" not in navigation_css
+    assert "overflow-x: auto" in mobile_css
+    assert ".settings-navigation__group { display: contents; }" in mobile_css
+    assert ".settings-navigation__item { flex: 0 0 auto;" in mobile_css
     assert "min-height: 44px" in navigation_css
     assert ".settings-navigation__item:focus-visible" in navigation_css
     assert ".settings-navigation__item-icon" in navigation_css
-    assert ".settings-navigation__back" in navigation_css
-    assert "align-items: flex-start" in back_css
     assert "color: var(--muted)" in navigation_css
     assert "grid-template-columns: 1fr" in css[css.index("@media (max-width: 640px)") :]
 
@@ -151,7 +152,8 @@ def test_settings_css_has_reduced_motion_and_narrow_reflow_guards() -> None:
     assert "transition-duration: .01ms" in reduced_motion
     assert "animation-duration: .01ms" in reduced_motion
     assert "grid-template-columns: 1fr" in narrow
-    assert "overflow-x: auto" not in css[css.index(".settings-page,") : css.index(".meeting-title")]
+    desktop_reflow = css[css.index(".settings-page,") : css.index("@media (max-width: 640px)")]
+    assert "overflow-x: auto" not in desktop_reflow
 
 
 def test_settings_content_is_grouped_into_the_second_grid_column() -> None:
@@ -187,9 +189,9 @@ def test_settings_overview_keeps_navigation_primary_and_copy_compact() -> None:
 
     assert "Выберите раздел. Область действия указана в каждой карточке." in page
     assert page.count('data-settings-category="') == 7
-    assert "Параметры записи на этом Mac находятся в приложении GRAF." in page
-    assert "Текущий тариф, использование и платежи выбранного пространства." in page
-    assert page.count('data-settings-nav="') == 7
+    assert "Разрешения, автозапись и приложения настраиваются в GRAF для macOS." in page
+    assert "Текущий тариф, использование, хранилище и платежные состояния." in page
+    assert page.count('data-settings-nav="') == 8
 
 
 def test_settings_overview_matches_product_reference_geometry() -> None:
@@ -205,6 +207,12 @@ def test_settings_overview_matches_product_reference_geometry() -> None:
     assert "border-radius: 8px;" in redesign
     assert "background: transparent;" in redesign
     assert ".settings-scope-badge," in redesign
+    assert ".settings-scope-badge {" in redesign
+    assert "min-height: 24px;" in redesign
+    assert "padding: 2px 7px;" in redesign
+    assert "font: 600 11px ui-monospace" in redesign
+    assert "gap: 4px;" in css[css.index(".settings-navigation {"):]
+    assert "margin: 14px 10px 5px;" in css[css.index(".settings-navigation__group-label {"):]
 
 
 def test_recording_settings_keep_native_boundary_copy_compact() -> None:
@@ -218,6 +226,13 @@ def test_recording_settings_keep_native_boundary_copy_compact() -> None:
     assert "/desktop/settings/meeting-detection" not in page
     assert 'href="/download">Скачать GRAF для macOS' in page
     assert '/desktop/settings/meeting-detection">Открыть настройки записи в приложении' in embedded_page
+
+
+def test_settings_account_close_phrase_is_described_to_confirmation_field() -> None:
+    page = render_settings_page(category="account")
+
+    assert 'id="account-close-confirmation"' in page
+    assert 'aria-describedby="account-close-confirmation account-close-help"' in page
 
 
 def test_calendar_settings_keeps_sidebar_content_gap_after_late_rules() -> None:

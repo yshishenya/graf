@@ -1105,7 +1105,7 @@ def test_full_cabinet_pages_share_one_primary_sidebar_contract() -> None:
     assert '<a class="skip-link" href="#cabinet-main">К содержимому</a>' in settings_page
     assert settings_page.count('id="cabinet-sidebar" data-cabinet-navigation') == 1
     assert settings_page.count('aria-label="Навигация кабинета"') == 1
-    assert settings_page.count('aria-current="page"') == 1
+    assert settings_page.count('aria-current="page"') == 2
     assert 'data-active-nav="settings"' in settings_page
     assert 'href="/settings/integrations/calendar"' in settings_page
 

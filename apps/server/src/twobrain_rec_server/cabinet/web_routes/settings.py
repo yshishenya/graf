@@ -145,6 +145,7 @@ async def _render_settings(
                 "security" if request.url.path.endswith("/account/security") else "profile"
             ),
             notification_preferences=notification_preferences,
+            show_account_navigation=request.url.path.startswith(("/account", "/desktop/account")),
             product_analytics_provider=build_request_browser_provider_context(
                 request,
                 "settings",
@@ -578,7 +579,7 @@ async def save_settings_account_profile(
     if db is None:
         raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
     await _save_account_profile(db, principal=principal, tenant_scope=tenant_scope, request=request)
-    return RedirectResponse("/account/profile?profile=saved", status_code=303)
+    return RedirectResponse("/settings/account?profile=saved", status_code=303)
 
 
 @router.post(
@@ -595,7 +596,7 @@ async def save_embedded_settings_account_profile(
     if db is None:
         raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
     await _save_account_profile(db, principal=principal, tenant_scope=tenant_scope, request=request)
-    return RedirectResponse("/desktop/account/profile?profile=saved", status_code=303)
+    return RedirectResponse("/desktop/settings/account?profile=saved", status_code=303)
 
 
 @router.post(
@@ -612,7 +613,7 @@ async def save_settings_account_preferences(
     if db is None:
         raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
     await _save_account_preferences(db, principal=principal, tenant_scope=tenant_scope, request=request)
-    return RedirectResponse("/account/profile?preferences=saved", status_code=303)
+    return RedirectResponse("/settings/account?preferences=saved", status_code=303)
 
 
 @router.post(
@@ -629,7 +630,7 @@ async def save_embedded_settings_account_preferences(
     if db is None:
         raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
     await _save_account_preferences(db, principal=principal, tenant_scope=tenant_scope, request=request)
-    return RedirectResponse("/desktop/account/profile?preferences=saved", status_code=303)
+    return RedirectResponse("/desktop/settings/account?preferences=saved", status_code=303)
 
 
 async def _unlink_provider_action(
@@ -649,7 +650,7 @@ async def _unlink_provider_action(
         tenant_scope=tenant_scope,
     )
     return RedirectResponse(
-        f"{'/desktop' if embedded else ''}/account/profile?provider_unlink=success",
+        f"{'/desktop' if embedded else ''}/settings/account?provider_unlink=success",
         status_code=303,
     )
 
@@ -706,11 +707,11 @@ async def revoke_other_settings_sessions(
     db: AsyncSession | None = WebDbDependency,
 ) -> RedirectResponse:
     if not principal.auth_via_session or not is_web_cookie_session(request):
-        return RedirectResponse("/account/security?session=reauth_required", status_code=303)
+        return RedirectResponse("/settings/account?session=reauth_required", status_code=303)
     if db is None:
         raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
     await _revoke_other_account_sessions(db, tenant_scope=tenant_scope, principal=principal)
-    return RedirectResponse("/account/security?session=others_revoked", status_code=303)
+    return RedirectResponse("/settings/account?session=others_revoked", status_code=303)
 
 
 @router.post(
@@ -725,11 +726,11 @@ async def revoke_other_embedded_settings_sessions(
     db: AsyncSession | None = WebDbDependency,
 ) -> RedirectResponse:
     if not principal.auth_via_session or not is_web_cookie_session(request):
-        return RedirectResponse("/desktop/account/security?session=reauth_required", status_code=303)
+        return RedirectResponse("/desktop/settings/account?session=reauth_required", status_code=303)
     if db is None:
         raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
     await _revoke_other_account_sessions(db, tenant_scope=tenant_scope, principal=principal)
-    return RedirectResponse("/desktop/account/security?session=others_revoked", status_code=303)
+    return RedirectResponse("/desktop/settings/account?session=others_revoked", status_code=303)
 
 
 @router.post(
@@ -745,11 +746,11 @@ async def revoke_settings_session(
     db: AsyncSession | None = WebDbDependency,
 ) -> RedirectResponse:
     if not principal.auth_via_session or not is_web_cookie_session(request):
-        return RedirectResponse("/account/security?session=reauth_required", status_code=303)
+        return RedirectResponse("/settings/account?session=reauth_required", status_code=303)
     if db is None:
         raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
     await _revoke_account_session(db, session_id=session_id, tenant_scope=tenant_scope, principal=principal)
-    return RedirectResponse("/account/security?session=revoked", status_code=303)
+    return RedirectResponse("/settings/account?session=revoked", status_code=303)
 
 
 @router.post(
@@ -765,11 +766,11 @@ async def revoke_embedded_settings_session(
     db: AsyncSession | None = WebDbDependency,
 ) -> RedirectResponse:
     if not principal.auth_via_session or not is_web_cookie_session(request):
-        return RedirectResponse("/desktop/account/security?session=reauth_required", status_code=303)
+        return RedirectResponse("/desktop/settings/account?session=reauth_required", status_code=303)
     if db is None:
         raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
     await _revoke_account_session(db, session_id=session_id, tenant_scope=tenant_scope, principal=principal)
-    return RedirectResponse("/desktop/account/security?session=revoked", status_code=303)
+    return RedirectResponse("/desktop/settings/account?session=revoked", status_code=303)
 
 
 @router.get("/account", response_class=HTMLResponse, include_in_schema=False)
@@ -802,6 +803,12 @@ async def account_center_page(
         preferences=preferences,
         provider_unlink=provider_unlink,
     )
+
+
+@router.get("/account/settings", include_in_schema=False)
+async def account_settings_alias() -> RedirectResponse:
+    """Keep the old account settings URL on the canonical settings surface."""
+    return RedirectResponse("/settings/account", status_code=307)
 
 
 @router.get("/account/profile", response_class=HTMLResponse, include_in_schema=False)
@@ -993,11 +1000,11 @@ async def revoke_other_settings_devices(
     db: AsyncSession | None = WebDbDependency,
 ) -> RedirectResponse:
     if not principal.auth_via_session or not is_web_cookie_session(request):
-        return RedirectResponse("/account/security?device_revoke=reauth_required", status_code=303)
+        return RedirectResponse("/settings/account?device_revoke=reauth_required", status_code=303)
     if db is None:
         raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
     await _revoke_other_account_devices(db, tenant_scope=tenant_scope, principal=principal)
-    return RedirectResponse("/account/security?device_revoke=others_revoked", status_code=303)
+    return RedirectResponse("/settings/account?device_revoke=others_revoked", status_code=303)
 
 
 @router.post(
@@ -1261,11 +1268,11 @@ async def revoke_other_embedded_settings_devices(
     db: AsyncSession | None = WebDbDependency,
 ) -> RedirectResponse:
     if not principal.auth_via_session or not is_web_cookie_session(request):
-        return RedirectResponse("/desktop/account/security?device_revoke=reauth_required", status_code=303)
+        return RedirectResponse("/desktop/settings/account?device_revoke=reauth_required", status_code=303)
     if db is None:
         raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
     await _revoke_other_account_devices(db, tenant_scope=tenant_scope, principal=principal)
-    return RedirectResponse("/desktop/account/security?device_revoke=others_revoked", status_code=303)
+    return RedirectResponse("/desktop/settings/account?device_revoke=others_revoked", status_code=303)
 
 
 @router.post(

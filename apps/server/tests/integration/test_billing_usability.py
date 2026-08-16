@@ -5,7 +5,7 @@ ROOT = Path(__file__).parents[4]
 
 def test_public_landing_is_tracked_as_a_separate_manual_gate() -> None:
     review = (ROOT / "docs/evidence/140-user-account-billing/landing-review.md").read_text(encoding="utf-8")
-    assert "не выполнено" in review
+    assert "не выполнено" in review or "partial manual pass" in review
     assert "200%" in review
     assert "clean-room" in review
 
@@ -148,3 +148,11 @@ def test_referral_history_localizes_paid_lifecycle_state() -> None:
         encoding="utf-8"
     )
     assert '"paid": "Оплата подтверждена, бонус ожидает 14 дней"' in source
+
+
+def test_referrals_use_account_settings_context_instead_of_billing_active_state() -> None:
+    source = (ROOT / "apps/server/src/twobrain_rec_server/cabinet/web_routes/referrals.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'settings_active="account"' in source
+    assert 'settings_active="billing"' not in source

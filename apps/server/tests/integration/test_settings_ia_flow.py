@@ -25,6 +25,8 @@ def test_settings_overview_and_categories_are_reachable_in_browser_and_embedded_
         main_id = "calendar-settings-region" if "integrations/calendar" in path else "cabinet-main"
         assert f'id="{main_id}"' in response.text
         assert "Настройки" in response.text
+        if "/settings/account" in path:
+            assert "account-navigation__logout" not in response.text
 
 
 def test_account_center_aliases_are_reachable_from_cabinet_navigation(client) -> None:
@@ -45,10 +47,20 @@ def test_account_center_aliases_are_reachable_from_cabinet_navigation(client) ->
         else:
             assert 'data-settings-nav="account"' in response.text
             assert "Аккаунт и безопасность" in response.text
+            assert "account-navigation__logout" in response.text
 
 
 def test_settings_sidebar_is_present_and_calendar_maps_to_parent_category(client) -> None:
-    expected_ids = ("recording", "summaries", "calendar", "workspace", "account", "notifications")
+    expected_ids = (
+        "overview",
+        "recording",
+        "summaries",
+        "calendar",
+        "workspace",
+        "account",
+        "notifications",
+        "billing",
+    )
 
     for path in ("/settings/integrations/calendar", "/desktop/settings/integrations/calendar"):
         response = client.get(path, headers=auth_headers())
