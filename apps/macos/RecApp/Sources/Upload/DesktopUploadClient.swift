@@ -285,6 +285,7 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
     public static let fallbackBaseURLEnvironmentKey = "GRAF_CABINET_BASE_URL"
     public static let legacyBaseURLEnvironmentKey = "TWO_BRAIN_REC_UPLOAD_BASE_URL"
     public static let legacyFallbackBaseURLEnvironmentKey = "TWO_BRAIN_REC_CABINET_BASE_URL"
+    public static let requireExplicitBaseURLEnvironmentKey = "GRAF_UPLOAD_REQUIRE_EXPLICIT_BASE_URL"
     public static let baseURLUserDefaultsKey = "GRAF_UPLOAD_BASE_URL"
     public static let fallbackBaseURLUserDefaultsKey = "GRAF_CABINET_BASE_URL"
     public static let legacyBaseURLUserDefaultsKey = "TWO_BRAIN_REC_UPLOAD_BASE_URL"
@@ -364,7 +365,7 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         guard let rawURL = configuredBaseURLCandidate(
             from: environment,
             defaults: defaults,
-            includePackagedDefault: includePackagedDefault
+            includePackagedDefault: includePackagedDefault && !requiresExplicitBaseURL(from: environment)
         ),
             let url = normalizedHTTPOrigin(rawURL)
         else {
@@ -373,6 +374,10 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
 
         let headers = configuredHeaders(from: environment)
         return DesktopUploadClient(baseURL: url, headers: headers)
+    }
+
+    public static func requiresExplicitBaseURL(from environment: [String: String]) -> Bool {
+        ["1", "true", "yes"].contains(environment[requireExplicitBaseURLEnvironmentKey]?.lowercased() ?? "")
     }
 
     public static func configuredHeaders(from environment: [String: String]) -> [String: String] {

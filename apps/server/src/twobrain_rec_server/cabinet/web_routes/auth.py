@@ -16,7 +16,10 @@ from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.auth import email_delivery
 from twobrain_rec_server.auth.audit import write_auth_audit_event
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal
-from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
+from twobrain_rec_server.auth.dependencies import (
+    auth_session_cookie_name,
+    auth_session_cookie_secure,
+)
 from twobrain_rec_server.auth.policy import read_auth_providers
 from twobrain_rec_server.auth.providers import build_provider_registry, get_provider_adapter
 from twobrain_rec_server.auth.rate_limit import enforce_auth_rate_limits
@@ -635,7 +638,7 @@ async def browser_email_login_verify(
         auth_session_id=result.auth_session_id,
     )
     redirect = RedirectResponse(redirect_path or "/meetings", status_code=303)
-    _set_browser_auth_cookie(redirect, token=result.token, expires_at=result.expires_at)
+    _set_browser_auth_cookie(request, redirect, token=result.token, expires_at=result.expires_at)
     return redirect
 
 
@@ -701,9 +704,9 @@ async def logout_current_browser_session(
         await db.commit()
     redirect = RedirectResponse(safe_next, status_code=303)
     redirect.delete_cookie(
-        key=AUTH_SESSION_COOKIE_NAME,
+        key=auth_session_cookie_name(request),
         path="/",
-        secure=True,
+        secure=auth_session_cookie_secure(request),
         httponly=True,
         samesite="lax",
     )
@@ -790,7 +793,7 @@ async def browser_email_signup_verify(
         auth_session_id=result.auth_session_id,
     )
     redirect = RedirectResponse(redirect_path or "/meetings", status_code=303)
-    _set_browser_auth_cookie(redirect, token=result.token, expires_at=result.expires_at)
+    _set_browser_auth_cookie(request, redirect, token=result.token, expires_at=result.expires_at)
     if result.registered:
         redirect.delete_cookie(
             key="graf_referral_token",

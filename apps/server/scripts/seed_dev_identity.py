@@ -3,10 +3,12 @@ import argparse
 import asyncio
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.models import (
+    ExternalIdentity,
     Organization,
     RegisteredDevice,
     UserIdentity,
@@ -18,6 +20,7 @@ DEFAULT_ORG_ID = UUID("10000000-0000-0000-0000-000000000001")
 DEFAULT_WORKSPACE_ID = UUID("20000000-0000-0000-0000-000000000001")
 DEFAULT_USER_ID = UUID("30000000-0000-0000-0000-000000000001")
 DEFAULT_DEVICE_ID = UUID("40000000-0000-0000-0000-000000000001")
+LOCAL_DEV_EMAIL = "local@graf.test"
 
 
 async def seed_identity(settings: Settings) -> dict[str, str]:
@@ -46,6 +49,20 @@ async def seed_identity(settings: Settings) -> dict[str, str]:
                     status="active",
                 )
             )
+        identity = await db.scalar(select(ExternalIdentity).where(
+            ExternalIdentity.provider == "email",
+            ExternalIdentity.provider_subject == str(DEFAULT_USER_ID),
+        ))
+        if identity is None:
+            db.add(ExternalIdentity(
+                user_id=DEFAULT_USER_ID, provider="email",
+                provider_subject=str(DEFAULT_USER_ID), email=LOCAL_DEV_EMAIL,
+                display_name="Local User", is_verified=True, is_active=True,
+            ))
+        else:
+            identity.email = LOCAL_DEV_EMAIL
+            identity.is_verified = True
+            identity.is_active = True
         await db.commit()
     await engine.dispose()
     return {
@@ -53,15 +70,19 @@ async def seed_identity(settings: Settings) -> dict[str, str]:
         "workspace_id": str(DEFAULT_WORKSPACE_ID),
         "user_id": str(DEFAULT_USER_ID),
         "device_id": str(DEFAULT_DEVICE_ID),
+        "email": LOCAL_DEV_EMAIL,
     }
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Seed deterministic local 2brain Rec identity/device records.")
     parser.add_argument("--print-headers", action="store_true")
+    parser.add_argument("--print-login", action="store_true")
     args = parser.parse_args()
     ids = asyncio.run(seed_identity(Settings()))
-    if args.print_headers:
+    if args.print_login:
+        print(f"Local login email: {ids['email']}")
+    elif args.print_headers:
         print(f"X-Organization-Id: {ids['organization_id']}")
         print(f"X-Workspace-Id: {ids['workspace_id']}")
         print(f"X-User-Id: {ids['user_id']}")
