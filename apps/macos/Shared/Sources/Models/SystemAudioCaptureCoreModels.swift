@@ -789,6 +789,9 @@ public enum SystemAudioStatusLabels {
     public static let resumeButtonTitle = "Продолжить"
     public static let resumeButtonAccessibilityLabel = "Продолжить запись локального микрофона"
     public static let recordingMicrophoneMenuAccessibilityLabel = "Выбрать микрофон записи"
+    public static let recordingSourceTitle = "Источник"
+    public static let recordingSourceSystemAudio = "Системный звук"
+    public static let recordingSourceUnknown = "Источник не определён"
     public static let localRecordingPausedStatus =
         "Запись на паузе. Остановить можно в любой момент."
     public static let meetingMuteTruthLimitationCopy =
@@ -860,6 +863,10 @@ public enum SystemAudioStatusLabels {
         "\(title): \(detail)"
     }
 
+    public static func recordingSourceAccessibilityLabel(_ source: String) -> String {
+        "\(recordingSourceTitle): \(source)"
+    }
+
     public static func calendarPromptAccessibilityLabel(title: String, action: String) -> String {
         "\(title). \(action). Запись не начинается автоматически."
     }
@@ -882,6 +889,7 @@ public enum SystemAudioAccessibilityIdentifier {
     public static let resumeButton = "systemAudio.resume.button"
     public static let stopButton = "systemAudio.stop.button"
     public static let statusSurface = "systemAudio.status.surface"
+    public static let recordingSource = "systemAudio.status.source"
     public static let blockerBanner = "systemAudio.blocker.banner"
     public static let localRecordingStatus = "systemAudio.localRecording.status"
     public static let recordingMicrophoneMenu = "systemAudio.recordingMicrophone.menu"
