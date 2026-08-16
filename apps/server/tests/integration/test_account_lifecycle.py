@@ -464,6 +464,47 @@ def test_account_preferences_persist_and_provider_unlink_keeps_recovery_path(cli
     asyncio.run(assert_persisted())
 
 
+def test_provider_unlink_rejects_header_session_without_mutating_identity(client) -> None:
+    workspace_id, device_id = asyncio.run(_seed_personal_workspace(client))
+    token, _ = asyncio.run(
+        _issue_web_session(client, user_id=USER_ID, workspace_id=workspace_id, device_id=device_id)
+    )
+    identity_id = uuid4()
+
+    async def seed_identity() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            db.add(
+                ExternalIdentity(
+                    id=identity_id,
+                    user_id=USER_ID,
+                    provider="yandex",
+                    provider_subject="header-only-unlink",
+                    email="header-only-unlink@example.test",
+                    is_verified=True,
+                    is_active=True,
+                )
+            )
+            await db.commit()
+
+    asyncio.run(seed_identity())
+    client.cookies.clear()
+    response = client.post(
+        f"/settings/account/providers/{identity_id}/unlink",
+        headers={"X-Auth-Session": token},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"].endswith("provider_unlink=reauth_required")
+
+    async def assert_unchanged() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            identity = await db.get(ExternalIdentity, identity_id)
+            assert identity is not None and identity.is_active is True and identity.is_verified is True
+
+    asyncio.run(assert_unchanged())
+
+
 def test_account_security_bulk_actions_revoke_only_other_sessions_and_devices(client) -> None:
     workspace_id, current_device_id = asyncio.run(_seed_personal_workspace(client))
     current_token, current_session_id = asyncio.run(

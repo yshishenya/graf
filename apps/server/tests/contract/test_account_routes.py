@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
@@ -7,12 +8,13 @@ from fastapi.routing import APIRoute
 
 from twobrain_rec_server.auth.account_closure import AccountCloseView
 from twobrain_rec_server.auth.workspace_onboarding import WorkspaceAccessView
-from twobrain_rec_server.cabinet.rendering import render_settings_page
+from twobrain_rec_server.cabinet.rendering import render_account_merge_page, render_settings_page
 from twobrain_rec_server.cabinet.view_models import (
     AccountProfileView,
     AccountProviderView,
     AccountSettingsSurface,
 )
+from twobrain_rec_server.cabinet.web_routes.account_merge import router as account_merge_router
 from twobrain_rec_server.cabinet.web_routes.referrals import router as referrals_router
 from twobrain_rec_server.cabinet.web_routes.settings import router
 from twobrain_rec_server.cabinet.web_routes.spaces import router as spaces_router
@@ -42,6 +44,63 @@ def test_account_security_has_bulk_session_and_device_controls_with_browser_vari
         ("/settings/account/devices/revoke-others", ("POST",)),
         ("/desktop/settings/account/devices/revoke-others", ("POST",)),
     } <= routes
+
+
+def test_account_link_and_merge_mutations_have_browser_desktop_parity_and_csrf() -> None:
+    routes = {
+        route.path: route
+        for route in (*router.routes, *account_merge_router.routes)
+        if isinstance(route, APIRoute)
+    }
+    expected = {
+        "/settings/account/email-link/start",
+        "/desktop/settings/account/email-link/start",
+        "/settings/account/email-link/verify",
+        "/desktop/settings/account/email-link/verify",
+        "/settings/account/merge/{intent_id}/confirm",
+        "/desktop/settings/account/merge/{intent_id}/confirm",
+        "/settings/account/merge/{intent_id}/cancel",
+        "/desktop/settings/account/merge/{intent_id}/cancel",
+    }
+    assert expected <= routes.keys()
+    for path in expected:
+        dependencies = {
+            getattr(dependency.call, "__name__", "")
+            for dependency in routes[path].dependant.dependencies
+            if dependency.call is not None
+        }
+        assert "require_web_csrf" in dependencies
+
+
+def test_destructive_link_and_merge_routes_receive_request_for_cookie_reauth() -> None:
+    routes = {
+        route.path: route
+        for route in (*router.routes, *account_merge_router.routes)
+        if isinstance(route, APIRoute)
+    }
+    for path in (
+        "/settings/account/providers/{identity_id}/unlink",
+        "/desktop/settings/account/providers/{identity_id}/unlink",
+        "/settings/account/merge/{intent_id}/confirm",
+        "/desktop/settings/account/merge/{intent_id}/confirm",
+        "/settings/account/merge/{intent_id}/cancel",
+        "/desktop/settings/account/merge/{intent_id}/cancel",
+    ):
+        assert "request" in inspect.signature(routes[path].endpoint).parameters
+
+
+def test_merge_preview_copy_is_bounded_and_never_renders_account_secrets() -> None:
+    page = render_account_merge_page(
+        None,
+        intent_id=UUID("00000000-0000-0000-0000-000000000001"),
+        csrf_token="safe-csrf",
+        error_message="Предпросмотр устарел.",
+    )
+    assert "Предпросмотр устарел." in page
+    assert "Пароль не нужен" in page
+    assert "provider_subject" not in page
+    assert "transcript" not in page.lower()
+    assert "signed_url" not in page
 
 
 def test_account_security_renders_exact_bulk_and_per_session_actions() -> None:

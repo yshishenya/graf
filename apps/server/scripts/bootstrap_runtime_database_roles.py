@@ -149,11 +149,23 @@ async def _verify_runtime_roles(
         MEDIA_ROLE,
         "public.rec_playback_normalization_cleanup_page(integer)",
     )
+    app_account_merge_execute = await connection.fetchval(
+        "select has_function_privilege($1::name, $2::text, 'EXECUTE')",
+        APP_ROLE,
+        "public.rec_account_merge_context_valid()",
+    )
+    maintenance_account_merge_execute = await connection.fetchval(
+        "select has_function_privilege($1::name, $2::text, 'EXECUTE')",
+        MAINTENANCE_ROLE,
+        "public.rec_account_merge_context_valid()",
+    )
     if (
         app_workspace_execute
         or app_cleanup_execute
         or maintenance_workspace_execute
         or maintenance_cleanup_execute
+        or not app_account_merge_execute
+        or not maintenance_account_merge_execute
         or not media_workspace_execute
         or not media_cleanup_execute
     ):
@@ -257,6 +269,9 @@ async def _bootstrap() -> None:
                 "grant select, insert, update, delete on all tables in schema public "
                 f"to {APP_ROLE}, {MAINTENANCE_ROLE}",
                 "grant usage, select on all sequences in schema public "
+                f"to {APP_ROLE}, {MAINTENANCE_ROLE}",
+                "grant execute on function "
+                "public.rec_account_merge_context_valid() "
                 f"to {APP_ROLE}, {MAINTENANCE_ROLE}",
                 f"alter default privileges for role {OWNER_ROLE} in schema public "
                 "grant select, insert, update, delete on tables "

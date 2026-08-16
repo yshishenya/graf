@@ -1363,7 +1363,7 @@ async def _previous_recurring_meeting(
     )
     return PreviousRecurringMeetingView(
         meeting_id=previous_meeting.id,
-        safe_title=safe_title(previous_meeting),
+        safe_title=safe_title(previous_meeting, include_recording_time=False),
         started_at=started_at,
         readiness_state=previous_recurring_meeting_readiness(
             previous_meeting,

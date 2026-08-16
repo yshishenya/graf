@@ -37,6 +37,7 @@ from twobrain_rec_server.cabinet.auth_rendering import (
 from twobrain_rec_server.cabinet.auth_return import resolve_browser_auth_return_path
 from twobrain_rec_server.cabinet.web_routes.auth_email_flow import (
     EMAIL_SIGNUP_PROVIDER,
+    _AmbiguousEmailIdentityError,
     _consume_email_login_code,
     _create_email_login_state,
     _issue_email_login_code,
@@ -297,12 +298,35 @@ async def browser_email_login_start(
             status_code=429,
             headers=_auth_rate_limit_headers(retry_after),
         )
-    workspace, user = await _resolve_email_login_user(
-        db,
-        workspace_id=resolved_workspace_id,
-        email=normalized_email,
-        internal_workspace_id=request.app.state.settings.web_login_workspace_id,
-    )
+    try:
+        workspace, user = await _resolve_email_login_user(
+            db,
+            workspace_id=resolved_workspace_id,
+            email=normalized_email,
+            internal_workspace_id=request.app.state.settings.web_login_workspace_id,
+        )
+    except _AmbiguousEmailIdentityError:
+        await _record_email_login_audit(
+            db,
+            request=request,
+            workspace_id=resolved_workspace_id,
+            outcome="failure",
+            error_code="ambiguous_email_recovery_required",
+        )
+        await db.commit()
+        return HTMLResponse(
+            render_login_page(
+                workspace_id=resolved_workspace_id,
+                providers=[],
+                next_path=safe_next,
+                error="ambiguous_email_recovery_required",
+                invitation_flow=invitation_flow,
+                product_analytics_provider=build_request_browser_provider_context(
+                    request, "login_signup"
+                ),
+            ),
+            status_code=400,
+        )
     if workspace is None or (user is None and invitation_context is None):
         if workspace is not None:
             await _record_email_login_audit(

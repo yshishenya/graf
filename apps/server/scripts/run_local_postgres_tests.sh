@@ -255,7 +255,8 @@ fi
 
 if [[ "$mode" == "fast" ]]; then
   printf 'postgres_test_mode=fast worker_count=1 suite=tests/unit\n'
-  if run_phase fast uv run --extra dev --extra evaluation pytest "${timing_args[@]}" -q tests/unit; then
+  if run_phase fast env -u RLS_TEST_DATABASE_URL -u RLS_TEST_PROBE_DATABASE_URL \
+    uv run --extra dev --extra evaluation pytest "${timing_args[@]}" -q tests/unit; then
     :
   else
     exit 1

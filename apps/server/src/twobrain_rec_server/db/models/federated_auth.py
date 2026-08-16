@@ -1,7 +1,17 @@
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Integer, String, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
@@ -105,6 +115,63 @@ class WorkspaceProviderLinkState(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class AccountMergeIntent(Base):
+    """Short-lived, proof-bound state for an explicit account merge."""
+
+    __tablename__ = "account_merge_intents"
+    __table_args__ = (
+        CheckConstraint("survivor_user_id <> source_user_id", name="ck_account_merge_distinct_users"),
+        Index("ix_account_merge_intents_expiry", "status", "expires_at"),
+        Index(
+            "uq_account_merge_active_pair",
+            "survivor_user_id",
+            "source_user_id",
+            unique=True,
+            postgresql_where=(
+                "status in ('initiated', 'awaiting_proof', 'preview_ready', 'confirmed')"
+            ),
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
+    survivor_user_id: Mapped[UUID] = mapped_column(ForeignKey("user_identities.id"), nullable=False)
+    source_user_id: Mapped[UUID] = mapped_column(ForeignKey("user_identities.id"), nullable=False)
+    email_proof_state: Mapped[str] = mapped_column(String(32), nullable=False, default="missing")
+    oauth_proof_state: Mapped[str] = mapped_column(String(32), nullable=False, default="missing")
+    preview_fingerprint: Mapped[str | None] = mapped_column(String(64))
+    policy_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="initiated")
+    blocker_code: Mapped[str | None] = mapped_column(String(120))
+    error_code: Mapped[str | None] = mapped_column(String(120))
+    idempotency_key_hash: Mapped[str | None] = mapped_column(String(64))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class AccountMergeJournal(Base):
+    """Immutable metadata-only result projection for merge support and retries."""
+
+    __tablename__ = "account_merge_journals"
+    __table_args__ = (UniqueConstraint("merge_intent_id"),)
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    merge_intent_id: Mapped[UUID] = mapped_column(ForeignKey("account_merge_intents.id"), nullable=False)
+    workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
+    survivor_user_id: Mapped[UUID] = mapped_column(ForeignKey("user_identities.id"), nullable=False)
+    source_user_id: Mapped[UUID] = mapped_column(ForeignKey("user_identities.id"), nullable=False)
+    policy_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    preview_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    counts_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    blocker_codes_json: Mapped[list] = mapped_column(JSON, default=list)
+    error_code: Mapped[str | None] = mapped_column(String(120))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class AuthCallbackState(Base):

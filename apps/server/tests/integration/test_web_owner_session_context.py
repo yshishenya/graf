@@ -690,6 +690,53 @@ def test_browser_email_login_verification_uses_state_bound_return_path(client) -
     assert callback.headers["location"] == "/meetings"
 
 
+def test_authenticated_email_link_is_passwordless_and_csrf_protected(client) -> None:
+    client.portal.call(_link_owner_email_identity, client)
+    login_start = client.post(
+        "/login/email/start",
+        data={"email": BROWSER_OWNER_EMAIL, "next": "/meetings"},
+    )
+    state_match = re.search(r'name="state" value="([^"]+)"', login_start.text)
+    code_match = re.search(r"Код для локальной проверки: <strong>(\d{6})</strong>", login_start.text)
+    assert state_match is not None and code_match is not None
+    login_callback = client.post(
+        "/login/email/verify",
+        data={
+            "email": BROWSER_OWNER_EMAIL,
+            "code": code_match.group(1),
+            "state": state_match.group(1),
+            "next": "/meetings",
+        },
+        follow_redirects=False,
+    )
+    client.cookies.set(AUTH_SESSION_COOKIE_NAME, login_callback.cookies.get(AUTH_SESSION_COOKIE_NAME))
+
+    settings = client.get("/settings/account")
+    csrf_match = re.search(r'name="csrf_token" value="([^"]+)"', settings.text)
+    assert csrf_match is not None
+    link_start = client.post(
+        "/settings/account/email-link/start",
+        data={"email": BROWSER_OWNER_EMAIL, "csrf_token": csrf_match.group(1)},
+    )
+    link_state = re.search(r'name="state" value="([^"]+)"', link_start.text)
+    link_code = re.search(r"Код для локальной проверки: <strong>(\d{6})</strong>", link_start.text)
+    link_csrf = re.search(r'name="csrf_token" value="([^"]+)"', link_start.text)
+    assert link_state is not None and link_code is not None and link_csrf is not None
+    verified = client.post(
+        "/settings/account/email-link/verify",
+        data={
+            "email": BROWSER_OWNER_EMAIL,
+            "code": link_code.group(1),
+            "state": link_state.group(1),
+            "csrf_token": link_csrf.group(1),
+        },
+        follow_redirects=False,
+    )
+
+    assert verified.status_code == 303
+    assert verified.headers["location"] == "/settings/account?provider_link=confirmed"
+
+
 def test_browser_email_signup_verification_uses_state_bound_return_path(client) -> None:
     client.portal.call(_set_workspace_self_enrollment_policy, client, True)
     signup_email = "state-bound-signup@example.test"
@@ -945,6 +992,15 @@ def test_browser_email_signup_fails_closed_for_ambiguous_existing_users(client) 
             return personal.id
 
     first_personal_id = client.portal.call(seed)
+    login_start = client.post(
+        "/login/email/start",
+        data={"email": ambiguous_email, "next": "/meetings"},
+    )
+    assert login_start.status_code == 400
+    assert "несколькими аккаунтами" in login_start.text
+    assert "чужие встречи" in login_start.text
+    assert 'name="state"' not in login_start.text
+
     start = client.post(
         "/sign-up/email/start",
         data={"email": ambiguous_email, "next": "/meetings"},
@@ -969,6 +1025,7 @@ def test_browser_email_signup_fails_closed_for_ambiguous_existing_users(client) 
     assert completed.status_code == 400
     assert completed.cookies.get(AUTH_SESSION_COOKIE_NAME) is None
     assert str(AUTH_BOOTSTRAP_WORKSPACE_ID) not in completed.text
+    assert "несколькими аккаунтами" in completed.text
 
     async def read_result() -> tuple[int, int, tuple[str, str | None]]:
         async with client.app_state["sessionmaker"]() as db:
@@ -990,7 +1047,11 @@ def test_browser_email_signup_fails_closed_for_ambiguous_existing_users(client) 
             assert {workspace.id for workspace in personal_spaces} == {first_personal_id}
             return len(sessions), len(personal_spaces), (state.result, state.error_code)
 
-    assert client.portal.call(read_result) == (0, 1, ("failed", "email_code_invalid"))
+    assert client.portal.call(read_result) == (
+        0,
+        1,
+        ("failed", "ambiguous_email_recovery_required"),
+    )
 
 
 def test_browser_email_signup_code_is_bound_to_started_email(client) -> None:

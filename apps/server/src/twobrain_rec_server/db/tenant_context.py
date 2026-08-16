@@ -28,6 +28,7 @@ ALLOWED_MAINTENANCE_OPERATIONS = frozenset(
         "outcome_initial_baseline_reconciliation",
         "billing_reconciliation",
         "billing_notification_reconciliation",
+        "account_merge",
     }
 )
 
@@ -41,6 +42,7 @@ type ReferralLandingLookupContextKind = Literal["referral_landing_lookup"]
 type ShareInvitationLookupContextKind = Literal["share_invitation_lookup"]
 type SharedWithMeLookupContextKind = Literal["shared_with_me_lookup"]
 type MaintenanceContextKind = Literal["maintenance"]
+type AccountMergeContextKind = Literal["account_merge"]
 
 ALLOWED_TENANT_CONTEXT_KINDS = frozenset(("request", "worker"))
 ALLOWED_WORKSPACE_AUTH_CONTEXT_KINDS = frozenset(("auth_public", "auth_bootstrap"))
@@ -139,6 +141,21 @@ class MaintenanceTenantContext:
         for field_name in ("actor_id", "reason_category", "feature_area"):
             if not getattr(self, field_name).strip():
                 raise ValueError(f"{field_name} is required for maintenance context")
+
+
+@dataclass(frozen=True, slots=True)
+class AccountMergeTenantContext:
+    intent_id: UUID
+    workspace_id: UUID
+    survivor_user_id: UUID
+    source_user_id: UUID
+    context_kind: AccountMergeContextKind = "account_merge"
+
+    def __post_init__(self) -> None:
+        if self.context_kind != "account_merge":
+            raise ValueError(f"Unsupported account merge context_kind: {self.context_kind}")
+        if self.survivor_user_id == self.source_user_id:
+            raise ValueError("account merge context requires distinct users")
 
 
 @dataclass(frozen=True, slots=True)
@@ -292,6 +309,16 @@ def maintenance_context_settings(context: MaintenanceTenantContext) -> dict[str,
     }
 
 
+def account_merge_context_settings(context: AccountMergeTenantContext) -> dict[str, str]:
+    return {
+        "app.context_kind": context.context_kind,
+        "app.workspace_id": str(context.workspace_id),
+        "app.account_merge_intent_id": str(context.intent_id),
+        "app.account_merge_survivor_user_id": str(context.survivor_user_id),
+        "app.account_merge_source_user_id": str(context.source_user_id),
+    }
+
+
 def auth_session_lookup_settings(context: AuthSessionLookupContext) -> dict[str, str]:
     return {
         "app.context_kind": context.context_kind,
@@ -366,6 +393,7 @@ async def apply_tenant_context(
     context: (
         TenantDatabaseContext
         | MaintenanceTenantContext
+        | AccountMergeTenantContext
         | AuthSessionLookupContext
         | WorkspaceAuthContext
         | AuthCallbackLookupContext
@@ -380,6 +408,8 @@ async def apply_tenant_context(
         settings = tenant_context_settings(context)
     elif isinstance(context, MaintenanceTenantContext):
         settings = maintenance_context_settings(context)
+    elif isinstance(context, AccountMergeTenantContext):
+        settings = account_merge_context_settings(context)
     elif isinstance(context, AuthSessionLookupContext):
         settings = auth_session_lookup_settings(context)
     elif isinstance(context, WorkspaceAuthContext):
@@ -412,6 +442,7 @@ async def apply_tenant_context_to_connection(
     context: (
         TenantDatabaseContext
         | MaintenanceTenantContext
+        | AccountMergeTenantContext
         | AuthSessionLookupContext
         | WorkspaceAuthContext
         | AuthCallbackLookupContext
@@ -426,6 +457,8 @@ async def apply_tenant_context_to_connection(
         settings = tenant_context_settings(context)
     elif isinstance(context, MaintenanceTenantContext):
         settings = maintenance_context_settings(context)
+    elif isinstance(context, AccountMergeTenantContext):
+        settings = account_merge_context_settings(context)
     elif isinstance(context, AuthSessionLookupContext):
         settings = auth_session_lookup_settings(context)
     elif isinstance(context, WorkspaceAuthContext):

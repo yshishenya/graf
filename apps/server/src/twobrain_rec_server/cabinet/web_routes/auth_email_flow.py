@@ -10,7 +10,13 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from twobrain_rec_server.auth.account_merge import (
+    AccountMergeError,
+    confirm_merge_intent,
+    create_merge_intent,
+)
 from twobrain_rec_server.auth.audit import write_auth_audit_event
+from twobrain_rec_server.auth.context import AuthenticatedPrincipal
 from twobrain_rec_server.auth.dependencies import (
     auth_session_cookie_name,
     auth_session_cookie_secure,
@@ -43,6 +49,7 @@ from twobrain_rec_server.product_analytics.browser_context import (
 
 EMAIL_LOGIN_PROVIDER = "email"
 EMAIL_SIGNUP_PROVIDER = "email_signup"
+EMAIL_LINK_PROVIDER = "email_link"
 
 
 class _AmbiguousEmailIdentityError(RuntimeError):
@@ -59,6 +66,14 @@ class EmailLoginCompletion:
     expires_at: datetime
     requested_redirect: str | None
     registered: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class EmailLinkCompletion:
+    workspace_id: UUID
+    status: str
+    source_user_id: UUID | None = None
+    intent_id: UUID | None = None
 
 
 async def _bind_referral_attribution(
@@ -158,7 +173,11 @@ async def _consume_email_login_code(
         )
         .with_for_update()
     )
-    flow = "signup" if provider == EMAIL_SIGNUP_PROVIDER else ("share_invitation" if allow_registration else "login")
+    flow = (
+        "signup"
+        if provider == EMAIL_SIGNUP_PROVIDER
+        else ("share_invitation" if allow_registration else "login")
+    )
     if state is None:
         return _email_code_error_response(
             request=request,
@@ -249,13 +268,13 @@ async def _consume_email_login_code(
     except _AmbiguousEmailIdentityError:
         state.result = "failed"
         state.used_at = now
-        state.error_code = "email_code_invalid"
+        state.error_code = "ambiguous_email_recovery_required"
         await _record_email_login_audit(
             db,
             request=request,
             workspace_id=workspace_id,
             outcome="failure",
-            error_code="email_code_invalid",
+            error_code="ambiguous_email_recovery_required",
         )
         await db.commit()
         return _email_code_error_response(
@@ -263,7 +282,7 @@ async def _consume_email_login_code(
             email=email,
             state_nonce=state_nonce,
             next_path=next_path,
-            error="email_code_invalid",
+            error="ambiguous_email_recovery_required",
             flow=flow,
         )
     if workspace is None or user is None:
@@ -359,6 +378,201 @@ async def _consume_email_login_code(
         requested_redirect=requested_redirect,
         registered=registered,
     )
+
+
+async def consume_email_link_code(
+    db: AsyncSession,
+    *,
+    request: Request,
+    principal: AuthenticatedPrincipal,
+    workspace_id: UUID,
+    email: str,
+    code: str,
+    state_nonce: str,
+) -> EmailLinkCompletion | HTMLResponse:
+    """Consume an authenticated passwordless link proof.
+
+    The current session proves the survivor account and the one-use email code
+    proves control of the second method.  Existing dataful accounts are never
+    silently joined; they produce a proof-bound merge intent instead.
+    """
+    if not principal.auth_via_session or principal.session_workspace_id != workspace_id:
+        return _email_code_error_response(
+            request=request,
+            email=email,
+            state_nonce=state_nonce,
+            next_path="/settings/account",
+            error="provider_link_session_required",
+            flow="link",
+        )
+    now = datetime.now(UTC)
+    state = await db.scalar(
+        select(AuthCallbackState)
+        .where(
+            AuthCallbackState.provider == EMAIL_LINK_PROVIDER,
+            AuthCallbackState.state_nonce == state_nonce,
+        )
+        .with_for_update()
+    )
+    if state is None or state.workspace_id != workspace_id or state.result != "pending":
+        return _email_code_error_response(
+            request=request,
+            email=email,
+            state_nonce=state_nonce,
+            next_path="/settings/account",
+            error="email_code_invalid",
+            flow="link",
+        )
+    expires_at = (
+        state.expires_at if state.expires_at.tzinfo else state.expires_at.replace(tzinfo=UTC)
+    )
+    if expires_at <= now:
+        state.result = "expired"
+        state.error_code = "email_code_expired"
+        await db.commit()
+        return _email_code_error_response(
+            request=request,
+            email=email,
+            state_nonce=state_nonce,
+            next_path="/settings/account",
+            error="email_code_expired",
+            flow="link",
+        )
+    if state.expected_state != _hash_email_login_code(email=email, code=code):
+        state.result = "failed"
+        state.error_code = "email_code_invalid"
+        await db.commit()
+        return _email_code_error_response(
+            request=request,
+            email=email,
+            state_nonce=state_nonce,
+            next_path="/settings/account",
+            error="email_code_invalid",
+            flow="link",
+        )
+
+    candidates = list(
+        await db.execute(
+            select(ExternalIdentity, UserIdentity)
+            .join(UserIdentity, UserIdentity.id == ExternalIdentity.user_id)
+            .where(
+                UserIdentity.organization_id == principal.organization_id,
+                UserIdentity.status == "active",
+                ExternalIdentity.is_active.is_(True),
+                func.lower(ExternalIdentity.email) == email,
+            )
+        )
+    )
+    candidate_users = {user.id: (identity, user) for identity, user in candidates}
+    if len(candidate_users) > 1:
+        state.result = "failed"
+        state.error_code = "ambiguous_email_recovery_required"
+        await db.commit()
+        return _email_code_error_response(
+            request=request,
+            email=email,
+            state_nonce=state_nonce,
+            next_path="/settings/account",
+            error="ambiguous_email_recovery_required",
+            flow="link",
+        )
+
+    other = next(
+        (item for user_id, item in candidate_users.items() if user_id != principal.user_id), None
+    )
+    if other is None:
+        if not candidate_users:
+            db.add(
+                ExternalIdentity(
+                    user_id=principal.user_id,
+                    provider=EMAIL_LOGIN_PROVIDER,
+                    provider_subject=email,
+                    provider_username=email,
+                    email=email,
+                    is_verified=True,
+                    last_seen_at=now,
+                    meta={"flow": "authenticated_link"},
+                )
+            )
+        else:
+            identity, _ = candidate_users[principal.user_id]
+            identity.is_verified = True
+        state.result = "completed"
+        state.used_at = now
+        state.error_code = None
+        await write_auth_audit_event(
+            db,
+            workspace_id=workspace_id,
+            event_type="email_identity_linked",
+            actor_user_id=principal.user_id,
+            user_id=principal.user_id,
+            provider=EMAIL_LOGIN_PROVIDER,
+            metadata={"method": "email_code"},
+        )
+        await db.commit()
+        return EmailLinkCompletion(workspace_id=workspace_id, status="identity_linked")
+
+    _, source_user = other
+    try:
+        intent, preview = await create_merge_intent(
+            db,
+            workspace_id=workspace_id,
+            survivor_user_id=principal.user_id,
+            source_user_id=source_user.id,
+            email_proof_state="verified",
+            oauth_proof_state="verified",
+            now=now,
+            actor_user_id=principal.user_id,
+        )
+        if preview.blocker_codes:
+            state.result = "failed"
+            state.error_code = "merge_blocked"
+            await db.commit()
+            return EmailLinkCompletion(
+                workspace_id=workspace_id,
+                status="merge_blocked",
+                source_user_id=source_user.id,
+                intent_id=intent.id,
+            )
+        if not preview.requires_confirmation:
+            await confirm_merge_intent(
+                db,
+                intent_id=intent.id,
+                preview_fingerprint=preview.fingerprint,
+                idempotency_key=f"email-link:{state.id}",
+                now=now,
+            )
+            state.result = "completed"
+            state.used_at = now
+            state.error_code = None
+            await db.commit()
+            return EmailLinkCompletion(
+                workspace_id=workspace_id,
+                status="merge_completed",
+                source_user_id=source_user.id,
+                intent_id=intent.id,
+            )
+        state.result = "completed"
+        state.used_at = now
+        await db.commit()
+        return EmailLinkCompletion(
+            workspace_id=workspace_id,
+            status="merge_preview_ready",
+            source_user_id=source_user.id,
+            intent_id=intent.id,
+        )
+    except AccountMergeError as exc:
+        state.result = "failed"
+        state.error_code = exc.code
+        await db.commit()
+        return _email_code_error_response(
+            request=request,
+            email=email,
+            state_nonce=state_nonce,
+            next_path="/settings/account",
+            error=exc.code,
+            flow="link",
+        )
 
 
 async def _resolve_email_login_user(
@@ -472,7 +686,10 @@ async def _ensure_email_registration_user(
                 func.lower(ExternalIdentity.email) == email,
                 (
                     ExternalIdentity.is_active.is_(True)
-                    | ((ExternalIdentity.provider == EMAIL_LOGIN_PROVIDER) & ExternalIdentity.is_active.is_(False))
+                    | (
+                        (ExternalIdentity.provider == EMAIL_LOGIN_PROVIDER)
+                        & ExternalIdentity.is_active.is_(False)
+                    )
                 ),
             )
             .order_by(ExternalIdentity.is_active.desc(), ExternalIdentity.created_at.asc())
@@ -599,13 +816,17 @@ def _email_code_error_response(
             next_path=next_path,
             error=error,
             flow=flow,
-            product_analytics_provider=build_request_browser_provider_context(request, "login_signup"),
+            product_analytics_provider=build_request_browser_provider_context(
+                request, "login_signup"
+            ),
         ),
         status_code=400,
     )
 
 
-def _set_browser_auth_cookie(request: Request, response, *, token: str, expires_at: datetime) -> None:
+def _set_browser_auth_cookie(
+    request: Request, response, *, token: str, expires_at: datetime
+) -> None:
     token_expires_at = expires_at
     if token_expires_at.tzinfo is None:
         token_expires_at = token_expires_at.replace(tzinfo=UTC)

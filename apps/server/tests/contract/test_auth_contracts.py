@@ -6,6 +6,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 from uuid import UUID, uuid4
 
+import pytest
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from sqlalchemy import select
@@ -24,6 +25,7 @@ from twobrain_rec_server.auth.csrf import issue_csrf_token
 from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
 from twobrain_rec_server.auth.sessions import issue_auth_session
 from twobrain_rec_server.auth.workspace_onboarding import ensure_personal_workspace
+from twobrain_rec_server.cabinet.web_routes.account_merge import _error_copy
 from twobrain_rec_server.db.models import (
     AuthAuditEvent,
     AuthCallbackState,
@@ -120,6 +122,23 @@ class FakeProviderHttpClient:
                 "display_name": "Verified User",
             }
         raise AssertionError(f"unexpected provider URL: {url}")
+
+
+AUTH_LINK_ERROR_COPY = {
+    "ambiguous_email_recovery_required": "Этот адрес связан с несколькими аккаунтами.",
+    "merge_preview_stale": "Предпросмотр устарел. Данные не изменены; начните объединение заново.",
+    "merge_intent_expired": "Срок подтверждения истёк. Данные не изменены; начните заново.",
+    "proof_required": "Нужно повторно подтвердить оба способа входа.",
+    "merge_blocked": "Объединение не выполнено. Данные не изменены.",
+}
+
+
+@pytest.mark.parametrize("code, expected", AUTH_LINK_ERROR_COPY.items())
+def test_account_link_error_copy_is_localized_and_non_sensitive(code: str, expected: str) -> None:
+    copy = expected if code == "ambiguous_email_recovery_required" else _error_copy(code)
+    assert copy == expected
+    assert "password" not in copy.lower()
+    assert "token" not in copy.lower()
 
 
 def test_authenticated_auth_mutation_routes_require_web_csrf_dependency() -> None:

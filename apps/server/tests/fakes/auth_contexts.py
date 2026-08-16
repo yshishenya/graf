@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from uuid import UUID
 
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, DeviceContext, TenantScope
@@ -10,6 +11,24 @@ USER_ID = UUID("30000000-0000-0000-0000-000000000001")
 DEVICE_ID = UUID("40000000-0000-0000-0000-000000000001")
 REVOKED_DEVICE_ID = UUID("40000000-0000-0000-0000-000000000099")
 FORGED_USER_ID = UUID("30000000-0000-0000-0000-000000000099")
+
+
+@dataclass(frozen=True, slots=True)
+class DuplicateAccountFixture:
+    user_id: UUID
+    workspace_id: UUID
+    email: str
+
+
+def duplicate_account_fixture(slot: int, *, email: str | None = None) -> DuplicateAccountFixture:
+    if not 1 <= slot <= 999999999999:
+        raise ValueError("duplicate fixture slot must fit the deterministic UUID suffix")
+    suffix = f"{slot:012d}"
+    return DuplicateAccountFixture(
+        user_id=UUID(f"30000000-0000-0000-0000-{suffix}"),
+        workspace_id=UUID(f"20000000-0000-0000-0000-{suffix}"),
+        email=email or f"duplicate-{slot}@example.test",
+    )
 
 
 def principal() -> AuthenticatedPrincipal:

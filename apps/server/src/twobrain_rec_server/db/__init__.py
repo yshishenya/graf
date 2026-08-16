@@ -3,6 +3,7 @@ from twobrain_rec_server.db.tenant_context import (
     ALLOWED_MAINTENANCE_OPERATIONS,
     ALLOWED_TENANT_CONTEXT_KINDS,
     ALLOWED_WORKSPACE_AUTH_CONTEXT_KINDS,
+    AccountMergeTenantContext,
     AuthCallbackLookupContext,
     AuthCallbackLookupContextKind,
     AuthReferralLookupContext,
@@ -31,6 +32,7 @@ from twobrain_rec_server.db.tenant_context import (
 
 __all__ = [
     "ALLOWED_MAINTENANCE_OPERATIONS",
+    "AccountMergeTenantContext",
     "ALLOWED_TENANT_CONTEXT_KINDS",
     "ALLOWED_WORKSPACE_AUTH_CONTEXT_KINDS",
     "AuthCallbackLookupContext",

@@ -478,6 +478,23 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
             }
             return tail[2] == "confirm" && isSafeMeetingId(tail[1])
         }
+        if tail.count == 3,
+           tail[0] == "account",
+           tail[1] == "email-link",
+           ["start", "verify"].contains(tail[2]) {
+            return true
+        }
+        if tail.count == 3,
+           tail[0] == "account",
+           tail[1] == "merge" {
+            return isSafeMeetingId(tail[2])
+        }
+        if tail.count == 4,
+           tail[0] == "account",
+           tail[1] == "merge",
+           ["confirm", "cancel"].contains(tail[3]) {
+            return isSafeMeetingId(tail[2])
+        }
         if tail.count == 4,
            tail[0] == "account",
            tail[1] == "providers",
