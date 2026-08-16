@@ -9,13 +9,13 @@
       <h1>{{ page_title }}</h1>
       <div class="auth-subtitle">{{ subtitle }}</div>
     </div>
-    <div class="code-hint">Проверьте почту и введите код ниже.</div>
+    <div class="code-hint">Проверьте почту и введите одноразовый код. Пароль не требуется.</div>
     {% if error_message %}
     <div class="auth-alert" role="alert">{{ error_message }}</div>
     {% endif %}
     {% if dev_code is not none %}
     <div class="delete-confirmation">
-      <strong>Dev code</strong>
+      <strong>Локальный код</strong>
       <div class="truth-copy">Код для локальной проверки: <strong>{{ dev_code }}</strong></div>
     </div>
     {% endif %}

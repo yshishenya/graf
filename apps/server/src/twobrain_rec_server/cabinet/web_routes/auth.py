@@ -326,7 +326,7 @@ async def browser_email_login_start(
             ),
             status_code=400,
         )
-    code = _issue_email_login_code()
+    code = _issue_email_login_code(request.app.state.settings)
     ttl_seconds = request.app.state.settings.auth_callback_state_ttl_seconds
     state = await _create_email_login_state(
         db,
@@ -471,7 +471,7 @@ async def browser_email_signup_start(
             ),
             status_code=400,
         )
-    code = _issue_email_login_code()
+    code = _issue_email_login_code(request.app.state.settings)
     ttl_seconds = request.app.state.settings.auth_callback_state_ttl_seconds
     state = await _create_email_login_state(
         db,

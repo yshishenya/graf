@@ -275,6 +275,44 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         )
     }
 
+    func testLocalUnavailableRecoveryUsesInAppLoginForAllUnauthenticatedStates() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "DesktopCabinetWorkspaceTests.local-profile"))
+        defaults.removePersistentDomain(forName: "DesktopCabinetWorkspaceTests.local-profile")
+        let configuration = try XCTUnwrap(DesktopCabinetConfiguration.configured(
+            from: [
+                DesktopCabinetConfiguration.localAppEnvironmentKey: "1",
+                DesktopCabinetConfiguration.requireExplicitBaseURLEnvironmentKey: "1",
+                DesktopCabinetConfiguration.baseURLEnvironmentKey: "http://127.0.0.1:8081"
+            ],
+            defaults: defaults
+        ))
+        let login = DesktopCabinetWorkspace.loginRoute(configuration: configuration)
+
+        for state in [DesktopCabinetState.offline, .timeout, .expiredSession, .malformedResponse] {
+            XCTAssertEqual(
+                DesktopCabinetWorkspace.recoveryTarget(
+                    for: state,
+                    currentRoute: configuration.meetingsURL(),
+                    initialRoute: nil,
+                    configuration: configuration
+                ),
+                .embedded(login),
+                "state=\(state)"
+            )
+            XCTAssertTrue(
+                DesktopCabinetWorkspace.shouldUseLocalLoginRecovery(for: state, configuration: configuration),
+                "state=\(state)"
+            )
+        }
+
+        XCTAssertFalse(
+            DesktopCabinetWorkspace.shouldUseLocalLoginRecovery(
+                for: .accessDenied,
+                configuration: configuration
+            )
+        )
+    }
+
     func testRecoveryKeepsLastDocumentRouteAfterResourceFailure() throws {
         let configuration = try XCTUnwrap(DesktopCabinetConfiguration(
             rawBaseURL: "https://rec.2brain.dev",

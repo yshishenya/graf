@@ -20,13 +20,16 @@ def test_local_files_and_dev_auth_contract() -> None:
     assert "127.0.0.1:9010:9000" in compose
     assert "TWOBRAIN_ENV=development" in start
     assert "TWOBRAIN_LOCAL_HTTP_AUTH_COOKIE_ENABLED=true" in start
+    assert "TWOBRAIN_LOCAL_EMAIL_LOGIN_CODE=000000" in start
     assert "cd-remote.sh" not in start
     assert "twobrain_rec_server.main:create_app --factory" in start
     assert "GRAF_CABINET_REQUIRE_EXPLICIT_BASE_URL=1" in app
+    assert "GRAF_LOCAL_APP=1" in app
     assert 'BUILD_DIR="${GRAF_LOCAL_APP_BUILD_DIR:-$MACOS_DIR/.build/local}"' in bundled_app
     assert "pro.2brain.graf.local" in bundled_app
     assert "GRAF_CABINET_BASE_URL=http://127.0.0.1:8081" in bundled_app
     assert "GRAF_UPLOAD_BASE_URL=http://127.0.0.1:8081" in bundled_app
+    assert "GRAF_LOCAL_APP=1" in bundled_app
     assert "SUFeedURL" not in bundled_app
     assert 'open "$APP_BUNDLE"' in bundled_app
 

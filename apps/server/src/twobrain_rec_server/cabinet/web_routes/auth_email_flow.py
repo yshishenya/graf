@@ -631,7 +631,14 @@ def _normalize_email(value: str) -> str | None:
     return normalized
 
 
-def _issue_email_login_code() -> str:
+def _issue_email_login_code(settings=None) -> str:
+    fixed_code = getattr(settings, "local_email_login_code", None)
+    if (
+        fixed_code
+        and getattr(settings, "env", "production").lower() != "production"
+        and getattr(settings, "local_http_auth_cookie_enabled", False)
+    ):
+        return fixed_code
     return f"{secrets.randbelow(1_000_000):06d}"
 
 
