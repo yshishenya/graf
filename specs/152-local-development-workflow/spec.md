@@ -7,7 +7,8 @@
 
 1. Разработчик поднимает локальный API, входит через email-code без OAuth и
    проверяет веб-кабинет.
-2. Разработчик запускает macOS-приложение из исходников на том же loopback API.
+2. Разработчик запускает macOS-приложение из исходников или disposable debug
+   `.app` на том же loopback API.
 3. Production deploy выполняется реже, после локальной проверки накопленных изменений.
 
 ## Requirements
@@ -22,6 +23,10 @@
   and launch API; processing, outcomes, billing and analytics default off.
 - The macOS launcher MUST set explicit loopback cabinet/upload origins and reject
   silent fallback to packaged production.
+- The local app builder MUST create a disposable debug `.app` under `.build/local`
+  with a separate bundle identifier, no update feed, and a launcher that always
+  supplies loopback cabinet/upload origins; it MUST NOT install into
+  `/Applications` or reuse the public installer path.
 - Production auth, capture, signing, Sparkle, secrets, CD and public defaults MUST
   remain unchanged.
 
@@ -29,6 +34,8 @@
 
 - One command reaches local `/login` and login completes with `local@graf.test`.
 - Local web and app use the same loopback API and cannot silently use production.
+- One local build command produces a launchable `.app` without changing the
+  public app or installer artifacts.
 - Focused tests, lint, compile and `ci-local.sh --fast` pass.
 
 ## Out of Scope

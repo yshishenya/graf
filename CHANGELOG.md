@@ -10,6 +10,7 @@
 
 ### Добавлено
 - Локальный контур разработки с email-code входом без OAuth и отдельным launcher-ом macOS-приложения.
+- Disposable debug `.app` macOS-приложения с отдельным bundle ID и loopback-only запуском.
 
 ### Изменено
 - _Пока нет записей._

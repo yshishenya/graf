@@ -14,6 +14,7 @@ def test_local_files_and_dev_auth_contract() -> None:
     compose = (REPO_ROOT / "infra/docker-compose.local.yml").read_text()
     start = (REPO_ROOT / "infra/scripts/start-local.sh").read_text()
     app = (REPO_ROOT / "apps/macos/Scripts/run-local-app.sh").read_text()
+    bundled_app = (REPO_ROOT / "apps/macos/Scripts/build-local-app.sh").read_text()
     assert "ExternalIdentity" in seed and "local@graf.test" in seed
     assert "127.0.0.1:54330:5432" in compose
     assert "127.0.0.1:9010:9000" in compose
@@ -22,6 +23,12 @@ def test_local_files_and_dev_auth_contract() -> None:
     assert "cd-remote.sh" not in start
     assert "twobrain_rec_server.main:create_app --factory" in start
     assert "GRAF_CABINET_REQUIRE_EXPLICIT_BASE_URL=1" in app
+    assert 'BUILD_DIR="${GRAF_LOCAL_APP_BUILD_DIR:-$MACOS_DIR/.build/local}"' in bundled_app
+    assert "pro.2brain.graf.local" in bundled_app
+    assert "GRAF_CABINET_BASE_URL=http://127.0.0.1:8081" in bundled_app
+    assert "GRAF_UPLOAD_BASE_URL=http://127.0.0.1:8081" in bundled_app
+    assert "SUFeedURL" not in bundled_app
+    assert 'open "$APP_BUNDLE"' in bundled_app
 
 
 def test_local_http_cookie_is_explicit_and_not_secure() -> None:
