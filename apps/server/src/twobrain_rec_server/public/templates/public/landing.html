@@ -7,15 +7,15 @@
     {% include "public/_meta.html" %}
     <meta
       name="description"
-      content="GRAF записывает встречи без бота в звонке и собирает расшифровку, решения и следующие действия."
+      content="GRAF записывает разговор без бота и привязки к сервису встречи. После обработки остаются расшифровка, краткий итог и следующие действия."
     >
-    <meta name="theme-color" content="#060509">
+    <meta name="theme-color" content="#09080d">
     <link rel="icon" href="{{ cabinet_static_asset_url('favicon.ico') }}">
     <link rel="preload" href="{{ public_static_asset_url('fonts/onest-cyrillic.woff2') }}" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="{{ public_static_asset_url('fonts/onest-latin.woff2') }}" as="font" type="font/woff2" crossorigin>
     <link rel="stylesheet" href="{{ public_static_asset_url('landing.css') }}">
   </head>
-  <body class="landing-page">
+  <body class="landing-page reference-landing">
     <a class="skip-link" href="#main">К содержанию</a>
     <div class="site-shell">
       <header class="site-header" aria-label="GRAF">
@@ -28,8 +28,8 @@
           >
         </a>
         <nav class="top-nav" aria-label="Основные разделы">
-          <a href="#how">Возможности</a>
-          <a href="#outcomes">Результат</a>
+          <a href="#how">Запись</a>
+          <a href="#result">Результат</a>
           <a href="#trust">Данные</a>
         </nav>
         <div class="header-actions">
@@ -40,388 +40,181 @@
             data-analytics-cta="header_download"
             data-analytics-target="download_page"
           >Скачать</a>
+          <details class="reference-mobile-menu">
+            <summary>Меню</summary>
+            <nav aria-label="Мобильная навигация">
+              <a href="#how">Запись</a>
+              <a href="#result">Результат</a>
+              <a href="#trust">Данные</a>
+              <a href="{{ download_url }}">Скачать GRAF</a>
+              <a href="{{ start_url }}">Войти</a>
+            </nav>
+          </details>
         </div>
       </header>
 
       <main id="main">
-        <section class="hero" aria-labelledby="hero-title" data-analytics-section="hero">
-          <div class="hero-copy">
-            <p class="eyebrow">Запись · расшифровка · итоги</p>
+        <section class="reference-hero" aria-labelledby="hero-title" data-analytics-section="hero">
+          <div class="reference-hero-copy">
+            <p class="eyebrow">GRAF · запись без бота в звонке</p>
             <h1 id="hero-title">
-              <span>Встреча закончится</span>
-              <span>Главное останется</span>
+              <span>Звоните как привыкли</span>
+              <span>Запись ведите в GRAF</span>
             </h1>
-            <p class="hero-lede">
-              Включите автозапись для нужных приложений — без бота в звонке.
-              После встречи GRAF сохранит расшифровку, решения и следующие шаги.
-            </p>
-            <div class="hero-actions">
-              <a
-                class="primary-cta"
-                href="{{ download_url }}"
-                data-analytics-cta="hero_download"
-                data-analytics-target="download_page"
-              >
-                Скачать GRAF
-              </a>
-              <a
-                class="secondary-cta"
-                href="#how"
-                data-analytics-cta="hero_product"
-                data-analytics-target="section"
-              >Посмотреть продукт</a>
+            <div class="reference-hero-summary">
+              <p class="hero-lede">
+                Запустите GRAF отдельно перед звонком — без бота в разговоре и
+                привязки к сервису встречи. После звонка остаются расшифровка,
+                краткий итог и следующие действия.
+              </p>
+              <div class="hero-actions">
+                <a
+                  class="primary-cta"
+                  href="{{ download_url }}"
+                  data-analytics-cta="hero_download"
+                  data-analytics-target="download_page"
+                >Скачать GRAF</a>
+                <a
+                  class="secondary-cta"
+                  href="#how"
+                  data-analytics-cta="hero_product"
+                  data-analytics-target="section"
+                >Как идёт запись</a>
+              </div>
             </div>
           </div>
 
-          <figure class="hero-product" aria-labelledby="hero-proof-caption">
-            <div
-              class="hero-proof-stage"
-              role="group"
-              aria-label="Два экрана одной демонстрационной встречи: расшифровка и итоги"
-              aria-describedby="hero-proof-description"
-            >
-              <p id="hero-proof-description" class="sr-only">
-                В демонстрации показаны два состояния одной встречи: подробная
-                расшифровка диалога и готовые итоги с решениями и действиями.
-              </p>
-              <div class="hero-proof-window">
-                <input id="pause-hero-proof" class="motion-toggle-input" type="checkbox" aria-label="Пауза показа экранов">
-                <label class="hero-proof-toggle" for="pause-hero-proof">
-                  <span class="when-running">Пауза</span>
-                  <span class="when-paused">Продолжить</span>
-                </label>
-                <div class="hero-proof-stack" aria-live="off">
-                  <div class="hero-proof-track" aria-hidden="true">
-                    <div class="hero-proof-panel hero-proof-panel-transcript">
-                      <picture>
-                        <source
-                          media="(max-width: 640px)"
-                          type="image/webp"
-                          srcset="{{ public_static_asset_url('landing-transcript-proof-mobile.webp') }}"
-                          width="390"
-                          height="1100"
-                        >
-                        <source
-                          media="(max-width: 640px)"
-                          srcset="{{ public_static_asset_url('landing-transcript-proof-mobile.png') }}"
-                          width="390"
-                          height="1100"
-                        >
-                        <source
-                          type="image/webp"
-                          srcset="{{ public_static_asset_url('landing-transcript-proof.webp') }}"
-                          width="1487"
-                          height="1058"
-                        >
-                        <img
-                          class="hero-outcome-image"
-                          src="{{ public_static_asset_url('landing-transcript-proof.png') }}"
-                          width="1487"
-                          height="1058"
-                          fetchpriority="high"
-                          decoding="async"
-                          alt="Демонстрационный экран расшифровки 18-минутной встречи GRAF о запуске пилота: диалог продукта, продаж и поддержки с таймкодами"
-                        >
-                      </picture>
-                      <div class="hero-proof-slide-caption">
-                        <span>Расшифровка</span>
-                        <span>3 участника · 18:24</span>
-                      </div>
-                    </div>
-                    <div class="hero-proof-panel hero-proof-panel-outcome">
-                      <picture>
-                        <source
-                          media="(max-width: 640px)"
-                          type="image/webp"
-                          srcset="{{ public_static_asset_url('landing-outcome-proof-mobile.webp') }}"
-                          width="390"
-                          height="1100"
-                        >
-                        <source
-                          media="(max-width: 640px)"
-                          srcset="{{ public_static_asset_url('landing-outcome-proof-mobile.png') }}"
-                          width="390"
-                          height="1100"
-                        >
-                        <source
-                          type="image/webp"
-                          srcset="{{ public_static_asset_url('landing-outcome-proof.webp') }}"
-                          width="1487"
-                          height="1058"
-                        >
-                        <img
-                          class="hero-outcome-image"
-                          src="{{ public_static_asset_url('landing-outcome-proof.png') }}"
-                          width="1487"
-                          height="1058"
-                          loading="eager"
-                          decoding="async"
-                          alt="Демонстрационный экран итогов той же встречи: резюме, три действия с ответственными, два решения и ссылки на исходные реплики"
-                        >
-                      </picture>
-                      <div class="hero-proof-slide-caption">
-                        <span>Итоги</span>
-                        <span>Решения и следующие шаги</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div class="hero-proof-progress" aria-hidden="true">
-                  <span class="hero-proof-progress-segment hero-proof-progress-transcript"></span>
-                  <span class="hero-proof-progress-segment hero-proof-progress-outcome"></span>
-                </div>
-              </div>
-            </div>
-            <figcaption id="hero-proof-caption">
-              Одна встреча — от живого диалога до решений и действий. Данные созданы для демонстрации.
-            </figcaption>
-          </figure>
-        </section>
-
-        <section
-          class="chapter chapter-capture"
-          id="how"
-          aria-labelledby="how-title"
-          data-analytics-section="platforms"
-        >
-          <header class="chapter-heading">
-            <div class="chapter-kicker">
-              <span class="chapter-number" aria-hidden="true">01</span>
-              <p class="eyebrow">Автозапись для выбранных приложений</p>
-            </div>
-            <div>
-              <h2 id="how-title">Выберите приложения. GRAF подхватит встречу</h2>
-              <p class="chapter-lede">
-                Отметьте приложения, для которых нужна автозапись. Когда GRAF
-                замечает встречу, он запускает запись по вашему правилу. Для
-                других поддерживаемых приложений сначала показывает запрос.
-              </p>
-            </div>
-          </header>
-
-          <figure class="proof-frame recording-proof-frame">
-            <div class="recording-proof-copy" aria-hidden="true">
-              <span>Настройка один раз</span>
-              <span>Без скрытой записи</span>
-            </div>
-            <div class="recording-proof-window">
-              <picture>
-                <source
-                  type="image/webp"
-                  srcset="{{ public_static_asset_url('landing-autorecord-proof-focus.webp') }}"
-                  width="1546"
-                  height="1017"
-                >
-                <img
-                  src="{{ public_static_asset_url('landing-autorecord-proof-focus.png') }}"
-                  width="1546"
-                  height="1017"
-                  loading="lazy"
-                  decoding="async"
-                  alt="Демонстрационный экран настроек GRAF с включёнными запросами и большим списком приложений для автозаписи"
-                >
-              </picture>
-            </div>
-            <div class="autorecord-mobile-proof">
-              <div class="autorecord-mobile-control">
-                <img
-                  src="{{ public_static_asset_url('landing-autorecord-proof-control-mobile.png') }}"
-                  width="1120"
-                  height="300"
-                  loading="lazy"
-                  alt="Текущая настройка автозаписи GRAF с включёнными запросами"
-                >
-                <img
-                  class="autorecord-mobile-toggle"
-                  src="{{ public_static_asset_url('landing-autorecord-proof-toggle-mobile.png') }}"
-                  width="480"
-                  height="240"
-                  loading="lazy"
-                  alt=""
-                >
-              </div>
-            </div>
-            <figcaption>Реальный интерфейс GRAF · данные созданы для демонстрации.</figcaption>
-          </figure>
-
-          <div class="capture-safety-grid">
-            <div class="capture-safety-copy">
-              <p class="eyebrow">Контроль во время встречи</p>
-              <p class="capture-safety">
-                Активная запись всегда видна. Остановить её можно одним действием;
-                ручной запуск тоже доступен.
-              </p>
-            </div>
-            <figure class="recording-control-proof">
+          <div class="reference-hero-product">
+            <figure class="reference-recording-proof">
               <img
                 src="{{ public_static_asset_url('landing-recording-proof-focus.png') }}"
                 width="880"
                 height="180"
-                loading="lazy"
+                fetchpriority="high"
                 decoding="async"
-                alt="Панель активной записи GRAF с отдельными действиями Пауза и Остановить"
+                alt="Панель активной записи GRAF с действиями Пауза и Остановить"
               >
-              <figcaption>Пауза и остановка доступны в любой момент.</figcaption>
+              <figcaption>
+                <span>Реальный интерфейс GRAF</span>
+                <span>Статус: запись идёт · Управление: пауза и остановка</span>
+              </figcaption>
             </figure>
-          </div>
-
-          <aside class="calendar-context" aria-labelledby="calendar-context-title">
-            <p class="eyebrow">Контекст из календаря</p>
-            <h3 id="calendar-context-title">Календарь подскажет название встречи</h3>
-            <p>
-              Подключите календарь, чтобы видеть предстоящие встречи и давать
-              записям понятные названия. Саму запись по-прежнему запускает
-              выбранное правило приложения.
-            </p>
-          </aside>
-
-          <div class="platform-proof" aria-labelledby="platform-proof-title">
-            <div class="platform-proof-copy">
-              <p class="platform-count" aria-label="{{ autorecord_app_count }} приложений с доступной автозаписью"><strong>{{ autorecord_app_count }}</strong><span>приложений<br>с доступной автозаписью</span></p>
-              <p>
-                <span class="eyebrow">Приложения для встреч и звонков</span>
-                <strong id="platform-proof-title">Запись не зависит от сервиса встречи</strong>
-                Для выбранных приложений работает автозапись, для остальных —
-                ручной запуск.
-              </p>
+            <div class="reference-result-link">
+              <p>После звонка</p>
+              <strong>Расшифровка и действия связаны с исходными репликами</strong>
+              <a
+                class="secondary-cta"
+                href="#result"
+              >Посмотреть результат</a>
             </div>
-
-            <div class="platform-motion-control">
-              <input id="pause-platform-rail" class="motion-toggle-input" type="checkbox">
-              <label class="motion-toggle" for="pause-platform-rail">
-                <span class="when-running">Пауза</span>
-                <span class="when-paused">Продолжить</span>
-              </label>
-
-              {% for app_row in autorecord_app_rows %}
-                <div class="platform-rail{% if not loop.first %} platform-rail-secondary{% endif %}" aria-hidden="true" tabindex="-1">
-                  <div class="platform-track">
-                    <div class="platform-set">
-                      {% for app_name in app_row %}<span>{{ app_name }}</span>{% endfor %}
-                    </div>
-                    <div class="platform-set rail-duplicate">
-                      {% for app_name in app_row %}<span>{{ app_name }}</span>{% endfor %}
-                    </div>
-                  </div>
-                </div>
-              {% endfor %}
-            </div>
-
-            <ul class="sr-only" aria-label="Все приложения в текущем реестре автозаписи">
-              {% for app_name in autorecord_apps %}<li>{{ app_name }}</li>{% endfor %}
-            </ul>
-            <p class="browser-note">Google Meet и другие браузерные встречи — с ручным запуском записи.</p>
           </div>
         </section>
 
-        <section
-          class="chapter chapter-outcome"
-          id="outcomes"
-          aria-labelledby="outcomes-title"
-          data-analytics-section="outcomes"
-        >
-          <header class="chapter-heading">
-            <div class="chapter-kicker">
-              <span class="chapter-number" aria-hidden="true">02</span>
-              <p class="eyebrow">После встречи</p>
-            </div>
+        <section class="reference-section" id="how" aria-labelledby="how-title" data-analytics-section="platforms">
+          <header class="reference-section-head">
+            <span class="reference-section-index">01 / Запись</span>
             <div>
-              <h2 id="outcomes-title">Сразу понятно, что делать дальше</h2>
+              <p class="eyebrow">Без привязки к сервису</p>
+              <h2 id="how-title">Управляйте записью сами</h2>
               <p class="chapter-lede">
-                GRAF собирает главное, выделяет решения и действия и связывает
-                каждый вывод с исходной репликой.
+                GRAF работает отдельно от сервиса звонка. Запустите запись
+                вручную; для поддерживаемых сценариев доступен запуск по
+                заранее сохранённому правилу. Индикатор покажет состояние, а
+                пауза и остановка останутся под рукой.
+              </p>
+            </div>
+          </header>
+          <ol class="reference-steps" aria-label="Как записать звонок">
+            <li><span>01</span><strong>Подключитесь к звонку как обычно</strong></li>
+            <li><span>02</span><strong>Запустите запись в GRAF</strong></li>
+            <li><span>03</span><strong>Приостановите или завершите запись одним действием</strong></li>
+          </ol>
+        </section>
+
+        <section class="reference-section" id="result" aria-labelledby="result-title" data-analytics-section="outcomes">
+          <header class="reference-section-head">
+            <span class="reference-section-index">02 / Результат</span>
+            <div>
+              <p class="eyebrow">После обработки</p>
+              <h2 id="result-title">От реплики к следующему действию</h2>
+              <p class="chapter-lede">
+                Сначала GRAF сохраняет разговор с таймкодами, затем собирает
+                краткий итог, решения и следующие действия со ссылками на
+                исходные реплики.
               </p>
             </div>
           </header>
 
-          <div class="outcome-proof-grid">
-            <figure class="proof-frame outcome-proof-frame">
-              <picture>
-                <source
-                  media="(max-width: 640px)"
-                  srcset="{{ public_static_asset_url('landing-outcome-proof-mobile.png') }}"
-                  width="390"
-                  height="1100"
-                >
-                <img
-                  src="{{ public_static_asset_url('landing-outcome-proof.png') }}"
-                  width="1487"
-                  height="1058"
-                  loading="lazy"
-                  alt="Демонстрационный экран итогов 18-минутной встречи GRAF с тремя действиями, двумя решениями и ссылками на исходные реплики"
-                >
-              </picture>
-              <figcaption>Интерфейс GRAF · данные встречи созданы для демонстрации.</figcaption>
+          <article class="reference-proof-block">
+            <div class="reference-proof-heading">
+              <span class="reference-section-index">Текст разговора</span>
+              <div>
+                <h3>Расшифровка сохраняет контекст</h3>
+                <p>Реплики разделены по спикерам и привязаны к таймкодам, чтобы к нужному моменту можно было вернуться.</p>
+              </div>
+            </div>
+            <figure class="reference-product-proof">
+              <div class="reference-proof-window">
+                <picture>
+                  <source media="(max-width: 980px)" type="image/webp" srcset="{{ public_static_asset_url('landing-transcript-proof-mobile.webp') }}" width="390" height="1100">
+                  <source media="(max-width: 980px)" srcset="{{ public_static_asset_url('landing-transcript-proof-mobile.png') }}" width="390" height="1100">
+                  <source type="image/webp" srcset="{{ public_static_asset_url('landing-transcript-proof.webp') }}" width="1487" height="1058">
+                  <img src="{{ public_static_asset_url('landing-transcript-proof.png') }}" width="1487" height="1058" loading="lazy" decoding="async" alt="Демонстрационный экран расшифровки встречи GRAF с репликами, спикерами и таймкодами">
+                </picture>
+              </div>
+              <figcaption>Реальный интерфейс GRAF · данные встречи созданы для демонстрации.</figcaption>
             </figure>
+          </article>
 
-            <ol class="outcome-ledger" aria-label="Что GRAF выделил из демонстрационной встречи">
-              <li><time datetime="PT7M18S">07:18</time><span>Решение</span><strong>Запустить двухнедельный пилот в понедельник</strong></li>
-              <li><time datetime="PT8M43S">08:43</time><span>Действие</span><strong>Продажи готовят список участников и календарь встреч</strong></li>
-              <li><time datetime="PT11M34S">11:34</time><span>Контроль</span><strong>Через неделю — разбор точности итогов</strong></li>
-            </ol>
-          </div>
+          <article class="reference-proof-block">
+            <div class="reference-proof-heading">
+              <span class="reference-section-index">Итог встречи</span>
+              <div>
+                <h3>Краткий итог и следующие действия — на одном экране</h3>
+                <p>Каждый вывод можно проверить по исходной реплике и таймкоду.</p>
+              </div>
+            </div>
+            <figure class="reference-product-proof">
+              <div class="reference-proof-window">
+                <picture>
+                  <source media="(max-width: 980px)" type="image/webp" srcset="{{ public_static_asset_url('landing-outcome-proof-mobile.webp') }}" width="390" height="1100">
+                  <source media="(max-width: 980px)" srcset="{{ public_static_asset_url('landing-outcome-proof-mobile.png') }}" width="390" height="1100">
+                  <source type="image/webp" srcset="{{ public_static_asset_url('landing-outcome-proof.webp') }}" width="1487" height="1058">
+                  <img src="{{ public_static_asset_url('landing-outcome-proof.png') }}" width="1487" height="1058" loading="lazy" decoding="async" alt="Демонстрационный экран итогов встречи GRAF с кратким итогом, действиями и ссылками на исходные реплики">
+                </picture>
+              </div>
+              <figcaption>Реальный интерфейс GRAF · данные встречи созданы для демонстрации.</figcaption>
+            </figure>
+          </article>
         </section>
 
-        <section
-          class="chapter chapter-trust"
-          id="trust"
-          aria-labelledby="trust-title"
-          data-analytics-section="trust"
-        >
-          <header class="chapter-heading">
-            <div class="chapter-kicker">
-              <span class="chapter-number" aria-hidden="true">03</span>
-              <p class="eyebrow">Данные и модели</p>
-            </div>
+        <section class="reference-section reference-trust" id="trust" aria-labelledby="trust-title" data-analytics-section="trust">
+          <header class="reference-section-head">
+            <span class="reference-section-index">03 / Данные и модели</span>
             <div>
+              <p class="eyebrow">Понятный маршрут обработки</p>
               <h2 id="trust-title">Российские и локально развёрнутые модели</h2>
-              <p class="chapter-lede">
-                Для расшифровки и итогов GRAF использует российские модели и
-                модели, развёрнутые локально. Маршрут обработки зависит от
-                конфигурации.
-              </p>
+              <p class="chapter-lede">Для расшифровки и итогов GRAF использует российские модели и модели, развёрнутые локально. Маршрут обработки зависит от конфигурации.</p>
             </div>
           </header>
-
-          <div class="trust-statement">
-            <p>
-              Настройка обработки определяет, какие модели и сервисы получают
-              данные встречи.
-            </p>
-            <dl class="trust-facts">
-              <div><dt>Модели</dt><dd>Российские и локально развёрнутые.</dd></div>
-              <div><dt>Маршрут</dt><dd>Зависит от конфигурации GRAF.</dd></div>
-              <div><dt>Подробнее</dt><dd><a href="/privacy">Как GRAF работает с данными</a></dd></div>
-            </dl>
-          </div>
+          <dl class="reference-trust-facts">
+            <div><dt>Модели</dt><dd>Российские и локально развёрнутые.</dd></div>
+            <div><dt>Маршрут</dt><dd>Зависит от конфигурации GRAF.</dd></div>
+            <div><dt>Подробнее</dt><dd><a href="/privacy">Как GRAF работает с данными</a></dd></div>
+          </dl>
         </section>
 
-        <section
-          class="final-cta"
-          id="start"
-          aria-label="Начать пользоваться GRAF"
-          data-analytics-section="final_cta"
-        >
-          <p class="eyebrow">Следующая встреча</p>
-          <h2>
-            <span>Встреча закончится</span>
-            <span>Главное останется</span>
-          </h2>
-          <div class="final-actions">
-            <a
-              class="primary-cta"
-              href="{{ download_url }}"
-              data-analytics-cta="final_download"
-              data-analytics-target="download_page"
-            >Скачать GRAF</a>
-            <a
-              class="secondary-cta"
-              href="{{ start_url }}"
-              data-analytics-cta="final_login"
-              data-analytics-target="login"
-            >Уже используете GRAF? Войти</a>
+        <section class="reference-final-cta" id="start" aria-label="Начать пользоваться GRAF" data-analytics-section="final_cta">
+          <div>
+            <p class="eyebrow">К следующему звонку</p>
+            <h2>Сохраните следующий разговор</h2>
+            <p class="chapter-lede">Скачайте GRAF для macOS, запишите звонок и после обработки получите расшифровку, краткий итог и следующие действия.</p>
           </div>
-          <p class="platform-note">macOS — доступно сейчас · Windows и Linux — скоро</p>
+          <div class="final-actions">
+            <a class="primary-cta" href="{{ download_url }}" data-analytics-cta="final_download" data-analytics-target="download_page">Скачать GRAF</a>
+            <a class="reference-final-login" href="{{ start_url }}" data-analytics-cta="final_login" data-analytics-target="login">Уже используете GRAF? Войти</a>
+            <p class="platform-note">macOS — доступно сейчас · Windows и Linux — скоро</p>
+          </div>
         </section>
       </main>
     </div>

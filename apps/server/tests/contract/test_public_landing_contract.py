@@ -145,21 +145,13 @@ def test_public_landing_css_keeps_accessible_focus_and_stable_motion() -> None:
     assert "prefers-reduced-motion: reduce" in content
     assert "animation-timeline: view()" in content
     assert 'url("landing-atmosphere.jpg")' in content
-    assert "hero-proof-track" in content
-    assert "animation: hero-proof-track 9s infinite alternate" in content
-    assert "hero-proof-progress-transcript" in content
-    assert "animation: hero-proof-progress-transcript 9s infinite alternate" in content
-    assert "hero-proof-progress" in content
-    assert "pause-hero-proof" in content
-    assert "animation-play-state: paused" in content
-    assert "hero-proof-toggle" in content
-    assert "aspect-ratio: 390 / 620" in content
-    assert "object-position: top center" in content
-    assert "#pause-platform-rail" in content
+    assert "reference-hero-product" in content
+    assert "reference-steps" in content
+    assert "reference-proof-window" in content
+    assert "reference-mobile-menu" in content
     assert "display: none" in content
-    assert "hero-proof-tabs" not in content
     assert "transition: all" not in content
-    assert "overflow-x: hidden" not in content
+    assert "overflow-x: hidden" in content
     assert "inset: -24% -6% -22% 6%" in content
     assert "margin: 0 -16px" not in content
     assert ".legal-page h1" in content

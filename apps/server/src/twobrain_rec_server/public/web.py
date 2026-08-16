@@ -60,10 +60,12 @@ async def public_landing_page(request: Request) -> HTMLResponse:
     return public_template_response(
         request,
         "public/landing.html",
-        page_title="GRAF — запись встреч и готовые итоги",
+        page_title="GRAF — запись без привязки к сервису встречи",
         analytics_path="/",
         start_url="/login?next=/meetings",
         download_url="/download",
+        social_title="GRAF — запись без привязки к сервису встречи",
+        social_description="Запишите разговор без бота и получите расшифровку, краткий итог и следующие действия.",
         autorecord_app_count=len(autorecord_apps),
         autorecord_app_rows=(autorecord_apps[:row_split], autorecord_apps[row_split:]),
         autorecord_apps=autorecord_apps,
