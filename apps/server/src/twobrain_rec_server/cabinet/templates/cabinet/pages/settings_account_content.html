@@ -60,6 +60,13 @@
       </ul>
       {% else %}<p class="settings-empty-state" role="status">Подключённых способов входа пока нет.</p>{% endif %}
       <p class="muted" id="account-recovery-help">Для безопасности нельзя отключить последний подтверждённый способ входа. Сначала подключите другой способ восстановления.</p>
+      <form class="settings-actions" action="{{ '/desktop/settings/account/email-link/start' if embedded else '/settings/account/email-link/start' }}" method="post" aria-describedby="account-email-link-help">
+        {{ sections.csrf_field(csrf_token) }}
+        <label class="field-label" for="account-email-link">Подключить email</label>
+        <input id="account-email-link" name="email" type="email" autocomplete="email" required maxlength="240" placeholder="you@example.com">
+        <p class="muted" id="account-email-link-help">Мы отправим код. Пароль не нужен. Если у этого email уже есть данные, сначала покажем безопасный preview объединения.</p>
+        <button class="button quiet" type="submit">Подключить email</button>
+      </form>
       {% if provider_link_options %}
       <div class="settings-actions" aria-label="Добавить способ входа">
         {% for provider in provider_link_options %}

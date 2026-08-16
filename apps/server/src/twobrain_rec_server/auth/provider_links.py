@@ -8,6 +8,11 @@ from sqlalchemy import and_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from twobrain_rec_server.auth.account_merge import (
+    AccountMergeError,
+    confirm_merge_intent,
+    create_merge_intent,
+)
 from twobrain_rec_server.auth.audit import write_auth_audit_event
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal
 from twobrain_rec_server.auth.policy import (
@@ -30,9 +35,18 @@ class ProviderLinkError(ValueError):
 
 
 class ConfirmedProviderLink:
-    def __init__(self, *, provider: str, idempotent: bool) -> None:
+    def __init__(
+        self,
+        *,
+        provider: str,
+        idempotent: bool,
+        status: str = "confirmed",
+        merge_intent_id: UUID | None = None,
+    ) -> None:
         self.provider = provider
         self.idempotent = idempotent
+        self.status = status
+        self.merge_intent_id = merge_intent_id
 
 
 def recovery_safe_unlink_allowed(
@@ -306,6 +320,57 @@ async def confirm_provider_link(
     )
     idempotent = identity is not None
     if identity is not None and identity.user_id != principal.user_id:
+        source_session = await db.get(AuthSession, link.initiating_auth_session_id)
+        source_identity = await db.get(ExternalIdentity, link.source_provider_identity_id)
+        if source_session is not None and source_identity is not None and source_session.provider == "email":
+            try:
+                intent, preview = await create_merge_intent(
+                    db,
+                    workspace_id=link.workspace_id,
+                    survivor_user_id=principal.user_id,
+                    source_user_id=identity.user_id,
+                    email_proof_state="verified",
+                    oauth_proof_state="verified",
+                    actor_user_id=principal.user_id,
+                )
+                if preview.blocker_codes:
+                    scrub_candidate(link, status="rejected", resolution="merge_blocked")
+                    return ConfirmedProviderLink(
+                        provider=identity.provider,
+                        idempotent=False,
+                        status="merge_blocked",
+                        merge_intent_id=intent.id,
+                    )
+                if not preview.requires_confirmation:
+                    await confirm_merge_intent(
+                        db,
+                        intent_id=intent.id,
+                        preview_fingerprint=preview.fingerprint,
+                        idempotency_key=f"provider-link:{link.id}",
+                    )
+                    scrub_candidate(link, status="confirmed", resolution="merged")
+                    return ConfirmedProviderLink(
+                        provider=identity.provider,
+                        idempotent=False,
+                        status="merge_completed",
+                        merge_intent_id=intent.id,
+                    )
+                scrub_candidate(link, status="confirmed", resolution="merge_preview_ready")
+                return ConfirmedProviderLink(
+                    provider=identity.provider,
+                    idempotent=False,
+                    status="merge_preview_ready",
+                    merge_intent_id=intent.id,
+                )
+            except AccountMergeError as exc:
+                await reject_provider_link(
+                    db,
+                    link=link,
+                    error_code=exc.code,
+                    event_type="provider_link_conflict",
+                    actor_user_id=principal.user_id,
+                )
+                raise ProviderLinkError(exc.code) from exc
         await reject_provider_link(
             db,
             link=link,

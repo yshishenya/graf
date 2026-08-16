@@ -53,6 +53,8 @@ from twobrain_rec_server.db.models.deletion import (
     RetentionPolicySnapshot,
 )
 from twobrain_rec_server.db.models.federated_auth import (
+    AccountMergeIntent,
+    AccountMergeJournal,
     AuthAuditEvent,
     AuthCallbackState,
     AuthRateLimitBucket,
@@ -214,6 +216,8 @@ __all__ = [
     "UsageReservation",
     "WorkspaceSubscription",
     "AuthAuditEvent",
+    "AccountMergeIntent",
+    "AccountMergeJournal",
     "AuthCallbackState",
     "AuthRateLimitBucket",
     "AuthSession",

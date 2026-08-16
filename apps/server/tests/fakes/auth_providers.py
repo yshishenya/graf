@@ -9,6 +9,24 @@ from twobrain_rec_server.auth.providers.base import (
 )
 
 
+def verified_identity(
+    provider: str,
+    provider_subject: str,
+    *,
+    email: str | None = None,
+    display_name: str | None = None,
+) -> ProviderIdentity:
+    """Create a provider proof fixture without accepting an unverified claim."""
+
+    return ProviderIdentity(
+        provider=provider,
+        provider_subject=provider_subject,
+        email=email,
+        display_name=display_name,
+        is_verified=True,
+    )
+
+
 class StaticProviderAdapter(ProviderAdapter):
     """Deterministic provider adapter for tests."""
 

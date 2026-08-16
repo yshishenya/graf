@@ -1,0 +1,49 @@
+{% import "cabinet/components/sections.html" as sections %}
+<main id="cabinet-main" class="cabinet-main" tabindex="-1">
+  <div class="cabinet-workspace settings-page">
+    <div class="settings-page__content">
+      <header class="cabinet-topbar settings-page__topbar">
+        <div class="page-title">
+          <h1>Безопасное объединение аккаунтов</h1>
+          <p class="page-subtitle">Пароль не нужен: подтверждены текущая сессия и второй способ входа.</p>
+        </div>
+      </header>
+      {% if error_message %}<p class="settings-status" role="alert" aria-live="assertive">{{ error_message }}</p>{% endif %}
+      {% if preview %}
+      <section class="settings-section" aria-labelledby="account-merge-summary">
+        <h2 id="account-merge-summary">Что произойдёт</h2>
+        <ul>
+          <li>Встречи: {{ preview.counts.meetings }}. Записи, артефакты и обработка сохранятся с прежними ID.</li>
+          <li>Рабочие пространства не склеиваются и остаются отдельными.</li>
+          <li>Все активные сессии и доверие устройств будут отозваны.</li>
+        </ul>
+        {% if preview.blocker_codes %}
+        <div class="settings-status" role="alert">
+          <strong>Объединение заблокировано:</strong>
+          <ul>
+            {% for code in preview.blocker_codes %}
+            <li>{% if code == "workspace_role_conflict" %}У аккаунтов несовместимые роли в одном рабочем пространстве.{% elif code == "workspace_ownership_conflict" %}Нельзя безопасно определить владельца рабочих пространств.{% elif code == "billing_conflict" %}Сначала нужно отдельно решить активный платёжный статус.{% elif code == "calendar_ownership_conflict" %}Сначала отключите или повторно подтвердите календарь.{% elif code == "deletion_state_conflict" %}На аккаунте или встрече уже идёт закрытие или удаление.{% elif code == "meeting_owner_conflict" %}Нашлись одинаковые локальные записи; данные не объединены.{% else %}Объединение невозможно при текущем состоянии аккаунтов.{% endif %}</li>
+            {% endfor %}
+          </ul>
+          <p>Данные не изменены. Устраните причину и начните подтверждение заново.</p>
+        </div>
+        {% else %}
+        <form action="{{ confirm_action }}" method="post">
+          {{ sections.csrf_field(csrf_token) }}
+          <input type="hidden" name="preview_fingerprint" value="{{ preview.fingerprint }}">
+          <input type="hidden" name="idempotency_key" value="{{ intent_id }}">
+          <p class="muted">После подтверждения действие нельзя отменить. Перед commit сервер повторит проверку конфликтов.</p>
+          <button class="button primary" type="submit">Подтвердить объединение</button>
+        </form>
+        {% endif %}
+        <form action="{{ cancel_action }}" method="post">
+          {{ sections.csrf_field(csrf_token) }}
+          <button class="button quiet" type="submit">Отменить</button>
+        </form>
+      </section>
+      {% else %}
+      <section class="settings-section" role="status"><p>Предпросмотр объединения больше недоступен. Начните подтверждение заново.</p><a class="button quiet" href="{{ settings_href }}">К настройкам</a></section>
+      {% endif %}
+    </div>
+  </div>
+</main>

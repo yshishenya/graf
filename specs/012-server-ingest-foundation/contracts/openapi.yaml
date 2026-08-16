@@ -14319,6 +14319,12 @@ components:
         idempotent:
           type: boolean
           title: Idempotent
+        merge_intent_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Merge Intent Id
       type: object
       required:
       - provider

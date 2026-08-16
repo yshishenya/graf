@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from twobrain_rec_server.cabinet.web_routes import (
+    account_merge,
     auth,
     billing,
     browser,
@@ -29,6 +30,7 @@ router.include_router(settings.router)
 router.include_router(browser.router)
 router.include_router(calendar.router)
 router.include_router(provider_links.router)
+router.include_router(account_merge.router)
 router.include_router(referrals.router)
 router.include_router(spaces.router)
 router.include_router(speakers.router)

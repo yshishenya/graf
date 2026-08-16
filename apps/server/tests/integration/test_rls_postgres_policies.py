@@ -47,6 +47,7 @@ from twobrain_rec_server.db.models import (
     WorkspaceProviderLinkState,
 )
 from twobrain_rec_server.db.tenant_context import (
+    AccountMergeTenantContext,
     AuthCallbackLookupContext,
     MaintenanceTenantContext,
     TenantDatabaseContext,
@@ -120,6 +121,11 @@ async def _create_probe_role(
             )
             await conn.execute(
                 text(f"grant usage, select on all sequences in schema public to {quoted_role}")
+            )
+            await conn.execute(
+                text(
+                    f"grant execute on function rec_account_merge_context_valid() to {quoted_role}"
+                )
             )
     finally:
         await engine.dispose()
@@ -1860,6 +1866,71 @@ async def test_app_role_cannot_spoof_legacy_maintenance_access(
     assert visible_meeting_count == 0
     assert timestamp_update.rowcount == 0
     assert business_update.rowcount == 0
+
+
+@pytest.mark.asyncio
+async def test_app_role_gets_only_proof_bound_account_merge_access(
+    rls_engine: AsyncEngine,
+    migrated_postgres_urls: MigratedPostgresUrls,
+) -> None:
+    ids = await _seed_probe_rows(rls_engine)
+    app_role, app_password = await _create_probe_role(
+        migrated_postgres_urls.migration_url,
+        role_name="twobrain_rec_app",
+    )
+    intent_id = uuid4()
+    try:
+        async with rls_engine.begin() as conn:
+            await apply_tenant_context_to_connection(
+                conn,
+                MaintenanceTenantContext(
+                    operation_name="migration_verification",
+                    actor_id="test_account_merge_rls",
+                    reason_category="rls_probe_seed",
+                    feature_area="security",
+                ),
+            )
+            await conn.execute(
+                text(
+                    """
+                    insert into account_merge_intents
+                        (id, workspace_id, survivor_user_id, source_user_id,
+                         email_proof_state, oauth_proof_state, status, expires_at)
+                    values
+                        (:id, :workspace_id, :survivor_user_id, :source_user_id,
+                         'verified', 'verified', 'preview_ready', now() + interval '15 minutes')
+                    """
+                ),
+                {
+                    "id": intent_id,
+                    "workspace_id": ids["workspace_a"],
+                    "survivor_user_id": ids["user_a"],
+                    "source_user_id": ids["user_b"],
+                },
+            )
+
+        app_url = make_url(migrated_postgres_urls.migration_url).set(
+            username=app_role,
+            password=app_password,
+        ).render_as_string(hide_password=False)
+        app_engine = create_async_engine(app_url, pool_pre_ping=True)
+        try:
+            async with app_engine.begin() as conn:
+                await apply_tenant_context_to_connection(
+                    conn,
+                    AccountMergeTenantContext(
+                        intent_id=intent_id,
+                        workspace_id=ids["workspace_a"],
+                        survivor_user_id=ids["user_a"],
+                        source_user_id=ids["user_b"],
+                    ),
+                )
+                assert await conn.scalar(text("select rec_maintenance_allowed()")) is True
+                assert await conn.scalar(text("select count(*) from account_merge_intents")) == 1
+        finally:
+            await app_engine.dispose()
+    finally:
+        await _drop_probe_role(migrated_postgres_urls.migration_url, app_role)
 
 
 @pytest.mark.asyncio

@@ -71,6 +71,8 @@ class UserIdentity(Base):
     timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="Europe/Moscow")
     theme: Mapped[str] = mapped_column(String(16), nullable=False, default="system")
     status: Mapped[str] = mapped_column(String(32), default="active")
+    merged_into_user_id: Mapped[UUID | None] = mapped_column(ForeignKey("user_identities.id"))
+    merged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

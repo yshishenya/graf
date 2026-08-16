@@ -29,11 +29,13 @@
       <input type="hidden" name="email" value="{{ email }}">
       <input type="hidden" name="state" value="{{ state_nonce }}">
       <input type="hidden" name="next" value="{{ next_path }}">
+      {% if csrf_token %}<input type="hidden" name="csrf_token" value="{{ csrf_token }}">{% endif %}
       <button class="primary" type="submit">Продолжить</button>
     </form>
     <form class="auth-form" action="{{ resend_path }}" method="post">
       <input type="hidden" name="email" value="{{ email }}">
       <input type="hidden" name="next" value="{{ next_path }}">
+      {% if csrf_token %}<input type="hidden" name="csrf_token" value="{{ csrf_token }}">{% endif %}
       <button class="auth-resend" type="submit">Отправить код еще раз</button>
     </form>
     <div class="auth-secondary">

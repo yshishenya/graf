@@ -281,6 +281,8 @@ def render_settings_page(
     provider_link_result_copy = {
         "confirmed": "Способ входа подключён к текущему аккаунту.",
         "provider_link_conflict": "Этот способ входа уже связан с другим аккаунтом.",
+        "merge_blocked": "Объединение заблокировано: сначала нужно устранить указанный конфликт.",
+        "merge_cancelled": "Объединение отменено. Данные не изменены.",
         "provider_link_denied": "Подключение не разрешено текущей политикой.",
         "provider_link_expired": "Срок подключения истёк. Начните заново.",
     }.get(provider_link_result)
@@ -336,7 +338,9 @@ def render_settings_page(
             "others_revoked": "Остальные сеансы завершены. Текущая сессия остаётся активной.",
             "reauth_required": "Для управления сессиями войдите через подтверждённую веб-сессию и повторите попытку.",
         }.get(session_result),
-        "notification_result": {"saved": "Настройки уведомлений сохранены."}.get(notification_result),
+        "notification_result": {"saved": "Настройки уведомлений сохранены."}.get(
+            notification_result
+        ),
         "account_close_result": {
             "scheduled": "Закрытие аккаунта запланировано. До даты отмены доступ и данные сохраняются, будущие списания отключены.",
             "canceled": "Закрытие аккаунта отменено.",
@@ -383,6 +387,33 @@ def render_provider_link_settings_page(
         settings_href="/desktop/settings/account" if embedded else "/settings/account",
         confirmation_action=f"{base_path}/{surface.link_state_id}/confirm",
         result=result,
+    )
+
+
+def render_account_merge_page(
+    preview: object | None,
+    *,
+    intent_id: UUID,
+    embedded: bool = False,
+    csrf_token: str | None = None,
+    product_analytics_provider: dict[str, object] | None = None,
+    error_message: str | None = None,
+) -> str:
+    base_path = "/desktop/settings/account/merge" if embedded else "/settings/account/merge"
+    return _page_shell(
+        "Объединение аккаунтов",
+        embedded=embedded,
+        active_nav="settings",
+        settings_active="account",
+        csrf_token=csrf_token,
+        product_analytics_provider=product_analytics_provider,
+        content_template="cabinet/pages/account_merge_content.html",
+        preview=preview,
+        intent_id=intent_id,
+        confirm_action=f"{base_path}/{intent_id}/confirm",
+        cancel_action=f"{base_path}/{intent_id}/cancel",
+        settings_href="/desktop/settings/account" if embedded else "/settings/account",
+        error_message=error_message,
     )
 
 

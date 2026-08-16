@@ -127,7 +127,9 @@ def render_signup_page(
         signup_href=f"/sign-up?{urlencode({'next': safe_next})}",
         signup_email_href=f"/sign-up?{urlencode({'next': safe_next, 'mode': 'email'})}",
     )
-    return _standalone_page("Регистрация", content, product_analytics_provider=product_analytics_provider)
+    return _standalone_page(
+        "Регистрация", content, product_analytics_provider=product_analytics_provider
+    )
 
 
 def render_email_code_page(
@@ -138,17 +140,31 @@ def render_email_code_page(
     dev_code: str | None = None,
     error: str | None = None,
     flow: str = "login",
+    csrf_token: str | None = None,
     product_analytics_provider: dict[str, object] | None = None,
 ) -> str:
     safe_next = _safe_browser_next_path(next_path)
-    verify_path = "/sign-up/email/verify" if flow == "signup" else "/login/email/verify"
-    resend_path = "/sign-up/email/start" if flow == "signup" else "/login/email/start"
-    back_path = "/sign-up" if flow == "signup" else "/login"
+    link_flow = flow in {"link", "desktop_link"}
+    verify_path = (
+        "/settings/account/email-link/verify"
+        if link_flow
+        else ("/sign-up/email/verify" if flow == "signup" else "/login/email/verify")
+    )
+    resend_path = (
+        "/settings/account/email-link/start"
+        if link_flow
+        else ("/sign-up/email/start" if flow == "signup" else "/login/email/start")
+    )
+    back_path = "/settings/account" if link_flow else ("/sign-up" if flow == "signup" else "/login")
     invitation_flow = flow == "share_invitation"
     page_title = (
         "Откройте итоги встречи"
         if invitation_flow
-        else ("Подтвердите почту" if flow == "signup" else "Подтвердите вход")
+        else (
+            "Подтвердите email для подключения"
+            if link_flow
+            else ("Подтвердите почту" if flow == "signup" else "Подтвердите вход")
+        )
     )
     subtitle = (
         f"Проверьте {email}: мы отправили 6-значный код. Если аккаунта GRAF ещё нет, "
@@ -157,7 +173,11 @@ def render_email_code_page(
         else (
             f"Проверьте {email}: мы отправили 6-значный код для создания аккаунта."
             if flow == "signup"
-            else f"Проверьте {email}: мы отправили 6-значный код для входа."
+            else (
+                f"Проверьте {email}: мы отправили 6-значный код для подключения к текущему аккаунту."
+                if link_flow
+                else f"Проверьте {email}: мы отправили 6-значный код для входа."
+            )
         )
     )
     content = render_template(
@@ -170,10 +190,13 @@ def render_email_code_page(
         email=email,
         state_nonce=state_nonce,
         next_path=safe_next,
+        csrf_token=csrf_token,
         dev_code=dev_code,
         error_message=_login_error_message(error),
     )
-    return _standalone_page("Код входа", content, product_analytics_provider=product_analytics_provider)
+    return _standalone_page(
+        "Код входа", content, product_analytics_provider=product_analytics_provider
+    )
 
 
 def _standalone_page(
@@ -221,6 +244,7 @@ def _login_error_message(error: str | None) -> str | None:
         "provider_future": "Этот способ входа появится позже. Сейчас используйте вход по email.",
         "auth_dependency_unavailable": "Сервис входа временно недоступен.",
         "email_invalid": "Введите корректный email.",
+        "ambiguous_email_recovery_required": "Этот email связан с несколькими аккаунтами. Вход временно заблокирован, чтобы не открыть чужие встречи. Подтвердите второй способ входа для безопасного объединения аккаунтов.",
         "email_start_unavailable": "Не удалось отправить код. Проверьте email и попробуйте снова.",
         "email_delivery_unavailable": "Почтовая доставка временно недоступна. Попробуйте запросить код еще раз.",
         "auth_rate_limited": "Слишком много попыток. Попробуйте снова через несколько минут.",

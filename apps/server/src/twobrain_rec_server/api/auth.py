@@ -131,6 +131,7 @@ class ProviderLinkConfirmResponse(BaseModel):
     provider: str
     status: str
     idempotent: bool
+    merge_intent_id: UUID | None = None
 
 
 class AuthCallbackResponse(BaseModel):
@@ -813,6 +814,7 @@ async def start_provider_link_flow(
 @router.post(
     "/provider-links/{link_state_id}/confirm",
     response_model=ProviderLinkConfirmResponse,
+    response_model_exclude_none=True,
     dependencies=[WebCSRFDependency],
 )
 async def confirm_provider_link_flow(
@@ -858,8 +860,9 @@ async def confirm_provider_link_flow(
     await db.commit()
     return ProviderLinkConfirmResponse(
         provider=confirmed.provider,
-        status="confirmed",
+        status=confirmed.status,
         idempotent=confirmed.idempotent,
+        merge_intent_id=confirmed.merge_intent_id,
     )
 
 

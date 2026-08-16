@@ -131,6 +131,10 @@ BILLING_LAUNCH_GATES_MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0072_billing_launch_gates.py"
 )
+ACCOUNT_AUTH_LINKING_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0073_account_auth_linking.py"
+)
 PRODUCTION_SMOKE_SETUP_MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0023_production_smoke_setup.py"
@@ -197,6 +201,7 @@ def test_migration_and_contract_share_maintenance_operations() -> None:
         + LEGACY_LINEAGE_MIGRATION.read_text(encoding="utf-8")
         + OUTCOME_BASELINE_MIGRATION.read_text(encoding="utf-8")
         + BILLING_FOUNDATION_MIGRATION.read_text(encoding="utf-8")
+        + ACCOUNT_AUTH_LINKING_MIGRATION.read_text(encoding="utf-8")
     )
 
     for operation_name in sorted(RLS_ALLOWED_MAINTENANCE_OPERATIONS):
@@ -241,3 +246,15 @@ def test_uuid_setting_helper_is_sql_only_for_postgres_migration_stability() -> N
     assert "language sql" in helper_block
     assert "language plpgsql" not in helper_block
     assert "exception when" not in helper_block
+
+
+def test_account_merge_rls_boundary_is_narrow_and_proof_bound() -> None:
+    migration_text = ACCOUNT_AUTH_LINKING_MIGRATION.read_text(encoding="utf-8")
+
+    assert "session_user = 'twobrain_rec_app'" in migration_text
+    assert "rec_setting('app.context_kind') = 'account_merge'" in migration_text
+    assert "email_proof_state = 'verified'" in migration_text
+    assert "oauth_proof_state = 'verified'" in migration_text
+    assert "'completed'" in migration_text
+    assert "grant execute on function rec_account_merge_context_valid()" in migration_text
+    assert "session_user = 'twobrain_rec_maintenance'" in migration_text
