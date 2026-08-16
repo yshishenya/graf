@@ -59,7 +59,7 @@ infrastructure, deletion, diagnostics, and high-risk UX work.
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at specs/154-meeting-email-auth-regression/plan.md
+at specs/156-recording-source-indicator/plan.md
 <!-- SPECKIT END -->
 
 ## Tracking and product gates
@@ -163,3 +163,39 @@ infra/scripts/ci-local.sh
 - Если оставляешь намеренное упрощение, помечай его `ponytail:` comment с потолком решения и trigger/upgrade path; периодически собирай такие места через `@ponytail-debt`.
 - Если пользователь просит `@ponytail off`, `normal mode` или явно настаивает на полной версии, выполняй это без спора.
 <!-- SPECKIT PONYTAIL END -->
+
+Все GitHub issues в этом репозитории, созданные вручную, через
+`$speckit-taskstoissues` или через прямой `gh issue create`, должны следовать
+project issue canon в `docs/agent-guidance/github-issue-canon.md`.
+
+Обязательный формат title:
+
+```text
+[<feature>][<priority>][<area>] T###: <русский результат>
+```
+
+Обязательные секции issue body, в таком порядке:
+
+- `Кратко`
+- `Контекст`
+- `Проблема`
+- `Проверенные факты`
+- `Границы задачи`
+- `Критерии приемки`
+- `Что проверить перед закрытием`
+- `Заметки по реализации`
+- `Ссылки`
+
+Spec Kit issue sync должен сохранять связь с номером фичи, task ID,
+validation evidence, PR и closure criteria. Используй labels как structured
+metadata: `feature:<number>`, `priority:P0`-`priority:P3`, `area:<name>`,
+`gate:<name>` и `type:<name>`.
+
+PR description, issue comments, closure comments и sync notes пиши на русском
+простым языком. `Fixes #...`, `Closes #...` и `Resolves #...` используй
+только когда PR полностью закрывает issue; для частичной связи используй
+`Refs #...` или `Part of #...`.
+
+Перед закрытием issue добавь подробный русский closure comment: что закрыто,
+почему это важно, как проверено, что не входит, какой PR и какой Spec Kit task
+закрыты.

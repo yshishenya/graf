@@ -176,6 +176,7 @@ public struct DesktopPermissionOnboardingView: View {
         }
         .padding(24)
         .frame(width: 540)
+        .tint(DesktopMeetingShellChrome.shellAccentColor)
         .accessibilityIdentifier(DesktopPermissionOnboardingAccessibilityIdentifier.sheet)
     }
 }
@@ -230,7 +231,7 @@ private struct PermissionOnboardingRow: View {
                         )
                             .disabled(isRequesting)
                     }
-                    .controlSize(.small)
+                    .buttonStyle(DesktopWebButtonStyle(.secondary))
                 }
             }
         }

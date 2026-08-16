@@ -245,9 +245,9 @@ public struct DesktopCabinetWorkspaceView: View {
         func body(content: Content) -> some View {
             Group {
                 if prominent {
-                    content.buttonStyle(.borderedProminent)
+                    content.buttonStyle(DesktopWebButtonStyle(.primary))
                 } else {
-                    content.buttonStyle(.bordered)
+                    content.buttonStyle(DesktopWebButtonStyle(.secondary))
                 }
             }
             .controlSize(.regular)

@@ -111,8 +111,7 @@ struct DesktopSupportIncidentActionStrip: View {
                         Label(sendButtonTitle, systemImage: "questionmark.bubble")
                     }
                     .font(.caption)
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                    .buttonStyle(DesktopWebButtonStyle(.secondary))
                     .disabled(isSending)
                     .accessibilityLabel(DesktopSupportIncidentActionCopy.sendTitle)
                     .help("Отправить запрос в поддержку GRAF.")
@@ -123,8 +122,7 @@ struct DesktopSupportIncidentActionStrip: View {
                         Label(DesktopSupportIncidentActionCopy.syncTitle, systemImage: "arrow.triangle.2.circlepath")
                     }
                     .font(.caption)
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                    .buttonStyle(DesktopWebButtonStyle(.secondary))
                     .disabled(isSending)
                     .accessibilityLabel(DesktopSupportIncidentActionCopy.syncTitle)
                 }
@@ -134,8 +132,7 @@ struct DesktopSupportIncidentActionStrip: View {
                         Label(DesktopSupportIncidentActionCopy.signInTitle, systemImage: "person.crop.circle.badge.exclamationmark")
                     }
                     .font(.caption)
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                    .buttonStyle(DesktopWebButtonStyle(.secondary))
                     .accessibilityLabel(DesktopSupportIncidentActionCopy.signInTitle)
                 }
 
@@ -145,8 +142,7 @@ struct DesktopSupportIncidentActionStrip: View {
                         Label(DesktopSupportIncidentActionCopy.copyTitle, systemImage: "doc.on.doc")
                     }
                     .font(.caption)
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                    .buttonStyle(DesktopWebButtonStyle(.secondary))
                     .accessibilityLabel(DesktopSupportIncidentActionCopy.copyTitle)
                     .help("Скопировать только безопасную metadata-only сводку.")
                 }
