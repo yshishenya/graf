@@ -31,6 +31,12 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertEqual(DesktopMeetingShellChrome.shellSurfaceHex, "#1c1c1f")
         XCTAssertEqual(DesktopMeetingShellChrome.recordingStripHex, "#342087")
         XCTAssertEqual(DesktopMeetingShellChrome.shellAccentHex, "#8c73ff")
+        XCTAssertEqual(DesktopMeetingShellChrome.webButtonHeight, 32)
+        XCTAssertEqual(DesktopMeetingShellChrome.webButtonCornerRadius, 7)
+        XCTAssertEqual(DesktopMeetingShellChrome.webButtonHorizontalPadding, 12)
+        XCTAssertEqual(DesktopMeetingShellChrome.webButtonPrimaryHex, "#8c73ff")
+        XCTAssertEqual(DesktopMeetingShellChrome.webButtonSecondaryDarkHex, "#26282c")
+        XCTAssertEqual(DesktopMeetingShellChrome.webButtonBorderDarkHex, "#30343a")
         XCTAssertEqual(DesktopMeetingShellChrome.webEmbeddedBackgroundHex, DesktopMeetingShellChrome.shellBackgroundHex)
         XCTAssertEqual(DesktopMeetingShellChrome.fontStackDescription, "SF Pro Text / system")
         XCTAssertEqual(DesktopMeetingShellChrome.compactRailLabels, ["Статус записи", "Локальная сохранность"])
@@ -144,7 +150,7 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertEqual(DesktopMeetingShellChrome.spacingMedium, 16)
         XCTAssertEqual(DesktopMeetingShellChrome.spacingLarge, 16)
         XCTAssertEqual(DesktopMeetingShellChrome.spacingXLarge, 24)
-        XCTAssertEqual(DesktopMeetingShellChrome.controlHeight, 36)
+        XCTAssertEqual(DesktopMeetingShellChrome.controlHeight, 32)
         XCTAssertEqual(DesktopMeetingShellChrome.minimumInteractiveTarget, 40)
 
         let root = try Self.repositoryRoot()
@@ -156,6 +162,10 @@ final class AppControlAccessibilityTests: XCTestCase {
             contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/Capture/CaptureControlViewCore.swift"),
             encoding: .utf8
         )
+        let settingsSource = try String(
+            contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/MeetingDetection/MeetingDetectionSettingsView.swift"),
+            encoding: .utf8
+        )
 
         XCTAssertTrue(shellSource.contains("@Environment(\\.colorSchemeContrast)"))
         XCTAssertTrue(captureSource.contains("@Environment(\\.colorSchemeContrast)"))
@@ -165,6 +175,11 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertTrue(shellSource.contains("DesktopMeetingShellChrome.spacingMedium"))
         XCTAssertTrue(captureSource.contains("DesktopMeetingShellChrome.spacingMedium"))
         XCTAssertTrue(shellSource.contains(".contentShape(Rectangle())"))
+        XCTAssertTrue(shellSource.contains("DesktopWebButtonStyle"))
+        XCTAssertTrue(shellSource.contains(".tint(DesktopMeetingShellChrome.shellAccentColor)"))
+        XCTAssertFalse(shellSource.contains("buttonStyle(.borderedProminent)"))
+        XCTAssertFalse(captureSource.contains("buttonStyle(.borderedProminent)"))
+        XCTAssertTrue(settingsSource.contains(".tint(DesktopMeetingShellChrome.shellAccentColor)"))
     }
 
     func testFeature121NarrowKeyboardContrastAndMotionContract() throws {

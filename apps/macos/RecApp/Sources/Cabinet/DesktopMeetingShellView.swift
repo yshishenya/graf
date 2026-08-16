@@ -7,7 +7,22 @@ public enum DesktopMeetingShellChrome {
     public static let spacingMedium: CGFloat = 16
     public static let spacingLarge: CGFloat = 16
     public static let spacingXLarge: CGFloat = 24
-    public static let controlHeight: CGFloat = 36
+    public static let controlHeight: CGFloat = 32
+    public static let webButtonHeight: CGFloat = 32
+    public static let webButtonCornerRadius: CGFloat = 7
+    public static let webButtonHorizontalPadding: CGFloat = 12
+    public static let webButtonDisabledOpacity: CGFloat = 0.68
+    public static let webButtonPrimaryHex = "#8c73ff"
+    public static let webButtonSecondaryDarkHex = "#26282c"
+    public static let webButtonBorderDarkHex = "#30343a"
+    public static let webButtonPrimaryColor = Color(red: 0.549, green: 0.451, blue: 1.000)
+    public static let webButtonSecondaryDarkColor = Color(red: 0.149, green: 0.157, blue: 0.173)
+    public static let webButtonSecondaryLightColor = Color(red: 0.957, green: 0.961, blue: 0.969)
+    public static let webButtonBorderDarkColor = Color(red: 0.188, green: 0.204, blue: 0.227)
+    public static let webButtonBorderLightColor = Color(red: 0.788, green: 0.804, blue: 0.827)
+    public static let webButtonTextDarkColor = Color(red: 0.910, green: 0.918, blue: 0.933)
+    public static let webButtonTextLightColor = Color(red: 0.110, green: 0.125, blue: 0.149)
+    public static let webButtonDestructiveColor = Color(red: 1.000, green: 0.420, blue: 0.420)
     public static let minimumInteractiveTarget: CGFloat = 40
     public static let collapsedInspectorWidth: CGFloat = 52
     public static let expandedInspectorWidth: CGFloat = 308
@@ -60,6 +75,74 @@ public enum DesktopMeetingShellChrome {
             return "Запись аудио"
         case .transcriptOnly:
             return "Транскрибация"
+        }
+    }
+}
+
+public enum DesktopWebButtonVariant: Equatable, Sendable {
+    case secondary
+    case primary
+    case destructive
+}
+
+public struct DesktopWebButtonStyle: ButtonStyle {
+    private let variant: DesktopWebButtonVariant
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.isEnabled) private var isEnabled
+
+    public init(_ variant: DesktopWebButtonVariant = .secondary) {
+        self.variant = variant
+    }
+
+    public func makeBody(configuration: Configuration) -> some View {
+        let shape = RoundedRectangle(
+            cornerRadius: DesktopMeetingShellChrome.webButtonCornerRadius,
+            style: .continuous
+        )
+
+        configuration.label
+            .font(.system(size: 13, weight: variant == .primary ? .bold : .medium))
+            .foregroundStyle(foregroundColor)
+            .padding(.horizontal, DesktopMeetingShellChrome.webButtonHorizontalPadding)
+            .frame(minHeight: DesktopMeetingShellChrome.webButtonHeight)
+            .background(
+                backgroundColor.opacity(configuration.isPressed ? 0.86 : 1),
+                in: shape
+            )
+            .overlay(shape.stroke(borderColor, lineWidth: 1))
+            .opacity(isEnabled ? 1 : DesktopMeetingShellChrome.webButtonDisabledOpacity)
+    }
+
+    private var isDark: Bool {
+        colorScheme == .dark
+    }
+
+    private var backgroundColor: Color {
+        variant == .primary
+            ? DesktopMeetingShellChrome.webButtonPrimaryColor
+            : (isDark
+                ? DesktopMeetingShellChrome.webButtonSecondaryDarkColor
+                : DesktopMeetingShellChrome.webButtonSecondaryLightColor)
+    }
+
+    private var borderColor: Color {
+        variant == .primary
+            ? DesktopMeetingShellChrome.webButtonPrimaryColor
+            : (isDark
+                ? DesktopMeetingShellChrome.webButtonBorderDarkColor
+                : DesktopMeetingShellChrome.webButtonBorderLightColor)
+    }
+
+    private var foregroundColor: Color {
+        switch variant {
+        case .primary:
+            return .white
+        case .secondary:
+            return isDark
+                ? DesktopMeetingShellChrome.webButtonTextDarkColor
+                : DesktopMeetingShellChrome.webButtonTextLightColor
+        case .destructive:
+            return DesktopMeetingShellChrome.webButtonDestructiveColor
         }
     }
 }
@@ -211,6 +294,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(DesktopMeetingShellChrome.shellBackgroundColor)
+        .tint(DesktopMeetingShellChrome.shellAccentColor)
         .background {
             RecordingTitlebarAccessory(
                 session: recordingStripSession,
@@ -703,7 +787,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                     )
                     .background(
                         RoundedRectangle(cornerRadius: 9, style: .continuous)
-                            .fill(DesktopMeetingShellChrome.shellAccentColor)
+                            .fill(DesktopMeetingShellChrome.webButtonPrimaryColor)
                     )
             }
             .buttonStyle(.plain)
@@ -1248,8 +1332,7 @@ private struct RecordingTitlebarHUD: View {
             Button(action: onPause) {
                 Label(SystemAudioStatusLabels.pauseButtonTitle, systemImage: "pause.fill")
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+            .buttonStyle(DesktopWebButtonStyle(.secondary))
             .disabled(!session.stopActionAvailable || transitionInProgress)
             .accessibilityLabel(SystemAudioStatusLabels.pauseButtonAccessibilityLabel)
             .help(SystemAudioStatusLabels.pauseButtonAccessibilityLabel)
@@ -1257,8 +1340,7 @@ private struct RecordingTitlebarHUD: View {
             Button(action: onResume) {
                 Label(SystemAudioStatusLabels.resumeButtonTitle, systemImage: "play.fill")
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+            .buttonStyle(DesktopWebButtonStyle(.secondary))
             .disabled(!session.stopActionAvailable || transitionInProgress)
             .accessibilityLabel(SystemAudioStatusLabels.resumeButtonAccessibilityLabel)
             .help(SystemAudioStatusLabels.resumeButtonAccessibilityLabel)
@@ -1268,9 +1350,7 @@ private struct RecordingTitlebarHUD: View {
             Button(role: .destructive, action: onStop) {
                 Label("Стоп", systemImage: "stop.fill")
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
-            .tint(.red)
+            .buttonStyle(DesktopWebButtonStyle(.destructive))
             .disabled(!session.stopActionAvailable || transitionInProgress)
             .accessibilityLabel(SystemAudioStatusLabels.stopButtonAccessibilityLabel)
             .help(SystemAudioStatusLabels.stopButtonAccessibilityLabel)

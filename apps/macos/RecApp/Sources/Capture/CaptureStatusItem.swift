@@ -64,8 +64,7 @@ public struct CaptureStatusItem: View {
                                 .lineLimit(1)
                                 .frame(maxWidth: .infinity)
                         }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
+                        .buttonStyle(DesktopWebButtonStyle(.secondary))
                         .frame(maxWidth: .infinity, minHeight: DesktopMeetingShellChrome.controlHeight)
                         .disabled(!Self.shouldEnablePauseButton(for: session, pauseDisabled: pauseDisabled))
                         .accessibilityLabel(SystemAudioStatusLabels.pauseButtonAccessibilityLabel)
@@ -79,8 +78,7 @@ public struct CaptureStatusItem: View {
                                 .lineLimit(1)
                                 .frame(maxWidth: .infinity)
                         }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
+                        .buttonStyle(DesktopWebButtonStyle(.secondary))
                         .frame(maxWidth: .infinity, minHeight: DesktopMeetingShellChrome.controlHeight)
                         .disabled(!Self.shouldEnableResumeButton(for: session, pauseDisabled: pauseDisabled))
                         .accessibilityLabel(SystemAudioStatusLabels.resumeButtonAccessibilityLabel)
@@ -93,8 +91,7 @@ public struct CaptureStatusItem: View {
                             .lineLimit(1)
                             .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
+                    .buttonStyle(DesktopWebButtonStyle(.destructive))
                     .frame(maxWidth: .infinity, minHeight: DesktopMeetingShellChrome.controlHeight)
                     .disabled(!canStop || stopDisabled)
                     .accessibilityLabel(SystemAudioStatusLabels.stopButtonAccessibilityLabel)
