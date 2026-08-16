@@ -199,7 +199,12 @@ async def billing_browser_handoff(
     callback_state.error_code = None
     await db.commit()
     redirect = RedirectResponse("/billing", status_code=303)
-    _set_browser_auth_cookie(redirect, token=session_token, expires_at=auth_session.expires_at)
+    _set_browser_auth_cookie(
+        request,
+        redirect,
+        token=session_token,
+        expires_at=auth_session.expires_at,
+    )
     return redirect
 
 

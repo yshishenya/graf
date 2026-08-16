@@ -140,6 +140,7 @@ async def activate_accessible_space(
         )
     if activated.issued_session.token:
         _set_browser_auth_cookie(
+            request,
             response,
             token=activated.issued_session.token,
             expires_at=activated.issued_session.expires_at,

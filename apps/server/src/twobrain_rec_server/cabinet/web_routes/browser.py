@@ -568,6 +568,7 @@ async def share_invitation_magic_link(
     )
     if issued_token is not None and issued_expires_at is not None:
         _set_browser_auth_cookie(
+            request,
             response,
             token=issued_token,
             expires_at=issued_expires_at,
