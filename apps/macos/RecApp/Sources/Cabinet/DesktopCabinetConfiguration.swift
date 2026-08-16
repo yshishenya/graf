@@ -7,6 +7,7 @@ public struct DesktopCabinetConfiguration: Equatable, Sendable {
     public static let legacyBaseURLEnvironmentKey = "TWO_BRAIN_REC_CABINET_BASE_URL"
     public static let legacyFallbackBaseURLEnvironmentKey = "TWO_BRAIN_REC_UPLOAD_BASE_URL"
     public static let requireExplicitBaseURLEnvironmentKey = "GRAF_CABINET_REQUIRE_EXPLICIT_BASE_URL"
+    public static let localAppEnvironmentKey = "GRAF_LOCAL_APP"
     public static let baseURLUserDefaultsKey = "GRAF_CABINET_BASE_URL"
     public static let fallbackBaseURLUserDefaultsKey = "GRAF_UPLOAD_BASE_URL"
     public static let legacyBaseURLUserDefaultsKey = "TWO_BRAIN_REC_CABINET_BASE_URL"
@@ -18,6 +19,7 @@ public struct DesktopCabinetConfiguration: Equatable, Sendable {
     public let headers: [String: String]
     public let loadTimeoutSeconds: TimeInterval
     public let source: String
+    public let isLocalDevelopment: Bool
 
     public var workspaceId: String? {
         headers["X-Workspace-Id"]
@@ -34,10 +36,13 @@ public struct DesktopCabinetConfiguration: Equatable, Sendable {
         else {
             return nil
         }
-        self.baseURL = normalized
-        self.headers = headers
-        self.loadTimeoutSeconds = max(1, loadTimeoutSeconds)
-        self.source = source
+        self.init(
+            baseURL: normalized,
+            headers: headers,
+            loadTimeoutSeconds: loadTimeoutSeconds,
+            source: source,
+            isLocalDevelopment: false
+        )
     }
 
     public init(
@@ -46,10 +51,13 @@ public struct DesktopCabinetConfiguration: Equatable, Sendable {
         loadTimeoutSeconds: TimeInterval = defaultLoadTimeoutSeconds,
         source: String = "provided"
     ) {
-        self.baseURL = Self.normalizedHTTPOrigin(baseURL) ?? baseURL
-        self.headers = headers
-        self.loadTimeoutSeconds = max(1, loadTimeoutSeconds)
-        self.source = source
+        self.init(
+            baseURL: baseURL,
+            headers: headers,
+            loadTimeoutSeconds: loadTimeoutSeconds,
+            source: source,
+            isLocalDevelopment: false
+        )
     }
 
     public static func configured(
@@ -57,6 +65,21 @@ public struct DesktopCabinetConfiguration: Equatable, Sendable {
         defaults: UserDefaults = .standard,
         includePackagedDefault: Bool = true
     ) -> DesktopCabinetConfiguration? {
+        let localAppRequested = isLocalAppRequested(from: environment)
+        if localAppRequested {
+            guard requiresExplicitBaseURL(from: environment) else { return nil }
+            guard let rawBaseURL = configuredBaseURLCandidate(
+                from: environment,
+                defaults: defaults,
+                includePackagedDefault: false
+            )?.rawURL,
+            let url = URL(string: rawBaseURL),
+            let normalized = normalizedHTTPOrigin(url),
+            isLoopbackHTTPOrigin(normalized)
+            else {
+                return nil
+            }
+        }
         guard let candidate = configuredBaseURLCandidate(
             from: environment,
             defaults: defaults,
@@ -64,10 +87,17 @@ public struct DesktopCabinetConfiguration: Equatable, Sendable {
         ) else {
             return nil
         }
+        guard let url = URL(string: candidate.rawURL),
+              let normalized = normalizedHTTPOrigin(url)
+        else {
+            return nil
+        }
         return DesktopCabinetConfiguration(
-            rawBaseURL: candidate.rawURL,
+            baseURL: normalized,
             headers: configuredHeaders(from: environment),
-            source: candidate.source
+            loadTimeoutSeconds: defaultLoadTimeoutSeconds,
+            source: candidate.source,
+            isLocalDevelopment: localAppRequested
         )
     }
 
@@ -77,6 +107,10 @@ public struct DesktopCabinetConfiguration: Equatable, Sendable {
 
     public static func requiresExplicitBaseURL(from environment: [String: String]) -> Bool {
         ["1", "true", "yes"].contains(environment[requireExplicitBaseURLEnvironmentKey]?.lowercased() ?? "")
+    }
+
+    public static func isLocalAppRequested(from environment: [String: String]) -> Bool {
+        ["1", "true", "yes"].contains(environment[localAppEnvironmentKey]?.lowercased() ?? "")
     }
 
     public static func configuredHeaders(from environment: [String: String]) -> [String: String] {
@@ -151,6 +185,24 @@ public struct DesktopCabinetConfiguration: Equatable, Sendable {
         components.host = url.host
         components.port = url.port
         return components.url
+    }
+
+    private static func isLoopbackHTTPOrigin(_ url: URL) -> Bool {
+        url.scheme == "http" && ["127.0.0.1", "localhost"].contains(url.host?.lowercased() ?? "")
+    }
+
+    private init(
+        baseURL: URL,
+        headers: [String: String],
+        loadTimeoutSeconds: TimeInterval,
+        source: String,
+        isLocalDevelopment: Bool
+    ) {
+        self.baseURL = Self.normalizedHTTPOrigin(baseURL) ?? baseURL
+        self.headers = headers
+        self.loadTimeoutSeconds = max(1, loadTimeoutSeconds)
+        self.source = source
+        self.isLocalDevelopment = isLocalDevelopment
     }
 
     private static func shouldRedactHeader(named name: String) -> Bool {

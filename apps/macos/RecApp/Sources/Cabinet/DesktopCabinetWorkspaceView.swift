@@ -201,6 +201,13 @@ public struct DesktopCabinetWorkspaceView: View {
 
     private var recoveryActionTitle: String? {
         guard recoveryTarget != nil else { return nil }
+        if let configuration,
+           DesktopCabinetWorkspace.shouldUseLocalLoginRecovery(
+               for: activeCabinetState,
+               configuration: configuration
+           ) {
+            return "Войти в кабинет"
+        }
         guard activeCabinetState == .blockedRoute else {
             return activeCabinetState.recoveryActionTitle
         }

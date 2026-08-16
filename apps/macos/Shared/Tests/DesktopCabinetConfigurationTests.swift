@@ -81,6 +81,49 @@ final class DesktopCabinetConfigurationTests: XCTestCase {
         XCTAssertEqual(configuration.baseURL.absoluteString, "http://127.0.0.1:8081")
     }
 
+    func testLocalAppProfileRequiresExplicitLoopbackHTTPOrigin() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "DesktopCabinetConfigurationTests.local-app-profile"))
+        defaults.removePersistentDomain(forName: "DesktopCabinetConfigurationTests.local-app-profile")
+        let localFlag = DesktopCabinetConfiguration.localAppEnvironmentKey
+        let explicitFlag = DesktopCabinetConfiguration.requireExplicitBaseURLEnvironmentKey
+        let baseURL = DesktopCabinetConfiguration.baseURLEnvironmentKey
+
+        let local = try XCTUnwrap(DesktopCabinetConfiguration.configured(
+            from: [localFlag: "1", explicitFlag: "1", baseURL: "http://127.0.0.1:8081"],
+            defaults: defaults
+        ))
+        XCTAssertTrue(local.isLocalDevelopment)
+
+        XCTAssertNil(DesktopCabinetConfiguration.configured(
+            from: [localFlag: "1", baseURL: "https://rec.2brain.pro"],
+            defaults: defaults,
+            includePackagedDefault: false
+        ))
+        XCTAssertNil(DesktopCabinetConfiguration.configured(
+            from: [localFlag: "1", explicitFlag: "1", baseURL: "https://rec.2brain.pro"],
+            defaults: defaults,
+            includePackagedDefault: false
+        ))
+        XCTAssertNil(DesktopCabinetConfiguration.configured(
+            from: [localFlag: "1", explicitFlag: "1", baseURL: "http://192.168.1.10:8081"],
+            defaults: defaults,
+            includePackagedDefault: false
+        ))
+    }
+
+    func testProductionConfigurationDoesNotActivateLocalAppProfile() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "DesktopCabinetConfigurationTests.production-profile"))
+        defaults.removePersistentDomain(forName: "DesktopCabinetConfigurationTests.production-profile")
+
+        let configuration = try XCTUnwrap(DesktopCabinetConfiguration.configured(
+            from: [DesktopCabinetConfiguration.baseURLEnvironmentKey: "https://rec.2brain.pro"],
+            defaults: defaults,
+            includePackagedDefault: false
+        ))
+
+        XCTAssertFalse(configuration.isLocalDevelopment)
+    }
+
     func testConfiguredPrefersPersistedCabinetOriginBeforePackagedDefault() throws {
         let suiteName = "DesktopCabinetConfigurationTests.persisted-origin"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
@@ -235,6 +278,29 @@ final class DesktopCabinetConfigurationTests: XCTestCase {
             policy.decision(forNavigationResponse: opaqueResponse, isForMainFrame: true),
             .cancel(.malformedResponse)
         )
+    }
+
+    func testAuthFormErrorsRemainVisibleInsideTheEmbeddedLoginFlow() throws {
+        let policy = DesktopCabinetNavigationResponsePolicy(
+            routePolicy: DesktopCabinetRoutePolicy(
+                baseURL: try XCTUnwrap(URL(string: "http://127.0.0.1:8081"))
+            )
+        )
+
+        for statusCode in [400, 401, 429, 503] {
+            let response = try XCTUnwrap(HTTPURLResponse(
+                url: try XCTUnwrap(URL(string: "http://127.0.0.1:8081/login/email/start")),
+                statusCode: statusCode,
+                httpVersion: nil,
+                headerFields: nil
+            ))
+
+            XCTAssertEqual(
+                policy.decision(forNavigationResponse: response, isForMainFrame: true),
+                .allow,
+                "status=\(statusCode)"
+            )
+        }
     }
 
     func testAttachmentResponseBecomesNativeDownloadInsteadOfCabinetNavigation() throws {

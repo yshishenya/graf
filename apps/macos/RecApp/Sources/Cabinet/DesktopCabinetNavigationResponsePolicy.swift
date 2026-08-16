@@ -23,6 +23,9 @@ public struct DesktopCabinetNavigationResponsePolicy: Equatable {
             }
             return .cancel(.malformedResponse)
         }
+        if isAuthFormDocument(httpResponse.url) {
+            return .allow
+        }
         let isArtifact = isArtifactDownload(httpResponse.url)
         guard let state = DesktopCabinetState.state(forHTTPResponse: httpResponse) else {
             guard isArtifact else {
@@ -45,6 +48,12 @@ public struct DesktopCabinetNavigationResponsePolicy: Equatable {
         guard let url, let routePolicy else { return false }
         let decision = routePolicy.decision(for: url)
         return decision.decision == .allow && decision.route.kind == .artifactDownload
+    }
+
+    private func isAuthFormDocument(_ url: URL?) -> Bool {
+        guard let url, let routePolicy else { return false }
+        let kind = routePolicy.decision(for: url).route.kind
+        return [.authLogin, .authSignup].contains(kind)
     }
 
     private static func isAttachmentResponse(_ response: HTTPURLResponse) -> Bool {

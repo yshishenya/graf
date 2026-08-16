@@ -267,6 +267,9 @@ public enum DesktopCabinetWorkspace {
         initialRoute: URL?,
         configuration: DesktopCabinetConfiguration
     ) -> DesktopCabinetRecoveryTarget? {
+        if shouldUseLocalLoginRecovery(for: state, configuration: configuration) {
+            return .embedded(loginRoute(configuration: configuration))
+        }
         switch state {
         case .expiredSession, .workspaceReselectionRequired:
             let nextRoute = retryableDocumentRoute(
@@ -288,6 +291,14 @@ public enum DesktopCabinetWorkspace {
         default:
             return nil
         }
+    }
+
+    public static func shouldUseLocalLoginRecovery(
+        for state: DesktopCabinetState,
+        configuration: DesktopCabinetConfiguration
+    ) -> Bool {
+        configuration.isLocalDevelopment &&
+            [.offline, .timeout, .expiredSession, .malformedResponse].contains(state)
     }
 
     private static func retryableDocumentRoute(
