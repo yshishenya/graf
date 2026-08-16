@@ -431,8 +431,7 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
             // navigationDidStart, where its identity is available.
             pendingNavigationURL = url
             if (request.httpMethod ?? "GET").uppercased() != "GET",
-               (isProtectedMeetingRoute(url, routePolicy: routePolicy)
-                    || isAuthRoute(decision.route.kind)) {
+               isProtectedMeetingRoute(url, routePolicy: routePolicy) {
                 historyFencePending = true
             }
         }
