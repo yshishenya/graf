@@ -12,6 +12,9 @@ from twobrain_rec_server.cabinet.web_routes.billing import (
     _checkout_result_redirect,
     _processing_threshold_label,
 )
+from twobrain_rec_server.cabinet.web_routes.billing import (
+    router as billing_router,
+)
 
 
 def test_billing_labels_are_localized_for_user_surfaces() -> None:
@@ -20,6 +23,12 @@ def test_billing_labels_are_localized_for_user_surfaces() -> None:
     assert _processing_threshold_label("normal") == "В норме"
     assert _processing_threshold_label("approaching") == "Приближается к лимиту"
     assert _processing_threshold_label("exhausted") == "Лимит исчерпан"
+
+
+def test_billing_keeps_legacy_account_alias_on_canonical_surface() -> None:
+    paths = {route.path for route in billing_router.routes}
+    assert "/settings/billing" in paths
+    assert "/account/billing" in paths
 
 
 def test_billing_hub_uses_exact_free_copy_and_external_refund_boundary() -> None:
@@ -365,15 +374,28 @@ def test_payment_method_and_discount_screens_expose_recoverable_owner_actions() 
         redemptions=[],
         billing_owner=True,
         billing_enabled=True,
+        checkout_promo_active=False,
         result=None,
     )
     assert 'action="/billing/payment-method/delete"' in method_html
     assert "Удалить способ оплаты" in method_html
     assert "08.08.2026, 12:00 (МСК)" in method_html
     assert 'action="/billing/discounts/apply"' in discounts_html
-    assert 'action="/billing/discounts/remove"' in discounts_html
+    assert 'action="/billing/discounts/remove"' not in discounts_html
     assert "Применить" in discounts_html
-    assert "Удалить" in discounts_html
+
+    active_discount_html = render_template(
+        "cabinet/pages/billing_discounts_content.html",
+        **common,
+        active_promotions=[],
+        redemptions=[],
+        billing_owner=True,
+        billing_enabled=True,
+        checkout_promo_active=True,
+        result=None,
+    )
+    assert 'action="/billing/discounts/remove"' in active_discount_html
+    assert "Удалить выбранный промокод" in active_discount_html
 
 
 def test_payment_method_delete_guard_remains_visible_when_renewal_is_enabled() -> None:

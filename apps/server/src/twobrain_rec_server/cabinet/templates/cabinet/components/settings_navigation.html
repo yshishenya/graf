@@ -2,9 +2,11 @@
 
 {% macro navigation(items, active=None, back_href=None) -%}
 <nav class="settings-navigation" aria-label="Разделы настроек">
-  {% if back_href %}
-  <a class="settings-navigation__back" href="{{ back_href }}"><span aria-hidden="true">←</span><span>Назад</span></a>
-  {% endif %}
+  {% set overview_href = "/desktop/settings" if items and items[0].href.startswith("/desktop/") else "/settings" %}
+  {% set overview_selected = (active or "overview") == "overview" %}
+  <a class="settings-navigation__item settings-navigation__item--overview{% if overview_selected %} is-selected{% endif %}" href="{{ overview_href }}"{% if overview_selected %} aria-current="page"{% endif %} data-settings-nav="overview">
+    <span>Обзор</span>
+  </a>
   {% set state = namespace(group=None) %}
   {% for item in items %}
   {% if item.group_label != state.group %}

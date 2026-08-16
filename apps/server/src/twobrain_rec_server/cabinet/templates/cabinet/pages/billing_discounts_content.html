@@ -16,7 +16,7 @@
           <div class="settings-actions"><button class="button" type="submit">Применить</button><a class="button quiet" href="/billing/checkout">Добавить промокод на оплате</a></div>
           <input type="hidden" name="csrf_token" value="{{ csrf_token|default('') }}">
         </form>{% else %}<p role="status">Промокоды временно недоступны: магазин не включён.</p>{% endif %}
-        <form action="/billing/discounts/remove" method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token|default('') }}"><button class="button quiet" type="submit">Удалить</button></form>
+        {% if checkout_promo_active|default(False) %}<form action="/billing/discounts/remove" method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token|default('') }}"><button class="button quiet" type="submit">Удалить выбранный промокод</button></form>{% endif %}
         {% endif %}
         {% if redemptions %}
         <ul class="settings-choice-list" aria-label="История скидок">

@@ -35,3 +35,11 @@
 1. MVP: complete US1 overview/navigation with existing category routes and accessibility state.
 2. Preserve and visually align US2 server-backed pages without changing their mutation contracts.
 3. Close US3 with responsive/browser evidence, then run the repository fast gate.
+
+## Phase 6: Audit remediation
+
+- [X] T011 [US3] Replace the full-height mobile settings rail with a compact, keyboard-reachable horizontal rail in `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css` while keeping document overflow bounded.
+- [X] T012 [P] [US2] Fix notification label grouping, account-close confirmation description and conditional promo removal in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/components/notifications.html`, `cabinet/templates/cabinet/pages/settings_account_content.html` and `cabinet/templates/cabinet/pages/billing_discounts_content.html`.
+- [X] T013 [P] [US1] Keep referrals in the account IA context and redirect legacy `/account/billing` and `/account/settings` links to canonical surfaces in `cabinet/web_routes/referrals.py`, `cabinet/web_routes/billing.py` and `cabinet/web_routes/settings.py`.
+- [X] T014 [US3] Add focused contract coverage for mobile navigation, account-close semantics, conditional promo actions and legacy aliases under `apps/server/tests/`.
+- [X] T015 [US3] Run the focused settings/billing suites and `infra/scripts/ci-local.sh --fast`; record the evidence in `specs/151-settings-product-surface/quickstart.md`.

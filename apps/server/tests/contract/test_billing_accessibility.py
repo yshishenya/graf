@@ -99,7 +99,7 @@ def test_payment_method_delete_and_discount_actions_have_csrf_and_labels() -> No
     assert 'action="/billing/payment-method/delete" method="post"' in method
     assert "Удалить способ оплаты" in method
     assert 'action="/billing/discounts/apply" method="post"' in discounts
-    assert 'action="/billing/discounts/remove" method="post"' in discounts
+    assert 'checkout_promo_active|default(False)' in discounts
     assert "Применить" in discounts
     assert "Удалить" in discounts
 

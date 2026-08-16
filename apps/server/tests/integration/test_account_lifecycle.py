@@ -414,7 +414,7 @@ def test_account_preferences_persist_and_provider_unlink_keeps_recovery_path(cli
         follow_redirects=False,
     )
     assert preferences.status_code == 303
-    assert preferences.headers["location"].endswith("/account/profile?preferences=saved")
+    assert preferences.headers["location"].endswith("/settings/account?preferences=saved")
 
     identity_ids: list[UUID] = []
 
@@ -441,7 +441,7 @@ def test_account_preferences_persist_and_provider_unlink_keeps_recovery_path(cli
         follow_redirects=False,
     )
     assert unlinked.status_code == 303
-    assert unlinked.headers["location"].endswith("/account/profile?provider_unlink=success")
+    assert unlinked.headers["location"].endswith("/settings/account?provider_unlink=success")
 
     blocked = client.post(
         f"/settings/account/providers/{identity_ids[1]}/unlink",
