@@ -19,6 +19,78 @@ final class CaptureIndicatorTests: XCTestCase {
         )
     }
 
+    func testKnownRecordingSourceIsReadFromCurrentSessionEvidence() {
+        let session = makeSession(
+            state: .active,
+            indicator: .active,
+            stopAvailable: true,
+            triggerEvidence: ["sourceDisplayName": "Zoom"]
+        )
+
+        XCTAssertEqual(CaptureStatusItem.sourceDisplayName(for: session), "Zoom")
+        XCTAssertEqual(
+            CaptureStatusItem.sourceAccessibilityLabel(for: session),
+            "Источник: Zoom"
+        )
+    }
+
+    func testKnownRecordingSourceRemainsVisibleAcrossActiveLifecycleStates() {
+        for state in [
+            CaptureSessionState.detecting,
+            .ready,
+            .starting,
+            .active,
+            .paused,
+            .degraded,
+            .stopping
+        ] {
+            let session = makeSession(
+                state: state,
+                indicator: .active,
+                stopAvailable: state != .detecting && state != .ready,
+                triggerEvidence: ["sourceDisplayName": "Telemost"]
+            )
+
+            XCTAssertEqual(CaptureStatusItem.sourceDisplayName(for: session), "Telemost")
+        }
+    }
+
+    func testManualAndUnknownRecordingSourcesUseTruthfulFallbacks() {
+        let manual = makeSession(
+            state: .active,
+            indicator: .active,
+            stopAvailable: true,
+            triggerEvidence: ["sourceDisplayName": "Current display/system audio"]
+        )
+        let blank = makeSession(
+            state: .active,
+            indicator: .active,
+            stopAvailable: true,
+            triggerEvidence: ["sourceDisplayName": "  "]
+        )
+        let missing = makeSession(state: .active, indicator: .active, stopAvailable: true)
+        let stopped = makeSession(
+            state: .stopped,
+            indicator: .hidden,
+            stopAvailable: false,
+            triggerEvidence: ["sourceDisplayName": "Zoom"]
+        )
+
+        XCTAssertEqual(
+            CaptureStatusItem.sourceDisplayName(for: manual),
+            SystemAudioStatusLabels.recordingSourceSystemAudio
+        )
+        XCTAssertEqual(
+            CaptureStatusItem.sourceDisplayName(for: blank),
+            SystemAudioStatusLabels.recordingSourceUnknown
+        )
+        XCTAssertEqual(
+            CaptureStatusItem.sourceDisplayName(for: missing),
+            SystemAudioStatusLabels.recordingSourceUnknown
+        )
+        XCTAssertNil(CaptureStatusItem.sourceDisplayName(for: stopped))
+    }
+
     func testNonRecordingReadyLabelDoesNotImplyRecording() {
         let session = makeSession(state: .ready, indicator: .ready, stopAvailable: false)
 
@@ -97,7 +169,8 @@ final class CaptureIndicatorTests: XCTestCase {
     private func makeSession(
         state: CaptureSessionState,
         indicator: VisibleIndicatorState,
-        stopAvailable: Bool
+        stopAvailable: Bool,
+        triggerEvidence: [String: String] = [:]
     ) -> CaptureSession {
         CaptureSession(
             id: "indicator-session",
@@ -105,7 +178,7 @@ final class CaptureIndicatorTests: XCTestCase {
             state: state,
             sourceAppEligibility: .eligible,
             policySnapshotRef: "policy",
-            triggerEvidence: [:],
+            triggerEvidence: triggerEvidence,
             visibleIndicatorState: indicator,
             stopActionAvailable: stopAvailable,
             bufferSummaryId: nil,
