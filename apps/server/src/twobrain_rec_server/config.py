@@ -87,6 +87,7 @@ class Settings(BaseSettings):
         ),
     )
     email_login_delivery_enabled: bool = False
+    local_http_auth_cookie_enabled: bool = False
     email_login_from_address: str | None = None
     email_login_from_name: str = "GRAF"
     postal_api_url: AnyUrl | None = None

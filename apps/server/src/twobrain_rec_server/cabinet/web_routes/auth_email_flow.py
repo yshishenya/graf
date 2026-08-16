@@ -11,7 +11,10 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.auth.audit import write_auth_audit_event
-from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
+from twobrain_rec_server.auth.dependencies import (
+    auth_session_cookie_name,
+    auth_session_cookie_secure,
+)
 from twobrain_rec_server.auth.sessions import callback_expiry, hash_token, issue_auth_session
 from twobrain_rec_server.auth.workspace_onboarding import ensure_personal_workspace
 from twobrain_rec_server.billing.referral_binding import bind_referral_attribution
@@ -602,17 +605,17 @@ def _email_code_error_response(
     )
 
 
-def _set_browser_auth_cookie(response, *, token: str, expires_at: datetime) -> None:
+def _set_browser_auth_cookie(request: Request, response, *, token: str, expires_at: datetime) -> None:
     token_expires_at = expires_at
     if token_expires_at.tzinfo is None:
         token_expires_at = token_expires_at.replace(tzinfo=UTC)
     max_age = max(0, int((token_expires_at - datetime.now(UTC)).total_seconds()))
     response.set_cookie(
-        key=AUTH_SESSION_COOKIE_NAME,
+        key=auth_session_cookie_name(request),
         value=token,
         max_age=max_age,
         path="/",
-        secure=True,
+        secure=auth_session_cookie_secure(request),
         httponly=True,
         samesite="lax",
     )

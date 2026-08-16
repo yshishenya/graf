@@ -67,6 +67,20 @@ final class DesktopCabinetConfigurationTests: XCTestCase {
         XCTAssertNil(configuration.headers["X-User-Id"])
     }
 
+    func testLocalProfileRequiresExplicitCabinetOriginInsteadOfProductionFallback() throws {
+        let suiteName = "DesktopCabinetConfigurationTests.local-profile"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        XCTAssertNil(DesktopCabinetConfiguration.configured(
+            from: [DesktopCabinetConfiguration.requireExplicitBaseURLEnvironmentKey: "1"], defaults: defaults
+        ))
+        let configuration = try XCTUnwrap(DesktopCabinetConfiguration.configured(
+            from: [DesktopCabinetConfiguration.requireExplicitBaseURLEnvironmentKey: "1",
+                   DesktopCabinetConfiguration.baseURLEnvironmentKey: "http://127.0.0.1:8081"], defaults: defaults
+        ))
+        XCTAssertEqual(configuration.baseURL.absoluteString, "http://127.0.0.1:8081")
+    }
+
     func testConfiguredPrefersPersistedCabinetOriginBeforePackagedDefault() throws {
         let suiteName = "DesktopCabinetConfigurationTests.persisted-origin"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))

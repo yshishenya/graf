@@ -30,6 +30,7 @@ from twobrain_rec_server.db.tenant_context import (
 )
 
 AUTH_SESSION_COOKIE_NAME = "__Host-twobrain_rec_owner_session"
+DEV_AUTH_SESSION_COOKIE_NAME = "graf_dev_owner_session"
 DESKTOP_CALENDAR_AUTH_COOKIE_NAME = "twobrain_rec_desktop_calendar_auth"
 DESKTOP_CALENDAR_AUTH_COOKIE_PATH = "/desktop/settings/integrations/calendar"
 DESKTOP_CALENDAR_AUTH_COOKIE_MAX_AGE_SECONDS = 15 * 60
@@ -42,13 +43,31 @@ def is_web_cookie_session(request: Request) -> bool:
     desktop callers, but they are not browser proof for destructive cabinet
     actions. If both transports are present, fail closed.
     """
-    cookie = request.cookies.get(AUTH_SESSION_COOKIE_NAME)
+    cookie = request.cookies.get(auth_session_cookie_name(request))
     if not cookie or not cookie.strip():
         return False
     return not any(
         (request.headers.get(header) or "").strip()
         for header in ("Authorization", "X-Auth-Session")
     )
+
+
+def auth_session_cookie_name(request: Request) -> str:
+    app = request.scope.get("app")
+    settings = getattr(getattr(app, "state", None), "settings", None)
+    if (getattr(settings, "env", "production").lower() != "production"
+            and getattr(settings, "local_http_auth_cookie_enabled", False)
+            and request.url.scheme != "https"):
+        return DEV_AUTH_SESSION_COOKIE_NAME
+    return AUTH_SESSION_COOKIE_NAME
+
+
+def auth_session_cookie_secure(request: Request) -> bool:
+    return auth_session_cookie_name(request) == AUTH_SESSION_COOKIE_NAME
+
+
+def _request_auth_session_cookie(request: Request, configured: str | None) -> str | None:
+    return request.cookies.get(auth_session_cookie_name(request)) or configured
 
 
 @dataclass(frozen=True, slots=True)
@@ -342,7 +361,8 @@ async def get_principal(
         include_in_schema=False,
     ),
 ) -> AuthenticatedPrincipal:
-    session_token = _extract_session_token(authorization, x_auth_session, auth_session_cookie)
+    session_token = _extract_session_token(authorization, x_auth_session,
+                                           _request_auth_session_cookie(request, auth_session_cookie))
     if session_token is not None:
         return await _principal_from_session_token(request, session_token)
 
@@ -398,6 +418,7 @@ async def get_optional_principal(
         include_in_schema=False,
     ),
 ) -> AuthenticatedPrincipal | None:
+    auth_session_cookie = _request_auth_session_cookie(request, auth_session_cookie)
     if all(
         value is None
         for value in (
@@ -436,7 +457,8 @@ async def get_device_context(
     ),
     x_device_trust_state: str | None = Header(default=None, alias="X-Device-Trust-State", include_in_schema=False),
 ) -> DeviceContext:
-    session_token = _extract_session_token(authorization, x_auth_session, auth_session_cookie)
+    session_token = _extract_session_token(authorization, x_auth_session,
+                                           _request_auth_session_cookie(request, auth_session_cookie))
     if session_token is not None:
         principal = await _principal_from_session_token(request, session_token)
         if x_device_id and x_workspace_id:
@@ -503,6 +525,7 @@ async def require_web_csrf(
     ),
     csrf_secret: str = Depends(get_web_csrf_secret),
 ) -> None:
+    auth_session_cookie = _request_auth_session_cookie(request, auth_session_cookie)
     csrf_subject_id = None
     if principal.auth_via_session:
         if auth_session_cookie and not (x_auth_session or "").strip():

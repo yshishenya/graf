@@ -6,6 +6,7 @@ public struct DesktopCabinetConfiguration: Equatable, Sendable {
     public static let fallbackBaseURLEnvironmentKey = "GRAF_UPLOAD_BASE_URL"
     public static let legacyBaseURLEnvironmentKey = "TWO_BRAIN_REC_CABINET_BASE_URL"
     public static let legacyFallbackBaseURLEnvironmentKey = "TWO_BRAIN_REC_UPLOAD_BASE_URL"
+    public static let requireExplicitBaseURLEnvironmentKey = "GRAF_CABINET_REQUIRE_EXPLICIT_BASE_URL"
     public static let baseURLUserDefaultsKey = "GRAF_CABINET_BASE_URL"
     public static let fallbackBaseURLUserDefaultsKey = "GRAF_UPLOAD_BASE_URL"
     public static let legacyBaseURLUserDefaultsKey = "TWO_BRAIN_REC_CABINET_BASE_URL"
@@ -59,7 +60,7 @@ public struct DesktopCabinetConfiguration: Equatable, Sendable {
         guard let candidate = configuredBaseURLCandidate(
             from: environment,
             defaults: defaults,
-            includePackagedDefault: includePackagedDefault
+            includePackagedDefault: includePackagedDefault && !requiresExplicitBaseURL(from: environment)
         ) else {
             return nil
         }
@@ -72,6 +73,10 @@ public struct DesktopCabinetConfiguration: Equatable, Sendable {
 
     public static func configuredFromEnvironment() -> DesktopCabinetConfiguration? {
         configured(from: ProcessInfo.processInfo.environment)
+    }
+
+    public static func requiresExplicitBaseURL(from environment: [String: String]) -> Bool {
+        ["1", "true", "yes"].contains(environment[requireExplicitBaseURLEnvironmentKey]?.lowercased() ?? "")
     }
 
     public static func configuredHeaders(from environment: [String: String]) -> [String: String] {
