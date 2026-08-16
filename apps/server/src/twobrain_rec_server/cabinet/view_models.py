@@ -1795,28 +1795,50 @@ def meeting_list_title(meeting: Meeting, *, source: str | None = None) -> str:
     return projected
 
 
-def safe_title(meeting: Meeting, *, source: str | None = None) -> str:
-    return recording_display_title(meeting, source=source)
+def safe_title(
+    meeting: Meeting,
+    *,
+    source: str | None = None,
+    include_recording_time: bool = True,
+) -> str:
+    return recording_display_title(
+        meeting,
+        source=source,
+        include_recording_time=include_recording_time,
+    )
 
 
-def recording_display_title(meeting: Meeting, *, source: str | None = None) -> str:
+def recording_display_title(
+    meeting: Meeting,
+    *,
+    source: str | None = None,
+    include_recording_time: bool = True,
+) -> str:
     title = safe_title_candidate(meeting.title)
     if title:
         if meeting.title_source in AUTHORITATIVE_TITLE_SOURCES:
             if meeting.title_source == "calendar":
-                return _with_recording_time(_authoritative_title(title), meeting)
+                title = _authoritative_title(title)
+                return _with_recording_time(title, meeting) if include_recording_time else title
             return _authoritative_title(title)
         if GENERATED_MANUAL_UPLOAD_RE.fullmatch(title):
             return "Загруженная запись"
         if meeting.title_source == "app_context":
             app_title = GENERATED_CAPTURE_TITLE_SUFFIX_RE.sub("", title).strip()
-            return _with_recording_time(_authoritative_title(app_title), meeting)
+            app_title = _authoritative_title(app_title)
+            return (
+                _with_recording_time(app_title, meeting)
+                if include_recording_time
+                else app_title
+            )
         if GENERATED_CAPTURE_TITLE_RE.fullmatch(title):
-            return _generated_recording_title(meeting) or "Запись без названия"
+            return (
+                _generated_recording_title(meeting) or "Запись без названия"
+                if include_recording_time
+                else "Запись без названия"
+            )
         if LEGACY_SERIALIZED_MEDIA_FILENAME_EXTENSION_RE.search(title):
             return _clean_legacy_file_title(title)
-        if meeting.title_source == "file_name_derived":
-            return _clean_file_title(title)
         return media_filename_leaf(title) or "Запись без названия"
 
     if source == "manual_upload" or GENERATED_MANUAL_UPLOAD_RE.fullmatch(

@@ -480,7 +480,7 @@ def test_us5_authorized_previous_recurring_projection_matches_context_and_review
     assert context_response.json()["previous_recurring_meeting"] == expected_pointer
     review = review_response.json()
     assert review["calendar_context_detail"]["previous_recurring_meeting"] == expected_pointer
-    assert review["meeting"]["title"] == "Synthetic Current Planning"
+    assert review["meeting"]["title"] == "Synthetic Current Planning — 13 июл, 12:00"
     assert review["calendar_roster"]["participants"][0]["display_name"] == (
         "Synthetic Current Invitee"
     )
