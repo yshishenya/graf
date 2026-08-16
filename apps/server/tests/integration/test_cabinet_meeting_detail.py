@@ -37,6 +37,7 @@ from twobrain_rec_server.db.models import (
     CalendarParticipant,
     CalendarSource,
     ExternalCalendar,
+    Meeting,
     RecordingCalendarContextLink,
 )
 
@@ -425,6 +426,27 @@ def test_cabinet_embedded_ready_detail_keeps_review_governance_and_removes_nativ
     assert 'id="meeting-details-dialog"' in response.text
     assert "Record live" not in response.text
     assert "Krisp Devices" not in response.text
+
+
+def test_cabinet_and_embedded_detail_share_calendar_recording_title(client) -> None:
+    seeds = seed_cabinet_meetings(client)
+
+    async def set_calendar_title() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.get(Meeting, seeds.ready_id)
+            assert meeting is not None
+            meeting.title = "Планирование релиза"
+            meeting.title_source = "calendar"
+            meeting.recording_display_timezone_offset_minutes = 180
+            await db.commit()
+
+    client.portal.call(set_calendar_title)
+
+    for path in (f"/meetings/{seeds.ready_id}", f"/desktop/meetings/{seeds.ready_id}"):
+        response = client.get(path, headers=auth_headers())
+
+        assert response.status_code == 200, path
+        assert "Планирование релиза — 16 июн, 11:00" in response.text
 
 
 def test_cabinet_embedded_ready_detail_keeps_playback_and_seek_controls(client) -> None:

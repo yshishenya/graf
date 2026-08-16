@@ -958,7 +958,7 @@ def test_web_search_keeps_generated_recording_visible_date_and_time_searchable(c
 
         assert page.status_code == 200
         assert f'href="/meetings/{meeting_id}"' in page.text
-        assert ">Запись<" in page.text
+        assert ">Запись 14 июл, 02:30<" in page.text
         assert "14 июл, 02:30" in page.text
         if query == "02:30":
             assert f'href="/meetings/{named_meeting_id}"' in page.text
@@ -1072,7 +1072,7 @@ def test_cabinet_list_uses_recording_display_timezone_offset_for_date_label(clie
     page = client.get("/meetings", headers=auth_headers())
 
     assert page.status_code == 200
-    assert 'aria-label="Открыть встречу Запись, 14 июл, 02:30"' in page.text
+    assert 'aria-label="Открыть встречу Запись 14 июл, 02:30"' in page.text
     assert "14 июл, 02:30" in page.text
     assert "timezone-crossing-visible-day" not in page.text
 
@@ -1114,7 +1114,7 @@ def test_cabinet_list_humanizes_generated_capture_and_manual_upload_titles(clien
     )
     generated_visible_search = client.get(
         "/api/v1/cabinet/meetings",
-        params={"q": "Запись 13 июл, 12:14"},
+        params={"q": "Current display system audio — 13 июл, 12:14"},
         headers=auth_headers(),
     )
     manual_visible_search = client.get(
@@ -1125,7 +1125,7 @@ def test_cabinet_list_humanizes_generated_capture_and_manual_upload_titles(clien
     page = client.get("/desktop/meetings", headers=auth_headers())
 
     assert generated_list.status_code == 200
-    assert generated_list.json()["items"][0]["title"] == "Запись 13 июл, 12:14"
+    assert generated_list.json()["items"][0]["title"] == "Current display system audio — 13 июл, 12:14"
     assert manual_list.status_code == 200
     assert manual_list.json()["items"][0]["title"] == "Загруженная запись"
     assert generated_visible_search.status_code == 200
@@ -1138,7 +1138,7 @@ def test_cabinet_list_humanizes_generated_capture_and_manual_upload_titles(clien
     ]
     assert generated_title not in page.text
     assert manual_title not in page.text
-    assert 'aria-label="Открыть встречу Запись, 13 июл, 12:14"' in page.text
+    assert 'aria-label="Открыть встречу Current display system audio — 13 июл, 12:14"' in page.text
     assert "13 июл, 12:14" in page.text
     assert "Загруженная запись" in page.text
     assert "27 с" in page.text
