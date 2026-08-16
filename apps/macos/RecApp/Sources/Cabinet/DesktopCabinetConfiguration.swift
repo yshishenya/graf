@@ -2,6 +2,8 @@ import Foundation
 import TwoBrainRecShared
 
 public struct DesktopCabinetConfiguration: Equatable, Sendable {
+    public static let productionAuthSessionCookieName = "__Host-twobrain_rec_owner_session"
+    public static let localAuthSessionCookieName = "graf_dev_owner_session"
     public static let baseURLEnvironmentKey = "GRAF_CABINET_BASE_URL"
     public static let fallbackBaseURLEnvironmentKey = "GRAF_UPLOAD_BASE_URL"
     public static let legacyBaseURLEnvironmentKey = "TWO_BRAIN_REC_CABINET_BASE_URL"
@@ -189,6 +191,13 @@ public struct DesktopCabinetConfiguration: Equatable, Sendable {
 
     private static func isLoopbackHTTPOrigin(_ url: URL) -> Bool {
         url.scheme == "http" && ["127.0.0.1", "localhost"].contains(url.host?.lowercased() ?? "")
+    }
+
+    public static func authSessionCookieName(for url: URL) -> String {
+        let origin = normalizedHTTPOrigin(url) ?? url
+        return isLoopbackHTTPOrigin(origin)
+            ? localAuthSessionCookieName
+            : productionAuthSessionCookieName
     }
 
     private init(

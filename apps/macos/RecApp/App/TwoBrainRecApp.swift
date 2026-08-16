@@ -934,7 +934,8 @@ private struct ContentView: View {
             systemAudio: currentSystemAudio
         )
         let prerequisite = evaluatedMeetingDetectionRecordingPrerequisite(
-            permissions: permissionGate.snapshot
+            permissions: permissionGate.snapshot,
+            requiresAssistedAuthorization: false
         )
         return MeetingDetectionCapturePrerequisites(
             recordingAlreadyActive: calendarPromptRecordingIsActive,
@@ -999,6 +1000,9 @@ private struct ContentView: View {
     private func meetingDetectionPolicyStateText(
         for prerequisites: MeetingDetectionCapturePrerequisites
     ) -> String {
+        guard meetingDetectionWorkspacePolicyAllowsRecording else {
+            return "Политика: автоматический старт требует подтверждения"
+        }
         guard let prerequisite = prerequisites.recordingPrerequisite else {
             return "Политика: проверяется"
         }
@@ -1186,21 +1190,30 @@ private struct ContentView: View {
               let registry = meetingDetectionRegistry,
               let target = registry.target(forBundleID: bundleID),
               target.id == targetID,
-              target.mode == .promptEnabled,
-              let policy = registry.assistedAutoStartPolicy,
-              policy.isActive(),
-              let acknowledgement = meetingDetectionSettings.assistedAutoStartAcknowledgement,
-              acknowledgement.matches(policy)
+              target.mode == .promptEnabled
         else {
             return nil
+        }
+        let authorization: (AssistedAutoStartPolicySnapshot?, AssistedAutoStartAcknowledgement?)
+        if reason.isAutomatic {
+            guard let policy = registry.assistedAutoStartPolicy,
+                  policy.isActive(),
+                  let acknowledgement = meetingDetectionSettings.assistedAutoStartAcknowledgement,
+                  acknowledgement.matches(policy)
+            else {
+                return nil
+            }
+            authorization = (policy, acknowledgement)
+        } else {
+            authorization = (nil, nil)
         }
         return MeetingDetectionRecordingTarget(
             targetID: targetID,
             bundleID: bundleID,
             displayName: displayName,
             reason: reason,
-            policy: policy,
-            acknowledgement: acknowledgement
+            policy: authorization.0,
+            acknowledgement: authorization.1
         )
     }
 
@@ -1276,7 +1289,7 @@ private struct ContentView: View {
                     bundleID: meetingDetectionTarget.bundleID,
                     displayName: meetingDetectionTarget.displayName,
                     startReason: meetingDetectionTarget.reason,
-                    policySnapshotRef: meetingDetectionTarget.policy.policyRef,
+                    policySnapshotRef: meetingDetectionTarget.policy?.policyRef ?? "prompt_button_user_confirmation",
                     authorizationEvidence: meetingDetectionTarget.authorizationEvidence
                 )
             } else {
@@ -1319,7 +1332,7 @@ private struct ContentView: View {
         )
         let prerequisite = evaluatedMeetingDetectionRecordingPrerequisite(
             permissions: permissionGate.snapshot,
-            requiresAssistedAuthorization: meetingDetectionTarget != nil,
+            requiresAssistedAuthorization: meetingDetectionTarget?.reason.isAutomatic ?? false,
             sourceAppIsCurrent: meetingDetectionTarget.map(isCurrentMeetingDetectionDecision) ?? true,
             storageRisk: meetingDetectionStorageRisk()
         )
@@ -2151,27 +2164,32 @@ private struct MeetingDetectionRecordingTarget: Equatable, Sendable {
     let bundleID: String
     let displayName: String
     let reason: MeetingDetectionStartReason
-    let policy: AssistedAutoStartPolicySnapshot
-    let acknowledgement: AssistedAutoStartAcknowledgement
+    let policy: AssistedAutoStartPolicySnapshot?
+    let acknowledgement: AssistedAutoStartAcknowledgement?
 
     var evidenceInitiator: RecordingEvidenceInitiator {
         reason == .promptButton ? .user : .assistedAutomation
     }
 
     var authorizationEvidence: [String: String] {
-        [
-            "meetingDetectionPolicyRef": policy.policyRef,
-            "meetingDetectionPolicyVersion": policy.policyVersion,
-            "meetingDetectionPolicyExpiresAt": ISO8601DateFormatter().string(from: policy.expiresAt),
-            "meetingDetectionAcknowledgementVersion": acknowledgement.acknowledgementVersion,
-            "meetingDetectionAcknowledgementSubjectRef": acknowledgement.subjectRef,
-            "meetingDetectionDeviceRef": policy.deviceRef,
-            "meetingDetectionAcknowledgementState": "accepted",
-            "meetingDetectionNoticeMode": policy.noticeMode,
+        var evidence = [
+            "meetingDetectionAcknowledgementState": reason.isAutomatic ? "accepted" : "not_required",
             "meetingDetectionConfirmationState": reason == .promptButton
                 ? "prompt_button_confirmed"
                 : "prior_user_authorization",
         ]
+        if let policy, let acknowledgement {
+            evidence.merge([
+                "meetingDetectionPolicyRef": policy.policyRef,
+                "meetingDetectionPolicyVersion": policy.policyVersion,
+                "meetingDetectionPolicyExpiresAt": ISO8601DateFormatter().string(from: policy.expiresAt),
+                "meetingDetectionAcknowledgementVersion": acknowledgement.acknowledgementVersion,
+                "meetingDetectionAcknowledgementSubjectRef": acknowledgement.subjectRef,
+                "meetingDetectionDeviceRef": policy.deviceRef,
+                "meetingDetectionNoticeMode": policy.noticeMode,
+            ]) { _, new in new }
+        }
+        return evidence
     }
 }
 

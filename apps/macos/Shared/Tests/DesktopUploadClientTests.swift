@@ -576,6 +576,22 @@ final class DesktopUploadClientTests: XCTestCase {
         )
     }
 
+    func testAuthSessionTokenUsesLocalCookieForLoopbackOrigin() throws {
+        let localCookie = try XCTUnwrap(HTTPCookie(properties: [
+            .domain: "127.0.0.1",
+            .path: "/",
+            .name: DesktopUploadClient.localOwnerSessionCookieName,
+            .value: "local-owner-session-token"
+        ]))
+        let localURL = try XCTUnwrap(URL(string: "http://127.0.0.1:8081/desktop/meetings"))
+
+        XCTAssertEqual(
+            DesktopUploadClient.authSessionToken(from: [localCookie], localURL),
+            "local-owner-session-token"
+        )
+        XCTAssertNil(DesktopUploadClient.authSessionToken(from: [localCookie]))
+    }
+
     func testNativeRequestPromotesOwnerSessionWithoutForwardingCookies() async throws {
         let recorder = NativeAuthRequestRecorder()
         let client = DesktopUploadClient(
