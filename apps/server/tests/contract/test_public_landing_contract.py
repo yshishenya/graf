@@ -146,7 +146,7 @@ def test_public_landing_css_keeps_accessible_focus_and_stable_motion() -> None:
     assert "animation-timeline: view()" in content
     assert 'url("landing-atmosphere.jpg")' in content
     assert "reference-hero-product" in content
-    assert "reference-steps" in content
+    assert "reference-auto-flow" in content
     assert "reference-proof-window" in content
     assert "reference-mobile-menu" in content
     assert "display: none" in content

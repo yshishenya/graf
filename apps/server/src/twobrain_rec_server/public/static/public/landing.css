@@ -2296,40 +2296,111 @@ h2 {
   line-height: 1.64;
 }
 
-.reference-steps {
+.reference-auto-flow {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: minmax(180px, 0.72fr) minmax(0, 2.28fr);
   gap: 0;
   margin: clamp(48px, 5vw, 68px) 0 0;
-  padding: 0;
   border-top: 1px solid var(--reference-line);
-  list-style: none;
-}
-
-.reference-steps li {
-  display: grid;
-  grid-template-columns: 46px 1fr;
-  gap: 18px;
-  min-height: 112px;
-  padding: 22px clamp(22px, 3vw, 38px) 22px 0;
   border-bottom: 1px solid var(--reference-line);
 }
 
-.reference-steps li + li {
-  padding-left: clamp(22px, 3vw, 38px);
-  border-left: 1px solid var(--reference-line);
+.reference-auto-flow-setup {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 28px clamp(24px, 3vw, 42px) 30px 0;
+  border-right: 1px solid var(--reference-line);
 }
 
-.reference-steps span {
+.reference-auto-flow-kicker,
+.reference-auto-flow-label {
   color: var(--reference-muted);
-  font: 0.72rem var(--mono, monospace);
+  font: 600 0.68rem/1.3 var(--mono, monospace);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
-.reference-steps strong {
+.reference-auto-flow-setup strong {
+  max-width: 180px;
+  margin-top: 14px;
   color: var(--reference-text);
-  font-size: 0.92rem;
+  font-size: clamp(1.35rem, 2vw, 1.72rem);
   font-weight: 600;
-  line-height: 1.45;
+  line-height: 1.16;
+  letter-spacing: -0.03em;
+}
+
+.reference-auto-flow-setup p,
+.reference-auto-flow-state p {
+  margin: 10px 0 0;
+  color: var(--reference-muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.reference-auto-flow-track {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px minmax(0, 1fr);
+  align-items: stretch;
+}
+
+.reference-auto-flow-state {
+  position: relative;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 16px;
+  min-height: 188px;
+  padding: 28px clamp(22px, 3vw, 38px) 30px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.035), transparent 60%);
+}
+
+.reference-auto-flow-state:last-child {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.07), transparent 66%);
+}
+
+.reference-auto-flow-number {
+  color: var(--reference-muted);
+  font: 0.72rem/1.3 var(--mono, monospace);
+}
+
+.reference-auto-flow-state strong {
+  display: block;
+  margin-top: 12px;
+  color: var(--reference-text);
+  font-size: clamp(1.15rem, 1.75vw, 1.48rem);
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.025em;
+}
+
+.reference-auto-flow-status {
+  position: absolute;
+  right: clamp(22px, 3vw, 38px);
+  bottom: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #bca8ff;
+  font: 600 0.64rem/1 var(--mono, monospace);
+  letter-spacing: 0.08em;
+}
+
+.reference-auto-flow-status::before {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #bca8ff;
+  box-shadow: 0 0 0 4px rgba(188, 168, 255, 0.1);
+  content: "";
+}
+
+.reference-auto-flow-arrow {
+  display: grid;
+  place-items: center;
+  color: var(--reference-muted);
+  font-size: 1.2rem;
+  border-inline: 1px solid var(--reference-line);
 }
 
 .reference-proof-block + .reference-proof-block {
@@ -2514,13 +2585,29 @@ h2 {
     gap: 20px;
   }
 
-  .reference-steps {
+  .reference-auto-flow {
     grid-template-columns: 1fr;
   }
 
-  .reference-steps li + li {
-    padding-left: 0;
-    border-left: 0;
+  .reference-auto-flow-setup {
+    padding-right: 0;
+    border-right: 0;
+    border-bottom: 1px solid var(--reference-line);
+  }
+
+  .reference-auto-flow-setup strong {
+    max-width: none;
+  }
+
+  .reference-auto-flow-track {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .reference-auto-flow-arrow {
+    min-height: 34px;
+    border-inline: 0;
+    border-block: 1px solid var(--reference-line);
+    transform: rotate(90deg);
   }
 
   .reference-trust-facts {
@@ -2601,6 +2688,20 @@ h2 {
 
   .reference-section .chapter-lede {
     font-size: 1.06rem;
+  }
+
+  .reference-auto-flow-setup {
+    padding-block: 24px 26px;
+  }
+
+  .reference-auto-flow-state {
+    min-height: 164px;
+    padding: 24px 18px 28px;
+  }
+
+  .reference-auto-flow-status {
+    right: 18px;
+    bottom: 24px;
   }
 
   .reference-proof-heading h3 {

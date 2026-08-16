@@ -14,9 +14,12 @@ def test_public_landing_is_self_serve_entry(client) -> None:
     assert "без бота в звонке" in response.text
     assert "без привязки к сервису встречи" in response.text
     assert "регистрац" not in response.text.lower()
-    assert "Управляйте записью сами" in response.text
-    assert "GRAF сам начнёт запись при обнаружении встречи" in response.text
-    assert "GRAF завершит запись после окончания звонка" in response.text
+    assert "Включили один раз — дальше GRAF сам" in response.text
+    assert "GRAF сам начнёт запись" in response.text
+    assert "GRAF сам завершает запись" in response.text
+    assert "reference-auto-flow" in response.text
+    assert "Включите автозапись" in response.text
+    assert "Звонок закончился" in response.text
     assert "Запустите запись в GRAF" not in response.text
     assert "Подключитесь к звонку как обычно" not in response.text
     assert "От реплики к следующему действию" in response.text
@@ -40,7 +43,7 @@ def test_public_landing_is_self_serve_entry(client) -> None:
     assert "Панель активной записи GRAF" in response.text
     assert ">01<" in response.text
     assert ">02<" in response.text
-    assert ">03<" in response.text
+    assert ">03<" not in response.text
     assert ">04<" not in response.text
 
 

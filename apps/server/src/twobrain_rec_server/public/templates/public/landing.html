@@ -115,21 +115,42 @@
             <span class="reference-section-index">01 / Запись</span>
             <div>
               <p class="eyebrow">Без привязки к сервису</p>
-              <h2 id="how-title">Управляйте записью сами</h2>
+              <h2 id="how-title">Включили один раз — дальше GRAF сам</h2>
               <p class="chapter-lede">
-                GRAF работает отдельно от сервиса звонка. Выберите
-                поддерживаемое приложение и включите автозапись один раз —
-                дальше GRAF сам начнёт запись при обнаружении встречи и
-                завершит её после окончания звонка. Индикатор покажет
-                состояние, а пауза и остановка останутся под рукой.
+                Выберите поддерживаемое приложение и включите автозапись один
+                раз. Когда встреча начнётся, GRAF сам начнёт запись — и так же
+                завершит её после звонка. Статус виден в приложении, а пауза и
+                остановка доступны в любой момент.
               </p>
             </div>
           </header>
-          <ol class="reference-steps" aria-label="Как записать звонок">
-            <li><span>01</span><strong>Включите автозапись для поддерживаемого приложения</strong></li>
-            <li><span>02</span><strong>GRAF сам начнёт запись при обнаружении встречи</strong></li>
-            <li><span>03</span><strong>GRAF завершит запись после окончания звонка</strong></li>
-          </ol>
+          <div class="reference-auto-flow" aria-label="Как работает автоматическая запись">
+            <div class="reference-auto-flow-setup">
+              <span class="reference-auto-flow-kicker">Настройка один раз</span>
+              <strong>Включите автозапись</strong>
+              <p>Для поддерживаемого приложения</p>
+            </div>
+            <div class="reference-auto-flow-track">
+              <article class="reference-auto-flow-state">
+                <div class="reference-auto-flow-number">01</div>
+                <div>
+                  <span class="reference-auto-flow-label">Встреча началась</span>
+                  <strong>GRAF сам начинает запись</strong>
+                  <p>После обнаружения встречи в поддерживаемом приложении.</p>
+                </div>
+                <span class="reference-auto-flow-status">LIVE</span>
+              </article>
+              <span class="reference-auto-flow-arrow" aria-hidden="true">→</span>
+              <article class="reference-auto-flow-state">
+                <div class="reference-auto-flow-number">02</div>
+                <div>
+                  <span class="reference-auto-flow-label">Звонок закончился</span>
+                  <strong>GRAF сам завершает запись</strong>
+                  <p>Запись остаётся в GRAF и готова к обработке.</p>
+                </div>
+              </article>
+            </div>
+          </div>
         </section>
 
         <section class="reference-section" id="result" aria-labelledby="result-title" data-analytics-section="outcomes">
