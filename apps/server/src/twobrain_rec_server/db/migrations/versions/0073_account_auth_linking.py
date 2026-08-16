@@ -102,7 +102,7 @@ def upgrade() -> None:
         )
         op.execute(
             """
-            revoke all on function rec_account_merge_context_valid() from public
+            grant execute on function rec_account_merge_context_valid() to public
             """
         )
         op.execute(

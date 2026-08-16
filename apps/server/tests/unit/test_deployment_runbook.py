@@ -1,3 +1,4 @@
+import os
 import subprocess
 from pathlib import Path
 
@@ -19,7 +20,10 @@ def _run_script(path: str, *args: str, env: dict[str, str] | None = None) -> str
 
 
 def test_migration_verification_dry_run_reports_remote_compose_context() -> None:
-    output = _run_script("infra/scripts/verify-rec-migration.sh", "--dry-run")
+    env = os.environ.copy()
+    env.pop("RLS_TEST_DATABASE_URL", None)
+    env.pop("RLS_TEST_PROBE_DATABASE_URL", None)
+    output = _run_script("infra/scripts/verify-rec-migration.sh", "--dry-run", env=env)
 
     assert "migration_verification_result=blocked" in output
     assert "2brain.dev" in output
