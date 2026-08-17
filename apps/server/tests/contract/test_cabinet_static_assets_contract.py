@@ -88,6 +88,335 @@ def test_cabinet_js_keeps_fragment_state_ephemeral() -> None:
     assert "template: activeTemplate" in script
 
 
+def test_meeting_review_resize_uses_bounded_keyboard_and_pointer_contract() -> None:
+    script = (STATIC_DIR / "cabinet.js").read_text()
+    css = (STATIC_DIR / "cabinet.css").read_text()
+
+    for marker in [
+        "data-speaker-timeline-shell",
+        "data-speaker-timeline-resize",
+        "pointerdown",
+        "pointermove",
+        "pointerup",
+        "ArrowUp",
+        "ArrowDown",
+        "aria-valuemin",
+        "aria-valuemax",
+        "aria-valuenow",
+        "scrollHeight",
+        "DEFAULT_TIMELINE_HEIGHT",
+    ]:
+        assert marker in script
+    for marker in [
+        ".speaker-timeline-shell",
+        ".speaker-timeline-resize",
+        "cursor: ns-resize",
+        ".speaker-timeline-resize:focus-visible",
+        ".speaker-timeline-resize.is-dragging",
+    ]:
+        assert marker in css
+
+
+def test_meeting_review_resize_node_harness_keeps_bounds_and_one_listener() -> None:
+    script_path = STATIC_DIR / "cabinet.js"
+    harness = r"""
+const fs = require("fs");
+const vm = require("vm");
+const scenario = process.argv[2];
+const listeners = new Map();
+const windowListeners = new Map();
+class FakeElement {
+  constructor(tag = "div") {
+    this.tagName = tag.toUpperCase();
+    this.children = [];
+    this.dataset = {};
+    this.style = {};
+    this.attributes = {};
+    this.hidden = false;
+    this.isConnected = true;
+    this.listeners = new Map();
+    this.classList = {
+      values: new Set(),
+      add: (...names) => names.forEach((name) => this.classList.values.add(name)),
+      remove: (...names) => names.forEach((name) => this.classList.values.delete(name)),
+      toggle: (name, force) => {
+        const next = force === undefined ? !this.classList.values.has(name) : force;
+        if (next) this.classList.values.add(name); else this.classList.values.delete(name);
+        return next;
+      },
+      contains: (name) => this.classList.values.has(name),
+    };
+  }
+  addEventListener(name, handler) {
+    const handlers = this.listeners.get(name) || [];
+    handlers.push(handler);
+    this.listeners.set(name, handlers);
+  }
+  dispatch(name, event = {}) {
+    for (const handler of this.listeners.get(name) || []) handler(event);
+  }
+  listenerCount(name) { return (this.listeners.get(name) || []).length; }
+  append(...nodes) { this.children.push(...nodes); }
+  querySelector() { return null; }
+  querySelectorAll() { return []; }
+  closest(selector) { return selector === "[data-playback-shell]" ? playback : null; }
+  getBoundingClientRect() { return { top: Number(process.argv[3] || 500) }; }
+  setPointerCapture() {}
+  setAttribute(name, value) { this.attributes[name] = String(value); }
+  getAttribute(name) { return this.attributes[name] || null; }
+  removeAttribute(name) { delete this.attributes[name]; }
+  focus() { this.focused = true; }
+}
+const playback = new FakeElement("section");
+const shell = new FakeElement("div");
+const timeline = new FakeElement("div");
+const handle = new FakeElement("div");
+timeline.dataset.speakerTimelineDefaultHeight = "96";
+timeline.scrollHeight = scenario === "fit" ? 80 : scenario === "viewport" ? 900 : 320;
+shell.querySelector = (selector) => {
+  if (selector === "[data-speaker-timeline]") return timeline;
+  if (selector === "[data-speaker-timeline-resize]") return handle;
+  return null;
+};
+global.Element = FakeElement;
+global.HTMLElement = FakeElement;
+global.HTMLFormElement = FakeElement;
+global.HTMLButtonElement = FakeElement;
+global.Node = FakeElement;
+const body = new FakeElement("body");
+global.document = {
+  activeElement: null,
+  body,
+  documentElement: { dataset: {} },
+  hidden: false,
+  addEventListener(name, handler) {
+    const handlers = listeners.get(name) || [];
+    handlers.push(handler);
+    listeners.set(name, handlers);
+  },
+  removeEventListener(name, handler) {
+    listeners.set(name, (listeners.get(name) || []).filter((candidate) => candidate !== handler));
+  },
+  dispatch(name, event = {}) {
+    for (const handler of listeners.get(name) || []) handler(event);
+  },
+  querySelector(selector) {
+    if (selector === "meta[name='csrf-token']") return null;
+    return null;
+  },
+  querySelectorAll(selector) {
+    return selector === "[data-speaker-timeline-shell]" ? [shell] : [];
+  },
+  createElement(tag) { return new FakeElement(tag); },
+};
+global.location = { pathname: "/meetings", search: "", hash: "", href: "https://graf.test/meetings" };
+global.history = { replaceState() {} };
+global.navigator = { onLine: true };
+global.sessionStorage = { removeItem() {} };
+global.fetch = async () => ({ status: 200, ok: true, redirected: false, headers: { get() { return ""; } } });
+global.window = {
+  addEventListener(name, handler) {
+    const handlers = windowListeners.get(name) || [];
+    handlers.push(handler);
+    windowListeners.set(name, handlers);
+  },
+  clearInterval() {},
+  clearTimeout,
+  htmx: null,
+  location: global.location,
+  matchMedia() { return { matches: false }; },
+  requestAnimationFrame(callback) { callback(); },
+  setInterval() { return 1; },
+  setTimeout,
+};
+vm.runInThisContext(fs.readFileSync(process.argv[1], "utf8"));
+const resizeHandlerCount = handle.listenerCount("keydown");
+if (resizeHandlerCount !== 1) throw new Error(`expected one key handler, got ${resizeHandlerCount}`);
+if ((windowListeners.get("resize") || []).length !== 1) throw new Error("expected one page resize listener");
+const currentTime = 42;
+playback.currentTime = currentTime;
+if (scenario === "fit") {
+  if (!handle.hidden) throw new Error("fit rows exposed a resize affordance");
+} else {
+  if (handle.hidden) throw new Error("overflow rows hid the resize affordance");
+  handle.dispatch("pointerdown", { button: 0, pointerId: 1, clientY: 100, preventDefault() {} });
+  document.dispatch("pointermove", { pointerId: 1, clientY: 70 });
+  document.dispatch("pointerup", { pointerId: 1 });
+  if (timeline.style.height !== "126px") throw new Error("pointer resize did not move the bounded panel");
+  handle.dispatch("keydown", { key: "End", preventDefault() {} });
+  const expectedMax = scenario === "viewport" ? 204 : 320;
+  if (handle.attributes["aria-valuemax"] !== String(expectedMax)) throw new Error("wrong resize ceiling");
+  if (timeline.style.height !== `${expectedMax}px`) throw new Error("End did not use bounded height");
+  handle.dispatch("keydown", { key: "Home", preventDefault() {} });
+  if (timeline.style.height !== "") throw new Error("Home did not restore the default height");
+}
+body.dispatch("htmx:afterSwap", { detail: { target: null } });
+if (handle.listenerCount("keydown") !== 1) throw new Error("partial update duplicated resize listeners");
+if ((windowListeners.get("resize") || []).length !== 1) throw new Error("partial update duplicated page resize listeners");
+if (playback.currentTime !== currentTime) throw new Error("resize changed playback position");
+"""
+    for scenario, top in [("fit", 500), ("overflow", 500), ("viewport", 120)]:
+        completed = subprocess.run(
+            ["node", "-e", harness, str(script_path), scenario, str(top)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert completed.returncode == 0, completed.stderr
+
+
+def test_speaker_rename_node_harness_preserves_playback_states() -> None:
+    script_path = STATIC_DIR / "cabinet.js"
+    harness = r"""
+const fs = require("fs");
+const vm = require("vm");
+const playing = process.argv[2] === "playing";
+const success = process.argv[3] === "success";
+let submitHandler = null;
+let reloadCount = 0;
+class FakeElement {
+  constructor(tag = "div") {
+    this.tagName = tag.toUpperCase();
+    this.children = [];
+    this.dataset = {};
+    this.hidden = false;
+    this.disabled = false;
+    this.isConnected = true;
+    this.listeners = new Map();
+    this.classList = { add() {}, remove() {}, toggle() {}, contains() { return false; } };
+  }
+  addEventListener(name, handler) {
+    if (this === form && name === "submit") submitHandler = handler;
+    const handlers = this.listeners.get(name) || [];
+    handlers.push(handler);
+    this.listeners.set(name, handlers);
+  }
+  append(...nodes) { this.children.push(...nodes); }
+  closest() { return null; }
+  contains() { return false; }
+  focus() { this.focused = true; }
+  matches() { return false; }
+  querySelector(selector) {
+    if (this !== form) return null;
+    if (selector === "[data-speaker-name-error]") return error;
+    if (selector === "button[type='submit']") return submit;
+    if (selector === "input[name='display_name']") return input;
+    return null;
+  }
+  querySelectorAll() { return []; }
+  setAttribute(name, value) { this[name] = String(value); }
+}
+const detail = new FakeElement("main");
+const player = new FakeElement("audio");
+player.currentTime = 37.5;
+player.paused = !playing;
+player.src = "/private-audio.m4a";
+const error = new FakeElement("span");
+error.hidden = true;
+const submit = new FakeElement("button");
+const input = new FakeElement("input");
+input.value = "Мария";
+const form = new FakeElement("form");
+form.dataset.speakerKey = "speaker_00";
+form.id = "speaker-name-form-speaker_00";
+form.action = "/meetings/private-id/speakers/speaker_00";
+const body = new FakeElement("body");
+global.Element = FakeElement;
+global.HTMLElement = FakeElement;
+global.HTMLFormElement = FakeElement;
+global.HTMLButtonElement = FakeElement;
+global.Node = FakeElement;
+global.FormData = class {};
+global.document = {
+  activeElement: form,
+  body,
+  documentElement: { dataset: {} },
+  hidden: false,
+  title: "PRIVATE MEETING - GRAF",
+  addEventListener() {},
+  createElement(tag) { return new FakeElement(tag); },
+  getElementById() { return null; },
+  querySelector(selector) {
+    if (selector === "meta[name='csrf-token']") return null;
+    if (selector === "[data-playback-player]") return player;
+    return null;
+  },
+  querySelectorAll(selector) {
+    if (selector === "[data-speaker-name-form]") return [form];
+    return [];
+  },
+};
+global.location = {
+  pathname: "/meetings/private-id",
+  search: "",
+  hash: "",
+  href: "https://graf.test/meetings/private-id",
+  reload() { reloadCount += 1; },
+  replace() {},
+};
+global.history = { replaceState() {} };
+global.navigator = { onLine: true };
+global.sessionStorage = { removeItem() {} };
+global.fetch = async () => ({
+  status: success ? 200 : 422,
+  ok: success,
+  redirected: false,
+  headers: { get() { return ""; } },
+  text: async () => "",
+});
+global.window = {
+  addEventListener() {},
+  clearInterval() {},
+  clearTimeout,
+  htmx: null,
+  location: global.location,
+  matchMedia() { return { matches: false }; },
+  requestAnimationFrame(callback) { callback(); },
+  setInterval() { return 1; },
+  setTimeout,
+};
+(async () => {
+  vm.runInThisContext(fs.readFileSync(process.argv[1], "utf8"));
+  if (!submitHandler) throw new Error("speaker submit handler was not installed");
+  const originalPlayer = player;
+  const originalTime = player.currentTime;
+  const originalPaused = player.paused;
+  await submitHandler({ preventDefault() {} });
+  if (player !== originalPlayer || player.currentTime !== originalTime || player.paused !== originalPaused) {
+    throw new Error("speaker rename changed playback state");
+  }
+  if (reloadCount !== 0) throw new Error("speaker rename reloaded the page");
+  if (success && error.hidden !== true) throw new Error("successful rename left an error visible");
+  if (!success && (error.hidden || submit.disabled)) throw new Error("failed rename did not leave a retryable error");
+})().catch((error) => {
+  process.stderr.write(`${error.stack || error}\n`);
+  process.exitCode = 1;
+});
+"""
+    for playing in ("playing", "paused"):
+        for result in ("success", "failure"):
+            completed = subprocess.run(
+                ["node", "-e", harness, str(script_path), playing, result],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            assert completed.returncode == 0, completed.stderr
+
+
+def test_speaker_rename_success_updates_labels_without_reload() -> None:
+    script = (STATIC_DIR / "cabinet.js").read_text()
+    rename_handler = script[
+        script.index("const initSpeakerNameForms") : script.index("const initContentExport")
+    ]
+
+    assert "data-speaker-key" in rename_handler
+    assert "DOMParser" in rename_handler
+    assert "replaceSpeakerNameInPlace" in rename_handler
+    assert "window.location.reload()" not in rename_handler
+    assert "data-speaker-name-error" in rename_handler
+
+
 def test_meeting_list_js_separates_open_selection_and_fragment_reconciliation() -> None:
     script = (STATIC_DIR / "cabinet.js").read_text()
 
@@ -1726,7 +2055,7 @@ const allText = (node) => [node.textContent, ...node.children.flatMap(allText)].
 @pytest.mark.parametrize(
     ("status", "problem_code", "redirected", "response_url", "expect_reload"),
     [
-        (200, "", True, "https://graf.test/meetings/private-id", True),
+        (200, "", True, "https://graf.test/meetings/private-id", False),
         (404, "speaker_not_found", False, "https://graf.test/speakers/unknown", False),
         (403, "export_policy_denied", False, "https://graf.test/content-exports", False),
     ],
@@ -1854,7 +2183,7 @@ global.window = {
   if ((reloadCount === 1) !== expectReload) {
     throw new Error(`unexpected reload count: ${reloadCount}`);
   }
-  if (!expectReload && (error.hidden || submit.disabled)) {
+  if (!expectReload && Number(process.argv[2]) >= 400 && (error.hidden || submit.disabled)) {
     throw new Error("local action error was not shown with an enabled retry");
   }
 })().catch((error) => {
