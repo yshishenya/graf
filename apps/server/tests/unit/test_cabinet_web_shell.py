@@ -1,6 +1,6 @@
+import re
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-import re
 from uuid import UUID, uuid4
 
 from twobrain_rec_server.api.schemas import (

@@ -176,7 +176,7 @@ async def get_account_settings_surface(
     from datetime import UTC, datetime
 
     from twobrain_rec_server.auth.account_closure import close_view
-    from twobrain_rec_server.cabinet.view_models import AccountProfileView, account_settings_surface
+    from twobrain_rec_server.cabinet.view_models import account_settings_surface
 
     user = await db.get(UserIdentity, tenant_scope.user_id)
 
