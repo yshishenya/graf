@@ -11,12 +11,11 @@ Feature: `124-macos-permission-installer-relaunch`
   в этот кандидат не включены.
 - Evidence metadata-only: без audio, transcript, credentials, raw TCC database
   or private meeting content.
-- Validation snapshot: full CI passed on the current working-tree
-  implementation based on base commit `e6472b40792b6ab95724718b04bc351683165a3e`;
-  implementation patch SHA256 (excluding this evidence file) is
-  `7eccec23be5883dd6d5a37d23660c7a3ff99e0c92c7fe3ba2ccbec31392ce1fe`.
-  This is not a release commit; after explicit commit approval, full CI must be
-  repeated on the resulting exact commit SHA.
+- Validation snapshot: the implementation commit
+  `de1da043eec3b3c2b98d658755f5c9110bb0e0d4` passed the exact-SHA full CI gate;
+  this metadata-only evidence update is followed by one final full-CI rerun on
+  the resulting commit. This is not a release commit; the clean external-Mac
+  smoke and all release/deploy gates remain separate.
 
 ## Implemented checks
 
@@ -34,14 +33,14 @@ Feature: `124-macos-permission-installer-relaunch`
 | Remote production deploy | pass | `cd-remote.sh --execute --skip-local-ci` restored the compatible runtime at `c14a291dd8abdca2b2e042924fd9f50764db3611`; backup `20260724T115334Z`, migration head `0037_auth_rate_limit_buckets`, runtime/worker readiness and production smoke passed |
 | Public package deployment | pass | `GRAF-2026.07.24.3.pkg` and stable `graf-local.pkg` match SHA256 `eabe0a36798592a0ed58238f449c24089c5ed40d47d8764a1074fa6a4fe49b73`; previous package and appcast were retained before replacement |
 | Sparkle release publication | pass | Protected workflow run `30090039617` signed `v2026.07.24.3`; public ZIP SHA256 `ef7c1b31765f83a2b872c83ba71cc8c6c37bf97b08799059784478a62b999446`, appcast SHA256 `06b3b922caac1fa234e4126f376baeee3be8519ba4a2bbd2cbea2cc01d286fc1`; public appcast and archive signatures verified after HTTPS fetch |
-| Full local CI | pass (pre-granted-state probe fix; working-tree snapshot; commit pending) | 687 macOS tests, 3026 parallel server tests, 42 strict tests, 2 expected skips overall; lint, compile, compose and deployment-evidence scans passed after T101 |
+| Full local CI | pass (exact implementation commit) | `infra/scripts/ci-local.sh --full` on `de1da043eec3b3c2b98d658755f5c9110bb0e0d4`: 687 macOS tests, 3026 parallel server tests with one expected skip, 42 strict tests with one expected skip; lint, compile, compose and deployment-evidence scans passed; RLS live-production probe was not attempted because no destructive probe database was provided |
 | GitHub issue canon | pass | Canonical issues T096–T098 and T100 were commented with evidence and closed; T099/#4528 remains open for colleague clean-Mac smoke; `validate_issue_canon.py` passed |
 
 ## T099 technical recheck — 2026-08-17
 
-- The earlier full-CI row is retained as the pre-T101 baseline. The final
-  working-tree full gate is recorded above; it is not an exact-commit release
-  gate until the implementation is committed and CI is repeated on that SHA.
+- The earlier full-CI row is retained as the pre-T101 baseline. The exact
+  implementation-commit full gate is recorded above; after this evidence-only
+  update, CI is rerun on the resulting final commit before PR preparation.
 - `sh -n` passed for the installer, update validator and permission-retention
   helper.
 - Focused macOS XCTest passed: `50 passed`, `0 failures` across
@@ -82,7 +81,7 @@ Feature: `124-macos-permission-installer-relaunch`
 - The live feed now serves `2026.08.16.7`; this recheck therefore records the
   archive/continuity validator result and does not claim a historical `.3`
   appcast was still the live feed.
-- Full `infra/scripts/ci-local.sh` passed: 687 macOS tests, 3026 parallel
+- Full `infra/scripts/ci-local.sh` passed on the implementation commit: 687 macOS tests, 3026 parallel
   server tests with one expected skip, 42 strict tests with one expected skip,
   lint, compile, compose and deployment-evidence scan. The live-production RLS
   probe remained intentionally unattempted because no destructive probe
