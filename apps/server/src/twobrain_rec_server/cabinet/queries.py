@@ -221,16 +221,7 @@ async def get_account_settings_surface(
         .order_by(AccountClosureRequest.requested_at.desc())
     )
     return account_settings_surface(
-        profile=AccountProfileView(
-            display_name=(user.display_name if user and user.display_name else "Без имени"),
-            primary_email=next(
-                (identity.email for identity in identities if identity.email and identity.is_verified),
-                None,
-            ),
-            locale=(user.locale if user else "ru-RU"),
-            timezone=(user.timezone if user else "Europe/Moscow"),
-            theme=(user.theme if user else "system"),
-        ),
+        profile=_account_profile_view(user, identities),
         identities=identities,
         devices=devices,
         sessions=sessions,
@@ -239,6 +230,36 @@ async def get_account_settings_surface(
         can_unlink_provider=lambda identity: identity.is_verified and verified_identity_count > 1,
         account_close=(close_view(closure, now=datetime.now(UTC)) if closure else None),
     )
+
+
+def _account_profile_view(user: UserIdentity | None, identities: tuple[ExternalIdentity, ...]):
+    from twobrain_rec_server.cabinet.view_models import AccountProfileView
+
+    return AccountProfileView(
+        display_name=(user.display_name if user and user.display_name else "Без имени"),
+        primary_email=next(
+            (identity.email for identity in identities if identity.email and identity.is_verified),
+            None,
+        ),
+        locale=(user.locale if user else "ru-RU"),
+        timezone=(user.timezone if user else "Europe/Moscow"),
+        theme=(user.theme if user else "system"),
+    )
+
+
+async def get_account_profile_view(db: AsyncSession, tenant_scope: TenantScope):
+    user = await db.get(UserIdentity, tenant_scope.user_id)
+    identities = tuple(
+        await db.scalars(
+            select(ExternalIdentity)
+            .where(
+                ExternalIdentity.user_id == tenant_scope.user_id,
+                ExternalIdentity.is_active.is_(True),
+            )
+            .order_by(ExternalIdentity.created_at.asc())
+        )
+    )
+    return _account_profile_view(user, identities)
 
 
 async def get_calendar_settings_surface(

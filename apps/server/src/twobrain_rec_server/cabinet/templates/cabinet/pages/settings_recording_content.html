@@ -1,7 +1,7 @@
 {% import "cabinet/components/settings_navigation.html" as settings_ui %}
 <main id="cabinet-main" class="cabinet-main" tabindex="-1">
   <div class="cabinet-workspace settings-page">
-    {{ settings_ui.navigation(settings_navigation, active=settings_active, back_href=("/desktop/meetings" if embedded else "/meetings")) }}
+    {{ settings_ui.navigation(settings_navigation, active=settings_active, back_href=("/desktop/meetings" if embedded else "/meetings"), legacy_hidden=settings_mode|default(false)) }}
     <div class="settings-page__content">
     <header class="cabinet-topbar settings-page__topbar">
       <div class="page-title">
@@ -25,7 +25,7 @@
     <section class="settings-section" aria-labelledby="recording-unavailable-title">
       <h2 id="recording-unavailable-title">Нет приложения GRAF?</h2>
       <p class="muted">Скачайте приложение для macOS, чтобы управлять записями.</p>
-      {% if not embedded %}<a class="button quiet" href="/download">Скачать GRAF для macOS</a>{% endif %}
+      {% if not embedded %}<p class="muted">Ссылка на скачивание находится в нижней части боковой панели.</p>{% endif %}
     </section>
     </div>
   </div>

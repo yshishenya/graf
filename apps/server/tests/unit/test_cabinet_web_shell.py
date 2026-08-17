@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+import re
 from uuid import UUID, uuid4
 
 from twobrain_rec_server.api.schemas import (
@@ -442,7 +443,8 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert "stroke-width: 2;" in css
     assert 'data-icon="audio"' in page
     assert 'data-icon="bookmark"' not in page
-    assert 'data-icon="download"' not in page
+    assert page.count('data-sidebar-download') == 1
+    assert 'href="/download"' in page
     assert 'data-icon="filter"' in page
     assert 'data-icon="sort"' in page
     assert 'data-icon="trash"' in page
@@ -987,7 +989,8 @@ def test_empty_meeting_list_reuses_toolbar_upload_and_native_recording() -> None
     assert "Начните запись или загрузите готовый файл." in page
     assert "Первый запуск" not in page
     assert "Установите GRAF" not in page
-    assert 'href="/download"' not in page
+    assert page.count('data-sidebar-download') == 1
+    assert page.count('href="/download"') == 1
     assert "data-manual-upload-empty-open" not in page
     assert page.count("data-manual-upload-open") == 1
     assert "Подключить календари" not in page
@@ -1004,6 +1007,7 @@ def test_non_empty_meeting_list_does_not_show_first_run_download_handoff() -> No
 
     assert "Первый запуск" not in page
     assert 'href="/download">Скачать приложение</a>' not in page
+    assert page.count('data-sidebar-download') == 1
 
 
 def test_active_list_filters_expose_one_reset_without_extra_request_control() -> None:
@@ -1334,6 +1338,97 @@ def test_cabinet_rail_toggle_js_contract() -> None:
     assert "is-rail-pinned" in js
     assert 'event.key === "Escape"' in js
     assert 'toggle.setAttribute("aria-expanded"' in js
+
+
+def test_feature_159_shared_shell_toggle_has_one_truthful_focusable_contract() -> None:
+    page = render_meeting_list_page(
+        MeetingListResponse(
+            items=[_item()],
+            filters=MeetingFilterState(q=None, status=None, access=None, sort="updated_desc"),
+            generated_at=datetime.now(UTC),
+        )
+    )
+    toggle = re.search(r'<button[^>]+data-cabinet-rail-toggle[^>]*>', page)
+    assert toggle is not None
+    markup = toggle.group(0)
+    assert page.count("data-cabinet-rail-toggle") == 1
+    assert 'aria-controls="cabinet-sidebar"' in markup
+    assert 'aria-expanded="false"' in markup
+    assert 'aria-label="Показать боковую панель"' in markup
+    assert 'title="Показать боковую панель"' in markup
+
+    js = _cabinet_js()
+    for marker in (
+        "Свернуть боковую панель",
+        "Показать боковую панель",
+        "toggle.focus({ preventScroll: true })",
+        'shell.dataset.railReady = "true"',
+    ):
+        assert marker in js
+
+
+def test_feature_159_search_contract_reserves_icon_text_and_clear_space() -> None:
+    page = render_meeting_list_page(
+        MeetingListResponse(
+            items=[_item()],
+            filters=MeetingFilterState(q="русский запрос", status=None, access=None, sort="updated_desc"),
+            generated_at=datetime.now(UTC),
+        )
+    )
+    assert page.count('id="meeting-search"') == 1
+    assert 'aria-label="Поиск встреч"' in page
+    css = _cabinet_css()
+    assert "padding-inline-start: 42px;" in css
+    assert "padding-inline-end: 34px;" in css
+    assert "pointer-events: none;" in css
+    assert "min-width: 16px;" in css
+
+
+def test_feature_159_download_and_profile_surface_contract_is_surface_aware() -> None:
+    web = render_meeting_list_page(
+        MeetingListResponse(
+            items=[_item()],
+            filters=MeetingFilterState(q=None, status=None, access=None, sort="updated_desc"),
+            generated_at=datetime.now(UTC),
+        ),
+        profile=cabinet_view_models.AccountProfileView(
+            display_name="Длинное синтетическое имя пользователя",
+            primary_email="synthetic-owner@example.test",
+        ),
+    )
+    embedded = render_meeting_list_page(
+        MeetingListResponse(
+            items=[_item()],
+            filters=MeetingFilterState(q=None, status=None, access=None, sort="updated_desc"),
+            generated_at=datetime.now(UTC),
+        ),
+        embedded=True,
+        profile=cabinet_view_models.AccountProfileView(
+            display_name="Длинное синтетическое имя пользователя",
+            primary_email="synthetic-owner@example.test",
+        ),
+    )
+    assert web.count('data-sidebar-download') == 1
+    assert embedded.count('data-sidebar-download') == 0
+    assert 'data-profile-menu-root' in web
+    assert 'data-profile-menu-trigger' in web
+    assert 'data-profile-menu' in web
+    assert "Длинное синтетическое имя пользователя" in web
+    assert "synthetic-owner@example.test" in web
+    assert "provider_subject" not in web
+    assert "candidate_identity_subject" not in web
+
+
+def test_feature_159_settings_use_one_primary_rail_and_canonical_meetings_return() -> None:
+    for embedded, meetings_href in ((False, "/meetings"), (True, "/desktop/meetings")):
+        page = render_settings_page(embedded=embedded, category="account")
+        assert page.count('data-settings-primary-nav>') == 1
+        assert page.count('data-settings-primary-nav-item') == 9
+        assert f'href="{meetings_href}"' in page
+        assert 'data-settings-navigation-legacy hidden' in page
+        assert 'aria-hidden="true"' in page
+        assert page.count('data-settings-nav="account"') == 1
+        assert page.count('aria-label="Разделы настроек"') == 1
 
 
 def test_list_shell_renders_audio_video_transcript_and_upload_icons() -> None:

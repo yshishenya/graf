@@ -13,28 +13,65 @@
 </nav>
 {%- endmacro %}
 
-{% macro cabinet_sidebar(navigation, embedded=False, static_url="", csrf_token=None) -%}
+{% macro cabinet_sidebar(navigation, embedded=False, static_url="", csrf_token=None, settings_navigation=(), settings_active="overview", profile=None) -%}
 <aside class="sidebar" id="cabinet-sidebar" data-cabinet-navigation>
-  <button class="cabinet-rail-toggle" type="button" data-cabinet-rail-toggle aria-label="Развернуть меню" aria-controls="cabinet-sidebar" aria-expanded="false">{{ icons.icon("panel-left-open") }}{{ icons.icon("panel-left-close") }}</button>
+  <button class="cabinet-rail-toggle" type="button" data-cabinet-rail-toggle aria-label="Показать боковую панель" title="Показать боковую панель" aria-controls="cabinet-sidebar" aria-expanded="false">{{ icons.icon("panel-left-open") }}{{ icons.icon("panel-left-close") }}</button>
   {{ workspace_header("ГРАФ", none, mark_src=static_url ~ "/graf-icon.png", wordmark_src=static_url ~ "/graf-wordmark-dark.png", wordmark_srcset=static_url ~ "/graf-wordmark-dark@2x.png 2x") }}
+  {% if navigation.active == "settings" %}
+  <nav class="cabinet-sidebar-nav cabinet-sidebar-nav--settings" aria-label="Навигация кабинета" data-settings-primary-nav>
+    <a class="cabinet-sidebar-nav__item cabinet-sidebar-nav__item--back" href="{{ '/desktop/meetings' if embedded else '/meetings' }}" data-settings-primary-nav-item="meetings">
+      {{ icons.icon("calendar-days") }}
+      <span class="cabinet-sidebar-nav__label">К встречам</span>
+    </a>
+    <span class="cabinet-sidebar-nav__section-label">Настройки</span>
+    <a class="cabinet-sidebar-nav__item{% if settings_active == 'overview' %} is-selected{% endif %}" href="{{ '/desktop/settings' if embedded else '/settings' }}" data-settings-primary-nav-item="overview"{% if settings_active == 'overview' %} aria-current="page"{% endif %}>
+      {{ icons.icon("settings") }}
+      <span class="cabinet-sidebar-nav__label">Обзор</span>
+    </a>
+    {% for item in settings_navigation %}
+    <a class="cabinet-sidebar-nav__item{% if item.id == settings_active %} is-selected{% endif %}" href="{{ item.href }}" data-settings-primary-nav-item="{{ item.id }}"{% if item.id == settings_active %} aria-current="page"{% endif %}>
+      {{ icons.icon(item.icon) }}
+      <span class="cabinet-sidebar-nav__label">{{ item.label }}</span>
+    </a>
+    {% endfor %}
+  </nav>
+  {% else %}
   {{ sidebar_navigation(navigation.items, active=navigation.active) }}
+  {% endif %}
   {%- if embedded %}
   <button class="sidebar-app-update" type="button" data-graf-app-update hidden aria-label="Доступно обновление GRAF. Открыть проверку обновлений." title="Доступно обновление GRAF. Открыть проверку обновлений.">{{ icons.icon("download") }}<span class="sidebar-app-update__label">Доступно обновление</span></button>
+  {% else %}
+  <a class="sidebar-download" data-sidebar-download href="/download" title="Скачать приложение">{{ icons.icon("download") }}<span class="sidebar-download__label">Скачать приложение</span></a>
   {%- endif %}
   <div class="sidebar-foot">
-    <form class="sidebar-logout" method="post" action="{{ '/desktop/meetings' if embedded else '/logout' }}">
-      {{ csrf_field(csrf_token) }}
-      <input type="hidden" name="next" value="{{ '/login?next=/desktop/meetings' if embedded else '/login?next=/meetings' }}">
-      <button class="sidebar-logout__button" type="submit">{{ icons.icon("log-out") }}<span>Выйти</span></button>
-    </form>
+    {% set profile_name = profile.display_name if profile and profile.display_name else "Профиль" %}
+    {% set profile_email = profile.primary_email if profile and profile.primary_email else none %}
+    <div class="sidebar-profile" data-profile-menu-root>
+      <button class="sidebar-profile__trigger" type="button" data-profile-menu-trigger aria-haspopup="menu" aria-controls="cabinet-profile-menu" aria-expanded="false" title="Открыть меню профиля">
+        <span class="sidebar-profile__icon" aria-hidden="true">{{ icons.icon("users-round") }}</span>
+        <span class="sidebar-profile__copy"><strong class="sidebar-profile__name">{{ profile_name }}</strong>{% if profile_email %}<span class="sidebar-profile__email">{{ profile_email }}</span>{% endif %}</span>
+      </button>
+      <div class="sidebar-profile-menu" id="cabinet-profile-menu" data-profile-menu role="menu" hidden>
+        <div class="sidebar-profile-menu__identity">
+          <strong>{{ profile_name }}</strong>
+          {% if profile_email %}<span>{{ profile_email }}</span>{% endif %}
+        </div>
+        <a role="menuitem" href="{{ '/desktop/settings/account' if embedded else '/settings/account' }}">Настройки</a>
+        <form class="sidebar-logout" method="post" action="{{ '/desktop/meetings' if embedded else '/logout' }}">
+          {{ csrf_field(csrf_token) }}
+          <input type="hidden" name="next" value="{{ '/login?next=/desktop/meetings' if embedded else '/login?next=/meetings' }}">
+          <button class="sidebar-logout__button" role="menuitem" type="submit">{{ icons.icon("log-out") }}<span>Выйти</span></button>
+        </form>
+      </div>
+    </div>
   </div>
 </aside>
 {%- endmacro %}
 
-{% macro cabinet_shell(navigation, embedded=False, content=None, static_url="", skip_target="cabinet-main", csrf_token=None) -%}
+{% macro cabinet_shell(navigation, embedded=False, content=None, static_url="", skip_target="cabinet-main", csrf_token=None, settings_navigation=(), settings_active="overview", profile=None) -%}
 <div class="app-shell{% if embedded %} desktop-embedded{% endif %}" data-shell-scroll="contained" data-cabinet-shell data-active-nav="{{ navigation.active }}">
   <a class="skip-link" href="#{{ skip_target }}">К содержимому</a>
-  {{ cabinet_sidebar(navigation, embedded=embedded, static_url=static_url, csrf_token=csrf_token) }}
+  {{ cabinet_sidebar(navigation, embedded=embedded, static_url=static_url, csrf_token=csrf_token, settings_navigation=settings_navigation, settings_active=settings_active, profile=profile) }}
   {% if content is not none %}
   {{ content }}
   {% endif %}
