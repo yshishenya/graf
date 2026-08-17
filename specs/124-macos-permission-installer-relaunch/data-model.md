@@ -17,6 +17,13 @@ Each permission is observed independently as one of:
 
 `unknown` → `granted` or `denied`/`restricted`.
 
+For Screen/System Audio, `unknown` and potentially stale `granted` states may be
+checked by a metadata-only functional ScreenCaptureKit probe. The probe is not a
+permission grant and never changes TCC; it can report `granted` only when the
+current process can obtain shareable content and a display through the native
+capture path. A failed probe converts a previously granted observed state to
+`stale` and keeps recording blocked.
+
 The app may request only the normal API transition from `unknown`. A denied or
 restricted state is recoverable only through the system's own settings or policy
 change. Recording readiness is the conjunction:

@@ -27,5 +27,11 @@
   and links to the same settings/policy surface without promising a bypass.
 - Screen/System Audio uses its own settings URL and status; it is never inferred
   from microphone state.
+- If the Core Graphics preflight is negative or potentially stale, including a
+  granted value after a system-audio runtime failure, GRAF verifies the same
+  ScreenCaptureKit shareable-content path without starting capture. A successful
+  functional probe is sufficient for the current process; a failed probe keeps
+  recording blocked and marks the previously granted state stale. It does not
+  trigger TCC reset or database edits.
 - A “ready” state is shown only after a fresh read reports both permissions as
   granted.

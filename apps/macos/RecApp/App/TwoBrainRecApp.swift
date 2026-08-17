@@ -202,6 +202,8 @@ private struct ContentView: View {
     @State private var permissionOnboardingPresented = false
     @State private var permissionOnboardingRequestInProgress = false
     @State private var permissionRestartRequired = false
+    @State private var lastObservedSystemAudioPermission: CapturePermissionState?
+    @State private var permissionFunctionalProbeInProgress = false
 
     let workspaceZoom: WorkspaceZoomPreference
 
@@ -330,7 +332,7 @@ private struct ContentView: View {
         }
         .sheet(isPresented: $permissionOnboardingPresented) {
             DesktopPermissionOnboardingView(
-                status: permissionOnboardingStatus,
+                status: effectivePermissionOnboardingStatus,
                 isRequesting: permissionOnboardingRequestInProgress,
                 restartRequired: permissionRestartRequired,
                 onRequestMicrophone: {
@@ -348,6 +350,7 @@ private struct ContentView: View {
                 },
                 onRefresh: {
                     refreshPermissionOnboarding(reason: "permission_settings_recheck", presentIfNeeded: false)
+                    Task { await refreshPermissionOnboardingWithFunctionalProbe(reason: "permission_settings_recheck") }
                 },
                 onDismiss: {
                     permissionOnboardingPresented = false
@@ -367,6 +370,7 @@ private struct ContentView: View {
                 detail: "capture=app_owned_system_audio microphone=app_owned"
             )
             refreshPermissionOnboarding(reason: "app_appeared", presentIfNeeded: true)
+            Task { await refreshPermissionOnboardingWithFunctionalProbe(reason: "app_appeared") }
             refreshUploadQueueAndProcess(reason: "app_appeared")
             startUploadQueueNetworkMonitorIfNeeded()
             startMeetingDetectionIfNeeded()
@@ -418,6 +422,7 @@ private struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             refreshPermissionOnboarding(reason: "app_became_active", presentIfNeeded: false)
+            Task { await refreshPermissionOnboardingWithFunctionalProbe(reason: "app_became_active") }
             refreshUploadQueueAndProcess(reason: "app_became_active")
             Task { await refreshCalendarReminder(reason: "app_became_active") }
             Task { await refreshMeetingDetectionRegistry(reason: "app_became_active") }
@@ -445,23 +450,53 @@ private struct ContentView: View {
     }
 
     private var effectivePermissionOnboardingStatus: DesktopPermissionOnboardingStatus {
-        guard permissionRestartRequired,
-              permissionOnboardingStatus.systemAudio == .granted else {
-            return permissionOnboardingStatus
-        }
         return DesktopPermissionOnboardingStatus(
             microphone: permissionOnboardingStatus.microphone,
-            systemAudio: .stale
+            systemAudio: effectiveSystemAudioPermissionState(
+                permissionOnboardingStatus.systemAudio
+            )
         )
     }
 
+    private func effectiveSystemAudioPermissionState(
+        _ observedState: CapturePermissionState
+    ) -> CapturePermissionState {
+        guard permissionRestartRequired, observedState == .granted else {
+            return observedState
+        }
+        return .stale
+    }
+
     @MainActor
-    private func refreshPermissionOnboarding(reason: String, presentIfNeeded: Bool) {
+    private func observeSystemAudioPermission(
+        _ currentState: CapturePermissionState
+    ) {
+        let requiresRestart = DesktopPermissionOnboardingStatus.systemAudioPermissionTransitionRequiresRestart(
+            from: lastObservedSystemAudioPermission,
+            to: currentState
+        )
+        lastObservedSystemAudioPermission = currentState
+
+        guard requiresRestart else { return }
+        permissionRestartRequired = true
+        permissionOnboardingPresented = true
+    }
+
+    @MainActor
+    private func refreshPermissionOnboarding(
+        reason: String,
+        presentIfNeeded: Bool,
+        systemAudioPermissionOverride: CapturePermissionState? = nil
+    ) {
+        let systemAudioPermission = systemAudioPermissionOverride ??
+            systemAudioPermissionAuthorizer.currentPermissionState()
+        observeSystemAudioPermission(systemAudioPermission)
+
         let status = DesktopPermissionOnboardingStatus(
             microphone: microphoneCaptureService.preflight(
                 sessionId: "startup-permission-onboarding"
             ).permissionState,
-            systemAudio: systemAudioPermissionAuthorizer.currentPermissionState()
+            systemAudio: systemAudioPermission
         )
         permissionOnboardingStatus = status
 
@@ -473,9 +508,38 @@ private struct ContentView: View {
             }
         }
 
+        let effectiveStatus = effectivePermissionOnboardingStatus
         AppLog.writeRaw(
             event: "desktop.permission_onboarding_checked",
-            detail: "reason=\(reason) microphone=\(status.microphone.rawValue) systemAudio=\(status.systemAudio.rawValue) ready=\(status.isReady)"
+            detail: "reason=\(reason) microphone=\(effectiveStatus.microphone.rawValue) systemAudio=\(effectiveStatus.systemAudio.rawValue) ready=\(effectiveStatus.isReady)"
+        )
+    }
+
+    @MainActor
+    private func refreshPermissionOnboardingWithFunctionalProbe(reason: String) async {
+        guard !permissionFunctionalProbeInProgress else { return }
+
+        permissionFunctionalProbeInProgress = true
+        defer { permissionFunctionalProbeInProgress = false }
+
+        let verifiedState = await systemAudioPermissionAuthorizer.verifyCurrentPermission()
+        permissionOnboardingStatus.systemAudio = verifiedState
+        guard verifiedState == .granted else {
+            if verifiedState == .stale {
+                permissionRestartRequired = true
+                permissionOnboardingPresented = true
+            }
+            return
+        }
+
+        lastObservedSystemAudioPermission = .granted
+        permissionOnboardingStatus.systemAudio = .granted
+        if permissionOnboardingStatus.isReady && !permissionRestartRequired {
+            permissionOnboardingPresented = false
+        }
+        AppLog.writeRaw(
+            event: "desktop.permission_onboarding_checked",
+            detail: "reason=\(reason)_functional_probe microphone=\(permissionOnboardingStatus.microphone.rawValue) systemAudio=granted ready=\(effectivePermissionOnboardingStatus.isReady)"
         )
     }
 
@@ -504,10 +568,11 @@ private struct ContentView: View {
         defer { permissionOnboardingRequestInProgress = false }
 
         let permissionState = await systemAudioPermissionAuthorizer.requestPermission()
-        if permissionState == .granted {
-            permissionRestartRequired = true
-        }
-        refreshPermissionOnboarding(reason: "system_audio_permission_requested", presentIfNeeded: false)
+        refreshPermissionOnboarding(
+            reason: "system_audio_permission_requested",
+            presentIfNeeded: false,
+            systemAudioPermissionOverride: permissionState
+        )
     }
 
     @MainActor
@@ -541,6 +606,17 @@ private struct ContentView: View {
         } else {
             NSApp.terminate(nil)
         }
+    }
+
+    @MainActor
+    private func presentPermissionRecoveryAfterSystemAudioRuntimeFailure(_ error: Error) {
+        guard let captureError = error as? SystemAudioCaptureServiceError,
+              captureError == .runtimeStartFailed,
+              systemAudioPermissionAuthorizer.currentPermissionState() == .granted else {
+            return
+        }
+        permissionRestartRequired = true
+        permissionOnboardingPresented = true
     }
 
     @MainActor
@@ -928,7 +1004,9 @@ private struct ContentView: View {
     @MainActor
     private func meetingDetectionPrerequisites() -> MeetingDetectionCapturePrerequisites {
         let currentMicrophone = microphoneCaptureService.preflight(sessionId: "meeting-detection-preflight")
-        let currentSystemAudio = systemAudioPermissionAuthorizer.currentPermissionState()
+        let currentSystemAudio = effectiveSystemAudioPermissionState(
+            systemAudioPermissionAuthorizer.currentPermissionState()
+        )
         let permissionGate = systemAudioPermissionGate.evaluate(
             microphone: currentMicrophone.permissionState,
             systemAudio: currentSystemAudio
@@ -1325,7 +1403,11 @@ private struct ContentView: View {
             inputDeviceId: resolvedMicrophoneSelection.inputDeviceId,
             inputDisplayName: resolvedMicrophoneSelection.inputDisplayName ?? "Default Microphone"
         )
-        let systemAudioPermissionState = await systemAudioPermissionAuthorizer.requestPermission()
+        let observedSystemAudioPermissionState = await systemAudioPermissionAuthorizer.requestPermission()
+        observeSystemAudioPermission(observedSystemAudioPermissionState)
+        let systemAudioPermissionState = effectiveSystemAudioPermissionState(
+            observedSystemAudioPermissionState
+        )
         let permissionGate = systemAudioPermissionGate.evaluate(
             microphone: microphoneSession.permissionState,
             systemAudio: systemAudioPermissionState
@@ -1465,6 +1547,7 @@ private struct ContentView: View {
             if let failed = try? captureController.fail(stopReason: .failed, failureCategory: failureCategory) {
                 captureSession = failed
             }
+            presentPermissionRecoveryAfterSystemAudioRuntimeFailure(error)
             recordingBlocker = "Запись не началась: \(recordingStartFailureMessage(for: error))"
             AppLog.writeRaw(
                 event: AuditEventName.recordingFailed.rawValue,

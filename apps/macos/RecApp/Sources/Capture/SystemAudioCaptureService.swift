@@ -31,6 +31,13 @@ public protocol SystemAudioCaptureRuntime: Sendable {
 public protocol SystemAudioPermissionAuthorizing: Sendable {
     func currentPermissionState() -> CapturePermissionState
     func requestPermission() async -> CapturePermissionState
+    func verifyCurrentPermission() async -> CapturePermissionState
+}
+
+public extension SystemAudioPermissionAuthorizing {
+    func verifyCurrentPermission() async -> CapturePermissionState {
+        currentPermissionState()
+    }
 }
 
 public struct CoreGraphicsSystemAudioPermissionAuthorizer: SystemAudioPermissionAuthorizing {
@@ -44,9 +51,32 @@ public struct CoreGraphicsSystemAudioPermissionAuthorizer: SystemAudioPermission
         #endif
     }
 
+    public func verifyCurrentPermission() async -> CapturePermissionState {
+        let observedState = currentPermissionState()
+        #if canImport(ScreenCaptureKit)
+        do {
+            let content = try await SCShareableContent.excludingDesktopWindows(
+                false,
+                onScreenWindowsOnly: true
+            )
+            guard content.displays.first != nil else {
+                return observedState == .granted ? .stale : observedState
+            }
+            return .granted
+        } catch {
+            return observedState == .granted ? .stale : observedState
+        }
+        #else
+        return observedState
+        #endif
+    }
+
     public func requestPermission() async -> CapturePermissionState {
         #if canImport(CoreGraphics)
-        return CGRequestScreenCaptureAccess() ? .granted : currentPermissionState()
+        if CGRequestScreenCaptureAccess() {
+            return .granted
+        }
+        return await verifyCurrentPermission()
         #else
         return .unknown
         #endif

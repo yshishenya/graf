@@ -36,13 +36,27 @@ does not, stop distribution and rebuild the package.
    Finder and choose **Open**.
 3. Complete the installer, launch `/Applications/GRAF.app`, and do not run
    `sudo spctl --master-disable`, TCC reset commands, or driver installers.
+   If both `GRAF.app` and `GRAF Dev.app` are installed, grant access to the
+   exact app channel you are launching; macOS keeps their permission grants
+   separate. Do not use a `.build` copy while validating the installed app.
 4. In GRAF choose **Разрешить микрофон**. Accept the normal macOS prompt while
    the state is unknown. If the state is **Отклонено**, choose
    **Открыть настройки macOS** and enable GRAF in Microphone.
 5. Open **Запись экрана и системного звука**, enable GRAF, return to GRAF, and
-   choose **Перезапустить GRAF**. The old process must exit within ten seconds.
+   choose **Перезапустить GRAF**. If the permission was enabled manually after
+   the running process first observed a missing state, GRAF must show
+   **Нужно обновить** and keep recording blocked until the restart. The old
+   process must exit within ten seconds.
 6. After relaunch, verify that the onboarding sheet is absent only when both
    statuses are granted and that the record control remains manual.
+
+If macOS shows the app as enabled but the running GRAF process still reports a
+missing permission or cannot start system audio, do not reset TCC. Choose
+**Проверить снова**; GRAF checks the native ScreenCaptureKit path without
+recording even when Core Graphics says the permission is granted. If the check
+still fails, turn access off and on only for the exact running app (`GRAF` or
+`GRAF Dev`), then choose **Перезапустить GRAF**. The permission is applied to a
+fresh process only.
 
 ## Focused repository checks
 

@@ -208,6 +208,11 @@ bundle identity и разрешений.
 - **FR-019**: Every distributed hardened-runtime GRAF app MUST declare the
   macOS audio-input permission needed for microphone registration, and release
   validation MUST reject an app bundle that omits it.
+- **FR-020**: When Core Graphics reports no or potentially stale Screen/System
+  Audio access, including a granted state after a system-audio runtime failure,
+  GRAF MUST perform a non-recording ScreenCaptureKit functional probe. It MUST
+  show `granted` only when that native path succeeds, and MUST NOT mutate or
+  reset TCC state.
 
 ### Key Entities
 

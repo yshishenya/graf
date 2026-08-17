@@ -22,6 +22,13 @@ public struct DesktopPermissionOnboardingStatus: Equatable, Sendable {
     public var isReady: Bool {
         microphone == .granted && systemAudio == .granted
     }
+
+    public static func systemAudioPermissionTransitionRequiresRestart(
+        from previous: CapturePermissionState?,
+        to current: CapturePermissionState
+    ) -> Bool {
+        previous != nil && previous != .granted && current == .granted
+    }
 }
 
 public enum DesktopPermissionOnboardingSettings {
@@ -44,13 +51,13 @@ public enum DesktopPermissionOnboardingAccessibilityIdentifier {
 public struct DesktopPermissionOnboardingView: View {
     public static let title = "Подготовим GRAF к записи"
     public static let subtitle = "Разрешите доступы macOS заранее. Запись не начнется, пока вы не нажмете кнопку записи."
-    public static let systemAudioStepDetail = "Нужна macOS, чтобы GRAF мог получить звук встречи. После настройки может потребоваться перезапуск GRAF."
+    public static let systemAudioStepDetail = "Нужна macOS, чтобы GRAF мог получить звук встречи. Если доступ уже включен, выключите и включите его только для запущенного GRAF, затем проверьте снова."
     public static let startStepTitle = "Начните аудиозапись"
     public static let startStepDetail = "После разрешений используйте кнопку записи в правой панели управления."
     public static let openSettingsTitle = "Открыть настройки macOS"
     public static let retryTitle = "Проверить снова"
     public static let restartTitle = "Перезапустить GRAF"
-    public static let restartDetail = "После изменения доступа к системному звуку перезапустите GRAF, чтобы macOS применила разрешение к записи."
+    public static let restartDetail = "После изменения доступа к системному звуку перезапустите GRAF, чтобы macOS применила разрешение к записи. Не сбрасывайте все разрешения macOS."
     public static let microphoneDeniedDetail = "macOS уже отклонила доступ. Откройте настройки и включите GRAF вручную — повторный запрос после отказа может не появиться."
     public static let microphoneRestrictedDetail = "Доступ ограничен macOS или политикой устройства. GRAF не может обойти это ограничение."
 
