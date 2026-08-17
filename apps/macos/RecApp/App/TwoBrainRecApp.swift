@@ -20,13 +20,14 @@ private enum TwoBrainRecAppMain {
     @MainActor
     private static func installMainMenu(on app: NSApplication, zoomTarget: AnyObject) {
         let mainMenu = NSMenu()
+        let displayName = GrafAppChannel.current.displayName
 
         let appMenuItem = NSMenuItem()
         mainMenu.addItem(appMenuItem)
-        let appMenu = NSMenu(title: "GRAF")
+        let appMenu = NSMenu(title: displayName)
         appMenuItem.submenu = appMenu
         appMenu.addItem(
-            withTitle: "About GRAF",
+            withTitle: "About \(displayName)",
             action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)),
             keyEquivalent: ""
         )
@@ -45,7 +46,7 @@ private enum TwoBrainRecAppMain {
         settingsItem.target = zoomTarget
         appMenu.addItem(NSMenuItem.separator())
         appMenu.addItem(
-            withTitle: "Hide GRAF",
+            withTitle: "Hide \(displayName)",
             action: #selector(NSApplication.hide(_:)),
             keyEquivalent: "h"
         )
@@ -62,7 +63,7 @@ private enum TwoBrainRecAppMain {
         )
         appMenu.addItem(NSMenuItem.separator())
         appMenu.addItem(
-            withTitle: "Quit GRAF",
+            withTitle: "Quit \(displayName)",
             action: #selector(NSApplication.terminate(_:)),
             keyEquivalent: "q"
         )
@@ -2552,7 +2553,7 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
             backing: .buffered,
             defer: false
         )
-        window.title = "GRAF"
+        window.title = GrafAppChannel.current.displayName
         window.minSize = NSSize(width: 1040, height: 680)
         window.isReleasedWhenClosed = false
         window.isRestorable = false

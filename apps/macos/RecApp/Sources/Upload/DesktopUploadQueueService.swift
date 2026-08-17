@@ -125,33 +125,39 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
 
     public init(
         queueURL: URL? = nil,
-        recordingsRootURL: URL = LocalRecordingStore().rootURL,
+        recordingsRootURL: URL? = nil,
+        channel: GrafAppChannel = .current,
         policy: LocalBufferPolicy = LocalBufferService.defaultPolicy,
         manifestService: LocalRecordingManifestService = LocalRecordingManifestService(),
         client: DesktopUploadClientProtocol? = DesktopUploadClient.configuredFromEnvironment(),
         clock: @escaping Clock = Date.init
     ) {
-        self.queueURL = queueURL ?? Self.defaultQueueURL()
-        self.recordingsRootURL = recordingsRootURL
+        self.queueURL = queueURL ?? Self.defaultQueueURL(channel: channel)
+        self.recordingsRootURL = recordingsRootURL ?? LocalRecordingStore(channel: channel).rootURL
         self.policy = policy
         self.manifestService = manifestService
         self.client = client
         self.clock = clock
     }
 
-    public static func defaultQueueURL() -> URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ??
-            FileManager.default.temporaryDirectory
+    public static func defaultQueueURL(
+        fileManager: FileManager = .default,
+        applicationSupportURL: URL? = nil,
+        channel: GrafAppChannel = .current
+    ) -> URL {
+        let base = applicationSupportURL ?? fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ??
+            fileManager.temporaryDirectory
         let current = base
-            .appendingPathComponent("GRAF", isDirectory: true)
+            .appendingPathComponent(channel.applicationSupportFolderName, isDirectory: true)
             .appendingPathComponent("UploadQueue", isDirectory: true)
             .appendingPathComponent("upload-queue.json")
         let legacy = base
             .appendingPathComponent("2brain Rec", isDirectory: true)
             .appendingPathComponent("UploadQueue", isDirectory: true)
             .appendingPathComponent("upload-queue.json")
-        if !FileManager.default.fileExists(atPath: current.path),
-           FileManager.default.fileExists(atPath: legacy.path) {
+        if channel != .installedDev,
+           !fileManager.fileExists(atPath: current.path),
+           fileManager.fileExists(atPath: legacy.path) {
             return legacy
         }
         return current

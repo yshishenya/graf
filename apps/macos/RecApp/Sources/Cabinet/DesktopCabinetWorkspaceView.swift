@@ -425,13 +425,21 @@ private final class DesktopCabinetNavigationTitlebarAccessoryAnchor: NSView {
 }
 
 private struct DesktopCabinetNavigationControls: View {
-    static let preferredWidth: CGFloat = 136
+    static let preferredWidth: CGFloat = 180
     static let preferredHeight: CGFloat = 40
 
     @ObservedObject var controller: EmbeddedCabinetNavigationController
 
     var body: some View {
         HStack(spacing: 0) {
+            navigationButton(
+                title: "Домой",
+                hint: "Открыть канонический список встреч",
+                symbol: "house",
+                enabled: controller.canGoHome && !controller.isLoading,
+                shortcut: "0",
+                action: controller.goHome
+            )
             navigationButton(
                 title: "Назад",
                 hint: "Вернуться к предыдущему экрану",
@@ -497,6 +505,8 @@ private struct DesktopCabinetNavigationControls: View {
 
     private func accessibilityIdentifier(for title: String) -> String {
         switch title {
+        case "Домой":
+            return DesktopCabinetAccessibilityIdentifier.navigationHome
         case "Назад":
             return DesktopCabinetAccessibilityIdentifier.navigationBack
         case "Вперёд":

@@ -221,6 +221,7 @@ public enum DesktopCabinetAccessibilityIdentifier {
     public static let navigationBack = "desktop-cabinet-navigation-back"
     public static let navigationForward = "desktop-cabinet-navigation-forward"
     public static let navigationReload = "desktop-cabinet-navigation-reload"
+    public static let navigationHome = "desktop-cabinet-navigation-home"
 }
 
 public enum DesktopCabinetRecoveryTarget: Equatable, Sendable {
