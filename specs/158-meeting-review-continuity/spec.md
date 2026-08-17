@@ -4,7 +4,7 @@
 
 **Created**: 2026-08-17
 
-**Status**: Implementation reconstructed in a clean worktree; pending focused validation, commit and PR
+**Status**: Implementation committed and validated locally; PR pending
 
 **Input**: User description: Improve speaker timeline resizing and discoverability, preserve playback while renaming speakers, and keep meeting navigation visible in web and embedded macOS review.
 

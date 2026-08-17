@@ -125,3 +125,15 @@ Confirm metadata-only evidence: do not capture or retain private meeting content
 - All fixtures and storage objects above are synthetic local validation data;
   no real audio, transcript, private screenshot, credential, or production
   mutation was used. T021 is PASS.
+
+2026-08-18 clean-worktree implementation evidence:
+
+- Implementation commit `97fd3467725632e0a18f81f588a07400a11c22d9` contains only
+  Feature 158 timeline, rename and sticky-tab paths plus their Spec Kit docs;
+  Feature 159 sidebar/profile/settings paths were intentionally excluded.
+- `node --check apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js` — PASS.
+- Prescribed focused PostgreSQL runner — PASS, 13 passed, 108 deselected.
+- `infra/scripts/ci-local.sh --fast` on the exact implementation SHA — PASS:
+  1097 server tests, legacy audio architecture guard, lint and Python compile.
+- This entry is metadata-only evidence. No private meeting data, production
+  mutation, deploy or release action was performed.

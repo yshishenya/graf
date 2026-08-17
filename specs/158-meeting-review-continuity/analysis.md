@@ -42,6 +42,7 @@ lane are recorded in `quickstart.md`; no private meeting content was retained.
 
 ## Closeout boundary
 
-Implementation is validated but remains uncommitted in the current worktree.
-GitHub issues for this slice remain open until the approved implementation
-commit and PR are available; no production deploy or release is claimed here.
+Implementation commit `97fd3467725632e0a18f81f588a07400a11c22d9` passed the
+exact-SHA fast lane: 1097 server tests, lint, Python compile, and the legacy
+audio architecture guard. GitHub issues remain open until the PR is merged and
+closure evidence is added; no production deploy or release is claimed here.
