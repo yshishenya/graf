@@ -94,6 +94,9 @@ final class SystemAudioPermissionUXTests: XCTestCase {
             DesktopPermissionOnboardingAccessibilityIdentifier.restartButton,
             DesktopPermissionOnboardingAccessibilityIdentifier.finishButton
         )
+        let devCopy = DesktopPermissionOnboardingView.systemAudioStepDetail(for: "GRAF Dev")
+        XCTAssertTrue(devCopy.contains("GRAF Dev"))
+        XCTAssertTrue(devCopy.contains("отдельно"))
     }
 
     func testDetectorAssistedPreparingDoesNotStartRecordingAutomatically() throws {

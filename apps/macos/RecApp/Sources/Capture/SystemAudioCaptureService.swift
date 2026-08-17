@@ -73,9 +73,11 @@ public struct CoreGraphicsSystemAudioPermissionAuthorizer: SystemAudioPermission
 
     public func requestPermission() async -> CapturePermissionState {
         #if canImport(CoreGraphics)
-        if CGRequestScreenCaptureAccess() {
-            return .granted
-        }
+        _ = CGRequestScreenCaptureAccess()
+        // Core Graphics can keep returning a previously granted value after
+        // the ScreenCaptureKit path has gone stale. The native probe is the
+        // source of truth for the current process; never report granted from
+        // the preflight boolean alone.
         return await verifyCurrentPermission()
         #else
         return .unknown

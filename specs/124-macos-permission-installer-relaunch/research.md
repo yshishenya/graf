@@ -32,6 +32,14 @@
   `attachedSheet` и `sheetParent`. В коде нет явного `NSApp.abortModal()` для
   активной AppKit modal session, поэтому системный quit/reopen может ждать
   модальный цикл, который SwiftUI sheet уже не отражает как обычный sheet.
+- Текущая проверка разрешения раньше сразу возвращала `granted`, если
+  `CGRequestScreenCaptureAccess()` возвращал `true`, не проверяя, что текущий
+  процесс действительно может открыть ScreenCaptureKit-путь. На macOS это
+  оставляет ложный `granted` при stale-состоянии TCC.
+- Production `GRAF` и локальные копии вроде `GRAF Dev` могут иметь разные
+  bundle identifier, поэтому macOS хранит их разрешения отдельно. Общий лог
+  без имени приложения и bundle ID не позволяет отличить правильную копию от
+  запущенной пользователем.
 
 ## Проверенные внешние рекомендации
 
@@ -104,6 +112,12 @@ workflow, TCC reset или попытку имитировать Developer ID. �
 не отключать library validation. Проверять entitlement только у нового
 кандидата, чтобы разрешить безопасный переход со старого `.2`, в котором он
 отсутствовал.
+
+Проверка Screen/System Audio после `CGRequestScreenCaptureAccess()` всегда
+повторяет metadata-only ScreenCaptureKit probe. Core Graphics остаётся только
+триггером штатного запроса; его boolean не может единолично объявить доступ
+готовым. Onboarding и безопасный журнал показывают имя и bundle ID текущего
+процесса, чтобы пользователь выдал доступ именно нужной копии GRAF.
 
 ### Перезапуск
 

@@ -57,6 +57,8 @@ recording even when Core Graphics says the permission is granted. If the check
 still fails, turn access off and on only for the exact running app (`GRAF` or
 `GRAF Dev`), then choose **Перезапустить GRAF**. The permission is applied to a
 fresh process only.
+The onboarding names the current app copy; that name must match the row enabled
+in System Settings because separate bundle IDs have separate macOS permissions.
 
 ## Focused repository checks
 

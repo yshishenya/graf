@@ -47,3 +47,7 @@ assigned to the parallel automatic-recording slice.
 - [ ] T099 [US2] Выполнить focused tests, `sh -n`, локальную self-signed сборку и `apps/macos/Scripts/validate-app-updates.sh` против кандидата `.3` и предыдущего `.2`, подтвердив metadata-only evidence.
 - [X] T100 [US4] Подготовить, подписать и опубликовать `v2026.07.24.3` через существующий Sparkle protected workflow, затем проверить публичные ZIP/PKG/appcast и обновление с `.2`.
 - [X] T101 [US3] Добавить metadata-only ScreenCaptureKit functional probe для рассинхрона `CGPreflightScreenCaptureAccess`, сохранив fail-closed gate и запрет TCC reset.
+
+## Permission-recovery regression follow-up
+
+- [X] T102 [US2] Устранить ложный `granted` после stale Core Graphics preflight: всегда выполнять ScreenCaptureKit probe после штатного запроса, показывать имя/bundle ID текущей копии GRAF и сохранять restart-required recovery.

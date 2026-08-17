@@ -61,7 +61,14 @@ public struct DesktopPermissionOnboardingView: View {
     public static let microphoneDeniedDetail = "macOS уже отклонила доступ. Откройте настройки и включите GRAF вручную — повторный запрос после отказа может не появиться."
     public static let microphoneRestrictedDetail = "Доступ ограничен macOS или политикой устройства. GRAF не может обойти это ограничение."
 
+    public static func systemAudioStepDetail(for applicationName: String) -> String {
+        let name = applicationName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let currentApplication = name.isEmpty ? "GRAF" : name
+        return "\(systemAudioStepDetail) Текущая копия: «\(currentApplication)». macOS хранит доступ отдельно для разных копий GRAF."
+    }
+
     private let status: DesktopPermissionOnboardingStatus
+    private let applicationName: String
     private let isRequesting: Bool
     private let restartRequired: Bool
     private let onRequestMicrophone: () -> Void
@@ -75,6 +82,7 @@ public struct DesktopPermissionOnboardingView: View {
 
     public init(
         status: DesktopPermissionOnboardingStatus,
+        applicationName: String = "GRAF",
         isRequesting: Bool,
         restartRequired: Bool,
         onRequestMicrophone: @escaping () -> Void,
@@ -87,6 +95,7 @@ public struct DesktopPermissionOnboardingView: View {
         onRestart: @escaping () -> Void
     ) {
         self.status = status
+        self.applicationName = applicationName
         self.isRequesting = isRequesting
         self.restartRequired = restartRequired
         self.onRequestMicrophone = onRequestMicrophone
@@ -128,7 +137,7 @@ public struct DesktopPermissionOnboardingView: View {
                 PermissionOnboardingRow(
                     number: 2,
                     title: "Запись экрана и системного звука",
-                    detail: Self.systemAudioStepDetail,
+                    detail: Self.systemAudioStepDetail(for: applicationName),
                     state: status.systemAudio,
                     primaryTitle: "Разрешить системный звук",
                     primaryIdentifier: DesktopPermissionOnboardingAccessibilityIdentifier.systemAudioButton,

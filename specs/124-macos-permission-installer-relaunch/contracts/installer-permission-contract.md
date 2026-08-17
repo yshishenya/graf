@@ -33,5 +33,8 @@
   functional probe is sufficient for the current process; a failed probe keeps
   recording blocked and marks the previously granted state stale. It does not
   trigger TCC reset or database edits.
+- The normal Screen/System Audio request path MUST run that functional probe
+  even when `CGRequestScreenCaptureAccess()` returns `true`; the Core Graphics
+  boolean alone is not accepted as a fresh grant.
 - A “ready” state is shown only after a fresh read reports both permissions as
   granted.
