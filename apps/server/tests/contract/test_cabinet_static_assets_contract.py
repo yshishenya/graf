@@ -2270,6 +2270,9 @@ def test_feature_159_shared_shell_static_contract_keeps_search_and_download_boun
     assert "padding-inline-start: 42px;" in css
     assert "padding-inline-end: 34px;" in css
     assert ".sidebar-download" in css
+    assert "position: fixed;" in css
+    assert "max-height: calc(100vh - 24px);" in css
+    assert "overflow-y: auto;" in css
     assert 'data-sidebar-download href="/download"' in sections
     assert 'data-sidebar-download href="/download"' not in sections.replace(
         'data-sidebar-download href="/download"', "", 1

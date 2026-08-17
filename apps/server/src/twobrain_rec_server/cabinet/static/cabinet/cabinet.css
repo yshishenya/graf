@@ -4657,11 +4657,13 @@ html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned
 .sidebar-profile__email,
 .sidebar-profile-menu__identity span { color: var(--muted); font-size: 11px; }
 .sidebar-profile-menu {
-  position: absolute;
+  position: fixed;
   z-index: 60;
-  left: calc(100% + 8px);
-  bottom: 0;
-  width: min(260px, calc(100vw - 24px));
+  left: calc(var(--app-rail-width) + 8px);
+  bottom: 12px;
+  width: min(260px, max(160px, calc(100vw - var(--app-rail-width) - 24px)));
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
   display: grid;
   gap: 8px;
   padding: 10px;
@@ -4669,6 +4671,10 @@ html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned
   border-radius: 10px;
   background: var(--panel);
   box-shadow: 0 14px 30px rgba(0,0,0,.26);
+}
+.app-shell[data-cabinet-shell].is-rail-pinned .sidebar-profile-menu {
+  left: calc(var(--app-sidebar-width) + 8px);
+  width: min(260px, max(160px, calc(100vw - var(--app-sidebar-width) - 24px)));
 }
 .sidebar-profile-menu__identity { padding: 2px 4px 6px; border-bottom: 1px solid var(--line-soft); }
 .sidebar-profile-menu > a,
