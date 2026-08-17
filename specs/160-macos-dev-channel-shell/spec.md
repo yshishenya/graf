@@ -4,7 +4,7 @@
 
 **Created**: 2026-08-17
 
-**Status**: Validated locally; pending implementation commit/PR
+**Status**: Implementation committed and validated locally; PR pending
 
 **Owner boundary**: functions 9 and 14 from the user goal.
 Feature 095 remains the owner of historical permission continuity; Features

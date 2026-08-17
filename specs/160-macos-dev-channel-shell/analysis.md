@@ -48,7 +48,8 @@ workaround.
   after the final native-executable packaging correction: 1100 tests plus lint
   and Python compile passed. Native computer-use smoke is complete for both
   grants and same-identity update/relaunch; no TCC workaround was used.
-- The slice is locally validated but still awaits the implementation
-  commit/PR. Public notarization, appcast mutation, production deployment, and
-  release publication remain separate approval-gated work owned by Features
-  105/130/153.
+- Implementation commit `e1adfa72aac3e7f82188402a38f1ff63bfa37a98` passed the
+  exact-SHA fast lane: 1096 server tests, lint, Python compile, and the legacy
+  audio architecture guard. PR creation is the next step. Public
+  notarization, appcast mutation, production deployment, and release
+  publication remain separate approval-gated work owned by Features 105/130/153.

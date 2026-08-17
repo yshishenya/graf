@@ -125,3 +125,12 @@ not part of this slice.
   compile passed. No TCC reset, database edit, hidden profile, driver
   workaround, production update, or public release was performed. T014 is
   PASS.
+
+2026-08-18 implementation commit evidence:
+
+- Implementation commit `e1adfa72aac3e7f82188402a38f1ff63bfa37a98` — focused
+  Swift suite `79/79`, shell syntax, and `git diff --check` passed before commit.
+- `infra/scripts/ci-local.sh --fast` on the exact implementation SHA — PASS:
+  1096 server tests, legacy audio architecture guard, lint, and Python compile.
+- The working tree was clean after the implementation commit. This entry is
+  metadata-only validation evidence; no product or permission state was changed.
