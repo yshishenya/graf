@@ -14,12 +14,12 @@ do not create duplicate issues.
 **Purpose**: Freeze behavior before changing the shared shell. Contract tasks are
 independent where they touch different test files.
 
-- [ ] T001 [P] [US1] Зафиксировать единый toggle, truthful action label, `aria-expanded`, `aria-controls`, focus retention и две последовательные активации в `apps/server/tests/unit/test_cabinet_web_shell.py` и `apps/server/tests/contract/test_cabinet_static_assets_contract.py`.
-- [ ] T002 [P] [US1] Зафиксировать ненулевой gap между search icon и текстом, decorative pointer behavior и narrow/loading/disabled/focus states в `apps/server/tests/unit/test_cabinet_web_shell.py` и `apps/server/tests/contract/test_cabinet_static_assets_contract.py`.
-- [ ] T003 [P] [US3] Закрепить unknown-email rejection, explicit signup, invitation/provider, email-code, expired-session и `/sign-up` compatibility в `apps/server/tests/contract/test_account_routes.py` и `apps/server/tests/integration/test_web_owner_session_context.py`.
-- [ ] T004 [P] [US1] Закрепить ровно один browser `/download` sidebar CTA, ноль embedded sidebar CTA и accessible keyboard contract в `apps/server/tests/unit/test_cabinet_web_shell.py`.
-- [ ] T005 [P] [US1] Закрепить safe profile projection, long/missing data, Escape/outside close, focus return и существующий CSRF logout в `apps/server/tests/unit/test_cabinet_web_shell.py` и `apps/server/tests/contract/test_cabinet_static_assets_contract.py`.
-- [ ] T006 [P] [US2] Закрепить одну settings rail, canonical «К встречам», selected `aria-current`, все category/calendar routes, browser/embedded parity и отсутствие nested rail в `apps/server/tests/unit/test_cabinet_web_shell.py` и `apps/server/tests/integration/test_settings_ia_flow.py`.
+- [X] T001 [P] [US1] Зафиксировать единый toggle, truthful action label, `aria-expanded`, `aria-controls`, focus retention и две последовательные активации в `apps/server/tests/unit/test_cabinet_web_shell.py` и `apps/server/tests/contract/test_cabinet_static_assets_contract.py`.
+- [X] T002 [P] [US1] Зафиксировать ненулевой gap между search icon и текстом, decorative pointer behavior и narrow/loading/disabled/focus states в `apps/server/tests/unit/test_cabinet_web_shell.py` и `apps/server/tests/contract/test_cabinet_static_assets_contract.py`.
+- [X] T003 [P] [US3] Закрепить unknown-email rejection, explicit signup, invitation/provider, email-code, expired-session и `/sign-up` compatibility в `apps/server/tests/contract/test_account_routes.py` и `apps/server/tests/integration/test_web_owner_session_context.py`.
+- [X] T004 [P] [US1] Закрепить ровно один browser `/download` sidebar CTA, ноль embedded sidebar CTA и accessible keyboard contract в `apps/server/tests/unit/test_cabinet_web_shell.py`.
+- [X] T005 [P] [US1] Закрепить safe profile projection, long/missing data, Escape/outside close, focus return и существующий CSRF logout в `apps/server/tests/unit/test_cabinet_web_shell.py` и `apps/server/tests/contract/test_cabinet_static_assets_contract.py`.
+- [X] T006 [P] [US2] Закрепить одну settings rail, canonical «К встречам», selected `aria-current`, все category/calendar routes, browser/embedded parity и отсутствие nested rail в `apps/server/tests/unit/test_cabinet_web_shell.py` и `apps/server/tests/integration/test_settings_ia_flow.py`.
 
 **Checkpoint**: Contract tests name every acceptance boundary before runtime
 markup/CSS/JS changes.
@@ -33,11 +33,11 @@ route ownership or server authorization.
 embedded matrix shows stable toggle, search spacing, surface-aware CTA and safe
 profile menu.
 
-- [ ] T007 [US1] Обновить общий toggle markup и guarded initialization в `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/components/sections.html` и `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`, сохранив active navigation, stable hit target и focus return.
-- [ ] T008 [US1] Исправить существующий search spacing/pointer CSS contract без нового компонента или JS state в `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css`.
-- [ ] T009 [US3] Привести login copy/CTA к проверенному auth contract в `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/auth/login.html`, сохранив `/sign-up`, invitation/provider/email-code callers и unchanged backend semantics.
-- [ ] T010 [US1] Добавить один web-only `/download` CTA в нижнюю часть shared sidebar, убрать competing settings-recording CTA и сохранить embedded native updater в `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/components/sections.html`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/settings_recording_content.html` и `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css`.
-- [ ] T011 [US1] Передать существующую safe `AccountSettingsSurface.profile` проекцию в guarded profile menu с wrapping, Escape/outside close, focus return и existing logout form в `apps/server/src/twobrain_rec_server/cabinet/rendering_shared.py`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/components/sections.html`, `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js` и `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css`.
+- [X] T007 [US1] Обновить общий toggle markup и guarded initialization в `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/components/sections.html` и `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`, сохранив active navigation, stable hit target и focus return.
+- [X] T008 [US1] Исправить существующий search spacing/pointer CSS contract без нового компонента или JS state в `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css`.
+- [X] T009 [US3] Привести login copy/CTA к проверенному auth contract в `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/auth/login.html`, сохранив `/sign-up`, invitation/provider/email-code callers и unchanged backend semantics.
+- [X] T010 [US1] Добавить один web-only `/download` CTA в нижнюю часть shared sidebar, убрать competing settings-recording CTA и сохранить embedded native updater в `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/components/sections.html`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/settings_recording_content.html` и `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css`.
+- [X] T011 [US1] Передать существующую safe `AccountSettingsSurface.profile` проекцию в guarded profile menu с wrapping, Escape/outside close, focus return и existing logout form в `apps/server/src/twobrain_rec_server/cabinet/rendering_shared.py`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/components/sections.html`, `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js` и `apps/server/src/twobrain_rec_server/cabinet/static/cabinet.css`.
 
 **Checkpoint**: Shared shell scenarios are independently demonstrable in web and
 embedded render checks.
@@ -50,7 +50,7 @@ primary rail while preserving all existing categories, forms and routes.
 **Independent Test**: T006 passes for every settings/category/calendar route in
 browser and embedded modes at desktop and narrow viewport sizes.
 
-- [ ] T012 [US2] Перенести существующие category links в primary sidebar, скрыть nested settings navigation из visual/accessibility tree, добавить canonical «К встречам» и сохранить active category в `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/components/sections.html`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/shell.html`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/components/settings_navigation.html` и `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css`.
+- [X] T012 [US2] Перенести существующие category links в primary sidebar, скрыть nested settings navigation из visual/accessibility tree, добавить canonical «К встречам» и сохранить active category в `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/components/sections.html`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/shell.html`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/components/settings_navigation.html` и `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css`.
 
 **Checkpoint**: Every existing settings destination remains reachable with one
 visible accessible rail and no horizontal overflow.
@@ -59,9 +59,9 @@ visible accessible rail and no horizontal overflow.
 
 **Purpose**: Close root-cause review findings and prove browser/embedded parity.
 
-- [ ] T013 [US1] Выполнить focused pytest selectors из `specs/159-cabinet-navigation-continuity/quickstart.md`, `node --check` для `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js` и добавить минимальные regression assertions для каждого найденного root cause.
-- [ ] T014 [US1] Провести auth/privacy/accessibility/localization/clean-room review изменённых путей и зафиксировать findings/result в `specs/159-cabinet-navigation-continuity/analysis.md`; исправить каждый actionable finding.
-- [ ] T015 [US1] Пройти synthetic visual matrix browser/embedded для light/dark, keyboard, narrow и reduced-motion и запустить `infra/scripts/ci-local.sh --fast`; записать exact SHA, result и environment limitations в `specs/159-cabinet-navigation-continuity/quickstart.md`.
+- [X] T013 [US1] Выполнить focused pytest selectors из `specs/159-cabinet-navigation-continuity/quickstart.md`, `node --check` для `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js` и добавить минимальные regression assertions для каждого найденного root cause.
+- [X] T014 [US1] Провести auth/privacy/accessibility/localization/clean-room review изменённых путей и зафиксировать findings/result в `specs/159-cabinet-navigation-continuity/analysis.md`; исправить каждый actionable finding.
+- [X] T015 [US1] Пройти synthetic visual matrix browser/embedded для light/dark, keyboard, narrow и reduced-motion и запустить `infra/scripts/ci-local.sh --fast`; записать exact SHA, result и environment limitations в `specs/159-cabinet-navigation-continuity/quickstart.md`.
 
 ## Dependencies & Execution Order
 

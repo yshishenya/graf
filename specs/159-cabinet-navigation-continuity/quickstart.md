@@ -61,3 +61,18 @@ infra/scripts/ci-local.sh --fast
 Record the exact commit SHA, command, result and any concrete environment
 limitation. This slice has no production deploy, public release or native
 macOS-shell approval gate.
+
+## Recorded run
+
+- Implementation SHA: `34f234490f55fe7d5f0ffe3d7da4335cb558d4c9`.
+- Focused contracts: 133 passed; `node --check`; `git diff --check`.
+- Disposable PostgreSQL runner: 48 passed across settings IA and web owner
+  session/auth parity; isolated container removed.
+- Synthetic Playwright Chromium matrix: browser/embedded toggle, profile,
+  download, settings rail and 390×844 overflow checks passed. The browser
+  matrix used synthetic render functions and no credentials or private content.
+- Fast lane: 1100 passed, lint PASS, Python compile PASS, legacy-audio guard
+  PASS. Two existing pytest warnings were reported; no test failed.
+- Limitation: active `prefers-reduced-motion` media emulation was unavailable
+  in the installed CLI; the shared reduced-motion rule was verified in the
+  loaded stylesheet and recorded in `analysis.md`.
