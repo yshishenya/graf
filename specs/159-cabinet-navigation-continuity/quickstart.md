@@ -76,3 +76,17 @@ macOS-shell approval gate.
 - Limitation: active `prefers-reduced-motion` media emulation was unavailable
   in the installed CLI; the shared reduced-motion rule was verified in the
   loaded stylesheet and recorded in `analysis.md`.
+
+## Post-review exact-SHA validation
+
+- Implementation SHA: `cdd7b9345bb9e9474d75519b9252a66f9e6a504e`.
+- Focused cabinet contracts: 133 passed; `node --check`; `git diff --check`.
+- Disposable PostgreSQL runner: 44 auth/session integration tests and 4
+  settings IA integration tests passed; isolated containers were removed.
+- `infra/scripts/ci-local.sh --fast`: 1100 passed, lint, Python compile and
+  legacy-audio guard passed; two existing pytest warnings remained.
+- The follow-up commit only wires the existing profile/settings helpers into
+  the shared route paths and fixes menu overflow/focus semantics; no auth,
+  tenant, CSRF, updater or production state changed.
+- Evidence remains synthetic and metadata-only; no private content or
+  screenshot was retained.

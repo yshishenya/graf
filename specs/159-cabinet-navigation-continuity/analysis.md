@@ -58,3 +58,14 @@
 
 `infra/scripts/ci-local.sh --fast` on the implementation SHA: PASS — 1100 unit
 tests, lint, Python compile and legacy-audio guard; 2 existing warnings only.
+
+## Post-review exact-SHA closeout
+
+- Final implementation SHA: `cdd7b9345bb9e9474d75519b9252a66f9e6a504e`.
+- Focused cabinet contracts: 133 passed; auth/session integration: 44 passed;
+  settings IA integration: 4 passed.
+- The exact-SHA fast lane passed again: 1100 tests, lint, Python compile and
+  legacy-audio guard; two existing warnings only.
+- The final diff keeps the existing server-owned profile projection and route
+  helpers, and contains no new auth/storage/router dependency or production
+  mutation.

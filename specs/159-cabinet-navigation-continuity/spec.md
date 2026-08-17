@@ -4,7 +4,7 @@
 
 **Created**: 2026-08-17
 
-**Status**: Draft
+**Status**: Implementation committed and validated locally; PR pending
 
 **Input**: Продолжение общего owner journey GRAF: единая боковая навигация,
 поиск, профиль, настройки, скачивание приложения и truthful auth surface в web
