@@ -29,13 +29,13 @@ an import error.
 
 ### Tests for User Story 1
 
-- [ ] T001 [US1] Add a regression assertion for the project-managed RLS invocation in `apps/server/tests/contract/test_rls_production_boundary.py`.
+- [X] T001 [US1] Add a regression assertion for the project-managed RLS invocation in `apps/server/tests/contract/test_rls_production_boundary.py`.
 
 ### Implementation for User Story 1
 
-- [ ] T002 [US1] Run `verify_rls_hardening.py` from the server project with `PYTHONPATH=src uv run python` in `infra/scripts/ci-local.sh`, preserving the existing full-gate stage order.
-- [ ] T003 [P] [US1] Record the release-readiness runner fix in the `2026.08.18.2` Operations section of `CHANGELOG.md`.
-- [ ] T004 [US1] Run the focused RLS contract selection and the no-URL boundary scenario from `specs/167-rls-ci-runtime/quickstart.md`.
+- [X] T002 [US1] Run `verify_rls_hardening.py` from the server project with `PYTHONPATH=src uv run python` in `infra/scripts/ci-local.sh`, preserving the existing full-gate stage order.
+- [X] T003 [P] [US1] Record the release-readiness runner fix in the `2026.08.18.2` Operations section of `CHANGELOG.md`.
+- [X] T004 [US1] Run the focused RLS contract selection and the no-URL boundary scenario from `specs/167-rls-ci-runtime/quickstart.md`.
 
 **Checkpoint**: The full gate can enter the RLS stage using declared server
 dependencies, while no production probe behavior changes.
@@ -50,8 +50,8 @@ run the disposable pass path and verify the database and probe role are gone.
 
 ### Validation for User Story 2
 
-- [ ] T005 [US2] Run the missing-URL and `twobrain_rec` production-target scenarios from `apps/server/tests/contract/test_rls_production_boundary.py` and `specs/167-rls-ci-runtime/quickstart.md`.
-- [ ] T006 [US2] Run the disposable pass path from `specs/167-rls-ci-runtime/quickstart.md` with an explicit cleanup trap and verify no generated database or probe role remains in the local PostgreSQL cluster.
+- [X] T005 [US2] Run the missing-URL and `twobrain_rec` production-target scenarios from `apps/server/tests/contract/test_rls_production_boundary.py` and `specs/167-rls-ci-runtime/quickstart.md`.
+- [X] T006 [US2] Run the disposable pass path from `specs/167-rls-ci-runtime/quickstart.md` with an explicit cleanup trap and verify no generated database or probe role remains in the local PostgreSQL cluster.
 
 **Checkpoint**: The runtime fix does not weaken RLS or secret-safety guards.
 
