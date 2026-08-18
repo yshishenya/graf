@@ -20,7 +20,7 @@ in dark/light themes and reduced-motion mode. Evidence must remain metadata-only
 
 ## Closeout
 
-Implementation SHA: recorded after the Feature 164 commit.
+Implementation SHA: `85e4a6eda0d860cc4525f6b6d871cd860695aebc`.
 
 Focused evidence (2026-08-18):
 

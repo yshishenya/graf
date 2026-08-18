@@ -52,4 +52,5 @@ responsive default state — is explicitly deferred to Feature 165.
   macOS screenshot remain release-train checks, not evidence for this local
   shell slice.
 - GitHub issues #5289–#5294 are mapped in `tasks.md` and remain open until the
-  implementation commit and closure comments are recorded.
+  implementation commit and closure comments are recorded. Implementation SHA:
+  `85e4a6eda0d860cc4525f6b6d871cd860695aebc`.
