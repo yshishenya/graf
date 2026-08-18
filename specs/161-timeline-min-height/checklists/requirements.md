@@ -1,22 +1,23 @@
-# Specification Quality Checklist: Минимальная высота таймлайна спикеров
+# Specification Quality Checklist: Адаптивная высота таймлайна
 
 **Purpose**: Проверить полноту и измеримость требований перед реализацией
-**Created**: 2026-08-18
+**Created**: 2026-08-19
 **Feature**: [spec.md](../spec.md)
 
-## Content Quality
+## Requirement completeness
 
-- [x] Требования описывают пользовательский результат, а не конкретную реализацию [Clarity]
-- [x] Границы функции и исключённые сценарии явно указаны [Completeness]
-- [x] Все обязательные разделы спецификации заполнены [Completeness]
+- [x] Состояния 1–3, 4+, viewport limit и no-audio описаны [Coverage]
+- [x] Pointer, keyboard, partial update и playback preservation описаны [Coverage]
+- [x] Out-of-scope границы не смешивают layout и audio semantics [Consistency]
+- [x] Естественная высота и 120px baseline различены [Clarity]
+- [x] Успех можно проверить synthetic matrix без private content [Measurability]
 
-## Requirement Completeness
+## Requirement readiness
 
-- [x] Начальные состояния для 1–3 и более трёх спикеров описаны [Coverage]
-- [x] Pointer, keyboard, viewport и partial-update сценарии покрыты [Coverage]
-- [x] Изменение состояния воспроизведения явно защищено [Consistency]
-- [x] Метрики успеха измеримы без знания реализации [Measurability]
+- [x] Нет unresolved clarification markers [Completeness]
+- [x] Все требования имеют focused acceptance evidence [Traceability]
+- [x] Нет требований к новой зависимости, storage или скрытому состоянию [Consistency]
 
 ## Notes
 
-Все пункты пройдены; критических уточнений для планирования нет.
+Все пункты пройдены; critical/blocking gaps отсутствуют.

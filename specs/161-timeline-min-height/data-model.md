@@ -1,15 +1,17 @@
-# Data Model: Минимальная высота таймлайна спикеров
+# Data Model: Адаптивная высота таймлайна спикеров
 
-Изменений в постоянной модели данных нет.
+Постоянной модели данных нет.
 
 ## Presentation state
 
 | Поле | Источник | Ограничение |
 |---|---|---|
-| `defaultHeight` | текущий markup/JS contract | `120px`, нижняя граница |
-| `currentHeight` | transient DOM state | от `defaultHeight` до bounded maximum |
-| `contentHeight` | rendered timeline scroll height | не меньше `defaultHeight` |
-| `viewportHeight` | текущая геометрия playback shell | ограничивает ручное расширение |
+| `defaultHeight` | markup/JS contract | `120px`, базовый размер для 3+ дорожек |
+| `naturalHeight` | rendered timeline geometry | фактическая высота строк до transient clamp |
+| `minimumHeight` | natural height и число дорожек | natural для 1–3, `defaultHeight` для 4+ |
+| `currentHeight` | transient DOM state | от `minimumHeight` до bounded maximum |
+| `contentHeight` | rendered timeline scroll height | полная высота всех строк |
+| `viewportHeight` | playback shell geometry | не вытесняет нижний playback bar |
 
-Имя и сегменты спикеров остаются существующими безопасными view-моделями;
-никакие пользовательские данные не записываются.
+Имена, сегменты и позиция audio element остаются существующими view/runtime
+данными и этой функцией не изменяются.

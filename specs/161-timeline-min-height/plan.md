@@ -1,79 +1,80 @@
-# Implementation Plan: Минимальная высота таймлайна спикеров
+# Implementation Plan: Адаптивная высота таймлайна спикеров
 
-**Branch**: `codex/161-graf-ux-regressions` | **Date**: 2026-08-18 | **Spec**: [spec.md](spec.md)
+**Branch**: `codex/168-cabinet-layout-polish` | **Date**: 2026-08-19 | **Spec**: [spec.md](spec.md)
 
 ## Summary
 
-Поднять общий минимум панели дорожек спикеров с `96px` до `120px` во всех
-слоях, чтобы три двухстрочные дорожки были видны сразу. Существующий resize
-останется bounded по `scrollHeight` и viewport.
+Оставить существующий безопасный размер 120px для встреч, где нужно показать
+три дорожки, но перед начальным применением высоты измерять естественный размер
+контейнера. Для 1–3 дорожек оставить естественный размер, для больших наборов
+сохранить bounded keyboard/pointer resize.
 
 ## Technical Context
 
 **Language/Version**: Python 3.13, vanilla JavaScript, CSS, Jinja2
 
-**Primary Dependencies**: Existing FastAPI cabinet rendering, server-rendered
-Jinja markup, `cabinet.js`, `cabinet.css`; no new dependency
+**Primary Dependencies**: Existing FastAPI cabinet rendering, `cabinet.js`,
+`cabinet.css`, pytest and Node; no new dependency
 
 **Storage**: N/A; no persistence
 
-**Testing**: Focused pytest unit/contract checks and existing Node resize harness
+**Testing**: Focused pytest unit/contract checks, Node resize harness,
+`node --check`, synthetic Browser and embedded visual review
 
-**Risk / Validation Lane**: `high-risk-feature` — shared meeting UX and
-accessibility surface; no capture, audio routing, auth, storage or AI semantics
-change
+**Risk / Validation Lane**: `high-risk-feature` — shared meeting UX,
+accessibility and playback-adjacent layout; capture and audio semantics remain
+unchanged
 
-**Release Gate**: `no deploy` for this slice; production release is handled at
-the final release candidate gate
+**Release Gate**: `no deploy`; production release belongs to the later release
+candidate
 
 **Target Platform**: Modern browser and embedded macOS WebView cabinet
 
 **Project Type**: Server-rendered web cabinet
 
-**Performance Goals**: No additional event handlers, requests or layout state;
-  resize remains idempotent after partial updates
+**Performance Goals**: One existing viewport listener; no polling, storage,
+network call or second resize controller
 
-**Constraints**: Preserve existing audio playback, keyboard resize, viewport
-  ceiling, reduced-motion behavior and synthetic-only evidence
+**Constraints**: Measure without retaining inline height, clamp against content
+and viewport, preserve playback state and partial-update idempotency
 
-**Scale/Scope**: One shared speaker timeline component and its focused tests
+**Scale/Scope**: One existing speaker timeline shell plus rendering/static/unit
+and contract tests
 
 ## Constitution Check
 
-*GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
-
-- Capture-First MVP Integrity: PASS — only layout height changes; recording and
-  playback routes remain unchanged.
-- Visible Consent and User Control: PASS — no recording control is hidden.
-- Privacy and secret discipline: PASS — synthetic fixtures only; no data model
-  or evidence change.
-- UI/accessibility/clean-room: PASS — existing keyboard separator and ARIA
-  values remain required; no competitor-specific copying.
-- Spec-driven delivery: PASS — this slice includes spec, clarification audit,
-  research, checklist, tasks, analyze, focused validation and review.
+- Capture-First MVP Integrity: PASS — no recording, audio route or playback
+  source changes.
+- Visible Consent and User Control: PASS — capture controls are untouched.
+- Privacy and secret discipline: PASS — only synthetic metadata is used.
+- UI/accessibility/clean-room: PASS — separator ARIA, focus and original shell
+  contract remain explicit.
+- Spec-driven delivery: PASS — clarify, research, checklist, tasks, analyze,
+  focused implementation and review are recorded.
 
 ## Validation Plan
 
-1. Run the focused speaker timeline unit and static contract tests.
-2. Run the existing Node resize harness for fitting, overflowing and
-   viewport-limited synthetic cases.
-3. Run `node --check` for `cabinet.js`.
-4. Review the diff for one minimum-height constant and no persistent state.
-5. Run `infra/scripts/ci-local.sh --fast` once after the final UX slice, not
-   after every small change.
+1. Run speaker timeline unit and static contract checks.
+2. Run the Node harness for 2-row fit, 3-row fit, 4+/12-row overflow and
+   viewport-limited cases; verify one listener after partial update.
+3. Run `node --check` and `git diff --check`.
+4. Review synthetic browser and embedded screenshots for 1/2/3/12 speakers,
+   wide/narrow layout and no gap before playback.
+5. Run `infra/scripts/ci-local.sh --fast` once after the combined UX slices.
 
 ## Project Structure
 
 ```text
 specs/161-timeline-min-height/
 ├── spec.md
+├── clarify.md
 ├── plan.md
 ├── research.md
 ├── data-model.md
-├── quickstart.md
 ├── contracts/timeline-min-height.md
 ├── checklists/requirements.md
 ├── checklists/ux.md
+├── quickstart.md
 └── tasks.md
 
 apps/server/src/twobrain_rec_server/cabinet/
@@ -86,11 +87,11 @@ apps/server/tests/
 └── contract/test_cabinet_static_assets_contract.py
 ```
 
-**Structure Decision**: Reuse the existing server-rendered timeline contract;
-the minimum is a shared presentation constant, not a new component or model.
+**Structure Decision**: Reuse the existing shell and common `applyHeight` path;
+do not add a component, model, store or resize abstraction.
 
 ## Complexity Tracking
 
-No constitution violations. Ponytail ceiling: keep one existing default value
-in sync across the current three surfaces; do not add a settings object or
-persistent preference for a fixed layout requirement.
+No constitution violations. Ponytail ceiling: temporarily clear inline height,
+measure once, then reuse the existing clamp; no observer, persistence or new
+layout service.
