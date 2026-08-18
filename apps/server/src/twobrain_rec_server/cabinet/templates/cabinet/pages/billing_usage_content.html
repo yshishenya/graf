@@ -3,7 +3,7 @@
 {% set billing_role = billing_role|default(None) %}
 <main id="cabinet-main" class="cabinet-main" tabindex="-1">
   <div class="cabinet-workspace settings-page">
-    {{ settings_ui.navigation(settings_navigation, active=settings_active, back_href="/billing") }}
+    {{ settings_ui.navigation(settings_navigation, active=settings_active, back_href="/billing", legacy_hidden=settings_mode|default(false)) }}
     <div class="settings-page__content">
       <header class="cabinet-topbar settings-page__topbar">
         <div class="page-title"><h1>Использование и хранение</h1><p class="muted">{% if billing_role in ["member", "corporate_owner"] %}Показаны доступные возможности тарифа.{% else %}Показаны точные данные выбранного пространства.{% endif %}</p></div>

@@ -31,6 +31,25 @@ def test_meeting_detail_has_exactly_two_keyboard_operable_content_tabs() -> None
     assert "tab.tabIndex = selected ? 0 : -1" in script
 
 
+def test_meeting_review_continuity_exposes_lane_hint_resize_separator_and_sticky_tabs() -> None:
+    page = _source(MEETING_DETAIL)
+    rendering = _source(RENDERING)
+    script = _source(JAVASCRIPT)
+    styles = _source(STYLES)
+
+    assert 'class="tabs meeting-detail-tabs"' in page
+    assert "data-speaker-timeline-shell" in rendering
+    assert "data-speaker-timeline-resize" in rendering
+    assert 'role="separator"' in rendering
+    assert 'aria-orientation="horizontal"' in rendering
+    assert "data-speaker-timeline-hint" in rendering
+    assert "переместить воспроизведение к фрагменту записи" in rendering
+    assert "data-speaker-timeline-resize" in script
+    assert "aria-valuemin" in script
+    assert "meeting-detail-tabs" in styles
+    assert "scroll-margin-top" in styles
+
+
 def test_modal_dialogs_are_named_trap_focus_and_return_it_to_the_opener() -> None:
     share = _source(SHARE_DIALOG)
     governance = _source(GOVERNANCE_DIALOG)

@@ -11,7 +11,7 @@
       <div class="auth-subtitle">Введите email, на который пришло приглашение. Если аккаунта GRAF ещё нет, он создастся автоматически.</div>
       {% else %}
       <h1>Войти в кабинет</h1>
-      <div class="auth-subtitle">Введите email и получите одноразовый код. Пароль не требуется.</div>
+      <div class="auth-subtitle">Введите email и получите одноразовый код. Обычный вход не создаёт аккаунт автоматически.</div>
       {% endif %}
     </div>
     {% if error_message %}
@@ -56,7 +56,7 @@
       {% if invitation_flow %}
       <div class="auth-signup">Новый аккаунт создастся автоматически после подтверждения email.</div>
       {% else %}
-      <div class="auth-signup">Нет аккаунта? <a href="{{ signup_href }}">Зарегистрироваться</a></div>
+      <div class="auth-signup">Для нового аккаунта используйте отдельную ссылку регистрации или приглашение.</div>
       {% endif %}
     </div>
     <div class="auth-download">
