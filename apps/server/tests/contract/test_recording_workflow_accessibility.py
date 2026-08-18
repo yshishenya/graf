@@ -31,13 +31,18 @@ def test_meeting_detail_has_exactly_two_keyboard_operable_content_tabs() -> None
     assert "tab.tabIndex = selected ? 0 : -1" in script
 
 
-def test_meeting_review_continuity_exposes_lane_hint_resize_separator_and_sticky_tabs() -> None:
+def test_meeting_review_continuity_exposes_lane_hint_resize_separator_and_sticky_header() -> None:
     page = _source(MEETING_DETAIL)
     rendering = _source(RENDERING)
     script = _source(JAVASCRIPT)
     styles = _source(STYLES)
 
-    assert 'class="tabs meeting-detail-tabs"' in page
+    assert page.count("data-meeting-detail-header") == 1
+    header = page.split("data-meeting-detail-header", 1)[1].split('class="detail-main"', 1)[0]
+    assert 'class="topline"' in header
+    assert 'id="meeting-share-host"' in header
+    assert header.count('role="tablist"') == 1
+    assert 'class="tabs meeting-detail-tabs"' in header
     assert "data-speaker-timeline-shell" in rendering
     assert "data-speaker-timeline-resize" in rendering
     assert 'role="separator"' in rendering
@@ -47,7 +52,13 @@ def test_meeting_review_continuity_exposes_lane_hint_resize_separator_and_sticky
     assert "переместить воспроизведение к фрагменту записи" in rendering
     assert "data-speaker-timeline-resize" in script
     assert "aria-valuemin" in script
-    assert "meeting-detail-tabs" in styles
+    assert ".meeting-detail-header" in styles
+    assert "top: calc(var(--meeting-detail-header-offset) - var(--meeting-detail-main-padding-top))" in styles
+    assert "margin-top: calc(-1 * var(--meeting-detail-main-padding-top))" in styles
+    assert "padding-top: var(--meeting-detail-main-padding-top)" in styles
+    assert ".tab.active { color: var(--meeting-tab-active);" in styles
+    assert "--meeting-tab-active: #35238f" in styles
+    assert ".meeting-detail-tabs {\n  position: sticky" not in styles
     assert "scroll-margin-top" in styles
 
 

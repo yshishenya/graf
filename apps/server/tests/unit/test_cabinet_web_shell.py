@@ -1220,7 +1220,7 @@ def test_web_shell_keeps_sidebar_pinned_without_scrollbar() -> None:
     ) in css
     assert "max-height: calc(100vh - 48px);" in css
     assert '.app-shell[data-mobile-scroll="page"] {' in css
-    assert ".desktop-embedded .main {\n  padding: 22px" in css
+    assert ".desktop-embedded .main {\n  --meeting-detail-main-padding-top: 22px;\n  padding: var(--meeting-detail-main-padding-top)" in css
     assert ".desktop-embedded .cabinet-main {\n  padding: 24px" in css
 
 
@@ -1668,6 +1668,11 @@ def test_list_delete_script_json_encodes_bounded_copy(monkeypatch) -> None:
 def test_detail_shell_renders_tabs_and_gated_actions() -> None:
     page = render_meeting_detail_page(_review())
 
+    assert page.count("data-meeting-detail-header") == 1
+    header = page.split("data-meeting-detail-header", 1)[1].split('class="detail-main"', 1)[0]
+    assert 'class="topline"' in header
+    assert 'id="meeting-share-host"' in header
+    assert header.count('role="tablist"') == 1
     assert "Итоги" in page
     assert "Расшифровка" in page
     assert 'role="tablist" aria-label="Содержимое встречи"' in page
@@ -2704,7 +2709,7 @@ def test_detail_shell_exposes_active_review_player_timeline_and_mobile_safe_cont
     css = _cabinet_css()
     assert "@media (max-width: 980px)" in css
     assert "@media (max-width: 540px)" in css
-    assert ".detail-page-main { padding-bottom: 172px; }" in css
+    assert ".detail-page-main {\n    padding-bottom: 172px;" in css
     assert ".detail-playback { --timeline-label-width: 68px; --timeline-value-width: 34px; }" in css
     assert ".speaker-timeline { gap: 4px; }" in css
 
