@@ -17,7 +17,7 @@ wide/narrow and embedded states; focused template/CSS/accessibility checks.
 - [X] T003 [P] [US1] Replace the independent tabs sticky rule with one responsive header sticky rule in `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css`
 - [X] T004 [US1] Add wrapper, one-tablist and scroll-margin assertions in `apps/server/tests/unit/test_cabinet_web_shell.py` and `apps/server/tests/contract/test_recording_workflow_accessibility.py`
 - [X] T005 [US1] Run focused checks and synthetic wide/narrow/embedded scroll review
-- [ ] T006 Record implementation SHA and metadata-only evidence in `specs/163-sticky-meeting-header/quickstart.md`
+- [X] T006 Record implementation SHA and metadata-only evidence in `specs/163-sticky-meeting-header/quickstart.md`
 
 ## Dependencies & Execution Order
 

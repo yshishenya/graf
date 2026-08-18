@@ -22,4 +22,18 @@ both tabs. Keep evidence metadata-only.
 
 ## Closeout
 
-Record the implementation SHA and focused results here after the commit.
+- Implementation commit: `a8117f0e` (`feat(cabinet): закрепить верхний блок встречи`).
+- Focused unit: `21 passed, 54 deselected`.
+- Focused accessibility contract: `2 passed, 5 deselected`.
+- Regression contract after CSS token update: `22 passed, 53 deselected`.
+- `node --check` and `git diff --check`: passed.
+- `infra/scripts/ci-local.sh --fast`: passed (`1101 passed`, lint and Python
+  compile passed; legacy audio guard passed).
+- macOS build: `GRAF_DEV_ORIGIN=http://127.0.0.1:8082 sh
+  apps/macos/Scripts/build-dev-app.sh` passed; signed local `GRAF Dev` opened
+  the current branch server in embedded mode.
+- Metadata-only visual review: wide embedded meeting detail stayed on the
+  current branch origin after scrolling a long synthetic transcript; title,
+  metadata, actions and both tabs remained visible as one block, with no
+  horizontal overflow. Keyboard tab semantics, light theme, reduced motion
+  and narrow browser review were also checked; no actionable findings remain.
