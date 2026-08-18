@@ -2692,7 +2692,7 @@
     });
   };
 
-  const DEFAULT_TIMELINE_HEIGHT = 96;
+  const DEFAULT_TIMELINE_HEIGHT = 120;
   const TIMELINE_RESIZE_STEP = 24;
   const resizeSpeakerTimelines = () => {
     document.querySelectorAll("[data-speaker-timeline-shell]").forEach((shell) => {

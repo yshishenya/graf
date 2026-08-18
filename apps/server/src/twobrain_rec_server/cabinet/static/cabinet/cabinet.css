@@ -960,8 +960,8 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 .speaker-timeline {
   display: grid;
   gap: 5px;
-  height: 96px;
-  max-height: 96px;
+  height: 120px;
+  max-height: 120px;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: none;

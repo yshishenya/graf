@@ -1996,6 +1996,8 @@ def test_detail_shell_renders_speaker_timeline_segments() -> None:
     page = render_meeting_detail_page(review)
 
     assert "data-speaker-timeline" in page
+    assert 'data-speaker-timeline-default-height="120"' in page
+    assert 'aria-valuemin="120" aria-valuemax="120" aria-valuenow="120"' in page
     assert 'data-speaker-lane="speaker_00"' in page
     assert 'data-speaker-lane="speaker_01"' in page
     assert page.count("data-timeline-track") == 2
@@ -2163,7 +2165,7 @@ def test_playback_timeline_keeps_full_width_lanes_and_separate_speaker_manager()
     assert ".speaker-manager-popover" in css
     assert ".speaker-manager-popover[hidden]" in css
     assert "row-gap: 1px;" in css
-    assert "max-height: 96px;" in css
+    assert "max-height: 120px;" in css
     assert "overflow-wrap: anywhere;" in css
     assert "data-speaker-name-open" in script
     assert "data-speaker-manager-toggle" in script
