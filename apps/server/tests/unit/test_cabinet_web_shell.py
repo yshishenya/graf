@@ -2099,29 +2099,22 @@ def test_speaker_timeline_resize_contract_scales_with_synthetic_row_count() -> N
             segments=[SpeakerLaneSegment(start_seconds=float(index), end_seconds=float(index + 1))],
         )
 
-    review.speakers = SpeakerReviewState(
-        available=True,
-        assignment_state="available",
-        can_rename=True,
-        speakers=[speaker(index) for index in range(3)],
-    )
-    fitting = render_meeting_detail_page(review)
+    rendered = {}
+    for count in (1, 2, 3, 4, 12, 40):
+        review.speakers = SpeakerReviewState(
+            available=True,
+            assignment_state="available",
+            can_rename=True,
+            speakers=[speaker(index) for index in range(count)],
+        )
+        rendered[count] = render_meeting_detail_page(review, embedded=count >= 12)
 
-    review.speakers.speakers = [speaker(index) for index in range(12)]
-    overflowing = render_meeting_detail_page(review, embedded=True)
-    review.speakers.speakers = [speaker(index) for index in range(40)]
-    viewport_limited = render_meeting_detail_page(review, embedded=True)
+    for count, page in rendered.items():
+        assert f'data-speaker-timeline-count="{count}"' in page
+        assert page.count("data-speaker-timeline-resize") == 1
+        assert 'data-speaker-timeline-shell' in page
 
-    assert 'data-speaker-timeline-count="3"' in fitting
-    assert 'data-speaker-timeline-count="12"' in overflowing
-    assert 'data-speaker-timeline-count="40"' in viewport_limited
-    assert fitting.count("data-speaker-timeline-resize") == 1
-    assert overflowing.count("data-speaker-timeline-resize") == 1
-    assert viewport_limited.count("data-speaker-timeline-resize") == 1
-    assert 'data-speaker-timeline-shell' in fitting
-    assert 'data-speaker-timeline-shell' in overflowing
-    assert 'data-speaker-timeline-shell' in viewport_limited
-    assert 'class="app-shell desktop-embedded"' in overflowing
+    assert 'class="app-shell desktop-embedded"' in rendered[12]
 
 
 def test_detail_shell_renders_speaker_name_editor_only_for_authorized_review() -> None:

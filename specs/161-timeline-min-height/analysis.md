@@ -36,6 +36,6 @@ privacy semantics remain outside its boundary.
 
 ## Next Action
 
-Proceed to implementation after the existing issue mapping is extended with
-tasks T008–T013. Resolve the low terminology note through the contract wording,
-not a new abstraction.
+Implementation closeout: T008–T013 are complete. The natural-height contract,
+bounded resize behavior and unchanged playback position passed the focused
+synthetic checks. No new abstraction or storage was introduced.

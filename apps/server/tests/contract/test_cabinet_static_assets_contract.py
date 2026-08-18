@@ -269,6 +269,7 @@ def test_meeting_review_resize_uses_bounded_keyboard_and_pointer_contract() -> N
     for marker in [
         "data-speaker-timeline-shell",
         "data-speaker-timeline-resize",
+        "speakerTimelineCount",
         "pointerdown",
         "pointermove",
         "pointerup",
@@ -278,6 +279,7 @@ def test_meeting_review_resize_uses_bounded_keyboard_and_pointer_contract() -> N
         "aria-valuemax",
         "aria-valuenow",
         "scrollHeight",
+        "measureNaturalHeight",
         "DEFAULT_TIMELINE_HEIGHT",
         "const DEFAULT_TIMELINE_HEIGHT = 120",
     ]:
@@ -288,7 +290,7 @@ def test_meeting_review_resize_uses_bounded_keyboard_and_pointer_contract() -> N
         "cursor: ns-resize",
         ".speaker-timeline-resize:focus-visible",
         ".speaker-timeline-resize.is-dragging",
-        "height: 120px",
+        "height: auto",
         "max-height: 120px",
     ]:
         assert marker in css
@@ -349,7 +351,9 @@ const shell = new FakeElement("div");
 const timeline = new FakeElement("div");
 const handle = new FakeElement("div");
 timeline.dataset.speakerTimelineDefaultHeight = "120";
-timeline.scrollHeight = scenario === "fit" ? 80 : scenario === "viewport" ? 900 : 320;
+const speakerCount = scenario === "one" ? 1 : scenario === "two" ? 2 : scenario === "fit" ? 3 : 12;
+timeline.dataset.speakerTimelineCount = String(speakerCount);
+timeline.scrollHeight = scenario === "one" ? 28 : scenario === "two" ? 56 : scenario === "fit" ? 80 : scenario === "viewport" ? 900 : 320;
 shell.querySelector = (selector) => {
   if (selector === "[data-speaker-timeline]") return timeline;
   if (selector === "[data-speaker-timeline-resize]") return handle;
@@ -412,8 +416,11 @@ if (resizeHandlerCount !== 1) throw new Error(`expected one key handler, got ${r
 if ((windowListeners.get("resize") || []).length !== 1) throw new Error("expected one page resize listener");
 const currentTime = 42;
 playback.currentTime = currentTime;
-if (scenario === "fit") {
+if (["one", "two", "fit"].includes(scenario)) {
   if (!handle.hidden) throw new Error("fit rows exposed a resize affordance");
+  if (timeline.style.height !== "") throw new Error("natural rows received a fixed height");
+  const expectedNaturalHeight = scenario === "one" ? 28 : scenario === "two" ? 56 : 80;
+  if (handle.attributes["aria-valuemin"] !== String(expectedNaturalHeight)) throw new Error("wrong natural minimum");
 } else {
   if (handle.hidden) throw new Error("overflow rows hid the resize affordance");
   handle.dispatch("pointerdown", { button: 0, pointerId: 1, clientY: 100, preventDefault() {} });
@@ -432,7 +439,7 @@ if (handle.listenerCount("keydown") !== 1) throw new Error("partial update dupli
 if ((windowListeners.get("resize") || []).length !== 1) throw new Error("partial update duplicated page resize listeners");
 if (playback.currentTime !== currentTime) throw new Error("resize changed playback position");
 """
-    for scenario, top in [("fit", 500), ("overflow", 500), ("viewport", 120)]:
+    for scenario, top in [("one", 500), ("two", 500), ("fit", 500), ("overflow", 500), ("viewport", 120)]:
         completed = subprocess.run(
             ["node", "-e", harness, str(script_path), scenario, str(top)],
             capture_output=True,

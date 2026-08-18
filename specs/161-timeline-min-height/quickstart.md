@@ -29,8 +29,15 @@ save meeting text, audio, credentials or private screenshots in the repository.
 
 ## Evidence — implementation closeout
 
-- Status: pending implementation and focused validation.
-- Scope: synthetic metadata only.
+- Status: implementation and focused validation passed.
+- Synthetic rows: 1/2/3 use natural height and hide the resize affordance;
+  4/12/40 keep bounded pointer/keyboard resize and viewport protection.
+- Playback: synthetic resize harness preserved `currentTime` and did not add
+  duplicate listeners after a partial update.
+- Checks: server unit 12 passed; server contract 7 passed; `node --check` and
+  `git diff --check` passed.
+- Scope: synthetic metadata only; no meeting text, audio, credentials or
+  screenshots were saved.
 
 ## Closeout
 

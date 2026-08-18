@@ -2716,48 +2716,75 @@
       const defaultHeight = Number.parseFloat(
         timeline.dataset.speakerTimelineDefaultHeight || String(DEFAULT_TIMELINE_HEIGHT),
       ) || DEFAULT_TIMELINE_HEIGHT;
-      let currentHeight = defaultHeight;
+      const speakerCount = Number.parseInt(timeline.dataset.speakerTimelineCount || "0", 10) || 0;
+      let minimumHeight = defaultHeight;
+      let currentHeight = minimumHeight;
       let baselineBarTop = playback.getBoundingClientRect().top;
       let drag = null;
 
-      const contentHeight = () => Math.max(defaultHeight, timeline.scrollHeight || defaultHeight);
+      const measureNaturalHeight = () => {
+        const inlineHeight = timeline.style.height;
+        const inlineMaxHeight = timeline.style.maxHeight;
+        timeline.style.height = "auto";
+        timeline.style.maxHeight = "none";
+        const measuredHeight = Math.ceil(
+          Number(timeline.scrollHeight)
+            || Number(timeline.getBoundingClientRect?.().height)
+            || 0,
+        );
+        timeline.style.height = inlineHeight;
+        timeline.style.maxHeight = inlineMaxHeight;
+        return measuredHeight;
+      };
+      const refreshNaturalHeight = () => {
+        const measuredHeight = measureNaturalHeight();
+        if (speakerCount > 0 && speakerCount <= 3) {
+          minimumHeight = measuredHeight || defaultHeight;
+        }
+        return measuredHeight;
+      };
+      const contentHeight = () => Math.max(
+        minimumHeight,
+        Number(timeline.scrollHeight) || minimumHeight,
+      );
       const viewportHeight = () => Math.max(
-        defaultHeight,
-        Math.floor(defaultHeight + Math.max(0, baselineBarTop - 12)),
+        minimumHeight,
+        Math.floor(minimumHeight + Math.max(0, baselineBarTop - 12)),
       );
       const maximumHeight = () => Math.max(
-        defaultHeight,
+        minimumHeight,
         Math.min(contentHeight(), viewportHeight()),
       );
       const applyHeight = (requestedHeight) => {
         const naturalHeight = contentHeight();
-        if (naturalHeight <= defaultHeight + 1) {
-          currentHeight = defaultHeight;
+        if (naturalHeight <= minimumHeight + 1) {
+          currentHeight = minimumHeight;
           timeline.style.height = "";
           timeline.style.maxHeight = "";
           handle.hidden = true;
-          handle.setAttribute("aria-valuemin", String(defaultHeight));
-          handle.setAttribute("aria-valuemax", String(defaultHeight));
-          handle.setAttribute("aria-valuenow", String(defaultHeight));
+          handle.setAttribute("aria-valuemin", String(minimumHeight));
+          handle.setAttribute("aria-valuemax", String(minimumHeight));
+          handle.setAttribute("aria-valuenow", String(minimumHeight));
           handle.setAttribute("aria-valuetext", "Стандартная высота");
           shell.dataset.speakerTimelineExpandable = "false";
+          delete shell.dataset.speakerTimelineHeight;
           return;
         }
         const maxHeight = maximumHeight();
-        currentHeight = Math.max(defaultHeight, Math.min(maxHeight, requestedHeight));
+        currentHeight = Math.max(minimumHeight, Math.min(maxHeight, requestedHeight));
         handle.hidden = false;
-        handle.setAttribute("aria-valuemin", String(defaultHeight));
+        handle.setAttribute("aria-valuemin", String(minimumHeight));
         handle.setAttribute("aria-valuemax", String(maxHeight));
         handle.setAttribute("aria-valuenow", String(currentHeight));
         handle.setAttribute(
           "aria-valuetext",
-          currentHeight <= defaultHeight
+          currentHeight <= minimumHeight
             ? "Стандартная высота"
             : `${Math.round(currentHeight)} пикселей из ${Math.round(maxHeight)}`,
         );
         shell.dataset.speakerTimelineExpandable = "true";
         shell.dataset.speakerTimelineHeight = String(currentHeight);
-        if (currentHeight <= defaultHeight + 1) {
+        if (currentHeight <= minimumHeight + 1) {
           timeline.style.height = "";
           timeline.style.maxHeight = "";
         } else {
@@ -2771,6 +2798,7 @@
         timeline.style.maxHeight = "";
         handle.hidden = false;
         baselineBarTop = playback.getBoundingClientRect().top;
+        refreshNaturalHeight();
         applyHeight(previousHeight);
       };
       const stopDrag = (event) => {
@@ -2807,7 +2835,7 @@
         let requestedHeight = null;
         if (event.key === "ArrowUp") requestedHeight = currentHeight + TIMELINE_RESIZE_STEP;
         if (event.key === "ArrowDown") requestedHeight = currentHeight - TIMELINE_RESIZE_STEP;
-        if (event.key === "Home") requestedHeight = defaultHeight;
+        if (event.key === "Home") requestedHeight = minimumHeight;
         if (event.key === "End") requestedHeight = maximumHeight();
         if (requestedHeight === null) return;
         event.preventDefault();
@@ -2818,7 +2846,8 @@
       timeline.style.maxHeight = "";
       handle.hidden = false;
       baselineBarTop = playback.getBoundingClientRect().top;
-      applyHeight(defaultHeight);
+      refreshNaturalHeight();
+      applyHeight(minimumHeight);
     });
   };
 

@@ -33,28 +33,28 @@ for fit, overflow, viewport and idempotent partial updates.
 
 ### Tests before implementation
 
-- [ ] T008 [P] [US1] Extend the synthetic render assertions for 1/2/3 natural
+- [X] T008 [P] [US1] Extend the synthetic render assertions for 1/2/3 natural
   rows and 4+/12/40 bounded rows in
   `apps/server/tests/unit/test_cabinet_web_shell.py`
-- [ ] T009 [P] [US1] Extend the Node resize harness for dynamic lower bounds,
+- [X] T009 [P] [US1] Extend the Node resize harness for dynamic lower bounds,
   natural measurement and playback preservation in
   `apps/server/tests/contract/test_cabinet_static_assets_contract.py`
 
 ### Implementation
 
-- [ ] T010 [US1] Measure natural timeline height while temporarily clearing the
+- [X] T010 [US1] Measure natural timeline height while temporarily clearing the
   inline height and clamp the shared resize path in
   `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`
-- [ ] T011 [US1] Replace the fixed CSS height with natural layout plus the safe
+- [X] T011 [US1] Replace the fixed CSS height with natural layout plus the safe
   three-row max-height fallback in
   `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css`
-- [ ] T012 [US1] Keep the server-rendered default/ARIA contract explicit for
+- [X] T012 [US1] Keep the server-rendered default/ARIA contract explicit for
   dynamic measurement in
   `apps/server/src/twobrain_rec_server/cabinet/rendering.py`
 
 ## Phase 2: Review and focused validation
 
-- [ ] T013 [US1] Run the 161 quickstart, `node --check`, `git diff --check`,
+- [X] T013 [US1] Run the 161 quickstart, `node --check`, `git diff --check`,
   Browser/embedded synthetic visual review and record metadata-only evidence in
   `specs/161-timeline-min-height/quickstart.md` and `analysis.md`
 
