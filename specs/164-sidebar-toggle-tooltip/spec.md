@@ -4,7 +4,7 @@
 
 **Created**: 2026-08-18
 
-**Status**: Ready for implementation
+**Status**: Implemented and validated
 
 **Input**: Регрессия после Feature 159: двойная стрелка не объясняет действие
 при наведении, а пользователю трудно понять, что одна кнопка управляет
@@ -103,4 +103,3 @@ expanded состояния, навести указатель и перевес
 - Profile menu, settings IA, search spacing, download CTA or login copy.
 - Native capture controls, macOS permissions, updater and production release.
 - Copying Krisp or any proprietary visual/interaction design.
-
