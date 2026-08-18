@@ -17,6 +17,44 @@ final class SystemAudioPermissionUXTests: XCTestCase {
         XCTAssertNil(result.presentation)
     }
 
+    func testManualSystemAudioGrantRequiresRestartAfterObservedUnreadyState() {
+        XCTAssertFalse(
+            DesktopPermissionOnboardingStatus.systemAudioPermissionTransitionRequiresRestart(
+                from: nil,
+                to: .granted
+            )
+        )
+        XCTAssertTrue(
+            DesktopPermissionOnboardingStatus.systemAudioPermissionTransitionRequiresRestart(
+                from: .unknown,
+                to: .granted
+            )
+        )
+        XCTAssertTrue(
+            DesktopPermissionOnboardingStatus.systemAudioPermissionTransitionRequiresRestart(
+                from: .denied,
+                to: .granted
+            )
+        )
+        XCTAssertFalse(
+            DesktopPermissionOnboardingStatus.systemAudioPermissionTransitionRequiresRestart(
+                from: .granted,
+                to: .granted
+            )
+        )
+    }
+
+    func testObservedSystemAudioGrantStaysBlockedUntilRestart() {
+        let result = SystemAudioPermissionGate().evaluate(
+            microphone: .granted,
+            systemAudio: .stale
+        )
+
+        XCTAssertFalse(result.allowsAcceptedRecording)
+        XCTAssertEqual(result.presentation?.title, "Права нужно проверить заново")
+        XCTAssertEqual(result.presentation?.recoveryAction, .retryPermissionCheck)
+    }
+
     func testMissingBothPermissionsUsesSpecificRecoveryCopy() {
         let result = SystemAudioPermissionGate().evaluate(
             microphone: .denied,
@@ -56,6 +94,9 @@ final class SystemAudioPermissionUXTests: XCTestCase {
             DesktopPermissionOnboardingAccessibilityIdentifier.restartButton,
             DesktopPermissionOnboardingAccessibilityIdentifier.finishButton
         )
+        let devCopy = DesktopPermissionOnboardingView.systemAudioStepDetail(for: "GRAF Dev")
+        XCTAssertTrue(devCopy.contains("GRAF Dev"))
+        XCTAssertTrue(devCopy.contains("отдельно"))
     }
 
     func testDetectorAssistedPreparingDoesNotStartRecordingAutomatically() throws {

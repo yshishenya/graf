@@ -769,6 +769,8 @@ func validateSystemAudioStartTimeoutCleanupOrdering() async throws {
 func validateAppStopFailureFailClosedSourceInvariant() throws {
     let appSourceURL = repositoryRoot.appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift")
     let source = try String(contentsOf: appSourceURL, encoding: .utf8)
+    let permissionSourceURL = repositoryRoot.appendingPathComponent("apps/macos/RecApp/Sources/Capture/SystemAudioCaptureService.swift")
+    let permissionSource = try String(contentsOf: permissionSourceURL, encoding: .utf8)
 
     try require(
         source.contains("private func recordingStopFailureCategory(for error: Error) -> RecordingStartBlocker"),
@@ -810,11 +812,24 @@ func validateAppStopFailureFailClosedSourceInvariant() throws {
         source.contains("detail: \"category=\\(failureCategory.rawValue) error=\\(error)\""),
         "App stop failure logging must include the classified failure category"
     )
+    try require(
+        source.contains("private func presentPermissionRecoveryAfterSystemAudioRuntimeFailure(_ error: Error)") &&
+            source.contains("captureError == .runtimeStartFailed") &&
+            source.contains("systemAudioPermissionAuthorizer.currentPermissionState() == .granted") &&
+            source.contains("presentPermissionRecoveryAfterSystemAudioRuntimeFailure(error)"),
+        "A granted-but-failed system-audio runtime must offer relaunch recovery"
+    )
+    try require(
+        permissionSource.contains("func verifyCurrentPermission() async -> CapturePermissionState") &&
+            permissionSource.contains("SCShareableContent.excludingDesktopWindows") &&
+            permissionSource.contains("return await verifyCurrentPermission()"),
+        "System-audio permission recovery must verify the functional ScreenCaptureKit path"
+    )
 
     guard let clearBlockerRange = source.range(of: "recordingBlocker = nil"),
           let beginPreparingRange = source.range(of: "let preparing = if let meetingDetectionTarget"),
           let microphonePromptRange = source.range(of: "let microphoneSession = await microphoneCaptureService.requestPermissionAndPreflight"),
-          let systemAudioPromptRange = source.range(of: "let systemAudioPermissionState = await systemAudioPermissionAuthorizer.requestPermission()"),
+          let systemAudioPromptRange = source.range(of: "let observedSystemAudioPermissionState = await systemAudioPermissionAuthorizer.requestPermission()"),
           source.contains("try captureController.beginDetectorAssistedPreparing"),
           source.contains("try captureController.beginPreparing")
     else {
