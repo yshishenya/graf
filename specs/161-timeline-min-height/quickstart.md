@@ -43,3 +43,6 @@ save meeting text, audio, credentials or private screenshots in the repository.
 
 Run `infra/scripts/ci-local.sh --fast` once after the combined 161/168/169/170
 UX slices and record the exact SHA here.
+
+Fast gate evidence: `a219545be3c959576261dcb1edd46b01463bd0d0` — PASS
+(`ci-local.sh --fast`).

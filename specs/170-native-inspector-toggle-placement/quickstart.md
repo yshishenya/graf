@@ -27,3 +27,6 @@ click returned the panel to its prior state without moving the pointer.
 Accessibility labels/hints and 44 px target checks passed. Focused XCTest runs
 passed: 21 accessibility tests and 15 shell boundary tests. Evidence is
 metadata-only.
+
+Fast gate evidence: `a219545be3c959576261dcb1edd46b01463bd0d0` — PASS
+(`ci-local.sh --fast`).

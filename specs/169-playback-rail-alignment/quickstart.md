@@ -18,3 +18,6 @@ contract remains unchanged. Focused server unit/contract checks, `node --check`
 and `git diff --check` passed. Evidence is metadata-only.
 
 Fast repository validation is shared with the combined UX batch.
+
+Fast gate evidence: `a219545be3c959576261dcb1edd46b01463bd0d0` — PASS
+(`ci-local.sh --fast`).

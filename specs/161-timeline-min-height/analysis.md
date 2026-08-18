@@ -39,3 +39,6 @@ privacy semantics remain outside its boundary.
 Implementation closeout: T008–T013 are complete. The natural-height contract,
 bounded resize behavior and unchanged playback position passed the focused
 synthetic checks. No new abstraction or storage was introduced.
+
+Fast gate: `a219545be3c959576261dcb1edd46b01463bd0d0` — PASS
+(`infra/scripts/ci-local.sh --fast`).

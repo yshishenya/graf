@@ -27,3 +27,6 @@ variable and grid contract.
 Implementation closeout: T001–T003 are complete. Collapsed and expanded
 playback origins match the active rail without JavaScript offset mutation or
 changes to playback state.
+
+Fast gate: `a219545be3c959576261dcb1edd46b01463bd0d0` — PASS
+(`infra/scripts/ci-local.sh --fast`).

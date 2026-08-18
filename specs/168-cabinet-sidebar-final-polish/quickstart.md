@@ -27,3 +27,6 @@ owner, and no horizontal overflow appeared. Server unit/contract checks and
 saved.
 
 Closeout fast lane is shared with Features 161, 169 and 170.
+
+Fast gate evidence: `a219545be3c959576261dcb1edd46b01463bd0d0` — PASS
+(`ci-local.sh --fast`).

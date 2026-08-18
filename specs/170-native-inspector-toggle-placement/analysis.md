@@ -27,3 +27,6 @@ explicitly keeps capture/attention semantics out of scope.
 Implementation closeout: T001–T003 are complete. The native toggle uses one
 accessible trailing footer in both modes, and Computer Use confirmed the
 expanded footer remains at the bottom of the window.
+
+Fast gate: `a219545be3c959576261dcb1edd46b01463bd0d0` — PASS
+(`infra/scripts/ci-local.sh --fast`).
