@@ -18,7 +18,7 @@ widths; focused rendering/accessibility tests and node syntax check.
 - [X] T003 [P] [US1] Add minimal wrapping/secondary presentation rules in `apps/server/src/twobrain_rec_server/cabinet/static/cabinet.css`
 - [X] T004 [US1] Update hint count/copy/accessibility assertions in `apps/server/tests/unit/test_cabinet_web_shell.py` and `apps/server/tests/contract/test_recording_workflow_accessibility.py`
 - [X] T005 [US1] Run the focused quickstart and review wide/narrow synthetic behavior
-- [ ] T006 Record implementation SHA and metadata-only validation in `specs/162-timeline-click-hint/quickstart.md`
+- [X] T006 Record implementation SHA and metadata-only validation in `specs/162-timeline-click-hint/quickstart.md`
 
 ## Dependencies & Execution Order
 
