@@ -93,6 +93,7 @@ def render_login_page(
     product_analytics_provider: dict[str, object] | None = None,
 ) -> str:
     safe_next = _safe_browser_next_path(next_path)
+    embedded = safe_next.startswith("/desktop/")
     content = render_template(
         "cabinet/auth/login.html",
         workspace_configured=workspace_id is not None,
@@ -100,6 +101,7 @@ def render_login_page(
         next_path=safe_next,
         signup_href=f"/sign-up?{urlencode({'next': safe_next})}",
         invitation_flow=invitation_flow,
+        embedded=embedded,
         error_message=_login_error_message(error),
     )
     return _standalone_page("Вход", content, product_analytics_provider=product_analytics_provider)

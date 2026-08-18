@@ -14,8 +14,8 @@
 **Purpose**: Capture web/embedded login surface expectations before the shared
 rendering change.
 
-- [ ] T001 [P] Add web-login CTA render assertions in `apps/server/tests/unit/test_cabinet_web_shell.py`
-- [ ] T002 [P] Add `/desktop/...` login absence and auth-error route assertions in `apps/server/tests/integration/test_web_owner_session_context.py`
+- [X] T001 [P] Add web-login CTA render assertions in `apps/server/tests/unit/test_cabinet_web_shell.py`
+- [X] T002 [P] Add `/desktop/...` login absence and auth-error route assertions in `apps/server/tests/integration/test_web_owner_session_context.py`
 
 **Checkpoint**: Focused tests describe both target surfaces and fail only for
 the missing context-aware CTA behavior.
@@ -28,9 +28,9 @@ competing with the primary auth form.
 **Independent Test**: Render `/login?next=/meetings` and its auth-error response;
 the web CTA appears once, is keyboard-accessible and points to `/download`.
 
-- [ ] T003 [US1] Pass the normalized login surface context and render one web-only CTA outside the auth card in `apps/server/src/twobrain_rec_server/cabinet/auth_rendering.py` and `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/auth/login.html`
-- [ ] T004 [US1] Style the web-only CTA in the lower-left auth viewport with responsive non-overlap and visible focus treatment in `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css`
-- [ ] T005 [US1] Run the focused browser-login render and integration checks from `specs/166-login-download-cta/quickstart.md`
+- [X] T003 [US1] Pass the normalized login surface context and render one web-only CTA outside the auth card in `apps/server/src/twobrain_rec_server/cabinet/auth_rendering.py` and `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/auth/login.html`
+- [X] T004 [US1] Style the web-only CTA in the lower-left auth viewport with responsive non-overlap and visible focus treatment in `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css`
+- [X] T005 [US1] Run the focused browser-login render and integration checks from `specs/166-login-download-cta/quickstart.md`
 
 **Checkpoint**: Browser login is independently usable and the existing
 `/download` destination remains unchanged.
@@ -44,17 +44,17 @@ target while preserving auth controls and error copy.
 auth-error response at wide and narrow widths; no download CTA or placeholder is
 present.
 
-- [ ] T006 [US2] Run the embedded route and template contract checks from `specs/166-login-download-cta/quickstart.md`, including the no-placeholder and auth-controls checks
-- [ ] T007 [US2] Complete the wide/narrow embedded visual review and record the absence of the CTA in `specs/166-login-download-cta/quickstart.md`
+- [X] T006 [US2] Run the embedded route and template contract checks from `specs/166-login-download-cta/quickstart.md`, including the no-placeholder and auth-controls checks
+- [X] T007 [US2] Complete the wide/narrow embedded visual review and record the absence of the CTA in `specs/166-login-download-cta/quickstart.md`
 
 **Checkpoint**: The shared login renderer has web/embedded parity without
 adding a client header, cookie, route or auth-state change.
 
 ## Phase 4: Polish and closeout
 
-- [ ] T008 [P] Add a user-facing Russian entry for the context-aware login CTA in `[Unreleased]` of `CHANGELOG.md`
-- [ ] T009 Record focused test, visual matrix and metadata-only evidence in `specs/166-login-download-cta/quickstart.md`
-- [ ] T010 Run `infra/scripts/ci-local.sh --fast` once for the completed shared auth UX slice and record the result in `specs/166-login-download-cta/quickstart.md`
+- [X] T008 [P] Add a user-facing Russian entry for the context-aware login CTA in `[Unreleased]` of `CHANGELOG.md`
+- [X] T009 Record focused test, visual matrix and metadata-only evidence in `specs/166-login-download-cta/quickstart.md`
+- [X] T010 Run `infra/scripts/ci-local.sh --fast` once for the completed shared auth UX slice and record the result in `specs/166-login-download-cta/quickstart.md`
 
 ## Dependencies & Execution Order
 

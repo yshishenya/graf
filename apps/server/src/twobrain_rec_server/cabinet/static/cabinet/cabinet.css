@@ -1350,6 +1350,28 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   font-weight: 800;
   white-space: nowrap;
 }
+.auth-page > .auth-download--browser {
+  position: absolute;
+  left: max(24px, env(safe-area-inset-left));
+  bottom: 64px;
+  z-index: 1;
+  width: min(360px, calc(100% - 48px));
+}
+.auth-download--browser > span { min-width: 0; }
+@media (max-width: 900px) {
+  .auth-page {
+    align-content: center;
+    overflow: auto;
+    padding-bottom: 88px;
+  }
+  .auth-page > .auth-download--browser {
+    position: static;
+    grid-column: 1;
+    width: min(100%, 448px);
+    margin-top: 12px;
+  }
+  .auth-page > .auth-download--browser + .auth-legal { margin-top: 8px; }
+}
 .auth-legal {
   position: absolute;
   z-index: 1;

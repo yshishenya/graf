@@ -52,3 +52,30 @@ infra/scripts/ci-local.sh --fast
 
 Record only command results and UI metadata here; never add email addresses,
 auth codes, cookies, meeting content or private screenshots.
+
+## Validation evidence (2026-08-18)
+
+- Unit render regression: `2 passed, 75 deselected` for the two login CTA tests.
+- Integration render regression: `2 passed, 43 deselected` for browser login and
+  embedded auth-error login, using the isolated PostgreSQL test runner; the
+  container was removed after the run.
+- Account-route contract suite: `18 passed`; the broader focused unit/contract
+  selection also passed. The initial combined integration command without the
+  disposable database was not counted as evidence because it produced setup
+  errors.
+- Static checks: `node --check .../cabinet.js` and `git diff --check` passed.
+- Web visual metadata: at the available wide browser viewport (`1280×720`) one
+  CTA rendered at the lower left without horizontal overflow; at `768×900` the
+  panel-to-CTA gap was about 7 px and CTA-to-legal gap 8 px; at `320×900` the
+  CTA wrapped to two lines with 12 px/8 px vertical gaps and no overflow.
+- Web auth-error metadata: one CTA remained visible, the alert stayed above it,
+  and legal copy remained below it without overlap.
+- Embedded visual metadata: wide (`1018×818` available viewport) and narrow
+  (`654×818`) auth-error views contained zero `/download` links or download
+  copy while email, provider controls, error, terms and privacy remained
+  visible; no horizontal overflow was observed.
+- The global existing `a:focus-visible` rule and the semantic link name
+  `Скачать приложение GRAF` were present in the rendered web surface.
+- Closeout fast lane: `infra/scripts/ci-local.sh --fast` passed with 1103 unit
+  tests, lint and Python compile; no full CI or production deploy was run for
+  this release-train slice.

@@ -1956,10 +1956,26 @@ def test_auth_pages_link_to_current_product_terms_and_privacy_notice() -> None:
 
 
 def test_login_page_links_to_app_download_handoff() -> None:
-    page = render_login_page(workspace_id=uuid4(), providers=[])
+    page = render_login_page(workspace_id=uuid4(), providers=[], next_path="/meetings")
 
-    assert "Приложение нужно для записи встреч." in page
-    assert 'href="/download">Скачать GRAF</a>' in page
+    assert 'class="auth-download auth-download--browser"' in page
+    assert page.count('href="/download"') == 1
+    assert "Скачать приложение" in page
+    assert "Приложение нужно для записи встреч." not in page
+
+
+def test_embedded_login_does_not_offer_app_download() -> None:
+    page = render_login_page(
+        workspace_id=uuid4(),
+        providers=[],
+        next_path="/desktop/meetings",
+        error="auth_session_invalid",
+    )
+
+    assert "/download" not in page
+    assert "Скачать приложение" not in page
+    assert "Сессия не найдена. Войдите снова." in page
+    assert 'action="/login/email/start"' in page
 
 
 def test_detail_shell_renders_speaker_timeline_segments() -> None:
