@@ -28,6 +28,7 @@
   const handledMeetingListAuthorizationRequests = new WeakSet();
   const observedDetachedMeetingListRequests = new WeakSet();
   let scrubManualUploadPrivateState = () => false;
+  const speakerTimelineResizeHandlers = new WeakMap();
   const accessLossProblemCodes = new Set([
     "auth_session_rejected",
     "device_quarantined",
@@ -2691,6 +2692,136 @@
     });
   };
 
+  const DEFAULT_TIMELINE_HEIGHT = 96;
+  const TIMELINE_RESIZE_STEP = 24;
+  const resizeSpeakerTimelines = () => {
+    document.querySelectorAll("[data-speaker-timeline-shell]").forEach((shell) => {
+      speakerTimelineResizeHandlers.get(shell)?.();
+    });
+  };
+
+  const initSpeakerTimelineResize = () => {
+    if (document.body.dataset.speakerTimelineResizeViewportReady !== "true") {
+      document.body.dataset.speakerTimelineResizeViewportReady = "true";
+      window.addEventListener("resize", resizeSpeakerTimelines, { passive: true });
+    }
+    document.querySelectorAll("[data-speaker-timeline-shell]").forEach((shell) => {
+      if (shell.dataset.speakerTimelineResizeReady === "true") return;
+      const timeline = shell.querySelector("[data-speaker-timeline]");
+      const handle = shell.querySelector("[data-speaker-timeline-resize]");
+      const playback = shell.closest("[data-playback-shell]");
+      if (!timeline || !handle || !playback) return;
+      shell.dataset.speakerTimelineResizeReady = "true";
+
+      const defaultHeight = Number.parseFloat(
+        timeline.dataset.speakerTimelineDefaultHeight || String(DEFAULT_TIMELINE_HEIGHT),
+      ) || DEFAULT_TIMELINE_HEIGHT;
+      let currentHeight = defaultHeight;
+      let baselineBarTop = playback.getBoundingClientRect().top;
+      let drag = null;
+
+      const contentHeight = () => Math.max(defaultHeight, timeline.scrollHeight || defaultHeight);
+      const viewportHeight = () => Math.max(
+        defaultHeight,
+        Math.floor(defaultHeight + Math.max(0, baselineBarTop - 12)),
+      );
+      const maximumHeight = () => Math.max(
+        defaultHeight,
+        Math.min(contentHeight(), viewportHeight()),
+      );
+      const applyHeight = (requestedHeight) => {
+        const naturalHeight = contentHeight();
+        if (naturalHeight <= defaultHeight + 1) {
+          currentHeight = defaultHeight;
+          timeline.style.height = "";
+          timeline.style.maxHeight = "";
+          handle.hidden = true;
+          handle.setAttribute("aria-valuemin", String(defaultHeight));
+          handle.setAttribute("aria-valuemax", String(defaultHeight));
+          handle.setAttribute("aria-valuenow", String(defaultHeight));
+          handle.setAttribute("aria-valuetext", "Стандартная высота");
+          shell.dataset.speakerTimelineExpandable = "false";
+          return;
+        }
+        const maxHeight = maximumHeight();
+        currentHeight = Math.max(defaultHeight, Math.min(maxHeight, requestedHeight));
+        handle.hidden = false;
+        handle.setAttribute("aria-valuemin", String(defaultHeight));
+        handle.setAttribute("aria-valuemax", String(maxHeight));
+        handle.setAttribute("aria-valuenow", String(currentHeight));
+        handle.setAttribute(
+          "aria-valuetext",
+          currentHeight <= defaultHeight
+            ? "Стандартная высота"
+            : `${Math.round(currentHeight)} пикселей из ${Math.round(maxHeight)}`,
+        );
+        shell.dataset.speakerTimelineExpandable = "true";
+        shell.dataset.speakerTimelineHeight = String(currentHeight);
+        if (currentHeight <= defaultHeight + 1) {
+          timeline.style.height = "";
+          timeline.style.maxHeight = "";
+        } else {
+          timeline.style.height = `${currentHeight}px`;
+          timeline.style.maxHeight = `${currentHeight}px`;
+        }
+      };
+      const resetViewportBaseline = () => {
+        const previousHeight = currentHeight;
+        timeline.style.height = "";
+        timeline.style.maxHeight = "";
+        handle.hidden = false;
+        baselineBarTop = playback.getBoundingClientRect().top;
+        applyHeight(previousHeight);
+      };
+      const stopDrag = (event) => {
+        if (!drag) return;
+        if (event?.pointerId !== undefined && drag.pointerId !== event.pointerId) return;
+        drag = null;
+        handle.classList.remove("is-dragging");
+        document.body?.classList.remove("is-resizing-speaker-timeline");
+        document.removeEventListener("pointermove", moveDrag);
+        document.removeEventListener("pointerup", stopDrag);
+        document.removeEventListener("pointercancel", stopDrag);
+      };
+      const moveDrag = (event) => {
+        if (!drag) return;
+        applyHeight(drag.startHeight + drag.startY - event.clientY);
+      };
+      handle.addEventListener("pointerdown", (event) => {
+        if (event.button !== undefined && event.button !== 0) return;
+        event.preventDefault();
+        handle.focus({ preventScroll: true });
+        drag = {
+          pointerId: event.pointerId,
+          startY: event.clientY,
+          startHeight: currentHeight,
+        };
+        handle.classList.add("is-dragging");
+        document.body?.classList.add("is-resizing-speaker-timeline");
+        handle.setPointerCapture?.(event.pointerId);
+        document.addEventListener("pointermove", moveDrag);
+        document.addEventListener("pointerup", stopDrag);
+        document.addEventListener("pointercancel", stopDrag);
+      });
+      handle.addEventListener("keydown", (event) => {
+        let requestedHeight = null;
+        if (event.key === "ArrowUp") requestedHeight = currentHeight + TIMELINE_RESIZE_STEP;
+        if (event.key === "ArrowDown") requestedHeight = currentHeight - TIMELINE_RESIZE_STEP;
+        if (event.key === "Home") requestedHeight = defaultHeight;
+        if (event.key === "End") requestedHeight = maximumHeight();
+        if (requestedHeight === null) return;
+        event.preventDefault();
+        applyHeight(requestedHeight);
+      });
+      speakerTimelineResizeHandlers.set(shell, resetViewportBaseline);
+      timeline.style.height = "";
+      timeline.style.maxHeight = "";
+      handle.hidden = false;
+      baselineBarTop = playback.getBoundingClientRect().top;
+      applyHeight(defaultHeight);
+    });
+  };
+
   const initPlayback = () => {
     document.querySelectorAll("[data-playback-shell]").forEach((shell) => {
       if (shell.dataset.playbackReady === "true") return;
@@ -2794,17 +2925,27 @@
       lanes.forEach((lane) => {
         const track = lane.querySelector("[data-timeline-track]");
         if (!track) return;
+        const setTrackPressed = (pressed) => track.classList.toggle("is-pressed", pressed);
         track.addEventListener("click", (event) => {
           const rect = track.getBoundingClientRect();
           const clientX = event.detail === 0 ? rect.left + rect.width / 2 : event.clientX;
           const ratio = rect.width > 0 ? Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)) : 0;
           seekTo(playbackDuration() * ratio);
         });
+        track.addEventListener("pointerdown", () => setTrackPressed(true));
+        track.addEventListener("pointerup", () => setTrackPressed(false));
+        track.addEventListener("pointercancel", () => setTrackPressed(false));
+        track.addEventListener("pointerleave", () => setTrackPressed(false));
         track.addEventListener("keydown", (event) => {
           if (event.key !== "Enter" && event.key !== " ") return;
           event.preventDefault();
+          setTrackPressed(true);
           track.click();
         });
+        track.addEventListener("keyup", (event) => {
+          if (event.key === "Enter" || event.key === " ") setTrackPressed(false);
+        });
+        track.addEventListener("blur", () => setTrackPressed(false));
       });
       if (speedToggle) {
         const speeds = (speedToggle.dataset.speedOptions || "1").split(",")
@@ -3939,6 +4080,7 @@
         event.preventDefault();
         const error = form.querySelector("[data-speaker-name-error]");
         const submit = form.querySelector("button[type='submit']");
+        const input = form.querySelector("input[name='display_name']");
         if (error) error.hidden = true;
         if (submit) submit.disabled = true;
         try {
@@ -3950,12 +4092,80 @@
           });
           if (await recoverMeetingDetailFromResponse(response)) return;
           if (!response.ok) throw new Error("speaker_name_save_failed");
-          window.location.reload();
+          let responseText = "";
+          if (typeof response.text === "function") {
+            try {
+              responseText = await response.text();
+            } catch {
+              responseText = "";
+            }
+          }
+          const confirmedValue = input?.value.trim() || "";
+          const speakerKey = form.dataset.speakerKey || "";
+          const fallbackLabel = confirmedValue || speakerKey.replace(/^speaker_/i, "SPEAKER_");
+          const confirmedLabel = speakerLabelFromResponse(responseText, speakerKey, fallbackLabel);
+          replaceSpeakerNameInPlace(form, confirmedLabel, confirmedValue);
+          if (submit) submit.disabled = false;
+          const opener = Array.from(document.querySelectorAll("[aria-controls]"))
+            .find((control) => control.getAttribute("aria-controls") === form.id);
+          if (opener) {
+            form.hidden = true;
+            opener.setAttribute("aria-expanded", "false");
+            opener.focus({ preventScroll: true });
+          } else {
+            submit?.focus({ preventScroll: true });
+          }
         } catch {
           if (error) error.hidden = false;
           if (submit) submit.disabled = false;
+          input?.focus({ preventScroll: true });
         }
       });
+    });
+  };
+
+  const speakerLabelFromResponse = (responseText, speakerKey, fallback) => {
+    if (!responseText || !speakerKey || typeof DOMParser === "undefined") return fallback;
+    try {
+      const parsed = new DOMParser().parseFromString(responseText, "text/html");
+      const label = Array.from(parsed.querySelectorAll("[data-speaker-key]"))
+        .filter((node) => node.dataset.speakerKey === speakerKey)
+        .map((node) => node.querySelector(".timeline-label, .speaker-manager-name, .speaker-label, strong")?.textContent?.trim() || "")
+        .find(Boolean);
+      return label || fallback;
+    } catch {
+      return fallback;
+    }
+  };
+
+  const replaceSpeakerNameInPlace = (form, displayLabel, confirmedValue) => {
+    const speakerKey = form.dataset.speakerKey || "";
+    if (!speakerKey) return;
+    const nodes = Array.from(document.querySelectorAll("[data-speaker-key]"))
+      .filter((node) => node.dataset.speakerKey === speakerKey);
+    nodes.forEach((node) => {
+      const timelineLabel = node.querySelector?.(".timeline-label");
+      if (timelineLabel) timelineLabel.textContent = displayLabel;
+      const managerName = node.querySelector?.(".speaker-manager-name");
+      if (managerName) {
+        managerName.textContent = displayLabel;
+        managerName.title = displayLabel;
+      }
+      const transcriptLabel = node.querySelector?.(".speaker-label");
+      if (transcriptLabel) transcriptLabel.textContent = displayLabel;
+      const simpleLabel = node.querySelector?.("strong");
+      if (simpleLabel) simpleLabel.textContent = displayLabel;
+      const timelineSpeaker = node.querySelector?.(".timeline-speaker");
+      if (timelineSpeaker) timelineSpeaker.title = displayLabel;
+      const track = node.querySelector?.("[data-timeline-track]");
+      if (track) track.setAttribute(
+        "aria-label",
+        `Перейти по дорожке ${displayLabel}: переместить воспроизведение к фрагменту записи`,
+      );
+      const nameInput = node.querySelector?.("input[name='display_name']");
+      if (nameInput) nameInput.value = confirmedValue;
+      const label = node.querySelector?.("label[for]");
+      if (label) label.textContent = `Имя для ${displayLabel}`;
     });
   };
 
@@ -4746,6 +4956,7 @@
     initShareDialogs();
     initSourceNavigation();
     initPlayback();
+    initSpeakerTimelineResize();
     initMeetingDetailAuthorizationRecovery();
     initPlaybackRecoveryPolling();
     initSpeakerNameForms();

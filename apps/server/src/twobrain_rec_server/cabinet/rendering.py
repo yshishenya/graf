@@ -1588,7 +1588,7 @@ def _render_transcript(
         f"""
           <article class="segment speaker-color-{speaker_palette.get(segment.speaker_key, 0)}" data-transcript-turn data-source-segments="{escape(_transcript_source_segment_ids(segment))}" data-speaker-key="{escape(segment.speaker_key)}" data-start-seconds="{escape(str(segment.start_seconds))}" data-end-seconds="{escape(str(segment.end_seconds))}" tabindex="-1">
             {_render_timestamp(segment)}
-            <div class="speaker"><span class="dot" aria-hidden="true"></span>{escape(_speaker_display_label(segment.speaker_label))}</div>
+            <div class="speaker"><span class="dot" aria-hidden="true"></span><span class="speaker-label">{escape(_speaker_display_label(segment.speaker_label))}</span></div>
             <div class="text">{escape(segment.text)}</div>
           </article>
         """
@@ -1672,6 +1672,8 @@ def _render_playback_speaker_timeline(
 ) -> str:
     if not review.speakers.available:
         return '<div class="speaker-timeline" data-speaker-timeline></div>'
+    if not review.speakers.speakers:
+        return '<div id="speaker-timeline" class="speaker-timeline" data-speaker-timeline data-speaker-timeline-count="0"></div>'
     duration = max(1, review.playback.duration_seconds)
     lanes = []
     for speaker in review.speakers.speakers:
@@ -1690,14 +1692,22 @@ def _render_playback_speaker_timeline(
             )
         lanes.append(
             f"""
-            <div class="timeline-lane {color_class}" data-speaker-lane="{escape(speaker.speaker_key)}">
+            <div class="timeline-lane {color_class}" data-speaker-lane="{escape(speaker.speaker_key)}" data-speaker-key="{escape(speaker.speaker_key)}">
               <span class="timeline-speaker" title="{escape(speaker_label)}"><span class="speaker-dot" aria-hidden="true"></span><span class="timeline-label">{escape(speaker_label)}</span></span>
-              <span class="timeline-scale lane-scale"><span class="timeline-track" data-timeline-track role="button" tabindex="0" aria-label="Перейти по дорожке {escape(speaker_label)}">{"".join(segments)}<span class="timeline-playhead" data-timeline-playhead aria-hidden="true"></span></span></span>
+              <span class="timeline-scale lane-scale"><span class="timeline-track" data-timeline-track role="button" tabindex="0" aria-label="Перейти по дорожке {escape(speaker_label)}: переместить воспроизведение к фрагменту записи">{"".join(segments)}<span class="timeline-playhead" data-timeline-playhead aria-hidden="true"></span></span></span>
               <span class="timeline-share">{speaker.talk_time_percent}%</span>
             </div>
             """
         )
-    return f'<div class="speaker-timeline" data-speaker-timeline>{"".join(lanes)}</div>'
+    return f"""
+      <div class="speaker-timeline-shell" data-speaker-timeline-shell>
+        <div class="speaker-timeline-resize-row">
+          <div id="speaker-timeline-resize" class="speaker-timeline-resize" data-speaker-timeline-resize role="separator" aria-orientation="horizontal" aria-controls="speaker-timeline" aria-label="Изменить высоту таймлайнов спикеров" aria-valuemin="96" aria-valuemax="96" aria-valuenow="96" aria-valuetext="Стандартная высота" tabindex="0" hidden></div>
+        </div>
+        <p class="speaker-timeline-hint" data-speaker-timeline-hint>Нажмите на дорожку, чтобы перейти к фрагменту записи.</p>
+        <div id="speaker-timeline" class="speaker-timeline" data-speaker-timeline data-speaker-timeline-count="{len(lanes)}" data-speaker-timeline-default-height="96">{"".join(lanes)}</div>
+      </div>
+    """
 
 
 def _render_speaker_manager(
@@ -1733,7 +1743,7 @@ def _render_speaker_manager(
             )
         rows.append(
             f"""
-              <div class="speaker-manager-row {color_class}">
+              <div class="speaker-manager-row {color_class}" data-speaker-key="{escape(speaker.speaker_key)}">
                 <span class="speaker-manager-dot" aria-hidden="true"></span>
                 <span class="speaker-manager-name" title="{escape(speaker_label)}">{escape(speaker_label)}</span>
                 <span class="speaker-manager-share">{speaker.talk_time_percent}%</span>
@@ -1806,7 +1816,7 @@ def _render_speaker_name_form(
         else ""
     )
     return f"""
-      <form id="{escape(form_id)}" class="speaker-name-form {escape(extra_class)}" data-speaker-name-form method="post" action="{_base_path(embedded)}/{review.meeting.meeting_id}/speakers/{escape(speaker.speaker_key)}"{" hidden" if hidden else ""}>
+      <form id="{escape(form_id)}" class="speaker-name-form {escape(extra_class)}" data-speaker-name-form data-speaker-key="{escape(speaker.speaker_key)}" method="post" action="{_base_path(embedded)}/{review.meeting.meeting_id}/speakers/{escape(speaker.speaker_key)}"{" hidden" if hidden else ""}>
         {csrf}
         <label class="sr-only" for="speaker-name-{escape(speaker.speaker_key)}">Имя для {escape(speaker_label)}</label>
         <input id="speaker-name-{escape(speaker.speaker_key)}" name="display_name" value="{escape(speaker.display_name or "")}" placeholder="Имя спикера" maxlength="80" autocomplete="off">
