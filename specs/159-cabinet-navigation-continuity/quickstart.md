@@ -91,13 +91,13 @@ macOS-shell approval gate.
 - Evidence remains synthetic and metadata-only; no private content or
   screenshot was retained.
 
-## Post-merge Feature 158 integration validation
+## Final Feature 158 integration validation
 
-- Merge integration commit: `8aa444b8`.
+- Final integration commit: `eff323f1` (includes merge commit `8aa444b8`).
 - Prescribed focused PostgreSQL runner: 182 passed; isolated container removed.
 - `node --check apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js` — PASS.
 - `git diff --check` — PASS.
-- `infra/scripts/ci-local.sh --fast` on the merge commit — 1101 passed; lint,
+- `infra/scripts/ci-local.sh --fast` on the final integration commit — 1101 passed; lint,
   Python compile and legacy-audio guard passed.
 - Feature 158 timeline, rename and sticky-tab behavior was retained while the
   Feature 159 shell, auth surface and settings rail remained covered by the
