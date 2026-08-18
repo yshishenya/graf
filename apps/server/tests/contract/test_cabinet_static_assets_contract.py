@@ -2586,7 +2586,7 @@ def test_feature_159_shared_shell_initializers_are_idempotent_and_safe() -> None
         'data-profile-menu-ready',
         'event.key === "Escape"',
         'trigger.focus({ preventScroll: true })',
-        "Свернуть боковую панель",
+        "Скрыть боковую панель",
         "Показать боковую панель",
     ]:
         assert marker in script
@@ -2638,6 +2638,21 @@ def test_collapsed_sidebar_only_expands_through_the_explicit_toggle() -> None:
     assert ".desktop-embedded .sidebar:focus-within" not in css
     assert ".desktop-embedded .sidebar-foot {\n    visibility: hidden;\n  }" in css
     assert ".desktop-embedded.is-rail-pinned .sidebar-foot {\n    visibility: visible;\n  }" in css
+
+
+def test_sidebar_toggle_tooltip_is_visible_on_hover_and_keyboard_focus() -> None:
+    css = (STATIC_DIR / "cabinet.css").read_text()
+
+    for marker in (
+        ".app-shell[data-cabinet-shell]::after",
+        'content: attr(data-rail-tooltip);',
+        "position: fixed;",
+        "pointer-events: none;",
+        ":has(.cabinet-rail-toggle:hover)::after",
+        ":has(.cabinet-rail-toggle:focus-visible)::after",
+        "max-width: min(220px, calc(100vw - 72px));",
+    ):
+        assert marker in css
 
 
 def test_embedded_update_slot_is_accessible_and_native_owned() -> None:
