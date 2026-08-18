@@ -1998,6 +1998,8 @@ def test_detail_shell_renders_speaker_timeline_segments() -> None:
     assert "data-speaker-timeline" in page
     assert 'data-speaker-timeline-default-height="120"' in page
     assert 'aria-valuemin="120" aria-valuemax="120" aria-valuenow="120"' in page
+    assert page.count('data-speaker-timeline-hint') == 1
+    assert "Нажмите на цветной фрагмент, чтобы перейти к этому месту записи." in page
     assert 'data-speaker-lane="speaker_00"' in page
     assert 'data-speaker-lane="speaker_01"' in page
     assert page.count("data-timeline-track") == 2
@@ -2166,6 +2168,7 @@ def test_playback_timeline_keeps_full_width_lanes_and_separate_speaker_manager()
     assert ".speaker-manager-popover[hidden]" in css
     assert "row-gap: 1px;" in css
     assert "max-height: 120px;" in css
+    assert ".speaker-timeline-hint" in css
     assert "overflow-wrap: anywhere;" in css
     assert "data-speaker-name-open" in script
     assert "data-speaker-manager-toggle" in script
@@ -2192,6 +2195,7 @@ def test_detail_shell_renders_unavailable_playback_without_audio_element() -> No
     assert 'data-playback-reason="no_audio"' in page
     assert 'data-source-mode="none"' in page
     assert "Аудио закрыто политикой доступа" in page
+    assert "data-speaker-timeline-hint" not in page
     assert "<audio" not in page
 
 

@@ -43,6 +43,7 @@ def test_meeting_review_continuity_exposes_lane_hint_resize_separator_and_sticky
     assert 'role="separator"' in rendering
     assert 'aria-orientation="horizontal"' in rendering
     assert "data-speaker-timeline-hint" in rendering
+    assert "Нажмите на цветной фрагмент, чтобы перейти к этому месту записи." in rendering
     assert "переместить воспроизведение к фрагменту записи" in rendering
     assert "data-speaker-timeline-resize" in script
     assert "aria-valuemin" in script
