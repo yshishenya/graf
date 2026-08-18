@@ -94,3 +94,16 @@ Sparkle signing workflow and retain the same bundle/signing lineage.
 The public publication order is versioned ZIP/PKG and checksums first,
 `graf-appcast.xml` last. A new Mac still needs the one-time Finder/System
 Settings trust step; Developer ID/notarization is a separate public channel.
+
+## Post-merge integration validation
+
+- Feature 159 integration commit: `b9ba98bf`.
+- Permission-focused Swift suite, including ScreenCaptureKit recovery,
+  permission gate, UX, installer and accessibility contracts: 73 tests passed.
+- Shell syntax, `git diff --check` and `validate-no-legacy-audio-driver.sh`:
+  PASS.
+- The external clean-Mac permission smoke remains open as T099/#4528; no TCC
+  reset, TCC database read/write, PPPC profile, driver or virtual audio device
+  was used.
+- No production deploy, public macOS publication or private meeting data was
+  used in this validation.
