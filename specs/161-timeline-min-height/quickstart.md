@@ -20,7 +20,7 @@ listener.
 
 ## Evidence — 2026-08-18
 
-- Commit: `4bfd0512de9c845261aaa8afe217276936da2937`
+- Implementation commit: `09f56e81d078f0f2f50f912d059a902ac809446d`
 - Unit: 4 passed, 71 deselected.
 - Contract/resize: 3 passed, 49 deselected.
 - JavaScript syntax: `node --check` passed.
