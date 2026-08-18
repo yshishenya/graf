@@ -61,8 +61,8 @@ run the disposable pass path and verify the database and probe role are gone.
 evidence.
 
 - [ ] T007 Run `git diff --check` and `infra/scripts/scan-deployment-evidence.sh docs/deployments/2brain-rec` for the exact candidate commit.
-- [ ] T008 Run `infra/scripts/ci-local.sh --full` once on the exact release-candidate SHA with the disposable RLS URL; record macOS, server, strict RLS, lint, compile, compose, and evidence results in the release receipt.
-- [ ] T009 Run `infra/scripts/cd-remote.sh --dry-run --branch master` after the exact-SHA full gate and record the dry-run result without executing production deployment.
+- [ ] T008 Run `infra/scripts/ci-local.sh --full` once on the exact release-candidate SHA with the disposable RLS URL; record macOS, server, strict RLS, lint, compile, compose, and evidence results in `docs/deployments/2brain-rec/release-v2026.08.18.2.md`.
+- [ ] T009 Run `infra/scripts/cd-remote.sh --dry-run --branch master` after the exact-SHA full gate and record the dry-run result in `docs/deployments/2brain-rec/release-v2026.08.18.2.md` without executing production deployment.
 
 ## Dependencies & Execution Order
 
