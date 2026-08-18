@@ -40,7 +40,7 @@ pytest/static checks and the visual matrix pass without horizontal overflow.
 **Purpose**: Review the root-cause diff, validate both surfaces and leave
 metadata-only evidence for the later release train.
 
-- [ ] T006 [US1] Run the feature quickstart, `node --check`, `git diff --check`, focused pytest selection and the synthetic wide/narrow/embedded visual review described in `specs/165-sidebar-responsive-default/quickstart.md`.
+- [X] T006 [US1] Run the feature quickstart, `node --check`, `git diff --check`, focused pytest selection and the synthetic wide/narrow/embedded visual review described in `specs/165-sidebar-responsive-default/quickstart.md`.
 - [X] T007 [P] Update the Russian `[Unreleased]` `Fixed` entry for responsive sidebar defaults in `CHANGELOG.md`.
 - [X] T008 [US1] Perform correctness, accessibility, clean-room and Ponytail review; record findings, focused counts, visual limits and the final SHA in `specs/165-sidebar-responsive-default/analysis.md` and `specs/165-sidebar-responsive-default/quickstart.md`.
 - [X] T009 [US1] Run the selected repository closeout lane `infra/scripts/ci-local.sh --fast`, reconcile all task/issue evidence and mark only validated tasks complete in `specs/165-sidebar-responsive-default/tasks.md`.

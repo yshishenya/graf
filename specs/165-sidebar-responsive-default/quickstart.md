@@ -51,9 +51,19 @@ credentials or private screenshots.
   passed; `ci_local_result=pass mode=fast`.
 - The Node VM matrix passes all browser/embedded boundaries and manual-state
   checks listed above.
-- Browser visual limit: local login rendered successfully, but the synthetic
-  `000000` code was rejected, so authenticated meeting-list visual states could
-  not be confirmed. Embedded GRAF Dev likewise showed its normal missing-auth
-  state. No credentials or meeting content were bypassed or stored.
+- Browser visual matrix: authenticated wide web at requested `1280×720`
+  (effective `1163×654`) starts expanded with the truthful hide label;
+  authenticated narrow web at requested `980×720` (effective `891×654`)
+  starts compact with the truthful show label. Both states had no horizontal
+  overflow.
+- Embedded Computer Use matrix: authenticated `GRAF Dev` opened the local
+  `/desktop/meetings` surface at the available `1040×680` window (the Mac
+  display is smaller than the requested `1121` boundary), started compact,
+  exposed `Показать боковую панель`, expanded by pointer and by Space with
+  `Скрыть боковую панель`, retained focus, and collapsed again without
+  overflow. The exact embedded `1121/1120` boundary is covered by the Node VM
+  harness because the physical display cannot render a 1121 px window.
+- No credentials or meeting content were bypassed, persisted, or stored in
+  repository evidence.
 - Implementation SHA: `efb73869554c5ddbcefe3506098a0c4d333bf039`; this is the
   validated implementation commit, not a moving branch reference.
