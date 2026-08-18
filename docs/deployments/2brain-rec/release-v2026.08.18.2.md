@@ -58,7 +58,9 @@ Remote state до execute не изменялся.
 
 ## Public macOS release
 
-- Developer ID Application / Installer, notarization, stapler и Gatekeeper — pass.
+- Developer ID Application / Installer, notarization, stapler и Gatekeeper — pass;
+  Apple ZIP request `0e54b4c1-3b56-411a-890a-5397a81eacf1`, PKG request
+  `08b5779b-6996-4316-9e96-12c48c67461f`.
 - Sparkle continuity `Developer ID → Developer ID` — pass; trust generation `1`.
 - ZIP: `https://rec.2brain.pro/static/public/downloads/GRAF-2026.08.18.2.zip`;
   SHA-256 `e2292410b442a1d3e1bcfeb49a96492ade64b59984d0aa068be58964769abaf7`.
@@ -73,7 +75,7 @@ Remote state до execute не изменялся.
 
 ## Release and rollback status
 
-- GitHub Release публикуется после этого closeout и содержит русский changelog,
+- GitHub Release опубликован и содержит русский changelog,
   ZIP, PKG, checksums, appcast и metadata-only signing attestation.
 - Rollback не потребовался. Для recovery сохранены предыдущий релиз
   `v2026.08.18.1`, versioned archive и backup appcast; откат выполняется только
