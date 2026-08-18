@@ -59,16 +59,17 @@ public final class MeetingDetectionSettingsStore: @unchecked Sendable {
 
     public init(
         settingsURL: URL? = nil,
+        channel: GrafAppChannel = .current,
         encoder: JSONEncoder = MeetingDetectionCoding.encoder(),
         decoder: JSONDecoder = MeetingDetectionCoding.decoder()
     ) {
-        self.settingsURL = settingsURL ?? Self.defaultSettingsURL()
+        self.settingsURL = settingsURL ?? Self.defaultSettingsURL(channel: channel)
         self.encoder = encoder
         self.decoder = decoder
     }
 
-    public static func defaultSettingsURL() -> URL {
-        MeetingDetectionAppModule.settingsURL()
+    public static func defaultSettingsURL(channel: GrafAppChannel = .current) -> URL {
+        MeetingDetectionAppModule.settingsURL(channel: channel)
     }
 
     public func load() throws -> MeetingDetectionSettings {

@@ -207,6 +207,7 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         XCTAssertEqual(DesktopCabinetAccessibilityIdentifier.navigationBack, "desktop-cabinet-navigation-back")
         XCTAssertEqual(DesktopCabinetAccessibilityIdentifier.navigationForward, "desktop-cabinet-navigation-forward")
         XCTAssertEqual(DesktopCabinetAccessibilityIdentifier.navigationReload, "desktop-cabinet-navigation-reload")
+        XCTAssertEqual(DesktopCabinetAccessibilityIdentifier.navigationHome, "desktop-cabinet-navigation-home")
     }
 
     @MainActor

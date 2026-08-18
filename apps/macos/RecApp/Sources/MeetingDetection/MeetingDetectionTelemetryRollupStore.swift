@@ -30,13 +30,14 @@ public final class MeetingDetectionTelemetryRollupStore: @unchecked Sendable {
 
     public init(
         directoryURL: URL? = nil,
+        channel: GrafAppChannel = .current,
         configuration: MeetingDetectionTelemetryConfiguration = MeetingDetectionTelemetryConfiguration(),
         encoder: JSONEncoder = MeetingDetectionCoding.encoder(),
         decoder: JSONDecoder = MeetingDetectionCoding.decoder(),
         calendar: Calendar = Calendar(identifier: .gregorian),
         clock: @escaping Clock = Date.init
     ) {
-        self.directoryURL = directoryURL ?? Self.defaultRollupDirectoryURL()
+        self.directoryURL = directoryURL ?? Self.defaultRollupDirectoryURL(channel: channel)
         self.configuration = configuration
         self.encoder = encoder
         self.decoder = decoder
@@ -46,12 +47,16 @@ public final class MeetingDetectionTelemetryRollupStore: @unchecked Sendable {
         self.clock = clock
     }
 
-    public static func defaultRollupDirectoryURL() -> URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ??
-            FileManager.default.temporaryDirectory
-        return base
-            .appendingPathComponent("GRAF", isDirectory: true)
-            .appendingPathComponent(MeetingDetectionAppModule.applicationSupportDirectoryName, isDirectory: true)
+    public static func defaultRollupDirectoryURL(
+        fileManager: FileManager = .default,
+        applicationSupportURL: URL? = nil,
+        channel: GrafAppChannel = .current
+    ) -> URL {
+        MeetingDetectionAppModule.applicationSupportDirectory(
+            fileManager: fileManager,
+            applicationSupportURL: applicationSupportURL,
+            channel: channel
+        )
             .appendingPathComponent("TelemetryRollups", isDirectory: true)
     }
 

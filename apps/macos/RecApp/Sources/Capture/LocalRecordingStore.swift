@@ -7,29 +7,31 @@ public struct LocalRecordingStore: Sendable {
 
     public let rootURL: URL
 
-    public init(rootURL: URL? = nil) {
+    public init(rootURL: URL? = nil, channel: GrafAppChannel = .current) {
         if let rootURL {
             self.rootURL = rootURL
         } else {
-            self.rootURL = Self.defaultRootURL()
+            self.rootURL = Self.defaultRootURL(channel: channel)
         }
     }
 
     public static func defaultRootURL(
         fileManager: FileManager = .default,
-        applicationSupportURL: URL? = nil
+        applicationSupportURL: URL? = nil,
+        channel: GrafAppChannel = .current
     ) -> URL {
         let base = applicationSupportURL ?? fileManager.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
         ).first ?? fileManager.temporaryDirectory
         let current = base
-            .appendingPathComponent(appSupportFolderName, isDirectory: true)
+            .appendingPathComponent(channel.applicationSupportFolderName, isDirectory: true)
             .appendingPathComponent("Recordings", isDirectory: true)
         let legacy = base
             .appendingPathComponent(legacyAppSupportFolderName, isDirectory: true)
             .appendingPathComponent("Recordings", isDirectory: true)
-        if !fileManager.fileExists(atPath: current.path),
+        if channel != .installedDev,
+           !fileManager.fileExists(atPath: current.path),
            fileManager.fileExists(atPath: legacy.path) {
             return legacy
         }

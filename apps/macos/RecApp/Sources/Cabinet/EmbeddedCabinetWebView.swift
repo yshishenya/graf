@@ -108,6 +108,7 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
     @Published public private(set) var canGoBack = false
     @Published public private(set) var canGoForward = false
     @Published public private(set) var canReload = false
+    @Published public private(set) var canGoHome = false
     @Published public private(set) var isLoading = false
     @Published public private(set) var sessionBoundaryID = UUID()
 
@@ -203,6 +204,28 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
         beginControllerNavigation(navigation, targetURL: webView.url)
     }
 
+    public func goHome() {
+        guard !isLoading,
+              canGoHome,
+              let webView,
+              let fallbackRequest,
+              let homeURL = fallbackRequest.url
+        else { return }
+
+        syntheticMeetingsListURL = homeURL
+        syntheticLoadInFlight = true
+        observeNavigationRequest(fallbackRequest, webView: webView)
+        isLoading = true
+        guard let navigation = webView.load(fallbackRequest) else {
+            syntheticMeetingsListURL = nil
+            syntheticLoadInFlight = false
+            isLoading = false
+            syncNavigationState()
+            return
+        }
+        beginControllerNavigation(navigation, targetURL: homeURL)
+    }
+
     fileprivate func attach(
         webView: WKWebView,
         routePolicy: DesktopCabinetRoutePolicy,
@@ -270,6 +293,7 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
         canGoBack = false
         canGoForward = false
         canReload = false
+        canGoHome = false
         isLoading = false
     }
 
@@ -502,6 +526,7 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
             canGoBack = false
             canGoForward = false
             canReload = false
+            canGoHome = false
             return
         }
         let backItem = preferredBackItem(for: webView, routePolicy: routePolicy)
@@ -525,6 +550,9 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
         canReload = !isLoading
             && isSafeHistoryDocument(webView.url, routePolicy: routePolicy)
             && (!sessionExpired || !isProtectedMeetingRoute(webView.url, routePolicy: routePolicy))
+        canGoHome = !isLoading
+            && webView.url != fallbackRequest?.url
+            && isSafeHomeDocument(fallbackRequest?.url, routePolicy: routePolicy)
     }
 
     private func beginControllerNavigation(_ navigation: WKNavigation, targetURL: URL?) {
@@ -588,6 +616,15 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
               safeHistoryURLs.contains(url)
         else { return false }
         return EmbeddedCabinetNavigationPolicy.isSafeDocument(url, routePolicy: routePolicy)
+    }
+
+    private func isSafeHomeDocument(
+        _ url: URL?,
+        routePolicy: DesktopCabinetRoutePolicy
+    ) -> Bool {
+        guard let url else { return false }
+        let decision = routePolicy.decision(for: url)
+        return decision.decision == .allow && decision.route.kind == .meetingList
     }
 
     private func isProtectedMeetingRoute(
