@@ -2573,6 +2573,42 @@ def test_cabinet_js_owns_component_dom_behavior() -> None:
     assert 'event.target !== row' not in script
 
 
+def test_feature_159_shared_shell_initializers_are_idempotent_and_safe() -> None:
+    script = (STATIC_DIR / "cabinet.js").read_text()
+
+    for marker in [
+        'document.querySelectorAll("[data-cabinet-shell]")',
+        'shell.dataset.railReady === "true"',
+        'data-profile-menu-trigger',
+        'data-profile-menu-ready',
+        'event.key === "Escape"',
+        'trigger.focus({ preventScroll: true })',
+        "Свернуть боковую панель",
+        "Показать боковую панель",
+    ]:
+        assert marker in script
+
+
+def test_feature_159_shared_shell_static_contract_keeps_search_and_download_boundaries() -> None:
+    css = (STATIC_DIR / "cabinet.css").read_text()
+    sections = (
+        ROOT
+        / "src/twobrain_rec_server/cabinet/templates/cabinet/components/sections.html"
+    ).read_text()
+
+    assert "padding-inline-start: 42px;" in css
+    assert "padding-inline-end: 34px;" in css
+    assert ".sidebar-download" in css
+    assert "position: fixed;" in css
+    assert "max-height: calc(100vh - 24px);" in css
+    assert "overflow-y: auto;" in css
+    assert 'data-sidebar-download href="/download"' in sections
+    assert 'data-sidebar-download href="/download"' not in sections.replace(
+        'data-sidebar-download href="/download"', "", 1
+    )
+    assert "data-graf-app-update" in sections
+
+
 def test_meeting_list_css_keeps_reset_copy_and_touch_actions_visible() -> None:
     css = (STATIC_DIR / "cabinet.css").read_text()
 

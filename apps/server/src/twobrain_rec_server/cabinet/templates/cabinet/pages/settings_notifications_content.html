@@ -2,7 +2,7 @@
 {% import "cabinet/components/notifications.html" as notifications_ui %}
 <main id="cabinet-main" class="cabinet-main" tabindex="-1">
   <div class="cabinet-workspace settings-page">
-    {{ settings_ui.navigation(settings_navigation, active=settings_active, back_href=("/desktop/meetings" if embedded else "/meetings")) }}
+    {{ settings_ui.navigation(settings_navigation, active=settings_active, back_href=("/desktop/meetings" if embedded else "/meetings"), legacy_hidden=settings_mode|default(false)) }}
     <div class="settings-page__content">
       <header class="cabinet-topbar settings-page__topbar">
         <div class="page-title"><h1>Уведомления</h1></div>

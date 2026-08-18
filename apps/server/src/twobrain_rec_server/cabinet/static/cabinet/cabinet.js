@@ -3713,27 +3713,54 @@
   const setRailPinned = (shell, toggle, pinned) => {
     shell.classList.toggle("is-rail-pinned", pinned);
     toggle.setAttribute("aria-expanded", pinned ? "true" : "false");
-    toggle.setAttribute("aria-label", pinned ? "Свернуть меню" : "Развернуть меню");
+    const label = pinned ? "Свернуть боковую панель" : "Показать боковую панель";
+    toggle.setAttribute("aria-label", label);
+    toggle.setAttribute("title", label);
   };
 
   const initCabinetRail = () => {
-    const shell = document.querySelector("[data-cabinet-shell].desktop-embedded");
-    const sidebar = shell?.querySelector("[data-cabinet-navigation]");
-    const toggle = shell?.querySelector("[data-cabinet-rail-toggle]");
-    if (!shell || !sidebar || !toggle || shell.dataset.railReady === "true") return;
-    shell.dataset.railReady = "true";
-    toggle.addEventListener("click", () => {
-      setRailPinned(shell, toggle, !shell.classList.contains("is-rail-pinned"));
+    document.querySelectorAll("[data-cabinet-shell]").forEach((shell) => {
+      const sidebar = shell.querySelector("[data-cabinet-navigation]");
+      const toggle = shell.querySelector("[data-cabinet-rail-toggle]");
+      if (!sidebar || !toggle || shell.dataset.railReady === "true") return;
+      shell.dataset.railReady = "true";
+      setRailPinned(shell, toggle, shell.classList.contains("is-rail-pinned"));
+      toggle.addEventListener("click", () => {
+        setRailPinned(shell, toggle, !shell.classList.contains("is-rail-pinned"));
+        toggle.focus({ preventScroll: true });
+      });
+      sidebar.querySelectorAll("a[href]").forEach((link) => {
+        link.addEventListener("click", () => setRailPinned(shell, toggle, false));
+      });
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") setRailPinned(shell, toggle, false);
+      });
+      document.addEventListener("click", (event) => {
+        if (event.target instanceof Element && !event.target.closest("[data-cabinet-navigation]")) {
+          setRailPinned(shell, toggle, false);
+        }
+      });
     });
-    sidebar.querySelectorAll("a[href]").forEach((link) => {
-      link.addEventListener("click", () => setRailPinned(shell, toggle, false));
-    });
-    document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") setRailPinned(shell, toggle, false);
-    });
-    document.addEventListener("click", (event) => {
-      if (!shell.classList.contains("is-rail-pinned") || !(event.target instanceof Element)) return;
-      if (!event.target.closest("[data-cabinet-navigation]")) setRailPinned(shell, toggle, false);
+  };
+
+  const initCabinetProfileMenus = () => {
+    document.querySelectorAll("[data-profile-menu-root]").forEach((root) => {
+      const trigger = root.querySelector("[data-profile-menu-trigger]");
+      const menu = root.querySelector("[data-profile-menu]");
+      if (!trigger || !menu || root.getAttribute("data-profile-menu-ready") === "true") return;
+      root.setAttribute("data-profile-menu-ready", "true");
+      const setOpen = (open) => {
+        menu.hidden = !open;
+        trigger.setAttribute("aria-expanded", open ? "true" : "false");
+        if (!open) trigger.focus({ preventScroll: true });
+      };
+      trigger.addEventListener("click", () => setOpen(menu.hidden));
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && !menu.hidden) setOpen(false);
+      });
+      document.addEventListener("click", (event) => {
+        if (!menu.hidden && event.target instanceof Node && !root.contains(event.target)) setOpen(false);
+      });
     });
   };
 
@@ -4916,6 +4943,7 @@
   const initCabinet = () => {
     initAuthTransition();
     initCabinetRail();
+    initCabinetProfileMenus();
     initListDisclosures();
     initCodeForms();
     initMeetingList();

@@ -28,6 +28,7 @@ from twobrain_rec_server.auth.workspace_onboarding import (
 from twobrain_rec_server.billing.notification_preferences import NotificationPreferences
 from twobrain_rec_server.cabinet.auth_rendering import render_email_code_page
 from twobrain_rec_server.cabinet.queries import (
+    get_account_profile_view,
     get_account_settings_surface,
     get_provider_link_start_options,
 )
@@ -131,6 +132,7 @@ async def _render_settings(
         from twobrain_rec_server.cabinet import view_models as cabinet_view_models
 
         account_surface = cabinet_view_models.AccountSettingsSurface(unavailable=True)
+    profile_view = await get_account_profile_view(db, tenant_scope) if db is not None else None
     if db is not None:
         await db.commit()
     return cabinet_html_response(
@@ -148,6 +150,7 @@ async def _render_settings(
             workspace_offer_result=workspace_offer,
             workspace_switch_result=space_switch,
             account_surface=account_surface,
+            profile=profile_view,
             provider_link_result=provider_link,
             device_revoke_result=device_revoke,
             session_result=session,

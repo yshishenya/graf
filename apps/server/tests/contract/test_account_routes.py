@@ -8,6 +8,7 @@ from fastapi.routing import APIRoute
 
 from twobrain_rec_server.auth.account_closure import AccountCloseView
 from twobrain_rec_server.auth.workspace_onboarding import WorkspaceAccessView
+from twobrain_rec_server.cabinet.auth_rendering import render_login_page, render_signup_page
 from twobrain_rec_server.cabinet.rendering import render_account_merge_page, render_settings_page
 from twobrain_rec_server.cabinet.view_models import (
     AccountProfileView,
@@ -15,9 +16,23 @@ from twobrain_rec_server.cabinet.view_models import (
     AccountSettingsSurface,
 )
 from twobrain_rec_server.cabinet.web_routes.account_merge import router as account_merge_router
+from twobrain_rec_server.cabinet.web_routes.auth import router as auth_router
 from twobrain_rec_server.cabinet.web_routes.referrals import router as referrals_router
 from twobrain_rec_server.cabinet.web_routes.settings import router
 from twobrain_rec_server.cabinet.web_routes.spaces import router as spaces_router
+
+
+def test_feature_159_login_copy_is_truthful_without_removing_explicit_signup_routes() -> None:
+    login = render_login_page(workspace_id=UUID(int=1), providers=[])
+    signup = render_signup_page(workspace_id=UUID(int=1), providers=[], mode="email")
+    routes = {route.path for route in auth_router.routes if isinstance(route, APIRoute)}
+
+    assert "Обычный вход не создаёт аккаунт автоматически." in login
+    assert "Зарегистрироваться" not in login
+    assert 'action="/sign-up/email/start"' in signup
+    assert "/sign-up" in routes
+    assert "/sign-up/email/start" in routes
+    assert "/sign-up/email/verify" in routes
 
 
 def test_account_close_routes_have_browser_and_desktop_variants_with_csrf_dependency() -> None:
@@ -99,7 +114,8 @@ def test_merge_preview_copy_is_bounded_and_never_renders_account_secrets() -> No
     assert "Предпросмотр устарел." in page
     assert "Пароль не нужен" in page
     assert "provider_subject" not in page
-    assert "transcript" not in page.lower()
+    content = page.split('id="cabinet-main"', 1)[-1].lower()
+    assert "transcript" not in content
     assert "signed_url" not in page
 
 

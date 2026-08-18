@@ -65,6 +65,7 @@ def render_meeting_list_page(
     csrf_token: str | None = None,
     poll_url: str | None = None,
     product_analytics_provider: dict[str, object] | None = None,
+    profile=None,
 ) -> str:
     query_value = " ".join((response.filters.q or "").split())
     sort_value = cabinet_view_models.normalize_meeting_list_sort(response.filters.sort)
@@ -74,6 +75,7 @@ def render_meeting_list_page(
         embedded=embedded,
         csrf_token=csrf_token,
         product_analytics_provider=product_analytics_provider,
+        profile=profile,
         content_template="cabinet/pages/meeting_list_content.html",
         filter_action=_base_path(embedded),
         filter_reset_url=f"{_base_path(embedded)}?sort={sort_value}",
@@ -114,12 +116,14 @@ def render_shared_with_me_page(
     embedded: bool = False,
     csrf_token: str | None = None,
     product_analytics_provider: dict[str, object] | None = None,
+    profile=None,
 ) -> str:
     return _page_shell(
         "Поделились со мной",
         embedded=embedded,
         csrf_token=csrf_token,
         product_analytics_provider=product_analytics_provider,
+        profile=profile,
         active_nav="shared-with-me",
         content_template="cabinet/pages/shared_with_me_list_content.html",
         items=items,
@@ -131,12 +135,14 @@ def render_meeting_unavailable_page(
     embedded: bool = False,
     csrf_token: str | None = None,
     product_analytics_provider: dict[str, object] | None = None,
+    profile=None,
 ) -> str:
     return _page_shell(
         "Встреча больше недоступна",
         embedded=embedded,
         csrf_token=csrf_token,
         product_analytics_provider=product_analytics_provider,
+        profile=profile,
         content_template="cabinet/pages/meeting_unavailable_content.html",
         meeting_list_href=_base_path(embedded),
     )
@@ -251,6 +257,7 @@ def render_settings_page(
     embedded: bool = False,
     csrf_token: str | None = None,
     product_analytics_provider: dict[str, object] | None = None,
+    profile=None,
     category: str = "overview",
     provider_link_options: tuple[cabinet_view_models.ProviderLinkStartOption, ...] = (),
     workspace_spaces: tuple[WorkspaceAccessView, ...] = (),
@@ -361,6 +368,7 @@ def render_settings_page(
         settings_active=resolved_category,
         csrf_token=csrf_token,
         product_analytics_provider=product_analytics_provider,
+        profile=profile,
         content_template=content_templates[resolved_category],
         **settings_context,
     )
@@ -372,6 +380,7 @@ def render_provider_link_settings_page(
     embedded: bool = False,
     csrf_token: str | None = None,
     product_analytics_provider: dict[str, object] | None = None,
+    profile=None,
     result: str | None = None,
 ) -> str:
     base_path = "/desktop/settings/provider-links" if embedded else "/settings/provider-links"
@@ -382,6 +391,7 @@ def render_provider_link_settings_page(
         settings_active="account",
         csrf_token=csrf_token,
         product_analytics_provider=product_analytics_provider,
+        profile=profile,
         content_template="cabinet/fragments/provider_link_settings.html",
         surface=surface,
         settings_href="/desktop/settings/account" if embedded else "/settings/account",
@@ -397,6 +407,7 @@ def render_account_merge_page(
     embedded: bool = False,
     csrf_token: str | None = None,
     product_analytics_provider: dict[str, object] | None = None,
+    profile=None,
     error_message: str | None = None,
 ) -> str:
     base_path = "/desktop/settings/account/merge" if embedded else "/settings/account/merge"
@@ -407,6 +418,7 @@ def render_account_merge_page(
         settings_active="account",
         csrf_token=csrf_token,
         product_analytics_provider=product_analytics_provider,
+        profile=profile,
         content_template="cabinet/pages/account_merge_content.html",
         preview=preview,
         intent_id=intent_id,
@@ -432,6 +444,7 @@ def render_calendar_settings_page(
     embedded: bool = False,
     csrf_token: str | None = None,
     product_analytics_provider: dict[str, object] | None = None,
+    profile=None,
 ) -> str:
     return _page_shell(
         surface.title,
@@ -440,6 +453,7 @@ def render_calendar_settings_page(
         settings_active="calendar",
         csrf_token=csrf_token,
         product_analytics_provider=product_analytics_provider,
+        profile=profile,
         content_template="cabinet/fragments/calendar_settings.html",
         skip_target="calendar-settings-region",
         base_path="/desktop/settings/integrations/calendar"
@@ -665,6 +679,7 @@ def render_meeting_detail_page(
     csrf_token: str | None = None,
     poll_url: str | None = None,
     product_analytics_provider: dict[str, object] | None = None,
+    profile=None,
     shared_workspace_id: UUID | None = None,
 ) -> str:
     content = _render_meeting_detail_content(
@@ -680,6 +695,7 @@ def render_meeting_detail_page(
         embedded=embedded,
         csrf_token=csrf_token,
         product_analytics_provider=product_analytics_provider,
+        profile=profile,
         content_source="meeting_detail.content",
     )
 

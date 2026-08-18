@@ -1,7 +1,8 @@
 {% import "cabinet/components/icons.html" as icons %}
 
-{% macro navigation(items, active=None, back_href=None) -%}
-<nav class="settings-navigation" aria-label="Разделы настроек">
+{% macro navigation(items, active=None, back_href=None, legacy_hidden=False) -%}
+{% if items %}
+<nav class="settings-navigation" aria-label="Разделы настроек"{% if legacy_hidden %} data-settings-navigation-legacy hidden aria-hidden="true"{% endif %}>
   {% set overview_href = "/desktop/settings" if items and items[0].href.startswith("/desktop/") else "/settings" %}
   {% set overview_selected = (active or "overview") == "overview" %}
   <a class="settings-navigation__item settings-navigation__item--overview{% if overview_selected %} is-selected{% endif %}" href="{{ overview_href }}"{% if overview_selected %} aria-current="page"{% endif %} data-settings-nav="overview">
@@ -23,4 +24,5 @@
   {% endfor %}
   {% if state.group %}</div>{% endif %}
 </nav>
+{% endif %}
 {%- endmacro %}
