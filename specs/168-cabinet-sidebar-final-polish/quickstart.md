@@ -19,7 +19,11 @@ pass/fail only.
 
 ## Evidence
 
-Status: pending implementation. No private meeting content, audio or
-credentials may be saved.
+Status: implementation and focused validation passed. Browser/embedded
+synthetic matrix passed at 1280/980 and 1121/1120/720 px: collapsed and
+expanded rails kept one toggle, the responsive initializer remained the state
+owner, and no horizontal overflow appeared. Server unit/contract checks and
+`node --check` passed. No private meeting content, audio or credentials were
+saved.
 
 Closeout fast lane is shared with Features 161, 169 and 170.

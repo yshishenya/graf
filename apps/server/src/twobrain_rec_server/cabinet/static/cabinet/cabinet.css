@@ -4720,7 +4720,12 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 .app-shell[data-cabinet-shell].is-rail-pinned .cabinet-rail-toggle [data-icon="panel-left-close"] { display: block; }
 
 html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned) {
+  --playback-inline-start: var(--app-rail-width);
   grid-template-columns: var(--app-rail-width) minmax(0, 1fr);
+}
+html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell].is-rail-pinned {
+  --playback-inline-start: var(--app-sidebar-width);
+  grid-template-columns: var(--app-sidebar-width) minmax(0, 1fr);
 }
 html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned) .sidebar {
   width: var(--app-rail-width);

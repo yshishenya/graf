@@ -12,4 +12,9 @@ Synthetic visual matrix: browser 1280/980 and embedded 1121/1120/720, both rail
 states, available/preparing/unavailable playback. Record only dimensions and
 pass/fail; no private content.
 
+Evidence: collapsed grid/playback inline start is `64px`; expanded is `176px`.
+Both states passed without horizontal overflow, and the existing playback state
+contract remains unchanged. Focused server unit/contract checks, `node --check`
+and `git diff --check` passed. Evidence is metadata-only.
+
 Fast repository validation is shared with the combined UX batch.

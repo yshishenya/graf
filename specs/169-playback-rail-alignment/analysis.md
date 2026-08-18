@@ -23,3 +23,7 @@ variable and grid contract.
 - Tasks: 3
 - Coverage: 100%
 - Blocking findings: 0
+
+Implementation closeout: T001–T003 are complete. Collapsed and expanded
+playback origins match the active rail without JavaScript offset mutation or
+changes to playback state.

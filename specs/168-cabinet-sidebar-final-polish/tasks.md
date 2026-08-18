@@ -10,18 +10,18 @@ playback UX. No deploy.
 **Independent Test**: Existing responsive Node harness plus static assertions
 for collapsed/expanded playback alignment and visual synthetic matrix.
 
-- [ ] T001 [P] [US1] Add focused assertions for one web rail toggle, paired
+- [X] T001 [P] [US1] Add focused assertions for one web rail toggle, paired
   rail/playback widths and no extra resize listener in
   `apps/server/tests/contract/test_cabinet_static_assets_contract.py`
-- [ ] T002 [US1] Align ready-state collapsed and expanded grid/playback selectors
+- [X] T002 [US1] Align ready-state collapsed and expanded grid/playback selectors
   in `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css`
-- [ ] T003 [US1] Preserve the existing breakpoint initializer and top toggle
+- [X] T003 [US1] Preserve the existing breakpoint initializer and top toggle
   accessibility contract in
   `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`
 
 ## Phase 2: Review and validation
 
-- [ ] T004 [US1] Run focused web checks, `node --check`, `git diff --check`, and
+- [X] T004 [US1] Run focused web checks, `node --check`, `git diff --check`, and
   browser/embedded visual states; record synthetic evidence in
   `specs/168-cabinet-sidebar-final-polish/quickstart.md` and `analysis.md`
 

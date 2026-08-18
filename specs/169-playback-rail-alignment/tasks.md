@@ -10,14 +10,14 @@ or deploy changes.
 **Independent Test**: Static contract plus synthetic compact/expanded playback
 matrix with unchanged currentTime/source.
 
-- [ ] T001 [P] [US1] Add assertions for paired grid and playback inline-start
+- [X] T001 [P] [US1] Add assertions for paired grid and playback inline-start
   selectors in `apps/server/tests/contract/test_cabinet_static_assets_contract.py`
-- [ ] T002 [US1] Align the final collapsed/expanded playback origin with the
+- [X] T002 [US1] Align the final collapsed/expanded playback origin with the
   active rail in `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css`
 
 ## Phase 2: Review and validation
 
-- [ ] T003 [US1] Run focused playback/rail checks, `node --check`,
+- [X] T003 [US1] Run focused playback/rail checks, `node --check`,
   `git diff --check` and synthetic Browser/embedded degraded-state review; record
   evidence in `specs/169-playback-rail-alignment/quickstart.md`
 
