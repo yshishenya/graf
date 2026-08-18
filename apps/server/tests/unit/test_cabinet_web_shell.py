@@ -1341,6 +1341,21 @@ def test_cabinet_rail_toggle_js_contract() -> None:
     assert 'toggle.setAttribute("data-tooltip", label)' in js
 
 
+def test_cabinet_rail_initialization_uses_surface_breakpoints_without_resize_policy() -> None:
+    js = _cabinet_js()
+
+    for marker in (
+        'shell.classList.contains("is-rail-pinned")',
+        'shell.classList.contains("desktop-embedded")',
+        'window.matchMedia("(min-width: 1121px)").matches',
+        'window.matchMedia("(min-width: 981px)").matches',
+    ):
+        assert marker in js
+
+    rail_source = js[js.index("const initCabinetRail"):js.index("const initCabinetProfileMenus")]
+    assert 'window.addEventListener("resize"' not in rail_source
+
+
 def test_feature_159_shared_shell_toggle_has_one_truthful_focusable_contract() -> None:
     page = render_meeting_list_page(
         MeetingListResponse(

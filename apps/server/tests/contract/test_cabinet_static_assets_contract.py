@@ -88,6 +88,180 @@ def test_cabinet_js_keeps_fragment_state_ephemeral() -> None:
     assert "template: activeTemplate" in script
 
 
+def test_cabinet_rail_initial_state_uses_surface_breakpoints() -> None:
+    script = (STATIC_DIR / "cabinet.js").read_text()
+    css = (STATIC_DIR / "cabinet.css").read_text()
+    for marker in [
+        'shell.classList.contains("desktop-embedded")',
+        'window.matchMedia("(min-width: 981px)")',
+        'window.matchMedia("(min-width: 1121px)")',
+    ]:
+        assert marker in script
+    assert "@media (max-width: 1120px)" in css
+
+    rail_source = script[script.index("const initCabinetRail"):script.index("const initCabinetProfileMenus")]
+    assert 'window.addEventListener("resize"' not in rail_source
+
+
+def test_cabinet_rail_node_harness_keeps_responsive_defaults_and_manual_state() -> None:
+    script_path = STATIC_DIR / "cabinet.js"
+    harness = r"""
+const fs = require("fs");
+const vm = require("vm");
+const surface = process.argv[2];
+const width = Number(process.argv[3]);
+const explicitPinned = process.argv[4] === "pinned";
+const embedded = surface === "embedded";
+const documentListeners = new Map();
+const windowListeners = new Map();
+class FakeElement {
+  constructor(tag = "div") {
+    this.tagName = tag.toUpperCase();
+    this.children = [];
+    this.dataset = {};
+    this.style = {};
+    this.attributes = {};
+    this.hidden = false;
+    this.disabled = false;
+    this.isConnected = true;
+    this.listeners = new Map();
+    this.classList = {
+      values: new Set(),
+      add: (...names) => names.forEach((name) => this.classList.values.add(name)),
+      remove: (...names) => names.forEach((name) => this.classList.values.delete(name)),
+      toggle: (name, force) => {
+        const next = force === undefined ? !this.classList.values.has(name) : force;
+        if (next) this.classList.values.add(name); else this.classList.values.delete(name);
+        return next;
+      },
+      contains: (name) => this.classList.values.has(name),
+    };
+  }
+  addEventListener(name, handler) {
+    const handlers = this.listeners.get(name) || [];
+    handlers.push(handler);
+    this.listeners.set(name, handlers);
+  }
+  dispatch(name, event = {}) {
+    for (const handler of this.listeners.get(name) || []) handler(event);
+  }
+  listenerCount(name) { return (this.listeners.get(name) || []).length; }
+  append(...nodes) { this.children.push(...nodes); }
+  replaceChildren(...nodes) { this.children = nodes; }
+  querySelector(selector) {
+    if (this === shell && selector === "[data-cabinet-navigation]") return sidebar;
+    if (this === shell && selector === "[data-cabinet-rail-toggle]") return toggle;
+    return null;
+  }
+  querySelectorAll(selector) {
+    if (this === sidebar && selector === "a[href]") return [];
+    return [];
+  }
+  matches() { return false; }
+  closest() { return null; }
+  setAttribute(name, value) { this.attributes[name] = String(value); }
+  getAttribute(name) { return this.attributes[name] || null; }
+  removeAttribute(name) { delete this.attributes[name]; }
+  focus() { this.focused = true; document.activeElement = this; }
+}
+const shell = new FakeElement("div");
+const sidebar = new FakeElement("aside");
+const toggle = new FakeElement("button");
+if (embedded) shell.classList.add("desktop-embedded");
+if (explicitPinned) shell.classList.add("is-rail-pinned");
+global.Element = FakeElement;
+global.HTMLElement = FakeElement;
+global.HTMLFormElement = FakeElement;
+global.HTMLButtonElement = FakeElement;
+global.Node = FakeElement;
+const body = new FakeElement("body");
+global.document = {
+  activeElement: null,
+  body,
+  documentElement: { dataset: {} },
+  hidden: false,
+  addEventListener(name, handler) {
+    const handlers = documentListeners.get(name) || [];
+    handlers.push(handler);
+    documentListeners.set(name, handlers);
+  },
+  removeEventListener(name, handler) {
+    documentListeners.set(name, (documentListeners.get(name) || []).filter((candidate) => candidate !== handler));
+  },
+  querySelector(selector) {
+    if (selector === 'meta[name="csrf-token"]') return null;
+    return null;
+  },
+  querySelectorAll(selector) {
+    return selector === "[data-cabinet-shell]" ? [shell] : [];
+  },
+  createElement(tag) { return new FakeElement(tag); },
+};
+global.location = { pathname: "/meetings", search: "", hash: "", href: "https://graf.test/meetings" };
+global.history = { replaceState() {} };
+global.navigator = { onLine: true };
+global.sessionStorage = { removeItem() {}, getItem() { return null; }, setItem() {} };
+global.fetch = async () => ({ status: 200, ok: true, redirected: false, headers: { get() { return ""; } } });
+global.window = {
+  innerWidth: width,
+  addEventListener(name, handler) {
+    const handlers = windowListeners.get(name) || [];
+    handlers.push(handler);
+    windowListeners.set(name, handlers);
+  },
+  clearInterval() {},
+  clearTimeout,
+  htmx: null,
+  location: global.location,
+  matchMedia(query) {
+    const matches = query === "(min-width: 981px)"
+      ? !embedded && width >= 981
+      : query === "(min-width: 1121px)"
+        ? embedded && width >= 1121
+        : false;
+    return { matches };
+  },
+  requestAnimationFrame(callback) { callback(); },
+  setInterval() { return 1; },
+  setTimeout,
+};
+vm.runInThisContext(fs.readFileSync(process.argv[1], "utf8"));
+const expectedPinned = explicitPinned || (embedded ? width >= 1121 : width >= 981);
+if (shell.classList.contains("is-rail-pinned") !== expectedPinned) {
+  throw new Error(`wrong initial class for ${surface} ${width}`);
+}
+const expectedExpanded = expectedPinned ? "true" : "false";
+const expectedLabel = expectedPinned ? "Скрыть боковую панель" : "Показать боковую панель";
+if (toggle.attributes["aria-expanded"] !== expectedExpanded) throw new Error("wrong initial aria state");
+if (toggle.attributes["aria-label"] !== expectedLabel) throw new Error("wrong initial action label");
+toggle.dispatch("click");
+toggle.dispatch("click");
+if (!toggle.focused) throw new Error("toggle did not retain focus");
+if (shell.classList.contains("is-rail-pinned") !== expectedPinned) throw new Error("two toggles changed final state");
+const resizeHandlers = windowListeners.get("resize") || [];
+for (const handler of resizeHandlers) handler();
+if (shell.classList.contains("is-rail-pinned") !== expectedPinned) throw new Error("resize changed manual state");
+if ((toggle.listeners.get("click") || []).length !== 1) throw new Error("duplicate rail listener");
+"""
+    cases = [
+        ("browser", 1280, "default"),
+        ("browser", 981, "default"),
+        ("browser", 980, "default"),
+        ("embedded", 1121, "default"),
+        ("embedded", 1120, "default"),
+        ("embedded", 1120, "pinned"),
+        ("embedded", 720, "default"),
+    ]
+    for surface, width, pin_state in cases:
+        completed = subprocess.run(
+            ["node", "-e", harness, str(script_path), surface, str(width), pin_state],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert completed.returncode == 0, completed.stderr + completed.stdout
+
+
 def test_meeting_review_resize_uses_bounded_keyboard_and_pointer_contract() -> None:
     script = (STATIC_DIR / "cabinet.js").read_text()
     css = (STATIC_DIR / "cabinet.css").read_text()

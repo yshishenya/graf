@@ -3726,7 +3726,12 @@
       const toggle = shell.querySelector("[data-cabinet-rail-toggle]");
       if (!sidebar || !toggle || shell.dataset.railReady === "true") return;
       shell.dataset.railReady = "true";
-      setRailPinned(shell, toggle, shell.classList.contains("is-rail-pinned"));
+      const initialPinned = shell.classList.contains("is-rail-pinned")
+        ? true
+        : shell.classList.contains("desktop-embedded")
+          ? window.matchMedia("(min-width: 1121px)").matches
+          : window.matchMedia("(min-width: 981px)").matches;
+      setRailPinned(shell, toggle, initialPinned);
       toggle.addEventListener("click", () => {
         setRailPinned(shell, toggle, !shell.classList.contains("is-rail-pinned"));
         toggle.focus({ preventScroll: true });
