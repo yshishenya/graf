@@ -59,10 +59,12 @@
       <div class="auth-signup">Для нового аккаунта используйте отдельную ссылку регистрации или приглашение.</div>
       {% endif %}
     </div>
-    <div class="auth-download">
-      <span>Приложение нужно для записи встреч.</span>
-      <a href="/download">Скачать GRAF</a>
-    </div>
   </section>
+  {% if not embedded %}
+  <aside class="auth-download auth-download--browser" aria-label="Приложение GRAF">
+    <span>Записывайте встречи в приложении GRAF.</span>
+    <a href="/download">Скачать приложение GRAF</a>
+  </aside>
+  {% endif %}
   <p class="auth-legal">Перед входом ознакомьтесь с <a class="mini-link" href="/terms">Условиями использования</a> и <a class="mini-link" href="/privacy">Политикой обработки персональных данных</a>. Аудио и расшифровки доступны только после успешного входа.</p>
 </main>

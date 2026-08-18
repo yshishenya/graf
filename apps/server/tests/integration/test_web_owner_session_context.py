@@ -371,7 +371,9 @@ def test_browser_login_page_lists_workspace_providers(client) -> None:
     assert response.status_code == 200
     assert "Войти в кабинет" in response.text
     assert 'action="/login/email/start"' in response.text
-    assert 'href="/download">Скачать GRAF</a>' in response.text
+    assert 'class="auth-download auth-download--browser"' in response.text
+    assert response.text.count('href="/download"') == 1
+    assert "Скачать приложение" in response.text
     assert 'type="email"' in response.text
     assert 'class="mini-link" href="/terms"' in response.text
     assert 'class="mini-link" href="/privacy"' in response.text
@@ -388,6 +390,21 @@ def test_browser_login_page_lists_workspace_providers(client) -> None:
     assert "Sber ID" in response.text
     assert "Госуслуги" in response.text
     assert "Alfa ID" in response.text
+
+
+def test_embedded_login_page_hides_download_cta_even_on_auth_error(client) -> None:
+    response = client.get(
+        "/login?next=/desktop/meetings&error=auth_session_invalid"
+    )
+
+    assert response.status_code == 200
+    assert "/download" not in response.text
+    assert "Скачать приложение" not in response.text
+    assert "Сессия не найдена. Войдите снова." in response.text
+    assert 'action="/login/email/start"' in response.text
+    assert "Яндекс ID" in response.text
+    assert 'class="mini-link" href="/terms"' in response.text
+    assert 'class="mini-link" href="/privacy"' in response.text
     assert "скоро" in response.text
     assert "Telegram" not in response.text
     assert "TG" not in response.text
