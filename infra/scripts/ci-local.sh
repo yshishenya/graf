@@ -41,7 +41,7 @@ run_step "server tests" env GRAF_TEST_WORKERS="${GRAF_TEST_WORKERS:-4}" \
 run_step "server lint" bash -c "cd apps/server && PYTHONPATH=src uv run --extra dev ruff check ."
 run_step "python compile" python3 -m compileall -q apps/server/src apps/server/tests apps/server/scripts
 if [[ "$mode" == "full" ]]; then
-  run_step "rls hardening validation boundary" python3 apps/server/scripts/verify_rls_hardening.py
+  run_step "rls hardening validation boundary" bash -c "cd apps/server && PYTHONPATH=src uv run python scripts/verify_rls_hardening.py"
   run_step "production compose config" docker compose -f infra/docker-compose.yml config
   run_step "deployment evidence scan" infra/scripts/scan-deployment-evidence.sh docs/deployments/2brain-rec
 fi

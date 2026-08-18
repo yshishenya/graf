@@ -260,6 +260,12 @@ def test_local_ci_includes_rls_validation_command() -> None:
     assert "verify_rls_hardening.py" in script
 
 
+def test_local_ci_runs_rls_validation_with_project_runtime() -> None:
+    script = (REPO_ROOT / "infra/scripts/ci-local.sh").read_text(encoding="utf-8")
+
+    assert "cd apps/server && PYTHONPATH=src uv run python scripts/verify_rls_hardening.py" in script
+
+
 def test_production_read_only_cli_accepts_metadata_fixture(tmp_path: Path) -> None:
     fixture = tmp_path / "rls-state.json"
     fixture.write_text(json.dumps(passing_table_state_json()), encoding="utf-8")
