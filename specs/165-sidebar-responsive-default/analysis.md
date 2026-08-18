@@ -94,8 +94,8 @@ Browser/Computer Use pass остаётся открытым и не подмен
 
 ## Decision
 
-Implementation slice validated for code, contract and fast lane. Commit SHA is
-recorded in the closeout issue comments; T006 остаётся
+Implementation slice validated for code, contract and fast lane. Implementation
+commit: `efb73869554c5ddbcefe3506098a0c4d333bf039`. T006 остаётся
 открытой до доступного authenticated browser/embedded visual pass; остальные
 подтверждённые задачи можно закрыть с issue evidence. Full CI, deploy и release
 не входят в этот isolated slice.

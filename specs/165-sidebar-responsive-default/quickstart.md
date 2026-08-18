@@ -55,5 +55,5 @@ credentials or private screenshots.
   `000000` code was rejected, so authenticated meeting-list visual states could
   not be confirmed. Embedded GRAF Dev likewise showed its normal missing-auth
   state. No credentials or meeting content were bypassed or stored.
-- Implementation SHA: recorded in the closeout issue comments after the
-  implementation commit; do not treat the moving branch as release evidence.
+- Implementation SHA: `efb73869554c5ddbcefe3506098a0c4d333bf039`; this is the
+  validated implementation commit, not a moving branch reference.
