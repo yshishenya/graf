@@ -134,3 +134,16 @@ not part of this slice.
   1096 server tests, legacy audio architecture guard, lint, and Python compile.
 - The working tree was clean after the implementation commit. This entry is
   metadata-only validation evidence; no product or permission state was changed.
+
+2026-08-18 Feature 124 integration follow-up:
+
+- Merge integration commit: `002e84cf`.
+- Focused Swift suite including Dev channel, Home, permission gate, UX and
+  ScreenCaptureKit recovery contracts: 129 tests passed.
+- `sh -n` for Dev/local installer and update scripts, `git diff --check`, and
+  `validate-no-legacy-audio-driver.sh` — PASS.
+- `infra/scripts/ci-local.sh --fast` on the integration commit — 1101 server
+  tests passed; lint, Python compile and legacy-audio guard passed.
+- Feature 124 stale/granted recovery and Feature 159 browser/embedded shell
+  changes were retained. No production deploy, public release, TCC mutation,
+  driver workaround or private meeting data was used.
