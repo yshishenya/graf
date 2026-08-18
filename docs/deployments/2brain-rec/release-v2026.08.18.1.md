@@ -71,5 +71,4 @@ enclosure length `6524019`, archive integrity and Sparkle signatures.
   `share_public_links_enabled=false` and
   `share_public_links_abuse_gate_approved=false`.
 
-All committed evidence is metadata-only and contains no credentials, signed
-URLs, raw audio, transcript text or private meeting content.
+All committed evidence is metadata-only and excludes user-provided material.
