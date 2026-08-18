@@ -1902,8 +1902,8 @@ def test_detail_shell_renders_speaker_timeline_segments() -> None:
     assert "data-speaker-timeline" in page
     assert 'data-speaker-lane="speaker_00"' in page
     assert 'data-speaker-lane="speaker_01"' in page
-    assert page.count('data-timeline-track role="button"') == 2
-    assert 'aria-label="Перейти по дорожке SPEAKER_00"' in page
+    assert page.count("data-timeline-track") == 2
+    assert 'aria-label="Перейти по дорожке SPEAKER_00: переместить воспроизведение к фрагменту записи"' in page
     assert page.count("data-timeline-playhead") == 2
     assert 'event.key !== "Enter" && event.key !== " "' in _cabinet_js()
     assert "track.click();" in _cabinet_js()
@@ -1936,6 +1936,53 @@ def test_detail_shell_renders_speaker_timeline_segments() -> None:
     assert "const followTranscript = (seconds) =>" in script
     assert 'track.addEventListener("click"' in script
     assert 'lane.classList.toggle("is-active"' in script
+
+
+def test_speaker_timeline_resize_contract_scales_with_synthetic_row_count() -> None:
+    review = _review()
+    review.playback = PlaybackReviewState(
+        available=True,
+        can_play=True,
+        state="available",
+        duration_seconds=240,
+        speed_options=[1.0],
+        playback_path="/synthetic-review.m4a",
+        policy_label="Аудио доступно для проверки",
+        source_mode="stored_review_m4a",
+        included_sources=["local_microphone", "incoming_system"],
+    )
+
+    def speaker(index: int) -> SpeakerLane:
+        return SpeakerLane(
+            speaker_key=f"speaker_{index:02d}",
+            label=f"SPEAKER_{index:02d}",
+            talk_time_percent=100 // max(1, index + 1),
+            segments=[SpeakerLaneSegment(start_seconds=float(index), end_seconds=float(index + 1))],
+        )
+
+    review.speakers = SpeakerReviewState(
+        available=True,
+        assignment_state="available",
+        can_rename=True,
+        speakers=[speaker(index) for index in range(3)],
+    )
+    fitting = render_meeting_detail_page(review)
+
+    review.speakers.speakers = [speaker(index) for index in range(12)]
+    overflowing = render_meeting_detail_page(review, embedded=True)
+    review.speakers.speakers = [speaker(index) for index in range(40)]
+    viewport_limited = render_meeting_detail_page(review, embedded=True)
+
+    assert 'data-speaker-timeline-count="3"' in fitting
+    assert 'data-speaker-timeline-count="12"' in overflowing
+    assert 'data-speaker-timeline-count="40"' in viewport_limited
+    assert fitting.count("data-speaker-timeline-resize") == 1
+    assert overflowing.count("data-speaker-timeline-resize") == 1
+    assert viewport_limited.count("data-speaker-timeline-resize") == 1
+    assert 'data-speaker-timeline-shell' in fitting
+    assert 'data-speaker-timeline-shell' in overflowing
+    assert 'data-speaker-timeline-shell' in viewport_limited
+    assert 'class="app-shell desktop-embedded"' in overflowing
 
 
 def test_detail_shell_renders_speaker_name_editor_only_for_authorized_review() -> None:

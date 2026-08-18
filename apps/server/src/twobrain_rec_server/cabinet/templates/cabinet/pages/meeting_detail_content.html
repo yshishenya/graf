@@ -16,7 +16,7 @@
     </div>
   </div>
   <div id="meeting-share-host" data-share-dialog-host></div>
-  <div class="tabs" role="tablist" aria-label="Содержимое встречи">
+  <div class="tabs meeting-detail-tabs" role="tablist" aria-label="Содержимое встречи">
     <button type="button" class="tab{% if outcomes_selected %} active{% endif %}" role="tab" id="detail-tab-outcomes" aria-selected="{{ 'true' if outcomes_selected else 'false' }}" aria-controls="detail-panel-outcomes" data-detail-tab="outcomes" tabindex="{{ '0' if outcomes_selected else '-1' }}">Итоги</button>
     <button type="button" class="tab{% if not outcomes_selected %} active{% endif %}" role="tab" id="detail-tab-recording" aria-selected="{{ 'false' if outcomes_selected else 'true' }}" aria-controls="detail-panel-recording" data-detail-tab="recording" tabindex="{{ '-1' if outcomes_selected else '0' }}">Расшифровка</button>
   </div>
