@@ -31,6 +31,13 @@ public protocol SystemAudioCaptureRuntime: Sendable {
 public protocol SystemAudioPermissionAuthorizing: Sendable {
     func currentPermissionState() -> CapturePermissionState
     func requestPermission() async -> CapturePermissionState
+    func verifyCurrentPermission() async -> CapturePermissionState
+}
+
+public extension SystemAudioPermissionAuthorizing {
+    func verifyCurrentPermission() async -> CapturePermissionState {
+        currentPermissionState()
+    }
 }
 
 public struct CoreGraphicsSystemAudioPermissionAuthorizer: SystemAudioPermissionAuthorizing {
@@ -44,9 +51,34 @@ public struct CoreGraphicsSystemAudioPermissionAuthorizer: SystemAudioPermission
         #endif
     }
 
+    public func verifyCurrentPermission() async -> CapturePermissionState {
+        let observedState = currentPermissionState()
+        #if canImport(ScreenCaptureKit)
+        do {
+            let content = try await SCShareableContent.excludingDesktopWindows(
+                false,
+                onScreenWindowsOnly: true
+            )
+            guard content.displays.first != nil else {
+                return observedState == .granted ? .stale : observedState
+            }
+            return .granted
+        } catch {
+            return observedState == .granted ? .stale : observedState
+        }
+        #else
+        return observedState
+        #endif
+    }
+
     public func requestPermission() async -> CapturePermissionState {
         #if canImport(CoreGraphics)
-        return CGRequestScreenCaptureAccess() ? .granted : currentPermissionState()
+        _ = CGRequestScreenCaptureAccess()
+        // Core Graphics can keep returning a previously granted value after
+        // the ScreenCaptureKit path has gone stale. The native probe is the
+        // source of truth for the current process; never report granted from
+        // the preflight boolean alone.
+        return await verifyCurrentPermission()
         #else
         return .unknown
         #endif

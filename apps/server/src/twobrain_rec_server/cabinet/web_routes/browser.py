@@ -36,6 +36,7 @@ from twobrain_rec_server.cabinet.access import (
     share_invitation_recipient_address,
 )
 from twobrain_rec_server.cabinet.queries import (
+    get_account_profile_view,
     get_cabinet_meeting_review,
     list_cabinet_meetings,
     list_shared_with_me_meetings,
@@ -760,6 +761,7 @@ async def meeting_list_page(
             response,
             csrf_token=_csrf_token_for_principal(request, principal),
             poll_url=canonical_path,
+            profile=await get_account_profile_view(db, tenant_scope),
             product_analytics_provider=build_request_browser_provider_context(
                 request,
                 "recording_list",
@@ -785,10 +787,13 @@ async def shared_with_me_list_page(
         sessionmaker,
         recipient_scope=tenant_scope,
     )
+    async with sessionmaker() as profile_db:
+        profile = await get_account_profile_view(profile_db, tenant_scope)
     return cabinet_html_response(
         render_shared_with_me_page(
             items,
             csrf_token=_csrf_token_for_principal(request, principal),
+            profile=profile,
             product_analytics_provider=build_request_browser_provider_context(
                 request,
                 "recording_list",
@@ -870,6 +875,7 @@ async def meeting_detail_page(
             response,
             csrf_token=_csrf_token_for_principal(request, principal),
             poll_url=_request_path_with_query(request),
+            profile=await get_account_profile_view(db, tenant_scope),
             product_analytics_provider=build_request_browser_provider_context(
                 request,
                 "meeting_result_detail",

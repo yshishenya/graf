@@ -22,6 +22,13 @@ public struct DesktopPermissionOnboardingStatus: Equatable, Sendable {
     public var isReady: Bool {
         microphone == .granted && systemAudio == .granted
     }
+
+    public static func systemAudioPermissionTransitionRequiresRestart(
+        from previous: CapturePermissionState?,
+        to current: CapturePermissionState
+    ) -> Bool {
+        previous != nil && previous != .granted && current == .granted
+    }
 }
 
 public enum DesktopPermissionOnboardingSettings {
@@ -45,7 +52,7 @@ public struct DesktopPermissionOnboardingView: View {
     public static var title: String { "Подготовим \(GrafAppChannel.current.displayName) к записи" }
     public static let subtitle = "Разрешите доступы macOS заранее. Запись не начнется, пока вы не нажмете кнопку записи."
     public static var systemAudioStepDetail: String {
-        "Нужна macOS, чтобы \(GrafAppChannel.current.displayName) мог получить звук встречи. После настройки может потребоваться перезапуск \(GrafAppChannel.current.displayName)."
+        "Нужна macOS, чтобы \(GrafAppChannel.current.displayName) мог получить звук встречи. Если доступ уже включен, выключите и включите его только для запущенного \(GrafAppChannel.current.displayName), затем проверьте снова. После настройки может потребоваться перезапуск \(GrafAppChannel.current.displayName)."
     }
     public static let startStepTitle = "Начните аудиозапись"
     public static let startStepDetail = "После разрешений используйте кнопку записи в правой панели управления."
@@ -53,14 +60,21 @@ public struct DesktopPermissionOnboardingView: View {
     public static let retryTitle = "Проверить снова"
     public static var restartTitle: String { "Перезапустить \(GrafAppChannel.current.displayName)" }
     public static var restartDetail: String {
-        "После изменения доступа к системному звуку перезапустите \(GrafAppChannel.current.displayName), чтобы macOS применила разрешение к записи."
+        "После изменения доступа к системному звуку перезапустите \(GrafAppChannel.current.displayName), чтобы macOS применила разрешение к записи. Не сбрасывайте все разрешения macOS."
     }
     public static var microphoneDeniedDetail: String {
         "macOS уже отклонила доступ. Откройте настройки и включите \(GrafAppChannel.current.displayName) вручную — повторный запрос после отказа может не появиться."
     }
     public static let microphoneRestrictedDetail = "Доступ ограничен macOS или политикой устройства. GRAF не может обойти это ограничение."
 
+    public static func systemAudioStepDetail(for applicationName: String) -> String {
+        let name = applicationName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let currentApplication = name.isEmpty ? "GRAF" : name
+        return "\(systemAudioStepDetail) Текущая копия: «\(currentApplication)». macOS хранит доступ отдельно для разных копий GRAF."
+    }
+
     private let status: DesktopPermissionOnboardingStatus
+    private let applicationName: String
     private let isRequesting: Bool
     private let restartRequired: Bool
     private let onRequestMicrophone: () -> Void
@@ -74,6 +88,7 @@ public struct DesktopPermissionOnboardingView: View {
 
     public init(
         status: DesktopPermissionOnboardingStatus,
+        applicationName: String = "GRAF",
         isRequesting: Bool,
         restartRequired: Bool,
         onRequestMicrophone: @escaping () -> Void,
@@ -86,6 +101,7 @@ public struct DesktopPermissionOnboardingView: View {
         onRestart: @escaping () -> Void
     ) {
         self.status = status
+        self.applicationName = applicationName
         self.isRequesting = isRequesting
         self.restartRequired = restartRequired
         self.onRequestMicrophone = onRequestMicrophone
@@ -127,7 +143,7 @@ public struct DesktopPermissionOnboardingView: View {
                 PermissionOnboardingRow(
                     number: 2,
                     title: "Запись экрана и системного звука",
-                    detail: Self.systemAudioStepDetail,
+                    detail: Self.systemAudioStepDetail(for: applicationName),
                     state: status.systemAudio,
                     primaryTitle: "Разрешить системный звук",
                     primaryIdentifier: DesktopPermissionOnboardingAccessibilityIdentifier.systemAudioButton,

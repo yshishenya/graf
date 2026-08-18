@@ -69,7 +69,7 @@
 
 <main class="cabinet-main calendar-settings-main" id="calendar-settings-region" data-cabinet-fragment="calendar-settings">
   <div class="cabinet-workspace calendar-settings">
-    {{ settings_ui.navigation(settings_navigation, active="calendar", back_href=("/desktop/meetings" if embedded else "/meetings")) }}
+    {{ settings_ui.navigation(settings_navigation, active="calendar", back_href=("/desktop/meetings" if embedded else "/meetings"), legacy_hidden=True) }}
     <div class="calendar-settings__content">
     <header class="cabinet-topbar calendar-settings__topbar">
       <div class="page-title">

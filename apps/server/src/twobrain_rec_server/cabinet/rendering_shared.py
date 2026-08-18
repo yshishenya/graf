@@ -14,6 +14,7 @@ def _page_shell(
     product_analytics_provider: dict[str, object] | None = None,
     content_source: str = "cabinet.shell",
     active_nav: str = "meetings",
+    profile=None,
     **context,
 ) -> str:
     navigation = cabinet_view_models.cabinet_navigation(active=active_nav, embedded=embedded)
@@ -33,6 +34,7 @@ def _page_shell(
             navigation=navigation,
             settings_navigation=settings_navigation,
             settings_active=settings_active,
+            settings_mode=active_nav == "settings",
             csrf_token=csrf_token,
             **context,
         )
@@ -44,6 +46,8 @@ def _page_shell(
         embedded=embedded,
         navigation=navigation,
         settings_navigation=settings_navigation,
+        settings_active=settings_active,
+        profile=profile or getattr(context.get("account_surface"), "profile", None),
         csrf_token=csrf_token,
         **context,
     )

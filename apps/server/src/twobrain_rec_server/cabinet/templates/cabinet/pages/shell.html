@@ -6,5 +6,8 @@
   content=content,
   static_url=cabinet_static_url,
   skip_target=skip_target|default("cabinet-main"),
-  csrf_token=csrf_token
+  csrf_token=csrf_token,
+  settings_navigation=settings_navigation,
+  settings_active=settings_active|default("overview"),
+  profile=profile|default(None)
 ) }}

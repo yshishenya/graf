@@ -94,5 +94,5 @@ The local app is ad-hoc signed and loopback-only by design. It is not a public
 distribution artifact and does not enable production OAuth or production
 cookies.
 
-All committed evidence is metadata-only and contains no credentials, raw audio,
-transcripts or private meeting content.
+All committed evidence is metadata-only and contains no secret material or
+meeting-specific artifacts.
