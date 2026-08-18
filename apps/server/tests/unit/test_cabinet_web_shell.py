@@ -1338,6 +1338,7 @@ def test_cabinet_rail_toggle_js_contract() -> None:
     assert "is-rail-pinned" in js
     assert 'event.key === "Escape"' in js
     assert 'toggle.setAttribute("aria-expanded"' in js
+    assert 'toggle.setAttribute("data-tooltip", label)' in js
 
 
 def test_feature_159_shared_shell_toggle_has_one_truthful_focusable_contract() -> None:
@@ -1356,10 +1357,12 @@ def test_feature_159_shared_shell_toggle_has_one_truthful_focusable_contract() -
     assert 'aria-expanded="false"' in markup
     assert 'aria-label="Показать боковую панель"' in markup
     assert 'title="Показать боковую панель"' in markup
+    assert 'data-tooltip="Показать боковую панель"' in markup
+    assert 'data-rail-tooltip="Показать боковую панель"' in page
 
     js = _cabinet_js()
     for marker in (
-        "Свернуть боковую панель",
+        "Скрыть боковую панель",
         "Показать боковую панель",
         "toggle.focus({ preventScroll: true })",
         'shell.dataset.railReady = "true"',
