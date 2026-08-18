@@ -14,6 +14,16 @@ git diff --check
 Expected result: playable render has one concrete action/result hint; track
 labels remain keyboard-operable; unavailable render has no misleading hint.
 
+## Evidence — 2026-08-18
+
+- Implementation commit: `0e9c0dba165f496a4ba47782b12977e6b78b42e5`
+- Unit render matrix: 5 passed, 70 deselected.
+- Accessibility contract: 1 passed.
+- JavaScript syntax: `node --check` passed.
+- Hygiene: `git diff --check` passed.
+- Scope: synthetic metadata only; no audio, transcript text, credentials or
+  private screenshots were stored.
+
 ## Visual matrix
 
 Review synthetic browser and embedded states at wide and narrow widths, with
