@@ -84,6 +84,22 @@ evidence.
 - T001 and T003 can be prepared in parallel because they touch different files.
 - T005 can be prepared while T004 is reviewed, but both execute after T002 and must not share a disposable database concurrently.
 
+## Issue mapping
+
+Issues are synchronized after analyze using the Russian project canon:
+
+| Task | GitHub issue |
+|---|---|
+| T001 | #5316 |
+| T002 | #5317 |
+| T003 | #5318 |
+| T004 | #5319 |
+| T005 | #5321 |
+| T006 | #5320 |
+| T007 | #5322 |
+| T008 | #5323 |
+| T009 | #5324 |
+
 ## Implementation Strategy
 
 ### MVP First (User Story 1 Only)
