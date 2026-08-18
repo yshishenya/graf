@@ -10,17 +10,17 @@ No capture, permissions, signing or deploy changes.
 **Independent Test**: Focused XCTest/source checks plus Computer Use visual
 review of collapsed/expanded footer and two-toggle behavior.
 
-- [ ] T001 [P] [US1] Add focused source assertions for fixed footer, one toggle
+- [X] T001 [P] [US1] Add focused source assertions for fixed footer, one toggle
   per mode, trailing alignment and 44px target in
   `apps/macos/Shared/Tests/DesktopMeetingShellWebViewBoundaryTests.swift` and
   `apps/macos/Shared/Tests/AppControlAccessibilityTests.swift`
-- [ ] T002 [US1] Move the expanded inspector disclosure control from the header
+- [X] T002 [US1] Move the expanded inspector disclosure control from the header
   into a fixed trailing-aligned footer in
   `apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift`
 
 ## Phase 2: Review and validation
 
-- [ ] T003 [US1] Run focused macOS tests/build and Computer Use visual review for
+- [X] T003 [US1] Run focused macOS tests/build and Computer Use visual review for
   collapsed, expanded, hover/focus and two-toggle states; record metadata-only
   evidence in `specs/170-native-inspector-toggle-placement/quickstart.md`
 

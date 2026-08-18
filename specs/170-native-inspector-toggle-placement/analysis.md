@@ -23,3 +23,7 @@ explicitly keeps capture/attention semantics out of scope.
 - Tasks: 3
 - Coverage: 100%
 - Blocking findings: 0
+
+Implementation closeout: T001–T003 are complete. The native toggle uses one
+accessible trailing footer in both modes, and Computer Use confirmed the
+expanded footer remains at the bottom of the window.

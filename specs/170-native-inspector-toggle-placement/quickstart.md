@@ -20,4 +20,10 @@ Record only state/geometry/labels; do not save meeting content or credentials.
 
 ## Evidence
 
-Status: pending implementation and macOS build/visual review.
+Status: implementation and macOS build/visual review passed. `GRAF Dev` showed
+the expanded «Скрыть панель управления» control in the bottom-right footer;
+collapsed and expanded states used the same trailing control, and the second
+click returned the panel to its prior state without moving the pointer.
+Accessibility labels/hints and 44 px target checks passed. Focused XCTest runs
+passed: 21 accessibility tests and 15 shell boundary tests. Evidence is
+metadata-only.

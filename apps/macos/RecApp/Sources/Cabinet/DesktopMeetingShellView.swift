@@ -58,7 +58,7 @@ public enum DesktopMeetingShellChrome {
     )
     public static let inspectorToggleHitSize: CGFloat = 44
     public static let inspectorToggleCornerRadius: CGFloat = 12
-    public static let inspectorToggleTopInset: CGFloat = 10
+    public static let inspectorToggleBottomInset: CGFloat = 10
     public static let inspectorToggleTrailingInset: CGFloat = 4
     public static let inspectorToggleCollapsedSymbol = "chevron.left.2"
     public static let inspectorToggleExpandedSymbol = "chevron.right.2"
@@ -744,12 +744,8 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
 
             Spacer()
 
-            InspectorDisclosureButton(isExpanded: false) {
-                toggleInspector()
-            }
-            .accessibilityIdentifier("desktop-meeting-shell-inspector-toggle")
+            inspectorDisclosureFooter(isExpanded: false)
         }
-        .padding(.horizontal, 6)
         .padding(.vertical, DesktopMeetingShellChrome.spacingMedium)
         .background(DesktopMeetingShellChrome.shellRailColor)
     }
@@ -816,50 +812,66 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     }
 
     private var inspector: some View {
-        ScrollView(.vertical, showsIndicators: true) {
-            VStack(alignment: .leading, spacing: DesktopMeetingShellChrome.spacingMedium) {
-                HStack(alignment: .center) {
-                    Text("Запись")
-                        .font(.system(size: 15, weight: .semibold))
-                    Spacer()
-                    Button(action: onOpenSettings) {
-                        Label(DesktopMeetingShellChrome.settingsRailLabel, systemImage: "gearshape")
-                            .labelStyle(.iconOnly)
+        GeometryReader { _ in
+            ScrollView(.vertical, showsIndicators: true) {
+                VStack(alignment: .leading, spacing: DesktopMeetingShellChrome.spacingMedium) {
+                    HStack(alignment: .center) {
+                        Text("Запись")
+                            .font(.system(size: 15, weight: .semibold))
+                        Spacer()
+                        Button(action: onOpenSettings) {
+                            Label(DesktopMeetingShellChrome.settingsRailLabel, systemImage: "gearshape")
+                                .labelStyle(.iconOnly)
+                        }
+                        .buttonStyle(.borderless)
+                        .frame(
+                            minWidth: DesktopMeetingShellChrome.controlHeight,
+                            minHeight: DesktopMeetingShellChrome.controlHeight
+                        )
+                        .help(DesktopMeetingShellChrome.settingsRailLabel)
+                        .accessibilityLabel(DesktopMeetingShellChrome.settingsRailLabel)
+                        .accessibilityIdentifier("desktop-meeting-shell-expanded-settings-button")
                     }
-                    .buttonStyle(.borderless)
-                    .frame(
-                        minWidth: DesktopMeetingShellChrome.controlHeight,
-                        minHeight: DesktopMeetingShellChrome.controlHeight
-                    )
-                    .help(DesktopMeetingShellChrome.settingsRailLabel)
-                    .accessibilityLabel(DesktopMeetingShellChrome.settingsRailLabel)
-                    .accessibilityIdentifier("desktop-meeting-shell-expanded-settings-button")
 
-                    InspectorDisclosureButton(isExpanded: true) {
-                        toggleInspector()
+                    captureControls
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(DesktopMeetingShellChrome.shellSurfaceColor)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(shellStrokeColor, lineWidth: 1)
+                        )
+
+                    if attentionCustodyItemCount > 0 {
+                        custodyDetailsDisclosure
                     }
-                    .accessibilityIdentifier("desktop-meeting-shell-inspector-toggle")
                 }
-
-                captureControls
-                    .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(DesktopMeetingShellChrome.shellSurfaceColor)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(shellStrokeColor, lineWidth: 1)
-                    )
-
-                if attentionCustodyItemCount > 0 {
-                    custodyDetailsDisclosure
-                }
+                .padding(DesktopMeetingShellChrome.spacingLarge)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
             }
-            .padding(DesktopMeetingShellChrome.spacingLarge)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .padding(.bottom, DesktopMeetingShellChrome.inspectorToggleHitSize + DesktopMeetingShellChrome.inspectorToggleBottomInset)
+            .overlay(alignment: .bottomTrailing) {
+                inspectorDisclosureFooter(isExpanded: true)
+                    .background(DesktopMeetingShellChrome.shellRailColor)
+            }
         }
-        .frame(maxHeight: .infinity, alignment: .top)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(DesktopMeetingShellChrome.shellRailColor)
+    }
+
+    private func inspectorDisclosureFooter(isExpanded: Bool) -> some View {
+        HStack(spacing: 0) {
+            Spacer(minLength: 0)
+            InspectorDisclosureButton(isExpanded: isExpanded) {
+                toggleInspector()
+            }
+            .accessibilityIdentifier("desktop-meeting-shell-inspector-toggle")
+        }
+        .frame(maxWidth: .infinity, minHeight: DesktopMeetingShellChrome.inspectorToggleHitSize, alignment: .trailing)
+        .padding(.trailing, DesktopMeetingShellChrome.inspectorToggleTrailingInset)
+        .padding(.bottom, DesktopMeetingShellChrome.inspectorToggleBottomInset)
     }
 
     private var custodyDetailsDisclosure: some View {
