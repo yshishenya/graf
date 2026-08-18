@@ -1702,10 +1702,10 @@ def _render_playback_speaker_timeline(
     return f"""
       <div class="speaker-timeline-shell" data-speaker-timeline-shell>
         <div class="speaker-timeline-resize-row">
-          <div id="speaker-timeline-resize" class="speaker-timeline-resize" data-speaker-timeline-resize role="separator" aria-orientation="horizontal" aria-controls="speaker-timeline" aria-label="Изменить высоту таймлайнов спикеров" aria-valuemin="96" aria-valuemax="96" aria-valuenow="96" aria-valuetext="Стандартная высота" tabindex="0" hidden></div>
+          <div id="speaker-timeline-resize" class="speaker-timeline-resize" data-speaker-timeline-resize role="separator" aria-orientation="horizontal" aria-controls="speaker-timeline" aria-label="Изменить высоту таймлайнов спикеров" aria-valuemin="120" aria-valuemax="120" aria-valuenow="120" aria-valuetext="Стандартная высота" tabindex="0" hidden></div>
         </div>
         <p class="speaker-timeline-hint" data-speaker-timeline-hint>Нажмите на дорожку, чтобы перейти к фрагменту записи.</p>
-        <div id="speaker-timeline" class="speaker-timeline" data-speaker-timeline data-speaker-timeline-count="{len(lanes)}" data-speaker-timeline-default-height="96">{"".join(lanes)}</div>
+        <div id="speaker-timeline" class="speaker-timeline" data-speaker-timeline data-speaker-timeline-count="{len(lanes)}" data-speaker-timeline-default-height="120">{"".join(lanes)}</div>
       </div>
     """
 

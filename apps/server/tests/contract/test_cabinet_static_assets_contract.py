@@ -105,6 +105,7 @@ def test_meeting_review_resize_uses_bounded_keyboard_and_pointer_contract() -> N
         "aria-valuenow",
         "scrollHeight",
         "DEFAULT_TIMELINE_HEIGHT",
+        "const DEFAULT_TIMELINE_HEIGHT = 120",
     ]:
         assert marker in script
     for marker in [
@@ -113,6 +114,8 @@ def test_meeting_review_resize_uses_bounded_keyboard_and_pointer_contract() -> N
         "cursor: ns-resize",
         ".speaker-timeline-resize:focus-visible",
         ".speaker-timeline-resize.is-dragging",
+        "height: 120px",
+        "max-height: 120px",
     ]:
         assert marker in css
 
@@ -171,7 +174,7 @@ const playback = new FakeElement("section");
 const shell = new FakeElement("div");
 const timeline = new FakeElement("div");
 const handle = new FakeElement("div");
-timeline.dataset.speakerTimelineDefaultHeight = "96";
+timeline.dataset.speakerTimelineDefaultHeight = "120";
 timeline.scrollHeight = scenario === "fit" ? 80 : scenario === "viewport" ? 900 : 320;
 shell.querySelector = (selector) => {
   if (selector === "[data-speaker-timeline]") return timeline;
@@ -242,9 +245,9 @@ if (scenario === "fit") {
   handle.dispatch("pointerdown", { button: 0, pointerId: 1, clientY: 100, preventDefault() {} });
   document.dispatch("pointermove", { pointerId: 1, clientY: 70 });
   document.dispatch("pointerup", { pointerId: 1 });
-  if (timeline.style.height !== "126px") throw new Error("pointer resize did not move the bounded panel");
+  if (timeline.style.height !== "150px") throw new Error("pointer resize did not move the bounded panel");
   handle.dispatch("keydown", { key: "End", preventDefault() {} });
-  const expectedMax = scenario === "viewport" ? 204 : 320;
+  const expectedMax = scenario === "viewport" ? 228 : 320;
   if (handle.attributes["aria-valuemax"] !== String(expectedMax)) throw new Error("wrong resize ceiling");
   if (timeline.style.height !== `${expectedMax}px`) throw new Error("End did not use bounded height");
   handle.dispatch("keydown", { key: "Home", preventDefault() {} });
