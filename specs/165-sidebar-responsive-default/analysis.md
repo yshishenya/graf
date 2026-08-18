@@ -78,24 +78,26 @@ initialization; a resize listener would be a regression, not a missing feature.
   explicit pinned state, two toggles, one listener and resize preservation all
   pass inside the focused contract selection.
 
-## Review and visual limits
+## Review and visual evidence
 
-Correctness, accessibility, clean-room and Ponytail review оставили один
-известный validation gap: authenticated cabinet surface не удалось подтвердить
-визуально. Встроенный Browser после запуска local server открыл login и показал
-рабочую форму, но synthetic local code `000000` был отклонён; embedded GRAF Dev
-показал штатное `Встречи временно недоступны` из-за отсутствующего auth context.
-До изменения порога ранее была визуально подтверждена причина регрессии:
-embedded shell на 981–1120 px получал expanded class поверх compact CSS grid.
-После изменения этот сценарий покрыт source/VM contract, но authenticated
-Browser/Computer Use pass остаётся открытым и не подменяется статическим
-доказательством. Meeting content, credentials и screenshots в репозиторий не
-записывались.
+Correctness, accessibility, clean-room and Ponytail review не оставили
+actionable findings. Authenticated web visual matrix подтверждена на wide и
+narrow viewport: expanded/compact state, truthful label/ARIA и отсутствие
+горизонтального overflow.
+
+Authenticated Computer Use pass подтверждён в `GRAF Dev`: доступное окно Mac
+имеет `1040×680`, поэтому live embedded viewport находится в compact диапазоне.
+На `/desktop/meetings` default state был compact; toggle с `Показать боковую
+панель` раскрыл rail, pointer- и Space-активация показали `Скрыть боковую
+панель`, focus остался на toggle, повторное действие вернуло compact state.
+Exact `1121/1120` embedded boundary пройден Node VM harness в том же общем
+initializer path; отрисовать физическое 1121 px embedded окно на текущем
+display невозможно. Meeting content, credentials и screenshots в репозиторий
+не записывались.
 
 ## Decision
 
-Implementation slice validated for code, contract and fast lane. Implementation
-commit: `efb73869554c5ddbcefe3506098a0c4d333bf039`. T006 остаётся
-открытой до доступного authenticated browser/embedded visual pass; остальные
-подтверждённые задачи можно закрыть с issue evidence. Full CI, deploy и release
-не входят в этот isolated slice.
+Implementation slice validated for code, contract, visual review and fast lane.
+Implementation commit: `efb73869554c5ddbcefe3506098a0c4d333bf039`. T006
+закрыта с прозрачным ограничением physical display; exact boundary сохранён в
+contract evidence. Full CI, deploy и release не входят в этот isolated slice.
