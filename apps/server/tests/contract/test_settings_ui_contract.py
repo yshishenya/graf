@@ -224,7 +224,9 @@ def test_recording_settings_keep_native_boundary_copy_compact() -> None:
     assert "Здесь нельзя включить запись для всех встреч" not in page
     assert "Веб-интерфейс показывает результат записи" not in page
     assert "/desktop/settings/meeting-detection" not in page
-    assert 'href="/download">Скачать GRAF для macOS' in page
+    assert 'data-sidebar-download href="/download"' in page
+    assert page.count("data-sidebar-download") == 1
+    assert "data-sidebar-download" not in embedded_page
     assert '/desktop/settings/meeting-detection">Открыть настройки записи в приложении' in embedded_page
 
 
