@@ -4,7 +4,7 @@
 
 **Created**: 2026-08-18
 
-**Status**: Draft
+**Status**: Implementation committed and validated locally; PR pending
 
 **Input**: User description: "Release gate должен доходить до RLS-проверки на disposable PostgreSQL и использовать корректное окружение проекта."
 
