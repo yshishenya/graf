@@ -49,4 +49,3 @@
 - Capture, recording, transcript, AI, deletion, auth, CSRF и tenant/RLS
   поведение не менялись.
 - Release, deployment, notarization и full CI остаются за пределами Feature 174.
-
