@@ -100,4 +100,4 @@ asset hash matched the working tree.
 The temporary Browser viewport override was reset before handoff. The selected
 `infra/scripts/ci-local.sh --fast` gate passed with `1103 passed`, legacy audio
 guard PASS, server lint PASS, Python compile PASS and isolated-container
-cleanup PASS. Final commit SHA: pending implementation commit.
+cleanup PASS. Implementation commit SHA: `b76c077d`.
