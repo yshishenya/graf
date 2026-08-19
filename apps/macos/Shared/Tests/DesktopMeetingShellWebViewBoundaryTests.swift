@@ -67,25 +67,28 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
         )
     }
 
-    func testInspectorDisclosureUsesOneTrailingBottomFooterInBothModes() throws {
+    func testInspectorDisclosureUsesOneTrailingTopHeaderInBothModes() throws {
         let root = try repositoryRootForMeetingShellBoundaryTests()
         let source = try String(
             contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift"),
             encoding: .utf8
         )
 
-        XCTAssertTrue(source.contains("private func inspectorDisclosureFooter(isExpanded: Bool)"))
-        XCTAssertTrue(source.contains("inspectorDisclosureFooter(isExpanded: false)"))
-        XCTAssertTrue(source.contains("inspectorDisclosureFooter(isExpanded: true)"))
+        XCTAssertTrue(source.contains("private func inspectorDisclosureHeader(isExpanded: Bool)"))
+        XCTAssertTrue(source.contains("inspectorDisclosureHeader(isExpanded: false)"))
+        XCTAssertTrue(source.contains("inspectorDisclosureHeader(isExpanded: true)"))
         XCTAssertTrue(source.contains("alignment: .trailing"))
-        XCTAssertTrue(source.contains("inspectorToggleBottomInset"))
+        XCTAssertTrue(source.contains("inspectorToggleTopInset"))
         XCTAssertTrue(source.contains("inspectorToggleHitSize"))
+        XCTAssertFalse(source.contains("inspectorDisclosureFooter"))
+        XCTAssertFalse(source.contains("inspectorToggleBottomInset"))
 
         let expandedStart = try XCTUnwrap(source.range(of: "private var inspector: some View"))
         let expandedEnd = try XCTUnwrap(source.range(of: "private var custodyDetailsDisclosure"))
         let expandedSource = String(source[expandedStart.lowerBound..<expandedEnd.lowerBound])
         XCTAssertFalse(expandedSource.contains("InspectorDisclosureButton(isExpanded: true)"))
-        XCTAssertTrue(expandedSource.contains("inspectorDisclosureFooter(isExpanded: true)"))
+        XCTAssertTrue(expandedSource.contains("inspectorDisclosureHeader(isExpanded: true)"))
+        XCTAssertTrue(expandedSource.contains("ScrollView(.vertical, showsIndicators: true)"))
     }
 
     func testOrdinaryNativeInspectorOmitsPermanentTrustDiagnosticsAndGenericReports() throws {

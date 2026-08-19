@@ -4733,15 +4733,13 @@ html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned
   padding: 8px 6px;
   overflow: hidden;
 }
-html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned) .cabinet-workspace-header,
+html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned) .cabinet-workspace-header {
+  display: none;
+}
 html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned) .cabinet-sidebar-nav__item,
 html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned) .sidebar-download,
 html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned) .sidebar-foot {
   width: 52px;
-}
-html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned) .cabinet-workspace-header {
-  grid-template-columns: 40px;
-  padding: 0 6px;
 }
 html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned) .cabinet-workspace-header__text,
 html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned) .cabinet-sidebar-nav__label,

@@ -50,7 +50,7 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertEqual(DesktopMeetingShellChrome.inspectorToggleHitSize, 44)
         XCTAssertGreaterThanOrEqual(DesktopMeetingShellChrome.inspectorToggleHitSize, 40)
         XCTAssertEqual(DesktopMeetingShellChrome.inspectorToggleCornerRadius, 12)
-        XCTAssertEqual(DesktopMeetingShellChrome.inspectorToggleBottomInset, 10)
+        XCTAssertEqual(DesktopMeetingShellChrome.inspectorToggleTopInset, 10)
         XCTAssertEqual(DesktopMeetingShellChrome.inspectorToggleTrailingInset, 4)
         XCTAssertEqual(DesktopMeetingShellChrome.inspectorToggleCollapsedSymbol, "chevron.left.2")
         XCTAssertEqual(DesktopMeetingShellChrome.inspectorToggleExpandedSymbol, "chevron.right.2")
@@ -64,18 +64,19 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertEqual(DesktopMeetingShellChrome.recordingTitle(for: .transcriptOnly), "Транскрибация")
     }
 
-    func testInspectorDisclosureFooterKeepsAccessibilityAndFixedGeometry() throws {
+    func testInspectorDisclosureHeaderKeepsAccessibilityAndFixedGeometry() throws {
         let source = try String(
             contentsOf: Self.repositoryRoot()
                 .appendingPathComponent("apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift"),
             encoding: .utf8
         )
 
-        XCTAssertTrue(source.contains("private func inspectorDisclosureFooter(isExpanded: Bool)"))
+        XCTAssertTrue(source.contains("private func inspectorDisclosureHeader(isExpanded: Bool)"))
         XCTAssertTrue(source.contains("GeometryReader { _ in"))
-        XCTAssertTrue(source.contains(".overlay(alignment: .bottomTrailing)"))
         XCTAssertTrue(source.contains(".frame(maxWidth: .infinity, minHeight: DesktopMeetingShellChrome.inspectorToggleHitSize, alignment: .trailing)"))
-        XCTAssertTrue(source.contains(".padding(.bottom, DesktopMeetingShellChrome.inspectorToggleBottomInset)"))
+        XCTAssertTrue(source.contains(".padding(.top, DesktopMeetingShellChrome.inspectorToggleTopInset)"))
+        XCTAssertFalse(source.contains("inspectorDisclosureFooter"))
+        XCTAssertFalse(source.contains("inspectorToggleBottomInset"))
         XCTAssertTrue(source.contains(".help(accessibilityLabel)"))
         XCTAssertTrue(source.contains(".accessibilityHint(isExpanded ? \"Сворачивает правую панель\" : \"Раскрывает правую панель\")"))
     }

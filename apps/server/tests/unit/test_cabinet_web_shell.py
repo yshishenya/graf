@@ -1346,14 +1346,15 @@ def test_cabinet_rail_initialization_uses_surface_breakpoints_without_resize_pol
 
     for marker in (
         'shell.classList.contains("is-rail-pinned")',
-        'shell.classList.contains("desktop-embedded")',
-        'window.matchMedia("(min-width: 1121px)").matches',
         'window.matchMedia("(min-width: 981px)").matches',
     ):
         assert marker in js
+    assert 'window.matchMedia("(min-width: 1121px)").matches' not in js
 
     rail_source = js[js.index("const initCabinetRail"):js.index("const initCabinetProfileMenus")]
     assert 'window.addEventListener("resize"' not in rail_source
+    assert 'sidebar.querySelectorAll("a[href]")' not in rail_source
+    assert 'document.addEventListener("click"' not in rail_source
 
 
 def test_feature_159_shared_shell_toggle_has_one_truthful_focusable_contract() -> None:
@@ -1383,6 +1384,9 @@ def test_feature_159_shared_shell_toggle_has_one_truthful_focusable_contract() -
         'shell.dataset.railReady = "true"',
     ):
         assert marker in js
+    assert 'aria-label="{{ item.label }}"' in (
+        SERVER_ROOT / "cabinet" / "templates" / "cabinet" / "components" / "sections.html"
+    ).read_text()
 
 
 def test_feature_159_search_contract_reserves_icon_text_and_clear_space() -> None:

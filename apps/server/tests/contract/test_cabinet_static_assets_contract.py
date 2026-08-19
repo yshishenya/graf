@@ -92,11 +92,10 @@ def test_cabinet_rail_initial_state_uses_surface_breakpoints() -> None:
     script = (STATIC_DIR / "cabinet.js").read_text()
     css = (STATIC_DIR / "cabinet.css").read_text()
     for marker in [
-        'shell.classList.contains("desktop-embedded")',
         'window.matchMedia("(min-width: 981px)")',
-        'window.matchMedia("(min-width: 1121px)")',
     ]:
         assert marker in script
+    assert 'window.matchMedia("(min-width: 1121px)")' not in script
     assert "@media (max-width: 1120px)" in css
 
     rail_source = script[script.index("const initCabinetRail"):script.index("const initCabinetProfileMenus")]
@@ -174,7 +173,7 @@ class FakeElement {
     return null;
   }
   querySelectorAll(selector) {
-    if (this === sidebar && selector === "a[href]") return [];
+    if (this === sidebar && selector === "a[href]") return [navLink];
     return [];
   }
   matches() { return false; }
@@ -187,6 +186,8 @@ class FakeElement {
 const shell = new FakeElement("div");
 const sidebar = new FakeElement("aside");
 const toggle = new FakeElement("button");
+const navLink = new FakeElement("a");
+const content = new FakeElement("main");
 if (embedded) shell.classList.add("desktop-embedded");
 if (explicitPinned) shell.classList.add("is-rail-pinned");
 global.Element = FakeElement;
@@ -234,11 +235,7 @@ global.window = {
   htmx: null,
   location: global.location,
   matchMedia(query) {
-    const matches = query === "(min-width: 981px)"
-      ? !embedded && width >= 981
-      : query === "(min-width: 1121px)"
-        ? embedded && width >= 1121
-        : false;
+    const matches = query === "(min-width: 981px)" && width >= 981;
     return { matches };
   },
   requestAnimationFrame(callback) { callback(); },
@@ -246,7 +243,7 @@ global.window = {
   setTimeout,
 };
 vm.runInThisContext(fs.readFileSync(process.argv[1], "utf8"));
-const expectedPinned = explicitPinned || (embedded ? width >= 1121 : width >= 981);
+const expectedPinned = explicitPinned || width >= 981;
 if (shell.classList.contains("is-rail-pinned") !== expectedPinned) {
   throw new Error(`wrong initial class for ${surface} ${width}`);
 }
@@ -258,6 +255,10 @@ toggle.dispatch("click");
 toggle.dispatch("click");
 if (!toggle.focused) throw new Error("toggle did not retain focus");
 if (shell.classList.contains("is-rail-pinned") !== expectedPinned) throw new Error("two toggles changed final state");
+navLink.dispatch("click");
+if (shell.classList.contains("is-rail-pinned") !== expectedPinned) throw new Error("navigation click changed manual state");
+for (const handler of documentListeners.get("click") || []) handler({ target: content });
+if (shell.classList.contains("is-rail-pinned") !== expectedPinned) throw new Error("content click changed manual state");
 const resizeHandlers = windowListeners.get("resize") || [];
 for (const handler of resizeHandlers) handler();
 if (shell.classList.contains("is-rail-pinned") !== expectedPinned) throw new Error("resize changed manual state");
@@ -267,6 +268,8 @@ if ((toggle.listeners.get("click") || []).length !== 1) throw new Error("duplica
         ("browser", 1280, "default"),
         ("browser", 981, "default"),
         ("browser", 980, "default"),
+        ("embedded", 981, "default"),
+        ("embedded", 980, "default"),
         ("embedded", 1121, "default"),
         ("embedded", 1120, "default"),
         ("embedded", 1120, "pinned"),
@@ -2839,6 +2842,7 @@ def test_collapsed_sidebar_only_expands_through_the_explicit_toggle() -> None:
     assert ".desktop-embedded .sidebar:focus-within" not in css
     assert ".desktop-embedded .sidebar-foot {\n    visibility: hidden;\n  }" in css
     assert ".desktop-embedded.is-rail-pinned .sidebar-foot {\n    visibility: visible;\n  }" in css
+    assert 'html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned) .cabinet-workspace-header {\n  display: none;\n}' in css
 
 
 def test_sidebar_toggle_tooltip_is_visible_on_hover_and_keyboard_focus() -> None:

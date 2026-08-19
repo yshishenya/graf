@@ -3757,24 +3757,14 @@
       shell.dataset.railReady = "true";
       const initialPinned = shell.classList.contains("is-rail-pinned")
         ? true
-        : shell.classList.contains("desktop-embedded")
-          ? window.matchMedia("(min-width: 1121px)").matches
-          : window.matchMedia("(min-width: 981px)").matches;
+        : window.matchMedia("(min-width: 981px)").matches;
       setRailPinned(shell, toggle, initialPinned);
       toggle.addEventListener("click", () => {
         setRailPinned(shell, toggle, !shell.classList.contains("is-rail-pinned"));
         toggle.focus({ preventScroll: true });
       });
-      sidebar.querySelectorAll("a[href]").forEach((link) => {
-        link.addEventListener("click", () => setRailPinned(shell, toggle, false));
-      });
       document.addEventListener("keydown", (event) => {
         if (event.key === "Escape") setRailPinned(shell, toggle, false);
-      });
-      document.addEventListener("click", (event) => {
-        if (event.target instanceof Element && !event.target.closest("[data-cabinet-navigation]")) {
-          setRailPinned(shell, toggle, false);
-        }
       });
     });
   };
