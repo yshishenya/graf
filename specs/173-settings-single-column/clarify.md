@@ -4,7 +4,7 @@
 > inner navigation не имеет production-потребителей. Macro, `settings_mode` и
 > fallback удалены; outer cabinet sidebar теперь единственный владелец навигации.
 
-### Session 2026-08-19
+## Session 2026-08-19
 
 - Критических неоднозначностей нет: current screenshot, computed grid,
   templates, tests and history all identify the same incomplete migration.

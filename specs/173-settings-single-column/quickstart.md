@@ -107,9 +107,9 @@ state and embedded after state; no private meeting content was captured.
 - Product Design/accessibility: PASS for visible hierarchy, standard content
   origin, responsive reflow, single landmark and native/web non-overlap. Full
   WCAG conformance was not inferred from screenshots.
-- Ponytail: Lean already. The implementation remains one macro guard and one
-  existing settings-mode CSS override; no JavaScript, new state, breakpoint,
-  dependency or per-page caller edits were added.
+- Ponytail: final state has one single-column CSS owner and focused contracts;
+  Feature 174 removed the obsolete macro and its callers without adding
+  JavaScript, new state, breakpoints or dependencies.
 
 ### Integration metadata
 
