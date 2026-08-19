@@ -15,7 +15,7 @@
 
 {% macro cabinet_sidebar(navigation, embedded=False, static_url="", csrf_token=None, settings_navigation=(), settings_active="overview", profile=None) -%}
 <aside class="sidebar" id="cabinet-sidebar" data-cabinet-navigation>
-  <button class="cabinet-rail-toggle" type="button" data-cabinet-rail-toggle data-tooltip="Показать боковую панель" aria-label="Показать боковую панель" title="Показать боковую панель" aria-controls="cabinet-sidebar" aria-expanded="false">{{ icons.icon("panel-left-open") }}{{ icons.icon("panel-left-close") }}</button>
+  <button class="cabinet-rail-toggle" type="button" data-cabinet-rail-toggle aria-label="Показать боковую панель" title="Показать боковую панель" aria-controls="cabinet-sidebar" aria-expanded="false">{{ icons.icon("panel-left-open") }}{{ icons.icon("panel-left-close") }}</button>
   {{ workspace_header("ГРАФ", none, mark_src=static_url ~ "/graf-icon.png", wordmark_src=static_url ~ "/graf-wordmark-dark.png", wordmark_srcset=static_url ~ "/graf-wordmark-dark@2x.png 2x") }}
   {% if navigation.active == "settings" %}
   <nav class="cabinet-sidebar-nav cabinet-sidebar-nav--settings" aria-label="Навигация кабинета" data-settings-primary-nav>

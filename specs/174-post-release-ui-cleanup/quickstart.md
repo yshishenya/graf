@@ -68,3 +68,20 @@ infra/scripts/ci-local.sh --fast
 ```
 
 Full CI, deployment, notarization and release publication are outside Feature 174 and remain release-train gates.
+
+## Validation evidence — 2026-08-19
+
+### Pre-change baseline
+
+- Current branch server ran on loopback with the existing synthetic local owner; no production data or private meeting content was used.
+- In-app Browser at embedded `720×720`, compact state: sidebar `64×720`, toggle and first navigation target `40×40` at `x=11.5`, horizontal overflow `0`, one navigation landmark and one active settings link.
+- The profile trigger rendered `0×0`; parent `.sidebar-foot` computed to `display:none` and `0×0`. This reproduces the user-reachable regression while the child itself still reports `display:flex`, proving that a child-only visibility assertion is insufficient.
+- Pre-change focused server selection: `38 passed, 111 deselected`, two existing dependency warnings. The passing source-contract suite did not detect the rendered defect.
+
+### Sidebar cleanup
+
+- Focused sidebar/rail/tooltip selection: `15 passed, 113 deselected`, with the same two existing dependency warnings.
+- `node --check` for `cabinet.js` and `git diff --check`: passed.
+- Fresh local server instance used the updated static hash `3bb47968eaf1`; this avoided the stale pre-change stylesheet cached by the first dev-server process.
+- In-app Browser matrix at `640`, `720`, `980`, `981`, `1120`, `1121`, and `1280`: compact rail `64px`, expanded rail `176px`; compact toggle, selected navigation and profile `40×40`; footer visible as grid; profile visible; no horizontal overflow; one navigation landmark and one active link.
+- Toggle center delta between compact and expanded states was `0.5px` at every width. Two clicks at the unchanged `(32, 28)` coordinate restored the original state.

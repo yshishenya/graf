@@ -138,30 +138,17 @@ def test_cabinet_collapsed_rail_uses_one_centered_control_geometry() -> None:
         "  padding: 0;\n"
         "}"
     ) in collapsed_css
-    for rule in (
+    assert (
         f"{collapsed_root} .sidebar-foot {{\n"
+        "  display: grid;\n"
         "  width: 52px;\n"
         "  opacity: 1;\n"
         "  pointer-events: auto;\n"
         "  visibility: visible;\n"
-        "}",
-        f"{collapsed_root} .cabinet-sidebar-nav {{\n  gap: 4px;\n}}",
-        f"{collapsed_root} .cabinet-sidebar-nav__item {{\n"
-        "  grid-template-columns: 1fr;\n"
-        "  gap: 0;\n"
-        "  place-items: center;\n"
-        "}",
-        f"{collapsed_root} .cabinet-rail-toggle {{\n  inset-block-start: 0;\n}}",
-        f"{collapsed_root} .sidebar-app-update,\n"
-        f"{collapsed_root} .sidebar-download,\n"
-        f"{collapsed_root} .sidebar-profile__trigger {{\n"
-        "  display: flex;\n"
-        "  gap: 0;\n"
-        "  justify-content: center;\n"
-        "}",
-    ):
-        assert rule in collapsed_css
-    assert collapsed_css.rfind("  width: 40px;") > collapsed_css.rfind("  width: 52px;")
+        "}"
+    ) in collapsed_css
+    assert f"{collapsed_root} .sidebar-app-update__label," in collapsed_css
+    assert f"{collapsed_root} .cabinet-sidebar-nav {{\n  gap: 4px;\n}}" in collapsed_css
 
     assert (
         ".app-shell[data-cabinet-shell] .cabinet-rail-toggle {\n"
@@ -2908,15 +2895,22 @@ def test_meeting_list_css_keeps_reset_copy_and_touch_actions_visible() -> None:
     ) in css
 
 
-def test_collapsed_sidebar_only_expands_through_the_explicit_toggle() -> None:
+def test_collapsed_sidebar_footer_cannot_inherit_the_narrow_hidden_state() -> None:
     css = (STATIC_DIR / "cabinet.css").read_text()
 
     assert ".desktop-embedded.is-rail-pinned .sidebar" in css
     assert ".desktop-embedded .sidebar:hover" not in css
     assert ".desktop-embedded .sidebar:focus-within" not in css
-    assert ".desktop-embedded .sidebar-foot {\n    visibility: hidden;\n  }" in css
-    assert ".desktop-embedded.is-rail-pinned .sidebar-foot {\n    visibility: visible;\n  }" in css
-    assert 'html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned) .cabinet-workspace-header {\n  display: none;\n}' in css
+    assert (
+        ".desktop-embedded .sidebar > .primary,\n"
+        "  .desktop-embedded .sidebar-foot {\n"
+        "    width: calc(var(--app-sidebar-width) - 12px);\n"
+        "    display: none;"
+    ) not in css
+    assert (
+        'html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:'
+        "not(.is-rail-pinned) .sidebar-foot {\n  display: grid;"
+    ) in css
 
 
 def test_sidebar_toggle_tooltip_is_visible_on_hover_and_keyboard_focus() -> None:

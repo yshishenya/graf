@@ -1238,9 +1238,13 @@ def test_embedded_window_breakpoints_keep_sidebar_stable_until_tight_width() -> 
     assert "  .desktop-embedded .sidebar { display: flex; }" in css
     assert "  .desktop-embedded .cabinet-rail-toggle { display: none; }" in css
     assert (
-        "@media (max-width: 720px) {\n"
-        "  .app-shell.desktop-embedded { grid-template-columns: var(--app-rail-width) minmax(0, 1fr); }"
+        'html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned) {\n'
+        "  --playback-inline-start: var(--app-rail-width);\n"
+        "  grid-template-columns: var(--app-rail-width) minmax(0, 1fr);\n"
+        "}"
     ) in css
+    narrow_rules = css.split("@media (max-width: 720px) {", 1)[1].split("\n}", 1)[0]
+    assert "grid-template-columns" not in narrow_rules
     assert "    width: var(--app-rail-width);" in css
     assert "  .desktop-embedded .sidebar:hover," not in css
     assert ".desktop-embedded.is-rail-pinned .sidebar {" in css
@@ -1338,7 +1342,7 @@ def test_cabinet_rail_toggle_js_contract() -> None:
     assert "is-rail-pinned" in js
     assert 'event.key === "Escape"' in js
     assert 'toggle.setAttribute("aria-expanded"' in js
-    assert 'toggle.setAttribute("data-tooltip", label)' in js
+    assert 'toggle.setAttribute("data-tooltip", label)' not in js
 
 
 def test_cabinet_rail_initialization_uses_surface_breakpoints_without_resize_policy() -> None:
@@ -1373,7 +1377,7 @@ def test_feature_159_shared_shell_toggle_has_one_truthful_focusable_contract() -
     assert 'aria-expanded="false"' in markup
     assert 'aria-label="Показать боковую панель"' in markup
     assert 'title="Показать боковую панель"' in markup
-    assert 'data-tooltip="Показать боковую панель"' in markup
+    assert "data-tooltip=" not in markup
     assert 'data-rail-tooltip="Показать боковую панель"' in page
 
     js = _cabinet_js()

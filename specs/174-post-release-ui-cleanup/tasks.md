@@ -6,7 +6,7 @@
 
 ## Phase 1: Foundational evidence
 
-- [ ] T001 Record the reproduced 720px embedded profile `0×0` failure, exact cascade cause and pre-change focused results in `specs/174-post-release-ui-cleanup/quickstart.md`
+- [X] T001 Record the reproduced 720px embedded profile `0×0` failure, exact cascade cause and pre-change focused results in `specs/174-post-release-ui-cleanup/quickstart.md`
 
 ---
 
@@ -16,9 +16,9 @@
 
 **Independent Test**: Render web/embedded shells at 640/720/980/981/1120/1121/1280, require visible 40×40 compact profile/control boxes, 64/176 rail widths, ≤1px axis tolerance, no overflow and same-coordinate double toggle.
 
-- [ ] T002 [US1] Replace brittle sidebar declaration expectations with exact regression guards for the narrow profile visibility defect and preserved semantic boundaries in `apps/server/tests/contract/test_cabinet_static_assets_contract.py` and `apps/server/tests/unit/test_cabinet_web_shell.py`
-- [ ] T003 [US1] Consolidate compact/expanded state ownership, remove conflicting breakpoint declarations and delete the unused tooltip attribute/update in `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/components/sections.html`, and `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`
-- [ ] T004 [US1] Run focused sidebar/rail/tooltip pytest and Node checks and record exact results in `specs/174-post-release-ui-cleanup/quickstart.md`
+- [X] T002 [US1] Replace brittle sidebar declaration expectations with exact regression guards for the narrow profile visibility defect and preserved semantic boundaries in `apps/server/tests/contract/test_cabinet_static_assets_contract.py` and `apps/server/tests/unit/test_cabinet_web_shell.py`
+- [X] T003 [US1] Consolidate compact/expanded state ownership, remove conflicting breakpoint declarations and delete the unused tooltip attribute/update in `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/components/sections.html`, and `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`
+- [X] T004 [US1] Run focused sidebar/rail/tooltip pytest and Node checks and record exact results in `specs/174-post-release-ui-cleanup/quickstart.md`
 
 ---
 

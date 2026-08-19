@@ -3745,7 +3745,6 @@
     const label = pinned ? "Скрыть боковую панель" : "Показать боковую панель";
     toggle.setAttribute("aria-label", label);
     toggle.setAttribute("title", label);
-    toggle.setAttribute("data-tooltip", label);
     shell.setAttribute("data-rail-tooltip", label);
   };
 
