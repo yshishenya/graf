@@ -1951,7 +1951,7 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 .account-navigation { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 4px; }
 .account-navigation a { min-height: 40px; padding: 9px 12px; border: 1px solid var(--line-soft); border-radius: 8px; color: var(--muted); }
 .account-navigation a:hover,
-.account-navigation a.is-selected { color: var(--text); border-color: var(--accent); background: var(--surface-3); }
+.account-navigation a[aria-current="page"] { color: var(--text); border-color: var(--accent); background: var(--surface-3); }
 .account-navigation a:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .account-navigation__divider { width: 1px; min-height: 24px; margin: 8px 2px; background: var(--line-soft); }
 .account-navigation__logout { display: contents; }

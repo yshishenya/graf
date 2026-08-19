@@ -87,9 +87,21 @@ def test_account_center_aliases_are_reachable_from_cabinet_navigation(client) ->
             assert 'data-settings-primary-nav-item="account"' in response.text
             assert "Аккаунт и безопасность" in response.text
             assert "account-navigation__logout" in response.text
-            assert 'class="account-navigation" role="group"' in response.text
+            account_group = re.search(
+                r'<div class="account-navigation" role="group".*?</div>',
+                response.text,
+                flags=re.DOTALL,
+            )
+            assert account_group is not None
+            assert account_group.group(0).count('aria-current="page"') == 1
         assert response.text.count('aria-label="Навигация кабинета"') == 1
-        assert response.text.count('aria-current="page"') == 1
+        primary_sidebar = re.search(
+            r'<nav class="cabinet-sidebar-nav cabinet-sidebar-nav--settings".*?</nav>',
+            response.text,
+            flags=re.DOTALL,
+        )
+        assert primary_sidebar is not None
+        assert primary_sidebar.group(0).count('aria-current="page"') == 1
 
 
 def test_settings_sidebar_is_present_and_calendar_maps_to_parent_category(client) -> None:

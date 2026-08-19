@@ -64,20 +64,23 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertEqual(DesktopMeetingShellChrome.recordingTitle(for: .transcriptOnly), "Транскрибация")
     }
 
-    func testInspectorDisclosureKeepsAccessibilityContract() throws {
-        let source = try String(
-            contentsOf: Self.repositoryRoot()
-                .appendingPathComponent("apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift"),
-            encoding: .utf8
+    func testInspectorDisclosureKeepsAccessibilityContract() {
+        XCTAssertEqual(
+            DesktopMeetingShellChrome.inspectorToggleLabel(isExpanded: false),
+            "Показать панель управления"
         )
-        let disclosureStart = try XCTUnwrap(
-            source.range(of: "private struct InspectorDisclosureButton: View")
+        XCTAssertEqual(
+            DesktopMeetingShellChrome.inspectorToggleHint(isExpanded: false),
+            "Раскрывает правую панель"
         )
-        let disclosureSource = String(source[disclosureStart.lowerBound...])
-
-        XCTAssertTrue(disclosureSource.contains(".help(accessibilityLabel)"))
-        XCTAssertTrue(disclosureSource.contains(".accessibilityLabel(accessibilityLabel)"))
-        XCTAssertTrue(disclosureSource.contains(".accessibilityHint(isExpanded ? \"Сворачивает правую панель\" : \"Раскрывает правую панель\")"))
+        XCTAssertEqual(
+            DesktopMeetingShellChrome.inspectorToggleLabel(isExpanded: true),
+            "Скрыть панель управления"
+        )
+        XCTAssertEqual(
+            DesktopMeetingShellChrome.inspectorToggleHint(isExpanded: true),
+            "Сворачивает правую панель"
+        )
     }
 
     func testDesktopInspectorExpansionStaysStableAndOpensOnlyForIntentOrActionableProblem() {

@@ -65,6 +65,18 @@ public enum DesktopMeetingShellChrome {
     public static let inspectorToggleCollapsedLabel = "Показать панель управления"
     public static let inspectorToggleExpandedLabel = "Скрыть панель управления"
 
+    public static func inspectorToggleSymbol(isExpanded: Bool) -> String {
+        isExpanded ? inspectorToggleExpandedSymbol : inspectorToggleCollapsedSymbol
+    }
+
+    public static func inspectorToggleLabel(isExpanded: Bool) -> String {
+        isExpanded ? inspectorToggleExpandedLabel : inspectorToggleCollapsedLabel
+    }
+
+    public static func inspectorToggleHint(isExpanded: Bool) -> String {
+        isExpanded ? "Сворачивает правую панель" : "Раскрывает правую панель"
+    }
+
     public static func shouldShowExpandedInspector(manualExpanded: Bool, hasActionableProblem: Bool) -> Bool {
         manualExpanded || hasActionableProblem
     }
@@ -1396,7 +1408,7 @@ private struct InspectorDisclosureButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: symbolName)
+            Image(systemName: DesktopMeetingShellChrome.inspectorToggleSymbol(isExpanded: isExpanded))
                 .font(.system(size: 18, weight: .bold))
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(Color.primary.opacity(0.86))
@@ -1423,20 +1435,8 @@ private struct InspectorDisclosureButton: View {
             isHovering = hovering
         }
         .animation(accessibilityReduceMotion ? nil : .easeOut(duration: 0.12), value: isHovering)
-        .help(accessibilityLabel)
-        .accessibilityLabel(accessibilityLabel)
-        .accessibilityHint(isExpanded ? "Сворачивает правую панель" : "Раскрывает правую панель")
-    }
-
-    private var symbolName: String {
-        isExpanded
-            ? DesktopMeetingShellChrome.inspectorToggleExpandedSymbol
-            : DesktopMeetingShellChrome.inspectorToggleCollapsedSymbol
-    }
-
-    private var accessibilityLabel: String {
-        isExpanded
-            ? DesktopMeetingShellChrome.inspectorToggleExpandedLabel
-            : DesktopMeetingShellChrome.inspectorToggleCollapsedLabel
+        .help(DesktopMeetingShellChrome.inspectorToggleLabel(isExpanded: isExpanded))
+        .accessibilityLabel(DesktopMeetingShellChrome.inspectorToggleLabel(isExpanded: isExpanded))
+        .accessibilityHint(DesktopMeetingShellChrome.inspectorToggleHint(isExpanded: isExpanded))
     }
 }

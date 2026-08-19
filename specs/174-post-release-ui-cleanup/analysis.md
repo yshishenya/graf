@@ -11,10 +11,10 @@
 - Browser-проверка после удаления legacy settings navigation обнаружила поздний
   CSS-owner с двухколоночным `220px 368px` layout. Декларация удалена, а
   regression contract запрещает повторное появление второго layout-owner.
-- Account aliases одновременно объявляли outer и inner navigation landmarks и
-  два `aria-current="page"`. Account shortcuts оставлены достижимыми, но теперь
-  это обычная подписанная группа ссылок с визуальным `is-selected`; единственная
-  основная навигация и единственный current link принадлежат cabinet sidebar.
+- Account aliases одновременно объявляли outer и inner navigation landmarks.
+  Account shortcuts оставлены достижимыми как подписанная группа ссылок:
+  текущий пункт семантически отмечен внутри этой группы, а основной current link
+  по-прежнему однозначно принадлежит cabinet sidebar.
 - Profile popup объявлял ARIA menu без полного menu keyboard pattern. Он
   переведён в нативный disclosure: button сохраняет `aria-controls` и
   `aria-expanded`, а ссылки и logout остаются нативными интерактивными
@@ -23,8 +23,10 @@
   отсутствующего analytics page-class. Для неё добавлен отдельный fail-closed
   policy: PostHog autocapture/page view и Yandex отключены, потому что review
   status, reason, deadline, appeal state и references чувствительны.
-- Swift source contracts ограничены конкретными view bodies и порядком
-  layout modifiers, поэтому больше не принимают совпадение из постороннего view.
+- Исходная `720px` регрессия теперь проверяется в реальном WKWebView по computed
+  geometry, а disclosure focus — реальными DOM-событиями. Native inspector
+  accessibility copy проверяется через production runtime contract без
+  зависимости от форматирования Swift-файла.
 
 ## Проверенные, но не принятые упрощения
 
@@ -33,10 +35,9 @@
   diff без подтверждённой пользы.
 - Точные CSS regression guards сохранены: именно поздний дублирующий owner уже
   прошёл более общие source tests и был найден только rendered-проверкой.
-- Swift source contract сохранён вместе с native interaction evidence: hosted
-  AX/layout harness в этом срезе потребовал бы новую инфраструктуру, а текущая
-  комбинация точного source guard, focused XCTest/build и ручной GRAF Dev
-  проверки покрывает исходную регрессию.
+- Отдельный native snapshot/AX framework не добавлен: production runtime
+  contract, focused XCTest/build и ручная GRAF Dev проверка покрывают принятую
+  геометрию и accessibility без новой зависимости.
 - Новая Playwright-зависимость не добавлена. Обязательная computed geometry
   матрица выполнена во встроенном Browser; добавлять отдельный browser stack
   только ради дублирования closeout gate нецелесообразно.
@@ -49,3 +50,15 @@
 - Capture, recording, transcript, AI, deletion, auth, CSRF и tenant/RLS
   поведение не менялись.
 - Release, deployment, notarization и full CI остаются за пределами Feature 174.
+
+## Финальный PR review
+
+- В подписанной account group восстановлен `aria-current="page"`; primary
+  navigation и account subsection проверяются независимо.
+- Outside-click закрывает profile disclosure без кражи фокуса, Escape закрывает
+  его и возвращает фокус на trigger.
+- Два независимых security diff review не нашли правдоподобных security
+  candidates; auth, CSRF, tenant boundaries и fail-closed fair-use analytics
+  policy остались неизменны.
+- Хрупкие проверки форматирования Swift удалены. Новых зависимостей и
+  параллельных layout owners не добавлено.

@@ -111,8 +111,8 @@ Full CI, deployment, notarization and release publication are outside Feature 17
 ### Review follow-up
 
 - Correctness and UX/accessibility review findings were resolved: account
-  aliases now expose one navigation landmark and one current link, while
-  account shortcuts remain a labelled link group; the profile popup now uses
+  aliases now expose one primary navigation landmark and a separately labelled
+  account link group, each with one current item; the profile popup now uses
   disclosure semantics instead of an incomplete ARIA menu contract.
 - Review-focused server selection after those changes: `38 passed, 84
   deselected`; focused Swift tests: `36 passed`.
@@ -130,6 +130,28 @@ Full CI, deployment, notarization and release publication are outside Feature 17
   dependency or speculative abstraction was added.
 - Final independent correctness/privacy re-review of the complete follow-up
   diff reported no remaining findings.
+
+### PR review follow-up
+
+- Restored semantic `aria-current="page"` in the labelled account subsection;
+  isolated PostgreSQL account/settings selection: `2 passed, 4 deselected`.
+- Profile disclosure now preserves the user's focus on outside-click and
+  restores trigger focus only for Escape.
+- New production-asset WKWebView checks passed: `2 tests`, covering the exact
+  embedded `720px` computed `40×40` profile geometry and real disclosure focus
+  behavior.
+- Native inspector focused XCTest passed: `35 tests`, covering stable dimensions
+  and production runtime accessibility labels/hints without source formatting
+  assertions.
+- `node --check` and `git diff --check` passed.
+- Final PR fast gate passed after the follow-up: legacy-audio guard passed,
+  server unit suite `1103 passed`, lint and Python compile passed, and the
+  isolated PostgreSQL container was removed; only the two known dependency
+  warnings remained.
+- Exact-revision Codex Security diff scan `8b13ab9a-4619-4e02-bcb0-861eeb8a85e5`
+  completed with full reviewed scope and no findings. TAC was unavailable
+  because the local security helper was not logged in; two independent
+  exact-revision reviews covered all 31 changed files.
 
 ### Final closeout
 

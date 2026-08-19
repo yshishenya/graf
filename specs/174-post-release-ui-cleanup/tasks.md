@@ -52,6 +52,13 @@
 - [X] T012 Perform correctness, frontend UX/accessibility, clean-room and Ponytail reviews; resolve all actionable findings and record them in `specs/174-post-release-ui-cleanup/analysis.md`
 - [X] T013 Update `[Unreleased]` in `CHANGELOG.md`, run `git diff --check` and `infra/scripts/ci-local.sh --fast` once, reconcile tasks/issues and record closeout evidence in `specs/174-post-release-ui-cleanup/quickstart.md`
 
+## Phase 6: PR review follow-up
+
+- [X] T014 Restore semantic current-page state inside the labelled account subsection and scope current-link assertions to the primary navigation and account group in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/components/account_navigation.html`, `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css`, and `apps/server/tests/integration/test_settings_ia_flow.py`
+- [X] T015 Preserve outside-click focus while retaining Escape focus restoration for the profile disclosure in `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`
+- [X] T016 Replace the missing rendered `720px` regression guard and brittle native inspector source assertions with WKWebView and runtime accessibility contracts in `apps/macos/Shared/Tests/CabinetSidebarRuntimeTests.swift`, `apps/macos/Shared/Tests/AppControlAccessibilityTests.swift`, `apps/macos/Shared/Tests/DesktopMeetingShellWebViewBoundaryTests.swift`, and `apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift`
+- [X] T017 Run focused web/native review checks, repeat the fast PR gate, and record review/security evidence in `specs/174-post-release-ui-cleanup/quickstart.md` and `specs/174-post-release-ui-cleanup/analysis.md`
+
 ## Dependencies
 
 - T001 precedes every implementation task.
@@ -60,7 +67,8 @@
 - T008 precedes T009; T009 precedes T010.
 - US1 and US3 touch disjoint source files and may proceed in parallel after T001.
 - US2 follows US1 because both edit `cabinet.css` and cabinet shell tests.
-- T011 follows T004, T007 and T010. T012 follows T011. T013 is last.
+- T011 follows T004, T007 and T010. T012 follows T011. T013 closes the initial implementation pass.
+- T014-T016 are independent PR review follow-ups. T017 follows all three and is the final feature task.
 
 ### T006 exact write set
 

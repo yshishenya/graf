@@ -67,37 +67,6 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
         )
     }
 
-    func testInspectorUsesOneSemanticLayoutContract() throws {
-        let root = try repositoryRootForMeetingShellBoundaryTests()
-        let source = try String(
-            contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift"),
-            encoding: .utf8
-        )
-
-        let expandedStart = try XCTUnwrap(source.range(of: "private var inspector: some View"))
-        let expandedEnd = try XCTUnwrap(source.range(of: "private var custodyDetailsDisclosure"))
-        let expandedSource = String(source[expandedStart.lowerBound..<expandedEnd.lowerBound])
-        XCTAssertTrue(source.contains("inspectorDisclosureHeader(isExpanded: false)"))
-        XCTAssertTrue(expandedSource.contains("VStack(spacing: 0)"))
-        XCTAssertTrue(expandedSource.contains("inspectorDisclosureHeader(isExpanded: true)"))
-        XCTAssertTrue(expandedSource.contains("ScrollView(.vertical, showsIndicators: true)"))
-        XCTAssertTrue(
-            expandedSource.contains(
-                "}\n        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)\n        .background(DesktopMeetingShellChrome.shellRailColor)"
-            )
-        )
-        XCTAssertFalse(expandedSource.contains("GeometryReader"))
-
-        let headerStart = try XCTUnwrap(source.range(of: "private func inspectorDisclosureHeader(isExpanded: Bool)"))
-        let headerEnd = try XCTUnwrap(source.range(of: "private var custodyDetailsDisclosure"))
-        let headerSource = String(source[headerStart.lowerBound..<headerEnd.lowerBound])
-        XCTAssertTrue(headerSource.contains("HStack(spacing: 0)"))
-        XCTAssertTrue(headerSource.contains("Spacer(minLength: 0)"))
-        XCTAssertTrue(headerSource.contains(".frame(maxWidth: .infinity, minHeight: DesktopMeetingShellChrome.inspectorToggleHitSize, alignment: .trailing)"))
-        XCTAssertTrue(headerSource.contains(".padding(.top, DesktopMeetingShellChrome.inspectorToggleTopInset)"))
-        XCTAssertTrue(headerSource.contains(".padding(.trailing, DesktopMeetingShellChrome.inspectorToggleTrailingInset)"))
-    }
-
     func testOrdinaryNativeInspectorOmitsPermanentTrustDiagnosticsAndGenericReports() throws {
         let root = try repositoryRootForMeetingShellBoundaryTests()
         let shellSource = try String(
