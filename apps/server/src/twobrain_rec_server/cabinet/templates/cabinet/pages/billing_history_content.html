@@ -1,7 +1,5 @@
-{% import "cabinet/components/settings_navigation.html" as settings_ui %}
 <main id="cabinet-main" class="cabinet-main" tabindex="-1">
   <div class="cabinet-workspace settings-page">
-    {{ settings_ui.navigation(settings_navigation, active=settings_active, back_href="/billing", legacy_hidden=settings_mode|default(false)) }}
     <div class="settings-page__content">
       <header class="cabinet-topbar settings-page__topbar">
         <div class="page-title"><h1>История платежей</h1><p class="muted">Здесь показаны только безопасные данные платежей и чеков.</p></div>

@@ -64,21 +64,23 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertEqual(DesktopMeetingShellChrome.recordingTitle(for: .transcriptOnly), "Транскрибация")
     }
 
-    func testInspectorDisclosureHeaderKeepsAccessibilityAndFixedGeometry() throws {
-        let source = try String(
-            contentsOf: Self.repositoryRoot()
-                .appendingPathComponent("apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift"),
-            encoding: .utf8
+    func testInspectorDisclosureKeepsAccessibilityContract() {
+        XCTAssertEqual(
+            DesktopMeetingShellChrome.inspectorToggleLabel(isExpanded: false),
+            "Показать панель управления"
         )
-
-        XCTAssertTrue(source.contains("private func inspectorDisclosureHeader(isExpanded: Bool)"))
-        XCTAssertTrue(source.contains("GeometryReader { _ in"))
-        XCTAssertTrue(source.contains(".frame(maxWidth: .infinity, minHeight: DesktopMeetingShellChrome.inspectorToggleHitSize, alignment: .trailing)"))
-        XCTAssertTrue(source.contains(".padding(.top, DesktopMeetingShellChrome.inspectorToggleTopInset)"))
-        XCTAssertFalse(source.contains("inspectorDisclosureFooter"))
-        XCTAssertFalse(source.contains("inspectorToggleBottomInset"))
-        XCTAssertTrue(source.contains(".help(accessibilityLabel)"))
-        XCTAssertTrue(source.contains(".accessibilityHint(isExpanded ? \"Сворачивает правую панель\" : \"Раскрывает правую панель\")"))
+        XCTAssertEqual(
+            DesktopMeetingShellChrome.inspectorToggleHint(isExpanded: false),
+            "Раскрывает правую панель"
+        )
+        XCTAssertEqual(
+            DesktopMeetingShellChrome.inspectorToggleLabel(isExpanded: true),
+            "Скрыть панель управления"
+        )
+        XCTAssertEqual(
+            DesktopMeetingShellChrome.inspectorToggleHint(isExpanded: true),
+            "Сворачивает правую панель"
+        )
     }
 
     func testDesktopInspectorExpansionStaysStableAndOpensOnlyForIntentOrActionableProblem() {

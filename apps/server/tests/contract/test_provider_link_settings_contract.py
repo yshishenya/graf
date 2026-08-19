@@ -57,6 +57,11 @@ def test_pending_provider_link_confirmation_renders_safe_copy_only() -> None:
     )
 
     page = render_provider_link_settings_page(surface, csrf_token="safe-csrf")
+    embedded_page = render_provider_link_settings_page(
+        surface,
+        embedded=True,
+        csrf_token="safe-csrf",
+    )
 
     assert "Подтвердить подключение" in page
     assert 'name="csrf_token" value="safe-csrf"' in page
@@ -68,6 +73,10 @@ def test_pending_provider_link_confirmation_renders_safe_copy_only() -> None:
     assert "<h1>Способ входа</h1>" in page
     assert 'role="status" aria-live="polite"' in page
     assert '<button class="button primary" type="submit">Подтвердить подключение</button>' in page
+    for rendered in (page, embedded_page):
+        assert rendered.count('aria-label="Навигация кабинета"') == 1
+        assert rendered.count('aria-current="page"') == 1
+        assert 'class="settings-navigation"' not in rendered
 
 
 def test_workspace_offer_settings_render_explicit_choice_and_safe_recovery() -> None:

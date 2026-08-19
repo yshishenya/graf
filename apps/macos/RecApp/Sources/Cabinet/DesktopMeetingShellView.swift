@@ -65,6 +65,18 @@ public enum DesktopMeetingShellChrome {
     public static let inspectorToggleCollapsedLabel = "Показать панель управления"
     public static let inspectorToggleExpandedLabel = "Скрыть панель управления"
 
+    public static func inspectorToggleSymbol(isExpanded: Bool) -> String {
+        isExpanded ? inspectorToggleExpandedSymbol : inspectorToggleCollapsedSymbol
+    }
+
+    public static func inspectorToggleLabel(isExpanded: Bool) -> String {
+        isExpanded ? inspectorToggleExpandedLabel : inspectorToggleCollapsedLabel
+    }
+
+    public static func inspectorToggleHint(isExpanded: Bool) -> String {
+        isExpanded ? "Сворачивает правую панель" : "Раскрывает правую панель"
+    }
+
     public static func shouldShowExpandedInspector(manualExpanded: Bool, hasActionableProblem: Bool) -> Bool {
         manualExpanded || hasActionableProblem
     }
@@ -813,49 +825,47 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     }
 
     private var inspector: some View {
-        GeometryReader { _ in
-            VStack(spacing: 0) {
-                inspectorDisclosureHeader(isExpanded: true)
+        VStack(spacing: 0) {
+            inspectorDisclosureHeader(isExpanded: true)
 
-                ScrollView(.vertical, showsIndicators: true) {
-                    VStack(alignment: .leading, spacing: DesktopMeetingShellChrome.spacingMedium) {
-                        HStack(alignment: .center) {
-                            Text("Запись")
-                                .font(.system(size: 15, weight: .semibold))
-                            Spacer()
-                            Button(action: onOpenSettings) {
-                                Label(DesktopMeetingShellChrome.settingsRailLabel, systemImage: "gearshape")
-                                    .labelStyle(.iconOnly)
-                            }
-                            .buttonStyle(.borderless)
-                            .frame(
-                                minWidth: DesktopMeetingShellChrome.controlHeight,
-                                minHeight: DesktopMeetingShellChrome.controlHeight
-                            )
-                            .help(DesktopMeetingShellChrome.settingsRailLabel)
-                            .accessibilityLabel(DesktopMeetingShellChrome.settingsRailLabel)
-                            .accessibilityIdentifier("desktop-meeting-shell-expanded-settings-button")
+            ScrollView(.vertical, showsIndicators: true) {
+                VStack(alignment: .leading, spacing: DesktopMeetingShellChrome.spacingMedium) {
+                    HStack(alignment: .center) {
+                        Text("Запись")
+                            .font(.system(size: 15, weight: .semibold))
+                        Spacer()
+                        Button(action: onOpenSettings) {
+                            Label(DesktopMeetingShellChrome.settingsRailLabel, systemImage: "gearshape")
+                                .labelStyle(.iconOnly)
                         }
-
-                        captureControls
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .fill(DesktopMeetingShellChrome.shellSurfaceColor)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(shellStrokeColor, lineWidth: 1)
-                            )
-
-                        if attentionCustodyItemCount > 0 {
-                            custodyDetailsDisclosure
-                        }
+                        .buttonStyle(.borderless)
+                        .frame(
+                            minWidth: DesktopMeetingShellChrome.controlHeight,
+                            minHeight: DesktopMeetingShellChrome.controlHeight
+                        )
+                        .help(DesktopMeetingShellChrome.settingsRailLabel)
+                        .accessibilityLabel(DesktopMeetingShellChrome.settingsRailLabel)
+                        .accessibilityIdentifier("desktop-meeting-shell-expanded-settings-button")
                     }
-                    .padding(DesktopMeetingShellChrome.spacingLarge)
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
+
+                    captureControls
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(DesktopMeetingShellChrome.shellSurfaceColor)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(shellStrokeColor, lineWidth: 1)
+                        )
+
+                    if attentionCustodyItemCount > 0 {
+                        custodyDetailsDisclosure
+                    }
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .padding(DesktopMeetingShellChrome.spacingLarge)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(DesktopMeetingShellChrome.shellRailColor)
@@ -1398,7 +1408,7 @@ private struct InspectorDisclosureButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: symbolName)
+            Image(systemName: DesktopMeetingShellChrome.inspectorToggleSymbol(isExpanded: isExpanded))
                 .font(.system(size: 18, weight: .bold))
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(Color.primary.opacity(0.86))
@@ -1425,20 +1435,8 @@ private struct InspectorDisclosureButton: View {
             isHovering = hovering
         }
         .animation(accessibilityReduceMotion ? nil : .easeOut(duration: 0.12), value: isHovering)
-        .help(accessibilityLabel)
-        .accessibilityLabel(accessibilityLabel)
-        .accessibilityHint(isExpanded ? "Сворачивает правую панель" : "Раскрывает правую панель")
-    }
-
-    private var symbolName: String {
-        isExpanded
-            ? DesktopMeetingShellChrome.inspectorToggleExpandedSymbol
-            : DesktopMeetingShellChrome.inspectorToggleCollapsedSymbol
-    }
-
-    private var accessibilityLabel: String {
-        isExpanded
-            ? DesktopMeetingShellChrome.inspectorToggleExpandedLabel
-            : DesktopMeetingShellChrome.inspectorToggleCollapsedLabel
+        .help(DesktopMeetingShellChrome.inspectorToggleLabel(isExpanded: isExpanded))
+        .accessibilityLabel(DesktopMeetingShellChrome.inspectorToggleLabel(isExpanded: isExpanded))
+        .accessibilityHint(DesktopMeetingShellChrome.inspectorToggleHint(isExpanded: isExpanded))
     }
 }

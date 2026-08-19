@@ -34,7 +34,6 @@ def _page_shell(
             navigation=navigation,
             settings_navigation=settings_navigation,
             settings_active=settings_active,
-            settings_mode=active_nav == "settings",
             csrf_token=csrf_token,
             **context,
         )

@@ -3745,7 +3745,6 @@
     const label = pinned ? "Скрыть боковую панель" : "Показать боковую панель";
     toggle.setAttribute("aria-label", label);
     toggle.setAttribute("title", label);
-    toggle.setAttribute("data-tooltip", label);
     shell.setAttribute("data-rail-tooltip", label);
   };
 
@@ -3775,14 +3774,14 @@
       const menu = root.querySelector("[data-profile-menu]");
       if (!trigger || !menu || root.getAttribute("data-profile-menu-ready") === "true") return;
       root.setAttribute("data-profile-menu-ready", "true");
-      const setOpen = (open) => {
+      const setOpen = (open, restoreFocus = false) => {
         menu.hidden = !open;
         trigger.setAttribute("aria-expanded", open ? "true" : "false");
-        if (!open) trigger.focus({ preventScroll: true });
+        if (!open && restoreFocus) trigger.focus({ preventScroll: true });
       };
       trigger.addEventListener("click", () => setOpen(menu.hidden));
       document.addEventListener("keydown", (event) => {
-        if (event.key === "Escape" && !menu.hidden) setOpen(false);
+        if (event.key === "Escape" && !menu.hidden) setOpen(false, true);
       });
       document.addEventListener("click", (event) => {
         if (!menu.hidden && event.target instanceof Node && !root.contains(event.target)) setOpen(false);

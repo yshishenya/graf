@@ -1,7 +1,5 @@
-{% import "cabinet/components/settings_navigation.html" as settings_ui %}
 <main id="cabinet-main" class="cabinet-main" tabindex="-1">
   <div class="cabinet-workspace settings-page">
-    {{ settings_ui.navigation(settings_navigation, active=settings_active, back_href="/billing", legacy_hidden=settings_mode|default(false)) }}
     <div class="settings-page__content">
       <header class="cabinet-topbar settings-page__topbar"><div class="page-title"><h1>Скидки</h1><p class="muted">Промокод применяется только к одной оплате и не складывается с реферальной скидкой.</p></div></header>
       {% if result == "invalid" %}<p id="billing-discount-error" class="notice" role="alert">Промокод не найден или сейчас недоступен. Проверьте код и попробуйте снова.</p>{% elif result == "promo_applied" %}<p class="notice" role="status" aria-live="polite">Промокод сохранён для проверки на странице оплаты. Скидка будет зафиксирована только в подтверждённом платеже.</p>{% elif result == "removed" %}<p class="notice" role="status" aria-live="polite">Выбранный промокод удалён из текущей попытки оплаты.</p>{% endif %}

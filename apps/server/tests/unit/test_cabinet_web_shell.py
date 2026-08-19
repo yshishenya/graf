@@ -443,7 +443,7 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert "stroke-width: 2;" in css
     assert 'data-icon="audio"' in page
     assert 'data-icon="bookmark"' not in page
-    assert page.count('data-sidebar-download') == 1
+    assert page.count("data-sidebar-download") == 1
     assert 'href="/download"' in page
     assert 'data-icon="filter"' in page
     assert 'data-icon="sort"' in page
@@ -989,7 +989,7 @@ def test_empty_meeting_list_reuses_toolbar_upload_and_native_recording() -> None
     assert "Начните запись или загрузите готовый файл." in page
     assert "Первый запуск" not in page
     assert "Установите GRAF" not in page
-    assert page.count('data-sidebar-download') == 1
+    assert page.count("data-sidebar-download") == 1
     assert page.count('href="/download"') == 1
     assert "data-manual-upload-empty-open" not in page
     assert page.count("data-manual-upload-open") == 1
@@ -1007,7 +1007,7 @@ def test_non_empty_meeting_list_does_not_show_first_run_download_handoff() -> No
 
     assert "Первый запуск" not in page
     assert 'href="/download">Скачать приложение</a>' not in page
-    assert page.count('data-sidebar-download') == 1
+    assert page.count("data-sidebar-download") == 1
 
 
 def test_active_list_filters_expose_one_reset_without_extra_request_control() -> None:
@@ -1220,7 +1220,10 @@ def test_web_shell_keeps_sidebar_pinned_without_scrollbar() -> None:
     ) in css
     assert "max-height: calc(100vh - 48px);" in css
     assert '.app-shell[data-mobile-scroll="page"] {' in css
-    assert ".desktop-embedded .main {\n  --meeting-detail-main-padding-top: 22px;\n  padding: var(--meeting-detail-main-padding-top)" in css
+    assert (
+        ".desktop-embedded .main {\n  --meeting-detail-main-padding-top: 22px;\n  padding: var(--meeting-detail-main-padding-top)"
+        in css
+    )
     assert ".desktop-embedded .cabinet-main {\n  padding: 24px" in css
 
 
@@ -1238,9 +1241,13 @@ def test_embedded_window_breakpoints_keep_sidebar_stable_until_tight_width() -> 
     assert "  .desktop-embedded .sidebar { display: flex; }" in css
     assert "  .desktop-embedded .cabinet-rail-toggle { display: none; }" in css
     assert (
-        "@media (max-width: 720px) {\n"
-        "  .app-shell.desktop-embedded { grid-template-columns: var(--app-rail-width) minmax(0, 1fr); }"
+        'html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned) {\n'
+        "  --playback-inline-start: var(--app-rail-width);\n"
+        "  grid-template-columns: var(--app-rail-width) minmax(0, 1fr);\n"
+        "}"
     ) in css
+    narrow_rules = css.split("@media (max-width: 720px) {", 1)[1].split("\n}", 1)[0]
+    assert "grid-template-columns" not in narrow_rules
     assert "    width: var(--app-rail-width);" in css
     assert "  .desktop-embedded .sidebar:hover," not in css
     assert ".desktop-embedded.is-rail-pinned .sidebar {" in css
@@ -1338,7 +1345,7 @@ def test_cabinet_rail_toggle_js_contract() -> None:
     assert "is-rail-pinned" in js
     assert 'event.key === "Escape"' in js
     assert 'toggle.setAttribute("aria-expanded"' in js
-    assert 'toggle.setAttribute("data-tooltip", label)' in js
+    assert 'toggle.setAttribute("data-tooltip", label)' not in js
 
 
 def test_cabinet_rail_initialization_uses_surface_breakpoints_without_resize_policy() -> None:
@@ -1351,7 +1358,7 @@ def test_cabinet_rail_initialization_uses_surface_breakpoints_without_resize_pol
         assert marker in js
     assert 'window.matchMedia("(min-width: 1121px)").matches' not in js
 
-    rail_source = js[js.index("const initCabinetRail"):js.index("const initCabinetProfileMenus")]
+    rail_source = js[js.index("const initCabinetRail") : js.index("const initCabinetProfileMenus")]
     assert 'window.addEventListener("resize"' not in rail_source
     assert 'sidebar.querySelectorAll("a[href]")' not in rail_source
     assert 'document.addEventListener("click"' not in rail_source
@@ -1365,7 +1372,7 @@ def test_feature_159_shared_shell_toggle_has_one_truthful_focusable_contract() -
             generated_at=datetime.now(UTC),
         )
     )
-    toggle = re.search(r'<button[^>]+data-cabinet-rail-toggle[^>]*>', page)
+    toggle = re.search(r"<button[^>]+data-cabinet-rail-toggle[^>]*>", page)
     assert toggle is not None
     markup = toggle.group(0)
     assert page.count("data-cabinet-rail-toggle") == 1
@@ -1373,7 +1380,7 @@ def test_feature_159_shared_shell_toggle_has_one_truthful_focusable_contract() -
     assert 'aria-expanded="false"' in markup
     assert 'aria-label="Показать боковую панель"' in markup
     assert 'title="Показать боковую панель"' in markup
-    assert 'data-tooltip="Показать боковую панель"' in markup
+    assert "data-tooltip=" not in markup
     assert 'data-rail-tooltip="Показать боковую панель"' in page
 
     js = _cabinet_js()
@@ -1384,16 +1391,21 @@ def test_feature_159_shared_shell_toggle_has_one_truthful_focusable_contract() -
         'shell.dataset.railReady = "true"',
     ):
         assert marker in js
-    assert 'aria-label="{{ item.label }}"' in (
-        SERVER_ROOT / "cabinet" / "templates" / "cabinet" / "components" / "sections.html"
-    ).read_text()
+    assert (
+        'aria-label="{{ item.label }}"'
+        in (
+            SERVER_ROOT / "cabinet" / "templates" / "cabinet" / "components" / "sections.html"
+        ).read_text()
+    )
 
 
 def test_feature_159_search_contract_reserves_icon_text_and_clear_space() -> None:
     page = render_meeting_list_page(
         MeetingListResponse(
             items=[_item()],
-            filters=MeetingFilterState(q="русский запрос", status=None, access=None, sort="updated_desc"),
+            filters=MeetingFilterState(
+                q="русский запрос", status=None, access=None, sort="updated_desc"
+            ),
             generated_at=datetime.now(UTC),
         )
     )
@@ -1430,31 +1442,42 @@ def test_feature_159_download_and_profile_surface_contract_is_surface_aware() ->
             primary_email="synthetic-owner@example.test",
         ),
     )
-    assert web.count('data-sidebar-download') == 1
-    assert embedded.count('data-sidebar-download') == 0
-    assert 'data-profile-menu-root' in web
-    assert 'data-profile-menu-trigger' in web
-    assert 'data-profile-menu' in web
+    assert web.count("data-sidebar-download") == 1
+    assert embedded.count("data-sidebar-download") == 0
+    assert "data-profile-menu-root" in web
+    assert "data-profile-menu-trigger" in web
+    assert "data-profile-menu" in web
     assert 'aria-label="Открыть меню профиля"' in web
+    assert 'aria-haspopup="menu"' not in web
+    assert 'role="menu"' not in web
+    assert 'role="menuitem"' not in web
     assert "Длинное синтетическое имя пользователя" in web
     assert "synthetic-owner@example.test" in web
     assert "provider_subject" not in web
     assert "candidate_identity_subject" not in web
 
 
-def test_feature_159_settings_use_one_primary_rail_and_canonical_meetings_return() -> None:
+def test_settings_use_one_primary_sidebar_and_canonical_meetings_return() -> None:
     for embedded, meetings_href in ((False, "/meetings"), (True, "/desktop/meetings")):
         page = render_settings_page(embedded=embedded, category="account")
-        assert page.count('data-settings-primary-nav>') == 1
-        assert page.count('data-settings-primary-nav-item') == 9
+        assert page.count("data-settings-primary-nav>") == 1
+        assert page.count("data-settings-primary-nav-item") == 9
         assert f'href="{meetings_href}"' in page
-        assert 'class="settings-navigation"' not in page
-        assert 'data-settings-navigation-legacy' not in page
         assert page.count('data-settings-primary-nav-item="account"') == 1
-        assert page.count(
-            '<nav class="cabinet-sidebar-nav cabinet-sidebar-nav--settings" '
-            'aria-label="Навигация кабинета"'
-        ) == 1
+        primary_sidebar = re.search(
+            r'<nav class="cabinet-sidebar-nav cabinet-sidebar-nav--settings".*?</nav>',
+            page,
+            flags=re.DOTALL,
+        )
+        assert primary_sidebar is not None
+        assert primary_sidebar.group(0).count('aria-current="page"') == 1
+        assert (
+            page.count(
+                '<nav class="cabinet-sidebar-nav cabinet-sidebar-nav--settings" '
+                'aria-label="Навигация кабинета"'
+            )
+            == 1
+        )
 
 
 def test_list_shell_renders_audio_video_transcript_and_upload_icons() -> None:
@@ -1935,12 +1958,11 @@ def test_auth_pages_do_not_render_disabled_placeholders_as_links() -> None:
         assert '<a class="mini-link is-disabled"' not in page
 
     assert (
-        '<span class="mini-link is-disabled" aria-disabled="true">Войти через SSO</span>'
-        in login
+        '<span class="mini-link is-disabled" aria-disabled="true">Войти через SSO</span>' in login
     )
     assert (
         '<span class="mini-link auth-help is-disabled" aria-disabled="true">'
-        'Зачем GRAF доступ к календарю?</span>' in signup
+        "Зачем GRAF доступ к календарю?</span>" in signup
     )
 
 
@@ -1951,7 +1973,7 @@ def test_auth_pages_link_to_current_product_terms_and_privacy_notice() -> None:
     for page in (login, signup):
         assert (
             '<a class="mini-link" href="/privacy">'
-            'Политикой обработки персональных данных</a>' in page
+            "Политикой обработки персональных данных</a>" in page
         )
         assert "Политикой конфиденциальности</span>" not in page
 
@@ -2044,12 +2066,15 @@ def test_detail_shell_renders_speaker_timeline_segments() -> None:
     assert "data-speaker-timeline" in page
     assert 'data-speaker-timeline-default-height="120"' in page
     assert 'aria-valuemin="120" aria-valuemax="120" aria-valuenow="120"' in page
-    assert page.count('data-speaker-timeline-hint') == 1
+    assert page.count("data-speaker-timeline-hint") == 1
     assert "Нажмите на цветной фрагмент, чтобы перейти к этому месту записи." in page
     assert 'data-speaker-lane="speaker_00"' in page
     assert 'data-speaker-lane="speaker_01"' in page
     assert page.count("data-timeline-track") == 2
-    assert 'aria-label="Перейти по дорожке SPEAKER_00: переместить воспроизведение к фрагменту записи"' in page
+    assert (
+        'aria-label="Перейти по дорожке SPEAKER_00: переместить воспроизведение к фрагменту записи"'
+        in page
+    )
     assert page.count("data-timeline-playhead") == 2
     assert 'event.key !== "Enter" && event.key !== " "' in _cabinet_js()
     assert "track.click();" in _cabinet_js()
@@ -2119,7 +2144,7 @@ def test_speaker_timeline_resize_contract_scales_with_synthetic_row_count() -> N
     for count, page in rendered.items():
         assert f'data-speaker-timeline-count="{count}"' in page
         assert page.count("data-speaker-timeline-resize") == 1
-        assert 'data-speaker-timeline-shell' in page
+        assert "data-speaker-timeline-shell" in page
 
     assert 'class="app-shell desktop-embedded"' in rendered[12]
 

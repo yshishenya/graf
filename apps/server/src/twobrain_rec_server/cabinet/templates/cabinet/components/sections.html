@@ -15,7 +15,7 @@
 
 {% macro cabinet_sidebar(navigation, embedded=False, static_url="", csrf_token=None, settings_navigation=(), settings_active="overview", profile=None) -%}
 <aside class="sidebar" id="cabinet-sidebar" data-cabinet-navigation>
-  <button class="cabinet-rail-toggle" type="button" data-cabinet-rail-toggle data-tooltip="Показать боковую панель" aria-label="Показать боковую панель" title="Показать боковую панель" aria-controls="cabinet-sidebar" aria-expanded="false">{{ icons.icon("panel-left-open") }}{{ icons.icon("panel-left-close") }}</button>
+  <button class="cabinet-rail-toggle" type="button" data-cabinet-rail-toggle aria-label="Показать боковую панель" title="Показать боковую панель" aria-controls="cabinet-sidebar" aria-expanded="false">{{ icons.icon("panel-left-open") }}{{ icons.icon("panel-left-close") }}</button>
   {{ workspace_header("ГРАФ", none, mark_src=static_url ~ "/graf-icon.png", wordmark_src=static_url ~ "/graf-wordmark-dark.png", wordmark_srcset=static_url ~ "/graf-wordmark-dark@2x.png 2x") }}
   {% if navigation.active == "settings" %}
   <nav class="cabinet-sidebar-nav cabinet-sidebar-nav--settings" aria-label="Навигация кабинета" data-settings-primary-nav>
@@ -47,20 +47,20 @@
     {% set profile_name = profile.display_name if profile and profile.display_name else "Профиль" %}
     {% set profile_email = profile.primary_email if profile and profile.primary_email else none %}
     <div class="sidebar-profile" data-profile-menu-root>
-      <button class="sidebar-profile__trigger" type="button" data-profile-menu-trigger aria-label="Открыть меню профиля" aria-haspopup="menu" aria-controls="cabinet-profile-menu" aria-expanded="false" title="Открыть меню профиля">
+      <button class="sidebar-profile__trigger" type="button" data-profile-menu-trigger aria-label="Открыть меню профиля" aria-controls="cabinet-profile-menu" aria-expanded="false" title="Открыть меню профиля">
         <span class="sidebar-profile__icon" aria-hidden="true">{{ icons.icon("users-round") }}</span>
         <span class="sidebar-profile__copy"><strong class="sidebar-profile__name">{{ profile_name }}</strong>{% if profile_email %}<span class="sidebar-profile__email">{{ profile_email }}</span>{% endif %}</span>
       </button>
-      <div class="sidebar-profile-menu" id="cabinet-profile-menu" data-profile-menu role="menu" hidden>
+      <div class="sidebar-profile-menu" id="cabinet-profile-menu" data-profile-menu hidden>
         <div class="sidebar-profile-menu__identity">
           <strong>{{ profile_name }}</strong>
           {% if profile_email %}<span>{{ profile_email }}</span>{% endif %}
         </div>
-        <a role="menuitem" href="{{ '/desktop/settings/account' if embedded else '/settings/account' }}">Настройки</a>
+        <a href="{{ '/desktop/settings/account' if embedded else '/settings/account' }}">Настройки</a>
         <form class="sidebar-logout" method="post" action="{{ '/desktop/meetings' if embedded else '/logout' }}">
           {{ csrf_field(csrf_token) }}
           <input type="hidden" name="next" value="{{ '/login?next=/desktop/meetings' if embedded else '/login?next=/meetings' }}">
-          <button class="sidebar-logout__button" role="menuitem" type="submit">{{ icons.icon("log-out") }}<span>Выйти</span></button>
+          <button class="sidebar-logout__button" type="submit">{{ icons.icon("log-out") }}<span>Выйти</span></button>
         </form>
       </div>
     </div>
