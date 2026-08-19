@@ -92,15 +92,108 @@ def test_cabinet_rail_initial_state_uses_surface_breakpoints() -> None:
     script = (STATIC_DIR / "cabinet.js").read_text()
     css = (STATIC_DIR / "cabinet.css").read_text()
     for marker in [
-        'shell.classList.contains("desktop-embedded")',
         'window.matchMedia("(min-width: 981px)")',
-        'window.matchMedia("(min-width: 1121px)")',
     ]:
         assert marker in script
+    assert 'window.matchMedia("(min-width: 1121px)")' not in script
     assert "@media (max-width: 1120px)" in css
 
     rail_source = script[script.index("const initCabinetRail"):script.index("const initCabinetProfileMenus")]
     assert 'window.addEventListener("resize"' not in rail_source
+    assert rail_source.count('toggle.addEventListener("click"') == 1
+
+
+def test_cabinet_rail_ready_state_geometry() -> None:
+    css = (STATIC_DIR / "cabinet.css").read_text()
+
+    collapsed_selector = 'html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned) {'
+    expanded_selector = 'html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell].is-rail-pinned {'
+    assert f"{collapsed_selector}\n  --playback-inline-start: var(--app-rail-width);\n  grid-template-columns: var(--app-rail-width) minmax(0, 1fr);" in css
+    assert f"{expanded_selector}\n  --playback-inline-start: var(--app-sidebar-width);\n  grid-template-columns: var(--app-sidebar-width) minmax(0, 1fr);" in css
+
+
+def test_cabinet_collapsed_rail_uses_one_centered_control_geometry() -> None:
+    css = (STATIC_DIR / "cabinet.css").read_text()
+    collapsed_start = css.index(
+        'html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned) .sidebar {'
+    )
+    collapsed_end = css.index("\n.sidebar-download {", collapsed_start)
+    collapsed_css = css[collapsed_start:collapsed_end]
+
+    collapsed_root = (
+        'html[data-cabinet-js="ready"] '
+        ".app-shell[data-cabinet-shell]:not(.is-rail-pinned)"
+    )
+    assert (
+        f"{collapsed_root} .cabinet-rail-toggle,\n"
+        f"{collapsed_root} .cabinet-sidebar-nav__item,\n"
+        f"{collapsed_root} .sidebar-app-update,\n"
+        f"{collapsed_root} .sidebar-download,\n"
+        f"{collapsed_root} .sidebar-profile__trigger {{\n"
+        "  width: 40px;\n"
+        "  height: 40px;\n"
+        "  min-width: 40px;\n"
+        "  min-height: 40px;\n"
+        "  margin-inline: auto;\n"
+        "  padding: 0;\n"
+        "}"
+    ) in collapsed_css
+    for rule in (
+        f"{collapsed_root} .sidebar-foot {{\n"
+        "  width: 52px;\n"
+        "  opacity: 1;\n"
+        "  pointer-events: auto;\n"
+        "  visibility: visible;\n"
+        "}",
+        f"{collapsed_root} .cabinet-sidebar-nav {{\n  gap: 4px;\n}}",
+        f"{collapsed_root} .cabinet-sidebar-nav__item {{\n"
+        "  grid-template-columns: 1fr;\n"
+        "  gap: 0;\n"
+        "  place-items: center;\n"
+        "}",
+        f"{collapsed_root} .cabinet-rail-toggle {{\n  inset-block-start: 0;\n}}",
+        f"{collapsed_root} .sidebar-app-update,\n"
+        f"{collapsed_root} .sidebar-download,\n"
+        f"{collapsed_root} .sidebar-profile__trigger {{\n"
+        "  display: flex;\n"
+        "  gap: 0;\n"
+        "  justify-content: center;\n"
+        "}",
+    ):
+        assert rule in collapsed_css
+    assert collapsed_css.rfind("  width: 40px;") > collapsed_css.rfind("  width: 52px;")
+
+    assert (
+        ".app-shell[data-cabinet-shell] .cabinet-rail-toggle {\n"
+        "  position: relative;\n"
+        "  display: grid;\n"
+        "  width: 40px;\n"
+        "  height: 40px;\n"
+        "  min-width: 40px;\n"
+        "  min-height: 40px;\n"
+        "  margin-inline: 2px auto;\n"
+        "  inset-block-start: -4px;"
+    ) in css
+    assert (
+        ".sidebar {\n"
+        "  padding: 12px 10px;\n"
+        "  gap: 12px;"
+    ) in css
+    assert (
+        ".app-shell.desktop-embedded.is-rail-pinned .cabinet-rail-toggle {\n"
+        "    margin-inline-start: 6px;\n"
+        "    inset-block-start: 0;"
+    ) in css
+
+
+def test_cabinet_playback_shares_ready_state_geometry() -> None:
+    css = (STATIC_DIR / "cabinet.css").read_text()
+
+    collapsed_selector = 'html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned) {'
+    expanded_selector = 'html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell].is-rail-pinned {'
+    assert f"{collapsed_selector}\n  --playback-inline-start: var(--app-rail-width);" in css
+    assert f"{expanded_selector}\n  --playback-inline-start: var(--app-sidebar-width);" in css
+    assert "left: var(--playback-inline-start);" in css
 
 
 def test_cabinet_rail_node_harness_keeps_responsive_defaults_and_manual_state() -> None:
@@ -154,7 +247,7 @@ class FakeElement {
     return null;
   }
   querySelectorAll(selector) {
-    if (this === sidebar && selector === "a[href]") return [];
+    if (this === sidebar && selector === "a[href]") return [navLink];
     return [];
   }
   matches() { return false; }
@@ -167,6 +260,8 @@ class FakeElement {
 const shell = new FakeElement("div");
 const sidebar = new FakeElement("aside");
 const toggle = new FakeElement("button");
+const navLink = new FakeElement("a");
+const content = new FakeElement("main");
 if (embedded) shell.classList.add("desktop-embedded");
 if (explicitPinned) shell.classList.add("is-rail-pinned");
 global.Element = FakeElement;
@@ -214,11 +309,7 @@ global.window = {
   htmx: null,
   location: global.location,
   matchMedia(query) {
-    const matches = query === "(min-width: 981px)"
-      ? !embedded && width >= 981
-      : query === "(min-width: 1121px)"
-        ? embedded && width >= 1121
-        : false;
+    const matches = query === "(min-width: 981px)" && width >= 981;
     return { matches };
   },
   requestAnimationFrame(callback) { callback(); },
@@ -226,7 +317,7 @@ global.window = {
   setTimeout,
 };
 vm.runInThisContext(fs.readFileSync(process.argv[1], "utf8"));
-const expectedPinned = explicitPinned || (embedded ? width >= 1121 : width >= 981);
+const expectedPinned = explicitPinned || width >= 981;
 if (shell.classList.contains("is-rail-pinned") !== expectedPinned) {
   throw new Error(`wrong initial class for ${surface} ${width}`);
 }
@@ -238,6 +329,10 @@ toggle.dispatch("click");
 toggle.dispatch("click");
 if (!toggle.focused) throw new Error("toggle did not retain focus");
 if (shell.classList.contains("is-rail-pinned") !== expectedPinned) throw new Error("two toggles changed final state");
+navLink.dispatch("click");
+if (shell.classList.contains("is-rail-pinned") !== expectedPinned) throw new Error("navigation click changed manual state");
+for (const handler of documentListeners.get("click") || []) handler({ target: content });
+if (shell.classList.contains("is-rail-pinned") !== expectedPinned) throw new Error("content click changed manual state");
 const resizeHandlers = windowListeners.get("resize") || [];
 for (const handler of resizeHandlers) handler();
 if (shell.classList.contains("is-rail-pinned") !== expectedPinned) throw new Error("resize changed manual state");
@@ -247,6 +342,8 @@ if ((toggle.listeners.get("click") || []).length !== 1) throw new Error("duplica
         ("browser", 1280, "default"),
         ("browser", 981, "default"),
         ("browser", 980, "default"),
+        ("embedded", 981, "default"),
+        ("embedded", 980, "default"),
         ("embedded", 1121, "default"),
         ("embedded", 1120, "default"),
         ("embedded", 1120, "pinned"),
@@ -269,6 +366,7 @@ def test_meeting_review_resize_uses_bounded_keyboard_and_pointer_contract() -> N
     for marker in [
         "data-speaker-timeline-shell",
         "data-speaker-timeline-resize",
+        "speakerTimelineCount",
         "pointerdown",
         "pointermove",
         "pointerup",
@@ -278,6 +376,7 @@ def test_meeting_review_resize_uses_bounded_keyboard_and_pointer_contract() -> N
         "aria-valuemax",
         "aria-valuenow",
         "scrollHeight",
+        "measureNaturalHeight",
         "DEFAULT_TIMELINE_HEIGHT",
         "const DEFAULT_TIMELINE_HEIGHT = 120",
     ]:
@@ -288,7 +387,7 @@ def test_meeting_review_resize_uses_bounded_keyboard_and_pointer_contract() -> N
         "cursor: ns-resize",
         ".speaker-timeline-resize:focus-visible",
         ".speaker-timeline-resize.is-dragging",
-        "height: 120px",
+        "height: auto",
         "max-height: 120px",
     ]:
         assert marker in css
@@ -349,7 +448,9 @@ const shell = new FakeElement("div");
 const timeline = new FakeElement("div");
 const handle = new FakeElement("div");
 timeline.dataset.speakerTimelineDefaultHeight = "120";
-timeline.scrollHeight = scenario === "fit" ? 80 : scenario === "viewport" ? 900 : 320;
+const speakerCount = scenario === "one" ? 1 : scenario === "two" ? 2 : scenario === "fit" ? 3 : 12;
+timeline.dataset.speakerTimelineCount = String(speakerCount);
+timeline.scrollHeight = scenario === "one" ? 28 : scenario === "two" ? 56 : scenario === "fit" ? 80 : scenario === "viewport" ? 900 : 320;
 shell.querySelector = (selector) => {
   if (selector === "[data-speaker-timeline]") return timeline;
   if (selector === "[data-speaker-timeline-resize]") return handle;
@@ -412,8 +513,11 @@ if (resizeHandlerCount !== 1) throw new Error(`expected one key handler, got ${r
 if ((windowListeners.get("resize") || []).length !== 1) throw new Error("expected one page resize listener");
 const currentTime = 42;
 playback.currentTime = currentTime;
-if (scenario === "fit") {
+if (["one", "two", "fit"].includes(scenario)) {
   if (!handle.hidden) throw new Error("fit rows exposed a resize affordance");
+  if (timeline.style.height !== "") throw new Error("natural rows received a fixed height");
+  const expectedNaturalHeight = scenario === "one" ? 28 : scenario === "two" ? 56 : 80;
+  if (handle.attributes["aria-valuemin"] !== String(expectedNaturalHeight)) throw new Error("wrong natural minimum");
 } else {
   if (handle.hidden) throw new Error("overflow rows hid the resize affordance");
   handle.dispatch("pointerdown", { button: 0, pointerId: 1, clientY: 100, preventDefault() {} });
@@ -432,7 +536,7 @@ if (handle.listenerCount("keydown") !== 1) throw new Error("partial update dupli
 if ((windowListeners.get("resize") || []).length !== 1) throw new Error("partial update duplicated page resize listeners");
 if (playback.currentTime !== currentTime) throw new Error("resize changed playback position");
 """
-    for scenario, top in [("fit", 500), ("overflow", 500), ("viewport", 120)]:
+    for scenario, top in [("one", 500), ("two", 500), ("fit", 500), ("overflow", 500), ("viewport", 120)]:
         completed = subprocess.run(
             ["node", "-e", harness, str(script_path), scenario, str(top)],
             capture_output=True,
@@ -2812,6 +2916,7 @@ def test_collapsed_sidebar_only_expands_through_the_explicit_toggle() -> None:
     assert ".desktop-embedded .sidebar:focus-within" not in css
     assert ".desktop-embedded .sidebar-foot {\n    visibility: hidden;\n  }" in css
     assert ".desktop-embedded.is-rail-pinned .sidebar-foot {\n    visibility: visible;\n  }" in css
+    assert 'html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned) .cabinet-workspace-header {\n  display: none;\n}' in css
 
 
 def test_sidebar_toggle_tooltip_is_visible_on_hover_and_keyboard_focus() -> None:

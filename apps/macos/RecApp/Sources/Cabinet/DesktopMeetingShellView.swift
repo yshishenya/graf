@@ -701,56 +701,53 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     }
 
     private var compactInspector: some View {
-        VStack(spacing: DesktopMeetingShellChrome.spacingSmall) {
-            railIcon(
-                captureStatusIcon,
-                selected: session != nil || hasActionableCaptureProblem,
-                color: captureStatusColor
-            )
-            .frame(
-                width: DesktopMeetingShellChrome.compactRailActionHitSize,
-                height: DesktopMeetingShellChrome.compactRailActionHitSize
-            )
-            .help(captureStatusText)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("\(DesktopMeetingShellChrome.compactRailLabels[0]): \(captureStatusText)")
-            .accessibilityIdentifier("desktop-meeting-shell-recording-status")
+        VStack(spacing: 0) {
+            inspectorDisclosureHeader(isExpanded: false)
 
-            compactCaptureAction
-
-            if attentionCustodyItemCount > 0 {
-                Button {
-                    attentionExpansionDismissed = false
-                    inspectorExpanded = true
-                } label: {
-                    Text("\(attentionCustodyItemCount)")
-                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(.white)
-                        .frame(width: 30, height: 24)
-                        .background(
-                            RoundedRectangle(cornerRadius: 7)
-                                .fill(Color.orange.opacity(0.82))
-                        )
-                }
-                .buttonStyle(.plain)
-                .frame(
-                    width: DesktopMeetingShellChrome.minimumInteractiveTarget,
-                    height: DesktopMeetingShellChrome.minimumInteractiveTarget
+            VStack(spacing: DesktopMeetingShellChrome.spacingSmall) {
+                railIcon(
+                    captureStatusIcon,
+                    selected: session != nil || hasActionableCaptureProblem,
+                    color: captureStatusColor
                 )
-                .contentShape(Rectangle())
-                .help("\(DesktopMeetingShellChrome.compactRailLabels[1]): требуется внимание")
-                .accessibilityLabel("\(DesktopMeetingShellChrome.compactRailLabels[1]): требуется внимание")
-            }
+                .frame(
+                    width: DesktopMeetingShellChrome.compactRailActionHitSize,
+                    height: DesktopMeetingShellChrome.compactRailActionHitSize
+                )
+                .help(captureStatusText)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("\(DesktopMeetingShellChrome.compactRailLabels[0]): \(captureStatusText)")
+                .accessibilityIdentifier("desktop-meeting-shell-recording-status")
 
+                compactCaptureAction
+
+                if attentionCustodyItemCount > 0 {
+                    Button {
+                        attentionExpansionDismissed = false
+                        inspectorExpanded = true
+                    } label: {
+                        Text("\(attentionCustodyItemCount)")
+                            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(.white)
+                            .frame(width: 30, height: 24)
+                            .background(
+                                RoundedRectangle(cornerRadius: 7)
+                                    .fill(Color.orange.opacity(0.82))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .frame(
+                        width: DesktopMeetingShellChrome.minimumInteractiveTarget,
+                        height: DesktopMeetingShellChrome.minimumInteractiveTarget
+                    )
+                    .contentShape(Rectangle())
+                    .help("\(DesktopMeetingShellChrome.compactRailLabels[1]): требуется внимание")
+                    .accessibilityLabel("\(DesktopMeetingShellChrome.compactRailLabels[1]): требуется внимание")
+                }
+            }
             Spacer()
-
-            InspectorDisclosureButton(isExpanded: false) {
-                toggleInspector()
-            }
-            .accessibilityIdentifier("desktop-meeting-shell-inspector-toggle")
         }
-        .padding(.horizontal, 6)
-        .padding(.vertical, DesktopMeetingShellChrome.spacingMedium)
+        .padding(.bottom, DesktopMeetingShellChrome.spacingMedium)
         .background(DesktopMeetingShellChrome.shellRailColor)
     }
 
@@ -816,50 +813,65 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     }
 
     private var inspector: some View {
-        ScrollView(.vertical, showsIndicators: true) {
-            VStack(alignment: .leading, spacing: DesktopMeetingShellChrome.spacingMedium) {
-                HStack(alignment: .center) {
-                    Text("Запись")
-                        .font(.system(size: 15, weight: .semibold))
-                    Spacer()
-                    Button(action: onOpenSettings) {
-                        Label(DesktopMeetingShellChrome.settingsRailLabel, systemImage: "gearshape")
-                            .labelStyle(.iconOnly)
+        GeometryReader { _ in
+            VStack(spacing: 0) {
+                inspectorDisclosureHeader(isExpanded: true)
+
+                ScrollView(.vertical, showsIndicators: true) {
+                    VStack(alignment: .leading, spacing: DesktopMeetingShellChrome.spacingMedium) {
+                        HStack(alignment: .center) {
+                            Text("Запись")
+                                .font(.system(size: 15, weight: .semibold))
+                            Spacer()
+                            Button(action: onOpenSettings) {
+                                Label(DesktopMeetingShellChrome.settingsRailLabel, systemImage: "gearshape")
+                                    .labelStyle(.iconOnly)
+                            }
+                            .buttonStyle(.borderless)
+                            .frame(
+                                minWidth: DesktopMeetingShellChrome.controlHeight,
+                                minHeight: DesktopMeetingShellChrome.controlHeight
+                            )
+                            .help(DesktopMeetingShellChrome.settingsRailLabel)
+                            .accessibilityLabel(DesktopMeetingShellChrome.settingsRailLabel)
+                            .accessibilityIdentifier("desktop-meeting-shell-expanded-settings-button")
+                        }
+
+                        captureControls
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(DesktopMeetingShellChrome.shellSurfaceColor)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(shellStrokeColor, lineWidth: 1)
+                            )
+
+                        if attentionCustodyItemCount > 0 {
+                            custodyDetailsDisclosure
+                        }
                     }
-                    .buttonStyle(.borderless)
-                    .frame(
-                        minWidth: DesktopMeetingShellChrome.controlHeight,
-                        minHeight: DesktopMeetingShellChrome.controlHeight
-                    )
-                    .help(DesktopMeetingShellChrome.settingsRailLabel)
-                    .accessibilityLabel(DesktopMeetingShellChrome.settingsRailLabel)
-                    .accessibilityIdentifier("desktop-meeting-shell-expanded-settings-button")
-
-                    InspectorDisclosureButton(isExpanded: true) {
-                        toggleInspector()
-                    }
-                    .accessibilityIdentifier("desktop-meeting-shell-inspector-toggle")
+                    .padding(DesktopMeetingShellChrome.spacingLarge)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
                 }
-
-                captureControls
-                    .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(DesktopMeetingShellChrome.shellSurfaceColor)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(shellStrokeColor, lineWidth: 1)
-                    )
-
-                if attentionCustodyItemCount > 0 {
-                    custodyDetailsDisclosure
-                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
-            .padding(DesktopMeetingShellChrome.spacingLarge)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .frame(maxHeight: .infinity, alignment: .top)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(DesktopMeetingShellChrome.shellRailColor)
+    }
+
+    private func inspectorDisclosureHeader(isExpanded: Bool) -> some View {
+        HStack(spacing: 0) {
+            Spacer(minLength: 0)
+            InspectorDisclosureButton(isExpanded: isExpanded) {
+                toggleInspector()
+            }
+            .accessibilityIdentifier("desktop-meeting-shell-inspector-toggle")
+        }
+        .frame(maxWidth: .infinity, minHeight: DesktopMeetingShellChrome.inspectorToggleHitSize, alignment: .trailing)
+        .padding(.top, DesktopMeetingShellChrome.inspectorToggleTopInset)
+        .padding(.trailing, DesktopMeetingShellChrome.inspectorToggleTrailingInset)
     }
 
     private var custodyDetailsDisclosure: some View {

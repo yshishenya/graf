@@ -1346,14 +1346,15 @@ def test_cabinet_rail_initialization_uses_surface_breakpoints_without_resize_pol
 
     for marker in (
         'shell.classList.contains("is-rail-pinned")',
-        'shell.classList.contains("desktop-embedded")',
-        'window.matchMedia("(min-width: 1121px)").matches',
         'window.matchMedia("(min-width: 981px)").matches',
     ):
         assert marker in js
+    assert 'window.matchMedia("(min-width: 1121px)").matches' not in js
 
     rail_source = js[js.index("const initCabinetRail"):js.index("const initCabinetProfileMenus")]
     assert 'window.addEventListener("resize"' not in rail_source
+    assert 'sidebar.querySelectorAll("a[href]")' not in rail_source
+    assert 'document.addEventListener("click"' not in rail_source
 
 
 def test_feature_159_shared_shell_toggle_has_one_truthful_focusable_contract() -> None:
@@ -1383,6 +1384,9 @@ def test_feature_159_shared_shell_toggle_has_one_truthful_focusable_contract() -
         'shell.dataset.railReady = "true"',
     ):
         assert marker in js
+    assert 'aria-label="{{ item.label }}"' in (
+        SERVER_ROOT / "cabinet" / "templates" / "cabinet" / "components" / "sections.html"
+    ).read_text()
 
 
 def test_feature_159_search_contract_reserves_icon_text_and_clear_space() -> None:
@@ -2099,29 +2103,22 @@ def test_speaker_timeline_resize_contract_scales_with_synthetic_row_count() -> N
             segments=[SpeakerLaneSegment(start_seconds=float(index), end_seconds=float(index + 1))],
         )
 
-    review.speakers = SpeakerReviewState(
-        available=True,
-        assignment_state="available",
-        can_rename=True,
-        speakers=[speaker(index) for index in range(3)],
-    )
-    fitting = render_meeting_detail_page(review)
+    rendered = {}
+    for count in (1, 2, 3, 4, 12, 40):
+        review.speakers = SpeakerReviewState(
+            available=True,
+            assignment_state="available",
+            can_rename=True,
+            speakers=[speaker(index) for index in range(count)],
+        )
+        rendered[count] = render_meeting_detail_page(review, embedded=count >= 12)
 
-    review.speakers.speakers = [speaker(index) for index in range(12)]
-    overflowing = render_meeting_detail_page(review, embedded=True)
-    review.speakers.speakers = [speaker(index) for index in range(40)]
-    viewport_limited = render_meeting_detail_page(review, embedded=True)
+    for count, page in rendered.items():
+        assert f'data-speaker-timeline-count="{count}"' in page
+        assert page.count("data-speaker-timeline-resize") == 1
+        assert 'data-speaker-timeline-shell' in page
 
-    assert 'data-speaker-timeline-count="3"' in fitting
-    assert 'data-speaker-timeline-count="12"' in overflowing
-    assert 'data-speaker-timeline-count="40"' in viewport_limited
-    assert fitting.count("data-speaker-timeline-resize") == 1
-    assert overflowing.count("data-speaker-timeline-resize") == 1
-    assert viewport_limited.count("data-speaker-timeline-resize") == 1
-    assert 'data-speaker-timeline-shell' in fitting
-    assert 'data-speaker-timeline-shell' in overflowing
-    assert 'data-speaker-timeline-shell' in viewport_limited
-    assert 'class="app-shell desktop-embedded"' in overflowing
+    assert 'class="app-shell desktop-embedded"' in rendered[12]
 
 
 def test_detail_shell_renders_speaker_name_editor_only_for_authorized_review() -> None:
