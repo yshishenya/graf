@@ -128,8 +128,8 @@ Full CI, deployment, notarization and release publication are outside Feature 17
   not applied because the wrappers still own layout classes and the exact
   regression guards caught defects that broader contracts had missed. No new
   dependency or speculative abstraction was added.
-- Final independent correctness/privacy re-review of the complete follow-up
-  diff reported no remaining findings.
+- Independent correctness/privacy re-review of the implementation follow-up
+  reported no code findings.
 
 ### PR review follow-up
 
@@ -149,17 +149,23 @@ Full CI, deployment, notarization and release publication are outside Feature 17
   isolated PostgreSQL container was removed; only the two known dependency
   warnings remained.
 - Exact-revision Codex Security diff scan `8b13ab9a-4619-4e02-bcb0-861eeb8a85e5`
-  completed with full reviewed scope and no findings. TAC was unavailable
-  because the local security helper was not logged in; two independent
-  exact-revision reviews covered all 31 changed files.
+  covered `2369e654..12f659f8` and completed with no findings. TAC was
+  unavailable because the local security helper was not logged in; two
+  independent reviews covered all 31 files in that exact range. The later
+  `f5d659d0` accessibility/focus follow-up was outside this scan and was covered
+  by focused runtime tests plus independent correctness review.
 
 ### Final closeout
 
-- Implementation SHA: `3a4ce527`.
-- `infra/scripts/ci-local.sh --fast` ran exactly once after implementation:
-  legacy-audio guard passed, server unit suite `1103 passed`, server lint passed,
-  Python compile passed, and the isolated PostgreSQL container was removed.
-  The only warnings were the two already known dependency warnings.
+- Final code commit: `f5d659d0`; PR documentation head after evidence-only
+  corrections: `2ddf9b0b`.
+- The initial implementation passed its fast gate at `3a4ce527`. After the PR
+  review changed production code, `infra/scripts/ci-local.sh --fast` was run
+  again on the same code tree subsequently committed as `f5d659d0`: legacy-audio
+  guard passed, server unit suite `1103 passed`, server lint and Python compile
+  passed, and the isolated PostgreSQL container was removed. The only warnings
+  were the two known dependency warnings. Changes after `f5d659d0` were
+  documentation-only.
 - `[Unreleased]` documents the user-visible sidebar, settings, native inspector
   and fair-use fixes. Final documentation-only reconciliation does not alter the
   tested implementation SHA.
@@ -167,3 +173,5 @@ Full CI, deployment, notarization and release publication are outside Feature 17
   comments and remain open until PR/merge evidence exists.
 - The in-app Browser viewport override was reset, temporary Browser tabs were
   closed, and loopback test servers on ports `8084`–`8086` were stopped.
+- Final review of `2ddf9b0b` found no runtime defects; its two evidence accuracy
+  findings were corrected before merge.
