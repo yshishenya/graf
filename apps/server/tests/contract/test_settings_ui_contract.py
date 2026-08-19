@@ -6,6 +6,7 @@ from uuid import uuid4
 from fastapi.routing import APIRoute
 
 from twobrain_rec_server.cabinet.rendering import render_settings_page
+from twobrain_rec_server.cabinet.templates import get_cabinet_templates
 from twobrain_rec_server.cabinet.view_models import (
     AccountDeviceView,
     AccountProviderView,
@@ -15,7 +16,7 @@ from twobrain_rec_server.cabinet.web_routes.settings import router as settings_r
 from twobrain_rec_server.db.models import ExternalIdentity
 
 
-def test_settings_overview_exposes_supported_categories_and_group_labels() -> None:
+def test_settings_overview_exposes_supported_categories_in_primary_sidebar() -> None:
     browser = render_settings_page()
     embedded = render_settings_page(embedded=True)
 
@@ -26,16 +27,17 @@ def test_settings_overview_exposes_supported_categories_and_group_labels() -> No
         assert f'href="{prefix}/integrations/calendar"' in page
         assert f'href="{prefix}/workspace"' in page
         assert f'href="{prefix}/account"' in page
-        assert 'class="settings-navigation__group-label"' in page
-        assert ">Встречи</h2>" in page
-        assert ">Рабочее пространство</h2>" in page
-        assert ">Аккаунт</h2>" in page
+        assert page.count("data-settings-primary-nav>") == 1
+        assert page.count("data-settings-primary-nav-item") == 9
+        assert '<span class="cabinet-sidebar-nav__section-label">Настройки</span>' in page
+        assert 'class="settings-navigation"' not in page
         assert "provider_subject" not in page
         assert "candidate_identity_subject" not in page
 
 
-def test_settings_sidebar_exposes_grouped_canonical_links_and_active_state() -> None:
+def test_settings_sidebar_exposes_canonical_links_and_active_state() -> None:
     expected_ids = (
+        "meetings",
         "overview",
         "recording",
         "summaries",
@@ -45,7 +47,6 @@ def test_settings_sidebar_exposes_grouped_canonical_links_and_active_state() -> 
         "notifications",
         "billing",
     )
-    expected_groups = ("Встречи", "Рабочее пространство", "Аккаунт", "Оплата")
     expected_icons = {
         "recording": "video",
         "summaries": "transcript",
@@ -67,40 +68,40 @@ def test_settings_sidebar_exposes_grouped_canonical_links_and_active_state() -> 
         for embedded, prefix in ((False, "/settings"), (True, "/desktop/settings")):
             page = render_settings_page(embedded=embedded, category=category)
             navigation = re.search(
-                r'<nav class="settings-navigation".*?</nav>', page, flags=re.DOTALL
+                r'<nav class="cabinet-sidebar-nav cabinet-sidebar-nav--settings".*?</nav>',
+                page,
+                flags=re.DOTALL,
             )
 
             assert navigation is not None
             markup = navigation.group(0)
-            assert tuple(re.findall(r'data-settings-nav="([^"]+)"', markup)) == expected_ids
             assert tuple(
-                re.findall(r'class="settings-navigation__group-label"[^>]*>([^<]+)', markup)
-            ) == expected_groups
+                re.findall(r'data-settings-primary-nav-item="([^"]+)"', markup)
+            ) == expected_ids
             if category == "overview":
                 assert markup.count('aria-current="page"') == 1
-                assert 'data-settings-nav="overview"' in markup
+                assert 'data-settings-primary-nav-item="overview"' in markup
             else:
                 assert markup.count('aria-current="page"') == 1
-                assert f'data-settings-nav="{category}"' in markup
-            assert "settings-navigation__item-icon" in markup
+                assert f'data-settings-primary-nav-item="{category}"' in markup
             assert "<small>" not in markup
-            assert 'role="group"' in markup
-            assert "settings-navigation__back" not in markup
+            assert 'class="settings-navigation"' not in markup
             for category_id, suffix in expected_suffixes.items():
                 expected_href = (
                     "/billing" if embedded and category_id == "billing" else prefix + suffix
                 )
                 assert re.search(
                     rf'<a[^>]+href="{re.escape(expected_href)}"[^>]*'
-                    rf'data-settings-nav="{category_id}"[^>]*>',
+                    rf'data-settings-primary-nav-item="{category_id}"[^>]*>',
                     markup,
                 ) or re.search(
-                    rf'<a[^>]+data-settings-nav="{category_id}"[^>]*'
+                    rf'<a[^>]+data-settings-primary-nav-item="{category_id}"[^>]*'
                     rf'href="{re.escape(expected_href)}"[^>]*>',
                     markup,
                 )
                 assert re.search(
-                    rf'data-settings-nav="{category_id}"[^>]*>.*?data-icon="{expected_icons[category_id]}"',
+                    rf'data-settings-primary-nav-item="{category_id}"[^>]*>.*?'
+                    rf'data-icon="{expected_icons[category_id]}"',
                     markup,
                     flags=re.DOTALL,
                 )
@@ -156,32 +157,55 @@ def test_settings_css_has_reduced_motion_and_narrow_reflow_guards() -> None:
     assert "overflow-x: auto" not in desktop_reflow
 
 
-def test_settings_content_is_grouped_into_the_second_grid_column() -> None:
+def test_settings_mode_uses_one_navigation_and_first_content_column() -> None:
     root = Path(__file__).resolve().parents[2]
     css = (root / "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css").read_text(
         encoding="utf-8"
     )
 
-    content_css = css[
-        css.index(".settings-page > .settings-page__content,") : css.index(
+    single_column_css = css[
+        css.index('.app-shell[data-active-nav="settings"] .settings-page,') : css.index(
             ".settings-section {"
         )
     ]
-    assert "grid-column: 2" in content_css
-    assert "display: grid" in content_css
-    assert "align-content: start" in content_css
+    assert "grid-template-columns: minmax(0, 1fr)" in single_column_css
+    assert "grid-column: 1" in single_column_css
+    assert "gap: 0" in single_column_css
 
     for page in (
         render_settings_page(category="summaries"),
         render_settings_page(category="recording", embedded=True),
     ):
-        assert 'class="settings-navigation"' in page
+        assert 'class="settings-navigation"' not in page
+        assert "data-settings-navigation-legacy" not in page
         assert 'class="settings-page__content"' in page
 
     calendar_template = (
         root / "src/twobrain_rec_server/cabinet/templates/cabinet/fragments/calendar_settings.html"
     ).read_text(encoding="utf-8")
     assert 'class="calendar-settings__content"' in calendar_template
+
+    template = get_cabinet_templates().from_string(
+        """
+        {% import "cabinet/components/settings_navigation.html" as settings_ui %}
+        {{ settings_ui.navigation(items, active="account", legacy_hidden=legacy_hidden) }}
+        """
+    )
+    items = [
+        {
+            "id": "account",
+            "label": "Аккаунт и безопасность",
+            "href": "/settings/account",
+            "icon": "settings",
+            "group_label": "Аккаунт",
+        }
+    ]
+
+    fallback = template.render(items=items, legacy_hidden=False)
+    assert fallback.count('aria-label="Разделы настроек"') == 1
+    assert 'data-settings-nav="account"' in fallback
+    assert 'aria-current="page"' in fallback
+    assert template.render(items=items, legacy_hidden=True).strip() == ""
 
 
 def test_settings_overview_keeps_navigation_primary_and_copy_compact() -> None:
@@ -191,7 +215,7 @@ def test_settings_overview_keeps_navigation_primary_and_copy_compact() -> None:
     assert page.count('data-settings-category="') == 7
     assert "Разрешения, автозапись и приложения настраиваются в GRAF для macOS." in page
     assert "Текущий тариф, использование, хранилище и платежные состояния." in page
-    assert page.count('data-settings-nav="') == 8
+    assert page.count('data-settings-primary-nav-item="') == 9
 
 
 def test_settings_overview_matches_product_reference_geometry() -> None:

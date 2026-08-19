@@ -1870,6 +1870,15 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   align-content: start;
   gap: var(--settings-gap);
 }
+.app-shell[data-active-nav="settings"] .settings-page,
+.app-shell[data-active-nav="settings"] .calendar-settings {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+}
+.app-shell[data-active-nav="settings"] .settings-page > .settings-page__content,
+.app-shell[data-active-nav="settings"] .calendar-settings > .calendar-settings__content {
+  grid-column: 1;
+}
 .settings-section {
   max-width: 920px;
   padding: 0 0 24px 0;
