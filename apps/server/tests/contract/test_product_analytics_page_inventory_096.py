@@ -18,6 +18,7 @@ def test_096_inventory_covers_all_current_and_future_browser_page_classes() -> N
         "cabinet_home",
         "onboarding",
         "settings",
+        "fair_use",
         "billing_overview",
         "billing_plans",
         "billing_discounts",
@@ -73,6 +74,7 @@ def test_yandex_preserves_093_public_scope_and_blocks_high_risk_pages() -> None:
 
 def test_financial_pages_are_fail_closed_for_browser_analytics() -> None:
     expected = {
+        "fair_use",
         "billing_overview",
         "billing_plans",
         "billing_discounts",

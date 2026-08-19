@@ -49,7 +49,7 @@
 ## Phase 5: Cross-surface closeout
 
 - [X] T011 Complete the in-app Browser computed matrix and GRAF Dev visual/accessibility interaction matrix from `specs/174-post-release-ui-cleanup/quickstart.md`
-- [ ] T012 Perform correctness, frontend UX/accessibility, clean-room and Ponytail reviews; resolve all actionable findings and record them in `specs/174-post-release-ui-cleanup/analysis.md`
+- [X] T012 Perform correctness, frontend UX/accessibility, clean-room and Ponytail reviews; resolve all actionable findings and record them in `specs/174-post-release-ui-cleanup/analysis.md`
 - [ ] T013 Update `[Unreleased]` in `CHANGELOG.md`, run `git diff --check` and `infra/scripts/ci-local.sh --fast` once, reconcile tasks/issues and record closeout evidence in `specs/174-post-release-ui-cleanup/quickstart.md`
 
 ## Dependencies

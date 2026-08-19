@@ -1448,6 +1448,9 @@ def test_feature_159_download_and_profile_surface_contract_is_surface_aware() ->
     assert "data-profile-menu-trigger" in web
     assert "data-profile-menu" in web
     assert 'aria-label="Открыть меню профиля"' in web
+    assert 'aria-haspopup="menu"' not in web
+    assert 'role="menu"' not in web
+    assert 'role="menuitem"' not in web
     assert "Длинное синтетическое имя пользователя" in web
     assert "synthetic-owner@example.test" in web
     assert "provider_subject" not in web

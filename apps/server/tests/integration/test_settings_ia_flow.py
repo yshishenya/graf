@@ -57,6 +57,17 @@ def test_calendar_htmx_response_preserves_fragment_boundary_without_sidebar(clie
         assert "<!doctype html>" not in response.text
 
 
+def test_settings_related_surfaces_keep_one_outer_navigation(client) -> None:
+    for path in ("/billing", "/referrals", "/account/fair-use", "/desktop/account/fair-use"):
+        response = client.get(path, headers=auth_headers())
+
+        assert response.status_code == 200, path
+        assert response.text.count('aria-label="Навигация кабинета"') == 1
+        assert response.text.count('aria-current="page"') == 1
+        assert 'class="settings-page__content"' in response.text
+        assert 'class="settings-navigation"' not in response.text
+
+
 def test_account_center_aliases_are_reachable_from_cabinet_navigation(client) -> None:
     for path in (
         "/account",
@@ -76,6 +87,9 @@ def test_account_center_aliases_are_reachable_from_cabinet_navigation(client) ->
             assert 'data-settings-primary-nav-item="account"' in response.text
             assert "Аккаунт и безопасность" in response.text
             assert "account-navigation__logout" in response.text
+            assert 'class="account-navigation" role="group"' in response.text
+        assert response.text.count('aria-label="Навигация кабинета"') == 1
+        assert response.text.count('aria-current="page"') == 1
 
 
 def test_settings_sidebar_is_present_and_calendar_maps_to_parent_category(client) -> None:

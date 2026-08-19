@@ -70,10 +70,14 @@ final class AppControlAccessibilityTests: XCTestCase {
                 .appendingPathComponent("apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift"),
             encoding: .utf8
         )
+        let disclosureStart = try XCTUnwrap(
+            source.range(of: "private struct InspectorDisclosureButton: View")
+        )
+        let disclosureSource = String(source[disclosureStart.lowerBound...])
 
-        XCTAssertTrue(source.contains(".help(accessibilityLabel)"))
-        XCTAssertTrue(source.contains(".accessibilityLabel(accessibilityLabel)"))
-        XCTAssertTrue(source.contains(".accessibilityHint(isExpanded ? \"Сворачивает правую панель\" : \"Раскрывает правую панель\")"))
+        XCTAssertTrue(disclosureSource.contains(".help(accessibilityLabel)"))
+        XCTAssertTrue(disclosureSource.contains(".accessibilityLabel(accessibilityLabel)"))
+        XCTAssertTrue(disclosureSource.contains(".accessibilityHint(isExpanded ? \"Сворачивает правую панель\" : \"Раскрывает правую панель\")"))
     }
 
     func testDesktopInspectorExpansionStaysStableAndOpensOnlyForIntentOrActionableProblem() {

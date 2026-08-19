@@ -107,3 +107,26 @@ Full CI, deployment, notarization and release publication are outside Feature 17
 - Rebuilt and atomically installed `/Applications/GRAF Dev.app` from this branch with the existing Dev signing identity and loopback-only origin; build, nested signing and final signature verification passed.
 - Fresh app showed the accepted expanded web rail and visible profile. The native inspector toggle remained top-trailing in compact and expanded states, with no overlap against titlebar, web sidebar or content.
 - Two clicks at the unchanged native screen coordinate restored the expanded state. AX exposed truthful `Показать/Скрыть панель управления` labels and help, the expanded settings control and the scroll area.
+
+### Review follow-up
+
+- Correctness and UX/accessibility review findings were resolved: account
+  aliases now expose one navigation landmark and one current link, while
+  account shortcuts remain a labelled link group; the profile popup now uses
+  disclosure semantics instead of an incomplete ARIA menu contract.
+- Review-focused server selection after those changes: `38 passed, 84
+  deselected`; focused Swift tests: `36 passed`.
+- Expanded isolated PostgreSQL matrix, including provider-link, billing,
+  referrals, account aliases and fair-use surfaces: `42 passed, 97 deselected`;
+  the isolated container was removed successfully. The first run found the
+  missing `fair_use` analytics inventory policy; the final run passed after a
+  dedicated fail-closed financial policy was added.
+- Focused analytics, billing-security, fair-use, provider-link and cabinet-shell
+  contracts: `105 passed`; only the two existing dependency warnings remained.
+- `node --check` for `cabinet.js` and pre-commit `git diff --check`: passed.
+- Ponytail review proposed broader wrapper/test deletion. Those deletions were
+  not applied because the wrappers still own layout classes and the exact
+  regression guards caught defects that broader contracts had missed. No new
+  dependency or speculative abstraction was added.
+- Final independent correctness/privacy re-review of the complete follow-up
+  diff reported no remaining findings.

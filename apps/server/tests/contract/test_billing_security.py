@@ -20,6 +20,7 @@ from twobrain_rec_server.cabinet.web_routes.billing import (
 from twobrain_rec_server.product_analytics.page_inventory import get_page_class_policy
 
 FINANCIAL_PAGE_CLASSES = (
+    "fair_use",
     "billing_overview",
     "billing_plans",
     "billing_discounts",

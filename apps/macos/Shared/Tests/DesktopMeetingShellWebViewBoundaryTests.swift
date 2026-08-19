@@ -81,8 +81,11 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
         XCTAssertTrue(expandedSource.contains("VStack(spacing: 0)"))
         XCTAssertTrue(expandedSource.contains("inspectorDisclosureHeader(isExpanded: true)"))
         XCTAssertTrue(expandedSource.contains("ScrollView(.vertical, showsIndicators: true)"))
-        XCTAssertTrue(expandedSource.contains(".frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)"))
-        XCTAssertTrue(expandedSource.contains(".background(DesktopMeetingShellChrome.shellRailColor)"))
+        XCTAssertTrue(
+            expandedSource.contains(
+                "}\n        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)\n        .background(DesktopMeetingShellChrome.shellRailColor)"
+            )
+        )
         XCTAssertFalse(expandedSource.contains("GeometryReader"))
 
         let headerStart = try XCTUnwrap(source.range(of: "private func inspectorDisclosureHeader(isExpanded: Bool)"))
