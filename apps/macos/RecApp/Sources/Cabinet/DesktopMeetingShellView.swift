@@ -813,49 +813,47 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     }
 
     private var inspector: some View {
-        GeometryReader { _ in
-            VStack(spacing: 0) {
-                inspectorDisclosureHeader(isExpanded: true)
+        VStack(spacing: 0) {
+            inspectorDisclosureHeader(isExpanded: true)
 
-                ScrollView(.vertical, showsIndicators: true) {
-                    VStack(alignment: .leading, spacing: DesktopMeetingShellChrome.spacingMedium) {
-                        HStack(alignment: .center) {
-                            Text("Запись")
-                                .font(.system(size: 15, weight: .semibold))
-                            Spacer()
-                            Button(action: onOpenSettings) {
-                                Label(DesktopMeetingShellChrome.settingsRailLabel, systemImage: "gearshape")
-                                    .labelStyle(.iconOnly)
-                            }
-                            .buttonStyle(.borderless)
-                            .frame(
-                                minWidth: DesktopMeetingShellChrome.controlHeight,
-                                minHeight: DesktopMeetingShellChrome.controlHeight
-                            )
-                            .help(DesktopMeetingShellChrome.settingsRailLabel)
-                            .accessibilityLabel(DesktopMeetingShellChrome.settingsRailLabel)
-                            .accessibilityIdentifier("desktop-meeting-shell-expanded-settings-button")
+            ScrollView(.vertical, showsIndicators: true) {
+                VStack(alignment: .leading, spacing: DesktopMeetingShellChrome.spacingMedium) {
+                    HStack(alignment: .center) {
+                        Text("Запись")
+                            .font(.system(size: 15, weight: .semibold))
+                        Spacer()
+                        Button(action: onOpenSettings) {
+                            Label(DesktopMeetingShellChrome.settingsRailLabel, systemImage: "gearshape")
+                                .labelStyle(.iconOnly)
                         }
-
-                        captureControls
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .fill(DesktopMeetingShellChrome.shellSurfaceColor)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(shellStrokeColor, lineWidth: 1)
-                            )
-
-                        if attentionCustodyItemCount > 0 {
-                            custodyDetailsDisclosure
-                        }
+                        .buttonStyle(.borderless)
+                        .frame(
+                            minWidth: DesktopMeetingShellChrome.controlHeight,
+                            minHeight: DesktopMeetingShellChrome.controlHeight
+                        )
+                        .help(DesktopMeetingShellChrome.settingsRailLabel)
+                        .accessibilityLabel(DesktopMeetingShellChrome.settingsRailLabel)
+                        .accessibilityIdentifier("desktop-meeting-shell-expanded-settings-button")
                     }
-                    .padding(DesktopMeetingShellChrome.spacingLarge)
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
+
+                    captureControls
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(DesktopMeetingShellChrome.shellSurfaceColor)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(shellStrokeColor, lineWidth: 1)
+                        )
+
+                    if attentionCustodyItemCount > 0 {
+                        custodyDetailsDisclosure
+                    }
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .padding(DesktopMeetingShellChrome.spacingLarge)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(DesktopMeetingShellChrome.shellRailColor)

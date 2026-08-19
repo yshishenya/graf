@@ -67,28 +67,32 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
         )
     }
 
-    func testInspectorDisclosureUsesOneTrailingTopHeaderInBothModes() throws {
+    func testInspectorUsesOneSemanticLayoutContract() throws {
         let root = try repositoryRootForMeetingShellBoundaryTests()
         let source = try String(
             contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift"),
             encoding: .utf8
         )
 
-        XCTAssertTrue(source.contains("private func inspectorDisclosureHeader(isExpanded: Bool)"))
-        XCTAssertTrue(source.contains("inspectorDisclosureHeader(isExpanded: false)"))
-        XCTAssertTrue(source.contains("inspectorDisclosureHeader(isExpanded: true)"))
-        XCTAssertTrue(source.contains("alignment: .trailing"))
-        XCTAssertTrue(source.contains("inspectorToggleTopInset"))
-        XCTAssertTrue(source.contains("inspectorToggleHitSize"))
-        XCTAssertFalse(source.contains("inspectorDisclosureFooter"))
-        XCTAssertFalse(source.contains("inspectorToggleBottomInset"))
-
         let expandedStart = try XCTUnwrap(source.range(of: "private var inspector: some View"))
         let expandedEnd = try XCTUnwrap(source.range(of: "private var custodyDetailsDisclosure"))
         let expandedSource = String(source[expandedStart.lowerBound..<expandedEnd.lowerBound])
-        XCTAssertFalse(expandedSource.contains("InspectorDisclosureButton(isExpanded: true)"))
+        XCTAssertTrue(source.contains("inspectorDisclosureHeader(isExpanded: false)"))
+        XCTAssertTrue(expandedSource.contains("VStack(spacing: 0)"))
         XCTAssertTrue(expandedSource.contains("inspectorDisclosureHeader(isExpanded: true)"))
         XCTAssertTrue(expandedSource.contains("ScrollView(.vertical, showsIndicators: true)"))
+        XCTAssertTrue(expandedSource.contains(".frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)"))
+        XCTAssertTrue(expandedSource.contains(".background(DesktopMeetingShellChrome.shellRailColor)"))
+        XCTAssertFalse(expandedSource.contains("GeometryReader"))
+
+        let headerStart = try XCTUnwrap(source.range(of: "private func inspectorDisclosureHeader(isExpanded: Bool)"))
+        let headerEnd = try XCTUnwrap(source.range(of: "private var custodyDetailsDisclosure"))
+        let headerSource = String(source[headerStart.lowerBound..<headerEnd.lowerBound])
+        XCTAssertTrue(headerSource.contains("HStack(spacing: 0)"))
+        XCTAssertTrue(headerSource.contains("Spacer(minLength: 0)"))
+        XCTAssertTrue(headerSource.contains(".frame(maxWidth: .infinity, minHeight: DesktopMeetingShellChrome.inspectorToggleHitSize, alignment: .trailing)"))
+        XCTAssertTrue(headerSource.contains(".padding(.top, DesktopMeetingShellChrome.inspectorToggleTopInset)"))
+        XCTAssertTrue(headerSource.contains(".padding(.trailing, DesktopMeetingShellChrome.inspectorToggleTrailingInset)"))
     }
 
     func testOrdinaryNativeInspectorOmitsPermanentTrustDiagnosticsAndGenericReports() throws {

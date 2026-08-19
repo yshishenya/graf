@@ -85,3 +85,10 @@ Full CI, deployment, notarization and release publication are outside Feature 17
 - Fresh local server instance used the updated static hash `3bb47968eaf1`; this avoided the stale pre-change stylesheet cached by the first dev-server process.
 - In-app Browser matrix at `640`, `720`, `980`, `981`, `1120`, `1121`, and `1280`: compact rail `64px`, expanded rail `176px`; compact toggle, selected navigation and profile `40×40`; footer visible as grid; profile visible; no horizontal overflow; one navigation landmark and one active link.
 - Toggle center delta between compact and expanded states was `0.5px` at every width. Two clicks at the unchanged `(32, 28)` coordinate restored the original state.
+
+### Native inspector cleanup
+
+- Focused `AppControlAccessibilityTests|DesktopMeetingShellWebViewBoundaryTests`: `36` tests, `0` failures.
+- `swift build --package-path apps/macos`: passed (`Build complete`).
+- Scoped `git diff --check`: passed.
+- Source review confirmed that only the unused `GeometryReader` wrapper was removed; the `VStack`, full-size top alignment, rail background, vertical scroll and `HStack + Spacer` disclosure hit region remain unchanged.

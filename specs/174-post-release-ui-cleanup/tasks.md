@@ -40,9 +40,9 @@
 
 **Independent Test**: Focused Swift tests/build and GRAF Dev show unchanged 52/308px widths, top-trailing 44px toggle, scroll behavior, accessibility and same-coordinate double toggle.
 
-- [ ] T008 [US3] Consolidate duplicate inspector source assertions into one semantic layout contract and one accessibility contract in `apps/macos/Shared/Tests/AppControlAccessibilityTests.swift` and `apps/macos/Shared/Tests/DesktopMeetingShellWebViewBoundaryTests.swift`
-- [ ] T009 [US3] Remove the unused inspector `GeometryReader` while preserving the existing VStack, frame, background and header hit region in `apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift`
-- [ ] T010 [US3] Run focused Swift tests and build and record exact results in `specs/174-post-release-ui-cleanup/quickstart.md`
+- [X] T008 [US3] Consolidate duplicate inspector source assertions into one semantic layout contract and one accessibility contract in `apps/macos/Shared/Tests/AppControlAccessibilityTests.swift` and `apps/macos/Shared/Tests/DesktopMeetingShellWebViewBoundaryTests.swift`
+- [X] T009 [US3] Remove the unused inspector `GeometryReader` while preserving the existing VStack, frame, background and header hit region in `apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift`
+- [X] T010 [US3] Run focused Swift tests and build and record exact results in `specs/174-post-release-ui-cleanup/quickstart.md`
 
 ---
 
