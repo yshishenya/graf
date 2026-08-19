@@ -295,6 +295,7 @@ async def _start_email_link(
     form = await request.form()
     email = _normalize_email(str(form.get("email") or ""))
     next_path = "/desktop/settings/account" if embedded else "/settings/account"
+    flow = "desktop_link" if embedded else "link"
     csrf_token = _csrf_token_for_principal(request, principal, tenant_scope=tenant_scope)
     if email is None:
         return HTMLResponse(
@@ -303,7 +304,7 @@ async def _start_email_link(
                 state_nonce="",
                 next_path=next_path,
                 error="email_invalid",
-                flow="link",
+                flow=flow,
                 csrf_token=csrf_token,
                 product_analytics_provider=build_request_browser_provider_context(
                     request, "settings"
@@ -328,7 +329,7 @@ async def _start_email_link(
                 state_nonce="",
                 next_path=next_path,
                 error="auth_rate_limited",
-                flow="link",
+                flow=flow,
                 csrf_token=csrf_token,
                 product_analytics_provider=build_request_browser_provider_context(
                     request, "settings"
@@ -367,7 +368,7 @@ async def _start_email_link(
                     state_nonce=state.state_nonce,
                     next_path=next_path,
                     error="email_delivery_unavailable",
-                    flow="link",
+                    flow=flow,
                     csrf_token=csrf_token,
                     product_analytics_provider=build_request_browser_provider_context(
                         request, "settings"
@@ -382,7 +383,7 @@ async def _start_email_link(
             state_nonce=state.state_nonce,
             next_path=next_path,
             dev_code=dev_code,
-            flow="link",
+            flow=flow,
             csrf_token=csrf_token,
             product_analytics_provider=build_request_browser_provider_context(request, "settings"),
         )
@@ -446,6 +447,7 @@ async def _verify_email_link(
     email = _normalize_email(str(form.get("email") or ""))
     code = str(form.get("code") or "")
     state = str(form.get("state") or "")
+    flow = "desktop_link" if embedded else "link"
     if email is None or not state or not code:
         return HTMLResponse(
             render_email_code_page(
@@ -453,7 +455,7 @@ async def _verify_email_link(
                 state_nonce=state,
                 next_path="/desktop/settings/account" if embedded else "/settings/account",
                 error="email_code_invalid",
-                flow="link",
+                flow=flow,
                 csrf_token=csrf_token,
                 product_analytics_provider=build_request_browser_provider_context(
                     request, "settings"
@@ -461,39 +463,35 @@ async def _verify_email_link(
             ),
             status_code=400,
         )
-    result = await consume_email_link_code(
-        db,
-        request=request,
-        principal=principal,
-        workspace_id=tenant_scope.workspace_id,
-        email=email,
-        code=code,
-        state_nonce=state,
-    )
-    if isinstance(result, HTMLResponse):
-        return result
-    prefix = "/desktop" if embedded else ""
-    if result.status == "merge_preview_ready" and result.intent_id is not None:
-        return RedirectResponse(
-            f"{prefix}/settings/account/merge/{result.intent_id}", status_code=303
+    try:
+        result = await consume_email_link_code(
+            db,
+            request=request,
+            principal=principal,
+            workspace_id=tenant_scope.workspace_id,
+            email=email,
+            code=code,
+            state_nonce=state,
         )
-    if result.status == "merge_blocked":
-        return RedirectResponse(
-            f"{prefix}/settings/account?provider_link=merge_blocked", status_code=303
-        )
-    if result.status == "merge_completed":
-        response = RedirectResponse(
-            f"/login?next={prefix}/settings/account&error=auth_session_invalid", status_code=303
-        )
-        response.delete_cookie(
-            key="__Host-twobrain_rec_owner_session",
-            path="/",
-            secure=True,
-            httponly=True,
-            samesite="lax",
-        )
+        prefix = "/desktop" if embedded else ""
+        if isinstance(result, HTMLResponse):
+            response = result
+        elif (
+            result.status in {"merge_preview_ready", "merge_blocked"}
+            and result.intent_id is not None
+        ):
+            response = RedirectResponse(
+                f"{prefix}/settings/account/merge/{result.intent_id}", status_code=303
+            )
+        else:
+            response = RedirectResponse(
+                f"{prefix}/settings/account?provider_link=confirmed", status_code=303
+            )
+        await db.commit()
         return response
-    return RedirectResponse(f"{prefix}/settings/account?provider_link=confirmed", status_code=303)
+    except Exception:
+        await db.rollback()
+        raise
 
 
 @router.post(

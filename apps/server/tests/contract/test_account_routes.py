@@ -2,19 +2,28 @@ from __future__ import annotations
 
 import inspect
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from uuid import UUID
 
+import pytest
+from fastapi.responses import RedirectResponse
 from fastapi.routing import APIRoute
 
 from twobrain_rec_server.auth.account_closure import AccountCloseView
+from twobrain_rec_server.auth.account_merge import MergeEntityCounts, build_merge_preview
 from twobrain_rec_server.auth.workspace_onboarding import WorkspaceAccessView
-from twobrain_rec_server.cabinet.auth_rendering import render_login_page, render_signup_page
+from twobrain_rec_server.cabinet.auth_rendering import (
+    render_email_code_page,
+    render_login_page,
+    render_signup_page,
+)
 from twobrain_rec_server.cabinet.rendering import render_account_merge_page, render_settings_page
 from twobrain_rec_server.cabinet.view_models import (
     AccountProfileView,
     AccountProviderView,
     AccountSettingsSurface,
 )
+from twobrain_rec_server.cabinet.web_routes import settings as settings_routes
 from twobrain_rec_server.cabinet.web_routes.account_merge import router as account_merge_router
 from twobrain_rec_server.cabinet.web_routes.auth import router as auth_router
 from twobrain_rec_server.cabinet.web_routes.referrals import router as referrals_router
@@ -87,6 +96,142 @@ def test_account_link_and_merge_mutations_have_browser_desktop_parity_and_csrf()
         assert "require_web_csrf" in dependencies
 
 
+def test_desktop_email_link_code_page_keeps_verify_resend_and_back_on_desktop_routes() -> None:
+    page = render_email_code_page(
+        email="user@example.test",
+        state_nonce="synthetic-state",
+        next_path="/desktop/settings/account",
+        flow="desktop_link",
+        csrf_token="synthetic-csrf",
+    )
+
+    assert 'action="/desktop/settings/account/email-link/verify"' in page
+    assert 'action="/desktop/settings/account/email-link/start"' in page
+    assert 'href="/desktop/settings/account?next=%2Fdesktop%2Fsettings%2Faccount"' in page
+    assert 'action="/settings/account/email-link/' not in page
+
+
+@pytest.mark.parametrize("flow", ["link", "desktop_link"])
+def test_email_link_ambiguity_copy_points_to_visible_settings_action(flow: str) -> None:
+    page = render_email_code_page(
+        email="user@example.test",
+        state_nonce="synthetic-state",
+        next_path="/desktop/settings/account" if flow == "desktop_link" else "/settings/account",
+        error="ambiguous_email_recovery_required",
+        flow=flow,
+        csrf_token="synthetic-csrf",
+    )
+
+    assert "Вернитесь в настройки" in page
+    assert "Выберите ниже" not in page
+
+
+def test_email_link_callers_select_desktop_flow_for_every_local_render() -> None:
+    source = "\n".join(
+        (
+            inspect.getsource(settings_routes._start_email_link),
+            inspect.getsource(settings_routes._verify_email_link),
+        )
+    )
+
+    assert source.count("render_email_code_page(") == 5
+    assert source.count("flow=flow") == 5
+    assert 'flow="link"' not in source
+
+
+class _EmailLinkTransactionProbe:
+    def __init__(self, events: list[str]) -> None:
+        self.events = events
+
+    async def commit(self) -> None:
+        self.events.append("commit")
+
+    async def rollback(self) -> None:
+        self.events.append("rollback")
+
+
+class _EmailLinkRequest:
+    def __init__(self) -> None:
+        self.url = SimpleNamespace(path="/desktop/settings/account/email-link/verify")
+
+    async def form(self) -> dict[str, str]:
+        return {
+            "email": "user@example.test",
+            "code": "123456",
+            "state": "synthetic-state",
+        }
+
+
+async def test_email_link_verify_prepares_response_then_commits_once(monkeypatch) -> None:
+    events: list[str] = []
+    db = _EmailLinkTransactionProbe(events)
+
+    async def consume(*_args, **_kwargs):
+        return SimpleNamespace(status="identity_linked", intent_id=None)
+
+    def prepare_response(*args, **kwargs):
+        events.append("response")
+        return RedirectResponse(*args, **kwargs)
+
+    monkeypatch.setattr(settings_routes, "consume_email_link_code", consume)
+    monkeypatch.setattr(settings_routes, "RedirectResponse", prepare_response)
+    monkeypatch.setattr(
+        settings_routes, "_csrf_token_for_principal", lambda *_args, **_kwargs: "csrf"
+    )
+    monkeypatch.setattr(
+        settings_routes,
+        "build_request_browser_provider_context",
+        lambda *_args, **_kwargs: {},
+    )
+
+    response = await settings_routes._verify_email_link(
+        _EmailLinkRequest(),
+        principal=SimpleNamespace(),
+        tenant_scope=SimpleNamespace(workspace_id=UUID(int=1)),
+        db=db,
+        embedded=True,
+    )
+
+    assert response.headers["location"] == "/desktop/settings/account?provider_link=confirmed"
+    assert events == ["response", "commit"]
+
+
+async def test_email_link_verify_rolls_back_when_response_preparation_fails(monkeypatch) -> None:
+    events: list[str] = []
+    db = _EmailLinkTransactionProbe(events)
+
+    async def consume(*_args, **_kwargs):
+        return SimpleNamespace(status="identity_linked", intent_id=None)
+
+    def fail_response(*_args, **_kwargs):
+        raise RuntimeError("synthetic response failure")
+
+    monkeypatch.setattr(settings_routes, "consume_email_link_code", consume)
+    monkeypatch.setattr(settings_routes, "RedirectResponse", fail_response)
+    monkeypatch.setattr(
+        settings_routes, "_csrf_token_for_principal", lambda *_args, **_kwargs: "csrf"
+    )
+
+    with pytest.raises(RuntimeError, match="synthetic response failure"):
+        await settings_routes._verify_email_link(
+            _EmailLinkRequest(),
+            principal=SimpleNamespace(),
+            tenant_scope=SimpleNamespace(workspace_id=UUID(int=1)),
+            db=db,
+            embedded=True,
+        )
+
+    assert events == ["rollback"]
+
+
+def test_email_link_verify_has_no_unreachable_auto_merge_completion_branch() -> None:
+    source = inspect.getsource(settings_routes._verify_email_link)
+
+    assert source.count("await db.commit()") == 1
+    assert source.count("await db.rollback()") == 1
+    assert "merge_completed" not in source
+
+
 def test_destructive_link_and_merge_routes_receive_request_for_cookie_reauth() -> None:
     routes = {
         route.path: route
@@ -119,6 +264,34 @@ def test_merge_preview_copy_is_bounded_and_never_renders_account_secrets() -> No
     assert "signed_url" not in page
 
 
+def test_merge_preview_explains_survivor_preserved_data_and_revocation_without_user_ids() -> None:
+    survivor_user_id = UUID("00000000-0000-0000-0000-000000000002")
+    source_user_id = UUID("00000000-0000-0000-0000-000000000003")
+    preview = build_merge_preview(
+        survivor_user_id=survivor_user_id,
+        source_user_id=source_user_id,
+        counts=MergeEntityCounts(meetings=2),
+        role_conflict=True,
+    )
+    page = render_account_merge_page(
+        preview,
+        intent_id=UUID("00000000-0000-0000-0000-000000000001"),
+        csrf_token="safe-csrf",
+    )
+
+    for copy in (
+        "Текущий аккаунт останется основным.",
+        "Подтверждённые способы входа обоих аккаунтов сохранятся.",
+        "Встречи и связанные с ними записи, файлы и результаты обработки сохранятся.",
+        "Рабочие пространства останутся отдельными.",
+        "Все активные сессии обоих аккаунтов будут завершены, а доверие устройств — отозвано.",
+        "У аккаунтов несовместимые роли в одном рабочем пространстве.",
+    ):
+        assert copy in page
+    assert str(survivor_user_id) not in page
+    assert str(source_user_id) not in page
+
+
 def test_account_security_renders_exact_bulk_and_per_session_actions() -> None:
     page = render_settings_page(category="account", csrf_token="safe-csrf")
 
@@ -129,11 +302,7 @@ def test_account_security_renders_exact_bulk_and_per_session_actions() -> None:
 
 
 def test_workspace_switch_and_join_routes_are_csrf_protected_in_browser_and_desktop() -> None:
-    routes = {
-        route.path: route
-        for route in spaces_router.routes
-        if isinstance(route, APIRoute)
-    }
+    routes = {route.path: route for route in spaces_router.routes if isinstance(route, APIRoute)}
     expected = {
         "/settings/spaces/{workspace_id}/activate",
         "/desktop/settings/spaces/{workspace_id}/activate",

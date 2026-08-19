@@ -13,9 +13,11 @@
       <section class="settings-section" aria-labelledby="account-merge-summary">
         <h2 id="account-merge-summary">Что произойдёт</h2>
         <ul>
-          <li>Встречи: {{ preview.counts.meetings }}. Записи, артефакты и обработка сохранятся с прежними ID.</li>
-          <li>Рабочие пространства не склеиваются и остаются отдельными.</li>
-          <li>Все активные сессии и доверие устройств будут отозваны.</li>
+          <li>Текущий аккаунт останется основным.</li>
+          <li>Подтверждённые способы входа обоих аккаунтов сохранятся.</li>
+          <li>Встречи и связанные с ними записи, файлы и результаты обработки сохранятся. Будет сохранено встреч: {{ preview.counts.meetings }}.</li>
+          <li>Рабочие пространства останутся отдельными.</li>
+          <li>Все активные сессии обоих аккаунтов будут завершены, а доверие устройств — отозвано. После объединения потребуется войти снова.</li>
         </ul>
         {% if preview.blocker_codes %}
         <div class="settings-status" role="alert">
@@ -32,7 +34,7 @@
           {{ sections.csrf_field(csrf_token) }}
           <input type="hidden" name="preview_fingerprint" value="{{ preview.fingerprint }}">
           <input type="hidden" name="idempotency_key" value="{{ intent_id }}">
-          <p class="muted">После подтверждения действие нельзя отменить. Перед commit сервер повторит проверку конфликтов.</p>
+          <p class="muted">После подтверждения действие нельзя отменить. Перед объединением GRAF ещё раз проверит конфликты.</p>
           <button class="button primary" type="submit">Подтвердить объединение</button>
         </form>
         {% endif %}

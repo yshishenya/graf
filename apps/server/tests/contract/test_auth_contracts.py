@@ -20,6 +20,8 @@ from tests.fakes.auth_contexts import (
 )
 from tests.fakes.auth_providers import fake_provider_map
 from twobrain_rec_server.api.auth import router as auth_api_router
+from twobrain_rec_server.auth import provider_links as provider_links_module
+from twobrain_rec_server.auth.account_merge import AccountMergeError
 from twobrain_rec_server.auth.audit import write_auth_audit_event
 from twobrain_rec_server.auth.csrf import issue_csrf_token
 from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
@@ -27,6 +29,7 @@ from twobrain_rec_server.auth.sessions import issue_auth_session
 from twobrain_rec_server.auth.workspace_onboarding import ensure_personal_workspace
 from twobrain_rec_server.cabinet.web_routes.account_merge import _error_copy
 from twobrain_rec_server.db.models import (
+    AccountMergeIntent,
     AuthAuditEvent,
     AuthCallbackState,
     AuthSession,
@@ -42,6 +45,11 @@ from twobrain_rec_server.db.models import (
     WorkspaceJoinOffer,
     WorkspaceMembership,
     WorkspaceProviderLinkState,
+)
+from twobrain_rec_server.db.tenant_context import (
+    AccountMergeTenantContext,
+    WorkspaceAuthContext,
+    apply_tenant_context,
 )
 
 
@@ -231,6 +239,79 @@ def _load_auth_audit_events(client: TestClient) -> list[AuthAuditEvent]:
     import asyncio
 
     return asyncio.run(load())
+
+
+def _prepare_provider_link_merge_candidate(
+    monkeypatch,
+    client: TestClient,
+    *,
+    provider_subject: str,
+) -> tuple[dict[str, Any], UUID, UUID, str]:
+    _patch_fake_providers(monkeypatch, client)
+    started = client.post(
+        "/api/v1/auth/providers/yandex/start",
+        json={"workspace_return_url": "app://auth-callback"},
+    )
+    login = client.get(
+        "/api/v1/auth/callback/yandex",
+        params={"state": started.json()["state_nonce"], "code": "TEST-YA-USER"},
+    )
+    assert login.status_code == 200
+    session_id = UUID(login.json()["active_session_id"])
+    csrf = issue_csrf_token(session_id=session_id, secret=client.app.state.web_csrf_secret)
+    link_start = client.post(
+        "/api/v1/auth/providers/vk/link/start",
+        params={"workspace_id": login.json()["workspace_id"]},
+        headers={
+            "Authorization": f"Bearer {login.json()['session_token']}",
+            "X-CSRF-Token": csrf,
+        },
+    )
+    assert link_start.status_code == 200
+    link_id = UUID(link_start.json()["link_state_id"])
+    provider_state = parse_qs(urlparse(link_start.json()["authorization_url"]).query)["state"][0]
+    callback = client.get(
+        "/api/v1/auth/callback/vk",
+        params={"state": provider_state, "code": provider_subject},
+        follow_redirects=False,
+    )
+    assert callback.status_code == 303
+    other_user_id = uuid4()
+
+    async def seed_email_source_and_foreign_identity() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            session = await db.get(AuthSession, session_id)
+            link = await db.get(WorkspaceProviderLinkState, link_id)
+            assert session is not None
+            assert link is not None
+            source_identity = await db.get(ExternalIdentity, link.source_provider_identity_id)
+            assert source_identity is not None
+            source_identity.provider = "email"
+            source_identity.provider_subject = f"provider-link-source-{uuid4()}@example.test"
+            source_identity.email = source_identity.provider_subject
+            session.provider = "email"
+            db.add(
+                UserIdentity(
+                    id=other_user_id,
+                    organization_id=ORG_ID,
+                    external_subject=f"provider-link-merge-source-{uuid4()}",
+                )
+            )
+            await db.flush()
+            db.add(
+                ExternalIdentity(
+                    user_id=other_user_id,
+                    provider="vk",
+                    provider_subject=provider_subject,
+                    is_verified=True,
+                )
+            )
+            await db.commit()
+
+    import asyncio
+
+    asyncio.run(seed_email_source_and_foreign_identity())
+    return login.json(), link_id, other_user_id, csrf
 
 
 def test_auth_audit_metadata_hashes_sensitive_values(client: TestClient) -> None:
@@ -1072,6 +1153,150 @@ def test_provider_link_confirmation_rejects_foreign_identity_without_transfer(mo
     assert len(conflict_event.metadata_json["link_state_sha256"]) == 64
     assert str(link_id) not in str(conflict_event.metadata_json)
     assert "foreign-user" not in str(conflict_event.metadata_json)
+
+
+def test_provider_link_conflict_requires_merge_preview_and_restores_link_context(
+    monkeypatch,
+    client: TestClient,
+) -> None:
+    provider_subject = "vk:provider-link-merge-preview"
+    login, link_id, other_user_id, csrf = _prepare_provider_link_merge_candidate(
+        monkeypatch,
+        client,
+        provider_subject=provider_subject,
+    )
+    restored_contexts: list[WorkspaceAuthContext] = []
+
+    async def track_provider_link_context(db, context) -> None:
+        restored_contexts.append(context)
+        await apply_tenant_context(db, context)
+
+    monkeypatch.setattr(
+        provider_links_module,
+        "apply_tenant_context",
+        track_provider_link_context,
+    )
+
+    confirmation = client.post(
+        f"/api/v1/auth/provider-links/{link_id}/confirm",
+        headers={
+            "Authorization": f"Bearer {login['session_token']}",
+            "X-CSRF-Token": csrf,
+        },
+    )
+
+    assert confirmation.status_code == 200
+    assert confirmation.json()["status"] == "merge_preview_ready"
+    assert confirmation.json()["merge_intent_id"]
+
+    async def load() -> tuple[WorkspaceProviderLinkState, ExternalIdentity, UserIdentity]:
+        async with client.app_state["sessionmaker"]() as db:
+            link = await db.get(WorkspaceProviderLinkState, link_id)
+            identity = await db.scalar(
+                select(ExternalIdentity).where(
+                    ExternalIdentity.provider == "vk",
+                    ExternalIdentity.provider_subject == provider_subject,
+                )
+            )
+            other_user = await db.get(UserIdentity, other_user_id)
+            assert link is not None
+            assert identity is not None
+            assert other_user is not None
+            return link, identity, other_user
+
+    import asyncio
+
+    link, identity, other_user = asyncio.run(load())
+    assert link.status == "confirmed"
+    assert link.resolution == "merge_preview_ready"
+    assert link.candidate_identity_subject is None
+    assert identity.user_id == other_user_id
+    assert other_user.status == "active"
+    assert restored_contexts == [
+        WorkspaceAuthContext(
+            workspace_id=UUID(login["workspace_id"]),
+            organization_id=ORG_ID,
+            user_id=UUID(login["user_id"]),
+            context_kind="auth_bootstrap",
+        )
+    ]
+
+
+def test_provider_link_merge_error_rolls_back_partial_merge_mutations(
+    monkeypatch,
+    client: TestClient,
+) -> None:
+    provider_subject = "vk:provider-link-merge-rollback"
+    login, link_id, other_user_id, csrf = _prepare_provider_link_merge_candidate(
+        monkeypatch,
+        client,
+        provider_subject=provider_subject,
+    )
+
+    async def fail_after_partial_merge(db, **kwargs) -> None:
+        partial_intent = AccountMergeIntent(
+            workspace_id=kwargs["workspace_id"],
+            survivor_user_id=kwargs["survivor_user_id"],
+            source_user_id=kwargs["source_user_id"],
+            email_proof_state=kwargs["email_proof_state"],
+            oauth_proof_state=kwargs["oauth_proof_state"],
+            preview_fingerprint="0" * 64,
+            status="preview_ready",
+            expires_at=datetime.now(UTC) + timedelta(minutes=5),
+        )
+        db.add(partial_intent)
+        await db.flush()
+        await apply_tenant_context(
+            db,
+            AccountMergeTenantContext(
+                intent_id=partial_intent.id,
+                workspace_id=kwargs["workspace_id"],
+                survivor_user_id=kwargs["survivor_user_id"],
+                source_user_id=kwargs["source_user_id"],
+            ),
+        )
+        partial_intent.preview_fingerprint = "1" * 64
+        await db.flush()
+        raise AccountMergeError("merge_preview_stale")
+
+    monkeypatch.setattr(
+        provider_links_module,
+        "create_merge_intent",
+        fail_after_partial_merge,
+    )
+
+    confirmation = client.post(
+        f"/api/v1/auth/provider-links/{link_id}/confirm",
+        headers={
+            "Authorization": f"Bearer {login['session_token']}",
+            "X-CSRF-Token": csrf,
+        },
+    )
+
+    assert confirmation.status_code == 400
+    assert confirmation.json()["code"] == "merge_preview_stale"
+
+    async def load() -> tuple[WorkspaceProviderLinkState, list[AccountMergeIntent]]:
+        async with client.app_state["sessionmaker"]() as db:
+            link = await db.get(WorkspaceProviderLinkState, link_id)
+            intents = list(
+                await db.scalars(
+                    select(AccountMergeIntent).where(
+                        AccountMergeIntent.survivor_user_id == UUID(login["user_id"]),
+                        AccountMergeIntent.source_user_id == other_user_id,
+                    )
+                )
+            )
+            assert link is not None
+            return link, intents
+
+    import asyncio
+
+    link, intents = asyncio.run(load())
+    assert link.status == "rejected"
+    assert link.resolution == "merge_preview_stale"
+    assert link.candidate_identity_subject is None
+    assert intents == []
 
 
 def test_provider_link_confirmation_requires_the_initiating_session(monkeypatch, client: TestClient) -> None:

@@ -10,21 +10,19 @@ from twobrain_rec_server.auth.account_merge import (
 )
 
 
-def test_dataful_merge_requires_explicit_confirmation_and_preserves_fingerprint() -> None:
+def test_dataful_merge_preview_preserves_fingerprint() -> None:
     preview = build_merge_preview(
         survivor_user_id=uuid4(),
         source_user_id=uuid4(),
         counts=MergeEntityCounts(meetings=2, recordings=2),
     )
 
-    assert preview.requires_confirmation is True
     ensure_preview_confirmable(preview, fingerprint=preview.fingerprint)
 
 
-def test_empty_duplicate_has_no_data_confirmation_requirement() -> None:
+def test_empty_duplicate_preview_has_no_blockers() -> None:
     preview = build_merge_preview(survivor_user_id=uuid4(), source_user_id=uuid4())
 
-    assert preview.requires_confirmation is False
     assert preview.blocker_codes == ()
 
 

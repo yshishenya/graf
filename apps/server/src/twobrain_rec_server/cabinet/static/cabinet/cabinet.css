@@ -1240,6 +1240,10 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   grid-auto-flow: column;
   gap: 10px 12px;
 }
+.auth-provider-grid.auth-provider-grid--recovery {
+  grid-template-rows: none;
+  grid-auto-flow: row;
+}
 .auth-actions > *, .email-mode > *, .auth-form > * {
   animation: rec-item-in .22s cubic-bezier(.2,.8,.2,1) both;
 }

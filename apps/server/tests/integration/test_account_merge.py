@@ -220,7 +220,7 @@ def test_dataful_merge_preserves_meeting_id_and_workspace(client) -> None:
     client.portal.call(exercise)
 
 
-def test_empty_duplicate_auto_links_and_completed_retry_is_idempotent(client) -> None:
+def test_empty_duplicate_explicit_confirmation_and_retry_are_idempotent(client) -> None:
     source = duplicate_account_fixture(98, email="empty-source@example.test")
     source_user_id = source.user_id
     source_workspace_id = source.workspace_id
@@ -373,7 +373,7 @@ def test_cancel_and_expiry_are_non_mutating_terminal_states(client) -> None:
     client.portal.call(exercise)
 
 
-def test_email_session_and_oauth_callback_auto_link_empty_duplicate(client) -> None:
+def test_provider_link_email_session_requires_preview_for_empty_duplicate(client) -> None:
     source_user_id = UUID("30000000-0000-0000-0000-000000000096")
     source_workspace_id = UUID("20000000-0000-0000-0000-000000000096")
     session_id = UUID("50000000-0000-0000-0000-000000000096")
@@ -447,7 +447,9 @@ def test_email_session_and_oauth_callback_auto_link_empty_duplicate(client) -> N
             await db.commit()
 
             source = await db.get(UserIdentity, source_user_id)
-            assert confirmed.status == "merge_completed"
-            assert source is not None and source.status == "merged"
+            intent = await db.get(AccountMergeIntent, confirmed.merge_intent_id)
+            assert confirmed.status == "merge_preview_ready"
+            assert source is not None and source.status == "active"
+            assert intent is not None and intent.status == "preview_ready"
 
     client.portal.call(exercise)
