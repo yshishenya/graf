@@ -126,7 +126,7 @@ def test_calendar_settings_web_route_renders_working_settings_screen(client) -> 
     assert 'data-active-nav="settings"' in html
     assert html.count('id="cabinet-sidebar" data-cabinet-navigation') == 1
     assert html.count('aria-label="Навигация кабинета"') == 1
-    assert html.count('aria-current="page"') == 2
+    assert html.count('aria-current="page"') == 1
     assert "Настройки" in html
     assert "Календари" in html
     assert (
@@ -312,7 +312,7 @@ def test_calendar_settings_embedded_route_reuses_settings_screen_inside_desktop_
     assert "desktop-embedded" in html
     assert 'data-active-nav="settings"' in html
     assert html.count('id="cabinet-sidebar" data-cabinet-navigation') == 1
-    assert html.count('aria-current="page"') == 2
+    assert html.count('aria-current="page"') == 1
     assert "/desktop/settings/integrations/calendar" in html
     assert 'role="group" aria-labelledby="calendar-providers-title"' in html
     assert "Ручной старт и стоп записи остаются доступны всегда" in html

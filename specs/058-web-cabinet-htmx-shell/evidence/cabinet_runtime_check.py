@@ -316,7 +316,8 @@ def run_checks() -> dict[str, Any]:
         checks,
         "settings_shell",
         '<h1>Настройки</h1>' in settings_page
-        and 'data-settings-nav="calendar"' in settings_page
+        and 'data-settings-primary-nav-item="calendar"' in settings_page
+        and 'class="settings-navigation"' not in settings_page
         and 'href="/settings/integrations/calendar"' in settings_page
         and 'data-active-nav="settings"' in settings_page,
         "settings overview exposes the calendar category",
