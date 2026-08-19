@@ -1,6 +1,6 @@
 # Evidence: надёжный вход по email и восстановление аккаунта
 
-Дата проверки: 2026-08-19
+Дата проверки: 2026-08-20
 Risk lane: `high-risk-feature`
 
 ## Что проверено
@@ -33,6 +33,10 @@ Risk lane: `high-risk-feature`
 - Closeout delta после замечаний PR: `8 passed`; дополнительно доказаны два
   конкурентных email-link callback для одного нового адреса, одна active+verified
   identity, terminal state обоих callback и metadata-only merge-preview audit.
+- Финальная ownership/audit матрица после повторного PR review: `3 passed`;
+  отключённый email другого аккаунта не становится merge candidate, неверный код
+  остаётся `email_code_invalid` в audit, а отсутствие identity раскрывается только
+  во внутреннем callback как `email_identity_not_found`.
 - Account-link route contracts и merge policy: `27 passed`.
 - Ruff по затронутым server/test файлам: `PASS`.
 - Python compile и `git diff --check`: `PASS`.
@@ -63,6 +67,14 @@ Pytest сообщил только известные предупреждени
   Рекомендация заменить exact PostgreSQL role `twobrain_rec_app` случайным именем
   отклонена: production RLS намеренно проверяет точный `session_user`, а probe
   сериализован общим advisory lock и удаляется в `finally`.
+- Повторный PR review на `46da75a9` нашёл две подтверждённые границы: чужой
+  отключённый email ошибочно попадал в merge candidates, а неверный код был
+  неверно классифицирован в security audit. Оба дефекта исправлены в `58768556`,
+  после чего независимый correctness review завершился без findings.
+- Codex Security scan exact diff `46da75a9..58768556`: scan
+  `4cacddc8-f293-4229-874a-fd907d251556`, coverage `complete`, reportable
+  findings `0`. TAC advisory недоступен из-за неподключённого коннектора; это не
+  повлияло на локальный coverage.
 
 ## Визуальная проверка
 
@@ -83,7 +95,8 @@ Pytest сообщил только известные предупреждени
 
 ## Closeout
 
-- `infra/scripts/ci-local.sh --fast` на финальном implementation SHA `c98d4d1c`:
+- `infra/scripts/ci-local.sh --fast` после финальных implementation-изменений
+  `58768556`:
   `PASS` — `1103 passed`, server lint `PASS`, Python compile `PASS`, isolated
   PostgreSQL container удалён.
 - Implementation commits готовы; PR #5412 открыт. Push, повторный PR review,
