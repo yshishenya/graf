@@ -343,7 +343,7 @@ async def _consume_email_login_code(
             request=request,
             workspace_id=workspace_id,
             outcome="failure",
-            error_code="email_code_invalid",
+            error_code="email_identity_not_found",
         )
         await _finalize_email_callback(
             db,
@@ -515,20 +515,19 @@ async def consume_email_link_code(
     proves control of the second method.  Existing dataful accounts are never
     silently joined; they produce a proof-bound merge intent instead.
     """
+    embedded = request.url.path.startswith("/desktop/")
+    next_path = "/desktop/settings/account" if embedded else "/settings/account"
+    flow = "desktop_link" if embedded else "link"
     if not principal.auth_via_session or principal.session_workspace_id != workspace_id:
-        embedded = request.url.path.startswith("/desktop/")
         return _email_code_error_response(
             request=request,
             email=email,
             state_nonce=state_nonce,
-            next_path="/desktop/settings/account" if embedded else "/settings/account",
+            next_path=next_path,
             error="provider_link_session_required",
-            flow="desktop_link" if embedded else "link",
+            flow=flow,
         )
     now = datetime.now(UTC)
-    embedded = request.url.path.startswith("/desktop/")
-    next_path = "/desktop/settings/account" if embedded else "/settings/account"
-    flow = "desktop_link" if embedded else "link"
     await apply_tenant_context(db, AuthCallbackLookupContext(state_nonce=state_nonce))
     state = await db.scalar(
         select(AuthCallbackState)

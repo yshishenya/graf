@@ -932,7 +932,7 @@ def test_authenticated_email_link_failure_is_audited_before_terminal_callback(
 
         client.portal.call(expire_state)
     else:
-        code = "000000"
+        code = "000000" if code != "000000" else "999999"
 
     response = client.post(
         "/settings/account/email-link/verify",

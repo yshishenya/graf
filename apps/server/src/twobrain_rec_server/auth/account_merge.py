@@ -402,6 +402,14 @@ async def create_merge_intent(
     intent.blocker_code = preview.blocker_codes[0] if preview.blocker_codes else None
     intent.email_proof_state = email_proof_state
     intent.oauth_proof_state = oauth_proof_state
+    await write_auth_audit_event(
+        db,
+        workspace_id=workspace_id,
+        event_type="account_merge_preview_prepared",
+        actor_user_id=actor_user_id,
+        user_id=survivor_user_id,
+        metadata={"intent_id_sha256": sha256(str(intent.id).encode("utf-8")).hexdigest()},
+    )
     return intent, preview
 
 

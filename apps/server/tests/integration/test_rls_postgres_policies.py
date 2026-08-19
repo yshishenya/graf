@@ -2514,6 +2514,26 @@ async def test_email_link_and_oauth_provider_link_terminal_states_restore_narrow
                         await db.rollback()
                         return exc.code
 
+            async def consume_new_email_link(*, email: str, state_nonce: str) -> object:
+                async with sessionmaker() as db:
+                    result = await consume_email_link_code(
+                        db,
+                        request=_email_auth_request(
+                            Settings(
+                                database_url=app_url,
+                                web_login_workspace_id=ids["workspace_a"],
+                            ),
+                            path="/settings/account/email-link/verify",
+                        ),
+                        principal=principal,
+                        workspace_id=ids["workspace_a"],
+                        email=email,
+                        code="381204",
+                        state_nonce=state_nonce,
+                    )
+                    await db.commit()
+                    return result
+
             different_state_results = await asyncio.gather(
                 confirm_merge_link(link_ids[0]),
                 confirm_merge_link(link_ids[1]),
@@ -2577,6 +2597,40 @@ async def test_email_link_and_oauth_provider_link_terminal_states_restore_narrow
                 assert isinstance(email_result, EmailLinkCompletion)
                 assert email_result.status == "identity_linked"
                 await db.commit()
+
+                concurrent_email = f"forced-rls-concurrent-link-{ids['slug']}@example.test"
+                concurrent_link_states = tuple(
+                    [
+                        await _create_email_login_state(
+                            db,
+                            workspace_id=ids["workspace_a"],
+                            next_path="/settings/account",
+                            email=concurrent_email,
+                            code=code,
+                            ttl_seconds=300,
+                            provider="email_link",
+                        )
+                        for _ in range(2)
+                    ]
+                )
+                concurrent_link_state_nonces = tuple(
+                    state.state_nonce for state in concurrent_link_states
+                )
+                await db.commit()
+                concurrent_email_results = await asyncio.gather(
+                    *(
+                        consume_new_email_link(
+                            email=concurrent_email,
+                            state_nonce=state_nonce,
+                        )
+                        for state_nonce in concurrent_link_state_nonces
+                    )
+                )
+                assert all(
+                    isinstance(result, EmailLinkCompletion)
+                    and result.status == "identity_linked"
+                    for result in concurrent_email_results
+                )
 
                 merge_state = await _create_email_login_state(
                     db,
@@ -2652,20 +2706,47 @@ async def test_email_link_and_oauth_provider_link_terminal_states_restore_narrow
                     text(
                         """
                     select result from auth_callback_states
-                    where state_nonce in (:new_link_state_nonce, :merge_state_nonce)
+                    where state_nonce in (
+                        :new_link_state_nonce, :concurrent_link_state_nonce_a,
+                        :concurrent_link_state_nonce_b, :merge_state_nonce
+                    )
                     order by state_nonce
                     """
                     ),
                     {
                         "new_link_state_nonce": new_link_state.state_nonce,
+                        "concurrent_link_state_nonce_a": concurrent_link_state_nonces[0],
+                        "concurrent_link_state_nonce_b": concurrent_link_state_nonces[1],
                         "merge_state_nonce": merge_state.state_nonce,
                     },
                 )
             )
+            concurrent_identity_count = await conn.scalar(
+                text(
+                    """
+                    select count(*) from external_identities
+                    where provider = 'email' and provider_subject = :email
+                      and user_id = :user_id and is_active and is_verified
+                    """
+                ),
+                {"email": concurrent_email, "user_id": ids["user_a"]},
+            )
+            merge_preview_audit_count = await conn.scalar(
+                text(
+                    """
+                    select count(*) from auth_audit_events
+                    where event_type = 'account_merge_preview_prepared'
+                      and actor_user_id = :user_id
+                    """
+                ),
+                {"user_id": ids["user_a"]},
+            )
 
         assert link_status == 3
         assert intent_status == "preview_ready"
-        assert email_callback_results == ("completed", "completed")
+        assert email_callback_results == ("completed",) * 4
+        assert concurrent_identity_count == 1
+        assert merge_preview_audit_count >= 4
     finally:
         await _drop_probe_role(migrated_postgres_urls.migration_url, app_role)
 

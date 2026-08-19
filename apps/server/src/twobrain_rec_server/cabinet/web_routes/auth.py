@@ -1111,6 +1111,8 @@ async def _prepare_email_auth_response(
             next_path=result.next_path,
             invitation_flow=result.invitation_flow,
         )
+    if not isinstance(result, EmailLoginCompletion):
+        raise TypeError(f"Unsupported email authentication result: {type(result).__name__}")
     redirect_path = await resolve_browser_auth_return_path(
         db,
         requested_redirect=result.requested_redirect,
