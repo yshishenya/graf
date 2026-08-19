@@ -157,8 +157,7 @@ Full CI, deployment, notarization and release publication are outside Feature 17
 
 ### Final closeout
 
-- Final code commit: `f5d659d0`; PR documentation head after evidence-only
-  corrections: `2ddf9b0b`.
+- Final code commit: `f5d659d0`; subsequent commits changed documentation only.
 - The initial implementation passed its fast gate at `3a4ce527`. After the PR
   review changed production code, `infra/scripts/ci-local.sh --fast` was run
   again on the same code tree subsequently committed as `f5d659d0`: legacy-audio
