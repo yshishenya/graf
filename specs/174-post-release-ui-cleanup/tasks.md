@@ -62,6 +62,38 @@
 - US2 follows US1 because both edit `cabinet.css` and cabinet shell tests.
 - T011 follows T004, T007 and T010. T012 follows T011. T013 is last.
 
+### T006 exact write set
+
+- `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/fragments/calendar_settings.html`
+- `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/fragments/provider_link_settings.html`
+- `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_checkout_content.html`
+- `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_discounts_content.html`
+- `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_history_content.html`
+- `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_invoice_content.html`
+- `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_operation_status_content.html`
+- `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_overview_content.html`
+- `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_payment_method_content.html`
+- `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_plans_content.html`
+- `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_storage_content.html`
+- `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_subscription_content.html`
+- `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_usage_content.html`
+- `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/fair_use_content.html`
+- `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/referrals_content.html`
+- `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/settings_account_content.html`
+- `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/settings_content.html`
+- `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/settings_notifications_content.html`
+- `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/settings_recording_content.html`
+- `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/settings_summaries_content.html`
+- `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/settings_workspace_content.html`
+- `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/components/settings_navigation.html`
+- `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css`
+- `specs/173-settings-single-column/spec.md`
+- `specs/173-settings-single-column/clarify.md`
+- `specs/173-settings-single-column/plan.md`
+- `specs/173-settings-single-column/research.md`
+- `specs/173-settings-single-column/contracts/settings-single-column.md`
+- `specs/173-settings-single-column/quickstart.md`
+
 ## Parallel execution examples
 
 - After T001, T002 and T008 can run in parallel because server and macOS files are disjoint.
