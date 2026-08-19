@@ -30,6 +30,9 @@ Risk lane: `high-risk-feature`
 
 - Review-fix PostgreSQL matrix: `13 passed`.
 - Финальная concurrent/relink/audit matrix: `4 passed`.
+- Closeout delta после замечаний PR: `8 passed`; дополнительно доказаны два
+  конкурентных email-link callback для одного нового адреса, одна active+verified
+  identity, terminal state обоих callback и metadata-only merge-preview audit.
 - Account-link route contracts и merge policy: `27 passed`.
 - Ruff по затронутым server/test файлам: `PASS`.
 - Python compile и `git diff --check`: `PASS`.
@@ -41,7 +44,10 @@ Pytest сообщил только известные предупреждени
 - Correctness review нашёл и исправил: повторное подключение неактивного email, отсутствующий email-link failure audit и пробелы forced-RLS merge/replay/expiry/rollback coverage.
 - Ponytail review удалил отменённую auto-confirm семантику, лишние поля результата и дублирование response/context/test setup без изменения trust boundaries.
 - Codex Security diff scan исходного auth snapshot: полное покрытие `8/8`, reportable findings `0`.
-- Финальный Codex Security diff scan после всех review-исправлений: scan `6fb45867-0c0e-4975-94aa-dd90e7f47da8`, snapshot `d5f3a4a474d4bc984c47b3189e46c57dc109492c600ed8945fd48dcd459cc31b`, полное покрытие `9/9`, reportable findings `0`.
+- Финальный Codex Security diff scan exact SHA `c98d4d1cbadeb9ffc428dc8689655b4237d99592`:
+  scan `0d032608-adb2-4c71-96b9-f446b5a60a9f`, snapshot
+  `f3bda916014282021ad612f74a3c323cb6132d0b0495696a134e17c8ae0f887d`,
+  полное покрытие `11/11`, reportable findings `0`.
 - TAC-статус проверить не удалось, потому что access connector не подключён; это advisory-ограничение не использовалось как основание для пропуска проверки.
 - Финальный delta повторно прошёл независимый correctness review без новых findings; focused regression matrix перед fast CI прошла.
 - Review PR #5412 дополнительно нашёл и исправил блокировку одного provider-link
@@ -52,6 +58,11 @@ Pytest сообщил только известные предупреждени
 - Ponytail review: новые trust-boundary проверки размещены в существующих
   helper/route/template, новая зависимость и параллельный recovery-механизм не
   добавлены; production-refactor `create_merge_intent` стал короче.
+- Последний review-closeout выровнял внутренний audit error, добавил явную
+  проверку типа результата и общий metadata-only audit подготовки merge preview.
+  Рекомендация заменить exact PostgreSQL role `twobrain_rec_app` случайным именем
+  отклонена: production RLS намеренно проверяет точный `session_user`, а probe
+  сериализован общим advisory lock и удаляется в `finally`.
 
 ## Визуальная проверка
 
@@ -66,9 +77,14 @@ Pytest сообщил только известные предупреждени
 
 - Использованы только синтетические данные домена `example.test` и disposable PostgreSQL.
 - Реальные production-аккаунты, коды, токены, письма и встречи не читались и не изменялись.
-- Production deploy в этой проверке не запускался; перед `--execute` обязателен отдельный dry-run и явное подтверждение владельца.
+- Production deploy в этой проверке не запускался; перед `--execute` обязателен
+  отдельный dry-run exact SHA. Владелец заранее явно разрешил автономные
+  commit/push/PR/merge/release действия для этого hotfix.
 
 ## Closeout
 
-- `infra/scripts/ci-local.sh --fast`: `PASS` — `1103 passed`, server lint `PASS`, Python compile `PASS`, isolated PostgreSQL container удалён.
-- Implementation commit / PR / merge: ожидают T024.
+- `infra/scripts/ci-local.sh --fast` на финальном implementation SHA `c98d4d1c`:
+  `PASS` — `1103 passed`, server lint `PASS`, Python compile `PASS`, isolated
+  PostgreSQL container удалён.
+- Implementation commits готовы; PR #5412 открыт. Push, повторный PR review,
+  merge и production release остаются в T024.
