@@ -1,5 +1,9 @@
 # Quickstart: Одна колонка настроек без legacy gutter
 
+> **Superseded in part by Feature 174:** fallback assertions below are
+> historical Feature 173 evidence. The inner navigation macro and
+> `settings_mode` were removed after a complete production caller trace.
+
 ## Focused checks
 
 ```sh
@@ -22,8 +26,8 @@ apps/server/scripts/run_local_postgres_tests.sh \
   -k 'settings or sidebar or cabinet_settings_calendar_anchor'
 ```
 
-Expected: settings mode renders one outer navigation, no hidden legacy nav,
-content uses column 1, and fallback navigation remains covered.
+Current expectation after Feature 174: one outer navigation, no inner legacy
+macro or reserved column, and unchanged route/fragment boundaries.
 
 ## Visual matrix
 
@@ -98,9 +102,8 @@ state and embedded after state; no private meeting content was captured.
 - Correctness/root-cause: PASS after replacing stale integration assertions
   that required `data-settings-nav`, a duplicate inner landmark and two active
   links.
-- Fallback contract: PASS; direct macro rendering proves
-  `legacy_hidden=False` preserves one accessible inner navigation and
-  `legacy_hidden=True` emits nothing.
+- Historical fallback contract: superseded by Feature 174 after the caller
+  trace proved that no production surface depended on it.
 - Product Design/accessibility: PASS for visible hierarchy, standard content
   origin, responsive reflow, single landmark and native/web non-overlap. Full
   WCAG conformance was not inferred from screenshots.

@@ -3,11 +3,12 @@
 Presentation-only change. No persisted entity, field, migration or state
 transition is introduced.
 
-## Existing presentation state
+## Historical presentation state — superseded by Feature 174
 
-- `settings_mode=true`: outer cabinet sidebar owns settings navigation.
-- `legacy_hidden=true`: existing macro call signal corresponding to that mode.
-- fallback: `legacy_hidden=false`, where the inner navigation remains visible.
+- `settings_mode`: removed after the outer cabinet sidebar became the only
+  production navigation owner.
+- `legacy_hidden`: superseded by Feature 174 and removed with the unused macro.
+- fallback: superseded by Feature 174 after no production consumer was found.
 
-Invariant: exactly one settings navigation owner is rendered. Content occupies
-the first workspace column whenever the outer shell is the owner.
+Current invariant: the outer cabinet sidebar is the only settings navigation
+owner. Content occupies the first workspace column.

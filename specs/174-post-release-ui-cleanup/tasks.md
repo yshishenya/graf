@@ -28,9 +28,9 @@
 
 **Independent Test**: Overview, form, calendar fragment and billing render one outer navigation landmark, one active settings link and one content column in web and embedded modes.
 
-- [ ] T005 [US2] Replace synthetic fallback and legacy selector assertions with primary-sidebar, single-column and fragment-boundary contracts in `apps/server/tests/contract/test_settings_ui_contract.py`, `apps/server/tests/unit/test_cabinet_web_shell.py`, and `apps/server/tests/integration/test_settings_ia_flow.py`
-- [ ] T006 [US2] Remove inner navigation imports/calls, delete the unused macro and obsolete selectors, and mark Feature 173 fallback superseded in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/fragments/`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/components/settings_navigation.html`, `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css`, and `specs/173-settings-single-column/`
-- [ ] T007 [US2] Run focused settings/template tests plus the isolated PostgreSQL settings matrix and record exact results in `specs/174-post-release-ui-cleanup/quickstart.md`
+- [X] T005 [US2] Replace synthetic fallback and legacy selector assertions with primary-sidebar, single-column and fragment-boundary contracts in `apps/server/tests/contract/test_settings_ui_contract.py`, `apps/server/tests/unit/test_cabinet_web_shell.py`, and `apps/server/tests/integration/test_settings_ia_flow.py`
+- [X] T006 [US2] Remove inner navigation imports/calls, delete the unused macro and obsolete selectors, and mark Feature 173 fallback superseded in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/fragments/`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/components/settings_navigation.html`, `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css`, and `specs/173-settings-single-column/`
+- [X] T007 [US2] Run focused settings/template tests plus the isolated PostgreSQL settings matrix and record exact results in `specs/174-post-release-ui-cleanup/quickstart.md`
 
 ---
 
@@ -48,7 +48,7 @@
 
 ## Phase 5: Cross-surface closeout
 
-- [ ] T011 Complete the in-app Browser computed matrix and GRAF Dev visual/accessibility interaction matrix from `specs/174-post-release-ui-cleanup/quickstart.md`
+- [X] T011 Complete the in-app Browser computed matrix and GRAF Dev visual/accessibility interaction matrix from `specs/174-post-release-ui-cleanup/quickstart.md`
 - [ ] T012 Perform correctness, frontend UX/accessibility, clean-room and Ponytail reviews; resolve all actionable findings and record them in `specs/174-post-release-ui-cleanup/analysis.md`
 - [ ] T013 Update `[Unreleased]` in `CHANGELOG.md`, run `git diff --check` and `infra/scripts/ci-local.sh --fast` once, reconcile tasks/issues and record closeout evidence in `specs/174-post-release-ui-cleanup/quickstart.md`
 

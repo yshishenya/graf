@@ -1,5 +1,9 @@
 # Feature Specification: Одна колонка настроек без legacy gutter
 
+> **Superseded in part by Feature 174:** standalone inner-navigation fallback
+> больше не является поддерживаемым production contract. Требования одной
+> outer navigation и одной content column остаются действующими.
+
 **Feature Branch**: `codex/173-settings-single-column`
 
 **Created**: 2026-08-19
@@ -47,8 +51,9 @@ billing surface на широком и узком окне; на каждой с
 - Settings overview, обычные server-backed формы, calendar fragment, provider
   link flow и billing pages используют разные content wrappers, но один layout
   contract.
-- Режим без outer settings navigation сохраняет существующую standalone
-  навигацию; исправление не удаляет поддерживаемый fallback вслепую.
+- **Superseded by Feature 174:** режим без outer settings navigation больше не
+  сохраняет standalone inner navigation; production settings принадлежат outer
+  cabinet shell.
 - Длинные заголовки, validation errors и billing banners не должны расширять
   страницу по горизонтали.
 - Удаление скрытого дубля не должно менять tab order, accessible names или
@@ -68,8 +73,9 @@ billing surface на широком и узком окне; на каждой с
   резервироваться.
 - **FR-004**: Существующие settings routes, active states, forms, CSRF/auth/role
   gates, billing actions и native recording handoff MUST остаться без изменения.
-- **FR-005**: Поддерживаемая standalone-компоновка без outer settings mode MUST
-  сохранить внутреннюю navigation, если такой surface ещё вызывается.
+- **FR-005 (superseded by Feature 174)**: standalone-компоновка без outer
+  settings mode больше не является поддерживаемым production surface; inner
+  navigation удалена после полного caller trace.
 - **FR-006**: Wide, narrow, standalone web и embedded macOS settings surfaces
   MUST сохранять readable content, predictable focus order и отсутствие
   horizontal overflow.

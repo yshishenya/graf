@@ -8,10 +8,10 @@
 - Only existing cabinet main padding separates sidebar and content.
 - Content retains its current maximum readable width and does not overflow.
 
-## Fallback mode
+## Fallback mode — superseded by Feature 174
 
-- If no outer settings mode is present, the existing inner settings navigation
-  remains rendered and accessible.
+- Standalone inner settings navigation is no longer a supported production
+  contract. The outer cabinet sidebar is the only settings navigation owner.
 
 ## Preservation
 

@@ -6,7 +6,6 @@ from uuid import uuid4
 from fastapi.routing import APIRoute
 
 from twobrain_rec_server.cabinet.rendering import render_settings_page
-from twobrain_rec_server.cabinet.templates import get_cabinet_templates
 from twobrain_rec_server.cabinet.view_models import (
     AccountDeviceView,
     AccountProviderView,
@@ -75,9 +74,10 @@ def test_settings_sidebar_exposes_canonical_links_and_active_state() -> None:
 
             assert navigation is not None
             markup = navigation.group(0)
-            assert tuple(
-                re.findall(r'data-settings-primary-nav-item="([^"]+)"', markup)
-            ) == expected_ids
+            assert (
+                tuple(re.findall(r'data-settings-primary-nav-item="([^"]+)"', markup))
+                == expected_ids
+            )
             if category == "overview":
                 assert markup.count('aria-current="page"') == 1
                 assert 'data-settings-primary-nav-item="overview"' in markup
@@ -107,41 +107,6 @@ def test_settings_sidebar_exposes_canonical_links_and_active_state() -> None:
                 )
 
 
-def test_settings_sidebar_keeps_desktop_rail_and_compact_mobile_scroller() -> None:
-    root = Path(__file__).resolve().parents[2]
-    css = (root / "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css").read_text(
-        encoding="utf-8"
-    )
-    navigation_css = css[css.index(".settings-navigation {") : css.index(".settings-scope-badge")]
-
-    mobile_css = css[css.index("@media (max-width: 640px)") :]
-    assert "overflow-x: auto" not in navigation_css
-    assert "overflow-x: auto" in mobile_css
-    assert ".settings-navigation__group { display: contents; }" in mobile_css
-    assert ".settings-navigation__item { flex: 0 0 auto;" in mobile_css
-    assert "min-height: 44px" in navigation_css
-    assert ".settings-navigation__item:focus-visible" in navigation_css
-    assert ".settings-navigation__item-icon" in navigation_css
-    assert "color: var(--muted)" in navigation_css
-    assert "grid-template-columns: 1fr" in css[css.index("@media (max-width: 640px)") :]
-
-
-def test_settings_sidebar_sticky_rail_stays_aligned_with_page_header() -> None:
-    root = Path(__file__).resolve().parents[2]
-    css = (root / "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css").read_text(
-        encoding="utf-8"
-    )
-    sticky_layout_css = css[
-        css.index(".settings-page > .settings-navigation,") : css.index(
-            ".settings-page > .settings-page__content,"
-        )
-    ]
-
-    assert "position: sticky" in sticky_layout_css
-    assert "top: 0" in sticky_layout_css
-    assert "grid-row: 1;" in sticky_layout_css
-
-
 def test_settings_css_has_reduced_motion_and_narrow_reflow_guards() -> None:
     root = Path(__file__).resolve().parents[2]
     css = (root / "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css").read_text(
@@ -157,55 +122,54 @@ def test_settings_css_has_reduced_motion_and_narrow_reflow_guards() -> None:
     assert "overflow-x: auto" not in desktop_reflow
 
 
-def test_settings_mode_uses_one_navigation_and_first_content_column() -> None:
+def test_settings_templates_use_primary_sidebar_and_single_content_column() -> None:
     root = Path(__file__).resolve().parents[2]
     css = (root / "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css").read_text(
         encoding="utf-8"
     )
 
-    single_column_css = css[
-        css.index('.app-shell[data-active-nav="settings"] .settings-page,') : css.index(
-            ".settings-section {"
-        )
-    ]
+    single_column_css = css[css.index(".settings-page,") : css.index(".settings-section {")]
     assert "grid-template-columns: minmax(0, 1fr)" in single_column_css
     assert "grid-column: 1" in single_column_css
     assert "gap: 0" in single_column_css
+    assert ".settings-navigation" not in css
+    assert ".settings-page {\n  grid-template-columns" not in css
 
     for page in (
         render_settings_page(category="summaries"),
         render_settings_page(category="recording", embedded=True),
     ):
-        assert 'class="settings-navigation"' not in page
-        assert "data-settings-navigation-legacy" not in page
+        assert page.count('aria-label="Навигация кабинета"') == 1
+        assert page.count('aria-current="page"') == 1
         assert 'class="settings-page__content"' in page
 
-    calendar_template = (
-        root / "src/twobrain_rec_server/cabinet/templates/cabinet/fragments/calendar_settings.html"
-    ).read_text(encoding="utf-8")
-    assert 'class="calendar-settings__content"' in calendar_template
-
-    template = get_cabinet_templates().from_string(
-        """
-        {% import "cabinet/components/settings_navigation.html" as settings_ui %}
-        {{ settings_ui.navigation(items, active="account", legacy_hidden=legacy_hidden) }}
-        """
+    templates = root / "src/twobrain_rec_server/cabinet/templates/cabinet"
+    content_templates = [*templates.glob("pages/*_content.html")]
+    content_templates.extend(
+        templates / fragment
+        for fragment in (
+            "fragments/calendar_settings.html",
+            "fragments/provider_link_settings.html",
+        )
     )
-    items = [
-        {
-            "id": "account",
-            "label": "Аккаунт и безопасность",
-            "href": "/settings/account",
-            "icon": "settings",
-            "group_label": "Аккаунт",
-        }
-    ]
+    for template in content_templates:
+        source = template.read_text(encoding="utf-8")
+        assert "components/settings_navigation.html" not in source, template
+        assert "settings_ui.navigation(" not in source, template
 
-    fallback = template.render(items=items, legacy_hidden=False)
-    assert fallback.count('aria-label="Разделы настроек"') == 1
-    assert 'data-settings-nav="account"' in fallback
-    assert 'aria-current="page"' in fallback
-    assert template.render(items=items, legacy_hidden=True).strip() == ""
+    calendar_template = content_templates[-2].read_text(encoding="utf-8")
+    provider_template = content_templates[-1].read_text(encoding="utf-8")
+    assert (
+        'id="calendar-settings-region" data-cabinet-fragment="calendar-settings"'
+        in calendar_template
+    )
+    assert 'class="calendar-settings__content"' in calendar_template
+    assert '<main id="cabinet-main" class="cabinet-main" tabindex="-1">' in provider_template
+    assert 'class="settings-page__content"' in provider_template
+    assert not (templates / "components/settings_navigation.html").exists()
+    assert "settings_mode=" not in (
+        root / "src/twobrain_rec_server/cabinet/rendering_shared.py"
+    ).read_text(encoding="utf-8")
 
 
 def test_settings_overview_keeps_navigation_primary_and_copy_compact() -> None:
@@ -235,8 +199,6 @@ def test_settings_overview_matches_product_reference_geometry() -> None:
     assert "min-height: 24px;" in redesign
     assert "padding: 2px 7px;" in redesign
     assert "font: 600 11px ui-monospace" in redesign
-    assert "gap: 4px;" in css[css.index(".settings-navigation {"):]
-    assert "margin: 14px 10px 5px;" in css[css.index(".settings-navigation__group-label {"):]
 
 
 def test_recording_settings_keep_native_boundary_copy_compact() -> None:
@@ -251,7 +213,10 @@ def test_recording_settings_keep_native_boundary_copy_compact() -> None:
     assert 'data-sidebar-download href="/download"' in page
     assert page.count("data-sidebar-download") == 1
     assert "data-sidebar-download" not in embedded_page
-    assert '/desktop/settings/meeting-detection">Открыть настройки записи в приложении' in embedded_page
+    assert (
+        '/desktop/settings/meeting-detection">Открыть настройки записи в приложении'
+        in embedded_page
+    )
 
 
 def test_settings_account_close_phrase_is_described_to_confirmation_field() -> None:
@@ -286,11 +251,7 @@ def test_calendar_provider_anchor_preserves_keyboard_focus_target() -> None:
 
 
 def test_settings_route_map_has_no_arbitrary_category_redirect() -> None:
-    paths = {
-        route.path
-        for route in settings_router.routes
-        if isinstance(route, APIRoute)
-    }
+    paths = {route.path for route in settings_router.routes if isinstance(route, APIRoute)}
 
     assert paths >= {
         "/settings",
@@ -333,11 +294,7 @@ def test_account_profile_and_session_mutations_are_csrf_protected() -> None:
         "/settings/account/sessions/{session_id}/revoke",
         "/desktop/settings/account/sessions/{session_id}/revoke",
     }
-    routes = {
-        route.path: route
-        for route in settings_router.routes
-        if isinstance(route, APIRoute)
-    }
+    routes = {route.path: route for route in settings_router.routes if isinstance(route, APIRoute)}
     assert expected <= routes.keys()
     for path in expected:
         dependencies = {
@@ -355,11 +312,7 @@ def test_account_preferences_and_provider_unlink_are_csrf_protected() -> None:
         "/settings/account/providers/{identity_id}/unlink",
         "/desktop/settings/account/providers/{identity_id}/unlink",
     }
-    routes = {
-        route.path: route
-        for route in settings_router.routes
-        if isinstance(route, APIRoute)
-    }
+    routes = {route.path: route for route in settings_router.routes if isinstance(route, APIRoute)}
     assert expected <= routes.keys()
     for path in expected:
         dependencies = {
@@ -422,7 +375,9 @@ def test_account_markup_accepts_only_safe_presentation_fields() -> None:
 
 def test_settings_templates_keep_security_copy_metadata_only() -> None:
     root = Path(__file__).resolve().parents[2]
-    for path in root.glob("src/twobrain_rec_server/cabinet/templates/cabinet/pages/settings*_content.html"):
+    for path in root.glob(
+        "src/twobrain_rec_server/cabinet/templates/cabinet/pages/settings*_content.html"
+    ):
         source = path.read_text(encoding="utf-8")
         assert "provider_subject" not in source
         assert "candidate_identity_subject" not in source
@@ -434,8 +389,7 @@ def test_settings_accessibility_contract_preserves_dialog_focus_and_form_state()
         encoding="utf-8"
     )
     calendar = (
-        root
-        / "src/twobrain_rec_server/cabinet/templates/cabinet/fragments/calendar_settings.html"
+        root / "src/twobrain_rec_server/cabinet/templates/cabinet/fragments/calendar_settings.html"
     ).read_text(encoding="utf-8")
 
     assert "dialogOpeners" in script

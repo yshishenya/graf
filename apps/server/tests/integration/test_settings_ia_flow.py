@@ -3,7 +3,9 @@ import re
 from tests.contract.test_ingest_openapi_contract import auth_headers
 
 
-def test_settings_overview_and_categories_are_reachable_in_browser_and_embedded_modes(client) -> None:
+def test_settings_overview_and_categories_are_reachable_in_browser_and_embedded_modes(
+    client,
+) -> None:
     paths = (
         "/settings",
         "/settings/recording",
@@ -25,8 +27,34 @@ def test_settings_overview_and_categories_are_reachable_in_browser_and_embedded_
         main_id = "calendar-settings-region" if "integrations/calendar" in path else "cabinet-main"
         assert f'id="{main_id}"' in response.text
         assert "Настройки" in response.text
+        assert response.text.count('aria-label="Навигация кабинета"') == 1
+        primary_sidebar = re.search(
+            r'<nav class="cabinet-sidebar-nav cabinet-sidebar-nav--settings".*?</nav>',
+            response.text,
+            flags=re.DOTALL,
+        )
+        assert primary_sidebar is not None
+        assert primary_sidebar.group(0).count('aria-current="page"') == 1
+        content_class = (
+            "calendar-settings__content"
+            if "integrations/calendar" in path
+            else "settings-page__content"
+        )
+        assert f'class="{content_class}"' in response.text
         if "/settings/account" in path:
             assert "account-navigation__logout" not in response.text
+
+
+def test_calendar_htmx_response_preserves_fragment_boundary_without_sidebar(client) -> None:
+    for path in ("/settings/integrations/calendar", "/desktop/settings/integrations/calendar"):
+        response = client.get(path, headers={**auth_headers(), "HX-Request": "true"})
+
+        assert response.status_code == 200
+        assert response.text.count('id="calendar-settings-region"') == 1
+        assert 'data-cabinet-fragment="calendar-settings"' in response.text
+        assert 'class="calendar-settings__content"' in response.text
+        assert 'aria-label="Навигация кабинета"' not in response.text
+        assert "<!doctype html>" not in response.text
 
 
 def test_account_center_aliases_are_reachable_from_cabinet_navigation(client) -> None:
@@ -67,9 +95,7 @@ def test_settings_sidebar_is_present_and_calendar_maps_to_parent_category(client
         response = client.get(path, headers=auth_headers())
         assert response.status_code == 200
         for category_id in expected_ids:
-            assert response.text.count(
-                f'data-settings-primary-nav-item="{category_id}"'
-            ) == 1
+            assert response.text.count(f'data-settings-primary-nav-item="{category_id}"') == 1
         assert response.text.count('aria-label="Навигация кабинета"') == 1
         assert 'aria-label="Разделы настроек"' not in response.text
         assert response.text.count('aria-current="page"') == 1

@@ -38,11 +38,14 @@ already selected product IA.
 - Edit every settings/billing template: 21 repetitive changes for one macro
   invariant.
 
-### 2. Preserve the real fallback
+### 2. Preserve the real fallback — superseded by Feature 174
 
-The macro still renders ordinary navigation when `legacy_hidden` is false.
+Feature 174 completed the caller trace and found no production consumer. The
+macro and its standalone fallback were therefore removed; the outer cabinet
+sidebar is the only settings navigation owner.
 
-**Rationale**: avoids removing a supported standalone surface without evidence.
+**Supersession rationale**: the additional evidence required by this decision
+is now available in Feature 174.
 
 ### 3. No JavaScript or route changes
 

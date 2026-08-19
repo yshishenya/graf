@@ -92,3 +92,18 @@ Full CI, deployment, notarization and release publication are outside Feature 17
 - `swift build --package-path apps/macos`: passed (`Build complete`).
 - Scoped `git diff --check`: passed.
 - Source review confirmed that only the unused `GeometryReader` wrapper was removed; the `VStack`, full-size top alignment, rail background, vertical scroll and `HStack + Spacer` disclosure hit region remain unchanged.
+
+### Settings navigation cleanup
+
+- Focused contract/unit settings selection after the final CSS correction: `27 passed, 69 deselected`, with two existing dependency warnings.
+- Isolated PostgreSQL matrix: `33 passed, 97 deselected`; the isolated container was removed successfully.
+- The first fresh Browser check exposed a missed late `.settings-page` redesign owner (`220px 368px`). That duplicate was deleted and an exact source guard now prevents a later two-column owner from returning.
+- Final in-app Browser matrix covered overview, recording, calendar and billing in standalone `1280×720` and embedded `720×720`: one navigation landmark, one active link, no legacy navigation, one content column, no horizontal overflow. Standalone content started at `x≈217`; embedded content at `x=82`.
+- Calendar kept its `calendar-settings-region` HTMX root and content wrapper; the isolated integration test verifies that fragment responses contain no shell/sidebar.
+- Caller search after cleanup found no `settings_navigation.html` import, macro call, `settings_mode` render argument or legacy navigation markup in production source.
+
+### GRAF Dev interaction
+
+- Rebuilt and atomically installed `/Applications/GRAF Dev.app` from this branch with the existing Dev signing identity and loopback-only origin; build, nested signing and final signature verification passed.
+- Fresh app showed the accepted expanded web rail and visible profile. The native inspector toggle remained top-trailing in compact and expanded states, with no overlap against titlebar, web sidebar or content.
+- Two clicks at the unchanged native screen coordinate restored the expanded state. AX exposed truthful `Показать/Скрыть панель управления` labels and help, the expanded settings control and the scroll area.
