@@ -130,3 +130,18 @@ Full CI, deployment, notarization and release publication are outside Feature 17
   dependency or speculative abstraction was added.
 - Final independent correctness/privacy re-review of the complete follow-up
   diff reported no remaining findings.
+
+### Final closeout
+
+- Implementation SHA: `3a4ce527`.
+- `infra/scripts/ci-local.sh --fast` ran exactly once after implementation:
+  legacy-audio guard passed, server unit suite `1103 passed`, server lint passed,
+  Python compile passed, and the isolated PostgreSQL container was removed.
+  The only warnings were the two already known dependency warnings.
+- `[Unreleased]` documents the user-visible sidebar, settings, native inspector
+  and fair-use fixes. Final documentation-only reconciliation does not alter the
+  tested implementation SHA.
+- GitHub issues `#5372`–`#5384` received Russian task-specific evidence
+  comments and remain open until PR/merge evidence exists.
+- The in-app Browser viewport override was reset, temporary Browser tabs were
+  closed, and loopback test servers on ports `8084`–`8086` were stopped.
