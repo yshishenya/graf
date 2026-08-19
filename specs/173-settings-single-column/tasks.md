@@ -29,7 +29,7 @@ narrow viewports.
 
 - [X] T005 [P] Update the Russian Unreleased entry in `CHANGELOG.md`
 - [X] T006 Complete in-app Browser and GRAF Dev visual/accessibility matrix and record metadata-only evidence in `specs/173-settings-single-column/quickstart.md`
-- [ ] T007 Perform correctness, Product Design, accessibility and Ponytail reviews, run `infra/scripts/ci-local.sh --fast` once, synchronize issues and create the validated implementation commit
+- [X] T007 Perform correctness, Product Design, accessibility and Ponytail reviews, run `infra/scripts/ci-local.sh --fast` once, synchronize issues and create the validated implementation commit
 
 ## Dependencies & Execution Order
 

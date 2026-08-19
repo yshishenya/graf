@@ -107,3 +107,11 @@ state and embedded after state; no private meeting content was captured.
 - Ponytail: Lean already. The implementation remains one macro guard and one
   existing settings-mode CSS override; no JavaScript, new state, breakpoint,
   dependency or per-page caller edits were added.
+
+### Integration metadata
+
+- Validated implementation commit: `af559060`.
+- Pull request: `#5371`.
+- Tasks T001–T007 were synchronized to issues `#5364`–`#5370` with validation
+  comments. Issues remain open until the PR is merged; PR #5371 carries the
+  closing references.
