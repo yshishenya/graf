@@ -99,5 +99,5 @@ Pytest сообщил только известные предупреждени
   `58768556`:
   `PASS` — `1103 passed`, server lint `PASS`, Python compile `PASS`, isolated
   PostgreSQL container удалён.
-- Implementation commits готовы; PR #5412 открыт. Push, повторный PR review,
-  merge и production release остаются в T024.
+- PR #5412 проверен, все review-треды закрыты и merge `0a9fcd39` выполнен в
+  `master`. T024 закрыта; production deploy остаётся отдельным release gate.

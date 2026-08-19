@@ -96,7 +96,7 @@ empty-other preview and embedded route assertions; no data changes before POST c
 - [X] T021 Run focused quickstart PostgreSQL/RLS tests and Ruff checks from `specs/175-fix-email-auth-recovery/quickstart.md`; record metadata-only results in `specs/175-fix-email-auth-recovery/evidence.md`
 - [X] T022 Run independent correctness, auth/security, UX/accessibility and Ponytail reviews; fix every actionable finding and repeat focused regressions
 - [X] T023 Run `infra/scripts/ci-local.sh --fast` once on the final implementation and reconcile `tasks.md`, GitHub issues and evidence before PR
-- [ ] T024 After validation and explicit user approval, prepare a separate logical implementation commit, Russian PR with high-risk evidence, independent review and merge; do not deploy until the production gate is separately approved
+- [X] T024 After validation and explicit user approval, prepare a separate logical implementation commit, Russian PR with high-risk evidence, independent review and merge; do not deploy until the production gate is separately approved
 
 ## Dependencies and execution order
 
