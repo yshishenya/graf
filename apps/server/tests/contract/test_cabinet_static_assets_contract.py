@@ -112,6 +112,80 @@ def test_cabinet_rail_ready_state_geometry() -> None:
     assert f"{expanded_selector}\n  --playback-inline-start: var(--app-sidebar-width);\n  grid-template-columns: var(--app-sidebar-width) minmax(0, 1fr);" in css
 
 
+def test_cabinet_collapsed_rail_uses_one_centered_control_geometry() -> None:
+    css = (STATIC_DIR / "cabinet.css").read_text()
+    collapsed_start = css.index(
+        'html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned) .sidebar {'
+    )
+    collapsed_end = css.index("\n.sidebar-download {", collapsed_start)
+    collapsed_css = css[collapsed_start:collapsed_end]
+
+    collapsed_root = (
+        'html[data-cabinet-js="ready"] '
+        ".app-shell[data-cabinet-shell]:not(.is-rail-pinned)"
+    )
+    assert (
+        f"{collapsed_root} .cabinet-rail-toggle,\n"
+        f"{collapsed_root} .cabinet-sidebar-nav__item,\n"
+        f"{collapsed_root} .sidebar-app-update,\n"
+        f"{collapsed_root} .sidebar-download,\n"
+        f"{collapsed_root} .sidebar-profile__trigger {{\n"
+        "  width: 40px;\n"
+        "  height: 40px;\n"
+        "  min-width: 40px;\n"
+        "  min-height: 40px;\n"
+        "  margin-inline: auto;\n"
+        "  padding: 0;\n"
+        "}"
+    ) in collapsed_css
+    for rule in (
+        f"{collapsed_root} .sidebar-foot {{\n"
+        "  width: 52px;\n"
+        "  opacity: 1;\n"
+        "  pointer-events: auto;\n"
+        "  visibility: visible;\n"
+        "}",
+        f"{collapsed_root} .cabinet-sidebar-nav {{\n  gap: 4px;\n}}",
+        f"{collapsed_root} .cabinet-sidebar-nav__item {{\n"
+        "  grid-template-columns: 1fr;\n"
+        "  gap: 0;\n"
+        "  place-items: center;\n"
+        "}",
+        f"{collapsed_root} .cabinet-rail-toggle {{\n  inset-block-start: 0;\n}}",
+        f"{collapsed_root} .sidebar-app-update,\n"
+        f"{collapsed_root} .sidebar-download,\n"
+        f"{collapsed_root} .sidebar-profile__trigger {{\n"
+        "  display: flex;\n"
+        "  gap: 0;\n"
+        "  justify-content: center;\n"
+        "}",
+    ):
+        assert rule in collapsed_css
+    assert collapsed_css.rfind("  width: 40px;") > collapsed_css.rfind("  width: 52px;")
+
+    assert (
+        ".app-shell[data-cabinet-shell] .cabinet-rail-toggle {\n"
+        "  position: relative;\n"
+        "  display: grid;\n"
+        "  width: 40px;\n"
+        "  height: 40px;\n"
+        "  min-width: 40px;\n"
+        "  min-height: 40px;\n"
+        "  margin-inline: 2px auto;\n"
+        "  inset-block-start: -4px;"
+    ) in css
+    assert (
+        ".sidebar {\n"
+        "  padding: 12px 10px;\n"
+        "  gap: 12px;"
+    ) in css
+    assert (
+        ".app-shell.desktop-embedded.is-rail-pinned .cabinet-rail-toggle {\n"
+        "    margin-inline-start: 6px;\n"
+        "    inset-block-start: 0;"
+    ) in css
+
+
 def test_cabinet_playback_shares_ready_state_geometry() -> None:
     css = (STATIC_DIR / "cabinet.css").read_text()
 

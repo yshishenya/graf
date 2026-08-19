@@ -4189,6 +4189,10 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
     border-color: transparent;
     background: transparent;
   }
+  .app-shell.desktop-embedded.is-rail-pinned .cabinet-rail-toggle {
+    margin-inline-start: 6px;
+    inset-block-start: 0;
+  }
   .desktop-embedded .cabinet-rail-toggle [data-icon="panel-left-close"],
   .desktop-embedded.is-rail-pinned .cabinet-rail-toggle [data-icon="panel-left-open"] {
     display: none;
@@ -4668,11 +4672,14 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 
 /* Shared shell controls stay usable after browser and HTMX initialization. */
 .app-shell[data-cabinet-shell] .cabinet-rail-toggle {
+  position: relative;
   display: grid;
   width: 40px;
   height: 40px;
   min-width: 40px;
   min-height: 40px;
+  margin-inline: 2px auto;
+  inset-block-start: -4px;
   padding: 0;
   place-items: center;
   border-color: transparent;
@@ -4736,10 +4743,26 @@ html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned
 html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned) .cabinet-workspace-header {
   display: none;
 }
-html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned) .cabinet-sidebar-nav__item,
-html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned) .sidebar-download,
 html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned) .sidebar-foot {
   width: 52px;
+  opacity: 1;
+  pointer-events: auto;
+  visibility: visible;
+}
+html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned) .cabinet-sidebar-nav {
+  gap: 4px;
+}
+html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned) .cabinet-rail-toggle,
+html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned) .cabinet-sidebar-nav__item,
+html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned) .sidebar-app-update,
+html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned) .sidebar-download,
+html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned) .sidebar-profile__trigger {
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  min-height: 40px;
+  margin-inline: auto;
+  padding: 0;
 }
 html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned) .cabinet-workspace-header__text,
 html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned) .cabinet-sidebar-nav__label,
@@ -4749,8 +4772,19 @@ html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned
   display: none;
 }
 html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned) .cabinet-sidebar-nav__item {
-  grid-template-columns: 40px;
-  padding: 0;
+  grid-template-columns: 1fr;
+  gap: 0;
+  place-items: center;
+}
+html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned) .cabinet-rail-toggle {
+  inset-block-start: 0;
+}
+html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned) .sidebar-app-update,
+html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned) .sidebar-download,
+html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned) .sidebar-profile__trigger {
+  display: flex;
+  gap: 0;
+  justify-content: center;
 }
 
 .sidebar-download {
