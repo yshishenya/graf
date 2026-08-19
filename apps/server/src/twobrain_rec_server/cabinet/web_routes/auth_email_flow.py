@@ -7,7 +7,7 @@ from uuid import UUID
 
 from fastapi import Request
 from fastapi.responses import HTMLResponse
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -343,7 +343,7 @@ async def _consume_email_login_code(
             request=request,
             workspace_id=workspace_id,
             outcome="failure",
-            error_code="email_identity_not_found",
+            error_code="email_code_invalid",
         )
         await _finalize_email_callback(
             db,
@@ -608,7 +608,10 @@ async def consume_email_link_code(
                 UserIdentity.status == "active",
                 or_(
                     ExternalIdentity.is_active.is_(True),
-                    ExternalIdentity.provider == EMAIL_LOGIN_PROVIDER,
+                    and_(
+                        ExternalIdentity.user_id == principal.user_id,
+                        ExternalIdentity.provider == EMAIL_LOGIN_PROVIDER,
+                    ),
                 ),
                 func.lower(ExternalIdentity.email) == email,
             )

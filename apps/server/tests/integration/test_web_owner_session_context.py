@@ -905,6 +905,58 @@ def test_authenticated_email_link_reactivates_inactive_identity(client) -> None:
     assert client.portal.call(read_result) == (1, True, True, "completed")
 
 
+def test_authenticated_email_link_rejects_foreign_inactive_identity(client) -> None:
+    email = "unlinked-foreign@example.test"
+    foreign_user_id = uuid4()
+    foreign_identity_id = uuid4()
+
+    async def seed_foreign_inactive_identity() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            db.add(
+                UserIdentity(
+                    id=foreign_user_id,
+                    organization_id=ORG_ID,
+                    external_subject=str(foreign_user_id),
+                )
+            )
+            await db.flush()
+            db.add(
+                ExternalIdentity(
+                    id=foreign_identity_id,
+                    user_id=foreign_user_id,
+                    provider="email",
+                    provider_subject=email,
+                    email=email,
+                    is_verified=False,
+                    is_active=False,
+                )
+            )
+            await db.commit()
+
+    client.portal.call(seed_foreign_inactive_identity)
+    csrf = _login_owner_and_get_settings_csrf(client)
+    state, code, link_csrf = _start_email_link(client, email=email, csrf_token=csrf)
+    response = client.post(
+        "/settings/account/email-link/verify",
+        data={"email": email, "code": code, "state": state, "csrf_token": link_csrf},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400
+
+    async def read_result() -> tuple[str | None, int, bool, bool]:
+        async with client.app_state["sessionmaker"]() as db:
+            callback = await db.scalar(
+                select(AuthCallbackState).where(AuthCallbackState.state_nonce == state)
+            )
+            identity = await db.get(ExternalIdentity, foreign_identity_id)
+            intents = list(await db.scalars(select(AccountMergeIntent)))
+            assert callback is not None and identity is not None
+            return callback.error_code, len(intents), identity.is_active, identity.is_verified
+
+    assert client.portal.call(read_result) == ("provider_link_conflict", 0, False, False)
+
+
 @pytest.mark.parametrize(
     ("case", "expected_result", "expected_error"),
     (("invalid", "failed", "email_code_invalid"), ("expired", "expired", "email_code_expired")),

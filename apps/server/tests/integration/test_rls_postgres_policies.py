@@ -1566,10 +1566,16 @@ async def test_email_auth_completion_crosses_workspace_under_forced_rls(
 
 
 @pytest.mark.asyncio
-async def test_email_auth_invalid_code_writes_audit_then_finishes_exact_callback(
+@pytest.mark.parametrize(
+    ("submitted_code", "expected_callback_error"),
+    (("000000", "email_code_invalid"), ("381204", "email_identity_not_found")),
+)
+async def test_email_auth_failures_write_public_audit_then_finish_exact_callback(
     app_rls_engine: AsyncEngine,
     migrated_postgres_urls: MigratedPostgresUrls,
     rls_engine: AsyncEngine,
+    submitted_code: str,
+    expected_callback_error: str,
 ) -> None:
     ids = await _seed_probe_rows(rls_engine)
     email = f"email-auth-invalid-{ids['slug']}@example.test"
@@ -1593,7 +1599,7 @@ async def test_email_auth_invalid_code_writes_audit_then_finishes_exact_callback
             request=_email_auth_request(settings),
             workspace_id=ids["workspace_a"],
             email=email,
-            code="000000",
+            code=submitted_code,
             state_nonce=state.state_nonce,
             next_path="/meetings",
         )
@@ -1610,15 +1616,17 @@ async def test_email_auth_invalid_code_writes_audit_then_finishes_exact_callback
                 feature_area="security",
             ),
         )
-        callback_result = await conn.scalar(
-            text(
-                """
-                select result from auth_callback_states
-                where state_nonce = :state_nonce and error_code = 'email_code_invalid'
-                """
-            ),
-            {"state_nonce": state.state_nonce},
-        )
+        callback_result, callback_error = (
+            await conn.execute(
+                text(
+                    """
+                    select result, error_code from auth_callback_states
+                    where state_nonce = :state_nonce
+                    """
+                ),
+                {"state_nonce": state.state_nonce},
+            )
+        ).one()
         audit_count = await conn.scalar(
             text(
                 """
@@ -1626,12 +1634,14 @@ async def test_email_auth_invalid_code_writes_audit_then_finishes_exact_callback
                 where workspace_id = :workspace_id
                   and event_type = 'email_auth_started'
                   and outcome = 'failure'
+                  and metadata_json ->> 'error_code' = 'email_code_invalid'
                 """
             ),
             {"workspace_id": ids["workspace_a"]},
         )
 
     assert callback_result == "failed"
+    assert callback_error == expected_callback_error
     assert audit_count == 1
 
 
