@@ -4,7 +4,7 @@
 
 **Created**: 2026-08-19
 
-**Status**: Ready for planning
+**Status**: Implemented and validated
 
 **Input**: Регрессия после срезов 165 и 170: native-toggle macOS должен быть
 сверху в обоих состояниях, а левое меню должно предсказуемо выглядеть и не

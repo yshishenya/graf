@@ -4,7 +4,7 @@
 
 **Created**: 2026-08-19
 
-**Status**: Ready for implementation
+**Status**: Implemented and validated
 
 **Input**: Отдельный successor-срез для нижней панели playback: она должна
 начинаться там же, где заканчивается актуальная левая rail.

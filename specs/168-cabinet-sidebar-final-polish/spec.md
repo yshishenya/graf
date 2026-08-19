@@ -4,7 +4,7 @@
 
 **Created**: 2026-08-19
 
-**Status**: Ready for implementation
+**Status**: Implemented and validated
 
 **Input**: Пользовательская регрессия: левое меню должно выглядеть одинаково
 понятно в раскрытом и компактном состоянии, а нижний playback не должен

@@ -4,7 +4,7 @@
 
 **Created**: 2026-08-19
 
-**Status**: Ready for implementation
+**Status**: Superseded by Feature 171 after user validation
 
 **Input**: В macOS-приложении кнопка native right panel сейчас находится сверху
 в раскрытом состоянии и снизу в компактном. Обе кнопки должны быть снизу.

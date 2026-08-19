@@ -4,7 +4,7 @@
 
 **Created**: 2026-08-19
 
-**Status**: Ready for clarification
+**Status**: Implemented and validated
 
 **Input**: Регрессия compact left rail: toggle, navigation, active state и
 профиль смещены относительно друг друга; требуется восстановить простую
