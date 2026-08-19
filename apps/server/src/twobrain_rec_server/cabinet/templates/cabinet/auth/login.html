@@ -6,7 +6,10 @@
       </picture>
     </div>
     <div>
-      {% if invitation_flow %}
+      {% if recovery_mode %}
+      <h1>Восстановить доступ</h1>
+      <div class="auth-subtitle">Вход по email остановлен, чтобы защитить данные ваших аккаунтов.</div>
+      {% elif invitation_flow %}
       <h1>Откройте итоги встречи</h1>
       <div class="auth-subtitle">Введите email, на который пришло приглашение. Если аккаунта GRAF ещё нет, он создастся автоматически.</div>
       {% else %}
@@ -17,9 +20,10 @@
     {% if error_message %}
     <div class="auth-alert" role="alert">{{ error_message }}</div>
     {% endif %}
+    {% if providers or not recovery_mode %}
     <div class="auth-methods">
       <div class="auth-method-title">Способ входа</div>
-      <div class="auth-actions{% if providers %} auth-provider-grid{% endif %}">
+      <div class="auth-actions{% if providers %} auth-provider-grid{% endif %}{% if recovery_mode %} auth-provider-grid--recovery{% endif %}">
         {% if not workspace_configured %}
         <div class="truth-copy">Кабинет входа не настроен. Проверьте серверные настройки.</div>
         {% elif providers %}
@@ -42,6 +46,8 @@
         {% endif %}
       </div>
     </div>
+    {% endif %}
+    {% if not recovery_mode %}
     <div class="auth-divider">или</div>
     <form class="auth-form" action="/login/email/start" method="post">
       <label>
@@ -51,6 +57,8 @@
       <input type="hidden" name="next" value="{{ next_path }}">
       <button class="primary" type="submit">{% if invitation_flow %}Войти и открыть итоги{% else %}Войти{% endif %}</button>
     </form>
+    {% endif %}
+    {% if not recovery_mode %}
     <div class="auth-secondary">
       <span class="mini-link is-disabled" aria-disabled="true">Войти через SSO</span>
       {% if invitation_flow %}
@@ -59,6 +67,7 @@
       <div class="auth-signup">Для нового аккаунта используйте отдельную ссылку регистрации или приглашение.</div>
       {% endif %}
     </div>
+    {% endif %}
   </section>
   {% if not embedded %}
   <aside class="auth-download auth-download--browser" aria-label="Приложение GRAF">

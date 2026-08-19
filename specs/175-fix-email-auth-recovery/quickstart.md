@@ -14,7 +14,8 @@
    second or orphan session; callback and audit finish in allowed contexts and
    the transaction is all-or-nothing.
 3. Early and late ambiguous email: localized explanation plus active Яндекс
-   ID/VK actions in web and embedded-safe next path; no session and no account selection.
+   ID/VK actions leading to account settings; disabled providers produce an
+   honest fallback without promised actions, session or account selection.
 4. Authenticated email link: 0/1/>1 other users produce link/preview/ambiguity;
    an empty other account still requires preview and explicit confirm.
 5. Merge terminal paths: preview, blocked, completed and error restore exact
@@ -28,16 +29,22 @@
 ## Commands
 
 ```sh
-cd /Users/yshishenya/.codex/worktrees/auth-hotfix-175
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
 apps/server/scripts/run_local_postgres_tests.sh --focused \
   tests/integration/test_web_owner_session_context.py \
   tests/integration/test_account_merge.py \
-  tests/integration/test_rls_postgres_policies.py -k 'email_auth or email_link or provider_link'
+  tests/integration/test_rls_postgres_policies.py \
+  tests/contract/test_auth_contracts.py \
+  tests/contract/test_account_routes.py \
+  -k 'email_auth or email_link or provider_link or ambiguous_email or desktop'
 
 cd apps/server
 uv run --extra dev ruff check \
   src/twobrain_rec_server/cabinet/web_routes/auth.py \
   src/twobrain_rec_server/cabinet/web_routes/auth_email_flow.py \
+  src/twobrain_rec_server/cabinet/web_routes/settings.py \
+  src/twobrain_rec_server/cabinet/auth_rendering.py \
   src/twobrain_rec_server/auth/provider_links.py \
   tests/integration/test_web_owner_session_context.py \
   tests/integration/test_account_merge.py \

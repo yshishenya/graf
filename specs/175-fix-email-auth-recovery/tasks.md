@@ -57,7 +57,7 @@ active provider links, no account details and no session.
 
 ### Tests for User Story 2
 
-- [X] T009 [P] [US2] Add early/late ambiguity, provider availability and safe-next HTTP coverage in `apps/server/tests/integration/test_web_owner_session_context.py`
+- [X] T009 [P] [US2] Add early/late ambiguity, provider availability, disabled-provider fallback and settings-safe-next HTTP coverage in `apps/server/tests/integration/test_web_owner_session_context.py`
 - [X] T010 [P] [US2] Add accessible recovery-copy and configured-provider rendering contracts in `apps/server/tests/contract/test_auth_contracts.py`
 
 ### Implementation for User Story 2
@@ -78,7 +78,7 @@ empty-other preview and embedded route assertions; no data changes before POST c
 ### Tests for User Story 3
 
 - [X] T013 [P] [US3] Add 0/1/>1 candidate, empty-other preview, replay and merge-error rollback cases in `apps/server/tests/integration/test_account_merge.py`
-- [X] T014 [P] [US3] Add forced-RLS email-link and OAuth provider-link terminal context regressions in `apps/server/tests/integration/test_rls_postgres_policies.py`
+- [X] T014 [P] [US3] Add forced-RLS email-link, OAuth provider-link terminal context, same-state single-winner and different-state active-intent race regressions in `apps/server/tests/integration/test_rls_postgres_policies.py`
 - [X] T015 [P] [US3] Add embedded verify/resend/back and preview/confirm/cancel route parity contracts in `apps/server/tests/contract/test_account_routes.py` and `apps/server/tests/integration/test_web_owner_session_context.py`
 
 ### Implementation for User Story 3
@@ -94,9 +94,9 @@ empty-other preview and embedded route assertions; no data changes before POST c
 
 - [X] T020 [P] Update user-facing `[Unreleased]` auth/recovery notes in `CHANGELOG.md`
 - [X] T021 Run focused quickstart PostgreSQL/RLS tests and Ruff checks from `specs/175-fix-email-auth-recovery/quickstart.md`; record metadata-only results in `specs/175-fix-email-auth-recovery/evidence.md`
-- [X] T022 Run independent correctness, auth/security, UX/accessibility and Ponytail reviews; fix every actionable finding and repeat focused regressions
+- [ ] T022 Run independent correctness, auth/security, UX/accessibility and Ponytail reviews; fix every actionable finding and repeat focused regressions
 - [X] T023 Run `infra/scripts/ci-local.sh --fast` once on the final implementation and reconcile `tasks.md`, GitHub issues and evidence before PR
-- [ ] T024 Prepare a separate logical implementation commit, Russian PR with high-risk evidence, independent review and merge; do not deploy until the production gate is separately approved
+- [ ] T024 After validation and explicit user approval, prepare a separate logical implementation commit, Russian PR with high-risk evidence, independent review and merge; do not deploy until the production gate is separately approved
 
 ## Dependencies and execution order
 

@@ -1060,13 +1060,32 @@ async def _ambiguous_email_recovery_response(
         providers = await _load_browser_login_providers(db, workspace_id)
     except ProblemDetail:
         providers = []
+    has_recovery_provider = any(
+        getattr(provider, "provider", None) in {"yandex", "vk"}
+        and bool(getattr(provider, "enabled", False))
+        for provider in providers
+    )
+    recovery_next = (
+        next_path
+        if invitation_flow
+        else (
+            "/desktop/settings/account"
+            if next_path.startswith("/desktop/")
+            else "/settings/account"
+        )
+    )
     return HTMLResponse(
         render_login_page(
             workspace_id=workspace_id,
             providers=providers,
-            next_path=next_path,
-            error="ambiguous_email_recovery_required",
+            next_path=recovery_next,
+            error=(
+                "ambiguous_email_recovery_required"
+                if has_recovery_provider
+                else "ambiguous_email_recovery_unavailable"
+            ),
             invitation_flow=invitation_flow,
+            recovery_mode=True,
             product_analytics_provider=build_request_browser_provider_context(
                 request, "login_signup"
             ),

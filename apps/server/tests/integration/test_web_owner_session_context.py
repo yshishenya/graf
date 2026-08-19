@@ -1394,6 +1394,10 @@ def test_browser_email_signup_fails_closed_for_ambiguous_existing_users(client) 
     assert "VK ID" in login_start.text
     assert 'href="/login/yandex/start?' in login_start.text
     assert 'href="/login/vk/start?' in login_start.text
+    assert "next=%2Fsettings%2Faccount" in login_start.text
+    assert "GRAF откроет настройки" in login_start.text
+    assert "Восстановить доступ" in login_start.text
+    assert 'action="/login/email/start"' not in login_start.text
     assert 'name="state"' not in login_start.text
 
     start = client.post(
@@ -1456,6 +1460,20 @@ def test_browser_email_signup_fails_closed_for_ambiguous_existing_users(client) 
         1,
         ("failed", "ambiguous_email_recovery_required"),
     )
+
+    client.portal.call(_set_workspace_yandex_policy, client, False)
+    client.portal.call(_set_workspace_vk_policy, client, False)
+    unavailable = client.post(
+        "/login/email/start",
+        data={"email": ambiguous_email, "next": "/meetings"},
+    )
+    assert unavailable.status_code == 400
+    assert "Яндекс ID и VK сейчас недоступны" in unavailable.text
+    assert 'href="/login/yandex/start?' not in unavailable.text
+    assert 'href="/login/vk/start?' not in unavailable.text
+    assert 'action="/login/email/start"' not in unavailable.text
+    assert "T-Банк ID" not in unavailable.text
+    assert "Способ входа" not in unavailable.text
 
 
 def test_browser_email_signup_code_is_bound_to_started_email(client) -> None:

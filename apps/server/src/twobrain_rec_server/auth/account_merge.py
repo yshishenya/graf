@@ -13,6 +13,7 @@ from hashlib import sha256
 from uuid import UUID
 
 from sqlalchemy import delete, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.auth.audit import write_auth_audit_event
@@ -344,48 +345,43 @@ async def create_merge_intent(
         )
         .with_for_update()
     )
-    if existing is not None:
-        await apply_tenant_context(
-            db,
-            AccountMergeTenantContext(
-                intent_id=existing.id,
-                workspace_id=workspace_id,
-                survivor_user_id=survivor_user_id,
-                source_user_id=source_user_id,
-            ),
-        )
+    intent = existing
+    if intent is None:
         preview = await _merge_preview_from_db(
             db,
             workspace_id=workspace_id,
             survivor_user_id=survivor_user_id,
             source_user_id=source_user_id,
         )
-        existing.preview_fingerprint = preview.fingerprint
-        existing.status = "blocked" if preview.blocker_codes else "preview_ready"
-        existing.blocker_code = preview.blocker_codes[0] if preview.blocker_codes else None
-        existing.email_proof_state = email_proof_state
-        existing.oauth_proof_state = oauth_proof_state
-        return existing, preview
-    preview = await _merge_preview_from_db(
-        db,
-        workspace_id=workspace_id,
-        survivor_user_id=survivor_user_id,
-        source_user_id=source_user_id,
-    )
-    intent = AccountMergeIntent(
-        workspace_id=workspace_id,
-        survivor_user_id=survivor_user_id,
-        source_user_id=source_user_id,
-        email_proof_state=email_proof_state,
-        oauth_proof_state=oauth_proof_state,
-        preview_fingerprint=preview.fingerprint,
-        policy_version=preview.policy_version,
-        status="blocked" if preview.blocker_codes else "preview_ready",
-        blocker_code=preview.blocker_codes[0] if preview.blocker_codes else None,
-        expires_at=now + timedelta(seconds=ttl_seconds),
-    )
-    db.add(intent)
-    await db.flush()
+        candidate = AccountMergeIntent(
+            workspace_id=workspace_id,
+            survivor_user_id=survivor_user_id,
+            source_user_id=source_user_id,
+            email_proof_state=email_proof_state,
+            oauth_proof_state=oauth_proof_state,
+            preview_fingerprint=preview.fingerprint,
+            policy_version=preview.policy_version,
+            status="blocked" if preview.blocker_codes else "preview_ready",
+            blocker_code=preview.blocker_codes[0] if preview.blocker_codes else None,
+            expires_at=now + timedelta(seconds=ttl_seconds),
+        )
+        try:
+            async with db.begin_nested():
+                db.add(candidate)
+                await db.flush()
+            intent = candidate
+        except IntegrityError:
+            intent = await db.scalar(
+                select(AccountMergeIntent)
+                .where(
+                    AccountMergeIntent.survivor_user_id == survivor_user_id,
+                    AccountMergeIntent.source_user_id == source_user_id,
+                    AccountMergeIntent.status.in_(ACTIVE_INTENT_STATES),
+                )
+                .with_for_update()
+            )
+            if intent is None:
+                raise
     await apply_tenant_context(
         db,
         AccountMergeTenantContext(
@@ -404,6 +400,8 @@ async def create_merge_intent(
     intent.preview_fingerprint = preview.fingerprint
     intent.status = "blocked" if preview.blocker_codes else "preview_ready"
     intent.blocker_code = preview.blocker_codes[0] if preview.blocker_codes else None
+    intent.email_proof_state = email_proof_state
+    intent.oauth_proof_state = oauth_proof_state
     return intent, preview
 
 

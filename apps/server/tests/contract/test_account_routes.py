@@ -111,6 +111,21 @@ def test_desktop_email_link_code_page_keeps_verify_resend_and_back_on_desktop_ro
     assert 'action="/settings/account/email-link/' not in page
 
 
+@pytest.mark.parametrize("flow", ["link", "desktop_link"])
+def test_email_link_ambiguity_copy_points_to_visible_settings_action(flow: str) -> None:
+    page = render_email_code_page(
+        email="user@example.test",
+        state_nonce="synthetic-state",
+        next_path="/desktop/settings/account" if flow == "desktop_link" else "/settings/account",
+        error="ambiguous_email_recovery_required",
+        flow=flow,
+        csrf_token="synthetic-csrf",
+    )
+
+    assert "Вернитесь в настройки" in page
+    assert "Выберите ниже" not in page
+
+
 def test_email_link_callers_select_desktop_flow_for_every_local_render() -> None:
     source = "\n".join(
         (
@@ -287,11 +302,7 @@ def test_account_security_renders_exact_bulk_and_per_session_actions() -> None:
 
 
 def test_workspace_switch_and_join_routes_are_csrf_protected_in_browser_and_desktop() -> None:
-    routes = {
-        route.path: route
-        for route in spaces_router.routes
-        if isinstance(route, APIRoute)
-    }
+    routes = {route.path: route for route in spaces_router.routes if isinstance(route, APIRoute)}
     expected = {
         "/settings/spaces/{workspace_id}/activate",
         "/desktop/settings/spaces/{workspace_id}/activate",

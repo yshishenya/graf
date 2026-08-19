@@ -255,7 +255,11 @@ async def confirm_provider_link(
     if principal.session_workspace_id is None:
         raise ProviderLinkError("workspace_scope_denied")
 
-    link = await db.get(WorkspaceProviderLinkState, link_state_id)
+    link = await db.scalar(
+        select(WorkspaceProviderLinkState)
+        .where(WorkspaceProviderLinkState.id == link_state_id)
+        .with_for_update()
+    )
     if link is None:
         raise ProviderLinkError("provider_link_not_found")
     if (

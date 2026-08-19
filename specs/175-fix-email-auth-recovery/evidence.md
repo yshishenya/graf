@@ -19,9 +19,12 @@ Risk lane: `high-risk-feature`
 
 Команда из `quickstart.md` для `email_auth|email_link|provider_link`:
 
-- `13 passed`, `71 deselected`;
+- Финальный расширенный selector: `37 passed`, `120 deselected`;
 - disposable PostgreSQL container удалён после проверки;
-- охвачены success, invalid, expiry, concurrent valid-code/replay, rollback, inactive-email relink, email/OAuth merge-context restore и empty-account preview.
+- охвачены success, invalid, expiry, concurrent valid-code/replay, rollback,
+  inactive-email relink, same-state provider replay, different-state active-intent
+  race, email/OAuth merge-context restore, recovery provider/fallback,
+  web/desktop parity и empty-account preview.
 
 ### Дополнительные focused проверки
 
@@ -41,6 +44,23 @@ Pytest сообщил только известные предупреждени
 - Финальный Codex Security diff scan после всех review-исправлений: scan `6fb45867-0c0e-4975-94aa-dd90e7f47da8`, snapshot `d5f3a4a474d4bc984c47b3189e46c57dc109492c600ed8945fd48dcd459cc31b`, полное покрытие `9/9`, reportable findings `0`.
 - TAC-статус проверить не удалось, потому что access connector не подключён; это advisory-ограничение не использовалось как основание для пропуска проверки.
 - Финальный delta повторно прошёл независимый correctness review без новых findings; focused regression matrix перед fast CI прошла.
+- Review PR #5412 дополнительно нашёл и исправил блокировку одного provider-link
+  через `FOR UPDATE`, absent-row race двух разных proof-state через savepoint и
+  переиспользование active intent, ложное обещание немедленного merge после
+  обычного OAuth-входа, отсутствующий fallback при выключенных провайдерах,
+  повторяемую тупиковую email-форму и технический термин в confirmation copy.
+- Ponytail review: новые trust-boundary проверки размещены в существующих
+  helper/route/template, новая зависимость и параллельный recovery-механизм не
+  добавлены; production-refactor `create_merge_intent` стал короче.
+
+## Визуальная проверка
+
+- In-app Browser: desktop viewport и `390x844`, доступные Яндекс ID/VK/Mail.ru/
+  Одноклассники, fallback без провайдеров и фактический click-through Яндекс ID.
+- Provider actions ведут на first-party `/settings/account`; recovery не
+  показывает повторную email-форму, будущие provider placeholders или SSO-заглушку.
+- DOM/ARIA: заголовок `Восстановить доступ`, alert и semantic links доступны;
+  clipping/overlap не найден, console warning/error: `0`.
 
 ## Privacy и production safety
 

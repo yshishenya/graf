@@ -34,7 +34,7 @@
           {{ sections.csrf_field(csrf_token) }}
           <input type="hidden" name="preview_fingerprint" value="{{ preview.fingerprint }}">
           <input type="hidden" name="idempotency_key" value="{{ intent_id }}">
-          <p class="muted">После подтверждения действие нельзя отменить. Перед commit сервер повторит проверку конфликтов.</p>
+          <p class="muted">После подтверждения действие нельзя отменить. Перед объединением GRAF ещё раз проверит конфликты.</p>
           <button class="button primary" type="submit">Подтвердить объединение</button>
         </form>
         {% endif %}

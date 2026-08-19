@@ -33,12 +33,12 @@
 
 **Why this priority**: Текущий экран сообщает о необходимости второго подтверждения, но скрывает работающие способы входа и не объясняет следующий шаг.
 
-**Independent Test**: Создать два аккаунта с одним нормализованным адресом и разными способами входа, открыть recovery-экран в web и embedded-поверхности и пройти доступный OAuth-путь до безопасного preview без автоматического объединения.
+**Independent Test**: Создать два аккаунта с одним нормализованным адресом и разными способами входа, открыть recovery-экран в web и embedded-поверхности, войти доступным OAuth-способом, попасть в настройки и начать существующий email-link путь до безопасного preview без автоматического объединения.
 
 **Acceptance Scenarios**:
 
 1. **Given** email относится к нескольким активным аккаунтам, **When** пользователь начинает вход, **Then** экран объясняет конфликт простым языком и показывает реально доступные способы подтверждения.
-2. **Given** поддерживаемый OAuth-провайдер доступен, **When** пользователь выбирает его, **Then** начинается существующий защищённый linking/recovery flow с сохранением исходного безопасного destination.
+2. **Given** поддерживаемый OAuth-провайдер доступен, **When** пользователь выбирает его, **Then** выполняется обычный защищённый вход и открываются настройки аккаунта, где существующий email-link flow собирает второе подтверждение и показывает preview до объединения.
 3. **Given** пользователь не завершает второе подтверждение, **When** recovery истекает, отменяется или завершается ошибкой, **Then** аккаунты, встречи и сессии остаются без изменений, а повторный путь остаётся понятным.
 4. **Given** неоднозначность обнаружена только после ввода кода, **When** код уже нельзя использовать повторно, **Then** пользователь получает provider recovery actions, а не тупиковую форму использованного кода.
 
@@ -60,6 +60,7 @@
 4. **Given** merge intent создан, **When** callback завершается после смены tenant-контекста, **Then** callback-state обновляется в разрешённой области и транзакция не падает из-за RLS.
 5. **Given** linking открыт во встроенном macOS-кабинете, **When** пользователь вводит неверный код, повторяет отправку, возвращается или открывает preview, **Then** все действия остаются на `/desktop/...` маршрутах.
 6. **Given** preview открыт, **When** пользователь оценивает последствия, **Then** он понимает, какой аккаунт останется основным, что произойдёт со способами входа, встречами, пространствами, сессиями и блокирующими конфликтами до подтверждения.
+7. **Given** два запроса одновременно подтверждают один provider-link, **When** оба видят один и тот же одноразовый state, **Then** ровно один создаёт или переиспользует merge intent, а второй получает безопасный replay-ответ без дополнительных изменений.
 
 ### Edge Cases
 
@@ -86,6 +87,9 @@
 - **FR-008**: Ambiguous-email login MUST fail closed without selecting an arbitrary account and MUST render a localized, actionable recovery surface instead of an HTTP 500 or dead end.
 - **FR-009**: The recovery surface MUST retain the currently configured, supported OAuth providers and explain that the user should confirm another existing sign-in method.
 - **FR-010**: Provider actions MUST preserve the existing CSRF, state, nonce, rate-limit, verified-email and first-party destination protections.
+- **FR-023**: After a recovery provider succeeds outside an invitation flow, the first-party destination MUST be account settings so the user can complete the existing email-link proof and explicit merge preview; provider login alone MUST NOT merge accounts.
+- **FR-024**: If no supported recovery provider is enabled, the page MUST state that recovery is unavailable and MUST NOT promise actions that are not rendered.
+- **FR-025**: The ambiguous recovery surface MUST NOT render an email form that can only repeat the same blocked request; ordinary login and invitation forms remain unchanged.
 - **FR-011**: Authenticated email linking MUST exclude the current user before classifying other candidate accounts.
 - **FR-012**: With zero other candidates, the system MUST link the verified email identity idempotently to the current user.
 - **FR-013**: With exactly one other candidate, the system MUST create a single-use merge intent and show explicit preview/confirmation without moving data automatically.
@@ -97,6 +101,7 @@
 - **FR-019**: Merge preview MUST state the survivor, preserved sign-in methods and data classes, separate workspace behavior, session/device revocation and blocker reasons using bounded metadata only.
 - **FR-020**: Auth logs, audit and committed evidence MUST remain metadata-only and MUST NOT contain real email addresses, codes, tokens, account IDs or meeting content.
 - **FR-021**: The hotfix MUST preserve existing successful Yandex ID and VK login behavior.
+- **FR-022**: Concurrent requests for the same email code or provider-link state MUST have exactly one winner; losing requests MUST return replay/conflict outcomes without a second session, merge intent or account mutation.
 
 ### Key Entities
 

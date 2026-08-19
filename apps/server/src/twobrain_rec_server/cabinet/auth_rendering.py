@@ -90,17 +90,22 @@ def render_login_page(
     next_path: str = "/meetings",
     error: str | None = None,
     invitation_flow: bool = False,
+    recovery_mode: bool = False,
     product_analytics_provider: dict[str, object] | None = None,
 ) -> str:
     safe_next = _safe_browser_next_path(next_path)
     embedded = safe_next.startswith("/desktop/")
+    provider_actions = _login_provider_actions(providers, next_path=safe_next)
+    if recovery_mode:
+        provider_actions = [action for action in provider_actions if action["active"]]
     content = render_template(
         "cabinet/auth/login.html",
         workspace_configured=workspace_id is not None,
-        providers=_login_provider_actions(providers, next_path=safe_next),
+        providers=provider_actions,
         next_path=safe_next,
         signup_href=f"/sign-up?{urlencode({'next': safe_next})}",
         invitation_flow=invitation_flow,
+        recovery_mode=recovery_mode,
         embedded=embedded,
         error_message=_login_error_message(error),
     )
@@ -195,7 +200,7 @@ def render_email_code_page(
         next_path=safe_next,
         csrf_token=csrf_token,
         dev_code=dev_code,
-        error_message=_login_error_message(error),
+        error_message=_login_error_message(error, link_flow=link_flow),
     )
     return _standalone_page(
         "Код входа", content, product_analytics_provider=product_analytics_provider
@@ -230,9 +235,14 @@ def _safe_browser_next_path(value: str | None) -> str:
     return stripped
 
 
-def _login_error_message(error: str | None) -> str | None:
+def _login_error_message(error: str | None, *, link_flow: bool = False) -> str | None:
     if not error:
         return None
+    if error == "ambiguous_email_recovery_required" and link_flow:
+        return (
+            "Этот email связан с несколькими аккаунтами. Вернитесь в настройки и "
+            "подтвердите другой уже подключённый способ входа — например, Яндекс ID или VK."
+        )
     messages = {
         "missing_auth_context": "Нужен вход, чтобы открыть кабинет встреч.",
         "auth_handoff_invalid": "Не удалось безопасно открыть тарифы. Войдите ещё раз.",
@@ -247,7 +257,8 @@ def _login_error_message(error: str | None) -> str | None:
         "provider_future": "Этот способ входа появится позже. Сейчас используйте вход по email.",
         "auth_dependency_unavailable": "Сервис входа временно недоступен.",
         "email_invalid": "Введите корректный email.",
-        "ambiguous_email_recovery_required": "Этот email связан с несколькими аккаунтами. Вход временно заблокирован, чтобы не открыть чужие встречи. Выберите ниже другой уже подключённый способ входа — например, Яндекс ID или VK.",
+        "ambiguous_email_recovery_required": "Этот email связан с несколькими аккаунтами. Вход по коду заблокирован, чтобы не открыть чужие встречи. Войдите ниже через уже подключённый Яндекс ID или VK: GRAF откроет настройки, где можно безопасно подключить email и подтвердить объединение.",
+        "ambiguous_email_recovery_unavailable": "Этот email связан с несколькими аккаунтами, поэтому вход по коду заблокирован. Яндекс ID и VK сейчас недоступны — обратитесь к администратору GRAF, чтобы безопасно восстановить доступ.",
         "email_start_unavailable": "Не удалось отправить код. Проверьте email и попробуйте снова.",
         "email_delivery_unavailable": "Почтовая доставка временно недоступна. Попробуйте запросить код еще раз.",
         "auth_rate_limited": "Слишком много попыток. Попробуйте снова через несколько минут.",
