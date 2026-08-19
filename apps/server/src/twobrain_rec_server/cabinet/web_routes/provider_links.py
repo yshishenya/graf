@@ -225,31 +225,28 @@ async def confirm_provider_link_from_settings(
             db, principal=principal, link_state_id=link_state_id
         )
     except ProviderLinkError as exc:
-        await db.commit()
-        return RedirectResponse(
+        response = RedirectResponse(
             _account_settings_path(embedded=_is_embedded(request), result=exc.code),
             status_code=303,
         )
-    await db.commit()
-    prefix = "/desktop" if _is_embedded(request) else ""
-    if confirmed.status in {"merge_preview_ready", "merge_blocked"} and confirmed.merge_intent_id is not None:
-        return RedirectResponse(
+        await db.commit()
+        return response
+    try:
+        prefix = "/desktop" if _is_embedded(request) else ""
+        if (
+            confirmed.status in {"merge_preview_ready", "merge_blocked"}
+            and confirmed.merge_intent_id is not None
+        ):
+            response = RedirectResponse(
             f"{prefix}/settings/account/merge/{confirmed.merge_intent_id}", status_code=303
         )
-    if confirmed.status == "merge_completed":
-        response = RedirectResponse(
-            f"/login?next={prefix}/settings/account&error=auth_session_invalid",
-            status_code=303,
-        )
-        response.delete_cookie(
-            key="__Host-twobrain_rec_owner_session",
-            path="/",
-            secure=True,
-            httponly=True,
-            samesite="lax",
-        )
+        else:
+            response = RedirectResponse(
+                _account_settings_path(embedded=_is_embedded(request), result="confirmed"),
+                status_code=303,
+            )
+        await db.commit()
         return response
-    return RedirectResponse(
-        _account_settings_path(embedded=_is_embedded(request), result="confirmed"),
-        status_code=303,
-    )
+    except Exception:
+        await db.rollback()
+        raise

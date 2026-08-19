@@ -848,7 +848,6 @@ async def confirm_provider_link_flow(
             link_state_id=link_state_id,
         )
     except ProviderLinkError as exc:
-        await db.commit()
         status_code = 400
         if exc.code == "provider_link_not_found":
             status_code = 404
@@ -856,14 +855,21 @@ async def confirm_provider_link_flow(
             status_code = 409
         elif exc.code in {"provider_link_session_required", "workspace_scope_denied"}:
             status_code = 403
-        raise ProblemDetail(status=status_code, code=exc.code, title="Provider link denied") from exc
-    await db.commit()
-    return ProviderLinkConfirmResponse(
+        problem = ProblemDetail(
+            status=status_code,
+            code=exc.code,
+            title="Provider link denied",
+        )
+        await db.commit()
+        raise problem from exc
+    response = ProviderLinkConfirmResponse(
         provider=confirmed.provider,
         status=confirmed.status,
         idempotent=confirmed.idempotent,
         merge_intent_id=confirmed.merge_intent_id,
     )
+    await db.commit()
+    return response
 
 
 @router.get("/callback/{provider}", name="auth_callback", response_model=AuthCallbackResponse)

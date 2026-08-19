@@ -37,6 +37,8 @@ from twobrain_rec_server.cabinet.auth_rendering import (
 from twobrain_rec_server.cabinet.auth_return import resolve_browser_auth_return_path
 from twobrain_rec_server.cabinet.web_routes.auth_email_flow import (
     EMAIL_SIGNUP_PROVIDER,
+    EmailLoginCompletion,
+    EmailRecoveryRequired,
     _AmbiguousEmailIdentityError,
     _consume_email_login_code,
     _create_email_login_state,
@@ -154,7 +156,9 @@ async def browser_login_page(
             next_path=safe_next,
             error=load_error,
             invitation_flow=_parse_share_invitation_next(safe_next) is not None,
-            product_analytics_provider=build_request_browser_provider_context(request, "login_signup"),
+            product_analytics_provider=build_request_browser_provider_context(
+                request, "login_signup"
+            ),
         )
     )
 
@@ -180,7 +184,9 @@ async def browser_signup_page(
             next_path=safe_next,
             error=load_error,
             mode=mode,
-            product_analytics_provider=build_request_browser_provider_context(request, "login_signup"),
+            product_analytics_provider=build_request_browser_provider_context(
+                request, "login_signup"
+            ),
         )
     )
 
@@ -250,11 +256,15 @@ async def browser_email_login_start(
             ),
             status_code=400,
         )
-    if invitation_context is not None and await _active_share_invitation_next(
-        db,
-        safe_next,
-        address=normalized_email,
-    ) is None:
+    if (
+        invitation_context is not None
+        and await _active_share_invitation_next(
+            db,
+            safe_next,
+            address=normalized_email,
+        )
+        is None
+    ):
         return HTMLResponse(
             render_login_page(
                 workspace_id=resolved_workspace_id,
@@ -313,20 +323,15 @@ async def browser_email_login_start(
             outcome="failure",
             error_code="ambiguous_email_recovery_required",
         )
-        await db.commit()
-        return HTMLResponse(
-            render_login_page(
-                workspace_id=resolved_workspace_id,
-                providers=[],
-                next_path=safe_next,
-                error="ambiguous_email_recovery_required",
-                invitation_flow=invitation_flow,
-                product_analytics_provider=build_request_browser_provider_context(
-                    request, "login_signup"
-                ),
-            ),
-            status_code=400,
+        response = await _ambiguous_email_recovery_response(
+            request,
+            db=db,
+            workspace_id=resolved_workspace_id,
+            next_path=safe_next,
+            invitation_flow=invitation_flow,
         )
+        await db.commit()
+        return response
     if workspace is None or (user is None and invitation_context is None):
         if workspace is not None:
             await _record_email_login_audit(
@@ -641,29 +646,24 @@ async def browser_email_login_verify(
             status_code=429,
             headers=_auth_rate_limit_headers(retry_after),
         )
-    result = await _consume_email_login_code(
-        db,
-        request=request,
-        workspace_id=resolved_workspace_id,
-        email=normalized_email,
-        code=code,
-        state_nonce=state,
-        next_path=safe_next,
-        allow_registration=invitation_context is not None,
-    )
-    if isinstance(result, HTMLResponse):
-        return result
-    redirect_path = await resolve_browser_auth_return_path(
-        db,
-        requested_redirect=result.requested_redirect,
-        organization_id=result.organization_id,
-        workspace_id=result.workspace_id,
-        user_id=result.user_id,
-        auth_session_id=result.auth_session_id,
-    )
-    redirect = RedirectResponse(redirect_path or "/meetings", status_code=303)
-    _set_browser_auth_cookie(request, redirect, token=result.token, expires_at=result.expires_at)
-    return redirect
+    try:
+        result = await _consume_email_login_code(
+            db,
+            request=request,
+            workspace_id=resolved_workspace_id,
+            email=normalized_email,
+            code=code,
+            state_nonce=state,
+            next_path=safe_next,
+            allow_registration=invitation_context is not None,
+            invitation_flow=invitation_flow,
+        )
+        response = await _prepare_email_auth_response(request, db=db, result=result)
+        await db.commit()
+        return response
+    except Exception:
+        await db.rollback()
+        raise
 
 
 @router.post("/logout", include_in_schema=False, response_model=None)
@@ -696,7 +696,11 @@ async def logout_current_browser_session(
             code="auth_dependency_unavailable",
             title="Authentication DB dependency unavailable",
         )
-    if principal.auth_via_session and principal.session_id is not None and principal.session_workspace_id is not None:
+    if (
+        principal.auth_via_session
+        and principal.session_id is not None
+        and principal.session_workspace_id is not None
+    ):
         await apply_tenant_context(
             db,
             TenantDatabaseContext(
@@ -795,38 +799,29 @@ async def browser_email_signup_verify(
             status_code=429,
             headers=_auth_rate_limit_headers(retry_after),
         )
-    result = await _consume_email_login_code(
-        db,
-        request=request,
-        workspace_id=resolved_workspace_id,
-        email=normalized_email,
-        code=code,
-        state_nonce=state,
-        next_path=safe_next,
-        provider=EMAIL_SIGNUP_PROVIDER,
-        allow_registration=True,
-    )
-    if isinstance(result, HTMLResponse):
-        return result
-    redirect_path = await resolve_browser_auth_return_path(
-        db,
-        requested_redirect=result.requested_redirect,
-        organization_id=result.organization_id,
-        workspace_id=result.workspace_id,
-        user_id=result.user_id,
-        auth_session_id=result.auth_session_id,
-    )
-    redirect = RedirectResponse(redirect_path or "/meetings", status_code=303)
-    _set_browser_auth_cookie(request, redirect, token=result.token, expires_at=result.expires_at)
-    if result.registered:
-        redirect.delete_cookie(
-            key="graf_referral_token",
-            path="/",
-            secure=True,
-            httponly=True,
-            samesite="lax",
+    try:
+        result = await _consume_email_login_code(
+            db,
+            request=request,
+            workspace_id=resolved_workspace_id,
+            email=normalized_email,
+            code=code,
+            state_nonce=state,
+            next_path=safe_next,
+            provider=EMAIL_SIGNUP_PROVIDER,
+            allow_registration=True,
         )
-    return redirect
+        response = await _prepare_email_auth_response(
+            request,
+            db=db,
+            result=result,
+            clear_referral_on_registration=True,
+        )
+        await db.commit()
+        return response
+    except Exception:
+        await db.rollback()
+        raise
 
 
 @router.get("/login/{provider}/start", include_in_schema=False, response_model=None)
@@ -1013,9 +1008,7 @@ async def browser_login_provider_start(
     )
     await db.commit()
     response = RedirectResponse(authorization_url, status_code=303)
-    _set_browser_auth_state_cookie(
-        response, nonce=browser_state_nonce, max_age=state_ttl_seconds
-    )
+    _set_browser_auth_state_cookie(response, nonce=browser_state_nonce, max_age=state_ttl_seconds)
     return response
 
 
@@ -1053,6 +1046,76 @@ async def _load_browser_login_providers(db: AsyncSession, workspace_id: UUID) ->
     await apply_tenant_context(db, WorkspaceAuthContext(workspace_id=workspace_id))
     snapshot = await read_auth_providers(db, workspace_id, adapters=build_provider_registry())
     return list(snapshot.providers)
+
+
+async def _ambiguous_email_recovery_response(
+    request: Request,
+    *,
+    db: AsyncSession,
+    workspace_id: UUID,
+    next_path: str,
+    invitation_flow: bool,
+) -> HTMLResponse:
+    try:
+        providers = await _load_browser_login_providers(db, workspace_id)
+    except ProblemDetail:
+        providers = []
+    return HTMLResponse(
+        render_login_page(
+            workspace_id=workspace_id,
+            providers=providers,
+            next_path=next_path,
+            error="ambiguous_email_recovery_required",
+            invitation_flow=invitation_flow,
+            product_analytics_provider=build_request_browser_provider_context(
+                request, "login_signup"
+            ),
+        ),
+        status_code=400,
+    )
+
+
+async def _prepare_email_auth_response(
+    request: Request,
+    *,
+    db: AsyncSession,
+    result: HTMLResponse | EmailLoginCompletion | EmailRecoveryRequired,
+    clear_referral_on_registration: bool = False,
+) -> HTMLResponse | RedirectResponse:
+    if isinstance(result, HTMLResponse):
+        return result
+    if isinstance(result, EmailRecoveryRequired):
+        return await _ambiguous_email_recovery_response(
+            request,
+            db=db,
+            workspace_id=result.workspace_id,
+            next_path=result.next_path,
+            invitation_flow=result.invitation_flow,
+        )
+    redirect_path = await resolve_browser_auth_return_path(
+        db,
+        requested_redirect=result.requested_redirect,
+        organization_id=result.organization_id,
+        workspace_id=result.workspace_id,
+        user_id=result.user_id,
+        auth_session_id=result.auth_session_id,
+    )
+    response = RedirectResponse(redirect_path or "/meetings", status_code=303)
+    _set_browser_auth_cookie(
+        request,
+        response,
+        token=result.token,
+        expires_at=result.expires_at,
+    )
+    if clear_referral_on_registration and result.registered:
+        response.delete_cookie(
+            key="graf_referral_token",
+            path="/",
+            secure=True,
+            httponly=True,
+            samesite="lax",
+        )
+    return response
 
 
 def _safe_vk_auth_provider(value: str | None) -> str | None:

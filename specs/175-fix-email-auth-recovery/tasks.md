@@ -11,16 +11,16 @@ and web/embedded parity checks are mandatory.
 
 ## Phase 1: Setup
 
-- [ ] T001 [P] Add reusable synthetic email-auth seed/assert helpers for app-role PostgreSQL scenarios in `apps/server/tests/integration/test_rls_postgres_policies.py`
-- [ ] T002 [P] Extend the localized auth outcome and provider-action contract matrix in `apps/server/tests/contract/test_auth_contracts.py`
+- [X] T001 [P] Add reusable synthetic email-auth seed/assert helpers for app-role PostgreSQL scenarios in `apps/server/tests/integration/test_rls_postgres_policies.py`
+- [X] T002 [P] Extend the localized auth outcome and provider-action contract matrix in `apps/server/tests/contract/test_auth_contracts.py`
 
 ---
 
 ## Phase 2: Foundational transaction boundary
 
-- [ ] T003 Add failing forced-RLS regressions for exact callback completion, audit write contexts and all-or-nothing rollback in `apps/server/tests/integration/test_rls_postgres_policies.py`
-- [ ] T004 Implement one shared callback terminal-state helper and remove helper-owned commits in `apps/server/src/twobrain_rec_server/cabinet/web_routes/auth_email_flow.py`
-- [ ] T005 Move successful/error response preparation and the single commit to email login/signup endpoints in `apps/server/src/twobrain_rec_server/cabinet/web_routes/auth.py`
+- [X] T003 Add failing forced-RLS regressions for exact callback completion, audit write contexts and all-or-nothing rollback in `apps/server/tests/integration/test_rls_postgres_policies.py`
+- [X] T004 Implement one shared callback terminal-state helper and remove helper-owned commits in `apps/server/src/twobrain_rec_server/cabinet/web_routes/auth_email_flow.py`
+- [X] T005 Move successful/error response preparation and the single commit to email login/signup endpoints in `apps/server/src/twobrain_rec_server/cabinet/web_routes/auth.py`
 
 **Checkpoint**: Existing-user login, wrong/expired/replayed code and injected
 failure are atomic under the non-owner app role before recovery UX changes.
@@ -37,12 +37,12 @@ route test; expect `303`, one session/binding, completed callback and rejected r
 
 ### Tests for User Story 1
 
-- [ ] T006 [P] [US1] Extend HTTP integration coverage for success, response-resolution rollback, replay and no orphan session in `apps/server/tests/integration/test_web_owner_session_context.py`
-- [ ] T007 [P] [US1] Add concurrent valid-code and invalid/expired audit regressions under the app role in `apps/server/tests/integration/test_rls_postgres_policies.py`
+- [X] T006 [P] [US1] Extend HTTP integration coverage for success, response-resolution rollback, replay and no orphan session in `apps/server/tests/integration/test_web_owner_session_context.py`
+- [X] T007 [P] [US1] Add concurrent valid-code and invalid/expired audit regressions under the app role in `apps/server/tests/integration/test_rls_postgres_policies.py`
 
 ### Implementation for User Story 1
 
-- [ ] T008 [US1] Finalize success, invalid, expired and ambiguous callback rows through exact nonce context while writing audit under the owning workspace in `apps/server/src/twobrain_rec_server/cabinet/web_routes/auth_email_flow.py`
+- [X] T008 [US1] Finalize success, invalid, expired and ambiguous callback rows through exact nonce context while writing audit under the owning workspace in `apps/server/src/twobrain_rec_server/cabinet/web_routes/auth_email_flow.py`
 
 ---
 
@@ -57,13 +57,13 @@ active provider links, no account details and no session.
 
 ### Tests for User Story 2
 
-- [ ] T009 [P] [US2] Add early/late ambiguity, provider availability and safe-next HTTP coverage in `apps/server/tests/integration/test_web_owner_session_context.py`
-- [ ] T010 [P] [US2] Add accessible recovery-copy and configured-provider rendering contracts in `apps/server/tests/contract/test_auth_contracts.py`
+- [X] T009 [P] [US2] Add early/late ambiguity, provider availability and safe-next HTTP coverage in `apps/server/tests/integration/test_web_owner_session_context.py`
+- [X] T010 [P] [US2] Add accessible recovery-copy and configured-provider rendering contracts in `apps/server/tests/contract/test_auth_contracts.py`
 
 ### Implementation for User Story 2
 
-- [ ] T011 [US2] Reuse one provider-aware ambiguous recovery response in start and verify paths in `apps/server/src/twobrain_rec_server/cabinet/web_routes/auth.py` and `apps/server/src/twobrain_rec_server/cabinet/web_routes/auth_email_flow.py`
-- [ ] T012 [US2] Refine the Russian recovery copy without exposing account metadata in `apps/server/src/twobrain_rec_server/cabinet/auth_rendering.py`
+- [X] T011 [US2] Reuse one provider-aware ambiguous recovery response in start and verify paths in `apps/server/src/twobrain_rec_server/cabinet/web_routes/auth.py` and `apps/server/src/twobrain_rec_server/cabinet/web_routes/auth_email_flow.py`
+- [X] T012 [US2] Refine the Russian recovery copy without exposing account metadata in `apps/server/src/twobrain_rec_server/cabinet/auth_rendering.py`
 
 ---
 
@@ -77,25 +77,25 @@ empty-other preview and embedded route assertions; no data changes before POST c
 
 ### Tests for User Story 3
 
-- [ ] T013 [P] [US3] Add 0/1/>1 candidate, empty-other preview, replay and merge-error rollback cases in `apps/server/tests/integration/test_account_merge.py`
-- [ ] T014 [P] [US3] Add forced-RLS email-link and OAuth provider-link terminal context regressions in `apps/server/tests/integration/test_rls_postgres_policies.py`
-- [ ] T015 [P] [US3] Add embedded verify/resend/back and preview/confirm/cancel route parity contracts in `apps/server/tests/contract/test_account_routes.py` and `apps/server/tests/integration/test_web_owner_session_context.py`
+- [X] T013 [P] [US3] Add 0/1/>1 candidate, empty-other preview, replay and merge-error rollback cases in `apps/server/tests/integration/test_account_merge.py`
+- [X] T014 [P] [US3] Add forced-RLS email-link and OAuth provider-link terminal context regressions in `apps/server/tests/integration/test_rls_postgres_policies.py`
+- [X] T015 [P] [US3] Add embedded verify/resend/back and preview/confirm/cancel route parity contracts in `apps/server/tests/contract/test_account_routes.py` and `apps/server/tests/integration/test_web_owner_session_context.py`
 
 ### Implementation for User Story 3
 
-- [ ] T016 [US3] Exclude the current user before cardinality, wrap merge intent work in a savepoint, remove auto-confirm and finalize email callback by exact nonce in `apps/server/src/twobrain_rec_server/cabinet/web_routes/auth_email_flow.py`
-- [ ] T017 [US3] Flush merge intent work, restore authorized link-state context and remove OAuth-link auto-confirm in `apps/server/src/twobrain_rec_server/auth/provider_links.py`
-- [ ] T018 [US3] Keep embedded email-link rendering on `desktop_link` routes and let the endpoint own commit/rollback in `apps/server/src/twobrain_rec_server/cabinet/web_routes/settings.py` and `apps/server/src/twobrain_rec_server/cabinet/auth_rendering.py`
-- [ ] T019 [US3] Complete bounded merge preview copy for survivor, sign-in methods, preserved data, separate workspaces, sessions/devices and blockers in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/account_merge_content.html` and `apps/server/tests/contract/test_account_routes.py`
+- [X] T016 [US3] Exclude the current user before cardinality, wrap merge intent work in a savepoint, remove auto-confirm and finalize email callback by exact nonce in `apps/server/src/twobrain_rec_server/cabinet/web_routes/auth_email_flow.py`
+- [X] T017 [US3] Flush merge intent work, restore authorized link-state context and remove OAuth-link auto-confirm in `apps/server/src/twobrain_rec_server/auth/provider_links.py`
+- [X] T018 [US3] Keep embedded email-link rendering on `desktop_link` routes and let the endpoint own commit/rollback in `apps/server/src/twobrain_rec_server/cabinet/web_routes/settings.py` and `apps/server/src/twobrain_rec_server/cabinet/auth_rendering.py`
+- [X] T019 [US3] Complete bounded merge preview copy for survivor, sign-in methods, preserved data, separate workspaces, sessions/devices and blockers in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/account_merge_content.html` and `apps/server/tests/contract/test_account_routes.py`
 
 ---
 
 ## Phase 6: Polish and cross-cutting validation
 
-- [ ] T020 [P] Update user-facing `[Unreleased]` auth/recovery notes in `CHANGELOG.md`
-- [ ] T021 Run focused quickstart PostgreSQL/RLS tests and Ruff checks from `specs/175-fix-email-auth-recovery/quickstart.md`; record metadata-only results in `specs/175-fix-email-auth-recovery/evidence.md`
-- [ ] T022 Run independent correctness, auth/security, UX/accessibility and Ponytail reviews; fix every actionable finding and repeat focused regressions
-- [ ] T023 Run `infra/scripts/ci-local.sh --fast` once on the final implementation and reconcile `tasks.md`, GitHub issues and evidence before PR
+- [X] T020 [P] Update user-facing `[Unreleased]` auth/recovery notes in `CHANGELOG.md`
+- [X] T021 Run focused quickstart PostgreSQL/RLS tests and Ruff checks from `specs/175-fix-email-auth-recovery/quickstart.md`; record metadata-only results in `specs/175-fix-email-auth-recovery/evidence.md`
+- [X] T022 Run independent correctness, auth/security, UX/accessibility and Ponytail reviews; fix every actionable finding and repeat focused regressions
+- [X] T023 Run `infra/scripts/ci-local.sh --fast` once on the final implementation and reconcile `tasks.md`, GitHub issues and evidence before PR
 - [ ] T024 Prepare a separate logical implementation commit, Russian PR with high-risk evidence, independent review and merge; do not deploy until the production gate is separately approved
 
 ## Dependencies and execution order

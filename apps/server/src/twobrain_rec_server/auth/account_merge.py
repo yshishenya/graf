@@ -60,10 +60,6 @@ class MergeEntityCounts:
     artifacts: int = 0
     processing: int = 0
 
-    @property
-    def has_user_data(self) -> bool:
-        return any((self.meetings, self.recordings, self.artifacts, self.processing))
-
     def as_json(self) -> dict[str, int]:
         return {
             "meetings": self.meetings,
@@ -80,10 +76,6 @@ class MergePreview:
     counts: MergeEntityCounts
     blocker_codes: tuple[str, ...]
     policy_version: int = MERGE_POLICY_VERSION
-
-    @property
-    def requires_confirmation(self) -> bool:
-        return self.counts.has_user_data
 
     @property
     def fingerprint(self) -> str:
