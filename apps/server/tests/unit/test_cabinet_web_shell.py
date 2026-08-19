@@ -1109,7 +1109,7 @@ def test_full_cabinet_pages_share_one_primary_sidebar_contract() -> None:
     assert '<a class="skip-link" href="#cabinet-main">К содержимому</a>' in settings_page
     assert settings_page.count('id="cabinet-sidebar" data-cabinet-navigation') == 1
     assert settings_page.count('aria-label="Навигация кабинета"') == 1
-    assert settings_page.count('aria-current="page"') == 2
+    assert settings_page.count('aria-current="page"') == 1
     assert 'data-active-nav="settings"' in settings_page
     assert 'href="/settings/integrations/calendar"' in settings_page
 
@@ -1121,7 +1121,7 @@ def test_full_cabinet_pages_share_one_primary_sidebar_contract() -> None:
     )
     assert calendar_settings_page.count('id="cabinet-sidebar" data-cabinet-navigation') == 1
     assert calendar_settings_page.count('aria-label="Навигация кабинета"') == 1
-    assert calendar_settings_page.count('aria-current="page"') == 2
+    assert calendar_settings_page.count('aria-current="page"') == 1
     assert 'data-active-nav="settings"' in calendar_settings_page
     assert 'href="/settings/integrations/calendar"' in calendar_settings_page
 
@@ -1282,7 +1282,7 @@ def test_settings_shell_exposes_calendar_in_sidebar() -> None:
     page = render_settings_page()
 
     assert 'data-active-nav="settings"' in page
-    assert 'data-settings-nav="calendar"' in page
+    assert 'data-settings-primary-nav-item="calendar"' in page
     assert ">Календари</span>" in page
     assert 'href="/settings/integrations/calendar"' in page
     assert 'href="/desktop/settings/integrations/calendar"' not in page
@@ -1448,10 +1448,13 @@ def test_feature_159_settings_use_one_primary_rail_and_canonical_meetings_return
         assert page.count('data-settings-primary-nav>') == 1
         assert page.count('data-settings-primary-nav-item') == 9
         assert f'href="{meetings_href}"' in page
-        assert 'data-settings-navigation-legacy hidden' in page
-        assert 'aria-hidden="true"' in page
-        assert page.count('data-settings-nav="account"') == 1
-        assert page.count('aria-label="Разделы настроек"') == 1
+        assert 'class="settings-navigation"' not in page
+        assert 'data-settings-navigation-legacy' not in page
+        assert page.count('data-settings-primary-nav-item="account"') == 1
+        assert page.count(
+            '<nav class="cabinet-sidebar-nav cabinet-sidebar-nav--settings" '
+            'aria-label="Навигация кабинета"'
+        ) == 1
 
 
 def test_list_shell_renders_audio_video_transcript_and_upload_icons() -> None:
