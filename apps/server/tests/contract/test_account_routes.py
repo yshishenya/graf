@@ -109,6 +109,7 @@ def test_desktop_email_link_code_page_keeps_verify_resend_and_back_on_desktop_ro
     assert 'action="/desktop/settings/account/email-link/start"' in page
     assert 'href="/desktop/settings/account?next=%2Fdesktop%2Fsettings%2Faccount"' in page
     assert 'action="/settings/account/email-link/' not in page
+    assert "data-embedded-code-panel" in page
 
 
 @pytest.mark.parametrize("flow", ["link", "desktop_link"])

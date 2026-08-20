@@ -3109,6 +3109,13 @@ def test_auth_static_assets_keep_compact_panel_and_code_autosubmit() -> None:
     assert "requestSubmit" in script
     assert "slots.every((target) => target.value.length === 1)" in script
     assert "submitted = true" in script
+    assert (
+        "[data-embedded-code-panel],\n"
+        "[data-embedded-code-panel] .auth-form > *,\n"
+        "[data-embedded-code-panel] .code-slot {\n"
+        "  animation: none;\n"
+        "}"
+    ) in css
 
 
 def test_feature_104_css_uses_shared_density_focus_and_responsive_contracts() -> None:

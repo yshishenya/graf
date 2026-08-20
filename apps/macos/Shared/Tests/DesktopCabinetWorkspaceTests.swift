@@ -178,7 +178,9 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
             "/login/email/start",
             "/login/email/verify",
             "/sign-up/email/start",
-            "/sign-up/email/verify"
+            "/sign-up/email/verify",
+            "/desktop/settings/account/email-link/start",
+            "/desktop/settings/account/email-link/verify"
         ] {
             XCTAssertFalse(
                 EmbeddedCabinetWebView.shouldTrackSwiftUIRequestIdentity(
@@ -189,6 +191,21 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
             )
         }
 
+        let settings = try XCTUnwrap(URL(string: "https://rec.2brain.dev/desktop/settings/account"))
+        var postRequest = URLRequest(url: settings)
+        postRequest.httpMethod = "POST"
+        XCTAssertFalse(
+            EmbeddedCabinetWebView.shouldTrackSwiftUIRequestIdentity(
+                for: .settings,
+                request: postRequest
+            )
+        )
+        XCTAssertTrue(
+            EmbeddedCabinetWebView.shouldTrackSwiftUIRequestIdentity(
+                for: .settings,
+                request: URLRequest(url: settings)
+            )
+        )
         XCTAssertTrue(
             EmbeddedCabinetWebView.shouldTrackSwiftUIRequestIdentity(
                 for: .authLogin,
@@ -226,6 +243,13 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
             EmbeddedCabinetWebView.shouldLoad(
                 request: detail,
                 lastLoadedRequestIdentity: lastLoadedInitialRoute
+            )
+        )
+        XCTAssertFalse(
+            EmbeddedCabinetWebView.shouldLoad(
+                request: detail,
+                lastLoadedRequestIdentity: lastLoadedInitialRoute,
+                requestIsAlreadyNavigating: true
             )
         )
     }
