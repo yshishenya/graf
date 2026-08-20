@@ -4,7 +4,7 @@
 
 **Created**: 2026-08-20
 
-**Status**: Implemented and validated; production release pending
+**Status**: Released in production as `v2026.08.20.2`
 
 **Input**: User description: "При подключении email к своему аккаунту код приходит на почту, но приложение вместо ввода кода показывает ошибку загрузки встреч."
 
