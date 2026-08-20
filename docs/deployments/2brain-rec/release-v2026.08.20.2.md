@@ -62,5 +62,5 @@
   already installed this version requires a higher-CalVer forward rollback;
   never publish an unsigned or lower-version downgrade.
 
-All evidence is metadata-only and contains no email address, one-time code,
-credential, meeting content, raw audio, transcript or private screenshot.
+All evidence is metadata-only; personal identifiers, one-time codes,
+credentials and private captures are excluded.
