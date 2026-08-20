@@ -109,6 +109,14 @@ def test_desktop_email_link_code_page_keeps_verify_resend_and_back_on_desktop_ro
     assert 'action="/desktop/settings/account/email-link/start"' in page
     assert 'href="/desktop/settings/account?next=%2Fdesktop%2Fsettings%2Faccount"' in page
     assert 'action="/settings/account/email-link/' not in page
+    assert "data-embedded-code-panel" in page
+    assert "data-embedded-code-panel" not in render_email_code_page(
+        email="user@example.test",
+        state_nonce="synthetic-state",
+        next_path="/settings/account",
+        flow="link",
+        csrf_token="synthetic-csrf",
+    )
 
 
 @pytest.mark.parametrize("flow", ["link", "desktop_link"])
@@ -167,6 +175,7 @@ async def test_email_link_verify_prepares_response_then_commits_once(monkeypatch
     db = _EmailLinkTransactionProbe(events)
 
     async def consume(*_args, **_kwargs):
+        assert _kwargs["csrf_token"] == "csrf"
         return SimpleNamespace(status="identity_linked", intent_id=None)
 
     def prepare_response(*args, **kwargs):

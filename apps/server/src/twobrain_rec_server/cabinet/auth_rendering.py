@@ -201,6 +201,7 @@ def render_email_code_page(
         csrf_token=csrf_token,
         dev_code=dev_code,
         error_message=_login_error_message(error, link_flow=link_flow),
+        embedded_code_panel=flow == "desktop_link",
     )
     return _standalone_page(
         "Код входа", content, product_analytics_provider=product_analytics_provider

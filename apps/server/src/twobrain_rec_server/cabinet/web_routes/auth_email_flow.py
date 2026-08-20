@@ -144,6 +144,7 @@ async def _fail_email_link_callback(
     next_path: str,
     flow: str,
     error_code: str,
+    csrf_token: str | None = None,
     result: str = "failed",
 ) -> HTMLResponse:
     await _record_email_link_failure(
@@ -167,6 +168,7 @@ async def _fail_email_link_callback(
         next_path=next_path,
         error=error_code,
         flow=flow,
+        csrf_token=csrf_token,
     )
 
 
@@ -508,6 +510,7 @@ async def consume_email_link_code(
     email: str,
     code: str,
     state_nonce: str,
+    csrf_token: str | None = None,
 ) -> EmailLinkCompletion | HTMLResponse:
     """Consume an authenticated passwordless link proof.
 
@@ -526,6 +529,7 @@ async def consume_email_link_code(
             next_path=next_path,
             error="provider_link_session_required",
             flow=flow,
+            csrf_token=csrf_token,
         )
     now = datetime.now(UTC)
     await apply_tenant_context(db, AuthCallbackLookupContext(state_nonce=state_nonce))
@@ -557,6 +561,7 @@ async def consume_email_link_code(
             next_path=next_path,
             error="email_code_invalid",
             flow=flow,
+            csrf_token=csrf_token,
         )
     expires_at = (
         state.expires_at if state.expires_at.tzinfo else state.expires_at.replace(tzinfo=UTC)
@@ -573,6 +578,7 @@ async def consume_email_link_code(
             next_path=next_path,
             flow=flow,
             error_code="email_code_expired",
+            csrf_token=csrf_token,
             result="expired",
         )
     if state.expected_state != _hash_email_login_code(email=email, code=code):
@@ -587,6 +593,7 @@ async def consume_email_link_code(
             next_path=next_path,
             flow=flow,
             error_code="email_code_invalid",
+            csrf_token=csrf_token,
         )
 
     await apply_tenant_context(
@@ -633,6 +640,7 @@ async def consume_email_link_code(
             next_path=next_path,
             flow=flow,
             error_code="ambiguous_email_recovery_required",
+            csrf_token=csrf_token,
         )
 
     other = next(iter(other_candidates.values()), None)
@@ -664,6 +672,7 @@ async def consume_email_link_code(
                     next_path=next_path,
                     flow=flow,
                     error_code="provider_link_conflict",
+                    csrf_token=csrf_token,
                 )
             try:
                 async with db.begin_nested():
@@ -699,6 +708,7 @@ async def consume_email_link_code(
                         next_path=next_path,
                         flow=flow,
                         error_code="provider_link_conflict",
+                        csrf_token=csrf_token,
                     )
                 concurrent_identity.is_active = True
                 concurrent_identity.is_verified = True
@@ -779,6 +789,7 @@ async def consume_email_link_code(
             next_path=next_path,
             flow=flow,
             error_code=exc.code,
+            csrf_token=csrf_token,
         )
 
 
@@ -1015,6 +1026,7 @@ def _email_code_error_response(
     next_path: str,
     error: str,
     flow: str = "login",
+    csrf_token: str | None = None,
 ) -> HTMLResponse:
     return HTMLResponse(
         render_email_code_page(
@@ -1023,6 +1035,7 @@ def _email_code_error_response(
             next_path=next_path,
             error=error,
             flow=flow,
+            csrf_token=csrf_token,
             product_analytics_provider=build_request_browser_provider_context(
                 request, "login_signup"
             ),

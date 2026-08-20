@@ -318,6 +318,77 @@ final class DesktopCabinetConfigurationTests: XCTestCase {
         }
     }
 
+    func testEmailLinkFormErrorsRemainVisibleInsideEmbeddedSettings() throws {
+        let policy = DesktopCabinetNavigationResponsePolicy(
+            routePolicy: DesktopCabinetRoutePolicy(
+                baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev"))
+            )
+        )
+
+        for path in [
+            "/desktop/settings/account/email-link/start",
+            "/desktop/settings/account/email-link/verify"
+        ] {
+            for statusCode in [400, 429, 503] {
+                let response = try XCTUnwrap(HTTPURLResponse(
+                    url: try XCTUnwrap(URL(string: "https://rec.2brain.dev\(path)")),
+                    statusCode: statusCode,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "text/html; charset=utf-8"]
+                ))
+
+                XCTAssertEqual(
+                    policy.decision(forNavigationResponse: response, isForMainFrame: true),
+                    .allow,
+                    "path=\(path) status=\(statusCode)"
+                )
+            }
+        }
+
+        let expiredSession = try XCTUnwrap(HTTPURLResponse(
+            url: try XCTUnwrap(URL(
+                string: "https://rec.2brain.dev/desktop/settings/account/email-link/start"
+            )),
+            statusCode: 401,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "text/html; charset=utf-8"]
+        ))
+        XCTAssertEqual(
+            policy.decision(forNavigationResponse: expiredSession, isForMainFrame: true),
+            .cancel(.expiredSession)
+        )
+
+        let workspaceReselection = try XCTUnwrap(HTTPURLResponse(
+            url: try XCTUnwrap(URL(
+                string: "https://rec.2brain.dev/desktop/settings/account/email-link/verify"
+            )),
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: [
+                "Content-Type": "text/html; charset=utf-8",
+                "X-GRAF-Cabinet-Recovery": "reselect-space"
+            ]
+        ))
+        XCTAssertEqual(
+            policy.decision(forNavigationResponse: workspaceReselection, isForMainFrame: true),
+            .cancel(.workspaceReselectionRequired)
+        )
+
+        let unrelatedSettingsFailure = try XCTUnwrap(HTTPURLResponse(
+            url: try XCTUnwrap(URL(string: "https://rec.2brain.dev/desktop/settings/account")),
+            statusCode: 404,
+            httpVersion: nil,
+            headerFields: nil
+        ))
+        XCTAssertEqual(
+            policy.decision(
+                forNavigationResponse: unrelatedSettingsFailure,
+                isForMainFrame: true
+            ),
+            .cancel(.notFound)
+        )
+    }
+
     func testAttachmentResponseBecomesNativeDownloadInsteadOfCabinetNavigation() throws {
         let policy = DesktopCabinetNavigationResponsePolicy(
             routePolicy: DesktopCabinetRoutePolicy(

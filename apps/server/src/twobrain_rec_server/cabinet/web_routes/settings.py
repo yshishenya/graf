@@ -472,6 +472,7 @@ async def _verify_email_link(
             email=email,
             code=code,
             state_nonce=state,
+            csrf_token=csrf_token,
         )
         prefix = "/desktop" if embedded else ""
         if isinstance(result, HTMLResponse):
