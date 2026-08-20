@@ -9,6 +9,7 @@ from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from tests.integration.test_rls_postgres_policies import (
+    _exact_app_role_engine,
     _request_context,
     _seed_probe_rows,
     apply_tenant_context_to_connection,
@@ -243,7 +244,9 @@ async def test_referral_link_owner_can_issue_under_authenticated_web_context(rls
 
 
 @pytest.mark.asyncio
-async def test_referral_signup_binder_can_insert_registered_attribution_under_rls(rls_engine) -> None:
+async def test_referral_signup_binder_can_insert_registered_attribution_under_rls(
+    rls_engine, migrated_postgres_urls
+) -> None:
     ids = await _seed_probe_rows(rls_engine)
     token = "r1_" + ("e" * 64)
     token_hash = hashlib.sha256(token.encode()).hexdigest()
@@ -260,6 +263,13 @@ async def test_referral_signup_binder_can_insert_registered_attribution_under_rl
         )
         await conn.execute(
             text(
+                "update workspaces set kind='personal', owner_user_id=:user_id "
+                "where id=:workspace_id"
+            ),
+            {"workspace_id": ids["workspace_a"], "user_id": ids["user_a"]},
+        )
+        await conn.execute(
+            text(
                 "insert into referral_links "
                 "(id, workspace_id, inviter_user_id, token_hash, campaign_version, expires_at, state) "
                 "values (:id, :workspace_id, :inviter_user_id, :token_hash, 'referral-v1', now() + interval '1 day', 'active')"
@@ -271,7 +281,10 @@ async def test_referral_signup_binder_can_insert_registered_attribution_under_rl
                 "token_hash": token_hash,
             },
         )
-    async with async_sessionmaker(rls_engine, expire_on_commit=False)() as session:
+    async with (
+        _exact_app_role_engine(migrated_postgres_urls.migration_url) as app_engine,
+        async_sessionmaker(app_engine, expire_on_commit=False)() as session,
+    ):
         assert await bind_referral_attribution(
             session,
             enabled=True,
@@ -305,7 +318,9 @@ async def test_referral_signup_binder_can_insert_registered_attribution_under_rl
 
 
 @pytest.mark.asyncio
-async def test_invitee_can_mark_registered_referral_attributed_under_rls(rls_engine) -> None:
+async def test_invitee_can_mark_registered_referral_attributed_under_rls(
+    rls_engine, migrated_postgres_urls
+) -> None:
     ids = await _seed_probe_rows(rls_engine)
     attribution_id = uuid4()
     link_id = uuid4()
@@ -348,6 +363,10 @@ async def test_invitee_can_mark_registered_referral_attributed_under_rls(rls_eng
                 "token_hash": token_hash,
             },
         )
+    async with (
+        _exact_app_role_engine(migrated_postgres_urls.migration_url) as app_engine,
+        app_engine.begin() as conn,
+    ):
         await apply_tenant_context_to_connection(
             conn,
             AuthReferralUserLookupContext(user_id=ids["user_b"]),
