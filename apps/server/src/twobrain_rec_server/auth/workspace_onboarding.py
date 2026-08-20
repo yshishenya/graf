@@ -449,8 +449,6 @@ async def decide_workspace_join_offer(
             user_id=user_id,
         ),
     )
-    if action == "accept":
-        await ensure_account_membership_activation_allowed(db, user_id=user_id)
     offer = await db.scalar(
         select(WorkspaceJoinOffer)
         .where(
@@ -479,6 +477,8 @@ async def decide_workspace_join_offer(
         raise ProblemDetail(
             status=409, code="workspace_join_offer_unavailable", title="Join offer unavailable"
         )
+    if action == "accept":
+        await ensure_account_membership_activation_allowed(db, user_id=user_id)
     if action == "reject":
         offer.status = "rejected"
         await apply_tenant_context(
