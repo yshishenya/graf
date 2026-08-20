@@ -65,6 +65,10 @@ account identifiers и private meeting content не использовались
   Developer ID continuity all passed.
 - The public Sparkle feed, archive and package were downloaded again and their
   signatures, lengths and SHA-256 values matched the reviewed artifacts.
+- Installed production GRAF completed a real Sparkle update from `2026.08.19.2`
+  to `2026.08.20.2`, relaunched into the production meeting list with the
+  existing session, and opened the account settings with email already shown as
+  confirmed. No macOS permission prompt or generic meeting-load error appeared.
 - Aggregate-only post-deploy audit found zero HTTP 500, HTTP 405, traceback and
   automatic email-link GET replay matches.
 - GitHub Release: https://github.com/yshishenya/crisp/releases/tag/v2026.08.20.2
