@@ -2,9 +2,9 @@
 
 **Date**: 2026-08-20
 
-**Final closeout status**: PR validation complete; production release pending.
-Финальный fast gate ниже привязан к exact tested commit и retained artifact;
-production evidence добавляется только после release gate и deploy.
+**Final closeout status**: complete; production and public macOS release passed.
+Финальный fast gate ниже привязан к exact tested commit и retained artifact, а
+production evidence — к immutable release SHA и публичному CalVer-тегу.
 
 Все проверки metadata-only. Реальные email, коды, cookies, tokens, account IDs и
 содержимое встреч не записывались; browser fixtures использовали только
@@ -52,8 +52,8 @@ review diff проверен отдельно, поэтому closeout-поля 
   `8523d8c95e3186d7110f19f7e6b85f1a0de1c92a2ee5541952c46a392900c202`;
 - `fast_gate_run_at`: `2026-08-20T22:12:06Z`.
 
-Production deploy повторно проверит неизменяемый merged SHA полным release gate
-и добавит отдельное production evidence.
+Production deploy повторно проверил неизменяемый merged SHA полным release gate;
+результат записан ниже и в отдельном release receipt.
 
 PostgreSQL matrix доказала отдельно:
 
@@ -110,8 +110,8 @@ PostgreSQL matrix доказала отдельно:
   scope. Для того snapshot повторные независимые review завершились с
   `findings: none`; Ponytail: Lean already.
 - Предыдущий repository fast gate пройден для описанного snapshot. Финальный
-  review status, exact SHA и artifact reference остаются pending до нового
-  review-fix gate T043; production evidence добавляется release-процессом.
+  review-fix gate T043, exact SHA и artifact reference зафиксированы ниже;
+  production evidence завершено отдельным exact-SHA release-процессом.
 - Последний Ponytail проход удалил отдельный 19-строчный self-test приватного
   test-harness helper; сам helper продолжает использоваться всеми exact app-role
   regression checks. Повторный targeted matrix прошёл.
@@ -138,3 +138,32 @@ PostgreSQL matrix доказала отдельно:
   Python compile прошли, exit code `0`. Retained artifact ID:
   `feature178-fast-ci-26d25163-20260820T2211Z`; SHA-256:
   `8523d8c95e3186d7110f19f7e6b85f1a0de1c92a2ee5541952c46a392900c202`.
+
+## Production release evidence
+
+- Immutable release: `v2026.08.21.1` at
+  `d357c52e0eea2f2bc0ca663577fcf10dd49bb5d1`; production runtime reported the
+  same SHA.
+- Authoritative `cd-remote.sh --execute` gate passed: 701 macOS tests, 3147
+  server tests with one expected skip, 50 strict PostgreSQL/RLS tests with one
+  expected skip, lint, compile and metadata evidence scan.
+- Backup `20260820T232032Z`, restore rehearsal, disposable RLS verification,
+  migration `0074_linked_workspace_proofs`, smoke and zero-residue cleanup
+  passed; rollback was not required.
+- Live health and readiness returned `ok` and `ready`. The landing and login
+  surfaces rendered in the in-app browser without horizontal overflow.
+- Developer ID app and package were accepted by Apple, stapled and accepted by
+  Gatekeeper. Public ZIP, package and appcast were downloaded again and matched
+  their reviewed SHA-256 values; Developer ID/Sparkle continuity with
+  `2026.08.20.2` passed.
+- `/Applications/GRAF.app` updated through the live Sparkle feed to
+  `2026.08.21.1`. The signed-in session, microphone grant and system-audio
+  functional grant remained available without a new permission prompt.
+- Installed-app QA confirmed the account-linking entry point, preview-first
+  wording and the top-positioned sidebar toggle in expanded and compact states.
+  After the first Sparkle relaunch the embedded document required one explicit
+  Reload; subsequent navigation worked and this single observation is retained
+  in the release receipt.
+- Real provider/OTP sign-ins were intentionally not repeated. Synthetic auth
+  fixtures covered those paths without reading or changing production accounts.
+- Full receipt: `docs/deployments/2brain-rec/release-v2026.08.21.1.md`.
