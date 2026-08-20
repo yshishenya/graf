@@ -304,7 +304,11 @@ async def confirm_provider_link(
         raise ProviderLinkError("provider_link_expired")
     if link.status != "callback_verified":
         raise ProviderLinkError("provider_link_reused")
-    if link.candidate_provider is None or link.candidate_identity_subject is None:
+    if (
+        link.candidate_provider is None
+        or link.candidate_identity_subject is None
+        or link.callback_state_id is None
+    ):
         await reject_provider_link(db, link=link, error_code="provider_link_candidate_missing")
         raise ProviderLinkError("provider_link_candidate_missing")
 
@@ -348,6 +352,10 @@ async def confirm_provider_link(
                         workspace_id=link.workspace_id,
                         survivor_user_id=principal.user_id,
                         source_user_id=identity.user_id,
+                        initiating_auth_session_id=principal.session_id,
+                        source_external_identity_id=identity.id,
+                        proof_callback_state_id=link.callback_state_id,
+                        provider_link_state_id=link.id,
                         email_proof_state="verified",
                         oauth_proof_state="verified",
                         actor_user_id=principal.user_id,
@@ -355,7 +363,7 @@ async def confirm_provider_link(
                     await db.flush()
                 await apply_tenant_context(db, link_context)
                 if preview.blocker_codes:
-                    scrub_candidate(link, status="rejected", resolution="merge_blocked")
+                    scrub_candidate(link, status="confirmed", resolution="merge_blocked")
                     return ConfirmedProviderLink(
                         provider=identity.provider,
                         idempotent=False,

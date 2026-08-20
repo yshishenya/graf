@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
 import pytest
@@ -12,6 +13,7 @@ from tests.fakes.auth_contexts import ORG_ID, USER_ID
 from tests.fakes.fake_minio import FakeMinioStorage
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.auth.account_closure import (
+    account_close_content_workspace_ids,
     cancel_account_close,
     finalize_account_close,
     schedule_account_close,
@@ -24,6 +26,7 @@ from twobrain_rec_server.db.models import (
     MeetingDeletionRequest,
     RegisteredDevice,
     UserIdentity,
+    Workspace,
     WorkspaceMembership,
     WorkspaceSubscription,
 )
@@ -33,6 +36,53 @@ pytestmark = pytest.mark.skipif(
     not os.getenv("TWOBRAIN_DATABASE_URL"),
     reason="account-close DB lifecycle tests require TWOBRAIN_DATABASE_URL",
 )
+
+
+def test_account_close_rejects_linked_workspace_even_for_sole_owner() -> None:
+    workspace_id = uuid4()
+    user_id = uuid4()
+    linked = Workspace(
+        id=workspace_id,
+        organization_id=uuid4(),
+        slug="linked-close-denied",
+        name="Пространство из другого профиля",
+        kind="linked",
+        owner_user_id=user_id,
+    )
+    membership = WorkspaceMembership(
+        workspace_id=workspace_id,
+        user_id=user_id,
+        role="owner",
+        status="active",
+    )
+
+    class FakeDb:
+        def __init__(self) -> None:
+            self.values = iter((linked, membership, 1, None, None))
+
+        async def scalar(self, _statement):
+            return next(self.values)
+
+        def add(self, _row) -> None:
+            return None
+
+        async def flush(self) -> None:
+            return None
+
+    with (
+        patch("twobrain_rec_server.auth.account_closure.lock_storage_workspace", AsyncMock()),
+        pytest.raises(ProblemDetail) as error,
+    ):
+        asyncio.run(
+            schedule_account_close(
+                FakeDb(),
+                workspace_id=workspace_id,
+                user_id=user_id,
+                now=datetime(2026, 8, 7, 10, tzinfo=UTC),
+            )
+        )
+
+    assert error.value.code == "account_close_owner_required"
 
 
 def test_account_close_schedules_idempotently_disables_renewal_and_can_cancel(client) -> None:
@@ -113,9 +163,31 @@ def test_account_close_requires_sole_active_member(client) -> None:
 
 
 def test_account_close_finalization_revokes_access_and_paid_entitlement(client) -> None:
-    async def exercise() -> tuple[object, WorkspaceSubscription, AuthSession, RegisteredDevice]:
+    async def exercise() -> tuple[
+        object,
+        WorkspaceSubscription,
+        AuthSession,
+        RegisteredDevice,
+        WorkspaceMembership,
+        tuple[object, ...],
+    ]:
         async with client.app_state["sessionmaker"]() as db:
             personal = await ensure_personal_workspace(db, organization_id=ORG_ID, user_id=USER_ID)
+            linked_id = uuid4()
+            linked = Workspace(
+                id=linked_id,
+                organization_id=ORG_ID,
+                slug=f"linked-close-{uuid4()}",
+                name="Сохранённое пространство",
+                kind="linked",
+                owner_user_id=USER_ID,
+            )
+            linked_membership = WorkspaceMembership(
+                workspace_id=linked_id,
+                user_id=USER_ID,
+                role="owner",
+                status="active",
+            )
             subscription = WorkspaceSubscription(
                 workspace_id=personal.id,
                 billing_owner_id=USER_ID,
@@ -138,8 +210,13 @@ def test_account_close_finalization_revokes_access_and_paid_entitlement(client) 
                 device_public_id="account-close-device",
                 platform="web",
             )
-            db.add_all((subscription, session, device))
+            db.add_all((linked, linked_membership, subscription, session, device))
             await db.flush()
+            content_workspace_ids = await account_close_content_workspace_ids(
+                db,
+                primary_workspace_id=personal.id,
+                user_id=USER_ID,
+            )
             now = datetime(2026, 8, 7, 10, tzinfo=UTC)
             await schedule_account_close(
                 db,
@@ -155,14 +232,26 @@ def test_account_close_finalization_revokes_access_and_paid_entitlement(client) 
                 now=now + timedelta(days=7, seconds=1),
             )
             await db.commit()
-            return result, subscription, session, device
+            await db.refresh(linked_membership)
+            return (
+                result,
+                subscription,
+                session,
+                device,
+                linked_membership,
+                content_workspace_ids,
+            )
 
-    result, subscription, session, device = asyncio.run(exercise())
+    result, subscription, session, device, linked_membership, content_workspace_ids = asyncio.run(
+        exercise()
+    )
     assert result.state == "completed"
     assert subscription.plan_code == "free"
     assert subscription.recurring_allowed is False
     assert session.status == "revoked"
     assert device.status == "revoked"
+    assert linked_membership.status == "inactive"
+    assert len(content_workspace_ids) == 2
 
 
 def test_account_close_deletion_fanout_fails_closed_without_storage() -> None:

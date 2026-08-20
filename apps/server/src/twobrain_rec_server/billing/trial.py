@@ -4,7 +4,40 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
+from sqlalchemy.sql.selectable import CTE
+
+from twobrain_rec_server.db.models import TrialActivation, UserIdentity
+
 TRIAL_DAYS = 7
+
+
+def merged_user_lineage(user_id: UUID) -> CTE:
+    """Return the current user and every historical source merged into it."""
+
+    lineage = (
+        select(UserIdentity.id.label("user_id"))
+        .where(UserIdentity.id == user_id)
+        .cte("merged_user_lineage", recursive=True)
+    )
+    source = aliased(UserIdentity)
+    return lineage.union_all(
+        select(source.id.label("user_id")).where(
+            source.merged_into_user_id == lineage.c.user_id
+        )
+    )
+
+
+async def trial_used_by_lineage(db: AsyncSession, *, user_id: UUID) -> bool:
+    lineage = merged_user_lineage(user_id)
+    used = await db.scalar(
+        select(TrialActivation.id)
+        .where(TrialActivation.user_id.in_(select(lineage.c.user_id)))
+        .limit(1)
+    )
+    return used is not None
 
 
 def require_trial_activation(

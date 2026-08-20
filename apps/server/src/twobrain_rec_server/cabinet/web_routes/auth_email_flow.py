@@ -521,7 +521,11 @@ async def consume_email_link_code(
     embedded = request.url.path.startswith("/desktop/")
     next_path = "/desktop/settings/account" if embedded else "/settings/account"
     flow = "desktop_link" if embedded else "link"
-    if not principal.auth_via_session or principal.session_workspace_id != workspace_id:
+    if (
+        not principal.auth_via_session
+        or principal.session_id is None
+        or principal.session_workspace_id != workspace_id
+    ):
         return _email_code_error_response(
             request=request,
             email=email,
@@ -734,14 +738,33 @@ async def consume_email_link_code(
         )
         return EmailLinkCompletion(status="identity_linked")
 
-    _, source_user = other
+    source_identity, source_user = other
+    callback_state_id = state.id
     try:
         async with db.begin_nested():
+            await _finalize_email_callback(
+                db,
+                state=state,
+                result="completed",
+                now=now,
+            )
+            await apply_tenant_context(
+                db,
+                WorkspaceAuthContext(
+                    workspace_id=workspace_id,
+                    organization_id=principal.organization_id,
+                    user_id=principal.user_id,
+                    context_kind="auth_bootstrap",
+                ),
+            )
             intent, preview = await create_merge_intent(
                 db,
                 workspace_id=workspace_id,
                 survivor_user_id=principal.user_id,
                 source_user_id=source_user.id,
+                initiating_auth_session_id=principal.session_id,
+                source_external_identity_id=source_identity.id,
+                proof_callback_state_id=state.id,
                 email_proof_state="verified",
                 oauth_proof_state="verified",
                 now=now,
@@ -756,28 +779,31 @@ async def consume_email_link_code(
                 workspace_id=workspace_id,
                 error_code="merge_blocked",
             )
-            await _finalize_email_callback(
-                db,
-                state=state,
-                result="failed",
-                now=now,
-                error_code="merge_blocked",
-            )
             return EmailLinkCompletion(
                 status="merge_blocked",
                 intent_id=intent.id,
             )
-        await _finalize_email_callback(
-            db,
-            state=state,
-            result="completed",
-            now=now,
-        )
         return EmailLinkCompletion(
             status="merge_preview_ready",
             intent_id=intent.id,
         )
     except AccountMergeError as exc:
+        await apply_tenant_context(db, AuthCallbackLookupContext(state_nonce=state_nonce))
+        state = await db.scalar(
+            select(AuthCallbackState)
+            .where(AuthCallbackState.id == callback_state_id)
+            .with_for_update()
+        )
+        if state is None:
+            return _email_code_error_response(
+                request=request,
+                email=email,
+                state_nonce=state_nonce,
+                next_path=next_path,
+                error="email_code_invalid",
+                flow=flow,
+                csrf_token=csrf_token,
+            )
         return await _fail_email_link_callback(
             db,
             request=request,

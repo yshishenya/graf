@@ -142,3 +142,56 @@ async def test_confirmed_payment_grants_once_and_records_receipt_state(monkeypat
     )
     assert operation.state == "succeeded"
     assert invoice.plan_snapshot["receipt_registration"] == "succeeded"
+
+
+@pytest.mark.anyio
+async def test_confirmed_payment_does_not_grant_personal_entitlement_to_linked_workspace() -> None:
+    operation = BillingOperation(
+        id=OPERATION_ID,
+        workspace_id=WORKSPACE_ID,
+        kind="initial_checkout",
+        idempotency_key="linked-checkout",
+        provider_id="linked-payment",
+        request_snapshot={
+            "plan_code": "personal",
+            "cycle": "month",
+            "billing_actor_user_id": str(OWNER_ID),
+        },
+    )
+    invoice = BillingInvoice(
+        id=INVOICE_ID,
+        workspace_id=WORKSPACE_ID,
+        operation_id=OPERATION_ID,
+        safe_number="INV-LINKED",
+        amount_minor=79_000,
+        currency="RUB",
+        plan_snapshot={"plan_code": "personal", "cycle": "month"},
+    )
+    linked = Workspace(
+        id=WORKSPACE_ID,
+        organization_id=UUID("66666666-6666-4666-8666-666666666666"),
+        slug="linked",
+        name="Linked",
+        kind="linked",
+        owner_user_id=OWNER_ID,
+    )
+    owner = WorkspaceMembership(
+        workspace_id=WORKSPACE_ID,
+        user_id=OWNER_ID,
+        role="owner",
+        status="active",
+    )
+    db = _FakeDb([operation, invoice, None, linked, owner])
+
+    result = await entitlements.grant_confirmed_payment(
+        db,
+        workspace_id=WORKSPACE_ID,
+        provider_payment_id="linked-payment",
+        amount_minor=79_000,
+        currency="RUB",
+        paid_at=datetime(2026, 8, 7, 12, tzinfo=UTC),
+    )
+
+    assert result == "owner_missing"
+    assert operation.state == "reconciliation_gap"
+    assert not [row for row in db.added if isinstance(row, BillingEntitlementGrant)]

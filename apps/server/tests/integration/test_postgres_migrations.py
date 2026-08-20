@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from uuid import UUID
 
+import pytest
 from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
@@ -38,6 +39,10 @@ WORKSPACE_ONBOARDING_MIGRATION = (
 SPEAKER_NAMES_MIGRATION = (
     ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0029_meeting_speaker_names.py"
+)
+LINKED_WORKSPACE_MIGRATION = (
+    ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0074_linked_workspace_and_merge_proofs.py"
 )
 
 
@@ -159,6 +164,7 @@ def test_alembic_migration_files_exist_for_clean_database_path() -> None:
     assert (versions / "0037_auth_rate_limit_buckets.py").exists()
     assert (versions / "0040_merge_content_regeneration_and_share_heads.py").exists()
     assert (versions / "0041_share_account_created_email.py").exists()
+    assert LINKED_WORKSPACE_MIGRATION.exists()
 
 
 def test_production_share_head_upgrades_to_regeneration_merge(
@@ -214,7 +220,7 @@ def test_production_share_head_upgrades_to_regeneration_merge(
             await engine.dispose()
 
     versions, tables, columns, maintenance_helper = asyncio.run(inspect_schema())
-    assert versions == ["0073_account_auth_linking"]
+    assert versions == ["0074_linked_workspace_proofs"]
     assert {
         "dispatch_intents",
         "meeting_deletion_fences",
@@ -258,6 +264,268 @@ def test_production_share_head_upgrades_to_regeneration_merge(
     )
     assert "prompt_optimization" in maintenance_helper
     assert "processing_legacy_lineage_reconciliation" in maintenance_helper
+
+
+@pytest.mark.parametrize("legacy_check_exists", [False, True])
+def test_linked_workspace_migration_handles_optional_legacy_check_and_adds_merge_proofs(
+    postgres_clean_database_url: str,
+    monkeypatch,
+    legacy_check_exists: bool,
+) -> None:
+    monkeypatch.setenv("TWOBRAIN_DATABASE_URL", postgres_clean_database_url)
+    get_settings.cache_clear()
+    alembic_config = Config(str(ROOT / "apps/server/alembic.ini"))
+    alembic_config.set_main_option(
+        "script_location", str(ROOT / "apps/server/src/twobrain_rec_server/db/migrations")
+    )
+
+    command.upgrade(alembic_config, "0073_account_auth_linking")
+
+    async def add_legacy_check() -> None:
+        engine = create_async_engine(postgres_clean_database_url)
+        try:
+            async with engine.begin() as connection:
+                await connection.execute(
+                    text(
+                        "alter table workspaces add constraint legacy_workspace_kind_check "
+                        "check (kind in ('personal', 'corporate'))"
+                    )
+                )
+        finally:
+            await engine.dispose()
+
+    if legacy_check_exists:
+        asyncio.run(add_legacy_check())
+    command.upgrade(alembic_config, "head")
+
+    async def inspect_schema() -> tuple[list[str], str, dict[str, tuple[bool, str]], str, str]:
+        engine = create_async_engine(postgres_clean_database_url)
+        try:
+            async with engine.begin() as connection:
+                constraints = (
+                    await connection.scalars(
+                        text(
+                            "select pg_get_constraintdef(constraint_row.oid) "
+                            "from pg_constraint constraint_row "
+                            "join pg_attribute attribute_row "
+                            "on attribute_row.attrelid = constraint_row.conrelid "
+                            "and attribute_row.attnum = any(constraint_row.conkey) "
+                            "where constraint_row.conrelid = 'workspaces'::regclass "
+                            "and constraint_row.contype = 'c' "
+                            "and attribute_row.attname = 'kind'"
+                        )
+                    )
+                ).all()
+                personal_owner_index = await connection.scalar(
+                    text(
+                        "select indexdef from pg_indexes where schemaname = 'public' "
+                        "and tablename = 'workspaces' "
+                        "and indexname = 'uq_workspaces_personal_owner'"
+                    )
+                )
+                account_merge_helper = await connection.scalar(
+                    text(
+                        "select pg_get_functiondef('rec_account_merge_context_valid()'::regprocedure)"
+                    )
+                )
+                lineage_workspace_helper = await connection.scalar(
+                    text(
+                        "select pg_get_functiondef("
+                        "'rec_current_user_owns_lineage_workspace(uuid)'::regprocedure)"
+                    )
+                )
+                proof_columns = {
+                    str(row.column_name): (row.is_nullable == "YES", str(row.target))
+                    for row in (
+                        await connection.execute(
+                            text(
+                                "select columns.column_name, columns.is_nullable, "
+                                "foreign_table.table_name || '.' || foreign_column.column_name target "
+                                "from information_schema.columns columns "
+                                "join information_schema.key_column_usage key_column "
+                                "on key_column.table_schema = columns.table_schema "
+                                "and key_column.table_name = columns.table_name "
+                                "and key_column.column_name = columns.column_name "
+                                "join information_schema.referential_constraints reference_constraint "
+                                "on reference_constraint.constraint_schema = key_column.constraint_schema "
+                                "and reference_constraint.constraint_name = key_column.constraint_name "
+                                "join information_schema.key_column_usage foreign_column "
+                                "on foreign_column.constraint_schema = reference_constraint.unique_constraint_schema "
+                                "and foreign_column.constraint_name = reference_constraint.unique_constraint_name "
+                                "and foreign_column.ordinal_position = key_column.position_in_unique_constraint "
+                                "join information_schema.tables foreign_table "
+                                "on foreign_table.table_schema = foreign_column.table_schema "
+                                "and foreign_table.table_name = foreign_column.table_name "
+                                "where columns.table_schema = 'public' "
+                                "and columns.table_name = 'account_merge_intents' "
+                                "and columns.column_name = any(:column_names)"
+                            ),
+                            {
+                                "column_names": [
+                                    "initiating_auth_session_id",
+                                    "source_external_identity_id",
+                                    "proof_callback_state_id",
+                                    "provider_link_state_id",
+                                ]
+                            },
+                        )
+                    ).all()
+                }
+                await connection.execute(
+                    text(
+                        "insert into organizations (id, slug, name) values "
+                        "('91000000-0000-0000-0000-000000000001', 'linked-migration', 'Linked')"
+                    )
+                )
+                await connection.execute(
+                    text(
+                        "insert into workspaces (id, organization_id, slug, name, kind) values "
+                        "('92000000-0000-0000-0000-000000000001', "
+                        "'91000000-0000-0000-0000-000000000001', 'linked', 'Linked', 'linked')"
+                    )
+                )
+                return (
+                    [str(value).lower() for value in constraints],
+                    str(personal_owner_index).lower(),
+                    proof_columns,
+                    str(account_merge_helper).lower(),
+                    str(lineage_workspace_helper).lower(),
+                )
+        finally:
+            await engine.dispose()
+
+    (
+        constraints,
+        personal_owner_index,
+        proof_columns,
+        account_merge_helper,
+        lineage_workspace_helper,
+    ) = asyncio.run(inspect_schema())
+
+    assert len(constraints) == 1
+    assert all(kind in constraints[0] for kind in ("personal", "corporate", "linked"))
+    assert "unique index uq_workspaces_personal_owner" in personal_owner_index
+    assert "(organization_id, owner_user_id)" in personal_owner_index
+    assert "where" in personal_owner_index
+    assert "kind" in personal_owner_index
+    assert "personal" in personal_owner_index
+    assert "linked" not in personal_owner_index
+    assert proof_columns == {
+        "initiating_auth_session_id": (True, "auth_sessions.id"),
+        "source_external_identity_id": (True, "external_identities.id"),
+        "proof_callback_state_id": (True, "auth_callback_states.id"),
+        "provider_link_state_id": (True, "workspace_provider_link_states.id"),
+    }
+    for proof_binding in (
+        "initiating_auth_session_id",
+        "source_external_identity_id",
+        "proof_callback_state_id",
+        "provider_link_state_id",
+    ):
+        assert proof_binding in account_merge_helper
+    assert "merge_intent.status in ('preview_ready', 'blocked')" in account_merge_helper
+    assert "proof_session.status = 'active'" in account_merge_helper
+    assert "proof_identity.is_active" in account_merge_helper
+    assert "proof_identity.is_verified" in account_merge_helper
+    assert "proof_callback.result = 'completed'" in account_merge_helper
+    assert "proof_callback.used_at is not null" in account_merge_helper
+    assert "proof_link.status in ('callback_verified', 'confirmed')" in account_merge_helper
+    assert "session_user = 'twobrain_rec_app'" in lineage_workspace_helper
+    assert "lineage_workspace.kind in ('personal', 'linked')" in lineage_workspace_helper
+    assert "lineage_membership.status = 'active'" in lineage_workspace_helper
+
+    with pytest.raises(RuntimeError, match="while linked workspaces exist"):
+        command.downgrade(alembic_config, "0073_account_auth_linking")
+
+    async def remove_linked_fixture() -> None:
+        engine = create_async_engine(postgres_clean_database_url)
+        try:
+            async with engine.begin() as connection:
+                assert (
+                    await connection.scalar(
+                        text(
+                            "select kind from workspaces "
+                            "where id = '92000000-0000-0000-0000-000000000001'"
+                        )
+                    )
+                    == "linked"
+                )
+                await connection.execute(
+                    text(
+                        "delete from workspaces "
+                        "where id = '92000000-0000-0000-0000-000000000001'"
+                    )
+                )
+                await connection.execute(
+                    text(
+                        "delete from organizations "
+                        "where id = '91000000-0000-0000-0000-000000000001'"
+                    )
+                )
+        finally:
+            await engine.dispose()
+
+    asyncio.run(remove_linked_fixture())
+    command.downgrade(alembic_config, "0073_account_auth_linking")
+
+    async def inspect_downgraded_schema() -> tuple[list[str], str, bool, bool]:
+        engine = create_async_engine(postgres_clean_database_url)
+        try:
+            async with engine.begin() as connection:
+                proof_columns = (
+                    await connection.scalars(
+                        text(
+                            "select column_name from information_schema.columns "
+                            "where table_schema = 'public' "
+                            "and table_name = 'account_merge_intents' "
+                            "and column_name = any(:column_names)"
+                        ),
+                        {
+                            "column_names": [
+                                "initiating_auth_session_id",
+                                "source_external_identity_id",
+                                "proof_callback_state_id",
+                                "provider_link_state_id",
+                            ]
+                        },
+                    )
+                ).all()
+                helper = await connection.scalar(
+                    text(
+                        "select pg_get_functiondef('rec_account_merge_context_valid()'::regprocedure)"
+                    )
+                )
+                helper_result = await connection.scalar(
+                    text("select rec_account_merge_context_valid()")
+                )
+                lineage_workspace_helper_exists = await connection.scalar(
+                    text(
+                        "select to_regprocedure("
+                        "'rec_current_user_owns_lineage_workspace(uuid)') is not null"
+                    )
+                )
+                return (
+                    [str(value) for value in proof_columns],
+                    str(helper).lower(),
+                    bool(helper_result),
+                    bool(lineage_workspace_helper_exists),
+                )
+        finally:
+            await engine.dispose()
+
+    (
+        downgraded_columns,
+        downgraded_helper,
+        downgraded_result,
+        lineage_workspace_helper_exists,
+    ) = asyncio.run(inspect_downgraded_schema())
+    assert downgraded_columns == []
+    assert "initiating_auth_session_id" not in downgraded_helper
+    assert "merge_intent.status in (" in downgraded_helper
+    assert "'initiated', 'awaiting_proof', 'preview_ready'" in downgraded_helper
+    assert "'completed'" in downgraded_helper
+    assert downgraded_result is False
+    assert lineage_workspace_helper_exists is False
 
 
 def test_fair_use_review_metadata_constraints_are_postgres_enforced(

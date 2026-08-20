@@ -3754,16 +3754,36 @@
       const toggle = shell.querySelector("[data-cabinet-rail-toggle]");
       if (!sidebar || !toggle || shell.dataset.railReady === "true") return;
       shell.dataset.railReady = "true";
-      const initialPinned = shell.classList.contains("is-rail-pinned")
-        ? true
-        : window.matchMedia("(min-width: 981px)").matches;
-      setRailPinned(shell, toggle, initialPinned);
+      const wideViewport = window.matchMedia("(min-width: 981px)");
+      const storedRailState = sessionStorage.getItem("graf-cabinet-rail");
+      let manuallySet = ["expanded", "collapsed"].includes(storedRailState);
+      const syncViewport = () => {
+        if (!manuallySet) setRailPinned(shell, toggle, wideViewport.matches);
+      };
+      const setManualRailState = (pinned) => {
+        manuallySet = true;
+        sessionStorage.setItem("graf-cabinet-rail", pinned ? "expanded" : "collapsed");
+        setRailPinned(shell, toggle, pinned);
+      };
+      setRailPinned(
+        shell,
+        toggle,
+        manuallySet
+          ? storedRailState === "expanded"
+          : shell.classList.contains("is-rail-pinned") || wideViewport.matches
+      );
+      wideViewport.addEventListener("change", syncViewport);
       toggle.addEventListener("click", () => {
-        setRailPinned(shell, toggle, !shell.classList.contains("is-rail-pinned"));
+        setManualRailState(!shell.classList.contains("is-rail-pinned"));
         toggle.focus({ preventScroll: true });
       });
       document.addEventListener("keydown", (event) => {
-        if (event.key === "Escape") setRailPinned(shell, toggle, false);
+        const openOverlay = document.querySelector(
+          "dialog[open], [data-profile-menu]:not([hidden])"
+        );
+        if (event.key === "Escape" && !openOverlay) {
+          setManualRailState(false);
+        }
       });
     });
   };

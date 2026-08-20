@@ -27,6 +27,7 @@ from twobrain_rec_server.auth.csrf import issue_csrf_token
 from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
 from twobrain_rec_server.auth.sessions import issue_auth_session
 from twobrain_rec_server.auth.workspace_onboarding import ensure_personal_workspace
+from twobrain_rec_server.cabinet.auth_rendering import render_login_page
 from twobrain_rec_server.cabinet.web_routes.account_merge import _error_copy
 from twobrain_rec_server.db.models import (
     AccountMergeIntent,
@@ -45,6 +46,7 @@ from twobrain_rec_server.db.models import (
     WorkspaceJoinOffer,
     WorkspaceMembership,
     WorkspaceProviderLinkState,
+    WorkspaceSubscription,
 )
 from twobrain_rec_server.db.tenant_context import (
     AccountMergeTenantContext,
@@ -133,11 +135,11 @@ class FakeProviderHttpClient:
 
 
 AUTH_LINK_ERROR_COPY = {
-    "ambiguous_email_recovery_required": "Этот адрес связан с несколькими аккаунтами.",
-    "merge_preview_stale": "Предпросмотр устарел. Данные не изменены; начните объединение заново.",
-    "merge_intent_expired": "Срок подтверждения истёк. Данные не изменены; начните заново.",
+    "ambiguous_email_recovery_required": "Этот адрес связан с несколькими профилями.",
+    "merge_preview_stale": "Состояние профилей изменилось. Данные не изменены; подключите email заново.",
+    "merge_intent_expired": "Время подтверждения истекло. Данные не изменены; подключите email заново.",
     "proof_required": "Нужно повторно подтвердить оба способа входа.",
-    "merge_blocked": "Объединение не выполнено. Данные не изменены.",
+    "merge_blocked": "Email не подключён. Данные не изменены.",
 }
 
 
@@ -147,6 +149,32 @@ def test_account_link_error_copy_is_localized_and_non_sensitive(code: str, expec
     assert copy == expected
     assert "password" not in copy.lower()
     assert "token" not in copy.lower()
+
+
+def test_successful_account_link_login_copy_is_positive_and_requests_relogin() -> None:
+    page = render_login_page(
+        workspace_id=UUID(int=1),
+        providers=[],
+        next_path="/settings/account",
+        error="email_connected_relogin_required",
+    )
+
+    assert "Email подключён к текущему профилю." in page
+    assert "Войдите снова любым сохранённым способом." in page
+    assert "Сессия не найдена" not in page
+    assert "auth_session_invalid" not in page
+
+
+def test_account_link_blocker_login_copy_explains_the_required_profile() -> None:
+    page = render_login_page(
+        workspace_id=UUID(int=1),
+        providers=[],
+        next_path="/settings/account",
+        error="account_linking_other_profile_required",
+    )
+
+    assert "Войдите способом второго профиля" in page
+    assert "вернитесь в основной профиль" in page
 
 
 def test_authenticated_auth_mutation_routes_require_web_csrf_dependency() -> None:
@@ -1220,6 +1248,76 @@ def test_provider_link_conflict_requires_merge_preview_and_restores_link_context
             context_kind="auth_bootstrap",
         )
     ]
+
+
+def test_blocked_provider_link_keeps_confirmed_proof_for_recovery_page(
+    monkeypatch,
+    client: TestClient,
+) -> None:
+    provider_subject = "vk:provider-link-merge-blocked"
+    login, link_id, other_user_id, csrf = _prepare_provider_link_merge_candidate(
+        monkeypatch,
+        client,
+        provider_subject=provider_subject,
+    )
+
+    async def block_with_active_billing() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            source_workspace = Workspace(
+                id=uuid4(),
+                organization_id=ORG_ID,
+                owner_user_id=other_user_id,
+                slug=f"provider-blocked-{other_user_id.hex}",
+                name="Blocked provider source",
+                kind="corporate",
+            )
+            db.add_all(
+                [
+                    source_workspace,
+                    WorkspaceMembership(
+                        workspace_id=source_workspace.id,
+                        user_id=other_user_id,
+                        role="owner",
+                        status="active",
+                    ),
+                ]
+            )
+            await db.flush()
+            db.add(
+                WorkspaceSubscription(
+                    workspace_id=source_workspace.id,
+                    billing_owner_id=other_user_id,
+                    state="active",
+                    plan_code="pro",
+                    cycle="monthly",
+                    recurring_allowed=True,
+                )
+            )
+            await db.commit()
+
+    import asyncio
+
+    asyncio.run(block_with_active_billing())
+    confirmation = client.post(
+        f"/api/v1/auth/provider-links/{link_id}/confirm",
+        headers={
+            "Authorization": f"Bearer {login['session_token']}",
+            "X-CSRF-Token": csrf,
+        },
+    )
+
+    assert confirmation.status_code == 200
+    assert confirmation.json()["status"] == "merge_blocked"
+    intent_id = UUID(confirmation.json()["merge_intent_id"])
+
+    async def load() -> tuple[str, str | None, str, str | None]:
+        async with client.app_state["sessionmaker"]() as db:
+            link = await db.get(WorkspaceProviderLinkState, link_id)
+            intent = await db.get(AccountMergeIntent, intent_id)
+            assert link is not None and intent is not None
+            return link.status, link.resolution, intent.status, intent.blocker_code
+
+    assert asyncio.run(load()) == ("confirmed", "merge_blocked", "blocked", "billing_conflict")
 
 
 def test_provider_link_merge_error_rolls_back_partial_merge_mutations(

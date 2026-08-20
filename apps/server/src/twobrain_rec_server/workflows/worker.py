@@ -11,6 +11,7 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 from sqlalchemy import func, select
 
 from twobrain_rec_server.auth.account_closure import (
+    account_close_content_workspace_ids,
     finalize_account_close,
     list_due_account_closures,
 )
@@ -484,12 +485,18 @@ async def run_account_closure_reconciler(
                             # deletion path.  If storage or one purge is
                             # unavailable, keep the close blocked and retry only
                             # after an operator-visible reconciliation action.
-                            await fanout_account_close_deletions(
+                            workspace_ids = await account_close_content_workspace_ids(
                                 db,
-                                workspace_id=request.workspace_id,
-                                storage=storage,
-                                temporal_client=temporal_client,
+                                primary_workspace_id=request.workspace_id,
+                                user_id=request.requested_by_user_id,
                             )
+                            for workspace_id in workspace_ids:
+                                await fanout_account_close_deletions(
+                                    db,
+                                    workspace_id=workspace_id,
+                                    storage=storage,
+                                    temporal_client=temporal_client,
+                                )
                             await finalize_account_close(
                                 db, request_id=request_id, now=datetime.now(UTC)
                             )

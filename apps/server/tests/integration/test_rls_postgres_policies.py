@@ -4,6 +4,7 @@ import asyncio
 import os
 import stat
 from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -27,9 +28,16 @@ from scripts.issue_smoke_auth_session import issue_smoke_auth_session
 from scripts.seed_smoke_identity import seed_identity
 from tests.fixtures.postgres_rls import optional_rls_test_database_url, rls_test_database_url
 from tests.fixtures.postgres_test_database import ensure_disposable_media_role
+from twobrain_rec_server.auth.account_merge import confirm_merge_intent, preview_merge_intent
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal
 from twobrain_rec_server.auth.provider_links import ProviderLinkError, confirm_provider_link
 from twobrain_rec_server.auth.workspace_onboarding import activate_workspace_session
+from twobrain_rec_server.billing.fair_use import (
+    appeal_persisted_review,
+    fair_use_restricted_for_lineage,
+)
+from twobrain_rec_server.billing.referral_binding import referral_attribution_exists_for_lineage
+from twobrain_rec_server.billing.trial import trial_used_by_lineage
 from twobrain_rec_server.cabinet.auth_return import resolve_browser_auth_return_path
 from twobrain_rec_server.cabinet.web_routes.auth_email_flow import (
     EmailLinkCompletion,
@@ -59,6 +67,7 @@ from twobrain_rec_server.db.models import (
 from twobrain_rec_server.db.tenant_context import (
     AccountMergeTenantContext,
     AuthCallbackLookupContext,
+    AuthReferralUserLookupContext,
     MaintenanceTenantContext,
     TenantDatabaseContext,
     WorkspaceAuthContext,
@@ -245,6 +254,27 @@ async def _drop_probe_role(migration_url: str, role_name: str) -> None:
             await conn.execute(text(f"drop role if exists {quoted_role}"))
     finally:
         await engine.dispose()
+
+
+@asynccontextmanager
+async def _exact_app_role_engine(migration_url: str) -> AsyncIterator[AsyncEngine]:
+    role_name, password = await _create_probe_role(
+        migration_url,
+        role_name="twobrain_rec_app",
+    )
+    try:
+        app_engine = create_async_engine(
+            make_url(migration_url)
+            .set(username=role_name, password=password)
+            .render_as_string(hide_password=False),
+            pool_pre_ping=True,
+        )
+        try:
+            yield app_engine
+        finally:
+            await app_engine.dispose()
+    finally:
+        await _drop_probe_role(migration_url, role_name)
 
 
 @pytest.fixture(scope="module")
@@ -1388,6 +1418,187 @@ async def test_worker_context_and_maintenance_context_are_explicit(rls_engine: A
 
 
 @pytest.mark.asyncio
+async def test_merged_billing_lineage_remains_visible_and_appealable_under_forced_rls(
+    rls_engine: AsyncEngine,
+    migrated_postgres_urls: MigratedPostgresUrls,
+) -> None:
+    ids = await _seed_probe_rows(rls_engine)
+    trial_id = uuid4()
+    referral_link_id = uuid4()
+    referral_attribution_id = uuid4()
+    fair_use_id = uuid4()
+    token_hash = "a" * 64
+
+    async with rls_engine.begin() as conn:
+        await apply_tenant_context_to_connection(
+            conn,
+            MaintenanceTenantContext(
+                operation_name="migration_verification",
+                actor_id="test_merged_billing_lineage_rls",
+                reason_category="rls_probe_seed",
+                feature_area="security",
+            ),
+        )
+        await conn.execute(
+            text(
+                """
+                update user_identities
+                set organization_id = :organization_id, status = 'merged',
+                    merged_into_user_id = :survivor_user_id, merged_at = now()
+                where id = :source_user_id
+                """
+            ),
+            {
+                "organization_id": ids["org_a"],
+                "survivor_user_id": ids["user_a"],
+                "source_user_id": ids["user_b"],
+            },
+        )
+        await conn.execute(
+            text(
+                """
+                update workspaces
+                set organization_id = :organization_id, owner_user_id = :survivor_user_id,
+                    kind = 'linked'
+                where id = :source_workspace_id
+                """
+            ),
+            {
+                "organization_id": ids["org_a"],
+                "survivor_user_id": ids["user_a"],
+                "source_workspace_id": ids["workspace_b"],
+            },
+        )
+        await conn.execute(
+            text(
+                """
+                update workspace_memberships
+                set user_id = :survivor_user_id
+                where workspace_id = :source_workspace_id and user_id = :source_user_id
+                """
+            ),
+            {
+                "survivor_user_id": ids["user_a"],
+                "source_user_id": ids["user_b"],
+                "source_workspace_id": ids["workspace_b"],
+            },
+        )
+        await conn.execute(
+            text(
+                """
+                insert into trial_activations
+                    (id, user_id, workspace_id, starts_at, ends_at, policy_version)
+                values
+                    (:trial_id, :source_user_id, :source_workspace_id,
+                     now() - interval '1 day', now() + interval '6 days', 'lineage-test')
+                """
+            ),
+            {
+                "trial_id": trial_id,
+                "source_user_id": ids["user_b"],
+                "source_workspace_id": ids["workspace_b"],
+            },
+        )
+        await conn.execute(
+            text(
+                """
+                insert into referral_links
+                    (id, workspace_id, inviter_user_id, token_hash, campaign_version,
+                     expires_at, state)
+                values
+                    (:link_id, :survivor_workspace_id, :survivor_user_id, :token_hash,
+                     'lineage-test', now() + interval '7 days', 'active')
+                """
+            ),
+            {
+                "link_id": referral_link_id,
+                "survivor_workspace_id": ids["workspace_a"],
+                "survivor_user_id": ids["user_a"],
+                "token_hash": token_hash,
+            },
+        )
+        await conn.execute(
+            text(
+                """
+                insert into referral_attributions
+                    (id, workspace_id, inviter_user_id, invitee_user_id, referral_link_id,
+                     token_hash, campaign_version, first_touched_at, bound_at, state)
+                values
+                    (:attribution_id, :survivor_workspace_id, :survivor_user_id,
+                     :source_user_id, :link_id, :token_hash, 'lineage-test', now(), now(),
+                     'registered')
+                """
+            ),
+            {
+                "attribution_id": referral_attribution_id,
+                "survivor_workspace_id": ids["workspace_a"],
+                "survivor_user_id": ids["user_a"],
+                "source_user_id": ids["user_b"],
+                "link_id": referral_link_id,
+                "token_hash": token_hash,
+            },
+        )
+        await conn.execute(
+            text(
+                """
+                insert into fair_use_reviews
+                    (id, workspace_id, subject_user_id, capability, reason_code,
+                     evidence_ref, starts_at, review_by, state)
+                values
+                    (:fair_use_id, :source_workspace_id, :source_user_id,
+                     'server_processing', 'resale', :evidence_ref,
+                     now(), now() + interval '24 hours', 'restricted')
+                """
+            ),
+            {
+                "source_user_id": ids["user_b"],
+                "source_workspace_id": ids["workspace_b"],
+                "fair_use_id": fair_use_id,
+                "evidence_ref": f"fu-lineage-{ids['slug']}",
+            },
+        )
+
+    async with _exact_app_role_engine(migrated_postgres_urls.migration_url) as app_engine:
+        sessionmaker = async_sessionmaker(app_engine, expire_on_commit=False)
+        async with sessionmaker() as db:
+            await apply_tenant_context(db, _request_context(ids, "a"))
+            assert await trial_used_by_lineage(db, user_id=ids["user_a"])
+            assert await fair_use_restricted_for_lineage(db, user_id=ids["user_a"])
+            appealed = await appeal_persisted_review(
+                db,
+                review_id=fair_use_id,
+                subject_user_id=ids["user_a"],
+                at=datetime.now(UTC),
+            )
+            assert appealed is not None and appealed.state == "appealed"
+
+            await apply_tenant_context(
+                db,
+                AuthReferralUserLookupContext(user_id=ids["user_a"]),
+            )
+            assert await referral_attribution_exists_for_lineage(db, user_id=ids["user_a"])
+            await db.commit()
+
+    async with rls_engine.connect() as conn:
+        await apply_tenant_context_to_connection(
+            conn,
+            MaintenanceTenantContext(
+                operation_name="migration_verification",
+                actor_id="test_merged_billing_lineage_rls",
+                reason_category="rls_probe_verify",
+                feature_area="security",
+            ),
+        )
+        assert (
+            await conn.scalar(
+                text("select state from fair_use_reviews where id = :id"),
+                {"id": fair_use_id},
+            )
+            == "appealed"
+        )
+
+
+@pytest.mark.asyncio
 async def test_auth_session_lookup_requires_context_kind(rls_engine: AsyncEngine) -> None:
     ids = await _seed_probe_rows(rls_engine)
 
@@ -2259,51 +2470,138 @@ async def test_app_role_gets_only_proof_bound_account_merge_access(
     migrated_postgres_urls: MigratedPostgresUrls,
 ) -> None:
     ids = await _seed_probe_rows(rls_engine)
-    app_role, app_password = await _create_probe_role(
-        migrated_postgres_urls.migration_url,
-        role_name="twobrain_rec_app",
-    )
     intent_id = uuid4()
-    try:
-        async with rls_engine.begin() as conn:
-            await apply_tenant_context_to_connection(
-                conn,
-                MaintenanceTenantContext(
-                    operation_name="migration_verification",
-                    actor_id="test_account_merge_rls",
-                    reason_category="rls_probe_seed",
-                    feature_area="security",
-                ),
-            )
-            await conn.execute(
-                text(
+    source_identity_id = uuid4()
+    wrong_identity_id = uuid4()
+    callback_id = uuid4()
+    wrong_callback_id = uuid4()
+    wrong_session_id = uuid4()
+    provider_link_id = uuid4()
+    async with rls_engine.begin() as conn:
+        await apply_tenant_context_to_connection(
+            conn,
+            MaintenanceTenantContext(
+                operation_name="migration_verification",
+                actor_id="test_account_merge_rls",
+                reason_category="rls_probe_seed",
+                feature_area="security",
+            ),
+        )
+        await conn.execute(
+            text(
+                """
+                    insert into external_identities
+                        (id, user_id, provider, provider_subject, is_verified, is_active)
+                    values
+                        (:source_identity_id, :source_user_id, 'email', :source_subject,
+                         true, true),
+                        (:wrong_identity_id, :survivor_user_id, 'email', :wrong_subject,
+                         true, true)
                     """
+            ),
+            {
+                "source_identity_id": source_identity_id,
+                "source_user_id": ids["user_b"],
+                "source_subject": f"merge-source-{ids['slug']}",
+                "wrong_identity_id": wrong_identity_id,
+                "survivor_user_id": ids["user_a"],
+                "wrong_subject": f"merge-wrong-{ids['slug']}",
+            },
+        )
+        await conn.execute(
+            text(
+                """
+                    insert into auth_sessions
+                        (id, user_id, workspace_id, device_id, provider,
+                         session_token_hash, status, expires_at)
+                    values
+                        (:id, :user_id, :workspace_id, :device_id, 'email',
+                         :token_hash, 'active', now() + interval '15 minutes')
+                    """
+            ),
+            {
+                "id": wrong_session_id,
+                "user_id": ids["user_b"],
+                "workspace_id": ids["workspace_b"],
+                "device_id": ids["device_b"],
+                "token_hash": f"merge-wrong-session-{ids['slug']}",
+            },
+        )
+        await conn.execute(
+            text(
+                """
+                    insert into auth_callback_states
+                        (id, provider, state_nonce, workspace_id, expected_state,
+                         expires_at, used_at, result)
+                    values
+                        (:callback_id, 'email_link', :callback_nonce, :workspace_id,
+                         :callback_nonce, now() + interval '15 minutes', now(), 'completed'),
+                        (:wrong_callback_id, 'email_link', :wrong_callback_nonce,
+                         :wrong_workspace_id, :wrong_callback_nonce,
+                         now() + interval '15 minutes', now(), 'completed')
+                    """
+            ),
+            {
+                "callback_id": callback_id,
+                "callback_nonce": f"merge-callback-{ids['slug']}",
+                "workspace_id": ids["workspace_a"],
+                "wrong_callback_id": wrong_callback_id,
+                "wrong_callback_nonce": f"merge-wrong-callback-{ids['slug']}",
+                "wrong_workspace_id": ids["workspace_b"],
+            },
+        )
+        await conn.execute(
+            text(
+                """
+                    insert into workspace_provider_link_states
+                        (id, workspace_id, initiating_user_id,
+                         source_provider_identity_id, initiating_auth_session_id,
+                         callback_state_id, candidate_provider,
+                         candidate_identity_subject, status, expires_at)
+                    values
+                        (:id, :workspace_id, :survivor_user_id, :source_provider_identity_id,
+                         :session_id, :callback_id, 'email', :candidate_subject,
+                         'callback_verified', now() + interval '15 minutes')
+                    """
+            ),
+            {
+                "id": provider_link_id,
+                "workspace_id": ids["workspace_a"],
+                "survivor_user_id": ids["user_a"],
+                "source_provider_identity_id": wrong_identity_id,
+                "session_id": ids["session_a"],
+                "callback_id": callback_id,
+                "candidate_subject": f"merge-source-{ids['slug']}",
+            },
+        )
+        await conn.execute(
+            text(
+                """
                     insert into account_merge_intents
                         (id, workspace_id, survivor_user_id, source_user_id,
-                         email_proof_state, oauth_proof_state, status, expires_at)
+                         initiating_auth_session_id, source_external_identity_id,
+                         proof_callback_state_id, email_proof_state, oauth_proof_state,
+                         status, expires_at)
                     values
                         (:id, :workspace_id, :survivor_user_id, :source_user_id,
+                         :session_id, :source_identity_id, :callback_id,
                          'verified', 'verified', 'preview_ready', now() + interval '15 minutes')
                     """
-                ),
-                {
-                    "id": intent_id,
-                    "workspace_id": ids["workspace_a"],
-                    "survivor_user_id": ids["user_a"],
-                    "source_user_id": ids["user_b"],
-                },
-            )
-
-        app_url = (
-            make_url(migrated_postgres_urls.migration_url)
-            .set(
-                username=app_role,
-                password=app_password,
-            )
-            .render_as_string(hide_password=False)
+            ),
+            {
+                "id": intent_id,
+                "workspace_id": ids["workspace_a"],
+                "survivor_user_id": ids["user_a"],
+                "source_user_id": ids["user_b"],
+                "session_id": ids["session_a"],
+                "source_identity_id": source_identity_id,
+                "callback_id": callback_id,
+            },
         )
-        app_engine = create_async_engine(app_url, pool_pre_ping=True)
-        try:
+
+    async with _exact_app_role_engine(migrated_postgres_urls.migration_url) as app_engine:
+
+        async def assert_access(expected: bool) -> None:
             async with app_engine.begin() as conn:
                 await apply_tenant_context_to_connection(
                     conn,
@@ -2314,12 +2612,145 @@ async def test_app_role_gets_only_proof_bound_account_merge_access(
                         source_user_id=ids["user_b"],
                     ),
                 )
-                assert await conn.scalar(text("select rec_maintenance_allowed()")) is True
-                assert await conn.scalar(text("select count(*) from account_merge_intents")) == 1
-        finally:
-            await app_engine.dispose()
-    finally:
-        await _drop_probe_role(migrated_postgres_urls.migration_url, app_role)
+                assert (
+                    bool(await conn.scalar(text("select rec_account_merge_context_valid()")))
+                    is expected
+                )
+                assert bool(await conn.scalar(text("select rec_maintenance_allowed()"))) is expected
+                assert int(
+                    await conn.scalar(text("select count(*) from account_merge_intents")) or 0
+                ) == int(expected)
+
+        async def update_proof(sql: str, **params: object) -> None:
+            async with rls_engine.begin() as conn:
+                await apply_tenant_context_to_connection(
+                    conn,
+                    MaintenanceTenantContext(
+                        operation_name="migration_verification",
+                        actor_id="test_account_merge_rls",
+                        reason_category="rls_probe_mutation",
+                        feature_area="security",
+                    ),
+                )
+                await conn.execute(text(sql), params)
+
+        await assert_access(True)
+
+        await update_proof(
+            "update account_merge_intents set initiating_auth_session_id = null, "
+            "source_external_identity_id = null, proof_callback_state_id = null "
+            "where id = :id",
+            id=intent_id,
+        )
+        await assert_access(False)
+        await update_proof(
+            "update account_merge_intents set initiating_auth_session_id = :session_id, "
+            "source_external_identity_id = :source_identity_id, "
+            "proof_callback_state_id = :callback_id where id = :id",
+            id=intent_id,
+            session_id=ids["session_a"],
+            source_identity_id=source_identity_id,
+            callback_id=callback_id,
+        )
+
+        for column_name, wrong_value, exact_value in (
+            ("initiating_auth_session_id", wrong_session_id, ids["session_a"]),
+            ("source_external_identity_id", wrong_identity_id, source_identity_id),
+            ("proof_callback_state_id", wrong_callback_id, callback_id),
+        ):
+            await update_proof(
+                f"update account_merge_intents set {column_name} = :value where id = :id",
+                id=intent_id,
+                value=wrong_value,
+            )
+            await assert_access(False)
+            await update_proof(
+                f"update account_merge_intents set {column_name} = :value where id = :id",
+                id=intent_id,
+                value=exact_value,
+            )
+
+        await update_proof(
+            "update auth_sessions set status = 'revoked' where id = :id",
+            id=ids["session_a"],
+        )
+        await assert_access(False)
+        await update_proof(
+            "update auth_sessions set status = 'active' where id = :id",
+            id=ids["session_a"],
+        )
+        await update_proof(
+            "update auth_sessions set expires_at = now() - interval '1 minute' where id = :id",
+            id=ids["session_a"],
+        )
+        await assert_access(False)
+        await update_proof(
+            "update auth_sessions set expires_at = now() + interval '15 minutes' where id = :id",
+            id=ids["session_a"],
+        )
+        await update_proof(
+            "update account_merge_intents set expires_at = now() - interval '1 minute' where id = :id",
+            id=intent_id,
+        )
+        await assert_access(False)
+        await update_proof(
+            "update account_merge_intents set expires_at = now() + interval '15 minutes' where id = :id",
+            id=intent_id,
+        )
+        await update_proof(
+            "update external_identities set is_active = false where id = :id",
+            id=source_identity_id,
+        )
+        await assert_access(False)
+        await update_proof(
+            "update external_identities set is_active = true where id = :id",
+            id=source_identity_id,
+        )
+        await update_proof(
+            "update auth_callback_states set result = 'failed' where id = :id",
+            id=callback_id,
+        )
+        await assert_access(False)
+        await update_proof(
+            "update auth_callback_states set result = 'completed' where id = :id",
+            id=callback_id,
+        )
+
+        await update_proof(
+            "update account_merge_intents set provider_link_state_id = :link_id where id = :id",
+            id=intent_id,
+            link_id=provider_link_id,
+        )
+        await assert_access(True)
+        await update_proof(
+            "update workspace_provider_link_states set status = 'confirmed' where id = :id",
+            id=provider_link_id,
+        )
+        await assert_access(True)
+        await update_proof(
+            "update workspace_provider_link_states set callback_state_id = :callback_id "
+            "where id = :id",
+            id=provider_link_id,
+            callback_id=wrong_callback_id,
+        )
+        await assert_access(False)
+        await update_proof(
+            "update workspace_provider_link_states set callback_state_id = :callback_id "
+            "where id = :id",
+            id=provider_link_id,
+            callback_id=callback_id,
+        )
+
+        await update_proof(
+            "update account_merge_intents set status = 'blocked' where id = :id",
+            id=intent_id,
+        )
+        await assert_access(True)
+        await update_proof(
+            "update account_merge_intents set status = 'completed' where id = :id",
+            id=intent_id,
+        )
+        await assert_access(False)
 
 
 @pytest.mark.asyncio
@@ -2328,10 +2759,6 @@ async def test_email_link_and_oauth_provider_link_terminal_states_restore_narrow
     migrated_postgres_urls: MigratedPostgresUrls,
 ) -> None:
     ids = await _seed_probe_rows(rls_engine)
-    app_role, app_password = await _create_probe_role(
-        migrated_postgres_urls.migration_url,
-        role_name="twobrain_rec_app",
-    )
     source_user_id = uuid4()
     source_workspace_id = uuid4()
     source_email_identity_id = uuid4()
@@ -2340,61 +2767,60 @@ async def test_email_link_and_oauth_provider_link_terminal_states_restore_narrow
     link_ids = tuple(uuid4() for _ in range(3))
     candidate_subject = f"forced-rls-provider-{ids['slug']}"
     candidate_email = f"forced-rls-source-{ids['slug']}@example.test"
-    try:
-        async with rls_engine.begin() as conn:
-            await apply_tenant_context_to_connection(
-                conn,
-                MaintenanceTenantContext(
-                    operation_name="migration_verification",
-                    actor_id="test_auth_link_terminal_rls",
-                    reason_category="rls_probe_seed",
-                    feature_area="security",
-                ),
-            )
-            await conn.execute(
-                text(
-                    """
+    async with rls_engine.begin() as conn:
+        await apply_tenant_context_to_connection(
+            conn,
+            MaintenanceTenantContext(
+                operation_name="migration_verification",
+                actor_id="test_auth_link_terminal_rls",
+                reason_category="rls_probe_seed",
+                feature_area="security",
+            ),
+        )
+        await conn.execute(
+            text(
+                """
                     insert into user_identities
                         (id, organization_id, external_subject, display_name)
                     values (:id, :organization_id, :subject, 'Synthetic source')
                     """
-                ),
-                {
-                    "id": source_user_id,
-                    "organization_id": ids["org_a"],
-                    "subject": f"forced-rls-source-{ids['slug']}",
-                },
-            )
-            await conn.execute(
-                text(
-                    """
+            ),
+            {
+                "id": source_user_id,
+                "organization_id": ids["org_a"],
+                "subject": f"forced-rls-source-{ids['slug']}",
+            },
+        )
+        await conn.execute(
+            text(
+                """
                     insert into workspaces
                         (id, organization_id, owner_user_id, slug, name, kind)
                     values
                         (:id, :organization_id, :owner_user_id, :slug,
                          'Synthetic source', 'corporate')
                     """
-                ),
-                {
-                    "id": source_workspace_id,
-                    "organization_id": ids["org_a"],
-                    "owner_user_id": source_user_id,
-                    "slug": f"forced-rls-source-{ids['slug']}",
-                },
-            )
-            await conn.execute(
-                text(
-                    """
+            ),
+            {
+                "id": source_workspace_id,
+                "organization_id": ids["org_a"],
+                "owner_user_id": source_user_id,
+                "slug": f"forced-rls-source-{ids['slug']}",
+            },
+        )
+        await conn.execute(
+            text(
+                """
                     insert into workspace_memberships
                         (workspace_id, user_id, role, status)
                     values (:workspace_id, :user_id, 'owner', 'active')
                     """
-                ),
-                {"workspace_id": source_workspace_id, "user_id": source_user_id},
-            )
-            await conn.execute(
-                text(
-                    """
+            ),
+            {"workspace_id": source_workspace_id, "user_id": source_user_id},
+        )
+        await conn.execute(
+            text(
+                """
                     insert into external_identities
                         (id, user_id, provider, provider_subject, email, is_verified, is_active)
                     values
@@ -2403,20 +2829,20 @@ async def test_email_link_and_oauth_provider_link_terminal_states_restore_narrow
                         (:candidate_id, :source_user_id, 'vk', :candidate_subject,
                          :candidate_email, true, true)
                     """
-                ),
-                {
-                    "source_id": source_email_identity_id,
-                    "survivor_user_id": ids["user_a"],
-                    "source_email": f"forced-rls-current-{ids['slug']}@example.test",
-                    "candidate_id": candidate_identity_id,
-                    "source_user_id": source_user_id,
-                    "candidate_subject": candidate_subject,
-                    "candidate_email": candidate_email,
-                },
-            )
-            await conn.execute(
-                text(
-                    """
+            ),
+            {
+                "source_id": source_email_identity_id,
+                "survivor_user_id": ids["user_a"],
+                "source_email": f"forced-rls-current-{ids['slug']}@example.test",
+                "candidate_id": candidate_identity_id,
+                "source_user_id": source_user_id,
+                "candidate_subject": candidate_subject,
+                "candidate_email": candidate_email,
+            },
+        )
+        await conn.execute(
+            text(
+                """
                     insert into workspace_auth_policies
                         (id, workspace_id, allow_yandex, allow_vk, allow_telegram,
                          allow_tid, allow_sber_id, allow_mts_id, allow_esia,
@@ -2426,38 +2852,36 @@ async def test_email_link_and_oauth_provider_link_terminal_states_restore_narrow
                         (:id, :workspace_id, true, true, true,
                          false, false, false, false, false, true, 'ru', 'v1')
                     """
-                ),
-                {"id": uuid4(), "workspace_id": ids["workspace_a"]},
-            )
+            ),
+            {"id": uuid4(), "workspace_id": ids["workspace_a"]},
+        )
+        await conn.execute(
+            text("update auth_sessions set provider = 'email' where id = :session_id"),
+            {"session_id": ids["session_a"]},
+        )
+        for index, (callback_id, link_id) in enumerate(zip(callback_ids, link_ids, strict=True)):
+            nonce = f"forced-rls-provider-callback-{index}-{ids['slug']}"
             await conn.execute(
-                text("update auth_sessions set provider = 'email' where id = :session_id"),
-                {"session_id": ids["session_a"]},
-            )
-            for index, (callback_id, link_id) in enumerate(
-                zip(callback_ids, link_ids, strict=True)
-            ):
-                nonce = f"forced-rls-provider-callback-{index}-{ids['slug']}"
-                await conn.execute(
-                    text(
-                        """
+                text(
+                    """
                         insert into auth_callback_states
                             (id, provider, state_nonce, workspace_id, expected_state,
-                             expires_at, result)
+                             expires_at, used_at, result)
                         values
                             (:id, 'vk', :nonce, :workspace_id, :nonce,
-                             :expires_at, 'completed')
+                             :expires_at, now(), 'completed')
                         """
-                    ),
-                    {
-                        "id": callback_id,
-                        "nonce": nonce,
-                        "workspace_id": ids["workspace_a"],
-                        "expires_at": datetime.now(UTC) + timedelta(minutes=5),
-                    },
-                )
-                await conn.execute(
-                    text(
-                        """
+                ),
+                {
+                    "id": callback_id,
+                    "nonce": nonce,
+                    "workspace_id": ids["workspace_a"],
+                    "expires_at": datetime.now(UTC) + timedelta(minutes=5),
+                },
+            )
+            await conn.execute(
+                text(
+                    """
                         insert into workspace_provider_link_states
                             (id, workspace_id, initiating_user_id,
                              source_provider_identity_id, initiating_auth_session_id,
@@ -2468,25 +2892,21 @@ async def test_email_link_and_oauth_provider_link_terminal_states_restore_narrow
                              :session_id, :callback_id, 'vk', :candidate_subject,
                              'callback_verified', :expires_at)
                         """
-                    ),
-                    {
-                        "id": link_id,
-                        "workspace_id": ids["workspace_a"],
-                        "user_id": ids["user_a"],
-                        "source_identity_id": source_email_identity_id,
-                        "session_id": ids["session_a"],
-                        "callback_id": callback_id,
-                        "candidate_subject": candidate_subject,
-                        "expires_at": datetime.now(UTC) + timedelta(minutes=5),
-                    },
-                )
+                ),
+                {
+                    "id": link_id,
+                    "workspace_id": ids["workspace_a"],
+                    "user_id": ids["user_a"],
+                    "source_identity_id": source_email_identity_id,
+                    "session_id": ids["session_a"],
+                    "callback_id": callback_id,
+                    "candidate_subject": candidate_subject,
+                    "expires_at": datetime.now(UTC) + timedelta(minutes=5),
+                },
+            )
 
-        app_url = (
-            make_url(migrated_postgres_urls.migration_url)
-            .set(username=app_role, password=app_password)
-            .render_as_string(hide_password=False)
-        )
-        app_engine = create_async_engine(app_url, pool_pre_ping=True)
+    async with _exact_app_role_engine(migrated_postgres_urls.migration_url) as app_engine:
+        app_url = app_engine.url.render_as_string(hide_password=False)
         sessionmaker = async_sessionmaker(app_engine, expire_on_commit=False)
         principal = AuthenticatedPrincipal(
             user_id=ids["user_a"],
@@ -2498,74 +2918,8 @@ async def test_email_link_and_oauth_provider_link_terminal_states_restore_narrow
             session_workspace_id=ids["workspace_a"],
             session_device_id=ids["device_a"],
         )
-        try:
 
-            async def confirm_merge_link(link_state_id: UUID) -> object:
-                async with sessionmaker() as db:
-                    await apply_tenant_context(
-                        db,
-                        TenantDatabaseContext(
-                            organization_id=ids["org_a"],
-                            workspace_id=ids["workspace_a"],
-                            user_id=ids["user_a"],
-                            device_id=ids["device_a"],
-                            auth_session_id=ids["session_a"],
-                        ),
-                    )
-                    try:
-                        result = await confirm_provider_link(
-                            db,
-                            principal=principal,
-                            link_state_id=link_state_id,
-                        )
-                        await db.commit()
-                        return result
-                    except ProviderLinkError as exc:
-                        await db.rollback()
-                        return exc.code
-
-            async def consume_new_email_link(*, email: str, state_nonce: str) -> object:
-                async with sessionmaker() as db:
-                    result = await consume_email_link_code(
-                        db,
-                        request=_email_auth_request(
-                            Settings(
-                                database_url=app_url,
-                                web_login_workspace_id=ids["workspace_a"],
-                            ),
-                            path="/settings/account/email-link/verify",
-                        ),
-                        principal=principal,
-                        workspace_id=ids["workspace_a"],
-                        email=email,
-                        code="381204",
-                        state_nonce=state_nonce,
-                    )
-                    await db.commit()
-                    return result
-
-            different_state_results = await asyncio.gather(
-                confirm_merge_link(link_ids[0]),
-                confirm_merge_link(link_ids[1]),
-            )
-            assert all(not isinstance(result, str) for result in different_state_results)
-            different_state_intent_ids = {
-                result.merge_intent_id for result in different_state_results
-            }
-            assert len(different_state_intent_ids) == 1
-
-            concurrent_results = await asyncio.gather(
-                confirm_merge_link(link_ids[2]),
-                confirm_merge_link(link_ids[2]),
-            )
-            provider_results = [
-                result for result in concurrent_results if not isinstance(result, str)
-            ]
-            assert len(provider_results) == 1
-            provider_result = provider_results[0]
-            assert provider_result.status == "merge_preview_ready"
-            assert concurrent_results.count("provider_link_reused") == 1
-
+        async def confirm_merge_link(link_state_id: UUID) -> object:
             async with sessionmaker() as db:
                 await apply_tenant_context(
                     db,
@@ -2577,82 +2931,21 @@ async def test_email_link_and_oauth_provider_link_terminal_states_restore_narrow
                         auth_session_id=ids["session_a"],
                     ),
                 )
-                email = f"forced-rls-new-link-{ids['slug']}@example.test"
-                code = "381204"
-                new_link_state = await _create_email_login_state(
-                    db,
-                    workspace_id=ids["workspace_a"],
-                    next_path="/settings/account",
-                    email=email,
-                    code=code,
-                    ttl_seconds=300,
-                    provider="email_link",
-                )
-                await db.commit()
-                email_result = await consume_email_link_code(
-                    db,
-                    request=_email_auth_request(
-                        Settings(
-                            database_url=app_url,
-                            web_login_workspace_id=ids["workspace_a"],
-                        ),
-                        path="/settings/account/email-link/verify",
-                    ),
-                    principal=principal,
-                    workspace_id=ids["workspace_a"],
-                    email=email,
-                    code=code,
-                    state_nonce=new_link_state.state_nonce,
-                )
-                assert isinstance(email_result, EmailLinkCompletion)
-                assert email_result.status == "identity_linked"
-                await db.commit()
-
-                concurrent_email = f"forced-rls-concurrent-link-{ids['slug']}@example.test"
-                concurrent_link_states = tuple(
-                    [
-                        await _create_email_login_state(
-                            db,
-                            workspace_id=ids["workspace_a"],
-                            next_path="/settings/account",
-                            email=concurrent_email,
-                            code=code,
-                            ttl_seconds=300,
-                            provider="email_link",
-                        )
-                        for _ in range(2)
-                    ]
-                )
-                concurrent_link_state_nonces = tuple(
-                    state.state_nonce for state in concurrent_link_states
-                )
-                await db.commit()
-                concurrent_email_results = await asyncio.gather(
-                    *(
-                        consume_new_email_link(
-                            email=concurrent_email,
-                            state_nonce=state_nonce,
-                        )
-                        for state_nonce in concurrent_link_state_nonces
+                try:
+                    result = await confirm_provider_link(
+                        db,
+                        principal=principal,
+                        link_state_id=link_state_id,
                     )
-                )
-                assert all(
-                    isinstance(result, EmailLinkCompletion)
-                    and result.status == "identity_linked"
-                    for result in concurrent_email_results
-                )
+                    await db.commit()
+                    return result
+                except ProviderLinkError as exc:
+                    await db.rollback()
+                    return exc.code
 
-                merge_state = await _create_email_login_state(
-                    db,
-                    workspace_id=ids["workspace_a"],
-                    next_path="/settings/account",
-                    email=candidate_email,
-                    code=code,
-                    ttl_seconds=300,
-                    provider="email_link",
-                )
-                await db.commit()
-                merge_result = await consume_email_link_code(
+        async def consume_new_email_link(*, email: str, state_nonce: str) -> object:
+            async with sessionmaker() as db:
+                result = await consume_email_link_code(
                     db,
                     request=_email_auth_request(
                         Settings(
@@ -2663,58 +2956,175 @@ async def test_email_link_and_oauth_provider_link_terminal_states_restore_narrow
                     ),
                     principal=principal,
                     workspace_id=ids["workspace_a"],
-                    email=candidate_email,
-                    code=code,
-                    state_nonce=merge_state.state_nonce,
+                    email=email,
+                    code="381204",
+                    state_nonce=state_nonce,
                 )
-                assert isinstance(merge_result, EmailLinkCompletion)
-                assert merge_result.status == "merge_preview_ready"
-                assert merge_result.intent_id == provider_result.merge_intent_id
                 await db.commit()
-        finally:
-            await app_engine.dispose()
+                return result
 
-        async with rls_engine.connect() as conn:
-            await apply_tenant_context_to_connection(
-                conn,
-                MaintenanceTenantContext(
-                    operation_name="migration_verification",
-                    actor_id="test_auth_link_terminal_rls",
-                    reason_category="rls_probe_verify",
-                    feature_area="security",
+        different_state_results = await asyncio.gather(
+            confirm_merge_link(link_ids[0]),
+            confirm_merge_link(link_ids[1]),
+        )
+        provider_results = [
+            result for result in different_state_results if not isinstance(result, str)
+        ]
+        assert len(provider_results) == 1
+        assert different_state_results.count("account_state_changed") == 1
+        provider_result = provider_results[0]
+
+        concurrent_results = await asyncio.gather(
+            confirm_merge_link(link_ids[2]),
+            confirm_merge_link(link_ids[2]),
+        )
+        assert concurrent_results.count("account_state_changed") == 2
+        assert provider_result.status == "merge_preview_ready"
+
+        async with sessionmaker() as db:
+            await apply_tenant_context(
+                db,
+                TenantDatabaseContext(
+                    organization_id=ids["org_a"],
+                    workspace_id=ids["workspace_a"],
+                    user_id=ids["user_a"],
+                    device_id=ids["device_a"],
+                    auth_session_id=ids["session_a"],
                 ),
             )
-            link_status = await conn.scalar(
-                text(
-                    """
+            email = f"forced-rls-new-link-{ids['slug']}@example.test"
+            code = "381204"
+            new_link_state = await _create_email_login_state(
+                db,
+                workspace_id=ids["workspace_a"],
+                next_path="/settings/account",
+                email=email,
+                code=code,
+                ttl_seconds=300,
+                provider="email_link",
+            )
+            await db.commit()
+            email_result = await consume_email_link_code(
+                db,
+                request=_email_auth_request(
+                    Settings(
+                        database_url=app_url,
+                        web_login_workspace_id=ids["workspace_a"],
+                    ),
+                    path="/settings/account/email-link/verify",
+                ),
+                principal=principal,
+                workspace_id=ids["workspace_a"],
+                email=email,
+                code=code,
+                state_nonce=new_link_state.state_nonce,
+            )
+            assert isinstance(email_result, EmailLinkCompletion)
+            assert email_result.status == "identity_linked"
+            await db.commit()
+
+            concurrent_email = f"forced-rls-concurrent-link-{ids['slug']}@example.test"
+            concurrent_link_states = tuple(
+                [
+                    await _create_email_login_state(
+                        db,
+                        workspace_id=ids["workspace_a"],
+                        next_path="/settings/account",
+                        email=concurrent_email,
+                        code=code,
+                        ttl_seconds=300,
+                        provider="email_link",
+                    )
+                    for _ in range(2)
+                ]
+            )
+            concurrent_link_state_nonces = tuple(
+                state.state_nonce for state in concurrent_link_states
+            )
+            await db.commit()
+            concurrent_email_results = await asyncio.gather(
+                *(
+                    consume_new_email_link(
+                        email=concurrent_email,
+                        state_nonce=state_nonce,
+                    )
+                    for state_nonce in concurrent_link_state_nonces
+                )
+            )
+            assert all(
+                isinstance(result, EmailLinkCompletion) and result.status == "identity_linked"
+                for result in concurrent_email_results
+            )
+
+            merge_state = await _create_email_login_state(
+                db,
+                workspace_id=ids["workspace_a"],
+                next_path="/settings/account",
+                email=candidate_email,
+                code=code,
+                ttl_seconds=300,
+                provider="email_link",
+            )
+            await db.commit()
+            merge_result = await consume_email_link_code(
+                db,
+                request=_email_auth_request(
+                    Settings(
+                        database_url=app_url,
+                        web_login_workspace_id=ids["workspace_a"],
+                    ),
+                    path="/settings/account/email-link/verify",
+                ),
+                principal=principal,
+                workspace_id=ids["workspace_a"],
+                email=candidate_email,
+                code=code,
+                state_nonce=merge_state.state_nonce,
+            )
+            assert isinstance(merge_result, HTMLResponse)
+            await db.commit()
+
+    async with rls_engine.connect() as conn:
+        await apply_tenant_context_to_connection(
+            conn,
+            MaintenanceTenantContext(
+                operation_name="migration_verification",
+                actor_id="test_auth_link_terminal_rls",
+                reason_category="rls_probe_verify",
+                feature_area="security",
+            ),
+        )
+        link_status = await conn.scalar(
+            text(
+                """
                     select count(*) from workspace_provider_link_states
                     where id in (:link_a, :link_b, :link_c)
                       and resolution = 'merge_preview_ready'
                     """
-                ),
-                {
-                    "link_a": link_ids[0],
-                    "link_b": link_ids[1],
-                    "link_c": link_ids[2],
-                },
-            )
-            intent_status = await conn.scalar(
-                text(
-                    """
+            ),
+            {
+                "link_a": link_ids[0],
+                "link_b": link_ids[1],
+                "link_c": link_ids[2],
+            },
+        )
+        intent_status = await conn.scalar(
+            text(
+                """
                     select status from account_merge_intents
                     where survivor_user_id = :survivor_user_id
                       and source_user_id = :source_user_id
                     """
-                ),
-                {
-                    "survivor_user_id": ids["user_a"],
-                    "source_user_id": source_user_id,
-                },
-            )
-            email_callback_results = tuple(
-                await conn.scalars(
-                    text(
-                        """
+            ),
+            {
+                "survivor_user_id": ids["user_a"],
+                "source_user_id": source_user_id,
+            },
+        )
+        email_callback_results = tuple(
+            await conn.scalars(
+                text(
+                    """
                     select result from auth_callback_states
                     where state_nonce in (
                         :new_link_state_nonce, :concurrent_link_state_nonce_a,
@@ -2722,43 +3132,254 @@ async def test_email_link_and_oauth_provider_link_terminal_states_restore_narrow
                     )
                     order by state_nonce
                     """
-                    ),
-                    {
-                        "new_link_state_nonce": new_link_state.state_nonce,
-                        "concurrent_link_state_nonce_a": concurrent_link_state_nonces[0],
-                        "concurrent_link_state_nonce_b": concurrent_link_state_nonces[1],
-                        "merge_state_nonce": merge_state.state_nonce,
-                    },
-                )
+                ),
+                {
+                    "new_link_state_nonce": new_link_state.state_nonce,
+                    "concurrent_link_state_nonce_a": concurrent_link_state_nonces[0],
+                    "concurrent_link_state_nonce_b": concurrent_link_state_nonces[1],
+                    "merge_state_nonce": merge_state.state_nonce,
+                },
             )
-            concurrent_identity_count = await conn.scalar(
-                text(
-                    """
+        )
+        concurrent_identity_count = await conn.scalar(
+            text(
+                """
                     select count(*) from external_identities
                     where provider = 'email' and provider_subject = :email
                       and user_id = :user_id and is_active and is_verified
                     """
-                ),
-                {"email": concurrent_email, "user_id": ids["user_a"]},
-            )
-            merge_preview_audit_count = await conn.scalar(
-                text(
-                    """
+            ),
+            {"email": concurrent_email, "user_id": ids["user_a"]},
+        )
+        merge_preview_audit_count = await conn.scalar(
+            text(
+                """
                     select count(*) from auth_audit_events
                     where event_type = 'account_merge_preview_prepared'
                       and actor_user_id = :user_id
                     """
+            ),
+            {"user_id": ids["user_a"]},
+        )
+
+    assert link_status == 1
+    assert intent_status == "preview_ready"
+    assert sorted(email_callback_results) == ["completed", "completed", "completed", "failed"]
+    assert concurrent_identity_count == 1
+    assert merge_preview_audit_count == 1
+
+
+@pytest.mark.asyncio
+async def test_forced_rls_account_merge_confirmation_revokes_access_after_completion(
+    rls_engine: AsyncEngine,
+    migrated_postgres_urls: MigratedPostgresUrls,
+) -> None:
+    ids = await _seed_probe_rows(rls_engine)
+    intent_id = uuid4()
+    source_identity_id = uuid4()
+    callback_id = uuid4()
+    async with rls_engine.begin() as conn:
+        await apply_tenant_context_to_connection(
+            conn,
+            MaintenanceTenantContext(
+                operation_name="migration_verification",
+                actor_id="test_account_merge_confirmation_rls",
+                reason_category="rls_probe_seed",
+                feature_area="security",
+            ),
+        )
+        await conn.execute(
+            text(
+                """
+                    update workspaces
+                    set owner_user_id = :survivor_user_id, kind = 'personal'
+                    where id = :survivor_workspace_id
+                    """
+            ),
+            {
+                "survivor_workspace_id": ids["workspace_a"],
+                "survivor_user_id": ids["user_a"],
+            },
+        )
+        await conn.execute(
+            text(
+                "update user_identities set organization_id = :organization_id "
+                "where id = :source_user_id"
+            ),
+            {"organization_id": ids["org_a"], "source_user_id": ids["user_b"]},
+        )
+        await conn.execute(
+            text(
+                """
+                    update workspaces
+                    set organization_id = :organization_id,
+                        owner_user_id = :source_user_id,
+                        kind = 'personal'
+                    where id = :source_workspace_id
+                    """
+            ),
+            {
+                "organization_id": ids["org_a"],
+                "source_workspace_id": ids["workspace_b"],
+                "source_user_id": ids["user_b"],
+            },
+        )
+        await conn.execute(
+            text(
+                """
+                    insert into external_identities
+                        (id, user_id, provider, provider_subject, is_verified, is_active)
+                    values
+                        (:id, :source_user_id, 'vk', :subject, true, true)
+                    """
+            ),
+            {
+                "id": source_identity_id,
+                "source_user_id": ids["user_b"],
+                "subject": f"merge-confirm-source-{ids['slug']}",
+            },
+        )
+        callback_nonce = f"merge-confirm-callback-{ids['slug']}"
+        await conn.execute(
+            text(
+                """
+                    insert into auth_callback_states
+                        (id, provider, state_nonce, workspace_id, expected_state,
+                         expires_at, used_at, result)
+                    values
+                        (:id, 'vk', :nonce, :workspace_id, :nonce,
+                         now() + interval '15 minutes', now(), 'completed')
+                    """
+            ),
+            {
+                "id": callback_id,
+                "nonce": callback_nonce,
+                "workspace_id": ids["workspace_a"],
+            },
+        )
+        await conn.execute(
+            text(
+                """
+                    insert into account_merge_intents
+                        (id, workspace_id, survivor_user_id, source_user_id,
+                         initiating_auth_session_id, source_external_identity_id,
+                         proof_callback_state_id, email_proof_state, oauth_proof_state,
+                         status, expires_at)
+                    values
+                        (:id, :workspace_id, :survivor_user_id, :source_user_id,
+                         :session_id, :source_identity_id, :callback_id,
+                         'verified', 'verified', 'blocked',
+                         now() + interval '15 minutes')
+                    """
+            ),
+            {
+                "id": intent_id,
+                "workspace_id": ids["workspace_a"],
+                "survivor_user_id": ids["user_a"],
+                "source_user_id": ids["user_b"],
+                "session_id": ids["session_a"],
+                "source_identity_id": source_identity_id,
+                "callback_id": callback_id,
+            },
+        )
+
+    async with _exact_app_role_engine(migrated_postgres_urls.migration_url) as app_engine:
+        sessionmaker = async_sessionmaker(app_engine, expire_on_commit=False)
+        merge_context = AccountMergeTenantContext(
+            intent_id=intent_id,
+            workspace_id=ids["workspace_a"],
+            survivor_user_id=ids["user_a"],
+            source_user_id=ids["user_b"],
+        )
+        async with sessionmaker() as db:
+            await apply_tenant_context(db, merge_context)
+            preview = await preview_merge_intent(db, intent_id=intent_id)
+            await db.execute(
+                text(
+                    "update account_merge_intents "
+                    "set status = 'preview_ready', preview_fingerprint = :fingerprint "
+                    "where id = :intent_id"
                 ),
-                {"user_id": ids["user_a"]},
+                {"fingerprint": preview.fingerprint, "intent_id": intent_id},
+            )
+            result = await confirm_merge_intent(
+                db,
+                intent_id=intent_id,
+                preview_fingerprint=preview.fingerprint,
+                idempotency_key="forced-rls-merge-confirmation",
+            )
+            assert result.status == "completed"
+            await db.commit()
+
+        async with app_engine.connect() as conn:
+            await apply_tenant_context_to_connection(conn, merge_context)
+            assert not bool(await conn.scalar(text("select rec_account_merge_context_valid()")))
+            assert (
+                await conn.scalar(
+                    text(
+                        "select count(*) from account_merge_journals "
+                        "where merge_intent_id = :intent_id"
+                    ),
+                    {"intent_id": intent_id},
+                )
+                == 0
             )
 
-        assert link_status == 3
-        assert intent_status == "preview_ready"
-        assert email_callback_results == ("completed",) * 4
-        assert concurrent_identity_count == 1
-        assert merge_preview_audit_count >= 4
-    finally:
-        await _drop_probe_role(migrated_postgres_urls.migration_url, app_role)
+    async with rls_engine.connect() as conn:
+        await apply_tenant_context_to_connection(
+            conn,
+            MaintenanceTenantContext(
+                operation_name="migration_verification",
+                actor_id="test_account_merge_confirmation_rls",
+                reason_category="rls_probe_verify",
+                feature_area="security",
+            ),
+        )
+        intent_status = await conn.scalar(
+            text("select status from account_merge_intents where id = :id"),
+            {"id": intent_id},
+        )
+        journal_count = await conn.scalar(
+            text(
+                "select count(*) from account_merge_journals "
+                "where merge_intent_id = :id and status = 'completed'"
+            ),
+            {"id": intent_id},
+        )
+        source_status = await conn.scalar(
+            text("select status from user_identities where id = :id"),
+            {"id": ids["user_b"]},
+        )
+        source_workspace = (
+            await conn.execute(
+                text("select owner_user_id, kind from workspaces where id = :id"),
+                {"id": ids["workspace_b"]},
+            )
+        ).one()
+        source_membership_count = await conn.scalar(
+            text(
+                "select count(*) from workspace_memberships "
+                "where workspace_id = :workspace_id and user_id = :user_id "
+                "and status = 'active'"
+            ),
+            {"workspace_id": ids["workspace_b"], "user_id": ids["user_a"]},
+        )
+        source_meeting_owner = await conn.scalar(
+            text("select created_by_user_id from meetings where id = :id"),
+            {"id": ids["meeting_b"]},
+        )
+        survivor_session_status = await conn.scalar(
+            text("select status from auth_sessions where id = :id"),
+            {"id": ids["session_a"]},
+        )
+
+    assert intent_status == "completed"
+    assert journal_count == 1
+    assert source_status == "merged"
+    assert source_workspace == (ids["user_a"], "linked")
+    assert source_membership_count == 1
+    assert source_meeting_owner == ids["user_a"]
+    assert survivor_session_status == "revoked"
 
 
 @pytest.mark.asyncio

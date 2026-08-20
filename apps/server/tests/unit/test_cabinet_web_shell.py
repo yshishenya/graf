@@ -1247,7 +1247,7 @@ def test_embedded_window_breakpoints_keep_sidebar_stable_until_tight_width() -> 
         "}"
     ) in css
     narrow_rules = css.split("@media (max-width: 720px) {", 1)[1].split("\n}", 1)[0]
-    assert "grid-template-columns" not in narrow_rules
+    assert ".app-shell" not in narrow_rules
     assert "    width: var(--app-rail-width);" in css
     assert "  .desktop-embedded .sidebar:hover," not in css
     assert ".desktop-embedded.is-rail-pinned .sidebar {" in css
@@ -1353,10 +1353,11 @@ def test_cabinet_rail_initialization_uses_surface_breakpoints_without_resize_pol
 
     for marker in (
         'shell.classList.contains("is-rail-pinned")',
-        'window.matchMedia("(min-width: 981px)").matches',
+        'const wideViewport = window.matchMedia("(min-width: 981px)")',
+        "wideViewport.matches",
     ):
         assert marker in js
-    assert 'window.matchMedia("(min-width: 1121px)").matches' not in js
+    assert 'window.matchMedia("(min-width: 1121px)")' not in js
 
     rail_source = js[js.index("const initCabinetRail") : js.index("const initCabinetProfileMenus")]
     assert 'window.addEventListener("resize"' not in rail_source

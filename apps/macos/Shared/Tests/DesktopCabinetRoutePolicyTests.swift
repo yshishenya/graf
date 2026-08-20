@@ -80,8 +80,9 @@ final class DesktopCabinetRoutePolicyTests: XCTestCase {
             "/desktop/account/profile",
             "/desktop/account/security",
             "/desktop/account/notifications",
+            "/desktop/account/fair-use",
+            "/desktop/account/fair-use/7f3d6f9f-0f7f-4c13-a9af-000000000033/appeal",
             "/desktop/settings/provider-links/7f3d6f9f-0f7f-4c13-a9af-000000000033",
-            "/desktop/settings/provider-links/yandex/start",
             "/desktop/settings/provider-links/7f3d6f9f-0f7f-4c13-a9af-000000000033/confirm",
             "/desktop/settings/account/devices/7f3d6f9f-0f7f-4c13-a9af-000000000033/revoke",
             "/desktop/settings/account/devices/revoke-others",
@@ -94,8 +95,24 @@ final class DesktopCabinetRoutePolicyTests: XCTestCase {
             XCTAssertEqual(settings.reason, .allowedSettings, route)
         }
 
+        let providerLinkStart = policy.decision(
+            for: try url("/desktop/settings/provider-links/yandex/start")
+        )
+        XCTAssertEqual(providerLinkStart.decision, .allow)
+        XCTAssertEqual(providerLinkStart.route.kind, .authProvider)
+        XCTAssertEqual(providerLinkStart.reason, .allowedAuthProvider)
+        XCTAssertEqual(
+            policy.decision(
+                for: try XCTUnwrap(URL(string: "https://oauth.yandex.ru/authorize")),
+                allowExternalAuthProvider: true
+            ).decision,
+            .allow
+        )
+
         for route in [
             "/desktop/settings/unknown",
+            "/desktop/account/fair-use/unsafe provider/appeal",
+            "/desktop/account/fair-use/7f3d6f9f-0f7f-4c13-a9af-000000000033/delete",
             "/desktop/settings/provider-links/unsafe provider/start",
             "/desktop/settings/join-offers/7f3d6f9f-0f7f-4c13-a9af-000000000033/delete"
         ] {
@@ -238,6 +255,29 @@ final class DesktopCabinetRoutePolicyTests: XCTestCase {
 
         XCTAssertEqual(policy.decision(for: try XCTUnwrap(URL(string: "https://docs.2brain.dev/help"))).decision, .openExternally)
         XCTAssertEqual(policy.decision(for: try XCTUnwrap(URL(string: "https://evil.example/desktop/meetings"))).decision, .blockWithMessage)
+    }
+
+    func testAllowsOnlyMetadataSafeSupportMailtoExternally() throws {
+        let policy = DesktopCabinetRoutePolicy(baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev")))
+        let safe = try XCTUnwrap(URL(string: "mailto:support@example.test?subject=GRAF%3A%20AM-123"))
+
+        XCTAssertEqual(policy.decision(for: safe).decision, .openExternally)
+        let sanitized = try XCTUnwrap(policy.sanitizedExternalURL(for: safe))
+        let sanitizedComponents = try XCTUnwrap(
+            URLComponents(url: sanitized, resolvingAgainstBaseURL: false)
+        )
+        XCTAssertEqual(sanitizedComponents.scheme, "mailto")
+        XCTAssertEqual(sanitizedComponents.path, "support@example.test")
+        XCTAssertEqual(sanitizedComponents.queryItems, [URLQueryItem(name: "subject", value: "GRAF: AM-123")])
+        XCTAssertEqual(
+            policy.decision(for: try XCTUnwrap(URL(string: "mailto:support@example.test?body=private"))).decision,
+            .blockWithMessage
+        )
+        XCTAssertNil(
+            policy.sanitizedExternalURL(
+                for: try XCTUnwrap(URL(string: "mailto:support@example.test?subject=ok&cc=other@example.test"))
+            )
+        )
     }
 
     func testAllowsBlobDownloadOnlyFromAnAllowedMainFrame() throws {

@@ -548,6 +548,54 @@ def test_browser_yandex_callback_rejects_missing_browser_state_cookie(client) ->
     assert callback.json()["code"] == "callback_state_invalid"
 
 
+@pytest.mark.parametrize("cookie_mode", ["correct", "missing", "wrong"])
+def test_settings_provider_link_callback_keeps_browser_nonce_binding(
+    monkeypatch, client, cookie_mode: str
+) -> None:
+    _patch_browser_provider_callbacks(monkeypatch)
+    provider_map = fake_provider_map()
+    monkeypatch.setattr(
+        "twobrain_rec_server.cabinet.web_routes.provider_links.build_provider_registry",
+        lambda: provider_map,
+    )
+    monkeypatch.setattr(
+        "twobrain_rec_server.cabinet.web_routes.provider_links.get_provider_adapter",
+        lambda provider: provider_map[provider],
+    )
+    csrf = _login_owner_and_get_settings_csrf(client)
+    start = client.post(
+        "/settings/provider-links/yandex/start",
+        data={"csrf_token": csrf},
+        follow_redirects=False,
+    )
+    assert start.status_code == 303
+    state = parse_qs(urlsplit(start.headers["location"]).query)["state"][0]
+    nonce = re.search(
+        rf"{re.escape(BROWSER_AUTH_STATE_COOKIE_NAME)}=([^;]+)",
+        start.headers["set-cookie"],
+    )
+    assert nonce is not None
+    client.cookies.delete(BROWSER_AUTH_STATE_COOKIE_NAME)
+    if cookie_mode != "missing":
+        client.cookies.set(
+            BROWSER_AUTH_STATE_COOKIE_NAME,
+            nonce.group(1) if cookie_mode == "correct" else "wrong-browser-state",
+        )
+
+    callback = client.get(
+        "/api/v1/auth/callback/yandex",
+        params={"state": state, "code": "settings-provider-link"},
+        follow_redirects=False,
+    )
+
+    if cookie_mode == "correct":
+        assert callback.status_code == 303
+        assert callback.headers["location"].endswith("?result=callback_verified")
+    else:
+        assert callback.status_code == 400
+        assert callback.json()["code"] == "callback_state_invalid"
+
+
 def test_browser_provider_callback_keeps_only_authorized_detail_return(monkeypatch, client) -> None:
     seeds = seed_cabinet_meetings(client)
     _patch_browser_provider_callbacks(monkeypatch)
@@ -1096,7 +1144,40 @@ def test_authenticated_email_link_requires_preview_for_one_other_account(client)
     assert match is not None, verified.headers["location"]
     intent_id = UUID(match.group(1))
 
-    async def read_result() -> tuple[str, str, str]:
+    preview_page = client.get(verified.headers["location"])
+    assert preview_page.status_code == 200
+    csrf_match = re.search(r'name="csrf_token" value="([^"]+)"', preview_page.text)
+    fingerprint_match = re.search(
+        r'name="preview_fingerprint" value="([^"]+)"', preview_page.text
+    )
+    idempotency_match = re.search(
+        r'name="idempotency_key" value="([^"]+)"', preview_page.text
+    )
+    assert csrf_match is not None
+    assert fingerprint_match is not None
+    assert idempotency_match is not None
+
+    async def expire_intent() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            intent = await db.get(AccountMergeIntent, intent_id)
+            assert intent is not None
+            intent.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+            await db.commit()
+
+    client.portal.call(expire_intent)
+    expired = client.post(
+        f"/settings/account/merge/{intent_id}/confirm",
+        data={
+            "csrf_token": csrf_match.group(1),
+            "preview_fingerprint": fingerprint_match.group(1),
+            "idempotency_key": idempotency_match.group(1),
+        },
+        follow_redirects=False,
+    )
+    assert expired.status_code == 303
+    assert expired.headers["location"].endswith("?error=merge_intent_expired")
+
+    async def read_result() -> tuple[str, str, str, str | None]:
         async with client.app_state["sessionmaker"]() as db:
             source = await db.get(UserIdentity, source_user_id)
             intent = await db.get(AccountMergeIntent, intent_id)
@@ -1104,9 +1185,96 @@ def test_authenticated_email_link_requires_preview_for_one_other_account(client)
                 select(AuthCallbackState).where(AuthCallbackState.state_nonce == state)
             )
             assert source is not None and intent is not None and callback is not None
-            return source.status, intent.status, callback.result
+            return source.status, intent.status, callback.result, intent.error_code
 
-    assert client.portal.call(read_result) == ("active", "preview_ready", "completed")
+    assert client.portal.call(read_result) == (
+        "active",
+        "expired",
+        "completed",
+        "merge_intent_expired",
+    )
+
+
+def test_blocked_email_link_keeps_completed_proof_for_recovery_page(client) -> None:
+    source_user_id = uuid4()
+    source_workspace_id = uuid4()
+    email = "blocked-other-account@example.test"
+
+    async def seed_source() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            db.add_all(
+                [
+                    UserIdentity(
+                        id=source_user_id,
+                        organization_id=ORG_ID,
+                        external_subject=str(source_user_id),
+                    ),
+                    Workspace(
+                        id=source_workspace_id,
+                        organization_id=ORG_ID,
+                        owner_user_id=source_user_id,
+                        slug=f"source-{source_user_id.hex}",
+                        name="Blocked source account",
+                        kind="corporate",
+                    ),
+                ]
+            )
+            await db.flush()
+            db.add_all(
+                [
+                    WorkspaceMembership(
+                        workspace_id=source_workspace_id,
+                        user_id=source_user_id,
+                        role="owner",
+                        status="active",
+                    ),
+                    ExternalIdentity(
+                        user_id=source_user_id,
+                        provider="email",
+                        provider_subject=email,
+                        email=email,
+                        is_verified=True,
+                        is_active=True,
+                    ),
+                    WorkspaceSubscription(
+                        workspace_id=source_workspace_id,
+                        billing_owner_id=source_user_id,
+                        state="active",
+                        plan_code="pro",
+                        cycle="monthly",
+                        recurring_allowed=True,
+                    ),
+                ]
+            )
+            await db.commit()
+
+    client.portal.call(seed_source)
+    csrf = _login_owner_and_get_settings_csrf(client)
+    state, code, link_csrf = _start_email_link(client, email=email, csrf_token=csrf)
+    verified = client.post(
+        "/settings/account/email-link/verify",
+        data={"email": email, "code": code, "state": state, "csrf_token": link_csrf},
+        follow_redirects=False,
+    )
+
+    assert verified.status_code == 303
+    match = re.fullmatch(r"/settings/account/merge/([0-9a-f-]+)", verified.headers["location"])
+    assert match is not None, verified.headers["location"]
+    intent_id = UUID(match.group(1))
+    recovery = client.get(verified.headers["location"])
+    assert recovery.status_code == 200
+    assert "На втором профиле есть активная оплата" in recovery.text
+
+    async def read_result() -> tuple[str, str, str | None]:
+        async with client.app_state["sessionmaker"]() as db:
+            callback = await db.scalar(
+                select(AuthCallbackState).where(AuthCallbackState.state_nonce == state)
+            )
+            intent = await db.get(AccountMergeIntent, intent_id)
+            assert callback is not None and intent is not None
+            return callback.result, intent.status, intent.blocker_code
+
+    assert client.portal.call(read_result) == ("completed", "blocked", "billing_conflict")
 
 
 def test_authenticated_email_link_fails_closed_for_multiple_other_accounts(client) -> None:
@@ -1156,7 +1324,7 @@ def test_authenticated_email_link_fails_closed_for_multiple_other_accounts(clien
     )
 
     assert verified.status_code == 400
-    assert "несколькими аккаунтами" in verified.text
+    assert "несколькими профилями" in verified.text
 
     async def read_result() -> tuple[str, int]:
         async with client.app_state["sessionmaker"]() as db:
@@ -1453,7 +1621,7 @@ def test_browser_email_signup_fails_closed_for_ambiguous_existing_users(client) 
         data={"email": ambiguous_email, "next": "/meetings"},
     )
     assert login_start.status_code == 400
-    assert "несколькими аккаунтами" in login_start.text
+    assert "несколькими профилями" in login_start.text
     assert "чужие встречи" in login_start.text
     assert "Яндекс ID" in login_start.text
     assert "VK ID" in login_start.text
@@ -1489,7 +1657,7 @@ def test_browser_email_signup_fails_closed_for_ambiguous_existing_users(client) 
     assert completed.status_code == 400
     assert completed.cookies.get(AUTH_SESSION_COOKIE_NAME) is None
     assert str(AUTH_BOOTSTRAP_WORKSPACE_ID) not in completed.text
-    assert "несколькими аккаунтами" in completed.text
+    assert "несколькими профилями" in completed.text
     assert "Яндекс ID" in completed.text
     assert "VK ID" in completed.text
     assert "Откройте итоги встречи" not in completed.text

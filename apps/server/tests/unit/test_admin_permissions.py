@@ -42,6 +42,9 @@ def test_personal_workspace_is_not_an_admin_team_surface() -> None:
     assert corporate_admin_workspace_decision("personal").outcome == (
         AdminPermissionOutcome.DENIED_PERSONAL_WORKSPACE
     )
+    assert corporate_admin_workspace_decision("linked").outcome == (
+        AdminPermissionOutcome.DENIED_PERSONAL_WORKSPACE
+    )
 
 
 def test_member_inactive_cross_workspace_and_missing_audit_are_denied() -> None:

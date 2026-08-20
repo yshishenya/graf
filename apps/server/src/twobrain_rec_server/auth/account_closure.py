@@ -41,6 +41,21 @@ def _utc(value: datetime) -> datetime:
     return value.astimezone(UTC)
 
 
+async def account_close_content_workspace_ids(
+    db: AsyncSession,
+    *,
+    primary_workspace_id: UUID,
+    user_id: UUID,
+) -> tuple[UUID, ...]:
+    linked_ids = await db.scalars(
+        select(Workspace.id).where(
+            Workspace.kind == "linked",
+            Workspace.owner_user_id == user_id,
+        )
+    )
+    return tuple(sorted({primary_workspace_id, *linked_ids}, key=str))
+
+
 async def _owner_workspace(
     db: AsyncSession,
     *,
@@ -60,7 +75,13 @@ async def _owner_workspace(
             WorkspaceMembership.status == "active",
         )
     )
-    if workspace is None or membership is None or membership.role != "owner":
+    if (
+        workspace is None
+        or workspace.kind != "personal"
+        or workspace.owner_user_id != user_id
+        or membership is None
+        or membership.role != "owner"
+    ):
         raise ProblemDetail(status=403, code="account_close_owner_required", title="Только владелец может закрыть аккаунт")
     active_members = await db.scalar(
         select(func.count())
@@ -226,10 +247,7 @@ async def finalize_account_close(
         device.registration_state = "revoked"
     await db.execute(
         WorkspaceMembership.__table__.update()
-        .where(
-            WorkspaceMembership.workspace_id == request.workspace_id,
-            WorkspaceMembership.user_id == request.requested_by_user_id,
-        )
+        .where(WorkspaceMembership.user_id == request.requested_by_user_id)
         .values(status="inactive")
     )
     request.state = "completed"

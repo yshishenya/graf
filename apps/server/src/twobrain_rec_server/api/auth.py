@@ -915,6 +915,7 @@ async def callback(
                 state_nonce=state,
                 link_state=link,
                 provider_credentials=_provider_credentials(settings, provider, callback_url),
+                browser_state_nonce=request.cookies.get(BROWSER_AUTH_STATE_COOKIE_NAME),
             )
             await db.commit()
             redirect_path = _safe_browser_return_path(callback_state.requested_redirect)

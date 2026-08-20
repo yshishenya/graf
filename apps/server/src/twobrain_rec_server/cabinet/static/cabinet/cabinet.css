@@ -2034,6 +2034,49 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 .settings-status-badge { border-color: rgba(47,201,166,.32); color: #b5f1df; background: rgba(47,201,166,.08); }
 .settings-boundary-card .button { justify-self: start; }
 .settings-handoff-card .button { justify-self: start; }
+.account-linking-page .settings-section { max-width: 780px; }
+.account-linking-comparison {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+.account-linking-comparison__card {
+  min-width: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+.account-linking-comparison__card h3,
+.account-linking-comparison__card p,
+.account-linking-provider-group ul { margin: 0; }
+.account-linking-comparison__card h3 { margin-bottom: var(--space-2); }
+.account-linking-comparison__card > ul,
+.account-linking-provider-group ul { padding-inline-start: 20px; color: var(--muted); }
+.account-linking-provider-group { display: grid; gap: 4px; margin-top: var(--space-2); }
+.account-linking-results { margin-top: var(--space-2); }
+.account-linking-alert {
+  display: grid;
+  gap: var(--space-1);
+  max-width: 780px;
+  padding: var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+  overflow-wrap: anywhere;
+}
+.account-linking-alert--warning { border-color: var(--amber); }
+.account-linking-alert--error { border-color: var(--red); }
+.account-linking-alert > p { margin: 0; color: var(--muted); }
+.account-linking-alert > .button { justify-self: start; }
+.account-linking-blockers { display: grid; gap: var(--space-2); }
+.account-linking-details {
+  padding-block: var(--space-2);
+  border-block: 1px solid var(--line);
+}
+.account-linking-details > summary { color: var(--text); font-weight: 700; cursor: pointer; }
+.account-linking-details > div { display: grid; gap: var(--space-1); padding-top: var(--space-2); color: var(--muted); }
+.account-linking-actions { max-width: 780px; justify-content: flex-start; }
 .settings-page form { margin: 0; }
 .settings-page h1,
 .settings-page h2,
@@ -2362,6 +2405,10 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
     border-radius: 999px;
     background: var(--accent);
   }
+  .account-linking-comparison { grid-template-columns: 1fr; }
+  .account-linking-actions,
+  .account-linking-actions form,
+  .account-linking-actions .button { width: 100%; }
 }
 @media (max-width: 540px) {
   .calendar-context-choice { padding: 10px; }
