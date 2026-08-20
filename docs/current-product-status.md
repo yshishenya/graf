@@ -18,6 +18,10 @@ Date: 2026-08-20
   overflow завершают доверенный сегмент; сохраняется только уже очищенный
   prefix с degraded metadata. Historical v3/v4 и pre-feature v5 readers
   сохраняются без возврата удалённого runtime.
+- Аудит 2026-08-21 добавил bounded clock recovery до 1 ms на callback,
+  fail-closed смену source format, наблюдение default output device и удалил
+  дублирующий non-PTS FIFO. Сквозной synthetic mix, smooth delay drift,
+  60-minute plus/minus 100 ppm clock model и 1,000-frame p95 gate проходят.
 - Локальные synthetic/package/CI проверки выполняются в Feature 177. Реальный
   двух-Mac hardware matrix, Developer ID/notarization и release/deploy пока не
   заявлены.

@@ -1,6 +1,6 @@
 # Feature 177 closeout
 
-Date: 2026-08-20
+Date: 2026-08-21
 
 Lane: significant/high-risk capture feature; local implementation validation,
 no release or deployment.
@@ -19,16 +19,19 @@ no release or deployment.
 ## Final local checks
 
 - Vendored AEC3 artifact validation and native/Rosetta smoke: PASS.
-- Full macOS Swift suite: 708 passed, 0 failed.
+- Full macOS Swift suite after technical audit: 722 passed, 0 failed.
 - Synthetic delay/RT60, near-end and double-talk quality test: PASS.
 - `ContractValidation`: PASS.
 - Legacy audio architecture guard: PASS.
 - Universal ad-hoc app/package validation: PASS.
-- Repository fast gate: PASS; server unit suite 1103 passed, lint and compile
+- Repository fast gate: PASS; server unit suite 1120 passed, lint and compile
   passed.
 - `git diff --check`: PASS.
 - Source audit found one processor construction in the production writer and
   only validator references to the forbidden `rawMicrophoneFallback` token.
+
+The detailed historical/code/logic review and its five remediated finding
+groups are recorded in `technical-audit.md`.
 
 ## Open gate
 
@@ -37,6 +40,7 @@ executed, so this feature is not hardware-accepted or release-ready and no claim
 is made that real speaker recordings are echo-free. Developer ID, notarization,
 stapling, Gatekeeper, full release CI, publication and deployment were not run.
 
-No commit, push, PR, issue closure, release or deployment was performed. No raw
-audio, transcript, private meeting content, credential, signed URL or private
-device/path evidence is included.
+The feature branch was pushed and then merged with current `origin/master` for
+final validation. No PR, issue closure, release or deployment was performed. No
+raw audio, transcript, private meeting content, credential, signed URL or
+private device/path evidence is included.

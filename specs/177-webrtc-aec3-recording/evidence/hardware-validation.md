@@ -1,6 +1,6 @@
 # Hardware validation
 
-Date: 2026-08-20
+Date: 2026-08-21
 
 Status: **NOT EXECUTED — BLOCKED**.
 
@@ -20,3 +20,7 @@ Therefore this evidence does not claim:
 Synthetic AEC3, full Swift, universal packaging and metadata-only integrity
 checks passed separately. They do not replace this manual gate. No raw audio,
 private meeting content, transcript or device identity is committed.
+
+The 2026-08-21 technical audit added default-output-device observation,
+bounded clock recovery, format-change rejection and stronger synthetic tests.
+It did not execute or close the controlled hardware matrix.
