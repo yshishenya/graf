@@ -2,10 +2,9 @@
 
 **Date**: 2026-08-20
 
-**Final closeout status**: pending after the current review fixes. Результаты
-ниже — проверенный предыдущий snapshot; они не являются immutable evidence для
-финального diff, пока новый fast gate не привязан к exact commit и retained
-artifact.
+**Final closeout status**: PR validation complete; production release pending.
+Финальный fast gate ниже привязан к exact tested commit и retained artifact;
+production evidence добавляется только после release gate и deploy.
 
 Все проверки metadata-only. Реальные email, коды, cookies, tokens, account IDs и
 содержимое встреч не записывались; browser fixtures использовали только
@@ -20,7 +19,7 @@ artifact.
 | Focused Python unit/contract/auth flow | 68 passed |
 | PostgreSQL account merge, exact-role forced RLS, billing lineage и migration upgrade/downgrade regression | 31 passed, 2 existing dependency warnings |
 | Focused sidebar static/runtime contracts | 4 passed |
-| Repository fast gate | 1116 passed, lint/compile/legacy-audio guard passed (previous snapshot) |
+| Repository fast gate | 1120 passed, lint/compile/legacy-audio guard passed on exact tested SHA |
 | Ruff | passed |
 | Whitespace | `git diff --check` passed |
 
@@ -44,17 +43,17 @@ migration `0074_linked_workspace_proofs`. Повторный gate для тог�
 warnings — два существующих dependency warnings. Дополнительно focused
 PostgreSQL exact-role closeout завершился: `3 passed`.
 
-Base SHA не идентифицирует итоговый tested tree, а retained log/artifact для
-этого запуска здесь не закреплён. Поэтому финальные closeout-поля остаются
-честно незаполненными до нового запуска на committed review diff:
+Предыдущий snapshot не использовался как финальное evidence. Итоговый committed
+review diff проверен отдельно, поэтому closeout-поля заполнены его значениями:
 
-- `tested_commit_sha`: pending;
-- `fast_gate_artifact`: pending;
-- `fast_gate_artifact_sha256`: pending;
-- `fast_gate_run_at`: pending.
+- `tested_commit_sha`: `26d25163549d887a10e7b28eb02ade7fdbf8e4f0`;
+- `fast_gate_artifact`: `feature178-fast-ci-26d25163-20260820T2211Z`;
+- `fast_gate_artifact_sha256`:
+  `8523d8c95e3186d7110f19f7e6b85f1a0de1c92a2ee5541952c46a392900c202`;
+- `fast_gate_run_at`: `2026-08-20T22:12:06Z`.
 
-Production deploy повторно проверяет неизменяемый merged SHA полным release
-gate, но не заменяет отсутствующее PR fast-gate evidence.
+Production deploy повторно проверит неизменяемый merged SHA полным release gate
+и добавит отдельное production evidence.
 
 PostgreSQL matrix доказала отдельно:
 
