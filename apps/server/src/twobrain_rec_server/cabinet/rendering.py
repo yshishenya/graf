@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, timezone
 from html import escape
 from urllib.parse import urlencode
@@ -15,6 +16,7 @@ from twobrain_rec_server.api.schemas import (
     TranscriptSegmentView,
     TranscriptSpeakerTurnView,
 )
+from twobrain_rec_server.auth.account_merge import MergePreview
 from twobrain_rec_server.auth.workspace_onboarding import (
     WorkspaceAccessView,
     WorkspaceJoinOfferView,
@@ -56,6 +58,78 @@ from twobrain_rec_server.cabinet.templates import (
 from twobrain_rec_server.deletion.report import BOUNDED_DELETE_COPY
 from twobrain_rec_server.domain.media_filenames import MANUAL_MEDIA_UPLOAD_ACCEPT
 from twobrain_rec_server.outcomes.templates import BUILT_IN_BY_KEY, BUILT_IN_TEMPLATES
+
+
+@dataclass(frozen=True, slots=True)
+class AccountMergePresentation:
+    current_provider_labels: tuple[str, ...]
+    other_provider_labels: tuple[str, ...]
+    connected_provider_labels: tuple[str, ...]
+    workspace_summary: str
+    data_summary: str
+    preview_fingerprint: str
+
+
+def _count_label(value: int, one: str, few: str, many: str) -> str:
+    return f"{value} {cabinet_view_models._russian_count_word(value, one, few, many)}"
+
+
+def _account_merge_provider_labels(provider_ids: tuple[str, ...]) -> tuple[str, ...]:
+    labels = (
+        cabinet_view_models.PROVIDER_LINK_LABELS.get(provider_id, "Способ входа")
+        for provider_id in provider_ids
+    )
+    return tuple(dict.fromkeys(labels))
+
+
+def account_merge_presentation(preview: MergePreview | None) -> AccountMergePresentation | None:
+    if preview is None:
+        return None
+    current_provider_labels = _account_merge_provider_labels(
+        preview.survivor_provider_ids
+    )
+    other_provider_labels = _account_merge_provider_labels(
+        preview.source_provider_ids
+    )
+    connected_provider_labels = tuple(
+        dict.fromkeys((*current_provider_labels, *other_provider_labels))
+    )
+    counts = preview.counts
+    workspace_count = preview.workspace_count_after
+    workspace_summary = (
+        f"{_count_label(workspace_count, 'пространство', 'пространства', 'пространств')} "
+        "останутся отдельными."
+        if workspace_count
+        else "Пространства останутся отдельными."
+    )
+    preserved_counts = tuple(
+        _count_label(int(value), one, few, many)
+        for value, one, few, many in (
+            (counts.meetings, "встреча", "встречи", "встреч"),
+            (counts.recordings, "запись", "записи", "записей"),
+            (counts.artifacts, "файл", "файла", "файлов"),
+            (
+                counts.processing,
+                "результат обработки",
+                "результата обработки",
+                "результатов обработки",
+            ),
+        )
+        if value
+    )
+    data_summary = (
+        f"Сохранятся: {', '.join(preserved_counts)}."
+        if preserved_counts
+        else "Во втором профиле нет встреч, записей и файлов."
+    )
+    return AccountMergePresentation(
+        current_provider_labels=current_provider_labels,
+        other_provider_labels=other_provider_labels,
+        connected_provider_labels=connected_provider_labels,
+        workspace_summary=workspace_summary,
+        data_summary=data_summary,
+        preview_fingerprint=preview.fingerprint,
+    )
 
 
 def render_meeting_list_page(
@@ -286,10 +360,11 @@ def render_settings_page(
         "activated": "Текущее пространство изменено. Новые встречи сохранятся здесь.",
     }.get(workspace_switch_result)
     provider_link_result_copy = {
-        "confirmed": "Способ входа подключён к текущему аккаунту.",
-        "provider_link_conflict": "Этот способ входа уже связан с другим аккаунтом.",
-        "merge_blocked": "Объединение заблокировано: сначала нужно устранить указанный конфликт.",
-        "merge_cancelled": "Объединение отменено. Данные не изменены.",
+        "confirmed": "Способ входа подключён к текущему профилю.",
+        "provider_link_conflict": "Этот способ входа уже связан с другим профилем.",
+        "merge_blocked": "Email не подключён: текущее состояние профилей требует отдельного действия.",
+        "merge_cancelled": "Профили остались раздельными. Email не подключён к текущему профилю.",
+        "reauth_required": "Вы вошли снова. Подключите email ещё раз — прежнее подтверждение больше не действует.",
         "provider_link_denied": "Подключение не разрешено текущей политикой.",
         "provider_link_expired": "Срок подключения истёк. Начните заново.",
     }.get(provider_link_result)
@@ -401,7 +476,7 @@ def render_provider_link_settings_page(
 
 
 def render_account_merge_page(
-    preview: object | None,
+    preview: MergePreview | None,
     *,
     intent_id: UUID,
     embedded: bool = False,
@@ -409,10 +484,13 @@ def render_account_merge_page(
     product_analytics_provider: dict[str, object] | None = None,
     profile=None,
     error_message: str | None = None,
+    blockers: tuple[object, ...] = (),
+    requires_reauth: bool = False,
 ) -> str:
     base_path = "/desktop/settings/account/merge" if embedded else "/settings/account/merge"
+    settings_path = "/desktop/settings/account" if embedded else "/settings/account"
     return _page_shell(
-        "Объединение аккаунтов",
+        "Подключить email к текущему профилю",
         embedded=embedded,
         active_nav="settings",
         settings_active="account",
@@ -420,12 +498,16 @@ def render_account_merge_page(
         product_analytics_provider=product_analytics_provider,
         profile=profile,
         content_template="cabinet/pages/account_merge_content.html",
-        preview=preview,
+        presentation=account_merge_presentation(preview),
         intent_id=intent_id,
         confirm_action=f"{base_path}/{intent_id}/confirm",
         cancel_action=f"{base_path}/{intent_id}/cancel",
         settings_href="/desktop/settings/account" if embedded else "/settings/account",
+        reauth_action="/desktop/meetings" if embedded else "/logout",
+        reauth_next=f"/login?next={settings_path}?provider_link=reauth_required",
+        requires_reauth=requires_reauth,
         error_message=error_message,
+        blockers=blockers,
     )
 
 

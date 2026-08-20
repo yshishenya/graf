@@ -90,17 +90,22 @@ def render_login_page(
     next_path: str = "/meetings",
     error: str | None = None,
     invitation_flow: bool = False,
+    recovery_mode: bool = False,
     product_analytics_provider: dict[str, object] | None = None,
 ) -> str:
     safe_next = _safe_browser_next_path(next_path)
     embedded = safe_next.startswith("/desktop/")
+    provider_actions = _login_provider_actions(providers, next_path=safe_next)
+    if recovery_mode:
+        provider_actions = [action for action in provider_actions if action["active"]]
     content = render_template(
         "cabinet/auth/login.html",
         workspace_configured=workspace_id is not None,
-        providers=_login_provider_actions(providers, next_path=safe_next),
+        providers=provider_actions,
         next_path=safe_next,
         signup_href=f"/sign-up?{urlencode({'next': safe_next})}",
         invitation_flow=invitation_flow,
+        recovery_mode=recovery_mode,
         embedded=embedded,
         error_message=_login_error_message(error),
     )
@@ -147,17 +152,18 @@ def render_email_code_page(
 ) -> str:
     safe_next = _safe_browser_next_path(next_path)
     link_flow = flow in {"link", "desktop_link"}
+    link_base_path = "/desktop/settings/account" if flow == "desktop_link" else "/settings/account"
     verify_path = (
-        "/settings/account/email-link/verify"
+        f"{link_base_path}/email-link/verify"
         if link_flow
         else ("/sign-up/email/verify" if flow == "signup" else "/login/email/verify")
     )
     resend_path = (
-        "/settings/account/email-link/start"
+        f"{link_base_path}/email-link/start"
         if link_flow
         else ("/sign-up/email/start" if flow == "signup" else "/login/email/start")
     )
-    back_path = "/settings/account" if link_flow else ("/sign-up" if flow == "signup" else "/login")
+    back_path = link_base_path if link_flow else ("/sign-up" if flow == "signup" else "/login")
     invitation_flow = flow == "share_invitation"
     page_title = (
         "Откройте итоги встречи"
@@ -176,7 +182,7 @@ def render_email_code_page(
             f"Проверьте {email}: мы отправили 6-значный код для создания аккаунта."
             if flow == "signup"
             else (
-                f"Проверьте {email}: мы отправили 6-значный код для подключения к текущему аккаунту."
+                f"Проверьте {email}: мы отправили 6-значный код для подключения к текущему профилю."
                 if link_flow
                 else f"Проверьте {email}: мы отправили 6-значный код для входа."
             )
@@ -194,7 +200,8 @@ def render_email_code_page(
         next_path=safe_next,
         csrf_token=csrf_token,
         dev_code=dev_code,
-        error_message=_login_error_message(error),
+        error_message=_login_error_message(error, link_flow=link_flow),
+        embedded_code_panel=flow == "desktop_link",
     )
     return _standalone_page(
         "Код входа", content, product_analytics_provider=product_analytics_provider
@@ -229,14 +236,21 @@ def _safe_browser_next_path(value: str | None) -> str:
     return stripped
 
 
-def _login_error_message(error: str | None) -> str | None:
+def _login_error_message(error: str | None, *, link_flow: bool = False) -> str | None:
     if not error:
         return None
+    if error == "ambiguous_email_recovery_required" and link_flow:
+        return (
+            "Этот email связан с несколькими профилями. Вернитесь в настройки и "
+            "подтвердите другой уже подключённый способ входа — например, Яндекс ID или VK."
+        )
     messages = {
         "missing_auth_context": "Нужен вход, чтобы открыть кабинет встреч.",
         "auth_handoff_invalid": "Не удалось безопасно открыть тарифы. Войдите ещё раз.",
         "auth_handoff_session_invalid": "Сессия приложения истекла. Войдите снова.",
         "auth_handoff_expired": "Ссылка из приложения истекла. Войдите снова.",
+        "account_linking_other_profile_required": "Войдите способом второго профиля, чтобы устранить причину. После этого вернитесь в основной профиль и подключите email заново.",
+        "email_connected_relogin_required": "Email подключён к текущему профилю. Войдите снова любым сохранённым способом.",
         "auth_session_invalid": "Сессия не найдена. Войдите снова.",
         "auth_session_expired": "Сессия истекла. Войдите снова.",
         "device_revoked": "Доступ этого устройства отозван. Войдите с доверенного браузера.",
@@ -246,7 +260,8 @@ def _login_error_message(error: str | None) -> str | None:
         "provider_future": "Этот способ входа появится позже. Сейчас используйте вход по email.",
         "auth_dependency_unavailable": "Сервис входа временно недоступен.",
         "email_invalid": "Введите корректный email.",
-        "ambiguous_email_recovery_required": "Этот email связан с несколькими аккаунтами. Вход временно заблокирован, чтобы не открыть чужие встречи. Подтвердите второй способ входа для безопасного объединения аккаунтов.",
+        "ambiguous_email_recovery_required": "Этот email связан с несколькими профилями. Вход по коду заблокирован, чтобы не открыть чужие встречи. Войдите ниже через уже подключённый Яндекс ID или VK: GRAF откроет настройки, где можно безопасно подключить email.",
+        "ambiguous_email_recovery_unavailable": "Этот email связан с несколькими профилями, поэтому вход по коду заблокирован. Яндекс ID и VK сейчас недоступны — обратитесь к администратору GRAF, чтобы безопасно восстановить доступ.",
         "email_start_unavailable": "Не удалось отправить код. Проверьте email и попробуйте снова.",
         "email_delivery_unavailable": "Почтовая доставка временно недоступна. Попробуйте запросить код еще раз.",
         "auth_rate_limited": "Слишком много попыток. Попробуйте снова через несколько минут.",

@@ -139,6 +139,18 @@ class AccountMergeIntent(Base):
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
     survivor_user_id: Mapped[UUID] = mapped_column(ForeignKey("user_identities.id"), nullable=False)
     source_user_id: Mapped[UUID] = mapped_column(ForeignKey("user_identities.id"), nullable=False)
+    initiating_auth_session_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("auth_sessions.id")
+    )
+    source_external_identity_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("external_identities.id")
+    )
+    proof_callback_state_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("auth_callback_states.id")
+    )
+    provider_link_state_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("workspace_provider_link_states.id")
+    )
     email_proof_state: Mapped[str] = mapped_column(String(32), nullable=False, default="missing")
     oauth_proof_state: Mapped[str] = mapped_column(String(32), nullable=False, default="missing")
     preview_fingerprint: Mapped[str | None] = mapped_column(String(64))

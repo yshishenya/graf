@@ -1,6 +1,8 @@
 import asyncio
+from datetime import UTC
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
 from starlette.requests import Request
@@ -114,3 +116,74 @@ def test_fair_use_first_appeal_is_reported_before_repeat() -> None:
     )
     assert first.headers["location"].endswith("?result=appealed")
     assert second.headers["location"].endswith("?result=already_appealed")
+
+
+def test_fair_use_route_uses_lineage_helper_for_source_subject_once() -> None:
+    survivor_id = uuid4()
+    source_id = uuid4()
+    workspace_id = uuid4()
+    review_id = uuid4()
+    row = SimpleNamespace(
+        id=review_id,
+        workspace_id=workspace_id,
+        subject_user_id=source_id,
+        state="restricted",
+        appealed_at=None,
+        appeal_ref=None,
+    )
+
+    class FakeDB:
+        async def scalar(self, _statement):
+            return None
+
+        async def commit(self) -> None:
+            return None
+
+    request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "scheme": "https",
+            "path": f"/account/fair-use/{review_id}/appeal",
+            "raw_path": f"/account/fair-use/{review_id}/appeal".encode(),
+            "query_string": b"",
+            "headers": [],
+            "server": ("test", 443),
+            "client": ("test", 1),
+        }
+    )
+    principal = AuthenticatedPrincipal(
+        user_id=survivor_id,
+        organization_id=uuid4(),
+        workspace_ids=frozenset({workspace_id}),
+        subject="merged-survivor",
+    )
+    scope = TenantScope(
+        organization_id=principal.organization_id,
+        workspace_id=workspace_id,
+        user_id=survivor_id,
+        device_id=uuid4(),
+    )
+
+    async def appeal(*_args, subject_user_id, at, **_kwargs):
+        assert subject_user_id == survivor_id
+        assert at.tzinfo == UTC
+        if row.appealed_at is None:
+            row.appealed_at = at
+        return row
+
+    helper = AsyncMock(side_effect=appeal)
+    with patch(
+        "twobrain_rec_server.cabinet.web_routes.fair_use.appeal_persisted_review",
+        helper,
+    ):
+        first = asyncio.run(
+            fair_use_appeal(str(review_id), request, scope, principal, FakeDB())
+        )
+        second = asyncio.run(
+            fair_use_appeal(str(review_id), request, scope, principal, FakeDB())
+        )
+
+    assert first.headers["location"].endswith("?result=appealed")
+    assert second.headers["location"].endswith("?result=already_appealed")
+    assert helper.await_count == 2

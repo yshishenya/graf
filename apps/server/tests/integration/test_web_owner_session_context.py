@@ -6,6 +6,7 @@ from html import unescape
 from urllib.parse import parse_qs, urlsplit
 from uuid import UUID, uuid4
 
+import pytest
 from cryptography.fernet import Fernet
 from sqlalchemy import select
 
@@ -26,7 +27,10 @@ from twobrain_rec_server.auth.csrf import issue_csrf_token
 from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
 from twobrain_rec_server.auth.sessions import hash_token
 from twobrain_rec_server.auth.workspace_onboarding import ensure_personal_workspace
+from twobrain_rec_server.cabinet.web_routes import auth as auth_routes
+from twobrain_rec_server.cabinet.web_routes import auth_email_flow as auth_email_flow_module
 from twobrain_rec_server.db.models import (
+    AccountMergeIntent,
     AuthAuditEvent,
     AuthCallbackState,
     AuthSession,
@@ -39,6 +43,7 @@ from twobrain_rec_server.db.models import (
     WorkspaceMembership,
     WorkspaceSubscription,
 )
+from twobrain_rec_server.db.tenant_context import WorkspaceAuthContext, apply_tenant_context
 
 OWNER_REVIEW_TEST_TOKEN = "owner-review-session-cookie-token"
 BROWSER_OWNER_EMAIL = "owner@example.test"
@@ -60,10 +65,54 @@ async def _link_owner_email_identity(client) -> None:
         await db.commit()
 
 
+def _login_owner_and_get_settings_csrf(client) -> str:
+    client.portal.call(_link_owner_email_identity, client)
+    start = client.post(
+        "/login/email/start",
+        data={"email": BROWSER_OWNER_EMAIL, "next": "/meetings"},
+    )
+    state = re.search(r'name="state" value="([^"]+)"', start.text)
+    code = re.search(r"Код для локальной проверки: <strong>(\d{6})</strong>", start.text)
+    assert state is not None and code is not None
+    callback = client.post(
+        "/login/email/verify",
+        data={
+            "email": BROWSER_OWNER_EMAIL,
+            "code": code.group(1),
+            "state": state.group(1),
+            "next": "/meetings",
+        },
+        follow_redirects=False,
+    )
+    assert callback.status_code == 303
+    client.cookies.set(
+        AUTH_SESSION_COOKIE_NAME,
+        callback.cookies.get(AUTH_SESSION_COOKIE_NAME),
+    )
+    settings = client.get("/settings/account")
+    csrf = re.search(r'name="csrf_token" value="([^"]+)"', settings.text)
+    assert csrf is not None
+    return csrf.group(1)
+
+
+def _start_email_link(client, *, email: str, csrf_token: str) -> tuple[str, str, str]:
+    response = client.post(
+        "/settings/account/email-link/start",
+        data={"email": email, "csrf_token": csrf_token},
+    )
+    state = re.search(r'name="state" value="([^"]+)"', response.text)
+    code = re.search(r"Код для локальной проверки: <strong>(\d{6})</strong>", response.text)
+    csrf = re.search(r'name="csrf_token" value="([^"]+)"', response.text)
+    assert state is not None and code is not None and csrf is not None
+    return state.group(1), code.group(1), csrf.group(1)
+
+
 async def _set_workspace_yandex_policy(client, enabled: bool) -> None:
     async with client.app_state["sessionmaker"]() as db:
         policy = await db.scalar(
-            select(WorkspaceAuthPolicy).where(WorkspaceAuthPolicy.workspace_id == AUTH_BOOTSTRAP_WORKSPACE_ID)
+            select(WorkspaceAuthPolicy).where(
+                WorkspaceAuthPolicy.workspace_id == AUTH_BOOTSTRAP_WORKSPACE_ID
+            )
         )
         if policy is None:
             policy = WorkspaceAuthPolicy(workspace_id=AUTH_BOOTSTRAP_WORKSPACE_ID)
@@ -75,7 +124,9 @@ async def _set_workspace_yandex_policy(client, enabled: bool) -> None:
 async def _set_workspace_vk_policy(client, enabled: bool) -> None:
     async with client.app_state["sessionmaker"]() as db:
         policy = await db.scalar(
-            select(WorkspaceAuthPolicy).where(WorkspaceAuthPolicy.workspace_id == AUTH_BOOTSTRAP_WORKSPACE_ID)
+            select(WorkspaceAuthPolicy).where(
+                WorkspaceAuthPolicy.workspace_id == AUTH_BOOTSTRAP_WORKSPACE_ID
+            )
         )
         if policy is None:
             policy = WorkspaceAuthPolicy(workspace_id=AUTH_BOOTSTRAP_WORKSPACE_ID)
@@ -87,7 +138,9 @@ async def _set_workspace_vk_policy(client, enabled: bool) -> None:
 async def _set_workspace_self_enrollment_policy(client, enabled: bool) -> None:
     async with client.app_state["sessionmaker"]() as db:
         policy = await db.scalar(
-            select(WorkspaceAuthPolicy).where(WorkspaceAuthPolicy.workspace_id == AUTH_BOOTSTRAP_WORKSPACE_ID)
+            select(WorkspaceAuthPolicy).where(
+                WorkspaceAuthPolicy.workspace_id == AUTH_BOOTSTRAP_WORKSPACE_ID
+            )
         )
         if policy is None:
             policy = WorkspaceAuthPolicy(workspace_id=AUTH_BOOTSTRAP_WORKSPACE_ID)
@@ -113,7 +166,9 @@ async def _link_owner_yandex_identity(client, *, subject: str) -> None:
 
 def _patch_browser_provider_callbacks(monkeypatch) -> None:
     provider_map = fake_provider_map()
-    monkeypatch.setattr("twobrain_rec_server.api.auth.build_provider_registry", lambda: provider_map)
+    monkeypatch.setattr(
+        "twobrain_rec_server.api.auth.build_provider_registry", lambda: provider_map
+    )
     monkeypatch.setattr(
         "twobrain_rec_server.auth.callbacks.get_provider_adapter",
         lambda provider: provider_map[provider],
@@ -207,7 +262,9 @@ def test_revoked_workspace_session_is_rejected_before_direct_auth_mutation(clien
         async with client.app_state["sessionmaker"]() as db:
             session = await db.get(AuthSession, session_id)
             device = await db.scalar(
-                select(RegisteredDevice).where(RegisteredDevice.device_public_id == "revoked-session-must-not-register")
+                select(RegisteredDevice).where(
+                    RegisteredDevice.device_public_id == "revoked-session-must-not-register"
+                )
             )
             assert session is not None
             return session.status, device is not None
@@ -278,7 +335,11 @@ def test_browser_logout_revokes_session_clears_cookie_and_redirects_to_login(cli
             auth_session = await db.get(AuthSession, session.id)
             assert auth_session is not None
             events = list(
-                (await db.scalars(select(AuthAuditEvent).where(AuthAuditEvent.event_type == "browser_logout"))).all()
+                (
+                    await db.scalars(
+                        select(AuthAuditEvent).where(AuthAuditEvent.event_type == "browser_logout")
+                    )
+                ).all()
             )
             return auth_session.status, events
 
@@ -337,7 +398,11 @@ def test_embedded_logout_uses_allowed_meetings_post_route(client) -> None:
             auth_session = await db.get(AuthSession, session.id)
             assert auth_session is not None
             events = list(
-                (await db.scalars(select(AuthAuditEvent).where(AuthAuditEvent.event_type == "browser_logout"))).all()
+                (
+                    await db.scalars(
+                        select(AuthAuditEvent).where(AuthAuditEvent.event_type == "browser_logout")
+                    )
+                ).all()
             )
             return auth_session.status, events
 
@@ -393,9 +458,7 @@ def test_browser_login_page_lists_workspace_providers(client) -> None:
 
 
 def test_embedded_login_page_hides_download_cta_even_on_auth_error(client) -> None:
-    response = client.get(
-        "/login?next=/desktop/meetings&error=auth_session_invalid"
-    )
+    response = client.get("/login?next=/desktop/meetings&error=auth_session_invalid")
 
     assert response.status_code == 200
     assert "/download" not in response.text
@@ -421,7 +484,9 @@ def test_browser_signup_page_matches_email_choice_flow_without_workspace_field(c
     assert first_step.status_code == 200
     assert "Зарегистрируйтесь бесплатно" in first_step.text
     assert "Яндекс ID" in first_step.text
-    assert '<a class="auth-provider" href="/login/yandex/start?next=%2Fmeetings">' in first_step.text
+    assert (
+        '<a class="auth-provider" href="/login/yandex/start?next=%2Fmeetings">' in first_step.text
+    )
     assert '<a class="auth-provider" href="/login/vk/start?next=%2Fmeetings">' in first_step.text
     assert "/login/vk/start?next=%2Fmeetings&amp;auth_provider=mail_ru" in first_step.text
     assert "/login/vk/start?next=%2Fmeetings&amp;auth_provider=ok_ru" in first_step.text
@@ -455,7 +520,10 @@ def test_browser_yandex_login_start_redirects_to_provider(client) -> None:
     assert "state=" in response.headers["location"]
     assert parse_qs(urlsplit(response.headers["location"]).query)["workspace_id"] == ["public"]
     assert str(AUTH_BOOTSTRAP_WORKSPACE_ID) not in response.headers["location"]
-    assert "redirect_uri=http%3A%2F%2Ftestserver%2Fapi%2Fv1%2Fauth%2Fcallback%2Fyandex" in response.headers["location"]
+    assert (
+        "redirect_uri=http%3A%2F%2Ftestserver%2Fapi%2Fv1%2Fauth%2Fcallback%2Fyandex"
+        in response.headers["location"]
+    )
     set_cookie = response.headers["set-cookie"]
     assert f"{BROWSER_AUTH_STATE_COOKIE_NAME}=" in set_cookie
     assert "HttpOnly" in set_cookie
@@ -480,6 +548,54 @@ def test_browser_yandex_callback_rejects_missing_browser_state_cookie(client) ->
 
     assert callback.status_code == 400
     assert callback.json()["code"] == "callback_state_invalid"
+
+
+@pytest.mark.parametrize("cookie_mode", ["correct", "missing", "wrong"])
+def test_settings_provider_link_callback_keeps_browser_nonce_binding(
+    monkeypatch, client, cookie_mode: str
+) -> None:
+    _patch_browser_provider_callbacks(monkeypatch)
+    provider_map = fake_provider_map()
+    monkeypatch.setattr(
+        "twobrain_rec_server.cabinet.web_routes.provider_links.build_provider_registry",
+        lambda: provider_map,
+    )
+    monkeypatch.setattr(
+        "twobrain_rec_server.cabinet.web_routes.provider_links.get_provider_adapter",
+        lambda provider: provider_map[provider],
+    )
+    csrf = _login_owner_and_get_settings_csrf(client)
+    start = client.post(
+        "/settings/provider-links/yandex/start",
+        data={"csrf_token": csrf},
+        follow_redirects=False,
+    )
+    assert start.status_code == 303
+    state = parse_qs(urlsplit(start.headers["location"]).query)["state"][0]
+    nonce = re.search(
+        rf"{re.escape(BROWSER_AUTH_STATE_COOKIE_NAME)}=([^;]+)",
+        start.headers["set-cookie"],
+    )
+    assert nonce is not None
+    client.cookies.delete(BROWSER_AUTH_STATE_COOKIE_NAME)
+    if cookie_mode != "missing":
+        client.cookies.set(
+            BROWSER_AUTH_STATE_COOKIE_NAME,
+            nonce.group(1) if cookie_mode == "correct" else "wrong-browser-state",
+        )
+
+    callback = client.get(
+        "/api/v1/auth/callback/yandex",
+        params={"state": state, "code": "settings-provider-link"},
+        follow_redirects=False,
+    )
+
+    if cookie_mode == "correct":
+        assert callback.status_code == 303
+        assert callback.headers["location"].endswith("?result=callback_verified")
+    else:
+        assert callback.status_code == 400
+        assert callback.json()["code"] == "callback_state_invalid"
 
 
 def test_browser_provider_callback_keeps_only_authorized_detail_return(monkeypatch, client) -> None:
@@ -537,7 +653,10 @@ def test_browser_vk_login_start_redirects_to_provider(client) -> None:
     assert str(AUTH_BOOTSTRAP_WORKSPACE_ID) not in response.headers["location"]
     assert "scope=email+phone" in response.headers["location"]
     assert "code_challenge_method=S256" in response.headers["location"]
-    assert "redirect_uri=http%3A%2F%2Ftestserver%2Fapi%2Fv1%2Fauth%2Fcallback%2Fvk" in response.headers["location"]
+    assert (
+        "redirect_uri=http%3A%2F%2Ftestserver%2Fapi%2Fv1%2Fauth%2Fcallback%2Fvk"
+        in response.headers["location"]
+    )
 
 
 def test_browser_vk_login_start_supports_mail_and_ok_provider_hints(client) -> None:
@@ -680,6 +799,58 @@ def test_browser_email_login_flow_sets_cookie_binds_browser_device_and_opens_mee
     assert "missing_auth_context" not in meetings.text
 
 
+def test_browser_email_login_response_failure_rolls_back_session_and_callback(
+    monkeypatch,
+    client,
+) -> None:
+    client.portal.call(_link_owner_email_identity, client)
+    start = client.post(
+        "/login/email/start",
+        data={"email": BROWSER_OWNER_EMAIL, "next": "/meetings"},
+    )
+    state = re.search(r'name="state" value="([^"]+)"', start.text)
+    code = re.search(r"Код для локальной проверки: <strong>(\d{6})</strong>", start.text)
+    assert state is not None and code is not None
+
+    async def fail_response_resolution(*_args, **_kwargs):
+        raise RuntimeError("synthetic response resolution failure")
+
+    monkeypatch.setattr(
+        auth_routes,
+        "resolve_browser_auth_return_path",
+        fail_response_resolution,
+    )
+    with pytest.raises(RuntimeError, match="synthetic response resolution failure"):
+        client.post(
+            "/login/email/verify",
+            data={
+                "email": BROWSER_OWNER_EMAIL,
+                "code": code.group(1),
+                "state": state.group(1),
+                "next": "/meetings",
+            },
+            follow_redirects=False,
+        )
+
+    async def read_result() -> tuple[str, int, int]:
+        async with client.app_state["sessionmaker"]() as db:
+            callback = await db.scalar(
+                select(AuthCallbackState).where(AuthCallbackState.state_nonce == state.group(1))
+            )
+            sessions = list(
+                await db.scalars(
+                    select(AuthSession).where(
+                        AuthSession.user_id == USER_ID,
+                        AuthSession.provider == "email",
+                    )
+                )
+            )
+            assert callback is not None
+            return callback.result, len(sessions)
+
+    assert client.portal.call(read_result) == ("pending", 0)
+
+
 def test_browser_email_login_verification_uses_state_bound_return_path(client) -> None:
     client.portal.call(_link_owner_email_identity, client)
 
@@ -708,50 +879,491 @@ def test_browser_email_login_verification_uses_state_bound_return_path(client) -
 
 
 def test_authenticated_email_link_is_passwordless_and_csrf_protected(client) -> None:
-    client.portal.call(_link_owner_email_identity, client)
-    login_start = client.post(
-        "/login/email/start",
-        data={"email": BROWSER_OWNER_EMAIL, "next": "/meetings"},
+    csrf = _login_owner_and_get_settings_csrf(client)
+    state, code, link_csrf = _start_email_link(
+        client,
+        email=BROWSER_OWNER_EMAIL,
+        csrf_token=csrf,
     )
-    state_match = re.search(r'name="state" value="([^"]+)"', login_start.text)
-    code_match = re.search(r"Код для локальной проверки: <strong>(\d{6})</strong>", login_start.text)
-    assert state_match is not None and code_match is not None
-    login_callback = client.post(
-        "/login/email/verify",
-        data={
-            "email": BROWSER_OWNER_EMAIL,
-            "code": code_match.group(1),
-            "state": state_match.group(1),
-            "next": "/meetings",
-        },
-        follow_redirects=False,
-    )
-    client.cookies.set(AUTH_SESSION_COOKIE_NAME, login_callback.cookies.get(AUTH_SESSION_COOKIE_NAME))
-
-    settings = client.get("/settings/account")
-    csrf_match = re.search(r'name="csrf_token" value="([^"]+)"', settings.text)
-    assert csrf_match is not None
-    link_start = client.post(
-        "/settings/account/email-link/start",
-        data={"email": BROWSER_OWNER_EMAIL, "csrf_token": csrf_match.group(1)},
-    )
-    link_state = re.search(r'name="state" value="([^"]+)"', link_start.text)
-    link_code = re.search(r"Код для локальной проверки: <strong>(\d{6})</strong>", link_start.text)
-    link_csrf = re.search(r'name="csrf_token" value="([^"]+)"', link_start.text)
-    assert link_state is not None and link_code is not None and link_csrf is not None
     verified = client.post(
         "/settings/account/email-link/verify",
         data={
             "email": BROWSER_OWNER_EMAIL,
-            "code": link_code.group(1),
-            "state": link_state.group(1),
-            "csrf_token": link_csrf.group(1),
+            "code": code,
+            "state": state,
+            "csrf_token": link_csrf,
         },
         follow_redirects=False,
     )
 
     assert verified.status_code == 303
     assert verified.headers["location"] == "/settings/account?provider_link=confirmed"
+
+
+def test_authenticated_email_link_reactivates_inactive_identity(client) -> None:
+    email = "relink-owner@example.test"
+    identity_id = uuid4()
+    csrf = _login_owner_and_get_settings_csrf(client)
+
+    async def seed_inactive_identity() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            db.add(
+                ExternalIdentity(
+                    id=identity_id,
+                    user_id=USER_ID,
+                    provider="email",
+                    provider_subject=email,
+                    provider_username=email,
+                    email=email,
+                    is_verified=False,
+                    is_active=False,
+                )
+            )
+            await db.commit()
+
+    client.portal.call(seed_inactive_identity)
+    state, code, link_csrf = _start_email_link(client, email=email, csrf_token=csrf)
+    verified = client.post(
+        "/settings/account/email-link/verify",
+        data={"email": email, "code": code, "state": state, "csrf_token": link_csrf},
+        follow_redirects=False,
+    )
+
+    assert verified.status_code == 303
+
+    async def read_result() -> tuple[int, bool, bool, str]:
+        async with client.app_state["sessionmaker"]() as db:
+            identities = list(
+                await db.scalars(
+                    select(ExternalIdentity).where(
+                        ExternalIdentity.provider == "email",
+                        ExternalIdentity.provider_subject == email,
+                    )
+                )
+            )
+            callback = await db.scalar(
+                select(AuthCallbackState).where(AuthCallbackState.state_nonce == state)
+            )
+            assert callback is not None
+            return (
+                len(identities),
+                identities[0].is_active,
+                identities[0].is_verified,
+                callback.result,
+            )
+
+    assert client.portal.call(read_result) == (1, True, True, "completed")
+
+
+def test_authenticated_email_link_rejects_foreign_inactive_identity(client) -> None:
+    email = "unlinked-foreign@example.test"
+    foreign_user_id = uuid4()
+    foreign_identity_id = uuid4()
+
+    async def seed_foreign_inactive_identity() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            db.add(
+                UserIdentity(
+                    id=foreign_user_id,
+                    organization_id=ORG_ID,
+                    external_subject=str(foreign_user_id),
+                )
+            )
+            await db.flush()
+            db.add(
+                ExternalIdentity(
+                    id=foreign_identity_id,
+                    user_id=foreign_user_id,
+                    provider="email",
+                    provider_subject=email,
+                    email=email,
+                    is_verified=False,
+                    is_active=False,
+                )
+            )
+            await db.commit()
+
+    client.portal.call(seed_foreign_inactive_identity)
+    csrf = _login_owner_and_get_settings_csrf(client)
+    state, code, link_csrf = _start_email_link(client, email=email, csrf_token=csrf)
+    response = client.post(
+        "/settings/account/email-link/verify",
+        data={"email": email, "code": code, "state": state, "csrf_token": link_csrf},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400
+
+    async def read_result() -> tuple[str | None, int, bool, bool]:
+        async with client.app_state["sessionmaker"]() as db:
+            callback = await db.scalar(
+                select(AuthCallbackState).where(AuthCallbackState.state_nonce == state)
+            )
+            identity = await db.get(ExternalIdentity, foreign_identity_id)
+            intents = list(await db.scalars(select(AccountMergeIntent)))
+            assert callback is not None and identity is not None
+            return callback.error_code, len(intents), identity.is_active, identity.is_verified
+
+    assert client.portal.call(read_result) == ("provider_link_conflict", 0, False, False)
+
+
+@pytest.mark.parametrize(
+    ("case", "expected_result", "expected_error"),
+    (("invalid", "failed", "email_code_invalid"), ("expired", "expired", "email_code_expired")),
+)
+def test_authenticated_email_link_failure_is_audited_before_terminal_callback(
+    client,
+    case: str,
+    expected_result: str,
+    expected_error: str,
+) -> None:
+    email = f"{case}-email-link@example.test"
+    csrf = _login_owner_and_get_settings_csrf(client)
+    state, code, link_csrf = _start_email_link(client, email=email, csrf_token=csrf)
+
+    if case == "expired":
+
+        async def expire_state() -> None:
+            async with client.app_state["sessionmaker"]() as db:
+                callback = await db.scalar(
+                    select(AuthCallbackState).where(AuthCallbackState.state_nonce == state)
+                )
+                assert callback is not None
+                callback.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+                await db.commit()
+
+        client.portal.call(expire_state)
+    else:
+        code = "000000" if code != "000000" else "999999"
+
+    response = client.post(
+        "/settings/account/email-link/verify",
+        data={"email": email, "code": code, "state": state, "csrf_token": link_csrf},
+        follow_redirects=False,
+    )
+    assert response.status_code == 400
+    retry_csrf = re.search(r'name="csrf_token" value="([^"]+)"', response.text)
+    assert retry_csrf is not None
+    retry = client.post(
+        "/settings/account/email-link/verify",
+        data={
+            "email": email,
+            "code": code,
+            "state": state,
+            "csrf_token": retry_csrf.group(1),
+        },
+        follow_redirects=False,
+    )
+    assert retry.status_code == 400
+
+    async def read_result() -> tuple[str, str | None, int]:
+        async with client.app_state["sessionmaker"]() as db:
+            callback = await db.scalar(
+                select(AuthCallbackState).where(AuthCallbackState.state_nonce == state)
+            )
+            audits = list(
+                await db.scalars(
+                    select(AuthAuditEvent).where(
+                        AuthAuditEvent.event_type == "email_identity_link_failed",
+                        AuthAuditEvent.outcome == "failure",
+                    )
+                )
+            )
+            assert callback is not None
+            matching = [
+                event for event in audits if event.metadata_json.get("error_code") == expected_error
+            ]
+            return callback.result, callback.error_code, len(matching)
+
+    assert client.portal.call(read_result) == (expected_result, expected_error, 1)
+
+
+def test_authenticated_email_link_requires_preview_for_one_other_account(
+    monkeypatch, client
+) -> None:
+    source_user_id = uuid4()
+    source_workspace_id = uuid4()
+    email = "one-other-account@example.test"
+
+    async def seed_source() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            db.add_all(
+                [
+                    UserIdentity(
+                        id=source_user_id,
+                        organization_id=ORG_ID,
+                        external_subject=str(source_user_id),
+                    ),
+                    Workspace(
+                        id=source_workspace_id,
+                        organization_id=ORG_ID,
+                        owner_user_id=source_user_id,
+                        slug=f"source-{source_user_id.hex}",
+                        name="Source account",
+                        kind="corporate",
+                    ),
+                ]
+            )
+            await db.flush()
+            db.add_all(
+                [
+                    WorkspaceMembership(
+                        workspace_id=source_workspace_id,
+                        user_id=source_user_id,
+                        role="owner",
+                        status="active",
+                    ),
+                    ExternalIdentity(
+                        user_id=source_user_id,
+                        provider="email",
+                        provider_subject=email,
+                        email=email,
+                        is_verified=True,
+                        is_active=True,
+                    ),
+                ]
+            )
+            await db.commit()
+
+    client.portal.call(seed_source)
+    csrf = _login_owner_and_get_settings_csrf(client)
+    applied_contexts: list[object] = []
+
+    async def track_context(db, context) -> None:
+        applied_contexts.append(context)
+        await apply_tenant_context(db, context)
+
+    monkeypatch.setattr(auth_email_flow_module, "apply_tenant_context", track_context)
+    state, code, link_csrf = _start_email_link(
+        client,
+        email=email,
+        csrf_token=csrf,
+    )
+    applied_contexts.clear()
+    verified = client.post(
+        "/settings/account/email-link/verify",
+        data={
+            "email": email,
+            "code": code,
+            "state": state,
+            "csrf_token": link_csrf,
+        },
+        follow_redirects=False,
+    )
+
+    assert verified.status_code == 303
+    expected_preview_context = WorkspaceAuthContext(
+        workspace_id=PERSONAL_WORKSPACE_ID,
+        organization_id=ORG_ID,
+        user_id=USER_ID,
+        context_kind="auth_bootstrap",
+    )
+    assert applied_contexts.count(expected_preview_context) == 2
+    match = re.fullmatch(r"/settings/account/merge/([0-9a-f-]+)", verified.headers["location"])
+    assert match is not None, verified.headers["location"]
+    intent_id = UUID(match.group(1))
+
+    preview_page = client.get(verified.headers["location"])
+    assert preview_page.status_code == 200
+    csrf_match = re.search(r'name="csrf_token" value="([^"]+)"', preview_page.text)
+    fingerprint_match = re.search(r'name="preview_fingerprint" value="([^"]+)"', preview_page.text)
+    idempotency_match = re.search(r'name="idempotency_key" value="([^"]+)"', preview_page.text)
+    assert csrf_match is not None
+    assert fingerprint_match is not None
+    assert idempotency_match is not None
+
+    async def expire_intent() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            intent = await db.get(AccountMergeIntent, intent_id)
+            assert intent is not None
+            intent.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+            await db.commit()
+
+    client.portal.call(expire_intent)
+    expired = client.post(
+        f"/settings/account/merge/{intent_id}/confirm",
+        data={
+            "csrf_token": csrf_match.group(1),
+            "preview_fingerprint": fingerprint_match.group(1),
+            "idempotency_key": idempotency_match.group(1),
+        },
+        follow_redirects=False,
+    )
+    assert expired.status_code == 303
+    assert expired.headers["location"].endswith("?error=merge_intent_expired")
+
+    async def read_result() -> tuple[str, str, str, str | None]:
+        async with client.app_state["sessionmaker"]() as db:
+            source = await db.get(UserIdentity, source_user_id)
+            intent = await db.get(AccountMergeIntent, intent_id)
+            callback = await db.scalar(
+                select(AuthCallbackState).where(AuthCallbackState.state_nonce == state)
+            )
+            assert source is not None and intent is not None and callback is not None
+            return source.status, intent.status, callback.result, intent.error_code
+
+    assert client.portal.call(read_result) == (
+        "active",
+        "expired",
+        "completed",
+        "merge_intent_expired",
+    )
+
+
+def test_blocked_email_link_keeps_completed_proof_for_recovery_page(client) -> None:
+    source_user_id = uuid4()
+    source_workspace_id = uuid4()
+    email = "blocked-other-account@example.test"
+
+    async def seed_source() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            db.add_all(
+                [
+                    UserIdentity(
+                        id=source_user_id,
+                        organization_id=ORG_ID,
+                        external_subject=str(source_user_id),
+                    ),
+                    Workspace(
+                        id=source_workspace_id,
+                        organization_id=ORG_ID,
+                        owner_user_id=source_user_id,
+                        slug=f"source-{source_user_id.hex}",
+                        name="Blocked source account",
+                        kind="corporate",
+                    ),
+                ]
+            )
+            await db.flush()
+            db.add_all(
+                [
+                    WorkspaceMembership(
+                        workspace_id=source_workspace_id,
+                        user_id=source_user_id,
+                        role="owner",
+                        status="active",
+                    ),
+                    ExternalIdentity(
+                        user_id=source_user_id,
+                        provider="email",
+                        provider_subject=email,
+                        email=email,
+                        is_verified=True,
+                        is_active=True,
+                    ),
+                    WorkspaceSubscription(
+                        workspace_id=source_workspace_id,
+                        billing_owner_id=source_user_id,
+                        state="active",
+                        plan_code="pro",
+                        cycle="monthly",
+                        recurring_allowed=True,
+                    ),
+                ]
+            )
+            await db.commit()
+
+    client.portal.call(seed_source)
+    csrf = _login_owner_and_get_settings_csrf(client)
+    state, code, link_csrf = _start_email_link(client, email=email, csrf_token=csrf)
+    verified = client.post(
+        "/settings/account/email-link/verify",
+        data={"email": email, "code": code, "state": state, "csrf_token": link_csrf},
+        follow_redirects=False,
+    )
+
+    assert verified.status_code == 303
+    match = re.fullmatch(r"/settings/account/merge/([0-9a-f-]+)", verified.headers["location"])
+    assert match is not None, verified.headers["location"]
+    intent_id = UUID(match.group(1))
+    recovery = client.get(verified.headers["location"])
+    assert recovery.status_code == 200
+    assert "На втором профиле есть активная оплата" in recovery.text
+
+    async def read_result() -> tuple[str, str, str | None]:
+        async with client.app_state["sessionmaker"]() as db:
+            callback = await db.scalar(
+                select(AuthCallbackState).where(AuthCallbackState.state_nonce == state)
+            )
+            intent = await db.get(AccountMergeIntent, intent_id)
+            assert callback is not None and intent is not None
+            return callback.result, intent.status, intent.blocker_code
+
+    assert client.portal.call(read_result) == ("completed", "blocked", "billing_conflict")
+
+
+def test_authenticated_email_link_fails_closed_for_multiple_other_accounts(client) -> None:
+    email = "many-other-accounts@example.test"
+    other_user_ids = (uuid4(), uuid4())
+
+    async def seed_sources() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            for user_id in other_user_ids:
+                db.add(
+                    UserIdentity(
+                        id=user_id,
+                        organization_id=ORG_ID,
+                        external_subject=str(user_id),
+                    )
+                )
+            await db.flush()
+            for user_id in other_user_ids:
+                db.add(
+                    ExternalIdentity(
+                        user_id=user_id,
+                        provider="email",
+                        provider_subject=f"{user_id}:{email}",
+                        email=email,
+                        is_verified=True,
+                        is_active=True,
+                    )
+                )
+            await db.commit()
+
+    client.portal.call(seed_sources)
+    csrf = _login_owner_and_get_settings_csrf(client)
+    state, code, link_csrf = _start_email_link(
+        client,
+        email=email,
+        csrf_token=csrf,
+    )
+    verified = client.post(
+        "/settings/account/email-link/verify",
+        data={
+            "email": email,
+            "code": code,
+            "state": state,
+            "csrf_token": link_csrf,
+        },
+        follow_redirects=False,
+    )
+
+    assert verified.status_code == 400
+    assert "несколькими профилями" in verified.text
+
+    async def read_result() -> tuple[str, int]:
+        async with client.app_state["sessionmaker"]() as db:
+            callback = await db.scalar(
+                select(AuthCallbackState).where(AuthCallbackState.state_nonce == state)
+            )
+            intents = list(await db.scalars(select(AccountMergeIntent)))
+            audits = list(
+                await db.scalars(
+                    select(AuthAuditEvent).where(
+                        AuthAuditEvent.event_type == "email_identity_link_failed",
+                        AuthAuditEvent.outcome == "failure",
+                    )
+                )
+            )
+            assert callback is not None
+            matching = [
+                event
+                for event in audits
+                if event.metadata_json.get("error_code") == "ambiguous_email_recovery_required"
+            ]
+            return callback.error_code or "", len(intents), len(matching)
+
+    assert client.portal.call(read_result) == ("ambiguous_email_recovery_required", 0, 1)
 
 
 def test_browser_email_signup_verification_uses_state_bound_return_path(client) -> None:
@@ -819,7 +1431,9 @@ def test_browser_email_login_wrong_code_consumes_state(client) -> None:
 
     async def state_result() -> tuple[str, str | None]:
         async with client.app_state["sessionmaker"]() as db:
-            state_row = await db.scalar(select(AuthCallbackState).where(AuthCallbackState.state_nonce == state))
+            state_row = await db.scalar(
+                select(AuthCallbackState).where(AuthCallbackState.state_nonce == state)
+            )
             assert state_row is not None
             return state_row.result, state_row.error_code
 
@@ -866,7 +1480,9 @@ def test_browser_email_signup_flow_creates_user_and_opens_meetings(client) -> No
 
     async def read_created_identity():
         async with client.app_state["sessionmaker"]() as db:
-            identity = await db.scalar(select(ExternalIdentity).where(ExternalIdentity.email == signup_email))
+            identity = await db.scalar(
+                select(ExternalIdentity).where(ExternalIdentity.email == signup_email)
+            )
             assert identity is not None
             user = await db.get(UserIdentity, identity.user_id)
             assert user is not None
@@ -918,7 +1534,9 @@ def test_browser_email_login_reuses_personal_space_after_signup(client) -> None:
         data={"email": signup_email, "next": "/meetings"},
     )
     login_state_match = re.search(r'name="state" value="([^"]+)"', login_started.text)
-    login_code_match = re.search(r"Код для локальной проверки: <strong>(\d{6})</strong>", login_started.text)
+    login_code_match = re.search(
+        r"Код для локальной проверки: <strong>(\d{6})</strong>", login_started.text
+    )
     assert login_started.status_code == 200
     assert login_state_match is not None
     assert login_code_match is not None
@@ -937,7 +1555,9 @@ def test_browser_email_login_reuses_personal_space_after_signup(client) -> None:
 
     async def read_login_session() -> tuple[UUID, UUID]:
         async with client.app_state["sessionmaker"]() as db:
-            identity = await db.scalar(select(ExternalIdentity).where(ExternalIdentity.email == signup_email))
+            identity = await db.scalar(
+                select(ExternalIdentity).where(ExternalIdentity.email == signup_email)
+            )
             assert identity is not None
             personal = await db.scalar(
                 select(Workspace).where(
@@ -948,7 +1568,9 @@ def test_browser_email_login_reuses_personal_space_after_signup(client) -> None:
             assert personal is not None
             token = callback.cookies.get(AUTH_SESSION_COOKIE_NAME)
             assert token is not None
-            session = await db.scalar(select(AuthSession).where(AuthSession.session_token_hash == hash_token(token)))
+            session = await db.scalar(
+                select(AuthSession).where(AuthSession.session_token_hash == hash_token(token))
+            )
             assert session is not None
             return session.workspace_id, personal.id
 
@@ -1014,8 +1636,16 @@ def test_browser_email_signup_fails_closed_for_ambiguous_existing_users(client) 
         data={"email": ambiguous_email, "next": "/meetings"},
     )
     assert login_start.status_code == 400
-    assert "несколькими аккаунтами" in login_start.text
+    assert "несколькими профилями" in login_start.text
     assert "чужие встречи" in login_start.text
+    assert "Яндекс ID" in login_start.text
+    assert "VK ID" in login_start.text
+    assert 'href="/login/yandex/start?' in login_start.text
+    assert 'href="/login/vk/start?' in login_start.text
+    assert "next=%2Fsettings%2Faccount" in login_start.text
+    assert "GRAF откроет настройки" in login_start.text
+    assert "Восстановить доступ" in login_start.text
+    assert 'action="/login/email/start"' not in login_start.text
     assert 'name="state"' not in login_start.text
 
     start = client.post(
@@ -1042,12 +1672,19 @@ def test_browser_email_signup_fails_closed_for_ambiguous_existing_users(client) 
     assert completed.status_code == 400
     assert completed.cookies.get(AUTH_SESSION_COOKIE_NAME) is None
     assert str(AUTH_BOOTSTRAP_WORKSPACE_ID) not in completed.text
-    assert "несколькими аккаунтами" in completed.text
+    assert "несколькими профилями" in completed.text
+    assert "Яндекс ID" in completed.text
+    assert "VK ID" in completed.text
+    assert "Откройте итоги встречи" not in completed.text
 
     async def read_result() -> tuple[int, int, tuple[str, str | None]]:
         async with client.app_state["sessionmaker"]() as db:
             sessions = list(
-                await db.scalars(select(AuthSession).where(AuthSession.user_id.in_((first_user_id, second_user_id))))
+                await db.scalars(
+                    select(AuthSession).where(
+                        AuthSession.user_id.in_((first_user_id, second_user_id))
+                    )
+                )
             )
             personal_spaces = list(
                 await db.scalars(
@@ -1058,7 +1695,9 @@ def test_browser_email_signup_fails_closed_for_ambiguous_existing_users(client) 
                 )
             )
             state = await db.scalar(
-                select(AuthCallbackState).where(AuthCallbackState.state_nonce == state_match.group(1))
+                select(AuthCallbackState).where(
+                    AuthCallbackState.state_nonce == state_match.group(1)
+                )
             )
             assert state is not None
             assert {workspace.id for workspace in personal_spaces} == {first_personal_id}
@@ -1069,6 +1708,20 @@ def test_browser_email_signup_fails_closed_for_ambiguous_existing_users(client) 
         1,
         ("failed", "ambiguous_email_recovery_required"),
     )
+
+    client.portal.call(_set_workspace_yandex_policy, client, False)
+    client.portal.call(_set_workspace_vk_policy, client, False)
+    unavailable = client.post(
+        "/login/email/start",
+        data={"email": ambiguous_email, "next": "/meetings"},
+    )
+    assert unavailable.status_code == 400
+    assert "Яндекс ID и VK сейчас недоступны" in unavailable.text
+    assert 'href="/login/yandex/start?' not in unavailable.text
+    assert 'href="/login/vk/start?' not in unavailable.text
+    assert 'action="/login/email/start"' not in unavailable.text
+    assert "T-Банк ID" not in unavailable.text
+    assert "Способ входа" not in unavailable.text
 
 
 def test_browser_email_signup_code_is_bound_to_started_email(client) -> None:
@@ -1103,9 +1756,13 @@ def test_browser_email_signup_code_is_bound_to_started_email(client) -> None:
     async def read_rejected_signup():
         async with client.app_state["sessionmaker"]() as db:
             state_row = await db.scalar(
-                select(AuthCallbackState).where(AuthCallbackState.state_nonce == state_match.group(1))
+                select(AuthCallbackState).where(
+                    AuthCallbackState.state_nonce == state_match.group(1)
+                )
             )
-            victim_identity = await db.scalar(select(ExternalIdentity).where(ExternalIdentity.email == different_email))
+            victim_identity = await db.scalar(
+                select(ExternalIdentity).where(ExternalIdentity.email == different_email)
+            )
             assert state_row is not None
             return state_row.result, state_row.error_code, victim_identity
 
@@ -1223,7 +1880,11 @@ def test_desktop_billing_page_renders_embedded_shell_with_validated_session(clie
     client.portal.call(_seed_owner_review_session, client)
     response = client.get(
         "/billing",
-        headers={"Accept": "text/html", "X-Auth-Session": OWNER_REVIEW_TEST_TOKEN, "X-GRAF-Client": "desktop"},
+        headers={
+            "Accept": "text/html",
+            "X-Auth-Session": OWNER_REVIEW_TEST_TOKEN,
+            "X-GRAF-Client": "desktop",
+        },
     )
 
     assert response.status_code == 200

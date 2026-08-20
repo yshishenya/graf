@@ -10,7 +10,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.auth.account_merge import (
     AccountMergeError,
-    confirm_merge_intent,
     create_merge_intent,
 )
 from twobrain_rec_server.auth.audit import write_auth_audit_event
@@ -25,6 +24,10 @@ from twobrain_rec_server.db.models import (
     ExternalIdentity,
     WorkspaceMembership,
     WorkspaceProviderLinkState,
+)
+from twobrain_rec_server.db.tenant_context import (
+    WorkspaceAuthContext,
+    apply_tenant_context,
 )
 
 
@@ -64,9 +67,7 @@ def recovery_safe_unlink_allowed(
     """
     if verified_identity_count < 0:
         raise ValueError("verified identity count cannot be negative")
-    return target_is_verified and (
-        verified_identity_count > 1 or has_independent_recovery_path
-    )
+    return target_is_verified and (verified_identity_count > 1 or has_independent_recovery_path)
 
 
 def _now(now: datetime | None) -> datetime:
@@ -136,7 +137,10 @@ async def create_link_intent(
 ) -> WorkspaceProviderLinkState:
     if not principal.auth_via_session or principal.session_id is None:
         raise ProviderLinkError("provider_link_session_required")
-    if workspace_id not in principal.workspace_ids or principal.session_workspace_id != workspace_id:
+    if (
+        workspace_id not in principal.workspace_ids
+        or principal.session_workspace_id != workspace_id
+    ):
         raise ProviderLinkError("workspace_scope_denied")
     membership = await db.scalar(
         select(WorkspaceMembership).where(
@@ -251,7 +255,11 @@ async def confirm_provider_link(
     if principal.session_workspace_id is None:
         raise ProviderLinkError("workspace_scope_denied")
 
-    link = await db.get(WorkspaceProviderLinkState, link_state_id)
+    link = await db.scalar(
+        select(WorkspaceProviderLinkState)
+        .where(WorkspaceProviderLinkState.id == link_state_id)
+        .with_for_update()
+    )
     if link is None:
         raise ProviderLinkError("provider_link_not_found")
     if (
@@ -296,7 +304,11 @@ async def confirm_provider_link(
         raise ProviderLinkError("provider_link_expired")
     if link.status != "callback_verified":
         raise ProviderLinkError("provider_link_reused")
-    if link.candidate_provider is None or link.candidate_identity_subject is None:
+    if (
+        link.candidate_provider is None
+        or link.candidate_identity_subject is None
+        or link.callback_state_id is None
+    ):
         await reject_provider_link(db, link=link, error_code="provider_link_candidate_missing")
         raise ProviderLinkError("provider_link_candidate_missing")
 
@@ -322,47 +334,59 @@ async def confirm_provider_link(
     if identity is not None and identity.user_id != principal.user_id:
         source_session = await db.get(AuthSession, link.initiating_auth_session_id)
         source_identity = await db.get(ExternalIdentity, link.source_provider_identity_id)
-        if source_session is not None and source_identity is not None and source_session.provider == "email":
+        if (
+            source_session is not None
+            and source_identity is not None
+            and source_session.provider == "email"
+        ):
+            link_context = WorkspaceAuthContext(
+                workspace_id=link.workspace_id,
+                organization_id=principal.organization_id,
+                user_id=principal.user_id,
+                context_kind="auth_bootstrap",
+            )
             try:
-                intent, preview = await create_merge_intent(
+                async with db.begin_nested():
+                    link.status = "confirmed"
+                    link.confirmed_at = _now(now)
+                    link.target_provider_identity_id = identity.id
+                    intent, preview = await create_merge_intent(
+                        db,
+                        workspace_id=link.workspace_id,
+                        survivor_user_id=principal.user_id,
+                        source_user_id=identity.user_id,
+                        initiating_auth_session_id=principal.session_id,
+                        source_external_identity_id=identity.id,
+                        proof_callback_state_id=link.callback_state_id,
+                        provider_link_state_id=link.id,
+                        email_proof_state="verified",
+                        oauth_proof_state="verified",
+                        actor_user_id=principal.user_id,
+                    )
+                    await db.flush()
+                await apply_tenant_context(db, link_context)
+                resolution = "merge_blocked" if preview.blocker_codes else "merge_preview_ready"
+                scrub_candidate(link, status="confirmed", resolution=resolution)
+                await write_auth_audit_event(
                     db,
                     workspace_id=link.workspace_id,
-                    survivor_user_id=principal.user_id,
-                    source_user_id=identity.user_id,
-                    email_proof_state="verified",
-                    oauth_proof_state="verified",
+                    event_type="provider_link_confirmed",
                     actor_user_id=principal.user_id,
+                    provider=identity.provider,
+                    metadata=provider_link_audit_metadata(
+                        link_state_id=link.id,
+                        idempotent=False,
+                    ),
                 )
-                if preview.blocker_codes:
-                    scrub_candidate(link, status="rejected", resolution="merge_blocked")
-                    return ConfirmedProviderLink(
-                        provider=identity.provider,
-                        idempotent=False,
-                        status="merge_blocked",
-                        merge_intent_id=intent.id,
-                    )
-                if not preview.requires_confirmation:
-                    await confirm_merge_intent(
-                        db,
-                        intent_id=intent.id,
-                        preview_fingerprint=preview.fingerprint,
-                        idempotency_key=f"provider-link:{link.id}",
-                    )
-                    scrub_candidate(link, status="confirmed", resolution="merged")
-                    return ConfirmedProviderLink(
-                        provider=identity.provider,
-                        idempotent=False,
-                        status="merge_completed",
-                        merge_intent_id=intent.id,
-                    )
-                scrub_candidate(link, status="confirmed", resolution="merge_preview_ready")
                 return ConfirmedProviderLink(
                     provider=identity.provider,
                     idempotent=False,
-                    status="merge_preview_ready",
+                    status=resolution,
                     merge_intent_id=intent.id,
                 )
             except AccountMergeError as exc:
+                await apply_tenant_context(db, link_context)
+                await db.refresh(link)
                 await reject_provider_link(
                     db,
                     link=link,
@@ -419,7 +443,9 @@ async def confirm_provider_link(
 
     link.target_provider_identity_id = identity.id
     link.confirmed_at = _now(now)
-    scrub_candidate(link, status="confirmed", resolution="idempotent" if idempotent else "confirmed")
+    scrub_candidate(
+        link, status="confirmed", resolution="idempotent" if idempotent else "confirmed"
+    )
     await write_auth_audit_event(
         db,
         workspace_id=link.workspace_id,

@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.billing.events import enqueue_billing_event
+from twobrain_rec_server.billing.trial import merged_user_lineage
 from twobrain_rec_server.db.models import FairUseReviewRecord, Workspace
 
 FairUseReason = Literal["automated_bulk", "resale", "limit_circumvention", "security_abuse"]
@@ -21,6 +22,7 @@ FairUseState = Literal["notice", "restricted", "appealed", "cleared", "confirmed
 
 _REASONS = frozenset({"automated_bulk", "resale", "limit_circumvention", "security_abuse"})
 _CAPABILITY_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}\Z")
+_RESTRICTED_STATES = frozenset({"restricted", "appealed", "confirmed"})
 MOSCOW = ZoneInfo("Europe/Moscow")
 
 
@@ -87,6 +89,24 @@ async def enqueue_review_notification(
         },
         marketing_allowed=False,
     )
+
+
+async def fair_use_restricted_for_lineage(
+    db: AsyncSession,
+    *,
+    user_id: UUID,
+    capability: str | None = None,
+    include_confirmed: bool = True,
+) -> bool:
+    lineage = merged_user_lineage(user_id)
+    restricted_states = _RESTRICTED_STATES if include_confirmed else _RESTRICTED_STATES - {"confirmed"}
+    query = select(FairUseReviewRecord.id).where(
+        FairUseReviewRecord.subject_user_id.in_(select(lineage.c.user_id)),
+        FairUseReviewRecord.state.in_(restricted_states),
+    )
+    if capability is not None:
+        query = query.where(FairUseReviewRecord.capability == capability)
+    return await db.scalar(query.limit(1)) is not None
 
 
 async def persist_review(
@@ -158,18 +178,17 @@ async def persist_review(
 async def appeal_persisted_review(
     db: AsyncSession,
     *,
-    workspace_id: UUID,
     review_id: UUID,
     subject_user_id: UUID,
     at: datetime,
 ) -> FairUseReviewRecord | None:
     """Record an idempotent appeal without accepting user-supplied rationale."""
+    lineage = merged_user_lineage(subject_user_id)
     row = await db.scalar(
         select(FairUseReviewRecord)
         .where(
             FairUseReviewRecord.id == review_id,
-            FairUseReviewRecord.workspace_id == workspace_id,
-            FairUseReviewRecord.subject_user_id == subject_user_id,
+            FairUseReviewRecord.subject_user_id.in_(select(lineage.c.user_id)),
         )
         .with_for_update()
     )

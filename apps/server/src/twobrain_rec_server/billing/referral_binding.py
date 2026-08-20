@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,13 +12,39 @@ from twobrain_rec_server.billing.referrals import (
     referral_token_hash,
     validate_referral_token,
 )
-from twobrain_rec_server.db.models import ReferralAttribution, ReferralLink
+from twobrain_rec_server.billing.trial import merged_user_lineage
+from twobrain_rec_server.db.models import ReferralAttribution, ReferralLink, Workspace
 from twobrain_rec_server.db.tenant_context import (
     AuthReferralLookupContext,
     AuthReferralUserLookupContext,
     WorkspaceAuthContext,
     apply_tenant_context,
 )
+
+
+async def referral_attribution_exists_for_lineage(
+    db: AsyncSession,
+    *,
+    user_id: UUID,
+) -> bool:
+    """Require the exact referral-user context used by the PostgreSQL RLS helper."""
+
+    dialect_name = db.get_bind().dialect.name
+    if dialect_name == "postgresql":
+        context = db.info.get("tenant_context")
+        if (
+            not isinstance(context, dict)
+            or context.get("app.context_kind") != "auth_referral_user_lookup"
+            or context.get("app.user_id") != str(user_id)
+        ):
+            raise RuntimeError("exact referral user lookup context is required")
+    predicate = (
+        func.rec_current_user_lineage_contains(ReferralAttribution.invitee_user_id)
+        if dialect_name == "postgresql"
+        else ReferralAttribution.invitee_user_id.in_(select(merged_user_lineage(user_id).c.user_id))
+    )
+    existing = await db.scalar(select(ReferralAttribution.id).where(predicate).limit(1))
+    return existing is not None
 
 
 async def bind_referral_attribution(
@@ -55,11 +81,23 @@ async def bind_referral_attribution(
             return False
         if link.expires_at is not None and now.astimezone(UTC) >= link.expires_at.astimezone(UTC):
             return False
-        await apply_tenant_context(db, AuthReferralUserLookupContext(user_id=user_id))
-        existing = await db.scalar(
-            select(ReferralAttribution.id).where(ReferralAttribution.invitee_user_id == user_id)
+        await apply_tenant_context(
+            db,
+            WorkspaceAuthContext(
+                workspace_id=link.workspace_id,
+                user_id=user_id,
+                context_kind="auth_public",
+            ),
         )
-        if existing is not None:
+        inviter_workspace = await db.get(Workspace, link.workspace_id)
+        if (
+            inviter_workspace is None
+            or inviter_workspace.kind != "personal"
+            or inviter_workspace.owner_user_id != link.inviter_user_id
+        ):
+            return False
+        await apply_tenant_context(db, AuthReferralUserLookupContext(user_id=user_id))
+        if await referral_attribution_exists_for_lineage(db, user_id=user_id):
             return False
         await apply_tenant_context(
             db,

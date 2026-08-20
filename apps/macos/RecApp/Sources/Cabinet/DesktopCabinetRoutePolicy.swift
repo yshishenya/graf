@@ -94,7 +94,21 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
         allowExternalAuthProvider: Bool = false,
         allowExternalPaymentProvider: Bool = false
     ) -> DesktopCabinetRouteDecision {
-        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
+        guard let scheme = url.scheme?.lowercased() else {
+            return block(path: url.path, kind: .unsupported, reason: .invalidURL, message: "This meeting route cannot be opened.")
+        }
+        if scheme == "mailto" {
+            guard sanitizedSupportMailtoURL(for: url) != nil else {
+                return block(path: url.path, kind: .external, reason: .invalidURL, message: "This support link cannot be opened.")
+            }
+            return DesktopCabinetRouteDecision(
+                route: DesktopCabinetRoute(path: url.path, kind: .external),
+                decision: .openExternally,
+                reason: .openExternalSafeLink,
+                userMessage: "Support email"
+            )
+        }
+        guard scheme == "http" || scheme == "https" else {
             return block(path: url.path, kind: .unsupported, reason: .invalidURL, message: "This meeting route cannot be opened.")
         }
         guard sameOrigin(url) else {
@@ -154,7 +168,7 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
         if components.count == 3,
            components[0] == "desktop",
            components[1] == "meetings",
-           isSafeMeetingId(components[2]) {
+           isSafePathComponent(components[2]) {
             return DesktopCabinetRouteDecision(
                 route: DesktopCabinetRoute(path: path, meetingId: components[2], kind: .meetingDetail),
                 decision: .allow,
@@ -165,7 +179,7 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
         if components.count == 4,
            components[0] == "desktop",
            components[1] == "meetings",
-           isSafeMeetingId(components[2]),
+           isSafePathComponent(components[2]),
            components[3] == "share" {
             return DesktopCabinetRouteDecision(
                 route: DesktopCabinetRoute(path: path, meetingId: components[2], kind: .meetingShare),
@@ -177,7 +191,7 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
         if components.count == 5,
            components[0] == "desktop",
            components[1] == "meetings",
-           isSafeMeetingId(components[2]),
+           isSafePathComponent(components[2]),
            components[3] == "calendar-context",
            ["choose", "continue-without", "clear"].contains(components[4]) {
             return DesktopCabinetRouteDecision(
@@ -194,7 +208,7 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
         if components.count == 4,
            components[0] == "desktop",
            components[1] == "meetings",
-           isSafeMeetingId(components[2]),
+           isSafePathComponent(components[2]),
            components[3] == "deletion-report" {
             return DesktopCabinetRouteDecision(
                 route: DesktopCabinetRoute(path: path, meetingId: components[2], kind: .meetingDeletionReport),
@@ -229,6 +243,14 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
                 decision: .allow,
                 reason: .allowedMeetingDetectionSettings,
                 userMessage: "Meeting detection settings"
+            )
+        }
+        if isProviderLinkStartRoute(components) {
+            return DesktopCabinetRouteDecision(
+                route: DesktopCabinetRoute(path: path, kind: .authProvider),
+                decision: .allow,
+                reason: .allowedAuthProvider,
+                userMessage: "Auth provider"
             )
         }
         if isSettingsRoute(components) {
@@ -279,6 +301,9 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
     /// may contain payment, provider, promo or referral data and never cross
     /// the desktop-to-browser boundary.
     public func sanitizedExternalURL(for url: URL) -> URL? {
+        if url.scheme?.lowercased() == "mailto" {
+            return sanitizedSupportMailtoURL(for: url)
+        }
         let routeDecision = decision(for: url)
         guard routeDecision.decision == .openExternally,
               let scheme = url.scheme?.lowercased(),
@@ -289,6 +314,41 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
         components.host = host
         components.port = url.port
         components.path = routeDecision.route.path
+        return components.url
+    }
+
+    private func sanitizedSupportMailtoURL(for url: URL) -> URL? {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              components.scheme?.lowercased() == "mailto",
+              components.host == nil,
+              components.user == nil,
+              components.password == nil,
+              components.port == nil,
+              components.fragment == nil
+        else { return nil }
+
+        let address = components.path.removingPercentEncoding ?? components.path
+        let addressParts = address.split(separator: "@", omittingEmptySubsequences: false)
+        guard address.count <= 254,
+              addressParts.count == 2,
+              addressParts.allSatisfy({ !$0.isEmpty }),
+              !address.contains(where: { $0.isWhitespace || $0.isNewline }),
+              !address.contains(","),
+              !address.contains(";")
+        else { return nil }
+
+        let queryItems = components.queryItems ?? []
+        guard queryItems.count <= 1,
+              queryItems.allSatisfy({ $0.name == "subject" }),
+              queryItems.allSatisfy({ item in
+                  guard let value = item.value else { return false }
+                  return value.count <= 160 && !value.contains(where: { $0.isNewline })
+              })
+        else { return nil }
+
+        components.scheme = "mailto"
+        components.path = address
+        components.queryItems = queryItems.isEmpty ? nil : queryItems
         return components.url
     }
 
@@ -366,8 +426,9 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
         return path.hasPrefix("/") ? path : "/\(path)"
     }
 
-    private func isSafeMeetingId(_ value: String) -> Bool {
-        !value.isEmpty && value.range(of: #"^[A-Za-z0-9_.-]+$"#, options: .regularExpression) != nil
+    private func isSafePathComponent(_ value: String) -> Bool {
+        value != "." && value != ".." &&
+            value.range(of: #"^[A-Za-z0-9_.-]+$"#, options: .regularExpression) != nil
     }
 
     private func isLoginRoute(_ components: [String]) -> Bool {
@@ -384,11 +445,7 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
             components[1] == "v1" &&
             components[2] == "auth" &&
             components[3] == "callback" &&
-            isSafeProviderId(components[4])
-    }
-
-    private func isSafeProviderId(_ value: String) -> Bool {
-        !value.isEmpty && value.range(of: #"^[A-Za-z0-9_.-]+$"#, options: .regularExpression) != nil
+            isSafePathComponent(components[4])
     }
 
     private func isCalendarSettingsRoute(_ components: [String]) -> Bool {
@@ -411,13 +468,13 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
         }
         if components.count == 7,
            components[4] == "providers",
-           isSafeMeetingId(components[5]),
+           isSafePathComponent(components[5]),
            components[6] == "connect" {
             return true
         }
         if components.count == 7,
            components[4] == "sources",
-           isSafeMeetingId(components[5]),
+           isSafePathComponent(components[5]),
            ["calendars", "sync", "disconnect"].contains(components[6]) {
             return true
         }
@@ -428,12 +485,27 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
         components == ["desktop", "settings", "meeting-detection"]
     }
 
+    private func isProviderLinkStartRoute(_ components: [String]) -> Bool {
+        components.count == 5 &&
+            components[0] == "desktop" &&
+            components[1] == "settings" &&
+            components[2] == "provider-links" &&
+            isSafePathComponent(components[3]) &&
+            components[4] == "start"
+    }
+
     private func isSettingsRoute(_ components: [String]) -> Bool {
         if components.count >= 2,
            components[0] == "desktop",
            components[1] == "account" {
             let tail = Array(components.dropFirst(2))
-            return tail.isEmpty || (tail.count == 1 && ["profile", "security", "notifications"].contains(tail[0]))
+            if tail.isEmpty || (tail.count == 1 && ["profile", "security", "notifications", "fair-use"].contains(tail[0])) {
+                return true
+            }
+            return tail.count == 3 &&
+                tail[0] == "fair-use" &&
+                isSafePathComponent(tail[1]) &&
+                tail[2] == "appeal"
         }
         guard components.count >= 2,
               components[0] == "desktop",
@@ -455,13 +527,13 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
            tail[0] == "account",
            tail[1] == "devices",
            tail[3] == "revoke" {
-            return isSafeMeetingId(tail[2])
+            return isSafePathComponent(tail[2])
         }
         if tail.count == 4,
            tail[0] == "account",
            tail[1] == "sessions",
            tail[3] == "revoke" {
-            return isSafeMeetingId(tail[2])
+            return isSafePathComponent(tail[2])
         }
         if tail.count == 3,
            tail[0] == "account",
@@ -470,13 +542,10 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
             return true
         }
         if tail.count == 2, tail[0] == "provider-links" {
-            return isSafeMeetingId(tail[1])
+            return isSafePathComponent(tail[1])
         }
         if tail.count == 3, tail[0] == "provider-links" {
-            if tail[2] == "start" {
-                return isSafeProviderId(tail[1])
-            }
-            return tail[2] == "confirm" && isSafeMeetingId(tail[1])
+            return tail[2] == "confirm" && isSafePathComponent(tail[1])
         }
         if tail.count == 3,
            tail[0] == "account",
@@ -487,25 +556,25 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
         if tail.count == 3,
            tail[0] == "account",
            tail[1] == "merge" {
-            return isSafeMeetingId(tail[2])
+            return isSafePathComponent(tail[2])
         }
         if tail.count == 4,
            tail[0] == "account",
            tail[1] == "merge",
            ["confirm", "cancel"].contains(tail[3]) {
-            return isSafeMeetingId(tail[2])
+            return isSafePathComponent(tail[2])
         }
         if tail.count == 4,
            tail[0] == "account",
            tail[1] == "providers",
            tail[3] == "unlink" {
-            return isSafeMeetingId(tail[2])
+            return isSafePathComponent(tail[2])
         }
         if tail.count == 3, tail[0] == "spaces", tail[2] == "activate" {
-            return isSafeMeetingId(tail[1])
+            return isSafePathComponent(tail[1])
         }
         if tail.count == 3, tail[0] == "join-offers", ["accept", "reject"].contains(tail[2]) {
-            return isSafeMeetingId(tail[1])
+            return isSafePathComponent(tail[1])
         }
         return false
     }
@@ -516,7 +585,7 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
             components[1] == "v1" &&
             components[2] == "cabinet" &&
             components[3] == "meetings" &&
-            isSafeMeetingId(components[4]) &&
+            isSafePathComponent(components[4]) &&
             components[5] == "downloads" &&
             ["audio", "transcript", "summary"].contains(components[6])
     }
@@ -550,9 +619,9 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
         }
         if components == ["billing", "checkout", "return"] { return true }
         if components.count == 4 && components[1] == "checkout" && components[2] == "status" {
-            return isSafeMeetingId(components[3])
+            return isSafePathComponent(components[3])
         }
-        return components.count == 3 && components[1] == "invoices" && isSafeMeetingId(components[2])
+        return components.count == 3 && components[1] == "invoices" && isSafePathComponent(components[2])
     }
 
     private static let allowedPaymentProviderHosts: Set<String> = [

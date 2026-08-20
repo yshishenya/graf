@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from datetime import UTC, datetime, timedelta
 from urllib.parse import quote, urlencode, urlsplit
-from uuid import uuid4
+from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -64,7 +64,12 @@ from twobrain_rec_server.billing.subscription import (
     cancel_auto_renewal,
     resume_auto_renewal,
 )
-from twobrain_rec_server.billing.trial import activate_trial, require_trial_activation
+from twobrain_rec_server.billing.trial import (
+    activate_trial,
+    merged_user_lineage,
+    require_trial_activation,
+    trial_used_by_lineage,
+)
 from twobrain_rec_server.billing.usage import format_duration, moscow_window_for
 from twobrain_rec_server.billing.webhook_reconciliation import (
     reconcile_pending_initial_checkout_operations,
@@ -525,8 +530,7 @@ async def _trial_eligibility_state(
     if db is None:
         return "unavailable"
     identity = await db.get(UserIdentity, principal.user_id)
-    used = await db.scalar(select(TrialActivation.id).where(TrialActivation.user_id == principal.user_id))
-    if used is not None:
+    if await trial_used_by_lineage(db, user_id=principal.user_id):
         return "already"
     membership = await db.scalar(
         select(WorkspaceMembership).where(
@@ -569,6 +573,40 @@ async def _trial_eligibility_state(
     if identity.status != "active" or verified_identity is None:
         return "verification_required"
     return "eligible"
+
+
+async def _referral_attribution_for_lineage(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    lineage_user_ids: tuple[UUID, ...],
+    token_hash: str | None = None,
+) -> ReferralAttribution | None:
+    for lineage_user_id in lineage_user_ids:
+        if token_hash is None:
+            await apply_tenant_context(
+                db,
+                AuthReferralUserLookupContext(user_id=lineage_user_id),
+            )
+        else:
+            await apply_tenant_context(
+                db,
+                AuthReferralLookupContext(
+                    workspace_id=workspace_id,
+                    user_id=lineage_user_id,
+                    token_hash=token_hash,
+                ),
+            )
+        query = select(ReferralAttribution).where(
+            ReferralAttribution.invitee_user_id == lineage_user_id,
+            ReferralAttribution.state.in_(("bound", "registered", "attributed")),
+        )
+        if token_hash is not None:
+            query = query.where(ReferralAttribution.token_hash == token_hash)
+        attribution = await db.scalar(query)
+        if attribution is not None:
+            return attribution
+    return None
 
 
 @router.get("/settings/billing", include_in_schema=False)
@@ -1188,7 +1226,7 @@ async def activate_billing_trial(
         .where(UserIdentity.id == principal.user_id)
         .with_for_update()
     )
-    existing = await db.scalar(select(TrialActivation).where(TrialActivation.user_id == principal.user_id))
+    already_used = await trial_used_by_lineage(db, user_id=principal.user_id)
     membership = await db.scalar(
         select(WorkspaceMembership).where(
             WorkspaceMembership.workspace_id == tenant_scope.workspace_id,
@@ -1207,7 +1245,7 @@ async def activate_billing_trial(
             identity_status=identity.status if identity is not None else "",
             membership_role=membership.role if membership is not None else "",
             workspace_kind=workspace.kind if workspace is not None else "",
-            already_used=existing is not None,
+            already_used=already_used,
         )
     except PermissionError:
         return RedirectResponse("/billing?trial=unavailable", status_code=303)
@@ -1971,34 +2009,27 @@ async def start_billing_checkout(
         # the request tenant context before any billing mutation.
         referred = None
         try:
+            lineage = merged_user_lineage(principal.user_id)
+            lineage_ids = set(await db.scalars(select(lineage.c.user_id)))
+            lineage_ids.add(principal.user_id)
+            lineage_user_ids = (
+                principal.user_id,
+                *sorted(lineage_ids - {principal.user_id}, key=str),
+            )
             referral_cookie = request.cookies.get("graf_referral_token")
             if referral_cookie:
                 token_hash = referral_token_hash(validate_referral_token(referral_cookie))
-                await apply_tenant_context(
+                referred = await _referral_attribution_for_lineage(
                     db,
-                    AuthReferralLookupContext(
-                        workspace_id=tenant_scope.workspace_id,
-                        user_id=principal.user_id,
-                        token_hash=token_hash,
-                    ),
-                )
-                referred = await db.scalar(
-                    select(ReferralAttribution).where(
-                        ReferralAttribution.token_hash == token_hash,
-                        ReferralAttribution.invitee_user_id == principal.user_id,
-                        ReferralAttribution.state.in_(("bound", "registered", "attributed")),
-                    )
+                    workspace_id=tenant_scope.workspace_id,
+                    lineage_user_ids=lineage_user_ids,
+                    token_hash=token_hash,
                 )
             if referred is None:
-                await apply_tenant_context(
+                referred = await _referral_attribution_for_lineage(
                     db,
-                    AuthReferralUserLookupContext(user_id=principal.user_id),
-                )
-                referred = await db.scalar(
-                    select(ReferralAttribution).where(
-                        ReferralAttribution.invitee_user_id == principal.user_id,
-                        ReferralAttribution.state.in_(("bound", "registered", "attributed")),
-                    )
+                    workspace_id=tenant_scope.workspace_id,
+                    lineage_user_ids=lineage_user_ids,
                 )
         except ValueError:
             referred = None
@@ -2006,7 +2037,7 @@ async def start_billing_checkout(
             await apply_tenant_scope(db, tenant_scope)
         referral_candidate = (
             PromoCode("REFERRAL_INTRO", 10, "personal", 1, campaign_version="referral-v1")
-            if referred is not None and referred.inviter_user_id != principal.user_id
+            if referred is not None and referred.inviter_user_id not in lineage_ids
             else None
         )
         # Exactly one discount may reach the immutable invoice.  Prefer the
@@ -2027,19 +2058,24 @@ async def start_billing_checkout(
             # create a redemption against the entered campaign.
             promo_campaign = None
         referral_discount = promo is referral_candidate and referral_candidate is not None
-        if referral_discount and referred is not None and referred.state in {"bound", "registered"}:
+        if (
+            referral_discount
+            and referred is not None
+            and referred.invitee_user_id in lineage_ids
+            and referred.state in {"bound", "registered"}
+        ):
             # The invitee owns this transition; the reward itself is created
             # later by maintenance in the inviter workspace.
             await apply_tenant_context(
                 db,
-                AuthReferralUserLookupContext(user_id=principal.user_id),
+                AuthReferralUserLookupContext(user_id=referred.invitee_user_id),
             )
             try:
                 await db.execute(
                     update(ReferralAttribution)
                     .where(
                         ReferralAttribution.id == referred.id,
-                        ReferralAttribution.invitee_user_id == principal.user_id,
+                        ReferralAttribution.invitee_user_id == referred.invitee_user_id,
                         ReferralAttribution.state.in_(("bound", "registered")),
                     )
                     .values(state="attributed")

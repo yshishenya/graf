@@ -61,6 +61,14 @@ public enum EmbeddedCabinetNavigationPolicy {
             && decision.route.kind != .artifactDownload
     }
 
+    public static func isEmailLinkFormDocument(_ url: URL?) -> Bool {
+        guard let url else { return false }
+        return [
+            "/desktop/settings/account/email-link/start",
+            "/desktop/settings/account/email-link/verify"
+        ].contains(url.path)
+    }
+
     private static func isMeetingList(
         _ url: URL?,
         routePolicy: DesktopCabinetRoutePolicy
@@ -301,6 +309,11 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
         self.webView === webView
     }
 
+    fileprivate func isNavigating(to request: URLRequest) -> Bool {
+        guard isLoading, let url = request.url else { return false }
+        return activeNavigationURL == url || pendingNavigationURL == url
+    }
+
     fileprivate func navigationDidStart(
         webView: WKWebView,
         navigation: WKNavigation?,
@@ -455,7 +468,8 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
             // navigationDidStart, where its identity is available.
             pendingNavigationURL = url
             if (request.httpMethod ?? "GET").uppercased() != "GET",
-               isProtectedMeetingRoute(url, routePolicy: routePolicy) {
+               isProtectedMeetingRoute(url, routePolicy: routePolicy),
+               !EmbeddedCabinetNavigationPolicy.isEmailLinkFormDocument(url) {
                 historyFencePending = true
             }
         }
@@ -954,13 +968,27 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         "\(method) \(url.absoluteString)"
     }
 
-    public nonisolated static func shouldLoad(request: URLRequest, lastLoadedRequestIdentity: String?) -> Bool {
-        lastLoadedRequestIdentity != loadIdentity(for: request)
+    public nonisolated static func shouldLoad(
+        request: URLRequest,
+        lastLoadedRequestIdentity: String?,
+        requestIsAlreadyNavigating: Bool = false
+    ) -> Bool {
+        !requestIsAlreadyNavigating && lastLoadedRequestIdentity != loadIdentity(for: request)
     }
 
-    /// Provider, callback, and email form navigations are transient WebKit
-    /// pages, not SwiftUI-owned document routes. Keeping one as the last
-    /// loaded request makes updateNSView replay a one-time navigation as GET.
+    /// Mutating requests and transient auth forms are WebKit-owned. SwiftUI
+    /// rebuilds every saved route as GET, so tracking either would replay a
+    /// one-time navigation with the wrong method.
+    public nonisolated static func shouldTrackSwiftUIRequestIdentity(
+        for routeKind: DesktopCabinetRouteKind,
+        request: URLRequest
+    ) -> Bool {
+        guard (request.httpMethod ?? "GET").uppercased() == "GET" else {
+            return false
+        }
+        return shouldTrackSwiftUIRequestIdentity(for: routeKind, url: request.url)
+    }
+
     public nonisolated static func shouldTrackSwiftUIRequestIdentity(
         for routeKind: DesktopCabinetRouteKind,
         url: URL? = nil
@@ -969,7 +997,8 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             return false
         }
         guard let url else { return true }
-        return ![
+        return !EmbeddedCabinetNavigationPolicy.isEmailLinkFormDocument(url)
+            && ![
             "/login/email/start",
             "/login/email/verify",
             "/sign-up/email/start",
@@ -1143,7 +1172,11 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         )
         EmbeddedCabinetZoomBridge.apply(workspaceZoom, to: container.webView)
         context.coordinator.applyUpdateVisibility(to: container.webView)
-        guard Self.shouldLoad(request: request, lastLoadedRequestIdentity: container.lastLoadedRequestIdentity) else {
+        guard Self.shouldLoad(
+            request: request,
+            lastLoadedRequestIdentity: container.lastLoadedRequestIdentity,
+            requestIsAlreadyNavigating: navigationController.isNavigating(to: request)
+        ) else {
             return
         }
         container.lastLoadedRequestIdentity = Self.loadIdentity(for: request)
@@ -1710,7 +1743,10 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 for: url,
                 allowExternalAuthProvider: authContinuationActive
             ).route.kind
-            if EmbeddedCabinetWebView.shouldTrackSwiftUIRequestIdentity(for: routeKind, url: url) {
+            if EmbeddedCabinetWebView.shouldTrackSwiftUIRequestIdentity(
+                for: routeKind,
+                request: request
+            ) {
                 currentRoute = url
                 if let container = webView.superview as? WebViewContainer {
                     // SwiftUI rebuilds the request from the route as a GET.
@@ -1926,8 +1962,12 @@ public struct EmbeddedCabinetWebView: View {
         return "\(method) \(url)"
     }
 
-    public nonisolated static func shouldLoad(request: URLRequest, lastLoadedRequestIdentity: String?) -> Bool {
-        lastLoadedRequestIdentity != loadIdentity(for: request)
+    public nonisolated static func shouldLoad(
+        request: URLRequest,
+        lastLoadedRequestIdentity: String?,
+        requestIsAlreadyNavigating: Bool = false
+    ) -> Bool {
+        !requestIsAlreadyNavigating && lastLoadedRequestIdentity != loadIdentity(for: request)
     }
 
     public nonisolated static func shouldTrackSwiftUIRequestIdentity(
@@ -1935,6 +1975,16 @@ public struct EmbeddedCabinetWebView: View {
         url _: URL? = nil
     ) -> Bool {
         true
+    }
+
+    public nonisolated static func shouldTrackSwiftUIRequestIdentity(
+        for routeKind: DesktopCabinetRouteKind,
+        request: URLRequest
+    ) -> Bool {
+        guard (request.httpMethod ?? "GET").uppercased() == "GET" else {
+            return false
+        }
+        return shouldTrackSwiftUIRequestIdentity(for: routeKind, url: request.url)
     }
 
     public nonisolated static func trackedRoute(current _: URL?, loaded: URL) -> URL {
