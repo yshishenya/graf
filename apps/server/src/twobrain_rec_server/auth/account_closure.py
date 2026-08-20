@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.problems import ProblemDetail
@@ -24,6 +24,7 @@ from twobrain_rec_server.db.models import (
 ACCOUNT_CLOSE_COOLING_DAYS = 7
 ACCOUNT_CLOSE_POLICY_VERSION = "account-close-v1"
 ACTIVE_CLOSURE_STATES = frozenset(("scheduled", "finalizing", "blocked"))
+FINALIZATION_WORKSPACE_IDS_KEY = "content_workspace_ids"
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,6 +42,176 @@ def _utc(value: datetime) -> datetime:
     return value.astimezone(UTC)
 
 
+async def account_close_content_workspace_ids(
+    db: AsyncSession,
+    *,
+    primary_workspace_id: UUID,
+    user_id: UUID,
+) -> tuple[UUID, ...]:
+    workspace_ids = tuple(
+        await db.scalars(
+            select(Workspace.id)
+            .where(
+                or_(
+                    Workspace.id == primary_workspace_id,
+                    and_(
+                        Workspace.kind == "linked",
+                        Workspace.owner_user_id == user_id,
+                    ),
+                )
+            )
+            .order_by(Workspace.id)
+            .with_for_update()
+        )
+    )
+    content_workspace_ids = tuple(sorted({primary_workspace_id, *workspace_ids}, key=str))
+    other_owned_workspace = await db.scalar(
+        select(Workspace.id)
+        .where(
+            Workspace.owner_user_id == user_id,
+            Workspace.id.not_in(content_workspace_ids),
+        )
+        .limit(1)
+        .with_for_update()
+    )
+    if other_owned_workspace is not None:
+        raise ProblemDetail(
+            status=409,
+            code="account_close_transfer_required",
+            title="Перед закрытием передайте другие пространства",
+        )
+    other_active_member = await db.scalar(
+        select(WorkspaceMembership.workspace_id)
+        .where(
+            WorkspaceMembership.workspace_id.in_(content_workspace_ids),
+            WorkspaceMembership.user_id != user_id,
+            WorkspaceMembership.status == "active",
+        )
+        .limit(1)
+        .with_for_update()
+    )
+    if other_active_member is not None:
+        raise ProblemDetail(
+            status=409,
+            code="account_close_transfer_required",
+            title="Перед закрытием передайте пространство участникам",
+        )
+    return content_workspace_ids
+
+
+async def ensure_account_membership_activation_allowed(
+    db: AsyncSession,
+    *,
+    user_id: UUID,
+) -> None:
+    """Serialize membership activation against irreversible account close."""
+
+    request = await db.scalar(
+        select(AccountClosureRequest)
+        .where(
+            AccountClosureRequest.requested_by_user_id == user_id,
+            AccountClosureRequest.state.in_(ACTIVE_CLOSURE_STATES),
+        )
+        .order_by(AccountClosureRequest.requested_at.desc())
+        .limit(1)
+        .with_for_update()
+    )
+    if request is not None and (
+        request.state == "finalizing"
+        or (
+            request.state == "blocked"
+            and FINALIZATION_WORKSPACE_IDS_KEY in (request.metadata_json or {})
+        )
+    ):
+        raise ProblemDetail(
+            status=409,
+            code="account_close_finalizing",
+            title="Закрытие аккаунта уже началось",
+        )
+    identity = await db.scalar(
+        select(UserIdentity).where(UserIdentity.id == user_id).with_for_update()
+    )
+    if identity is None or identity.status != "active":
+        raise ProblemDetail(
+            status=409,
+            code="account_membership_activation_unavailable",
+            title="Этот профиль больше нельзя активировать",
+        )
+
+
+def _frozen_content_workspace_ids(request: AccountClosureRequest) -> tuple[UUID, ...]:
+    raw_ids = (request.metadata_json or {}).get(FINALIZATION_WORKSPACE_IDS_KEY)
+    if raw_ids is None:
+        return ()
+    if not isinstance(raw_ids, list):
+        raise ProblemDetail(
+            status=409,
+            code="account_close_scope_invalid",
+            title="Не удалось подтвердить состав закрываемых пространств",
+        )
+    try:
+        workspace_ids = tuple(sorted({UUID(value) for value in raw_ids}, key=str))
+    except (TypeError, ValueError, AttributeError):
+        workspace_ids = ()
+    if not workspace_ids or request.workspace_id not in workspace_ids:
+        raise ProblemDetail(
+            status=409,
+            code="account_close_scope_invalid",
+            title="Не удалось подтвердить состав закрываемых пространств",
+        )
+    return workspace_ids
+
+
+async def begin_account_close_finalization(
+    db: AsyncSession,
+    *,
+    request_id: UUID,
+    now: datetime,
+) -> tuple[AccountCloseView, tuple[UUID, ...]]:
+    """Freeze the deletion scope before any internally committing purge."""
+
+    request = await db.scalar(
+        select(AccountClosureRequest)
+        .where(AccountClosureRequest.id == request_id)
+        .with_for_update()
+    )
+    if request is None:
+        raise ProblemDetail(
+            status=404, code="account_close_not_found", title="Запрос закрытия не найден"
+        )
+    now_utc = _utc(now)
+    if request.state in {"canceled", "completed"}:
+        return close_view(request, now=now_utc), ()
+    if now_utc < _utc(request.finalize_at):
+        raise ProblemDetail(
+            status=409, code="account_close_cooling_active", title="Период отмены ещё не завершён"
+        )
+    content_workspace_ids = _frozen_content_workspace_ids(request)
+    if not content_workspace_ids:
+        content_workspace_ids = await account_close_content_workspace_ids(
+            db,
+            primary_workspace_id=request.workspace_id,
+            user_id=request.requested_by_user_id,
+        )
+    identity = await db.get(UserIdentity, request.requested_by_user_id, with_for_update=True)
+    if identity is None:
+        raise ProblemDetail(
+            status=409,
+            code="account_close_identity_missing",
+            title="Не удалось подтвердить закрываемый профиль",
+        )
+    identity.status = "closed"
+    request.state = "finalizing"
+    request.failure_reason = None
+    request.metadata_json = {
+        **(request.metadata_json or {}),
+        FINALIZATION_WORKSPACE_IDS_KEY: [str(value) for value in content_workspace_ids],
+        "finalization_started_at": now_utc.isoformat(),
+    }
+    await db.flush()
+    return close_view(request, now=now_utc), content_workspace_ids
+
+
 async def _owner_workspace(
     db: AsyncSession,
     *,
@@ -48,20 +219,27 @@ async def _owner_workspace(
     user_id: UUID,
 ) -> Workspace:
     workspace = await db.scalar(
-        select(Workspace)
-        .where(Workspace.id == workspace_id)
-        .with_for_update()
+        select(Workspace).where(Workspace.id == workspace_id).with_for_update()
     )
     membership = await db.scalar(
-        select(WorkspaceMembership)
-        .where(
+        select(WorkspaceMembership).where(
             WorkspaceMembership.workspace_id == workspace_id,
             WorkspaceMembership.user_id == user_id,
             WorkspaceMembership.status == "active",
         )
     )
-    if workspace is None or membership is None or membership.role != "owner":
-        raise ProblemDetail(status=403, code="account_close_owner_required", title="Только владелец может закрыть аккаунт")
+    if (
+        workspace is None
+        or workspace.kind != "personal"
+        or workspace.owner_user_id != user_id
+        or membership is None
+        or membership.role != "owner"
+    ):
+        raise ProblemDetail(
+            status=403,
+            code="account_close_owner_required",
+            title="Только владелец может закрыть аккаунт",
+        )
     active_members = await db.scalar(
         select(func.count())
         .select_from(WorkspaceMembership)
@@ -86,7 +264,8 @@ def close_view(request: AccountClosureRequest, *, now: datetime) -> AccountClose
         requested_at=_utc(request.requested_at),
         finalize_at=_utc(request.finalize_at),
         policy_version=request.policy_version,
-        can_cancel=request.state in {"scheduled", "blocked"} and now_utc < _utc(request.finalize_at),
+        can_cancel=request.state in {"scheduled", "blocked"}
+        and now_utc < _utc(request.finalize_at),
     )
 
 
@@ -102,6 +281,11 @@ async def schedule_account_close(
 
     await lock_storage_workspace(db, workspace_id)
     workspace = await _owner_workspace(db, workspace_id=workspace_id, user_id=user_id)
+    await account_close_content_workspace_ids(
+        db,
+        primary_workspace_id=workspace.id,
+        user_id=user_id,
+    )
     now_utc = _utc(now)
     existing = await db.scalar(
         select(AccountClosureRequest)
@@ -157,10 +341,16 @@ async def cancel_account_close(
         .with_for_update()
     )
     if request is None:
-        raise ProblemDetail(status=404, code="account_close_not_scheduled", title="Закрытие аккаунта не запланировано")
+        raise ProblemDetail(
+            status=404,
+            code="account_close_not_scheduled",
+            title="Закрытие аккаунта не запланировано",
+        )
     now_utc = _utc(now)
     if now_utc >= _utc(request.finalize_at):
-        raise ProblemDetail(status=409, code="account_close_cooling_expired", title="Период отмены уже завершён")
+        raise ProblemDetail(
+            status=409, code="account_close_cooling_expired", title="Период отмены уже завершён"
+        )
     request.state = "canceled"
     request.canceled_at = now_utc
     return close_view(request, now=now_utc)
@@ -179,23 +369,13 @@ async def finalize_account_close(
     are erased.  It only applies the immediate account-access boundary.
     """
 
-    request = await db.scalar(
-        select(AccountClosureRequest)
-        .where(AccountClosureRequest.id == request_id)
-        .with_for_update()
-    )
-    if request is None:
-        raise ProblemDetail(status=404, code="account_close_not_found", title="Запрос закрытия не найден")
-    await lock_storage_workspace(db, request.workspace_id)
     now_utc = _utc(now)
-    if request.state == "canceled":
-        return close_view(request, now=now_utc)
-    if request.state == "completed":
-        return close_view(request, now=now_utc)
-    if now_utc < _utc(request.finalize_at):
-        raise ProblemDetail(status=409, code="account_close_cooling_active", title="Период отмены ещё не завершён")
-    request.state = "finalizing"
-    await db.flush()
+    view, _ = await begin_account_close_finalization(db, request_id=request_id, now=now_utc)
+    if view.state in {"canceled", "completed"}:
+        return view
+    request = await db.get(AccountClosureRequest, request_id)
+    assert request is not None
+    await lock_storage_workspace(db, request.workspace_id)
     subscription = await db.scalar(
         select(WorkspaceSubscription)
         .where(WorkspaceSubscription.workspace_id == request.workspace_id)
@@ -214,12 +394,16 @@ async def finalize_account_close(
     if identity is not None:
         identity.status = "closed"
     sessions = (
-        await db.scalars(select(AuthSession).where(AuthSession.user_id == request.requested_by_user_id))
+        await db.scalars(
+            select(AuthSession).where(AuthSession.user_id == request.requested_by_user_id)
+        )
     ).all()
     for session in sessions:
         session.status = "revoked"
     devices = (
-        await db.scalars(select(RegisteredDevice).where(RegisteredDevice.user_id == request.requested_by_user_id))
+        await db.scalars(
+            select(RegisteredDevice).where(RegisteredDevice.user_id == request.requested_by_user_id)
+        )
     ).all()
     for device in devices:
         device.status = "revoked"
@@ -227,7 +411,6 @@ async def finalize_account_close(
     await db.execute(
         WorkspaceMembership.__table__.update()
         .where(
-            WorkspaceMembership.workspace_id == request.workspace_id,
             WorkspaceMembership.user_id == request.requested_by_user_id,
         )
         .values(status="inactive")
@@ -254,7 +437,7 @@ async def list_due_account_closures(
     rows = await db.scalars(
         select(AccountClosureRequest.id)
         .where(
-            AccountClosureRequest.state.in_(("scheduled", "blocked")),
+            AccountClosureRequest.state.in_(("scheduled", "finalizing", "blocked")),
             AccountClosureRequest.finalize_at <= _utc(now),
         )
         .order_by(AccountClosureRequest.finalize_at, AccountClosureRequest.id)

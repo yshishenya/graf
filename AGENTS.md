@@ -59,7 +59,7 @@ infrastructure, deletion, diagnostics, and high-risk UX work.
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at specs/176-fix-email-link-route/plan.md
+at specs/178-account-linking-journey/plan.md
 <!-- SPECKIT END -->
 
 ## Tracking and product gates

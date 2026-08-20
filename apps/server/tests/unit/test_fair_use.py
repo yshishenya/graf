@@ -12,6 +12,7 @@ from twobrain_rec_server.billing.fair_use import (
     appeal_review,
     create_review,
     enqueue_review_notification,
+    fair_use_restricted_for_lineage,
     persist_review,
     resolve_review,
     review_subject_ref,
@@ -30,6 +31,19 @@ def test_fair_use_review_is_bounded_and_appealable() -> None:
     assert review.review_by == datetime(2026, 8, 8, 10, tzinfo=UTC)
     assert appeal_review(review, at=starts_at).state == "appealed"
     assert resolve_review(review, state="cleared").state == "cleared"
+
+
+def test_fair_use_restriction_follows_recursive_merged_user_lineage() -> None:
+    class FakeDb:
+        async def scalar(self, statement):
+            compiled = str(statement)
+            assert "WITH RECURSIVE" in compiled
+            assert "merged_into_user_id" in compiled
+            return uuid4()
+
+    assert asyncio.run(
+        fair_use_restricted_for_lineage(FakeDb(), user_id=uuid4())
+    ) is True
 
 
 def test_fair_use_review_rejects_unbounded_reason_or_time() -> None:
@@ -195,7 +209,6 @@ def test_persisted_review_is_idempotent_and_appeal_is_repeatable() -> None:
     appealed = asyncio.run(
         appeal_persisted_review(
             db,
-            workspace_id=workspace_id,
             review_id=row.id,
             subject_user_id=subject_id,
             at=datetime(2026, 8, 7, 12, tzinfo=UTC),
@@ -207,7 +220,6 @@ def test_persisted_review_is_idempotent_and_appeal_is_repeatable() -> None:
     appealed_again = asyncio.run(
         appeal_persisted_review(
             db,
-            workspace_id=workspace_id,
             review_id=row.id,
             subject_user_id=subject_id,
             at=datetime(2026, 8, 7, 13, tzinfo=UTC),

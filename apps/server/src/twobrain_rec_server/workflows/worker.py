@@ -11,6 +11,7 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 from sqlalchemy import func, select
 
 from twobrain_rec_server.auth.account_closure import (
+    begin_account_close_finalization,
     finalize_account_close,
     list_due_account_closures,
 )
@@ -478,18 +479,27 @@ async def run_account_closure_reconciler(
                                 .where(AccountClosureRequest.id == request_id)
                                 .with_for_update()
                             )
-                            if request is None or request.state not in {"scheduled", "blocked"}:
+                            if request is None or request.state not in {
+                                "scheduled",
+                                "finalizing",
+                                "blocked",
+                            }:
                                 continue
                             # Account closure reuses the already-audited meeting
                             # deletion path.  If storage or one purge is
                             # unavailable, keep the close blocked and retry only
                             # after an operator-visible reconciliation action.
-                            await fanout_account_close_deletions(
-                                db,
-                                workspace_id=request.workspace_id,
-                                storage=storage,
-                                temporal_client=temporal_client,
+                            _, workspace_ids = await begin_account_close_finalization(
+                                db, request_id=request.id, now=datetime.now(UTC)
                             )
+                            await db.commit()
+                            for workspace_id in workspace_ids:
+                                await fanout_account_close_deletions(
+                                    db,
+                                    workspace_id=workspace_id,
+                                    storage=storage,
+                                    temporal_client=temporal_client,
+                                )
                             await finalize_account_close(
                                 db, request_id=request_id, now=datetime.now(UTC)
                             )
@@ -505,7 +515,11 @@ async def run_account_closure_reconciler(
                                 .where(AccountClosureRequest.id == request_id)
                                 .with_for_update()
                             )
-                            if blocked is not None and blocked.state == "scheduled":
+                            if blocked is not None and blocked.state in {
+                                "scheduled",
+                                "finalizing",
+                                "blocked",
+                            }:
                                 blocked.state = "blocked"
                                 blocked.failure_reason = type(exc).__name__[:240]
                                 blocked.metadata_json = {

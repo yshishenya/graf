@@ -1,3 +1,6 @@
+import asyncio
+from uuid import UUID
+
 from fastapi.routing import APIRoute
 
 from twobrain_rec_server.api.billing import (
@@ -8,7 +11,7 @@ from twobrain_rec_server.api.billing import (
     router as billing_router,
 )
 from twobrain_rec_server.billing.launch_gates import provider_environment
-from twobrain_rec_server.billing.trial import require_trial_activation
+from twobrain_rec_server.billing.trial import require_trial_activation, trial_used_by_lineage
 from twobrain_rec_server.billing.yookassa import is_allowed_confirmation_url
 
 
@@ -22,7 +25,11 @@ def test_trial_requires_active_personal_workspace_owner_and_unused_identity() ->
 
 
 def test_trial_rejects_non_owner_or_corporate_workspace() -> None:
-    for role, kind in (("member", "personal"), ("owner", "corporate")):
+    for role, kind in (
+        ("member", "personal"),
+        ("owner", "corporate"),
+        ("owner", "linked"),
+    ):
         try:
             require_trial_activation(
                 identity_status="active",
@@ -34,6 +41,21 @@ def test_trial_rejects_non_owner_or_corporate_workspace() -> None:
             pass
         else:
             raise AssertionError("trial must fail closed for non-personal owner context")
+
+
+def test_trial_usage_follows_recursive_merged_user_lineage() -> None:
+    class FakeDb:
+        async def scalar(self, statement):
+            compiled = str(statement)
+            assert "WITH RECURSIVE" in compiled
+            assert "merged_into_user_id" in compiled
+            return UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+
+    assert asyncio.run(
+        trial_used_by_lineage(
+            FakeDb(), user_id=UUID("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
+        )
+    ) is True
 
 
 def test_confirmation_url_is_yookassa_allowlisted_https_only() -> None:

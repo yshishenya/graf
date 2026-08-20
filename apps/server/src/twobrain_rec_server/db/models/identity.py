@@ -31,7 +31,9 @@ class Workspace(Base):
     __tablename__ = "workspaces"
     __table_args__ = (
         UniqueConstraint("organization_id", "slug"),
-        CheckConstraint("kind in ('personal', 'corporate')", name="ck_workspaces_kind"),
+        CheckConstraint(
+            "kind in ('personal', 'corporate', 'linked')", name="ck_workspaces_kind"
+        ),
         Index(
             "uq_workspaces_personal_owner",
             "organization_id",

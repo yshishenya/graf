@@ -1,50 +1,125 @@
 {% import "cabinet/components/sections.html" as sections %}
 <main id="cabinet-main" class="cabinet-main" tabindex="-1">
-  <div class="cabinet-workspace settings-page">
+  <div class="cabinet-workspace settings-page account-linking-page">
     <div class="settings-page__content">
       <header class="cabinet-topbar settings-page__topbar">
         <div class="page-title">
-          <h1>Безопасное объединение аккаунтов</h1>
-          <p class="page-subtitle">Пароль не нужен: подтверждены текущая сессия и второй способ входа.</p>
+          <h1>Один профиль — все способы входа</h1>
+          {% if blockers %}
+          <p class="page-subtitle">Этот email уже используется в другом профиле. Выберите доступное действие ниже.</p>
+          {% elif presentation %}
+          <p class="page-subtitle">Этот email уже используется в другом профиле. Вы подтвердили доступ к обоим профилям — проверьте результат.</p>
+          {% else %}
+          <p class="page-subtitle">Подтверждение завершилось без изменений профилей.</p>
+          {% endif %}
         </div>
       </header>
-      {% if error_message %}<p class="settings-status" role="alert" aria-live="assertive">{{ error_message }}</p>{% endif %}
-      {% if preview %}
-      <section class="settings-section" aria-labelledby="account-merge-summary">
-        <h2 id="account-merge-summary">Что произойдёт</h2>
-        <ul>
-          <li>Текущий аккаунт останется основным.</li>
-          <li>Подтверждённые способы входа обоих аккаунтов сохранятся.</li>
-          <li>Встречи и связанные с ними записи, файлы и результаты обработки сохранятся. Будет сохранено встреч: {{ preview.counts.meetings }}.</li>
-          <li>Рабочие пространства останутся отдельными.</li>
-          <li>Все активные сессии обоих аккаунтов будут завершены, а доверие устройств — отозвано. После объединения потребуется войти снова.</li>
-        </ul>
-        {% if preview.blocker_codes %}
-        <div class="settings-status" role="alert">
-          <strong>Объединение заблокировано:</strong>
-          <ul>
-            {% for code in preview.blocker_codes %}
-            <li>{% if code == "workspace_role_conflict" %}У аккаунтов несовместимые роли в одном рабочем пространстве.{% elif code == "workspace_ownership_conflict" %}Нельзя безопасно определить владельца рабочих пространств.{% elif code == "billing_conflict" %}Сначала нужно отдельно решить активный платёжный статус.{% elif code == "calendar_ownership_conflict" %}Сначала отключите или повторно подтвердите календарь.{% elif code == "deletion_state_conflict" %}На аккаунте или встрече уже идёт закрытие или удаление.{% elif code == "meeting_owner_conflict" %}Нашлись одинаковые локальные записи; данные не объединены.{% else %}Объединение невозможно при текущем состоянии аккаунтов.{% endif %}</li>
-            {% endfor %}
-          </ul>
-          <p>Данные не изменены. Устраните причину и начните подтверждение заново.</p>
+
+      {% if error_message and presentation %}<p class="account-linking-alert account-linking-alert--error" role="alert" aria-live="assertive">{{ error_message }}</p>{% endif %}
+
+      {% if presentation %}
+      {% if blockers %}
+      <section class="settings-section" aria-labelledby="account-linking-blockers-title" role="alert" aria-live="assertive">
+        <div class="settings-section__heading"><div>
+          <h2 id="account-linking-blockers-title">Что нужно сделать</h2>
+          <p class="muted">Email пока не подключён. Данные не изменены.</p>
+        </div></div>
+        <div class="account-linking-blockers">
+          {% for blocker in blockers %}
+          <article class="account-linking-alert account-linking-alert--error">
+            <strong>{{ blocker.title }}</strong>
+            <p>{{ blocker.detail }}</p>
+            {% if blocker.support_reference %}<p>Номер для поддержки: <code>{{ blocker.support_reference }}</code></p>{% endif %}
+            {% if blocker.action_next %}
+            <form action="{{ blocker.action_href }}" method="post">
+              {{ sections.csrf_field(csrf_token) }}
+              <input type="hidden" name="next" value="{{ blocker.action_next }}">
+              <button class="button quiet" type="submit">{{ blocker.action_label }}</button>
+            </form>
+            {% else %}
+            <a class="button quiet" href="{{ blocker.action_href }}">{{ blocker.action_label }}</a>
+            {% endif %}
+          </article>
+          {% endfor %}
         </div>
-        {% else %}
+      </section>
+      {% else %}
+      <section class="settings-section account-linking-summary" aria-labelledby="account-linking-result-title">
+        <div class="settings-section__heading"><div>
+          <h2 id="account-linking-result-title">Что изменится</h2>
+          <p class="muted">Текущий профиль останется основным, а способы входа из обоих профилей сохранятся.</p>
+        </div></div>
+        <div class="account-linking-comparison" aria-label="Способы входа сейчас и после подключения">
+          <article class="account-linking-comparison__card">
+            <h3>Сейчас</h3>
+            <div class="account-linking-provider-group">
+              <strong>Текущий профиль</strong>
+              <ul aria-label="Способы входа текущего профиля">
+                {% for label in presentation.current_provider_labels %}<li>{{ label }}</li>{% else %}<li>Подтверждённый способ входа</li>{% endfor %}
+              </ul>
+            </div>
+            <div class="account-linking-provider-group">
+              <strong>Другой профиль</strong>
+              <ul aria-label="Способы входа другого профиля">
+                {% for label in presentation.other_provider_labels %}<li>{{ label }}</li>{% else %}<li>Подтверждённый email</li>{% endfor %}
+              </ul>
+            </div>
+          </article>
+          <article class="account-linking-comparison__card">
+            <h3>После подключения</h3>
+            <p>Один основной профиль со всеми способами входа:</p>
+            <ul aria-label="Сохранённые способы входа">
+              {% for label in presentation.connected_provider_labels %}<li>{{ label }}</li>{% else %}<li>Все подтверждённые способы входа</li>{% endfor %}
+            </ul>
+          </article>
+        </div>
+        <ul class="settings-list account-linking-results" aria-label="Что сохранится">
+          <li class="settings-list-item"><div class="settings-list-item__content">
+            <span class="settings-list-item__title">{{ presentation.workspace_summary }}</span>
+            <span class="settings-list-item__desc">Доступ и границы каждого пространства сохранятся. Данные не смешиваются.</span>
+          </div></li>
+          <li class="settings-list-item"><div class="settings-list-item__content">
+            <span class="settings-list-item__title">{{ presentation.data_summary }}</span>
+            <span class="settings-list-item__desc">Ничего не удаляется.</span>
+          </div></li>
+        </ul>
+        <p class="account-linking-alert account-linking-alert--warning" role="status"><strong>После подключения потребуется войти снова.</strong> Все активные сессии завершатся. Войти можно будет любым сохранённым способом.</p>
+        <details class="account-linking-details">
+          <summary>Настройки, устройства и сессии</summary>
+          <div>
+            <p>Настройки основного профиля сохранятся.</p>
+            <p>Активные сессии завершатся, а доверие устройств будет отозвано. После входа устройство можно подтвердить заново.</p>
+          </div>
+        </details>
+      </section>
+      {% endif %}
+
+      <div class="settings-actions account-linking-actions" aria-label="Действия с профилями">
+        {% if requires_reauth and not blockers %}
+        <form action="{{ reauth_action }}" method="post">
+          {{ sections.csrf_field(csrf_token) }}
+          <input type="hidden" name="next" value="{{ reauth_next }}">
+          <button class="button primary" type="submit">Войти снова</button>
+        </form>
+        {% elif not blockers %}
         <form action="{{ confirm_action }}" method="post">
           {{ sections.csrf_field(csrf_token) }}
-          <input type="hidden" name="preview_fingerprint" value="{{ preview.fingerprint }}">
+          <input type="hidden" name="preview_fingerprint" value="{{ presentation.preview_fingerprint }}">
           <input type="hidden" name="idempotency_key" value="{{ intent_id }}">
-          <p class="muted">После подтверждения действие нельзя отменить. Перед объединением GRAF ещё раз проверит конфликты.</p>
-          <button class="button primary" type="submit">Подтвердить объединение</button>
+          <button class="button primary" data-account-linking-primary type="submit">Подключить email</button>
         </form>
         {% endif %}
         <form action="{{ cancel_action }}" method="post">
           {{ sections.csrf_field(csrf_token) }}
-          <button class="button quiet" type="submit">Отменить</button>
+          <button class="button quiet" data-account-linking-secondary type="submit">Оставить профили раздельными</button>
         </form>
-      </section>
+      </div>
       {% else %}
-      <section class="settings-section" role="status"><p>Предпросмотр объединения больше недоступен. Начните подтверждение заново.</p><a class="button quiet" href="{{ settings_href }}">К настройкам</a></section>
+      <section class="settings-section account-linking-alert account-linking-alert--error" role="status" aria-live="polite">
+        <h2>Подтверждение больше недоступно</h2>
+        <p>{{ error_message or "Данные не изменены. Подключите email заново." }}</p>
+        <a class="button quiet" href="{{ settings_href }}">Вернуться к способам входа</a>
+      </section>
       {% endif %}
     </div>
   </div>

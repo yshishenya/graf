@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
 from twobrain_rec_server.billing.fair_use import appeal_persisted_review
+from twobrain_rec_server.billing.trial import merged_user_lineage
 from twobrain_rec_server.cabinet.rendering_shared import _page_shell
 from twobrain_rec_server.cabinet.templates import cabinet_html_response
 from twobrain_rec_server.cabinet.web_routes.support import (
@@ -80,16 +81,19 @@ async def _render_fair_use_page(
     reviews: list[dict[str, object]] = []
     unavailable = db is None
     if db is not None:
+        lineage = merged_user_lineage(principal.user_id)
+        lineage_user_ids = set(await db.scalars(select(lineage.c.user_id)))
+        lineage_user_ids.add(principal.user_id)
         rows = await db.scalars(
             select(FairUseReviewRecord)
             .where(
-                FairUseReviewRecord.workspace_id == tenant_scope.workspace_id,
                 or_(
-                    FairUseReviewRecord.subject_user_id == principal.user_id,
+                    FairUseReviewRecord.subject_user_id.in_(lineage_user_ids),
                     exists(
                         select(1).where(
                             Workspace.id == FairUseReviewRecord.workspace_id,
                             Workspace.owner_user_id == principal.user_id,
+                            Workspace.kind.in_(("personal", "linked")),
                         )
                     ),
                 ),
@@ -98,7 +102,7 @@ async def _render_fair_use_page(
         )
         now = datetime.now(UTC)
         reviews = [
-            _review_view(row, now=now, can_appeal=row.subject_user_id == principal.user_id)
+            _review_view(row, now=now, can_appeal=row.subject_user_id in lineage_user_ids)
             for row in rows
         ]
         await db.commit()
@@ -123,7 +127,7 @@ async def _render_fair_use_page(
             "already_appealed": "Апелляция уже отправлена и находится на проверке.",
             "unavailable": "Проверка сейчас недоступна. Попробуйте позже.",
         }.get(result),
-        support_email=getattr(request.app.state.settings, "billing_support_email", None),
+        support_email=request.app.state.settings.billing_support_email,
         appeal_base_path="/desktop/account/fair-use" if embedded else "/account/fair-use",
         back_href="/desktop/meetings" if embedded else "/meetings",
     )
@@ -175,16 +179,13 @@ async def fair_use_appeal(
             parsed_review_id = UUID(review_id)
         except ValueError:
             parsed_review_id = None
-        was_appealed = False
+        appealed_at = datetime.now(UTC)
         existing = (
-            await db.scalar(
-                select(FairUseReviewRecord)
-                .where(
-                    FairUseReviewRecord.id == parsed_review_id,
-                    FairUseReviewRecord.workspace_id == tenant_scope.workspace_id,
-                    FairUseReviewRecord.subject_user_id == principal.user_id,
-                )
-                .with_for_update()
+            await appeal_persisted_review(
+                db,
+                review_id=parsed_review_id,
+                subject_user_id=principal.user_id,
+                at=appealed_at,
             )
             if parsed_review_id is not None
             else None
@@ -192,15 +193,7 @@ async def fair_use_appeal(
         if existing is None or existing.state in {"cleared", "confirmed"}:
             result = "unavailable"
         else:
-            was_appealed = existing.appealed_at is not None
-            await appeal_persisted_review(
-                db,
-                workspace_id=tenant_scope.workspace_id,
-                review_id=parsed_review_id,
-                subject_user_id=principal.user_id,
-                at=datetime.now(UTC),
-            )
-            result = "already_appealed" if was_appealed else "appealed"
+            result = "appealed" if existing.appealed_at == appealed_at else "already_appealed"
             await db.commit()
     base = "/desktop/account/fair-use" if request.url.path.startswith("/desktop/") else "/account/fair-use"
     return RedirectResponse(f"{base}?result={result}", status_code=303)

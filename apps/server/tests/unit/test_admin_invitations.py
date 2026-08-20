@@ -1,14 +1,21 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime, timedelta
+from uuid import uuid4
+
+import pytest
 
 from twobrain_rec_server.admin.invitations import (
+    create_workspace_invitation,
     invitation_runtime_status,
     matching_invitation_contacts,
     normalize_invitation_target,
 )
+from twobrain_rec_server.admin.queries import AdminWorkspaceContext
+from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.auth.audit import ONBOARDING_AUDIT_METADATA_KEYS
-from twobrain_rec_server.db.models import WorkspaceInvitation
+from twobrain_rec_server.db.models import Workspace, WorkspaceInvitation
 
 
 def test_normalize_invitation_target_is_case_and_space_stable() -> None:
@@ -66,3 +73,36 @@ def test_invitation_runtime_status_marks_pending_expired_without_mutating_termin
     assert invitation_runtime_status(pending, now=now) == "pending"
     assert invitation_runtime_status(expired, now=now) == "expired"
     assert invitation_runtime_status(revoked, now=now) == "revoked"
+
+
+def test_linked_workspace_cannot_be_an_invitation_target() -> None:
+    workspace_id = uuid4()
+    actor_id = uuid4()
+
+    class FakeDb:
+        async def get(self, _model, _key):
+            return Workspace(
+                id=workspace_id,
+                organization_id=uuid4(),
+                slug="linked-no-invites",
+                name="Пространство из другого профиля",
+                kind="linked",
+                owner_user_id=actor_id,
+            )
+
+    with pytest.raises(ProblemDetail) as error:
+        asyncio.run(
+            create_workspace_invitation(
+                FakeDb(),
+                context=AdminWorkspaceContext(
+                    workspace_id=workspace_id,
+                    workspace_name="Пространство из другого профиля",
+                    actor_user_id=actor_id,
+                    actor_role="owner",
+                ),
+                target_contact="member@example.test",
+                invited_role="member",
+            )
+        )
+
+    assert error.value.code == "workspace_invitation_unavailable"

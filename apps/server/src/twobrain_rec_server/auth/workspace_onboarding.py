@@ -7,6 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.problems import ProblemDetail
+from twobrain_rec_server.auth.account_closure import ensure_account_membership_activation_allowed
 from twobrain_rec_server.auth.audit import write_onboarding_audit_event
 from twobrain_rec_server.auth.sessions import IssuedAuthSession, issue_auth_session
 from twobrain_rec_server.db.models import (
@@ -72,6 +73,7 @@ async def ensure_personal_workspace(
 ) -> Workspace:
     """Create or reuse a user's private workspace without touching corporate access."""
 
+    await ensure_account_membership_activation_allowed(db, user_id=user_id)
     workspace = await db.scalar(
         select(Workspace).where(
             Workspace.organization_id == organization_id,
@@ -204,6 +206,7 @@ async def list_active_workspaces(
                 WorkspaceMembership.status == "active",
                 or_(
                     Workspace.kind == "corporate",
+                    Workspace.kind == "linked",
                     and_(
                         Workspace.kind == "personal",
                         Workspace.owner_user_id == user_id,
@@ -252,9 +255,7 @@ async def activate_workspace_session(
         )
 
     current_session = await db.scalar(
-        select(AuthSession)
-        .where(AuthSession.id == current_session_id)
-        .with_for_update()
+        select(AuthSession).where(AuthSession.id == current_session_id).with_for_update()
     )
     if (
         current_session is None
@@ -262,7 +263,9 @@ async def activate_workspace_session(
         or current_session.workspace_id != current_workspace_id
         or current_session.status != "active"
     ):
-        raise ProblemDetail(status=401, code="auth_session_invalid", title="Auth session is invalid")
+        raise ProblemDetail(
+            status=401, code="auth_session_invalid", title="Auth session is invalid"
+        )
 
     spaces = await list_active_workspaces(
         db,
@@ -455,17 +458,27 @@ async def decide_workspace_join_offer(
         .with_for_update()
     )
     if offer is None:
-        raise ProblemDetail(status=404, code="workspace_join_offer_not_found", title="Join offer not found")
+        raise ProblemDetail(
+            status=404, code="workspace_join_offer_not_found", title="Join offer not found"
+        )
     if offer.workspace_id == internal_workspace_id:
-        raise ProblemDetail(status=409, code="workspace_join_offer_unavailable", title="Join offer unavailable")
+        raise ProblemDetail(
+            status=409, code="workspace_join_offer_unavailable", title="Join offer unavailable"
+        )
     expected_status = "accepted" if action == "accept" else "rejected"
     if offer.status == expected_status:
         return offer, True
     if offer.status == "expired" or not join_offer_is_actionable(offer):
         offer.status = "expired"
-        raise ProblemDetail(status=409, code="workspace_join_offer_unavailable", title="Join offer unavailable")
+        raise ProblemDetail(
+            status=409, code="workspace_join_offer_unavailable", title="Join offer unavailable"
+        )
     if offer.status != "offered":
-        raise ProblemDetail(status=409, code="workspace_join_offer_unavailable", title="Join offer unavailable")
+        raise ProblemDetail(
+            status=409, code="workspace_join_offer_unavailable", title="Join offer unavailable"
+        )
+    if action == "accept":
+        await ensure_account_membership_activation_allowed(db, user_id=user_id)
     if action == "reject":
         offer.status = "rejected"
         await apply_tenant_context(
@@ -597,7 +610,9 @@ async def _mark_join_offer_unavailable(
         ),
     )
     offer.status = status
-    raise ProblemDetail(status=409, code="workspace_join_offer_unavailable", title="Join offer unavailable")
+    raise ProblemDetail(
+        status=409, code="workspace_join_offer_unavailable", title="Join offer unavailable"
+    )
 
 
 def join_offer_is_actionable(offer: WorkspaceJoinOffer, *, now: datetime | None = None) -> bool:

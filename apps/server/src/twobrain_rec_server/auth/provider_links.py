@@ -304,7 +304,11 @@ async def confirm_provider_link(
         raise ProviderLinkError("provider_link_expired")
     if link.status != "callback_verified":
         raise ProviderLinkError("provider_link_reused")
-    if link.candidate_provider is None or link.candidate_identity_subject is None:
+    if (
+        link.candidate_provider is None
+        or link.candidate_identity_subject is None
+        or link.callback_state_id is None
+    ):
         await reject_provider_link(db, link=link, error_code="provider_link_candidate_missing")
         raise ProviderLinkError("provider_link_candidate_missing")
 
@@ -343,34 +347,46 @@ async def confirm_provider_link(
             )
             try:
                 async with db.begin_nested():
+                    link.status = "confirmed"
+                    link.confirmed_at = _now(now)
+                    link.target_provider_identity_id = identity.id
                     intent, preview = await create_merge_intent(
                         db,
                         workspace_id=link.workspace_id,
                         survivor_user_id=principal.user_id,
                         source_user_id=identity.user_id,
+                        initiating_auth_session_id=principal.session_id,
+                        source_external_identity_id=identity.id,
+                        proof_callback_state_id=link.callback_state_id,
+                        provider_link_state_id=link.id,
                         email_proof_state="verified",
                         oauth_proof_state="verified",
                         actor_user_id=principal.user_id,
                     )
                     await db.flush()
                 await apply_tenant_context(db, link_context)
-                if preview.blocker_codes:
-                    scrub_candidate(link, status="rejected", resolution="merge_blocked")
-                    return ConfirmedProviderLink(
-                        provider=identity.provider,
+                resolution = "merge_blocked" if preview.blocker_codes else "merge_preview_ready"
+                scrub_candidate(link, status="confirmed", resolution=resolution)
+                await write_auth_audit_event(
+                    db,
+                    workspace_id=link.workspace_id,
+                    event_type="provider_link_confirmed",
+                    actor_user_id=principal.user_id,
+                    provider=identity.provider,
+                    metadata=provider_link_audit_metadata(
+                        link_state_id=link.id,
                         idempotent=False,
-                        status="merge_blocked",
-                        merge_intent_id=intent.id,
-                    )
-                scrub_candidate(link, status="confirmed", resolution="merge_preview_ready")
+                    ),
+                )
                 return ConfirmedProviderLink(
                     provider=identity.provider,
                     idempotent=False,
-                    status="merge_preview_ready",
+                    status=resolution,
                     merge_intent_id=intent.id,
                 )
             except AccountMergeError as exc:
                 await apply_tenant_context(db, link_context)
+                await db.refresh(link)
                 await reject_provider_link(
                     db,
                     link=link,
