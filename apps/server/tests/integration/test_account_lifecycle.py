@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 import pytest
 from sqlalchemy import select
 
-from tests.fakes.auth_contexts import DEVICE_ID, ORG_ID, USER_ID, WORKSPACE_ID
+from tests.fakes.auth_contexts import ORG_ID, USER_ID
 from twobrain_rec_server.auth.account_closure import finalize_account_close
 from twobrain_rec_server.auth.csrf import issue_csrf_token
 from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
@@ -287,8 +287,14 @@ def test_trial_cannot_replace_an_active_paid_subscription(client) -> None:
 
 
 def test_account_close_owner_cooling_cancel_and_finalization_revoke_access(client) -> None:
+    workspace_id, device_id = asyncio.run(_seed_personal_workspace(client))
     token, session_id = asyncio.run(
-        _issue_web_session(client, user_id=USER_ID, workspace_id=WORKSPACE_ID, device_id=DEVICE_ID)
+        _issue_web_session(
+            client,
+            user_id=USER_ID,
+            workspace_id=workspace_id,
+            device_id=device_id,
+        )
     )
     headers = _bind_web_session(client, token=token, session_id=session_id)
 
@@ -296,7 +302,7 @@ def test_account_close_owner_cooling_cancel_and_finalization_revoke_access(clien
         async with client.app_state["sessionmaker"]() as db:
             db.add(
                 WorkspaceSubscription(
-                    workspace_id=WORKSPACE_ID,
+                    workspace_id=workspace_id,
                     billing_owner_id=USER_ID,
                     state="personal",
                     plan_code="personal",
@@ -322,7 +328,7 @@ def test_account_close_owner_cooling_cancel_and_finalization_revoke_access(clien
         async with client.app_state["sessionmaker"]() as db:
             row = await db.scalar(
                 select(AccountClosureRequest)
-                .where(AccountClosureRequest.workspace_id == WORKSPACE_ID)
+                .where(AccountClosureRequest.workspace_id == workspace_id)
                 .order_by(AccountClosureRequest.requested_at.desc())
             )
             assert row is not None
@@ -361,11 +367,11 @@ def test_account_close_owner_cooling_cancel_and_finalization_revoke_access(clien
             identity = await db.get(UserIdentity, USER_ID)
             membership = await db.scalar(
                 select(WorkspaceMembership).where(
-                    WorkspaceMembership.workspace_id == WORKSPACE_ID,
+                    WorkspaceMembership.workspace_id == workspace_id,
                     WorkspaceMembership.user_id == USER_ID,
                 )
             )
-            subscription = await db.get(WorkspaceSubscription, WORKSPACE_ID)
+            subscription = await db.get(WorkspaceSubscription, workspace_id)
             auth_session = await db.get(AuthSession, session_id)
             assert identity is not None and identity.status == "closed"
             assert membership is not None and membership.status == "inactive"
