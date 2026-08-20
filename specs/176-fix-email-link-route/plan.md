@@ -58,7 +58,8 @@ phases and focused regression coverage; no auth redesign
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
 - **Spec-driven delivery**: PASS — Feature 176 uses mandatory clarification,
-  security/UX checklists, tasks, analyze and issue sync before implementation.
+  security/UX checklists, tasks, analysis, and synchronization with the issue
+  tracker before implementation.
 - **Auth/privacy boundary**: PASS — only desktop navigation ownership changes;
   server auth, session, CSRF, rate limit and account-link rules stay intact.
 - **Secret/evidence discipline**: PASS — synthetic routes and metadata only;

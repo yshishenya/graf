@@ -23,11 +23,12 @@ public struct DesktopCabinetNavigationResponsePolicy: Equatable {
             }
             return .cancel(.malformedResponse)
         }
-        if isInteractiveFormDocument(httpResponse) {
+        let state = DesktopCabinetState.state(forHTTPResponse: httpResponse)
+        if isInteractiveFormDocument(httpResponse, state: state) {
             return .allow
         }
         let isArtifact = isArtifactDownload(httpResponse.url)
-        guard let state = DesktopCabinetState.state(forHTTPResponse: httpResponse) else {
+        guard let state else {
             guard isArtifact else {
                 return .allow
             }
@@ -50,16 +51,24 @@ public struct DesktopCabinetNavigationResponsePolicy: Equatable {
         return decision.decision == .allow && decision.route.kind == .artifactDownload
     }
 
-    private func isInteractiveFormDocument(_ response: HTTPURLResponse) -> Bool {
+    private func isInteractiveFormDocument(
+        _ response: HTTPURLResponse,
+        state: DesktopCabinetState?
+    ) -> Bool {
         guard let url = response.url, let routePolicy else { return false }
         let decision = routePolicy.decision(for: url)
         guard decision.decision == .allow else { return false }
         if [.authLogin, .authSignup].contains(decision.route.kind) {
             return true
         }
-        return decision.route.kind == .settings
-            && EmbeddedCabinetNavigationPolicy.isEmailLinkFormDocument(url)
-            && response.mimeType == "text/html"
+        guard decision.route.kind == .settings,
+              EmbeddedCabinetNavigationPolicy.isEmailLinkFormDocument(url),
+              response.mimeType == "text/html",
+              state != .expiredSession,
+              state != .workspaceReselectionRequired
+        else { return false }
+        return state == nil
+            || [400, 429, 503].contains(response.statusCode)
     }
 
     private static func isAttachmentResponse(_ response: HTTPURLResponse) -> Bool {

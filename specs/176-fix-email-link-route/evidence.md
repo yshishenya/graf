@@ -15,10 +15,10 @@ account identifiers и private meeting content не использовались
 
 | Контракт | Команда | Результат |
 |---|---|---|
-| Route ownership и useful error documents | `swift test --package-path apps/macos --disable-swift-testing --filter 'DesktopCabinetWorkspaceTests\|DesktopCabinetConfigurationTests'` | 74 passed |
-| GET-only headers и route allowlist | `swift test --package-path apps/macos --disable-swift-testing --filter 'DesktopCabinetNavigationRequestPolicyTests\|DesktopCabinetRoutePolicyTests'` | 25 passed |
+| Route ownership и useful error documents | Отдельные запуски `DesktopCabinetWorkspaceTests` и `DesktopCabinetConfigurationTests` | 74 passed |
+| GET-only headers и route allowlist | Отдельные запуски `DesktopCabinetNavigationRequestPolicyTests` и `DesktopCabinetRoutePolicyTests` | 25 passed |
 | Web/embedded account form endpoints | `PYTHONPATH=apps/server/src uv run --project apps/server pytest -q apps/server/tests/contract/test_account_routes.py` | 26 passed, 2 existing dependency warnings |
-| Финальные email-link HTML/CSS контракты | focused account/static-asset selection | 7 passed, 2 existing dependency warnings |
+| Финальные email-link HTML/CSS контракты | `test_cabinet_static_assets_contract.py` | 51 passed, 2 existing dependency warnings |
 | CSRF retry после invalid/expired кода | focused PostgreSQL integration selection | 2 passed, следующая попытка остаётся 400, не 403 |
 | Repository fast gate | `infra/scripts/ci-local.sh --fast` | 1103 passed, lint passed, compile passed; 2 existing dependency warnings |
 | Whitespace | `git diff --check` | passed |
@@ -28,6 +28,9 @@ account identifiers и private meeting content не использовались
 - Локально подписанная и установленная `GRAF Dev` открыла полностью видимый
   экран кода после единственного POST start; общего экрана ошибки встреч не было.
 - Неверный код и rate-limit ранее оставались локальными понятными документами.
+- Финальная установленная сборка повторно прошла invalid-code → retry → resend:
+  ошибка осталась внутри формы, повтор не стал CSRF 403, новый код успешно
+  завершил подключение.
 - Успешный синтетический код сразу вернул видимую страницу аккаунта с сообщением
   о подключении; пустого окна, access-denied и ручного reload не было.
 - Metadata-only server trace подтвердил один POST start, отсутствие GET/405 на
@@ -36,9 +39,11 @@ account identifiers и private meeting content не использовались
 
 ## Independent reviews
 
-- Correctness review: no findings after the active/pending-route guard was
-  narrowed to the matching URL.
-- Auth/security and embedded UX review: no findings.
+- Независимый correctness review финального рабочего дерева: APPROVED.
+- Auth/security review проверил все 9 изменённых runtime/test файлов. Найденный
+  fail-closed gap для HTML 401 и workspace recovery воспроизведён двумя
+  regression assertions и исправлен в общем response policy; выживших security
+  findings после проверки attack path нет.
 - GitHub review found and closed one CSRF retry gap in displayed email-link
   errors; a focused integration regression now submits the returned token and
   proves the next attempt remains an auth error rather than a CSRF 403.

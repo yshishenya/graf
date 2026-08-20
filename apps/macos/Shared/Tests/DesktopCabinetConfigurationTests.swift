@@ -351,11 +351,27 @@ final class DesktopCabinetConfigurationTests: XCTestCase {
             )),
             statusCode: 401,
             httpVersion: nil,
-            headerFields: ["Content-Type": "application/problem+json"]
+            headerFields: ["Content-Type": "text/html; charset=utf-8"]
         ))
         XCTAssertEqual(
             policy.decision(forNavigationResponse: expiredSession, isForMainFrame: true),
             .cancel(.expiredSession)
+        )
+
+        let workspaceReselection = try XCTUnwrap(HTTPURLResponse(
+            url: try XCTUnwrap(URL(
+                string: "https://rec.2brain.dev/desktop/settings/account/email-link/verify"
+            )),
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: [
+                "Content-Type": "text/html; charset=utf-8",
+                "X-GRAF-Cabinet-Recovery": "reselect-space"
+            ]
+        ))
+        XCTAssertEqual(
+            policy.decision(forNavigationResponse: workspaceReselection, isForMainFrame: true),
+            .cancel(.workspaceReselectionRequired)
         )
 
         let unrelatedSettingsFailure = try XCTUnwrap(HTTPURLResponse(
