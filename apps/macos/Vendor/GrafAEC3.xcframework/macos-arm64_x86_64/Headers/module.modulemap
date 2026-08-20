@@ -1,0 +1,4 @@
+module GrafAEC3 {
+    header "GrafAEC3.h"
+    export *
+}

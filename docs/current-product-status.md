@@ -1,6 +1,26 @@
 # Текущий статус продукта
 
-Date: 2026-08-15
+Date: 2026-08-20
+
+## Implementation update (2026-08-20) — Feature 177 WebRTC AEC3 recording
+
+- Новый v5 capture-тракт использует один обязательный локальный WebRTC AEC3:
+  PTS-aligned system reference обрабатывается перед соответствующим 10-ms
+  microphone frame, после чего очищенный микрофон попадает в прежний
+  `canonical-mix.v1`; system audio не меняется.
+- HPF, noise suppression/ANC, AGC1/AGC2, transient suppression, VAD, gates и
+  AecDump выключены. Raw microphone не является fallback и не сохраняется
+  отдельным артефактом.
+- Процессор — pinned freedesktop `webrtc-audio-processing` v2.1/WebRTC M131 в
+  статическом universal `GrafAEC3.xcframework`; runtime Homebrew/WebRTC dylib
+  не требуется.
+- Startup/runtime failure, missing reference, route/source discontinuity и
+  overflow завершают доверенный сегмент; сохраняется только уже очищенный
+  prefix с degraded metadata. Historical v3/v4 и pre-feature v5 readers
+  сохраняются без возврата удалённого runtime.
+- Локальные synthetic/package/CI проверки выполняются в Feature 177. Реальный
+  двух-Mac hardware matrix, Developer ID/notarization и release/deploy пока не
+  заявлены.
 
 ## Implementation update (2026-08-15) — Feature 150 workspace clean cut
 
@@ -1604,10 +1624,10 @@ receipt не заявляются; они остаются отдельными 
   truth is product-owned through 2brain `Pause`/`Resume`/`Stop`; Zoom/browser
   mute state remains unverified unless a future adapter provides fresh
   target-specific evidence.
-- No AEC, Apple voice processing, WebRTC cleanup, derived-cleaned fallback or
-  dual-track speakerphone mode is an active v5 candidate. Any future proposal
-  would require a new approved product decision and cannot reuse retired code
-  or silently alter a recorded conversation.
+- WebRTC AEC3 Feature 177 — единственный активный echo-removal тракт v5.
+  Apple voice processing, derived-cleaned fallback, dual-track speakerphone
+  mode и удалённый legacy runtime не являются кандидатами и не могут быть
+  скрытым fallback.
 - Any future advanced routing requires a new approved spec, implementation,
   packaging model, and safety evidence; the removed implementation must not be
   revived as a hidden fallback.
@@ -1756,9 +1776,9 @@ Keep separate unless the next spec explicitly changes scope:
 - Generalized meeting detection and unrestricted assisted auto-start remain
   deferred. Verified-target, target-scoped auto-record with the Feature-124
   countdown/prompt contract is current and must not be removed as cleanup.
-- The former live speakerphone cleanup/AEC research is archived in
-  `docs/audio-capture-backlog.md`. It is neither an active feature backlog nor
-  a fallback for v5; new capture must keep the truthful one-timeline contract.
+- Старое speakerphone cleanup/AEC research в `docs/audio-capture-backlog.md`
+  остаётся историческим и не является fallback. Активный тракт Feature 177
+  сохраняет один PTS timeline и одну каноническую пару WAV/M4A.
 - Post-MVP editing and media revision work is tracked in
   `docs/post-mvp-editing-media-backlog.md`: local media trim/edit revisions,
   online transcript/speaker edit sync, video capture package foundation, and

@@ -110,7 +110,7 @@ final class SystemAudioRecordingPackageTests: XCTestCase {
         )
     }
 
-    func testV5WriterPreservesAvailableAudioForUncomparableSourceClocks() throws {
+    func testV5WriterDoesNotPublishUnprocessedAudioForUncomparableSourceClocks() throws {
         let root = makeRoot("v5-system-audio-clock-mismatch")
         defer { try? FileManager.default.removeItem(at: root) }
         let micSource = BufferedLocalRecordingSampleSource(channelCount: 1)
@@ -129,17 +129,17 @@ final class SystemAudioRecordingPackageTests: XCTestCase {
         let manifest = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 21))
         let packageNames = Set(try FileManager.default.contentsOfDirectory(atPath: directory.directoryURL.path))
 
-        XCTAssertEqual(packageNames, Set(["manifest.json", "meeting-transcription.wav", "meeting-review.m4a"]))
+        XCTAssertEqual(packageNames, Set(["manifest.json"]))
         XCTAssertEqual(manifest.status, .failed)
         XCTAssertEqual(manifest.failureReason, .captureFailed)
         XCTAssertEqual(manifest.captureFailureCode, "uncomparable_presentation_times")
         XCTAssertEqual(manifest.transcriptionReadiness, .failed)
         XCTAssertFalse(manifest.isComplete)
-        XCTAssertGreaterThan(try Data(contentsOf: directory.transcriptionAudioURL).count, 44)
-        XCTAssertGreaterThan(try Data(contentsOf: directory.reviewAudioURL).count, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.transcriptionAudioURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.reviewAudioURL.path))
     }
 
-    func testV5WriterPreservesAvailableAudioWhenEitherRequiredSourceHasNoFrames() throws {
+    func testV5WriterDoesNotPublishSingleSourceAudioWhenEitherRequiredSourceHasNoFrames() throws {
         for microphoneOnly in [true, false] {
             let root = makeRoot("v5-required-source-\(microphoneOnly)")
             defer { try? FileManager.default.removeItem(at: root) }
@@ -165,10 +165,10 @@ final class SystemAudioRecordingPackageTests: XCTestCase {
             XCTAssertFalse(manifest.isComplete)
             XCTAssertEqual(
                 Set(try FileManager.default.contentsOfDirectory(atPath: directory.directoryURL.path)),
-                Set(["manifest.json", "meeting-transcription.wav", "meeting-review.m4a"])
+                Set(["manifest.json"])
             )
-            XCTAssertGreaterThan(try Data(contentsOf: directory.transcriptionAudioURL).count, 44)
-            XCTAssertGreaterThan(try Data(contentsOf: directory.reviewAudioURL).count, 0)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: directory.transcriptionAudioURL.path))
+            XCTAssertFalse(FileManager.default.fileExists(atPath: directory.reviewAudioURL.path))
         }
     }
 

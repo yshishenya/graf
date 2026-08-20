@@ -6,6 +6,7 @@ public enum LocalRecordingWriterError: Error {
     case alreadyRecording
     case notRecording
     case directoryUnavailable
+    case echoProcessorUnavailable
 }
 
 public struct LiveRecordingLevels: Equatable, Sendable {
@@ -14,19 +15,22 @@ public struct LiveRecordingLevels: Equatable, Sendable {
     public var incomingLevel: Double
     public var microphoneUpdatedAt: Date?
     public var incomingUpdatedAt: Date?
+    public var integrityFailureCode: String?
 
     public init(
         isRecording: Bool,
         microphoneLevel: Double,
         incomingLevel: Double,
         microphoneUpdatedAt: Date?,
-        incomingUpdatedAt: Date?
+        incomingUpdatedAt: Date?,
+        integrityFailureCode: String? = nil
     ) {
         self.isRecording = isRecording
         self.microphoneLevel = Self.clamp(microphoneLevel)
         self.incomingLevel = Self.clamp(incomingLevel)
         self.microphoneUpdatedAt = microphoneUpdatedAt
         self.incomingUpdatedAt = incomingUpdatedAt
+        self.integrityFailureCode = integrityFailureCode
     }
 
     public static let inactive = LiveRecordingLevels(
@@ -34,7 +38,8 @@ public struct LiveRecordingLevels: Equatable, Sendable {
         microphoneLevel: 0,
         incomingLevel: 0,
         microphoneUpdatedAt: nil,
-        incomingUpdatedAt: nil
+        incomingUpdatedAt: nil,
+        integrityFailureCode: nil
     )
 
     public func microphoneIsLive(now: Date = Date(), staleAfter: TimeInterval = 2) -> Bool {

@@ -5,9 +5,95 @@ import Foundation
 import XCTest
 
 final class RecordingAudioTimelineTests: XCTestCase {
-    func testCommonEpochPlacesLaterSourceAfterExactSilenceGap() throws {
+    private func makeTimeline(
+        configuration: RecordingAudioTimelineConfiguration = .init(),
+        frameSink: @escaping (RecordingAudioTimelineChunk) throws -> Void = { _ in }
+    ) -> RecordingAudioTimeline {
+        RecordingAudioTimeline(
+            configuration: configuration,
+            processEchoFrame: { _, microphone in microphone },
+            frameSink: frameSink
+        )
+    }
+
+    func testAECFramingPadsAndTrimsEveryCallbackPartition() throws {
+        for sampleCount in [1, 479, 480, 481, 1_024, 4_096] {
+            let collector = TimelineCollector()
+            let spy = EchoFrameSpy()
+            let timeline = RecordingAudioTimeline(
+                configuration: .init(reorderWindowFrames: 0),
+                processEchoFrame: spy.process,
+                frameSink: collector.append
+            )
+
+            try timeline.append(
+                source: .microphone,
+                batch: batch(samples: Array(repeating: 0.4, count: sampleCount), at: 0)
+            )
+            try timeline.append(
+                source: .systemAudio,
+                batch: batch(samples: Array(repeating: 0.2, count: sampleCount), at: 0)
+            )
+            try timeline.finish()
+
+            XCTAssertEqual(spy.frameSizes, Array(repeating: 480, count: (sampleCount + 479) / 480))
+            XCTAssertEqual(collector.samples.count, sampleCount)
+            XCTAssertTrue(collector.samples.allSatisfy { abs($0 - 0.3) < 0.0001 })
+            XCTAssertEqual(timeline.metrics.echoProcessedFrameCount, Int64((sampleCount + 479) / 480))
+        }
+    }
+
+    func testMissingRenderReferenceAndProcessorFailureKeepOnlyCleanedPrefix() throws {
+        let missingReference = RecordingAudioTimeline(
+            configuration: .init(reorderWindowFrames: 0),
+            processEchoFrame: { _, microphone in microphone }
+        )
+        try missingReference.append(
+            source: .microphone,
+            batch: batch(samples: Array(repeating: 0.4, count: 960), at: 0)
+        )
+        try missingReference.append(
+            source: .systemAudio,
+            batch: batch(samples: Array(repeating: 0.2, count: 480), at: 0)
+        )
+        XCTAssertThrowsError(
+            try missingReference.append(
+                source: .systemAudio,
+                batch: batch(samples: Array(repeating: 0.2, count: 480), at: 0.02)
+            )
+        ) {
+            XCTAssertEqual($0 as? RecordingAudioTimelineError, .renderReferenceMissing)
+        }
+        XCTAssertEqual(missingReference.metrics.outputFrameCount, 480)
+        XCTAssertEqual(missingReference.metrics.hostUnderrunCount, 1)
+
         let collector = TimelineCollector()
-        let timeline = RecordingAudioTimeline(
+        let spy = EchoFrameSpy(failOnCall: 2)
+        let failedProcessor = RecordingAudioTimeline(
+            configuration: .init(reorderWindowFrames: 0),
+            processEchoFrame: spy.process,
+            frameSink: collector.append
+        )
+        try failedProcessor.append(
+            source: .microphone,
+            batch: batch(samples: Array(repeating: 0.4, count: 960), at: 0)
+        )
+        XCTAssertThrowsError(
+            try failedProcessor.append(
+                source: .systemAudio,
+                batch: batch(samples: Array(repeating: 0.2, count: 960), at: 0)
+            )
+        ) {
+            XCTAssertEqual($0 as? RecordingAudioTimelineError, .echoProcessingFailed)
+        }
+        XCTAssertTrue(failedProcessor.finishPreservingAvailableAudio())
+        XCTAssertEqual(collector.samples.count, 480)
+        XCTAssertEqual(failedProcessor.metrics.processErrorCount, 1)
+    }
+
+    func testCommonEpochTrimsUnmatchedStartupPrefix() throws {
+        let collector = TimelineCollector()
+        let timeline = makeTimeline(
             configuration: .init(reorderWindowFrames: 0, maximumKnownGapSeconds: 2),
             frameSink: collector.append
         )
@@ -22,17 +108,16 @@ final class RecordingAudioTimelineTests: XCTestCase {
         )
         try timeline.finish()
 
-        XCTAssertEqual(timeline.metrics.outputFrameCount, 960)
-        XCTAssertEqual(timeline.metrics.gapFramesBySource[.systemAudio], 480)
-        XCTAssertEqual(collector.samples.count, 960)
-        XCTAssertEqual(collector.samples[0], 0.2, accuracy: 0.0001)
-        XCTAssertEqual(collector.samples[479], 0.2, accuracy: 0.0001)
-        XCTAssertEqual(collector.samples[480], 0.3, accuracy: 0.0001)
+        XCTAssertEqual(timeline.metrics.outputFrameCount, 480)
+        XCTAssertEqual(timeline.metrics.gapFramesBySource[.systemAudio, default: 0], 0)
+        XCTAssertEqual(collector.samples.count, 480)
+        XCTAssertEqual(collector.samples[0], 0.3, accuracy: 0.0001)
+        XCTAssertEqual(collector.samples[479], 0.3, accuracy: 0.0001)
     }
 
     func testOverlapIsTrimmedDeterministicallyWithoutMovingOutputClock() throws {
         let collector = TimelineCollector()
-        let timeline = RecordingAudioTimeline(
+        let timeline = makeTimeline(
             configuration: .init(reorderWindowFrames: 0, maximumKnownGapSeconds: 2),
             frameSink: collector.append
         )
@@ -59,7 +144,7 @@ final class RecordingAudioTimelineTests: XCTestCase {
     }
 
     func testRejectsUncomparableClockDomainsBeforeWritingFrames() throws {
-        let timeline = RecordingAudioTimeline(configuration: .init(reorderWindowFrames: 0))
+        let timeline = makeTimeline(configuration: .init(reorderWindowFrames: 0))
         try timeline.append(
             source: .microphone,
             batch: batch(samples: Array(repeating: 0.1, count: 480), at: 10, clockDomain: .hostTime)
@@ -78,7 +163,7 @@ final class RecordingAudioTimelineTests: XCTestCase {
 
     func testAdmitsNativeSourcePresentationTimesWithJitteryHostObservation() throws {
         let collector = TimelineCollector()
-        let timeline = RecordingAudioTimeline(configuration: .init(reorderWindowFrames: 0), frameSink: collector.append)
+        let timeline = makeTimeline(configuration: .init(reorderWindowFrames: 0), frameSink: collector.append)
 
         try timeline.append(
             source: .microphone,
@@ -107,6 +192,15 @@ final class RecordingAudioTimelineTests: XCTestCase {
                 observedHostTimeSeconds: 100.01
             )
         )
+        try timeline.append(
+            source: .systemAudio,
+            batch: batch(
+                samples: Array(repeating: 0, count: 480),
+                at: 100.01,
+                clockDomain: .sourcePresentationTime,
+                observedHostTimeSeconds: 100.75
+            )
+        )
         try timeline.finish()
 
         XCTAssertEqual(timeline.metrics.outputFrameCount, 960)
@@ -116,7 +210,7 @@ final class RecordingAudioTimelineTests: XCTestCase {
 
     func testAdmitsNativeSourcePresentationTimeWithoutCallbackObservation() throws {
         let collector = TimelineCollector()
-        let timeline = RecordingAudioTimeline(
+        let timeline = makeTimeline(
             configuration: .init(reorderWindowFrames: 0),
             frameSink: collector.append
         )
@@ -145,6 +239,14 @@ final class RecordingAudioTimelineTests: XCTestCase {
                 observedHostTimeSeconds: 100.51
             )
         )
+        try timeline.append(
+            source: .systemAudio,
+            batch: batch(
+                samples: Array(repeating: 0.1, count: 480),
+                at: 100.01,
+                clockDomain: .sourcePresentationTime
+            )
+        )
         try timeline.finish()
 
         XCTAssertEqual(timeline.metrics.outputFrameCount, 960)
@@ -153,7 +255,7 @@ final class RecordingAudioTimelineTests: XCTestCase {
 
     func testReorderedCallbackDoesNotMovePTSMarker() throws {
         let collector = TimelineCollector()
-        let timeline = RecordingAudioTimeline(frameSink: collector.append)
+        let timeline = makeTimeline(frameSink: collector.append)
 
         try timeline.append(
             source: .microphone,
@@ -198,7 +300,7 @@ final class RecordingAudioTimelineTests: XCTestCase {
     }
 
     func testDelayedSourceBatchArrivingWithinFiveHundredMillisecondsIsNotLate() throws {
-        let timeline = RecordingAudioTimeline()
+        let timeline = makeTimeline()
 
         try timeline.append(
             source: .microphone,
@@ -243,7 +345,7 @@ final class RecordingAudioTimelineTests: XCTestCase {
     }
 
     func testSlowerSourceCanArriveAfterReorderWindowWithoutFalseLateBatch() throws {
-        let timeline = RecordingAudioTimeline(
+        let timeline = makeTimeline(
             configuration: .init(reorderWindowFrames: 48_000)
         )
 
@@ -290,7 +392,7 @@ final class RecordingAudioTimelineTests: XCTestCase {
     }
 
     func testSmallPTSDriftRemainsBoundedAndMeasurable() throws {
-        let timeline = RecordingAudioTimeline(
+        let timeline = makeTimeline(
             configuration: .init(
                 reorderWindowFrames: 9_600,
                 maximumKnownGapSeconds: 0.1
@@ -311,13 +413,13 @@ final class RecordingAudioTimelineTests: XCTestCase {
         }
         try timeline.finish()
 
-        XCTAssertGreaterThan(timeline.metrics.gapFramesBySource[.systemAudio, default: 0], 0)
-        XCTAssertGreaterThan(timeline.metrics.outputFrameCount, 48_000)
-        XCTAssertLessThanOrEqual(timeline.metrics.outputFrameCount, 49_000)
+        XCTAssertEqual(timeline.metrics.gapFramesBySource[.systemAudio, default: 0], 0)
+        XCTAssertGreaterThanOrEqual(timeline.metrics.outputFrameCount, 47_990)
+        XCTAssertLessThanOrEqual(timeline.metrics.outputFrameCount, 48_000)
     }
 
     func testRouteGenerationOrDroppedSourceFailsClosed() throws {
-        let timeline = RecordingAudioTimeline(configuration: .init(reorderWindowFrames: 0))
+        let timeline = makeTimeline(configuration: .init(reorderWindowFrames: 0))
         try timeline.append(
             source: .microphone,
             batch: batch(samples: Array(repeating: 0.1, count: 480), at: 0, routeGeneration: 1)
@@ -332,7 +434,7 @@ final class RecordingAudioTimelineTests: XCTestCase {
             XCTAssertEqual(error as? RecordingAudioTimelineError, .routeGenerationChanged)
         }
 
-        let droppedTimeline = RecordingAudioTimeline(configuration: .init(reorderWindowFrames: 0))
+        let droppedTimeline = makeTimeline(configuration: .init(reorderWindowFrames: 0))
         XCTAssertThrowsError(
             try droppedTimeline.append(
                 source: .systemAudio,
@@ -348,7 +450,7 @@ final class RecordingAudioTimelineTests: XCTestCase {
     }
 
     func testBootstrapCapacityFailsBeforeUnboundedSingleSourceBuffering() throws {
-        let timeline = RecordingAudioTimeline(
+        let timeline = makeTimeline(
             configuration: .init(
                 reorderWindowFrames: 0,
                 maximumBufferedFramesPerSource: 100
@@ -366,7 +468,7 @@ final class RecordingAudioTimelineTests: XCTestCase {
     }
 
     func testFinishRejectsARecordingMissingEitherRequiredInput() throws {
-        let timeline = RecordingAudioTimeline(configuration: .init(reorderWindowFrames: 0))
+        let timeline = makeTimeline(configuration: .init(reorderWindowFrames: 0))
         try timeline.append(
             source: .microphone,
             batch: batch(samples: Array(repeating: 0.1, count: 480), at: 0)
@@ -379,7 +481,7 @@ final class RecordingAudioTimelineTests: XCTestCase {
     }
 
     func testRejectsGapBeyondConfiguredBound() throws {
-        let timeline = RecordingAudioTimeline(
+        let timeline = makeTimeline(
             configuration: .init(reorderWindowFrames: 0, maximumKnownGapSeconds: 0.1)
         )
         try timeline.append(
@@ -408,7 +510,7 @@ final class RecordingAudioTimelineTests: XCTestCase {
 
     func testStatefulConverterNormalizesFortyFourPointOneKilohertzToCanonicalRate() throws {
         let collector = TimelineCollector()
-        let timeline = RecordingAudioTimeline(
+        let timeline = makeTimeline(
             configuration: .init(reorderWindowFrames: 0, maximumKnownGapSeconds: 2),
             frameSink: collector.append
         )
@@ -460,6 +562,25 @@ private final class TimelineCollector: @unchecked Sendable {
 
     func append(_ chunk: RecordingAudioTimelineChunk) throws {
         samples.append(contentsOf: chunk.samples)
+    }
+}
+
+private final class EchoFrameSpy: @unchecked Sendable {
+    private let failOnCall: Int?
+    private(set) var frameSizes: [Int] = []
+
+    init(failOnCall: Int? = nil) {
+        self.failOnCall = failOnCall
+    }
+
+    func process(render: [Float], microphone: [Float]) throws -> [Float] {
+        XCTAssertEqual(render.count, 480)
+        XCTAssertEqual(microphone.count, 480)
+        frameSizes.append(render.count)
+        if frameSizes.count == failOnCall {
+            throw RecordingEchoProcessorError.captureFailed
+        }
+        return microphone
     }
 }
 #endif

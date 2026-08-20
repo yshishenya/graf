@@ -74,6 +74,17 @@ final class InstallerLifecycleEvidenceTests: XCTestCase {
         XCTAssertTrue(source.contains("SUEnableSystemProfiling"))
     }
 
+    func testInstallerAndValidatorKeepAEC3StaticUniversalAndAttributed() throws {
+        let installer = try Self.readRepositoryFile("apps/macos/Installer/Scripts/build-local-installer.sh")
+        let validator = try Self.readRepositoryFile("apps/macos/Scripts/validate-app-updates.sh")
+
+        XCTAssertTrue(installer.contains("AEC3-THIRD-PARTY-NOTICES.txt"))
+        XCTAssertTrue(validator.contains("AEC3 third-party notice is missing"))
+        XCTAssertTrue(validator.contains("arm64 and x86_64"))
+        XCTAssertTrue(validator.contains("unexpected WebRTC/Abseil dynamic dependency"))
+        XCTAssertTrue(validator.contains("unexpected WebRTC/Abseil dynamic library"))
+    }
+
     func testInstallerSignsNestedUpdaterCodeInsideOutWithoutDeepSigning() throws {
         let source = try Self.readRepositoryFile("apps/macos/Installer/Scripts/build-local-installer.sh")
 

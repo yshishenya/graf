@@ -5,7 +5,7 @@ import TwoBrainRecShared
 #if canImport(XCTest)
 import XCTest
 
-final class NoAECProductSurfaceTests: XCTestCase {
+final class AECProductSurfaceTests: XCTestCase {
     private let activeV5ProductSources = [
         "apps/macos/RecApp/Sources/Capture/V5LocalRecordingWriter.swift",
         "apps/macos/RecApp/Sources/Capture/CanonicalRecordingWriter.swift",
@@ -17,18 +17,19 @@ final class NoAECProductSurfaceTests: XCTestCase {
         "apps/macos/RecApp/App/TwoBrainRecApp.swift"
     ]
 
-    func testActiveV5CaptureSurfaceContainsNoRetiredProcessing() throws {
+    func testActiveV5CaptureSurfaceHasExactlyOneMandatoryAECPathAndNoRetiredFallback() throws {
         let root = try repositoryRoot()
         let forbiddenTerms = [
-            ["A", "EC"].joined(),
             ["Apple", "Voice", "Processing"].joined(),
-            ["Web", "RTC"].joined(),
             ["Leak", "age"].joined(),
-            ["echo", "-cleanup"].joined()
+            ["echo", "-cleanup"].joined(),
+            "rawMicrophoneFallback"
         ]
+        var processorCreationCount = 0
 
         for relativePath in activeV5ProductSources {
             let source = try String(contentsOf: root.appendingPathComponent(relativePath), encoding: .utf8)
+            processorCreationCount += source.components(separatedBy: "RecordingEchoProcessor()").count - 1
             for forbiddenTerm in forbiddenTerms {
                 XCTAssertFalse(
                     source.contains(forbiddenTerm),
@@ -36,6 +37,20 @@ final class NoAECProductSurfaceTests: XCTestCase {
                 )
             }
         }
+        XCTAssertEqual(processorCreationCount, 1)
+
+        let writer = try String(
+            contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/Capture/V5LocalRecordingWriter.swift"),
+            encoding: .utf8
+        )
+        let timeline = try String(
+            contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/Capture/RecordingAudioTimeline.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(writer.contains("let echoProcessor = try RecordingEchoProcessor()"))
+        XCTAssertTrue(writer.contains("echoProcessor: .webrtcAEC3"))
+        XCTAssertTrue(timeline.contains("cleanedMicrophone = try processEchoFrame(systemAudio, microphone)"))
+        XCTAssertTrue(timeline.contains("0.5 * (microphoneSample + systemSample)"))
     }
 
     func testV5WriterPublishesOnlyCanonicalFinalArtifactNames() throws {
@@ -66,6 +81,17 @@ final class NoAECProductSurfaceTests: XCTestCase {
         for historicalArtifactName in [["mic", ".wav"].joined(), ["incoming", ".wav"].joined()] {
             XCTAssertFalse(validator.contains(historicalArtifactName))
         }
+    }
+
+    func testSwiftPackageUsesOnlyTheVendoredStaticAECArtifact() throws {
+        let root = try repositoryRoot()
+        let package = try String(
+            contentsOf: root.appendingPathComponent("apps/macos/Package.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(package.contains("GrafAEC3.xcframework"))
+        XCTAssertFalse(package.localizedCaseInsensitiveContains("homebrew"))
+        XCTAssertFalse(package.contains(".dylib"))
     }
 
     private func repositoryRoot() throws -> URL {

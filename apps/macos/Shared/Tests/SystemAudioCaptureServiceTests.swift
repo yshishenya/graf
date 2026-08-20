@@ -6,6 +6,31 @@ import TwoBrainRecShared
 import XCTest
 
 final class SystemAudioCaptureServiceTests: XCTestCase {
+    func testGeneratedSystemRouteGenerationAdvancesAcrossSessions() async throws {
+        let source = BufferedLocalRecordingSampleSource(channelCount: 1)
+        let service = SystemAudioCaptureService(runtime: FakeSystemAudioRuntime(), sampleSource: source)
+        _ = try await service.start(
+            sessionId: "first",
+            permissionState: .granted,
+            scopeApproval: approvedScope()
+        )
+        await service.appendIncomingSamples(Array(repeating: 0.1, count: 480))
+        let first = try XCTUnwrap(source.readTimestampedBatch(maximumFrameCount: 480))
+        _ = try await service.stop()
+
+        _ = try await service.start(
+            sessionId: "second",
+            permissionState: .granted,
+            scopeApproval: approvedScope()
+        )
+        await service.appendIncomingSamples(Array(repeating: 0.1, count: 480))
+        let second = try XCTUnwrap(source.readTimestampedBatch(maximumFrameCount: 480))
+        _ = try await service.stop()
+
+        XCTAssertGreaterThan(first.routeGeneration, 0)
+        XCTAssertGreaterThan(second.routeGeneration, first.routeGeneration)
+    }
+
     func testScreenCaptureKitRuntimeStartsWithScreenAndAudioOutputs() throws {
         let source = try String(
             contentsOf: repositoryRootForSystemAudioCaptureTests()

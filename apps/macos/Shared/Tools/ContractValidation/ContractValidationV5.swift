@@ -109,18 +109,19 @@ func require(_ condition: @autoclosure () -> Bool, _ message: String) throws {
 
 func validateV5ProductSurface() throws {
     let retiredProcessingTerms = [
-        ["A", "EC"].joined(),
         ["Apple", "Voice", "Processing"].joined(),
-        ["Web", "RTC"].joined(),
         ["Leak", "age"].joined(),
-        ["echo", "-cleanup"].joined()
+        ["echo", "-cleanup"].joined(),
+        "rawMicrophoneFallback"
     ]
+    var processorCreationCount = 0
 
     for relativePath in activeV5ProductSourcePaths {
         let source = try String(
             contentsOf: repositoryRoot.appendingPathComponent(relativePath),
             encoding: .utf8
         )
+        processorCreationCount += source.components(separatedBy: "RecordingEchoProcessor()").count - 1
         for retiredTerm in retiredProcessingTerms {
             try require(
                 !source.contains(retiredTerm),
@@ -128,9 +129,29 @@ func validateV5ProductSurface() throws {
             )
         }
     }
+    try require(
+        processorCreationCount == 1,
+        "Active v5 capture must create exactly one mandatory RecordingEchoProcessor"
+    )
 
     let writerPath = "apps/macos/RecApp/Sources/Capture/V5LocalRecordingWriter.swift"
     let writer = try String(contentsOf: repositoryRoot.appendingPathComponent(writerPath), encoding: .utf8)
+    try require(
+        writer.contains("let echoProcessor = try RecordingEchoProcessor()") &&
+            writer.contains("echoProcessor: .webrtcAEC3"),
+        "Active v5 writer must own the mandatory pinned AEC3 processor and manifest descriptor"
+    )
+    let timeline = try String(
+        contentsOf: repositoryRoot.appendingPathComponent(
+            "apps/macos/RecApp/Sources/Capture/RecordingAudioTimeline.swift"
+        ),
+        encoding: .utf8
+    )
+    try require(
+        timeline.contains("cleanedMicrophone = try processEchoFrame(systemAudio, microphone)") &&
+            timeline.contains("0.5 * (microphoneSample + systemSample)"),
+        "Canonical timeline must clean microphone before the unchanged canonical mix"
+    )
     try require(
         writer.contains("meeting-transcription.wav") && writer.contains("meeting-review.m4a"),
         "Active v5 writer must publish the canonical WAV and review M4A artifacts"

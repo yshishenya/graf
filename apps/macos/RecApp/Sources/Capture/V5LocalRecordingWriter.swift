@@ -210,7 +210,8 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             let microphoneSource = privacySource ?? (rawMicrophoneSource as? TimestampedLocalRecordingSampleSource)
             let incomingSource = incomingSampleSourceFactory() as? TimestampedLocalRecordingSampleSource
             let canonicalWriter = try CanonicalRecordingWriter(directory: directory)
-            let timeline = RecordingAudioTimeline { [canonicalWriter] chunk in
+            let echoProcessor = try RecordingEchoProcessor()
+            let timeline = RecordingAudioTimeline(echoProcessor: echoProcessor) { [canonicalWriter] chunk in
                 try canonicalWriter.append(chunk)
             }
             let timer = DispatchSource.makeTimerSource(queue: queue)
@@ -220,6 +221,7 @@ public final class LocalRecordingWriter: @unchecked Sendable {
                 directory: directory,
                 canonicalWriter: canonicalWriter,
                 timeline: timeline,
+                echoProcessor: echoProcessor,
                 microphoneSource: microphoneSource,
                 incomingSource: incomingSource,
                 privacySource: privacySource,
@@ -250,6 +252,9 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             active.timer = timer
             timer.resume()
             return directory
+        } catch is RecordingEchoProcessorError {
+            try? FileManager.default.removeItem(at: directory.directoryURL)
+            throw LocalRecordingWriterError.echoProcessorUnavailable
         } catch {
             try? FileManager.default.removeItem(at: directory.directoryURL)
             throw LocalRecordingWriterError.directoryUnavailable
@@ -347,7 +352,13 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             targetMuteCapability: active.targetMuteCapability,
             meetingMuteTruthEvidence: active.meetingMuteTruthEvidence,
             limitationCopyShownAt: active.limitationCopyShownAt,
-            captureFailureCode: active.terminalFailureCode
+            captureFailureCode: active.terminalFailureCode,
+            echoProcessor: .webrtcAEC3,
+            echoProcessingHealth: echoProcessingHealth(
+                for: active,
+                failureReason: resolvedFailure,
+                artifactAvailable: artifact != nil
+            )
         )
         try manifestService.write(manifest, to: active.directory.manifestURL)
         lastFinalizedManifest = manifest
@@ -564,7 +575,8 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             microphoneLevel: active.lastMicrophoneLevel,
             incomingLevel: active.lastIncomingLevel,
             microphoneUpdatedAt: active.lastMicrophoneFrameAt,
-            incomingUpdatedAt: active.lastIncomingFrameAt
+            incomingUpdatedAt: active.lastIncomingFrameAt,
+            integrityFailureCode: active.terminalFailureCode
         )
     }
 
@@ -583,7 +595,10 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         case RecordingAudioTimelineError.uncomparablePresentationTimes,
              RecordingAudioTimelineError.routeGenerationChanged,
              RecordingAudioTimelineError.gapExceedsBound,
-             RecordingAudioTimelineError.lateBatch:
+             RecordingAudioTimelineError.lateBatch,
+             RecordingAudioTimelineError.renderReferenceMissing,
+             RecordingAudioTimelineError.echoProcessingFailed,
+             RecordingAudioTimelineError.sourceStopped:
             // Keep the local prefix, but do not emit the legacy generic
             // timeline_misaligned code for a new package. The failed capture
             // remains blocked from upload and is retained for recovery.
@@ -624,6 +639,12 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             "missing_required_source"
         case RecordingAudioTimelineError.converterFailed:
             "converter_failed"
+        case RecordingAudioTimelineError.renderReferenceMissing:
+            "render_reference_missing"
+        case RecordingAudioTimelineError.echoProcessingFailed:
+            "echo_processing_failed"
+        case RecordingAudioTimelineError.sourceStopped:
+            "source_stopped"
         case RecordingAudioTimelineError.alreadyFinished:
             "already_finished"
         case CanonicalRecordingWriterError.noFrames:
@@ -642,6 +663,73 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             "already_finalized"
         default:
             "capture_failure"
+        }
+    }
+
+    private func echoProcessingHealth(
+        for active: V5ActiveRecording,
+        failureReason: LocalRecordingFailureReason,
+        artifactAvailable: Bool
+    ) -> EchoProcessingHealth {
+        let statistics = try? active.echoProcessor.statistics()
+        let completed = failureReason == .none && artifactAvailable
+        return EchoProcessingHealth(
+            state: completed ? .completed : .degraded,
+            reason: completed ? nil : Self.echoFailureReason(
+                code: active.terminalFailureCode,
+                processorError: active.echoProcessor.terminalError
+            ),
+            processedFrameCount: active.timeline.metrics.echoProcessedFrameCount,
+            processErrorCount: active.timeline.metrics.processErrorCount,
+            resetCount: 0,
+            ptsGapCount: active.timeline.metrics.ptsGapCount,
+            estimatedDriftPpm: active.estimatedDriftPpm,
+            hostUnderrunCount: active.timeline.metrics.hostUnderrunCount,
+            hostOverrunCount: active.timeline.metrics.hostOverrunCount,
+            clippedSampleCount: active.timeline.metrics.clippedSampleCount,
+            nonFiniteSampleCount: active.timeline.metrics.nonFiniteSampleCount,
+            aecDelayMs: statistics?.delayMs,
+            echoReturnLossDb: statistics?.echoReturnLossDb,
+            echoReturnLossEnhancementDb: statistics?.echoReturnLossEnhancementDb,
+            processingTimeP95Ms: active.timeline.metrics.processingTimeP95Ms
+        )
+    }
+
+    private static func echoFailureReason(
+        code: String?,
+        processorError: RecordingEchoProcessorError?
+    ) -> EchoProcessingFailureReason {
+        switch processorError {
+        case .renderFailed:
+            return .processReverseFailed
+        case .captureFailed, .closed, .internalFailure:
+            return .processCaptureFailed
+        case .invalidFrame:
+            return .nonFiniteSamples
+        case .unavailable:
+            return .processorUnavailable
+        case nil:
+            break
+        }
+        switch code {
+        case "render_reference_missing":
+            return .renderReferenceMissing
+        case "route_generation_changed":
+            return .routeChanged
+        case "invalid_format", "converter_failed":
+            return .formatChanged
+        case "uncomparable_presentation_times":
+            return .timebaseChanged
+        case "gap_exceeds_bound", "late_batch":
+            return .ptsDiscontinuity
+        case "source_overflow", "stop_drain_limit_exceeded":
+            return .sourceOverflow
+        case "invalid_samples":
+            return .nonFiniteSamples
+        case "finalization_failed", "canonical_artifact_unavailable", "conversion_failed":
+            return .finalizationFailed
+        default:
+            return .sourceStopped
         }
     }
 
@@ -687,6 +775,7 @@ private final class V5ActiveRecording {
     let directory: LocalRecordingDirectory
     let canonicalWriter: CanonicalRecordingWriter
     let timeline: RecordingAudioTimeline
+    let echoProcessor: RecordingEchoProcessor
     let microphoneSource: TimestampedLocalRecordingSampleSource?
     let incomingSource: TimestampedLocalRecordingSampleSource?
     let privacySource: PrivacySuppressingSampleSource?
@@ -707,6 +796,9 @@ private final class V5ActiveRecording {
     var microphoneFrameCount: Int64 = 0
     var privacySegments: [ProductPrivacySegment] = []
     var activePrivacySegment: ProductPrivacySegment?
+    var firstPresentationSeconds: [RecordingAudioInput: Double] = [:]
+    var lastPresentationEndSeconds: [RecordingAudioInput: Double] = [:]
+    var clockDomains: [RecordingAudioInput: RecordingAudioClockDomain] = [:]
 
     init(
         sessionId: String,
@@ -714,6 +806,7 @@ private final class V5ActiveRecording {
         directory: LocalRecordingDirectory,
         canonicalWriter: CanonicalRecordingWriter,
         timeline: RecordingAudioTimeline,
+        echoProcessor: RecordingEchoProcessor,
         microphoneSource: TimestampedLocalRecordingSampleSource?,
         incomingSource: TimestampedLocalRecordingSampleSource?,
         privacySource: PrivacySuppressingSampleSource?,
@@ -730,6 +823,7 @@ private final class V5ActiveRecording {
         self.directory = directory
         self.canonicalWriter = canonicalWriter
         self.timeline = timeline
+        self.echoProcessor = echoProcessor
         self.microphoneSource = microphoneSource
         self.incomingSource = incomingSource
         self.privacySource = privacySource
@@ -751,6 +845,15 @@ private final class V5ActiveRecording {
 
     func observe(batch: RecordingAudioBatch, source: RecordingAudioInput) {
         let frameCount = Int64(batch.samples.count / max(1, batch.format.channelCount))
+        firstPresentationSeconds[source] = min(
+            firstPresentationSeconds[source] ?? batch.presentationTime.seconds,
+            batch.presentationTime.seconds
+        )
+        lastPresentationEndSeconds[source] = max(
+            lastPresentationEndSeconds[source] ?? batch.presentationTime.seconds,
+            batch.presentationTime.seconds + Double(frameCount) / batch.format.sampleRate
+        )
+        clockDomains[source] = batch.presentationTime.clockDomain
         let level = LocalRecordingWriter.rmsLevel(batch.samples)
         switch source {
         case .microphone:
@@ -761,5 +864,18 @@ private final class V5ActiveRecording {
             lastIncomingLevel = level
             lastIncomingFrameAt = Date()
         }
+    }
+
+    var estimatedDriftPpm: Double? {
+        guard clockDomains[.microphone] == clockDomains[.systemAudio],
+              let microphoneStart = firstPresentationSeconds[.microphone],
+              let microphoneEnd = lastPresentationEndSeconds[.microphone],
+              let systemStart = firstPresentationSeconds[.systemAudio],
+              let systemEnd = lastPresentationEndSeconds[.systemAudio]
+        else { return nil }
+        let systemDuration = systemEnd - systemStart
+        guard systemDuration > 0 else { return nil }
+        let value = ((microphoneEnd - microphoneStart) - systemDuration) / systemDuration * 1_000_000
+        return value.isFinite ? min(1_000_000, max(-1_000_000, value)) : nil
     }
 }

@@ -1683,6 +1683,8 @@ private struct ContentView: View {
                 return .alreadyRecording
             case .directoryUnavailable:
                 return .storageUnsafe
+            case .echoProcessorUnavailable:
+                return .captureFailed
             case .notRecording:
                 return .unknown
             }
@@ -1717,6 +1719,8 @@ private struct ContentView: View {
                 return "запись уже идет."
             case .directoryUnavailable:
                 return "локальное хранилище недоступно."
+            case .echoProcessorUnavailable:
+                return "обязательное удаление эха недоступно; перезапустите GRAF."
             case .notRecording:
                 return "активной записи нет."
             }
@@ -2258,6 +2262,15 @@ private struct ContentView: View {
                 }
                 if recordingLevels != liveRecordingLevels {
                     liveRecordingLevels = recordingLevels
+                }
+                if let failureCode = recordingLevels.integrityFailureCode,
+                   captureSession?.state == .active || captureSession?.state == .paused,
+                   let degraded = try? captureController.markDegraded(
+                       source: "echo_processing",
+                       recoveryAction: "Остановите запись и начните новую после проверки аудиоустройств."
+                   ) {
+                    captureSession = degraded
+                    recordingBlocker = "Запись остановила добавление звука: \(failureCode). Уже очищенная часть сохранится после Stop."
                 }
             }
         }

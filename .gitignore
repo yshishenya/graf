@@ -64,6 +64,7 @@ obj/
 out/
 *.o
 *.a
+!apps/macos/Vendor/GrafAEC3.xcframework/macos-arm64_x86_64/libGrafAEC3.a
 *.so
 *.dylib
 *.prof*

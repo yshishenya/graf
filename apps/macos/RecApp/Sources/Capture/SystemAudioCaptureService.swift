@@ -106,6 +106,7 @@ public actor SystemAudioCaptureService {
     private let bufferedSampleSource: BufferedLocalRecordingSampleSource
     private var activeSession: SystemAudioCaptureSession?
     private var activeRuntime: SystemAudioCaptureRuntime?
+    private var activeRouteGeneration = 0
     private var pendingRuntimeStartCleanup: Task<Void, Never>?
 
     public init(
@@ -170,6 +171,7 @@ public actor SystemAudioCaptureService {
         }
 
         bufferedSampleSource.reset()
+        activeRouteGeneration = RecordingAudioRouteGeneration.next()
         let runtime = runtimeFactory()
         let startResult = await Self.startRuntime(
             runtime,
@@ -273,7 +275,7 @@ public actor SystemAudioCaptureService {
                     clockDomain: .wallClock
                 ),
                 discontinuity: .none,
-                routeGeneration: 0
+                routeGeneration: activeRouteGeneration
             ),
             observedAt: date
         )
@@ -521,6 +523,8 @@ public final class ScreenCaptureKitSystemAudioRuntime: NSObject, SystemAudioCapt
     private let outputQueue = DispatchQueue(label: "pro.2brain.graf.screencapturekit.audio", qos: .userInitiated)
     private let streamLock = NSLock()
     private var stream: SCStream?
+    private let routeGeneration = RecordingAudioRouteGeneration.next()
+    private var lastPresentationTime: RecordingAudioPresentationTimestamp?
 
     public init(sampleHandler: @escaping @Sendable (RecordingAudioBatch) -> Void) {
         self.sampleHandler = sampleHandler
@@ -581,7 +585,35 @@ public final class ScreenCaptureKitSystemAudioRuntime: NSObject, SystemAudioCapt
         guard outputType == .audio else { return }
         guard isCurrentStream(stream) else { return }
         guard let batch = SystemAudioSampleExtractor.extractRecordingAudioBatch(from: sampleBuffer) else { return }
-        sampleHandler(batch)
+        let routedBatch = RecordingAudioBatch(
+            samples: batch.samples,
+            format: batch.format,
+            presentationTime: batch.presentationTime,
+            discontinuity: batch.discontinuity,
+            routeGeneration: routeGeneration
+        )
+        streamLock.lock()
+        lastPresentationTime = routedBatch.presentationTime
+        streamLock.unlock()
+        sampleHandler(routedBatch)
+    }
+
+    public func stream(_ stream: SCStream, didStopWithError error: Error) {
+        guard isCurrentStream(stream) else { return }
+        clearCurrentStreamIfSame(stream)
+        streamLock.lock()
+        let presentationTime = lastPresentationTime
+        streamLock.unlock()
+        sampleHandler(RecordingAudioBatch(
+            samples: [],
+            format: RecordingAudioFormat(sampleRate: 48_000, channelCount: 1),
+            presentationTime: presentationTime ?? RecordingAudioPresentationTimestamp(
+                seconds: ProcessInfo.processInfo.systemUptime,
+                clockDomain: .hostTime
+            ),
+            discontinuity: .sourceStopped,
+            routeGeneration: routeGeneration
+        ))
     }
 
     private func currentStream() -> SCStream? {

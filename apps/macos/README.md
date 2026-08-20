@@ -14,6 +14,7 @@ MicrophoneCaptureService (app-owned microphone capture)
   -> PTS-bearing RecordingAudioBatch
 
 LocalRecordingWriter (v5 implementation) + RecordingAudioTimeline
+  -> GrafAEC3 (system reference, then matching microphone frame)
   -> CanonicalRecordingWriter
   -> meeting-transcription.wav (PCM s16le, mono, 16 kHz, ASR only)
   -> meeting-review.m4a (AAC-LC, mono, 48 kHz, playback only)
@@ -21,9 +22,11 @@ LocalRecordingWriter (v5 implementation) + RecordingAudioTimeline
 ```
 
 Both sources are created by the app and explicitly injected as timestamped
-batches. The timeline, rather than FIFO position or wall-clock padding, orders
-them, fills explicable gaps with silence and fails closed on an untrustworthy
-clock or overflow. New recording has no AEC, dual WAV output or text merge.
+batches. The timeline, rather than FIFO position or wall-clock padding, aligns
+them, processes exact 10 ms pairs through mandatory WebRTC AEC3, and fails
+closed on a missing reference, untrustworthy clock, route change, processor
+failure or overflow. New recording has no raw-microphone fallback, dual WAV
+output or text merge.
 
 Recording readiness requires:
 
@@ -46,8 +49,9 @@ is an observation gate and must not restart or mutate the service.
 
 ## Package Layout
 
-`Package.swift` builds Swift libraries, the desktop app, validation tools, and
-tests. It has no C shared-memory target and no separate audio component.
+`Package.swift` builds Swift libraries, the desktop app, validation tools,
+tests, and the vendored static universal `GrafAEC3.xcframework`. The app ships
+no WebRTC/Abseil dylib and requires no runtime package manager.
 
 The local installer builds one application component:
 

@@ -37,7 +37,9 @@ public struct LocalRecordingManifestService: Sendable {
         targetMuteCapability: TargetMuteCapability? = nil,
         meetingMuteTruthEvidence: [MeetingMuteTruthEvidence] = [],
         limitationCopyShownAt: Date? = nil,
-        captureFailureCode: String? = nil
+        captureFailureCode: String? = nil,
+        echoProcessor: EchoProcessorDescriptor,
+        echoProcessingHealth: EchoProcessingHealth
     ) -> LocalRecordingManifest {
         // `timeline_misaligned` is a legacy persisted value. Never create it
         // for a new package, even if an older caller passes it through.
@@ -53,7 +55,9 @@ public struct LocalRecordingManifestService: Sendable {
             scopeApproval?.isAcceptedForMeetingRecording == true &&
             permissions?.allowsAcceptedRecording == true &&
             durationDifferenceSeconds <= 0.1 &&
-            persistedFailureReason == .none
+            persistedFailureReason == .none &&
+            echoProcessor == .webrtcAEC3 &&
+            echoProcessingHealth.permitsNormalPackage
         let status: LocalRecordingSessionStatus = if complete {
             .saved
         } else if Self.isBlockedFailure(persistedFailureReason) {
@@ -106,7 +110,9 @@ public struct LocalRecordingManifestService: Sendable {
             meetingMuteTruth: muteTruthDecision,
             meetingMuteTruthEvidence: meetingMuteTruthEvidence,
             targetMuteCapability: targetMuteCapability,
-            limitationCopyShownAt: limitationCopyShownAt
+            limitationCopyShownAt: limitationCopyShownAt,
+            echoProcessor: echoProcessor,
+            echoProcessingHealth: echoProcessingHealth
         )
     }
 
