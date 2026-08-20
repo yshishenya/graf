@@ -34,6 +34,7 @@
 | Stapler and Gatekeeper | pass for app and package |
 | Sparkle Keychain custody | pass; active trust generation 1 |
 | Developer ID continuity | pass against `2026.08.19.2` |
+| Installed Sparkle update | pass; `2026.08.19.2` → `2026.08.20.2` and relaunch |
 | Public archive/appcast validation | pass after fresh HTTPS download |
 
 ## Public artifacts
@@ -52,10 +53,11 @@
   tracebacks and `0` automatic GET/405 replays on email-link routes.
 - The production login surface rendered successfully in the in-app browser.
 - Database schema and stored user data did not change in this hotfix.
-- Existing Developer ID installations can update normally without requesting
-  macOS permissions again. The owner Mac was locked during closeout, so the
-  optional visual in-app update check on that device remains a follow-up; the
-  installed app was not overwritten while its recording state was invisible.
+- The installed production app detected `2026.08.20.2` through the live Sparkle
+  feed, downloaded it, installed it and relaunched successfully. The existing
+  production session remained active, account settings opened with email shown
+  as confirmed, and no macOS permission prompt or generic meeting-load error
+  appeared. The installed app passed stapler and Gatekeeper checks again.
 - To halt rollout, restore the retained previous signed appcast. A client that
   already installed this version requires a higher-CalVer forward rollback;
   never publish an unsigned or lower-version downgrade.
