@@ -116,3 +116,10 @@ PostgreSQL matrix доказала отдельно:
 - Последний Ponytail проход удалил отдельный 19-строчный self-test приватного
   test-harness helper; сам helper продолжает использоваться всеми exact app-role
   regression checks. Повторный targeted matrix прошёл.
+- Финальный immutable security diff scan
+  `51d8e705-729f-49ed-8438-53ed74bb0334` проверил точный диапазон
+  `43e20fea95e1d2bce1c44a647069b93ef5527722..d3ef2cb22aa930ca67ca90ba318afdf163d5c692`:
+  26 из 26 source surfaces покрыты, findings и deferred items отсутствуют.
+  Scan завершён `2026-08-20T22:04:16Z`; TAC connector был недоступен, поэтому
+  видимость protected output отдельно не подтверждена и не использовалась как
+  основание для security-вывода.

@@ -115,7 +115,7 @@
 ## Phase 7: Polish, review and release readiness
 
 - [X] T039 [P] Обновить понятный `[Unreleased]` changelog в `CHANGELOG.md`
-- [ ] T040 Провести correctness/root-cause и security/privacy review, исправить findings и повторить focused tests в `apps/server/tests/`
+- [X] T040 Провести correctness/root-cause и security/privacy review, исправить findings и повторить focused tests в `apps/server/tests/`
 - [X] T041 Провести UX/UI/IA/CX, accessibility и Product Design visual QA против выбранного mockup; исправить P0–P2, хранить captures вне git и записать report в `design-qa.md`
 - [X] T042 Провести Ponytail review, удалить дублирование/лишние механизмы и повторить затронутые regression checks в `apps/server/`
 - [ ] T043 Выполнить `infra/scripts/ci-local.sh --fast` на финальном committed diff после review fixes и записать immutable tested SHA, retained artifact reference/digest и результат в `specs/178-account-linking-journey/evidence.md`
