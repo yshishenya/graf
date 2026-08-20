@@ -50,7 +50,7 @@ contract test from `quickstart.md`.
 ## Phase 4: Closeout and hotfix release
 
 - [X] T005 [P] Add a simple Russian user-facing note to `CHANGELOG.md` and record metadata-only focused evidence in `specs/176-fix-email-link-route/evidence.md` (SC-001–SC-005)
-- [ ] T006 Run correctness, auth/security, embedded UX and Ponytail reviews; fix actionable findings, rerun focused checks, run `infra/scripts/ci-local.sh --fast` once, then reconcile tasks/issues/evidence before commit, PR, merge and the approved signed/notarized production hotfix (FR-001–FR-011; SC-001–SC-005)
+- [X] T006 Run correctness, auth/security, embedded UX and Ponytail reviews; fix actionable findings, rerun focused checks, run `infra/scripts/ci-local.sh --fast` once, then reconcile tasks/issues/evidence before commit, PR, merge and the approved signed/notarized production hotfix (FR-001–FR-011; SC-001–SC-005)
 
 ## Dependencies and execution order
 
