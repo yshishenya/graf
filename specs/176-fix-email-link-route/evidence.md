@@ -50,6 +50,23 @@ account identifiers и private meeting content не использовались
 - Ponytail review first removed two duplicated test fragments (about 20 lines);
   the final reviewed diff is lean with no further findings.
 
-## Remaining release evidence
+## Release closeout
 
-- Signed/notarized GRAF hotfix build and metadata-safe production smoke.
+- Implementation PR #5456 and release PR #5457 were merged without unresolved
+  review threads. Release SHA `6651db70` is tagged `v2026.08.20.2`.
+- The exact-SHA release gate passed: 697 macOS tests; 3066 server tests with one
+  expected skip; 47 strict PostgreSQL/RLS checks with one expected skip; lint,
+  compile and release checks passed.
+- Guarded production deploy passed after backup and restore rehearsal. Runtime,
+  API, Temporal and workers report the release SHA and healthy readiness;
+  production smoke and cleanup passed without rollback.
+- The public universal macOS app and package use Developer ID Application and
+  Installer. Apple notarization, stapling, Gatekeeper and Developer ID to
+  Developer ID continuity all passed.
+- The public Sparkle feed, archive and package were downloaded again and their
+  signatures, lengths and SHA-256 values matched the reviewed artifacts.
+- Aggregate-only post-deploy audit found zero HTTP 500, HTTP 405, traceback and
+  automatic email-link GET replay matches.
+- GitHub Release: https://github.com/yshishenya/crisp/releases/tag/v2026.08.20.2
+- Detailed metadata-only receipt:
+  `docs/deployments/2brain-rec/release-v2026.08.20.2.md`.
