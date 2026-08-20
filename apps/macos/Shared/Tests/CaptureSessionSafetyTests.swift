@@ -58,13 +58,11 @@ final class CaptureSessionSafetyTests: XCTestCase {
 
     func testAppOwnedMicrophoneSampleSourceStopIsIdempotentBeforeStart() {
         let source = AppOwnedMicrophoneSampleSource()
-        let scratch = UnsafeMutablePointer<Float>.allocate(capacity: 8)
-        defer { scratch.deallocate() }
 
         source.stop()
         source.stop()
 
-        XCTAssertEqual(source.readSamples(into: scratch, capacity: 8), 0)
+        XCTAssertNil(source.readTimestampedBatch(maximumFrameCount: 8))
     }
 
     func testAppleCandidateFailureCannotHideActiveCaptureOrRemoveStop() {

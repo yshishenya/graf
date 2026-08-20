@@ -254,8 +254,6 @@ private final class InfiniteTimestampedSampleSource: TimestampedLocalRecordingSa
     private let lock = NSLock()
     private var nextTimestamp: Double = 100
 
-    func readSamples(into destination: UnsafeMutablePointer<Float>, capacity: Int) -> Int { 0 }
-
     func readTimestampedBatch(maximumFrameCount: Int) -> RecordingAudioBatch? {
         lock.lock()
         defer { lock.unlock() }

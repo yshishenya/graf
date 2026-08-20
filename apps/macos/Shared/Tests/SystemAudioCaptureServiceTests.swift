@@ -55,6 +55,8 @@ final class SystemAudioCaptureServiceTests: XCTestCase {
         XCTAssertTrue(source.contains("stream.addStreamOutput(self, type: .screen"))
         XCTAssertTrue(source.contains("stream.removeStreamOutput(self, type: .screen"))
         XCTAssertTrue(source.contains("outputQueue.sync {}"))
+        XCTAssertTrue(source.contains("kAudioHardwarePropertyDefaultOutputDevice"))
+        XCTAssertTrue(source.contains("discontinuity: .routeChanged"))
     }
 
     func testStartRequiresGrantedPermissionAndApprovedScope() async throws {
@@ -106,12 +108,10 @@ final class SystemAudioCaptureServiceTests: XCTestCase {
         )
         await service.appendIncomingSamples(Array(repeating: 0.4, count: 256))
 
-        let scratch = UnsafeMutablePointer<Float>.allocate(capacity: 512)
-        defer { scratch.deallocate() }
-        let read = service.incomingSampleSource.readSamples(into: scratch, capacity: 512)
+        let batch = service.incomingSampleSource.readTimestampedBatch(maximumFrameCount: 512)
 
-        XCTAssertEqual(read, 256)
-        XCTAssertEqual(scratch[0], 0.4, accuracy: 0.0001)
+        XCTAssertEqual(batch?.samples.count, 256)
+        XCTAssertEqual(batch?.samples.first ?? 0, 0.4, accuracy: 0.0001)
         _ = try await service.stop()
     }
 
@@ -248,10 +248,7 @@ final class SystemAudioCaptureServiceTests: XCTestCase {
             scopeApproval: approvedScope(),
             startedAt: Date(timeIntervalSince1970: 20)
         )
-        let scratch = UnsafeMutablePointer<Float>.allocate(capacity: 512)
-        defer { scratch.deallocate() }
-
-        XCTAssertEqual(service.incomingSampleSource.readSamples(into: scratch, capacity: 512), 0)
+        XCTAssertNil(service.incomingSampleSource.readTimestampedBatch(maximumFrameCount: 512))
 
         let stopped = try await service.stop(stoppedAt: Date(timeIntervalSince1970: 21))
         XCTAssertEqual(stopped.sessionId, "second")

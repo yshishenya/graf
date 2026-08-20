@@ -36,5 +36,23 @@ final class RecordingEchoProcessorTests: XCTestCase {
         XCTAssertNil(statistics.echoReturnLossDb)
         XCTAssertNil(statistics.echoReturnLossEnhancementDb)
     }
+
+    func testSustainedProcessingP95StaysWithinTenMillisecondFrameBudget() throws {
+        let processor = try RecordingEchoProcessor()
+        let silence = [Float](repeating: 0, count: RecordingEchoProcessor.frameSamples)
+        for _ in 0..<100 {
+            _ = try processor.process(render: silence, capture: silence)
+        }
+        var durations: [Double] = []
+        durations.reserveCapacity(1_000)
+        for _ in 0..<1_000 {
+            let startedAt = ProcessInfo.processInfo.systemUptime
+            _ = try processor.process(render: silence, capture: silence)
+            durations.append((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000)
+        }
+        durations.sort()
+
+        XCTAssertLessThan(durations[949], 10)
+    }
 }
 #endif

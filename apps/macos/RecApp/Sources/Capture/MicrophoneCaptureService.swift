@@ -85,10 +85,6 @@ public final class AppOwnedMicrophoneSampleSource: TimestampedLocalRecordingSamp
         bufferedSource.stats()
     }
 
-    public func readSamples(into destination: UnsafeMutablePointer<Float>, capacity: Int) -> Int {
-        bufferedSource.readSamples(into: destination, capacity: capacity)
-    }
-
     public func readTimestampedBatch(maximumFrameCount: Int) -> RecordingAudioBatch? {
         bufferedSource.readTimestampedBatch(maximumFrameCount: maximumFrameCount)
     }

@@ -2,19 +2,17 @@ import Foundation
 import TwoBrainRecShared
 
 public final class PrivacySuppressingSampleSource: TimestampedLocalRecordingSampleSource, @unchecked Sendable {
-    private let base: LocalRecordingSampleSource
-    private let timestampedBase: TimestampedLocalRecordingSampleSource?
+    private let base: TimestampedLocalRecordingSampleSource
     private let lock = NSLock()
     private var state: ProductPrivacyControlState
     private var totalSuppressedSampleCount: Int64
     private var lastReadSuppressed: Bool
 
     public init(
-        base: LocalRecordingSampleSource,
+        base: TimestampedLocalRecordingSampleSource,
         state: ProductPrivacyControlState = .capturing
     ) {
         self.base = base
-        self.timestampedBase = base as? TimestampedLocalRecordingSampleSource
         self.state = state
         self.totalSuppressedSampleCount = 0
         self.lastReadSuppressed = false
@@ -38,32 +36,8 @@ public final class PrivacySuppressingSampleSource: TimestampedLocalRecordingSamp
         lock.unlock()
     }
 
-    public func readSamples(into destination: UnsafeMutablePointer<Float>, capacity: Int) -> Int {
-        let read = base.readSamples(into: destination, capacity: capacity)
-        guard read > 0 else {
-            lock.lock()
-            lastReadSuppressed = false
-            lock.unlock()
-            return read
-        }
-
-        lock.lock()
-        let shouldSuppress = state.suppressesLocalMicrophone
-        if shouldSuppress {
-            totalSuppressedSampleCount += Int64(read)
-        }
-        lastReadSuppressed = shouldSuppress
-        lock.unlock()
-
-        guard shouldSuppress else { return read }
-        for index in 0..<read {
-            destination[index] = 0
-        }
-        return read
-    }
-
     public func readTimestampedBatch(maximumFrameCount: Int) -> RecordingAudioBatch? {
-        guard let batch = timestampedBase?.readTimestampedBatch(maximumFrameCount: maximumFrameCount) else {
+        guard let batch = base.readTimestampedBatch(maximumFrameCount: maximumFrameCount) else {
             return nil
         }
         guard !batch.samples.isEmpty else { return batch }
@@ -87,6 +61,6 @@ public final class PrivacySuppressingSampleSource: TimestampedLocalRecordingSamp
     }
 
     public var hasTimestampedOverflow: Bool {
-        timestampedBase?.hasTimestampedOverflow ?? true
+        base.hasTimestampedOverflow
     }
 }

@@ -21,8 +21,8 @@ public final class LocalRecordingWriter: @unchecked Sendable {
 
     private let store: LocalRecordingStore
     private let manifestService: LocalRecordingManifestService
-    private let microphoneSampleSourceFactory: @Sendable () -> LocalRecordingSampleSource?
-    private let incomingSampleSourceFactory: @Sendable () -> LocalRecordingSampleSource?
+    private let microphoneSampleSourceFactory: @Sendable () -> TimestampedLocalRecordingSampleSource?
+    private let incomingSampleSourceFactory: @Sendable () -> TimestampedLocalRecordingSampleSource?
     private let recordMicrophone: Bool
     private let queue = DispatchQueue(label: "pro.2brain.graf.v5-local-recording-writer", qos: .userInitiated)
     private var active: V5ActiveRecording?
@@ -31,8 +31,8 @@ public final class LocalRecordingWriter: @unchecked Sendable {
     public init(
         store: LocalRecordingStore = LocalRecordingStore(),
         manifestService: LocalRecordingManifestService = LocalRecordingManifestService(),
-        microphoneSampleSourceFactory: @escaping @Sendable () -> LocalRecordingSampleSource? = { nil },
-        incomingSampleSourceFactory: @escaping @Sendable () -> LocalRecordingSampleSource? = { nil },
+        microphoneSampleSourceFactory: @escaping @Sendable () -> TimestampedLocalRecordingSampleSource? = { nil },
+        incomingSampleSourceFactory: @escaping @Sendable () -> TimestampedLocalRecordingSampleSource? = { nil },
         recordMicrophone: Bool = true
     ) {
         self.store = store
@@ -207,8 +207,8 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         do {
             let rawMicrophoneSource = recordMicrophone ? microphoneSampleSourceFactory() : nil
             let privacySource = rawMicrophoneSource.map { PrivacySuppressingSampleSource(base: $0) }
-            let microphoneSource = privacySource ?? (rawMicrophoneSource as? TimestampedLocalRecordingSampleSource)
-            let incomingSource = incomingSampleSourceFactory() as? TimestampedLocalRecordingSampleSource
+            let microphoneSource = privacySource ?? rawMicrophoneSource
+            let incomingSource = incomingSampleSourceFactory()
             let canonicalWriter = try CanonicalRecordingWriter(directory: directory)
             let echoProcessor = try RecordingEchoProcessor()
             let timeline = RecordingAudioTimeline(echoProcessor: echoProcessor) { [canonicalWriter] chunk in
@@ -593,6 +593,7 @@ public final class LocalRecordingWriter: @unchecked Sendable {
     private static func failureReason(for error: Error) -> LocalRecordingFailureReason {
         switch error {
         case RecordingAudioTimelineError.uncomparablePresentationTimes,
+             RecordingAudioTimelineError.formatChanged,
              RecordingAudioTimelineError.routeGenerationChanged,
              RecordingAudioTimelineError.gapExceedsBound,
              RecordingAudioTimelineError.lateBatch,
@@ -625,6 +626,8 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             "invalid_format"
         case RecordingAudioTimelineError.invalidSamples:
             "invalid_samples"
+        case RecordingAudioTimelineError.formatChanged:
+            "format_changed"
         case RecordingAudioTimelineError.uncomparablePresentationTimes:
             "uncomparable_presentation_times"
         case RecordingAudioTimelineError.routeGenerationChanged:
@@ -716,7 +719,7 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             return .renderReferenceMissing
         case "route_generation_changed":
             return .routeChanged
-        case "invalid_format", "converter_failed":
+        case "invalid_format", "format_changed", "converter_failed":
             return .formatChanged
         case "uncomparable_presentation_times":
             return .timebaseChanged

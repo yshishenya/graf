@@ -6,6 +6,9 @@ import CoreMedia
 #if canImport(AudioToolbox)
 import AudioToolbox
 #endif
+#if canImport(CoreAudio)
+import CoreAudio
+#endif
 #if canImport(CoreGraphics)
 import CoreGraphics
 #endif
@@ -517,7 +520,7 @@ private final class RuntimeStopCompletion: @unchecked Sendable {
     }
 }
 
-#if canImport(ScreenCaptureKit) && canImport(CoreMedia) && canImport(AudioToolbox)
+#if canImport(ScreenCaptureKit) && canImport(CoreMedia) && canImport(AudioToolbox) && canImport(CoreAudio)
 public final class ScreenCaptureKitSystemAudioRuntime: NSObject, SystemAudioCaptureRuntime, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
     private let sampleHandler: @Sendable (RecordingAudioBatch) -> Void
     private let outputQueue = DispatchQueue(label: "pro.2brain.graf.screencapturekit.audio", qos: .userInitiated)
@@ -525,6 +528,8 @@ public final class ScreenCaptureKitSystemAudioRuntime: NSObject, SystemAudioCapt
     private var stream: SCStream?
     private let routeGeneration = RecordingAudioRouteGeneration.next()
     private var lastPresentationTime: RecordingAudioPresentationTimestamp?
+    private var outputRouteListener: AudioObjectPropertyListenerBlock?
+    private var outputRouteChangePublished = false
 
     public init(sampleHandler: @escaping @Sendable (RecordingAudioBatch) -> Void) {
         self.sampleHandler = sampleHandler
@@ -556,8 +561,10 @@ public final class ScreenCaptureKitSystemAudioRuntime: NSObject, SystemAudioCapt
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: outputQueue)
         setCurrentStream(stream)
         do {
+            try installOutputRouteListener()
             try await stream.startCapture()
         } catch {
+            removeOutputRouteListener()
             clearCurrentStreamIfSame(stream)
             try? await stream.stopCapture()
             throw error
@@ -566,6 +573,7 @@ public final class ScreenCaptureKitSystemAudioRuntime: NSObject, SystemAudioCapt
 
     public func stop() async {
         guard let stream = currentStream() else { return }
+        removeOutputRouteListener()
         clearCurrentStreamIfSame(stream)
         try? stream.removeStreamOutput(self, type: .audio)
         try? stream.removeStreamOutput(self, type: .screen)
@@ -600,6 +608,7 @@ public final class ScreenCaptureKitSystemAudioRuntime: NSObject, SystemAudioCapt
 
     public func stream(_ stream: SCStream, didStopWithError error: Error) {
         guard isCurrentStream(stream) else { return }
+        removeOutputRouteListener()
         clearCurrentStreamIfSame(stream)
         streamLock.lock()
         let presentationTime = lastPresentationTime
@@ -612,6 +621,73 @@ public final class ScreenCaptureKitSystemAudioRuntime: NSObject, SystemAudioCapt
                 clockDomain: .hostTime
             ),
             discontinuity: .sourceStopped,
+            routeGeneration: routeGeneration
+        ))
+    }
+
+    private func installOutputRouteListener() throws {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        let listener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+            self?.publishOutputRouteChange()
+        }
+        let status = AudioObjectAddPropertyListenerBlock(
+            AudioObjectID(kAudioObjectSystemObject),
+            &address,
+            outputQueue,
+            listener
+        )
+        guard status == noErr else {
+            throw SystemAudioCaptureServiceError.runtimeStartFailed
+        }
+        streamLock.lock()
+        outputRouteListener = listener
+        outputRouteChangePublished = false
+        streamLock.unlock()
+    }
+
+    private func removeOutputRouteListener() {
+        streamLock.lock()
+        let listener = outputRouteListener
+        outputRouteListener = nil
+        streamLock.unlock()
+        guard let listener else { return }
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        AudioObjectRemovePropertyListenerBlock(
+            AudioObjectID(kAudioObjectSystemObject),
+            &address,
+            outputQueue,
+            listener
+        )
+    }
+
+    private func publishOutputRouteChange() {
+        streamLock.lock()
+        guard stream != nil,
+              outputRouteListener != nil,
+              !outputRouteChangePublished
+        else {
+            streamLock.unlock()
+            return
+        }
+        outputRouteChangePublished = true
+        let presentationTime = lastPresentationTime
+        streamLock.unlock()
+        sampleHandler(RecordingAudioBatch(
+            samples: [],
+            format: RecordingAudioFormat(sampleRate: 48_000, channelCount: 1),
+            presentationTime: presentationTime ?? RecordingAudioPresentationTimestamp(
+                seconds: ProcessInfo.processInfo.systemUptime,
+                clockDomain: .hostTime
+            ),
+            discontinuity: .routeChanged,
             routeGeneration: routeGeneration
         ))
     }

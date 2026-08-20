@@ -149,15 +149,18 @@ public struct RecordingAudioTimelineConfiguration: Equatable, Sendable {
     public let reorderWindowFrames: Int64
     public let maximumKnownGapSeconds: Double
     public let maximumBufferedFramesPerSource: Int64
+    public let maximumClockRecoveryFramesPerBatch: Int64
 
     public init(
         reorderWindowFrames: Int = 48_000,
         maximumKnownGapSeconds: Double = 15,
-        maximumBufferedFramesPerSource: Int = 48_000 * 20
+        maximumBufferedFramesPerSource: Int = 48_000 * 20,
+        maximumClockRecoveryFramesPerBatch: Int = 48
     ) {
         self.reorderWindowFrames = Int64(max(0, reorderWindowFrames))
         self.maximumKnownGapSeconds = maximumKnownGapSeconds
         self.maximumBufferedFramesPerSource = Int64(max(1, maximumBufferedFramesPerSource))
+        self.maximumClockRecoveryFramesPerBatch = Int64(max(0, maximumClockRecoveryFramesPerBatch))
     }
 }
 
@@ -165,6 +168,7 @@ public enum RecordingAudioTimelineError: Error, Equatable {
     case invalidTimestamp
     case invalidFormat
     case invalidSamples
+    case formatChanged
     case uncomparablePresentationTimes
     case routeGenerationChanged
     case sourceOverflow
@@ -266,7 +270,13 @@ public final class RecordingAudioTimeline: @unchecked Sendable {
             guard let state = states[source] else { continue }
             let flushed = try state.converter?.flush() ?? []
             guard !flushed.isEmpty else { continue }
-            try appendCanonicalSamples(flushed, for: source, into: state, at: state.lastInputEndFrame ?? 0)
+            try appendCanonicalSamples(
+                flushed,
+                for: source,
+                into: state,
+                at: state.lastInputEndFrame ?? 0,
+                allowsClockRecovery: false
+            )
         }
         try emitAvailableFrames(final: true)
         finished = true
@@ -306,6 +316,16 @@ public final class RecordingAudioTimeline: @unchecked Sendable {
             throw RecordingAudioTimelineError.invalidTimestamp
         }
         return Int64(frames.rounded())
+    }
+
+    static func recoverableClockDelta(
+        requestedStart: Int64,
+        expectedStart: Int64,
+        limit: Int64
+    ) -> Int64? {
+        let (delta, overflow) = requestedStart.subtractingReportingOverflow(expectedStart)
+        guard !overflow else { return nil }
+        return delta >= -limit && delta <= limit ? delta : nil
     }
 
     private var hasBothSourcesInBootstrap: Bool {
@@ -475,7 +495,14 @@ public final class RecordingAudioTimeline: @unchecked Sendable {
             for: batch.presentationTime,
             relativeTo: epoch
         )
+        if let previousStart = state.lastRequestedStartFrame,
+           requestedStart <= previousStart {
+            throw RecordingAudioTimelineError.lateBatch
+        }
         if requestedStart < 0 {
+            guard requestedStart != .min else {
+                throw RecordingAudioTimelineError.invalidTimestamp
+            }
             let trimCount = min(Int64(canonicalSamples.count), -requestedStart)
             canonicalSamples.removeFirst(Int(trimCount))
             requestedStart += trimCount
@@ -484,32 +511,66 @@ public final class RecordingAudioTimeline: @unchecked Sendable {
                 return
             }
         }
-        try appendCanonicalSamples(canonicalSamples, for: source, into: state, at: requestedStart)
+        try appendCanonicalSamples(
+            canonicalSamples,
+            for: source,
+            into: state,
+            at: requestedStart,
+            allowsClockRecovery: batch.discontinuity == .none
+        )
     }
 
     private func appendCanonicalSamples(
         _ samples: [Float],
         for source: RecordingAudioInput,
         into state: SourceState,
-        at requestedStart: Int64
+        at requestedStart: Int64,
+        allowsClockRecovery: Bool
     ) throws {
         var start = requestedStart
         var values = samples
         let expectedStart = state.lastInputEndFrame ?? 0
-        if start > expectedStart {
-            let gapFrames = start - expectedStart
+        let (clockDelta, clockDeltaOverflow) = requestedStart.subtractingReportingOverflow(expectedStart)
+        guard !clockDeltaOverflow, clockDelta != .min else {
+            throw RecordingAudioTimelineError.invalidTimestamp
+        }
+        // Real capture clocks differ slightly. Correct at most one millisecond
+        // at each batch boundary; larger discontinuities remain fail-closed.
+        let recoverableClockDelta = allowsClockRecovery
+            ? Self.recoverableClockDelta(
+                requestedStart: requestedStart,
+                expectedStart: expectedStart,
+                limit: configuration.maximumClockRecoveryFramesPerBatch
+            )
+            : nil
+        if clockDelta > 0 {
+            let gapFrames = clockDelta
             guard gapFrames <= maximumKnownGapFrames else {
                 throw RecordingAudioTimelineError.gapExceedsBound
             }
             metrics.gapFramesBySource[source, default: 0] += gapFrames
             metrics.ptsGapCount += 1
-        } else if start < expectedStart {
-            let overlapFrames = expectedStart - start
+            if recoverableClockDelta != nil,
+               let previousSample = state.lastSample,
+               let nextSample = values.first {
+                let denominator = Float(gapFrames + 1)
+                let recovered = (1...Int(gapFrames)).map { index in
+                    previousSample + (nextSample - previousSample) * Float(index) / denominator
+                }
+                values.insert(contentsOf: recovered, at: 0)
+                start = expectedStart
+            }
+        } else if clockDelta < 0 {
+            let overlapFrames = -clockDelta
+            guard recoverableClockDelta != nil
+            else {
+                throw RecordingAudioTimelineError.lateBatch
+            }
             let trimCount = min(overlapFrames, Int64(values.count))
             metrics.overlapTrimmedFramesBySource[source, default: 0] += trimCount
             start += trimCount
             if trimCount == Int64(values.count) {
-                return
+                throw RecordingAudioTimelineError.lateBatch
             }
             values.removeFirst(Int(trimCount))
         }
@@ -524,6 +585,8 @@ public final class RecordingAudioTimeline: @unchecked Sendable {
 
         state.segments.append(TimelineSegment(startFrameIndex: start, samples: values))
         state.lastInputEndFrame = start + Int64(values.count)
+        state.lastRequestedStartFrame = requestedStart
+        state.lastSample = values.last
     }
 
     private var maximumKnownGapFrames: Int64 {
@@ -643,7 +706,10 @@ private struct TimelineSegment {
 
 private final class SourceState {
     var routeGeneration: Int?
+    var inputFormat: RecordingAudioFormat?
     var lastInputEndFrame: Int64?
+    var lastRequestedStartFrame: Int64?
+    var lastSample: Float?
     var segments: [TimelineSegment] = []
     var firstRetainedSegmentIndex = 0
     var converter: StatefulCanonicalAudioConverter?
@@ -656,6 +722,11 @@ private final class SourceState {
     }
 
     func convert(batch: RecordingAudioBatch) throws -> [Float] {
+        if let inputFormat, inputFormat != batch.format {
+            throw RecordingAudioTimelineError.formatChanged
+        }
+        inputFormat = batch.format
+
         let monoSamples: [Float]
         if batch.format.channelCount == 1 {
             monoSamples = batch.samples

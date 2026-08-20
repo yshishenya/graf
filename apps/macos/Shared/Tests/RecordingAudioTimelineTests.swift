@@ -128,7 +128,7 @@ final class RecordingAudioTimelineTests: XCTestCase {
         )
         try timeline.append(
             source: .microphone,
-            batch: batch(samples: Array(repeating: 0.8, count: 480), at: 0.005)
+            batch: batch(samples: Array(repeating: 0.8, count: 480), at: 0.0095)
         )
         try timeline.append(
             source: .systemAudio,
@@ -136,7 +136,7 @@ final class RecordingAudioTimelineTests: XCTestCase {
         )
         try timeline.finish()
 
-        XCTAssertEqual(timeline.metrics.overlapTrimmedFramesBySource[.microphone], 240)
+        XCTAssertEqual(timeline.metrics.overlapTrimmedFramesBySource[.microphone], 24)
         XCTAssertEqual(timeline.metrics.outputFrameCount, 720)
         XCTAssertEqual(collector.samples[0], 0.3, accuracy: 0.0001)
         XCTAssertEqual(collector.samples[479], 0.3, accuracy: 0.0001)
@@ -418,6 +418,131 @@ final class RecordingAudioTimelineTests: XCTestCase {
         XCTAssertLessThanOrEqual(timeline.metrics.outputFrameCount, 48_000)
     }
 
+    func testGradualClockDriftDoesNotCreateFalseMissingReference() throws {
+        let timeline = makeTimeline(
+            configuration: .init(
+                reorderWindowFrames: 9_600,
+                maximumKnownGapSeconds: 0.1
+            )
+        )
+        let frame = Array(repeating: Float(0.1), count: 480)
+
+        for index in 0..<1_000 {
+            try timeline.append(
+                source: .microphone,
+                batch: batch(samples: frame, at: Double(index) * 0.010_001)
+            )
+            try timeline.append(
+                source: .systemAudio,
+                batch: batch(samples: frame, at: Double(index) * 0.009_999)
+            )
+        }
+
+        XCTAssertNoThrow(try timeline.finish())
+        XCTAssertGreaterThan(timeline.metrics.outputFrameCount, 479_800)
+        XCTAssertLessThanOrEqual(timeline.metrics.outputFrameCount, 480_000)
+    }
+
+    func testSixtyMinuteClockModelStaysRecoverableAtPlusMinusOneHundredPPM() {
+        for ppm in [-100.0, 100.0] {
+            let actualRate = RecordingAudioTimeline.canonicalSampleRate * (1 + ppm / 1_000_000)
+            let batchDuration = 480 / actualRate
+            var presentationSeconds = 0.0
+            var expectedStart: Int64 = 0
+            var maximumCorrection: Int64 = 0
+
+            while presentationSeconds < 3_600 {
+                let requestedStart = Int64(
+                    (presentationSeconds * RecordingAudioTimeline.canonicalSampleRate).rounded()
+                )
+                let correction = RecordingAudioTimeline.recoverableClockDelta(
+                    requestedStart: requestedStart,
+                    expectedStart: expectedStart,
+                    limit: 48
+                )
+                XCTAssertNotNil(correction)
+                maximumCorrection = max(maximumCorrection, abs(correction ?? 0))
+                expectedStart = requestedStart + 480
+                presentationSeconds += batchDuration
+            }
+
+            let recoveredDuration = Double(expectedStart) / RecordingAudioTimeline.canonicalSampleRate
+            XCTAssertLessThanOrEqual(maximumCorrection, 1)
+            XCTAssertLessThan(abs(recoveredDuration - 3_600), 0.011)
+        }
+    }
+
+    func testDeterministicRandomPartitionsAndCallbackJitterKeepExactOutput() throws {
+        let collector = TimelineCollector()
+        let timeline = makeTimeline(
+            configuration: .init(reorderWindowFrames: 9_600),
+            frameSink: collector.append
+        )
+        let totalFrames = 48_000
+        var offsets: [RecordingAudioInput: Int] = [.microphone: 0, .systemAudio: 0]
+        var state: UInt64 = 0x177_AEC3
+
+        while offsets.values.contains(where: { $0 < totalFrames }) {
+            state = state &* 6_364_136_223_846_793_005 &+ 1
+            let preferred: RecordingAudioInput = state.isMultiple(of: 2) ? .microphone : .systemAudio
+            let source = offsets[preferred, default: 0] < totalFrames
+                ? preferred
+                : (preferred == .microphone ? .systemAudio : .microphone)
+            let offset = offsets[source, default: 0]
+            let count = min(totalFrames - offset, 1 + Int((state >> 32) % 4_096))
+            try timeline.append(
+                source: source,
+                batch: batch(
+                    samples: Array(repeating: source == .microphone ? 0.4 : 0.2, count: count),
+                    at: Double(offset) / RecordingAudioTimeline.canonicalSampleRate
+                )
+            )
+            offsets[source] = offset + count
+        }
+
+        try timeline.finish()
+        XCTAssertEqual(collector.samples.count, totalFrames)
+        XCTAssertTrue(collector.samples.allSatisfy { abs($0 - 0.3) < 0.0001 })
+    }
+
+    func testBackwardPTSAndExcessiveOverlapFailClosed() throws {
+        let backward = makeTimeline()
+        try backward.append(
+            source: .microphone,
+            batch: batch(samples: Array(repeating: 0.1, count: 480), at: 1)
+        )
+        try backward.append(
+            source: .systemAudio,
+            batch: batch(samples: Array(repeating: 0.1, count: 480), at: 1)
+        )
+        XCTAssertThrowsError(
+            try backward.append(
+                source: .microphone,
+                batch: batch(samples: Array(repeating: 0.1, count: 480), at: 0.99)
+            )
+        ) { error in
+            XCTAssertEqual(error as? RecordingAudioTimelineError, .lateBatch)
+        }
+
+        let overlap = makeTimeline()
+        try overlap.append(
+            source: .microphone,
+            batch: batch(samples: Array(repeating: 0.1, count: 480), at: 0)
+        )
+        try overlap.append(
+            source: .systemAudio,
+            batch: batch(samples: Array(repeating: 0.1, count: 480), at: 0)
+        )
+        XCTAssertThrowsError(
+            try overlap.append(
+                source: .microphone,
+                batch: batch(samples: Array(repeating: 0.1, count: 480), at: 0.005)
+            )
+        ) { error in
+            XCTAssertEqual(error as? RecordingAudioTimelineError, .lateBatch)
+        }
+    }
+
     func testRouteGenerationOrDroppedSourceFailsClosed() throws {
         let timeline = makeTimeline(configuration: .init(reorderWindowFrames: 0))
         try timeline.append(
@@ -447,6 +572,42 @@ final class RecordingAudioTimelineTests: XCTestCase {
         ) { error in
             XCTAssertEqual(error as? RecordingAudioTimelineError, .sourceOverflow)
         }
+    }
+
+    func testSourceFormatChangeFailsClosed() throws {
+        for changedFormat in [
+            RecordingAudioFormat(sampleRate: 44_100, channelCount: 1),
+            RecordingAudioFormat(sampleRate: 48_000, channelCount: 2)
+        ] {
+            let timeline = makeTimeline(configuration: .init(reorderWindowFrames: 0))
+            try timeline.append(
+                source: .microphone,
+                batch: batch(samples: Array(repeating: 0.1, count: 480), at: 0)
+            )
+            try timeline.append(
+                source: .systemAudio,
+                batch: batch(samples: Array(repeating: 0.1, count: 480), at: 0)
+            )
+            let sampleCount = changedFormat.channelCount * (changedFormat.sampleRate == 44_100 ? 441 : 480)
+            let changedBatch = RecordingAudioBatch(
+                samples: Array(repeating: 0.1, count: sampleCount),
+                format: changedFormat,
+                presentationTime: RecordingAudioPresentationTimestamp(seconds: 0.01, clockDomain: .wallClock),
+                routeGeneration: 0
+            )
+
+            XCTAssertThrowsError(try timeline.append(source: .microphone, batch: changedBatch)) { error in
+                XCTAssertEqual(error as? RecordingAudioTimelineError, .formatChanged)
+            }
+        }
+    }
+
+    func testClockDeltaOverflowIsNotRecoverable() {
+        XCTAssertNil(RecordingAudioTimeline.recoverableClockDelta(
+            requestedStart: .max,
+            expectedStart: .min,
+            limit: 48
+        ))
     }
 
     func testBootstrapCapacityFailsBeforeUnboundedSingleSourceBuffering() throws {

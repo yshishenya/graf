@@ -924,38 +924,6 @@ func contractScopeApproval() -> CaptureScopeApproval {
     )
 }
 
-private final class InfiniteContractSampleSource: LocalRecordingSampleSource, @unchecked Sendable {
-    func readSamples(into destination: UnsafeMutablePointer<Float>, capacity: Int) -> Int {
-        guard capacity > 0 else { return 0 }
-        for index in 0..<capacity {
-            destination[index] = 0.25
-        }
-        return capacity
-    }
-}
-
-private final class FiniteContractSampleSource: LocalRecordingSampleSource, @unchecked Sendable {
-    private let lock = NSLock()
-    private var samples: [Float]
-    private var offset = 0
-
-    init(samples: [Float]) {
-        self.samples = samples
-    }
-
-    func readSamples(into destination: UnsafeMutablePointer<Float>, capacity: Int) -> Int {
-        lock.withLock {
-            guard capacity > 0, offset < samples.count else { return 0 }
-            let count = min(capacity, samples.count - offset)
-            for index in 0..<count {
-                destination[index] = samples[offset + index]
-            }
-            offset += count
-            return count
-        }
-    }
-}
-
 private final class RecoveringSlowStartingContractRuntime: SystemAudioCaptureRuntime, @unchecked Sendable {
     private let firstStartDelaySeconds: TimeInterval
     private let lock = NSLock()

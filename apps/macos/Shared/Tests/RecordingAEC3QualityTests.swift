@@ -58,8 +58,65 @@ final class RecordingAEC3QualityTests: XCTestCase {
             db(rms(alignedEcho.lhs), over: projectedRMS(alignedEcho.rhs, onto: alignedEcho.lhs)),
             10
         )
-        XCTAssertLessThanOrEqual(abs(db(rms(alignedDoubleTalk.rhs), over: rms(alignedDoubleTalk.lhs))), 3)
+        XCTAssertLessThanOrEqual(
+            abs(db(projectedRMS(alignedDoubleTalk.rhs, onto: alignedDoubleTalk.lhs), over: rms(alignedDoubleTalk.lhs))),
+            3
+        )
         XCTAssertFalse(hasSilentRun(alignedDoubleTalk.rhs, longerThan: 960))
+    }
+
+    func testSmoothAcousticDelayDriftKeepsProcessingAndReducesEcho() throws {
+        let sampleCount = 12 * RecordingEchoProcessor.sampleRate
+        let farEnd = speechLikeSignal(count: sampleCount, seed: 0x177_AEC3, gain: 0.35)
+        let echo = farEnd.indices.map { index -> Float in
+            let progress = Double(index) / Double(max(1, farEnd.count - 1))
+            let delaySamples = Int((80 + 5 * progress) * Double(RecordingEchoProcessor.sampleRate) / 1_000)
+            return index >= delaySamples ? farEnd[index - delaySamples] * 0.5 : 0
+        }
+
+        let output = try process(render: farEnd, capture: echo)
+        let measuredStart = 7 * RecordingEchoProcessor.sampleRate
+
+        XCTAssertTrue(output.allSatisfy(\.isFinite))
+        XCTAssertGreaterThanOrEqual(
+            db(rms(Array(echo[measuredStart...])), over: rms(Array(output[measuredStart...]))),
+            10
+        )
+    }
+
+    func testCanonicalMixUsesCleanedMicrophoneWithoutReintroducingEcho() throws {
+        let sampleCount = 8 * RecordingEchoProcessor.sampleRate
+        let farEnd = speechLikeSignal(count: sampleCount, seed: 0xCA11_AEC3, gain: 0.35)
+        let echo = roomEcho(farEnd, delayMs: 80, rt60Seconds: 0.5)
+        var mixed: [Float] = []
+        let timeline = try RecordingAudioTimeline(
+            configuration: .init(reorderWindowFrames: 0),
+            echoProcessor: RecordingEchoProcessor()
+        ) { chunk in
+            mixed.append(contentsOf: chunk.samples)
+        }
+        let format = RecordingAudioFormat(sampleRate: 48_000, channelCount: 1)
+        let timestamp = RecordingAudioPresentationTimestamp(seconds: 0, clockDomain: .hostTime)
+
+        try timeline.append(source: .microphone, batch: RecordingAudioBatch(
+            samples: echo,
+            format: format,
+            presentationTime: timestamp
+        ))
+        try timeline.append(source: .systemAudio, batch: RecordingAudioBatch(
+            samples: farEnd,
+            format: format,
+            presentationTime: timestamp
+        ))
+        try timeline.finish()
+
+        let measuredStart = 5 * RecordingEchoProcessor.sampleRate
+        let rawEchoContribution = echo[measuredStart...].map { $0 * 0.5 }
+        let residual = zip(mixed[measuredStart...], farEnd[measuredStart...]).map { output, system in
+            output - system * 0.5
+        }
+        XCTAssertEqual(mixed.count, sampleCount)
+        XCTAssertGreaterThanOrEqual(db(rms(rawEchoContribution), over: rms(residual)), 20)
     }
 
     private func process(render: [Float], capture: [Float]) throws -> [Float] {
