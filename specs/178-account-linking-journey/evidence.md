@@ -123,3 +123,19 @@ PostgreSQL matrix доказала отдельно:
   Scan завершён `2026-08-20T22:04:16Z`; TAC connector был недоступен, поэтому
   видимость protected output отдельно не подтверждена и не использовалась как
   основание для security-вывода.
+- Первый review-fix fast gate на `8f79cdaab693b4b5ccfc310baaa7ccacf5d63432`
+  выявил deadlock между конкурентными accept/reject join-offer: audit insert и
+  activation guard брали offer/identity locks в разном порядке. Общий путь
+  исправлен на SHA `26d25163549d887a10e7b28eb02ade7fdbf8e4f0` — обе команды сначала
+  сериализуются на offer row, затем победивший accept проверяет account closure.
+  Focused PostgreSQL regression прошёл.
+- Post-fix immutable security scan `edf464f9-a3e4-4a81-b314-21c3659f29b8`
+  проверил точный диапазон
+  `8f79cdaab693b4b5ccfc310baaa7ccacf5d63432..26d25163549d887a10e7b28eb02ade7fdbf8e4f0`:
+  1 из 1 surface покрыта, findings и deferred items отсутствуют.
+- Финальный `infra/scripts/ci-local.sh --fast` завершён
+  `2026-08-20T22:12:06Z` на committed SHA
+  `26d25163549d887a10e7b28eb02ade7fdbf8e4f0`: `1120 passed`, server lint и
+  Python compile прошли, exit code `0`. Retained artifact ID:
+  `feature178-fast-ci-26d25163-20260820T2211Z`; SHA-256:
+  `8523d8c95e3186d7110f19f7e6b85f1a0de1c92a2ee5541952c46a392900c202`.
