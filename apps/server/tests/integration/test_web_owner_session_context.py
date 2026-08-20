@@ -992,6 +992,19 @@ def test_authenticated_email_link_failure_is_audited_before_terminal_callback(
         follow_redirects=False,
     )
     assert response.status_code == 400
+    retry_csrf = re.search(r'name="csrf_token" value="([^"]+)"', response.text)
+    assert retry_csrf is not None
+    retry = client.post(
+        "/settings/account/email-link/verify",
+        data={
+            "email": email,
+            "code": code,
+            "state": state,
+            "csrf_token": retry_csrf.group(1),
+        },
+        follow_redirects=False,
+    )
+    assert retry.status_code == 400
 
     async def read_result() -> tuple[str, str | None, int]:
         async with client.app_state["sessionmaker"]() as db:

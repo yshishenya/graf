@@ -15,10 +15,11 @@ account identifiers и private meeting content не использовались
 
 | Контракт | Команда | Результат |
 |---|---|---|
-| Route ownership и useful error documents | `swift test --package-path apps/macos --disable-swift-testing --filter 'DesktopCabinetWorkspaceTests|DesktopCabinetConfigurationTests'` | 74 passed |
-| GET-only headers и route allowlist | `swift test --package-path apps/macos --disable-swift-testing --filter 'DesktopCabinetNavigationRequestPolicyTests|DesktopCabinetRoutePolicyTests'` | 25 passed |
+| Route ownership и useful error documents | `swift test --package-path apps/macos --disable-swift-testing --filter 'DesktopCabinetWorkspaceTests\|DesktopCabinetConfigurationTests'` | 74 passed |
+| GET-only headers и route allowlist | `swift test --package-path apps/macos --disable-swift-testing --filter 'DesktopCabinetNavigationRequestPolicyTests\|DesktopCabinetRoutePolicyTests'` | 25 passed |
 | Web/embedded account form endpoints | `PYTHONPATH=apps/server/src uv run --project apps/server pytest -q apps/server/tests/contract/test_account_routes.py` | 26 passed, 2 existing dependency warnings |
 | Финальные email-link HTML/CSS контракты | focused account/static-asset selection | 7 passed, 2 existing dependency warnings |
+| CSRF retry после invalid/expired кода | focused PostgreSQL integration selection | 2 passed, следующая попытка остаётся 400, не 403 |
 | Repository fast gate | `infra/scripts/ci-local.sh --fast` | 1103 passed, lint passed, compile passed; 2 existing dependency warnings |
 | Whitespace | `git diff --check` | passed |
 
@@ -38,6 +39,9 @@ account identifiers и private meeting content не использовались
 - Correctness review: no findings after the active/pending-route guard was
   narrowed to the matching URL.
 - Auth/security and embedded UX review: no findings.
+- GitHub review found and closed one CSRF retry gap in displayed email-link
+  errors; a focused integration regression now submits the returned token and
+  proves the next attempt remains an auth error rather than a CSRF 403.
 - Ponytail review first removed two duplicated test fragments (about 20 lines);
   the final reviewed diff is lean with no further findings.
 

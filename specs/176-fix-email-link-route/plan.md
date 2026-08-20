@@ -57,7 +57,7 @@ phases and focused regression coverage; no auth redesign
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-- **Spec-driven delivery**: PASS — Feature 176 uses mandatory clarify,
+- **Spec-driven delivery**: PASS — Feature 176 uses mandatory clarification,
   security/UX checklists, tasks, analyze and issue sync before implementation.
 - **Auth/privacy boundary**: PASS — only desktop navigation ownership changes;
   server auth, session, CSRF, rate limit and account-link rules stay intact.
@@ -112,13 +112,19 @@ apps/macos/
 └── Shared/Tests/DesktopCabinetWorkspaceTests.swift
 
 apps/server/
+├── src/twobrain_rec_server/cabinet/auth_rendering.py
+├── src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css
+├── src/twobrain_rec_server/cabinet/templates/cabinet/auth/email_code.html
+├── src/twobrain_rec_server/cabinet/web_routes/auth_email_flow.py
 ├── src/twobrain_rec_server/cabinet/web_routes/settings.py
-└── tests/contract/test_account_routes.py
+├── tests/contract/test_account_routes.py
+├── tests/contract/test_cabinet_static_assets_contract.py
+└── tests/integration/test_web_owner_session_context.py
 ```
 
 **Structure Decision**: Reuse the existing WebView route-identity owner and its
-existing test module. Server files are validation-only unless a focused check
-proves the documented POST-only contract changed.
+existing test module. Server rendering disables only the problematic embedded
+entry animation; the existing auth flow preserves CSRF for every retry form.
 
 ## Complexity Tracking
 

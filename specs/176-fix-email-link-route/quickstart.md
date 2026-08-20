@@ -4,8 +4,10 @@
 
 ```sh
 swift test --package-path apps/macos --disable-swift-testing --filter DesktopCabinetWorkspaceTests
+swift test --package-path apps/macos --disable-swift-testing --filter DesktopCabinetConfigurationTests
 swift test --package-path apps/macos --disable-swift-testing --filter DesktopCabinetNavigationRequestPolicyTests
 PYTHONPATH=apps/server/src uv run --project apps/server pytest -q apps/server/tests/contract/test_account_routes.py
+PYTHONPATH=apps/server/src uv run --project apps/server pytest -q apps/server/tests/integration/test_web_owner_session_context.py -k authenticated_email_link_failure_is_audited_before_terminal_callback
 infra/scripts/ci-local.sh --fast
 ```
 
