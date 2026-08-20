@@ -281,24 +281,58 @@ def test_linked_workspace_migration_handles_optional_legacy_check_and_adds_merge
 
     command.upgrade(alembic_config, "0073_account_auth_linking")
 
-    async def add_legacy_check() -> None:
+    async def prepare_pre_upgrade_schema() -> tuple[str, str, str]:
         engine = create_async_engine(postgres_clean_database_url)
         try:
             async with engine.begin() as connection:
+                referral_policy = await connection.scalar(
+                    text(
+                        "select pg_get_expr(policy.polqual, policy.polrelid) "
+                        "from pg_policy policy "
+                        "where policy.polrelid = 'referral_attributions'::regclass "
+                        "and policy.polname = 'referral_attributions_user_history'"
+                    )
+                )
+                fair_use_policy = (
+                    await connection.execute(
+                        text(
+                            "select pg_get_expr(policy.polqual, policy.polrelid), "
+                            "pg_get_expr(policy.polwithcheck, policy.polrelid) "
+                            "from pg_policy policy "
+                            "where policy.polrelid = 'fair_use_reviews'::regclass "
+                            "and policy.polname = 'fair_use_reviews_tenant_isolation'"
+                        )
+                    )
+                ).one()
+                if legacy_check_exists:
+                    await connection.execute(
+                        text(
+                            "alter table workspaces add constraint legacy_workspace_kind_check "
+                            "check (kind in ('personal', 'corporate'))"
+                        )
+                    )
                 await connection.execute(
                     text(
-                        "alter table workspaces add constraint legacy_workspace_kind_check "
-                        "check (kind in ('personal', 'corporate'))"
+                        "create policy trial_activations_lineage_history on trial_activations "
+                        "for select using (false)"
                     )
+                )
+                return (
+                    str(referral_policy).lower(),
+                    str(fair_use_policy[0]).lower(),
+                    str(fair_use_policy[1]).lower(),
                 )
         finally:
             await engine.dispose()
 
-    if legacy_check_exists:
-        asyncio.run(add_legacy_check())
+    (
+        legacy_referral_policy,
+        legacy_fair_use_using,
+        legacy_fair_use_check,
+    ) = asyncio.run(prepare_pre_upgrade_schema())
     command.upgrade(alembic_config, "head")
 
-    async def inspect_schema() -> tuple[list[str], str, dict[str, tuple[bool, str]], str, str]:
+    async def inspect_schema() -> tuple[list[str], str, dict[str, tuple[bool, str]], str, str, str]:
         engine = create_async_engine(postgres_clean_database_url)
         try:
             async with engine.begin() as connection:
@@ -332,6 +366,14 @@ def test_linked_workspace_migration_handles_optional_legacy_check_and_adds_merge
                     text(
                         "select pg_get_functiondef("
                         "'rec_current_user_owns_lineage_workspace(uuid)'::regprocedure)"
+                    )
+                )
+                trial_lineage_policy = await connection.scalar(
+                    text(
+                        "select pg_get_expr(policy.polqual, policy.polrelid) "
+                        "from pg_policy policy "
+                        "where policy.polrelid = 'trial_activations'::regclass "
+                        "and policy.polname = 'trial_activations_lineage_history'"
                     )
                 )
                 proof_columns = {
@@ -390,6 +432,7 @@ def test_linked_workspace_migration_handles_optional_legacy_check_and_adds_merge
                     proof_columns,
                     str(account_merge_helper).lower(),
                     str(lineage_workspace_helper).lower(),
+                    str(trial_lineage_policy).lower(),
                 )
         finally:
             await engine.dispose()
@@ -400,6 +443,7 @@ def test_linked_workspace_migration_handles_optional_legacy_check_and_adds_merge
         proof_columns,
         account_merge_helper,
         lineage_workspace_helper,
+        trial_lineage_policy,
     ) = asyncio.run(inspect_schema())
 
     assert len(constraints) == 1
@@ -429,10 +473,14 @@ def test_linked_workspace_migration_handles_optional_legacy_check_and_adds_merge
     assert "proof_identity.is_verified" in account_merge_helper
     assert "proof_callback.result = 'completed'" in account_merge_helper
     assert "proof_callback.used_at is not null" in account_merge_helper
-    assert "proof_link.status in ('callback_verified', 'confirmed')" in account_merge_helper
+    assert "proof_link.target_provider_identity_id = proof_identity.id" in account_merge_helper
+    assert "proof_link.status = 'confirmed'" in account_merge_helper
+    assert "callback_verified" not in account_merge_helper
     assert "session_user = 'twobrain_rec_app'" in lineage_workspace_helper
     assert "lineage_workspace.kind in ('personal', 'linked')" in lineage_workspace_helper
     assert "lineage_membership.status = 'active'" in lineage_workspace_helper
+    assert "rec_context_kind()" in trial_lineage_policy
+    assert "rec_current_user_lineage_contains(user_id)" in trial_lineage_policy
 
     with pytest.raises(RuntimeError, match="while linked workspaces exist"):
         command.downgrade(alembic_config, "0073_account_auth_linking")
@@ -451,10 +499,7 @@ def test_linked_workspace_migration_handles_optional_legacy_check_and_adds_merge
                     == "linked"
                 )
                 await connection.execute(
-                    text(
-                        "delete from workspaces "
-                        "where id = '92000000-0000-0000-0000-000000000001'"
-                    )
+                    text("delete from workspaces where id = '92000000-0000-0000-0000-000000000001'")
                 )
                 await connection.execute(
                     text(
@@ -468,7 +513,9 @@ def test_linked_workspace_migration_handles_optional_legacy_check_and_adds_merge
     asyncio.run(remove_linked_fixture())
     command.downgrade(alembic_config, "0073_account_auth_linking")
 
-    async def inspect_downgraded_schema() -> tuple[list[str], str, bool, bool]:
+    async def inspect_downgraded_schema() -> tuple[
+        list[str], str, bool, bool, bool, bool, list[str], str, str, str, str
+    ]:
         engine = create_async_engine(postgres_clean_database_url)
         try:
             async with engine.begin() as connection:
@@ -504,11 +551,71 @@ def test_linked_workspace_migration_handles_optional_legacy_check_and_adds_merge
                         "'rec_current_user_owns_lineage_workspace(uuid)') is not null"
                     )
                 )
+                lineage_helper_exists = await connection.scalar(
+                    text(
+                        "select to_regprocedure("
+                        "'rec_current_user_lineage_contains(uuid)') is not null"
+                    )
+                )
+                trial_lineage_policy_exists = await connection.scalar(
+                    text(
+                        "select exists(select 1 from pg_policy policy "
+                        "where policy.polrelid = 'trial_activations'::regclass "
+                        "and policy.polname = 'trial_activations_lineage_history')"
+                    )
+                )
+                workspace_kind_constraints = (
+                    await connection.scalars(
+                        text(
+                            "select pg_get_constraintdef(constraint_row.oid) "
+                            "from pg_constraint constraint_row "
+                            "join pg_attribute attribute_row "
+                            "on attribute_row.attrelid = constraint_row.conrelid "
+                            "and attribute_row.attnum = any(constraint_row.conkey) "
+                            "where constraint_row.conrelid = 'workspaces'::regclass "
+                            "and constraint_row.contype = 'c' "
+                            "and attribute_row.attname = 'kind'"
+                        )
+                    )
+                ).all()
+                personal_owner_index = await connection.scalar(
+                    text(
+                        "select indexdef from pg_indexes where schemaname = 'public' "
+                        "and tablename = 'workspaces' "
+                        "and indexname = 'uq_workspaces_personal_owner'"
+                    )
+                )
+                referral_policy = await connection.scalar(
+                    text(
+                        "select pg_get_expr(policy.polqual, policy.polrelid) "
+                        "from pg_policy policy "
+                        "where policy.polrelid = 'referral_attributions'::regclass "
+                        "and policy.polname = 'referral_attributions_user_history'"
+                    )
+                )
+                fair_use_policy = (
+                    await connection.execute(
+                        text(
+                            "select pg_get_expr(policy.polqual, policy.polrelid), "
+                            "pg_get_expr(policy.polwithcheck, policy.polrelid) "
+                            "from pg_policy policy "
+                            "where policy.polrelid = 'fair_use_reviews'::regclass "
+                            "and policy.polname = 'fair_use_reviews_tenant_isolation'"
+                        )
+                    )
+                ).one()
                 return (
                     [str(value) for value in proof_columns],
                     str(helper).lower(),
                     bool(helper_result),
                     bool(lineage_workspace_helper_exists),
+                    bool(lineage_helper_exists),
+                    bool(trial_lineage_policy_exists),
+                    [str(value).lower() for value in workspace_kind_constraints],
+                    str(personal_owner_index).lower(),
+                    str(referral_policy).lower(),
+                    str(fair_use_policy[0]).lower(),
+                    str(fair_use_policy[1]).lower(),
                 )
         finally:
             await engine.dispose()
@@ -518,6 +625,13 @@ def test_linked_workspace_migration_handles_optional_legacy_check_and_adds_merge
         downgraded_helper,
         downgraded_result,
         lineage_workspace_helper_exists,
+        lineage_helper_exists,
+        trial_lineage_policy_exists,
+        downgraded_workspace_constraints,
+        downgraded_personal_owner_index,
+        downgraded_referral_policy,
+        downgraded_fair_use_using,
+        downgraded_fair_use_check,
     ) = asyncio.run(inspect_downgraded_schema())
     assert downgraded_columns == []
     assert "initiating_auth_session_id" not in downgraded_helper
@@ -526,6 +640,65 @@ def test_linked_workspace_migration_handles_optional_legacy_check_and_adds_merge
     assert "'completed'" in downgraded_helper
     assert downgraded_result is False
     assert lineage_workspace_helper_exists is False
+    assert lineage_helper_exists is False
+    assert trial_lineage_policy_exists is False
+    assert len(downgraded_workspace_constraints) == 1
+    assert all(kind in downgraded_workspace_constraints[0] for kind in ("personal", "corporate"))
+    assert "linked" not in downgraded_workspace_constraints[0]
+    assert "unique index uq_workspaces_personal_owner" in downgraded_personal_owner_index
+    assert "(organization_id, owner_user_id)" in downgraded_personal_owner_index
+    assert "where" in downgraded_personal_owner_index
+    assert "kind" in downgraded_personal_owner_index
+    assert "personal" in downgraded_personal_owner_index
+    assert "linked" not in downgraded_personal_owner_index
+    assert downgraded_referral_policy == legacy_referral_policy
+    assert downgraded_fair_use_using == legacy_fair_use_using
+    assert downgraded_fair_use_check == legacy_fair_use_check
+
+    command.upgrade(alembic_config, "head")
+
+    async def inspect_reupgraded_schema() -> tuple[list[str], str]:
+        engine = create_async_engine(postgres_clean_database_url)
+        try:
+            async with engine.begin() as connection:
+                proof_columns = (
+                    await connection.scalars(
+                        text(
+                            "select column_name from information_schema.columns "
+                            "where table_schema = 'public' "
+                            "and table_name = 'account_merge_intents' "
+                            "and column_name = any(:column_names)"
+                        ),
+                        {
+                            "column_names": [
+                                "initiating_auth_session_id",
+                                "source_external_identity_id",
+                                "proof_callback_state_id",
+                                "provider_link_state_id",
+                            ]
+                        },
+                    )
+                ).all()
+                helper = await connection.scalar(
+                    text(
+                        "select pg_get_functiondef("
+                        "'rec_account_merge_context_valid()'::regprocedure)"
+                    )
+                )
+                return sorted(str(value) for value in proof_columns), str(helper).lower()
+        finally:
+            await engine.dispose()
+
+    reupgraded_columns, reupgraded_helper = asyncio.run(inspect_reupgraded_schema())
+    assert reupgraded_columns == sorted(
+        (
+            "initiating_auth_session_id",
+            "source_external_identity_id",
+            "proof_callback_state_id",
+            "provider_link_state_id",
+        )
+    )
+    assert "proof_link.target_provider_identity_id = proof_identity.id" in reupgraded_helper
 
 
 def test_fair_use_review_metadata_constraints_are_postgres_enforced(

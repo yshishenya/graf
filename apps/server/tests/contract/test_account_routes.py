@@ -9,8 +9,10 @@ import pytest
 from fastapi.responses import RedirectResponse
 from fastapi.routing import APIRoute
 
+from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.auth.account_closure import AccountCloseView
 from twobrain_rec_server.auth.account_merge import MergeEntityCounts, build_merge_preview
+from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
 from twobrain_rec_server.auth.workspace_onboarding import WorkspaceAccessView
 from twobrain_rec_server.cabinet.auth_rendering import (
     render_email_code_page,
@@ -105,6 +107,37 @@ def test_account_merge_preview_routes_keep_browser_desktop_parity() -> None:
         "/settings/account/merge/{intent_id}",
         "/desktop/settings/account/merge/{intent_id}",
     } <= routes.keys()
+
+
+@pytest.mark.asyncio
+async def test_account_merge_intent_lookup_rejects_missing_session_before_query() -> None:
+    class QueryMustNotRun:
+        async def scalar(self, _statement):
+            raise AssertionError("sessionless intent lookup reached the database")
+
+    principal = AuthenticatedPrincipal(
+        user_id=UUID(int=2),
+        organization_id=UUID(int=3),
+        workspace_ids=frozenset({UUID(int=4)}),
+        subject="sessionless",
+    )
+    tenant_scope = TenantScope(
+        organization_id=principal.organization_id,
+        workspace_id=UUID(int=4),
+        user_id=principal.user_id,
+        device_id=UUID(int=5),
+    )
+
+    with pytest.raises(ProblemDetail) as error:
+        await account_merge_routes._owned_intent(
+            QueryMustNotRun(),
+            intent_id=UUID(int=1),
+            principal=principal,
+            tenant_scope=tenant_scope,
+        )
+
+    assert error.value.status == 404
+    assert error.value.code == "merge_intent_not_found"
 
 
 def test_account_merge_forms_keep_browser_and_desktop_return_routes() -> None:

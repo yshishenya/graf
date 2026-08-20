@@ -427,7 +427,8 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
     }
 
     private func isSafePathComponent(_ value: String) -> Bool {
-        !value.isEmpty && value.range(of: #"^[A-Za-z0-9_.-]+$"#, options: .regularExpression) != nil
+        value != "." && value != ".." &&
+            value.range(of: #"^[A-Za-z0-9_.-]+$"#, options: .regularExpression) != nil
     }
 
     private func isLoginRoute(_ components: [String]) -> Bool {

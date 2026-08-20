@@ -28,6 +28,7 @@ from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
 from twobrain_rec_server.auth.sessions import hash_token
 from twobrain_rec_server.auth.workspace_onboarding import ensure_personal_workspace
 from twobrain_rec_server.cabinet.web_routes import auth as auth_routes
+from twobrain_rec_server.cabinet.web_routes import auth_email_flow as auth_email_flow_module
 from twobrain_rec_server.db.models import (
     AccountMergeIntent,
     AuthAuditEvent,
@@ -42,6 +43,7 @@ from twobrain_rec_server.db.models import (
     WorkspaceMembership,
     WorkspaceSubscription,
 )
+from twobrain_rec_server.db.tenant_context import WorkspaceAuthContext, apply_tenant_context
 
 OWNER_REVIEW_TEST_TOKEN = "owner-review-session-cookie-token"
 BROWSER_OWNER_EMAIL = "owner@example.test"
@@ -1076,7 +1078,9 @@ def test_authenticated_email_link_failure_is_audited_before_terminal_callback(
     assert client.portal.call(read_result) == (expected_result, expected_error, 1)
 
 
-def test_authenticated_email_link_requires_preview_for_one_other_account(client) -> None:
+def test_authenticated_email_link_requires_preview_for_one_other_account(
+    monkeypatch, client
+) -> None:
     source_user_id = uuid4()
     source_workspace_id = uuid4()
     email = "one-other-account@example.test"
@@ -1123,11 +1127,19 @@ def test_authenticated_email_link_requires_preview_for_one_other_account(client)
 
     client.portal.call(seed_source)
     csrf = _login_owner_and_get_settings_csrf(client)
+    applied_contexts: list[object] = []
+
+    async def track_context(db, context) -> None:
+        applied_contexts.append(context)
+        await apply_tenant_context(db, context)
+
+    monkeypatch.setattr(auth_email_flow_module, "apply_tenant_context", track_context)
     state, code, link_csrf = _start_email_link(
         client,
         email=email,
         csrf_token=csrf,
     )
+    applied_contexts.clear()
     verified = client.post(
         "/settings/account/email-link/verify",
         data={
@@ -1140,6 +1152,13 @@ def test_authenticated_email_link_requires_preview_for_one_other_account(client)
     )
 
     assert verified.status_code == 303
+    expected_preview_context = WorkspaceAuthContext(
+        workspace_id=PERSONAL_WORKSPACE_ID,
+        organization_id=ORG_ID,
+        user_id=USER_ID,
+        context_kind="auth_bootstrap",
+    )
+    assert applied_contexts.count(expected_preview_context) == 2
     match = re.fullmatch(r"/settings/account/merge/([0-9a-f-]+)", verified.headers["location"])
     assert match is not None, verified.headers["location"]
     intent_id = UUID(match.group(1))
@@ -1147,12 +1166,8 @@ def test_authenticated_email_link_requires_preview_for_one_other_account(client)
     preview_page = client.get(verified.headers["location"])
     assert preview_page.status_code == 200
     csrf_match = re.search(r'name="csrf_token" value="([^"]+)"', preview_page.text)
-    fingerprint_match = re.search(
-        r'name="preview_fingerprint" value="([^"]+)"', preview_page.text
-    )
-    idempotency_match = re.search(
-        r'name="idempotency_key" value="([^"]+)"', preview_page.text
-    )
+    fingerprint_match = re.search(r'name="preview_fingerprint" value="([^"]+)"', preview_page.text)
+    idempotency_match = re.search(r'name="idempotency_key" value="([^"]+)"', preview_page.text)
     assert csrf_match is not None
     assert fingerprint_match is not None
     assert idempotency_match is not None

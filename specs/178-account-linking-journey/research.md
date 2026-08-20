@@ -119,9 +119,11 @@ state. Trial/referral/fair-use eligibility учитывает source rows чер
 переносятся/deduplicate; audit actors остаются неизменными. Whole-account close
 доступен только из primary personal workspace.
 
-Billing notification preferences объединяются privacy-safe: optional email
-остаётся включённым только если он был включён в обоих профилях. Calendar
-preferences и active personal summary templates переносятся/deduplicate;
+Billing notification preferences объединяются privacy-safe: каждый optional
+канал (`optional_email_enabled` и `optional_in_app_enabled`) остаётся включённым
+только если он был включён в обоих профилях (logical AND). Нормативное правило
+закреплено в FR-034 и account-linking contract. Calendar preferences и active
+personal summary templates переносятся/deduplicate;
 collision одинакового template key/version блокирует операцию. Незавершённые
 uploads и requested exports блокируют merge, terminal upload/export rows и
 неактивные sessions/devices сохраняют исторического actor.

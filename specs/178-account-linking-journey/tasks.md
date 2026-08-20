@@ -41,7 +41,7 @@
 - [X] T013 [P] [US1] Добавить failing PostgreSQL integration cases для personal+personal success, default/custom name, stable workspace/meeting IDs, identities/memberships, sessions/devices, rollback, stale, expired и same/different-key replay в `apps/server/tests/integration/test_account_merge.py`
 - [X] T014 [P] [US1] Добавить failing app-role/forced-RLS personal+personal case с workspace/domain row locks и post-merge access в `apps/server/tests/integration/test_rls_postgres_policies.py`
 - [X] T015 [P] [US1] Добавить failing end-to-end email-link preview/confirm/cancel/re-login flow с двумя реальными personal profiles для browser и desktop в `apps/server/tests/integration/test_web_owner_session_context.py`
-- [X] T016 [P] [US1] Добавить failing domain disposition cases для pending join offers, active user share grants, trial lineage, referral lineage, fair-use and billing/calendar/deletion blockers в `apps/server/tests/integration/test_account_merge.py`
+- [X] T016 [P] [US1] Добавить failing domain disposition cases для pending join offers, active user share grants, trial/referral/fair-use lineage, notification/calendar preferences, active summary templates и их collisions, а также billing/calendar/deletion и unfinished upload/requested export blockers в `apps/server/tests/integration/test_account_merge.py`
 
 ### Implementation for User Story 1
 
@@ -115,11 +115,14 @@
 ## Phase 7: Polish, review and release readiness
 
 - [X] T039 [P] Обновить понятный `[Unreleased]` changelog в `CHANGELOG.md`
-- [X] T040 Провести correctness/root-cause и security/privacy review, исправить findings и повторить focused tests в `apps/server/tests/`
+- [ ] T040 Провести correctness/root-cause и security/privacy review, исправить findings и повторить focused tests в `apps/server/tests/`
 - [X] T041 Провести UX/UI/IA/CX, accessibility и Product Design visual QA против выбранного mockup; исправить P0–P2, хранить captures вне git и записать report в `design-qa.md`
 - [X] T042 Провести Ponytail review, удалить дублирование/лишние механизмы и повторить затронутые regression checks в `apps/server/`
-- [X] T043 Выполнить `infra/scripts/ci-local.sh --fast` один раз на финальном diff и записать exact SHA/evidence в `specs/178-account-linking-journey/evidence.md`
-- [ ] T044 Синхронизировать `tasks.md` и GitHub issues, подготовить русский PR/review/merge и production release evidence по `docs/agent-guidance/release-and-validation.md`
+- [ ] T043 Выполнить `infra/scripts/ci-local.sh --fast` на финальном committed diff после review fixes и записать immutable tested SHA, retained artifact reference/digest и результат в `specs/178-account-linking-journey/evidence.md`
+- [X] T045 [P] Добавить runtime regression для legacy `AccountMergeIntent` без обязательных proof bindings: `proof_required`, без account/data mutation, в `apps/server/tests/integration/test_account_merge.py`
+- [X] T046 [P] Расширить downgrade regression проверкой восстановленного workspace-kind constraint, неизменного partial personal-owner index и точных legacy RLS policy predicates в `apps/server/tests/integration/test_postgres_migrations.py`
+- [X] T047 Закрепить доказуемый вне-git capture bundle ID и synthetic fixture digest без живых локальных путей в `specs/178-account-linking-journey/design-qa.md`; если прежний bundle недоступен, повторить synthetic captures перед closeout
+- [ ] T044 После T043, T045–T047 синхронизировать `tasks.md` и GitHub issues, подготовить русский PR/review/merge и production release evidence по `docs/agent-guidance/release-and-validation.md`
 
 ## Dependencies & Execution Order
 

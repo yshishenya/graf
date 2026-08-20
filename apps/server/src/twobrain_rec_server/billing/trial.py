@@ -23,10 +23,8 @@ def merged_user_lineage(user_id: UUID) -> CTE:
         .cte("merged_user_lineage", recursive=True)
     )
     source = aliased(UserIdentity)
-    return lineage.union_all(
-        select(source.id.label("user_id")).where(
-            source.merged_into_user_id == lineage.c.user_id
-        )
+    return lineage.union(
+        select(source.id.label("user_id")).where(source.merged_into_user_id == lineage.c.user_id)
     )
 
 
@@ -68,7 +66,9 @@ class TrialWindow:
         return datetime.now(UTC) < self.ends_at
 
 
-def activate_trial(*, user_id: UUID, now: datetime, policy_version: str, verified: bool, eligible: bool) -> TrialWindow:
+def activate_trial(
+    *, user_id: UUID, now: datetime, policy_version: str, verified: bool, eligible: bool
+) -> TrialWindow:
     if not verified:
         raise PermissionError("verified identity is required")
     if not eligible:
@@ -78,4 +78,8 @@ def activate_trial(*, user_id: UUID, now: datetime, policy_version: str, verifie
 
 
 def trial_plan_at(*, now: datetime, trial: TrialWindow | None) -> str:
-    return "trial" if trial is not None and trial.starts_at <= now.astimezone(UTC) < trial.ends_at else "free"
+    return (
+        "trial"
+        if trial is not None and trial.starts_at <= now.astimezone(UTC) < trial.ends_at
+        else "free"
+    )

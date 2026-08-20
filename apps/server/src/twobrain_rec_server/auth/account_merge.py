@@ -520,6 +520,7 @@ async def _merge_preview_from_db(
                 ExternalIdentity.id,
                 ExternalIdentity.user_id,
                 ExternalIdentity.provider,
+                ExternalIdentity.provider_subject,
                 ExternalIdentity.is_active,
                 ExternalIdentity.is_verified,
             )
@@ -530,7 +531,7 @@ async def _merge_preview_from_db(
         )
     )
     providers_by_user = {survivor_user_id: set(), source_user_id: set()}
-    for _id, user_id, provider, is_active, is_verified in identity_rows:
+    for _id, user_id, provider, _provider_subject, is_active, is_verified in identity_rows:
         if is_active and is_verified:
             providers_by_user[user_id].add(provider)
     survivor_provider_ids = tuple(sorted(providers_by_user[survivor_user_id]))
@@ -539,8 +540,15 @@ async def _merge_preview_from_db(
         _state_digest(
             "identity",
             (
-                (identity_id, user_id, provider, is_active, is_verified)
-                for identity_id, user_id, provider, is_active, is_verified in identity_rows
+                (identity_id, user_id, provider, provider_subject, is_active, is_verified)
+                for (
+                    identity_id,
+                    user_id,
+                    provider,
+                    provider_subject,
+                    is_active,
+                    is_verified,
+                ) in identity_rows
             ),
         ),
         _state_digest(
@@ -675,7 +683,6 @@ async def _merge_preview_from_db(
         or recurring_allowed
         or (paid_through is not None and _aware(paid_through) > now)
         or (trial_ends_at is not None and _aware(trial_ends_at) > now)
-        or billing_anchor is not None
         for (
             _workspace_id,
             _billing_owner_id,
@@ -685,7 +692,7 @@ async def _merge_preview_from_db(
             recurring_allowed,
             paid_through,
             trial_ends_at,
-            billing_anchor,
+            _billing_anchor,
         ) in subscription_rows
     )
     if (
@@ -915,6 +922,12 @@ async def _merge_preview_from_db(
             .order_by(WorkspaceJoinOffer.id)
         )
     )
+    active_offer_roles: dict[UUID, set[str]] = {}
+    for _id, _workspace_id, _user_id, invitation_id, role, status, expires_at in offer_rows:
+        if status == "offered" and _aware(expires_at) > now:
+            active_offer_roles.setdefault(invitation_id, set()).add(role)
+    if any(len(roles) > 1 for roles in active_offer_roles.values()):
+        blockers.add("workspace_role_conflict")
     grant_rows = list(
         await db.execute(
             select(
@@ -922,8 +935,12 @@ async def _merge_preview_from_db(
                 MeetingShareGrant.workspace_id,
                 MeetingShareGrant.meeting_id,
                 MeetingShareGrant.grantee_user_id,
+                MeetingShareGrant.audience_type,
                 MeetingShareGrant.audience_id,
                 MeetingShareGrant.status,
+                MeetingShareGrant.content_scope,
+                MeetingShareGrant.can_download,
+                MeetingShareGrant.can_export,
                 MeetingShareGrant.expires_at,
             )
             .where(MeetingShareGrant.grantee_user_id.in_((survivor_user_id, source_user_id)))
@@ -970,22 +987,57 @@ async def create_merge_intent(
     actor_user_id: UUID | None = None,
 ) -> tuple[AccountMergeIntent, MergePreview]:
     now = now or datetime.now(UTC)
-    existing = await db.scalar(
-        select(AccountMergeIntent)
-        .where(
-            AccountMergeIntent.survivor_user_id == survivor_user_id,
-            AccountMergeIntent.source_user_id == source_user_id,
-            AccountMergeIntent.status.in_(ACTIVE_INTENT_STATES),
-        )
-        .with_for_update()
+    requested_proof = (
+        initiating_auth_session_id,
+        source_external_identity_id,
+        proof_callback_state_id,
+        provider_link_state_id,
     )
-    if existing is not None and _aware(existing.expires_at) <= now:
-        existing.status = "expired"
-        existing.error_code = "merge_intent_expired"
-        await db.flush()
-        existing = None
-    intent = existing
-    if intent is None:
+    intent = None
+    while intent is None:
+        existing = await db.scalar(
+            select(AccountMergeIntent)
+            .where(
+                AccountMergeIntent.survivor_user_id == survivor_user_id,
+                AccountMergeIntent.source_user_id == source_user_id,
+                AccountMergeIntent.status.in_(ACTIVE_INTENT_STATES),
+            )
+            .with_for_update()
+        )
+        if existing is not None:
+            existing_proof = (
+                existing.initiating_auth_session_id,
+                existing.source_external_identity_id,
+                existing.proof_callback_state_id,
+                existing.provider_link_state_id,
+            )
+            if _aware(existing.expires_at) <= now:
+                existing.status = "expired"
+                existing.error_code = "merge_intent_expired"
+                await db.flush()
+            elif existing_proof == requested_proof:
+                intent = existing
+                continue
+            elif existing.status == "preview_ready" and (
+                existing.workspace_id == workspace_id
+                and existing.initiating_auth_session_id == initiating_auth_session_id
+                and existing.source_external_identity_id == source_external_identity_id
+            ):
+                existing.proof_callback_state_id = proof_callback_state_id
+                existing.provider_link_state_id = provider_link_state_id
+                existing.email_proof_state = email_proof_state
+                existing.oauth_proof_state = oauth_proof_state
+                existing.expires_at = now + timedelta(seconds=ttl_seconds)
+                existing.error_code = None
+                intent = existing
+                continue
+            elif existing.status == "preview_ready":
+                existing.status = "rejected"
+                existing.error_code = "account_state_changed"
+                await db.flush()
+            else:
+                intent = existing
+                continue
         preview = await _merge_preview_from_db(
             db,
             workspace_id=workspace_id,
@@ -1025,6 +1077,13 @@ async def create_merge_intent(
             )
             if intent is None:
                 raise
+            if (
+                intent.initiating_auth_session_id,
+                intent.source_external_identity_id,
+                intent.proof_callback_state_id,
+                intent.provider_link_state_id,
+            ) != requested_proof:
+                intent = None
     if any(
         value is None
         for value in (
@@ -1136,6 +1195,8 @@ async def confirm_merge_intent(
         )
     if intent.status in TERMINAL_INTENT_STATES:
         raise AccountMergeError(intent.error_code or intent.status)
+    if intent.status != "preview_ready":
+        raise AccountMergeError("account_state_changed")
     if _aware(intent.expires_at) <= _aware(now):
         intent.status = "expired"
         intent.error_code = "merge_intent_expired"
@@ -1206,8 +1267,11 @@ async def confirm_merge_intent(
             intent.provider_link_state_id is not None
             and (
                 proof_link is None
+                or proof_link.workspace_id != intent.workspace_id
+                or proof_link.initiating_user_id != intent.survivor_user_id
                 or proof_link.initiating_auth_session_id != proof_session.id
                 or proof_link.callback_state_id != proof_callback.id
+                or proof_link.target_provider_identity_id != proof_identity.id
                 or proof_link.status != "confirmed"
             )
         )
@@ -1405,6 +1469,18 @@ async def confirm_merge_intent(
                 grant.grantee_user_id = intent.survivor_user_id
                 grant.audience_id = intent.survivor_user_id
             else:
+                existing.content_scope = (
+                    "full_meeting"
+                    if "full_meeting" in {existing.content_scope, grant.content_scope}
+                    else "summary_only"
+                )
+                existing.can_download = existing.can_download or grant.can_download
+                existing.can_export = existing.can_export or grant.can_export
+                if existing.expires_at is not None and (
+                    grant.expires_at is None
+                    or _aware(grant.expires_at) > _aware(existing.expires_at)
+                ):
+                    existing.expires_at = grant.expires_at
                 grant.status = "revoked"
                 grant.revoked_at = now
                 grant.revoked_by_user_id = intent.survivor_user_id

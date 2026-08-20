@@ -27,18 +27,23 @@ async def referral_attribution_exists_for_lineage(
     *,
     user_id: UUID,
 ) -> bool:
+    """Require the exact referral-user context used by the PostgreSQL RLS helper."""
+
+    dialect_name = db.get_bind().dialect.name
+    if dialect_name == "postgresql":
+        context = db.info.get("tenant_context")
+        if (
+            not isinstance(context, dict)
+            or context.get("app.context_kind") != "auth_referral_user_lookup"
+            or context.get("app.user_id") != str(user_id)
+        ):
+            raise RuntimeError("exact referral user lookup context is required")
     predicate = (
         func.rec_current_user_lineage_contains(ReferralAttribution.invitee_user_id)
-        if db.get_bind().dialect.name == "postgresql"
-        else ReferralAttribution.invitee_user_id.in_(
-            select(merged_user_lineage(user_id).c.user_id)
-        )
+        if dialect_name == "postgresql"
+        else ReferralAttribution.invitee_user_id.in_(select(merged_user_lineage(user_id).c.user_id))
     )
-    existing = await db.scalar(
-        select(ReferralAttribution.id)
-        .where(predicate)
-        .limit(1)
-    )
+    existing = await db.scalar(select(ReferralAttribution.id).where(predicate).limit(1))
     return existing is not None
 
 

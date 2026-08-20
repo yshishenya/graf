@@ -27,9 +27,15 @@ transaction. Success revokes sessions and redirects to login on the same web or
 desktop surface.
 
 До mutation server повторно подтверждает exact initiating session, source
-identity и consumed callback state. Provider-link flow также сверяет exact link
-state. Missing/revoked/mismatched record возвращает `proof_required` либо
-`account_state_changed` без mutation.
+identity и consumed callback state. Email-link intent оставляет
+`provider_link_state_id` null. Provider-link-originated intent обязан хранить и
+повторно сверять exact `provider_link_state_id`, включая workspace, initiating
+user/session, callback state, допустимый terminal status и равенство
+`target_provider_identity_id` подтверждённой source identity. Legacy intent без
+обязательной session, source identity или callback binding возвращает
+`proof_required` без account/data mutation; missing/unusable/mismatched
+provider-link или target-identity binding также fail closed без account/data
+mutation.
 
 Expired confirm остаётся на recovery surface и не удаляет session cookie.
 Completed replay успешен только с тем же idempotency key; другой key получает
@@ -53,6 +59,13 @@ returns to account settings with copy: `Профили остались разд
 
 При отсутствии configured support экран честно сообщает об этом и оставляет
 безопасный возврат; он не обещает созданную заявку.
+
+## Preference merge contract
+
+Каждый optional billing-notification channel (`optional_email_enabled` и
+`optional_in_app_enabled`) сохраняется включённым только если он был включён в
+обоих профилях. Merge использует logical AND и не может молча включить канал,
+который хотя бы один профиль отключил.
 
 ## Accessibility and responsive contract
 

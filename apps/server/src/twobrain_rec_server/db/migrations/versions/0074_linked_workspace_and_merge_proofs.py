@@ -90,7 +90,8 @@ as $$
                   and proof_link.initiating_user_id = merge_intent.survivor_user_id
                   and proof_link.initiating_auth_session_id = proof_session.id
                   and proof_link.callback_state_id = proof_callback.id
-                  and proof_link.status in ('callback_verified', 'confirmed')
+                  and proof_link.target_provider_identity_id = proof_identity.id
+                  and proof_link.status = 'confirmed'
               )
           )
     )
@@ -331,8 +332,11 @@ def upgrade() -> None:
     if op.get_bind().dialect.name == "postgresql":
         op.execute(CURRENT_USER_LINEAGE_HELPER)
         op.execute(CURRENT_USER_OWNS_LINEAGE_WORKSPACE_HELPER)
-        op.execute("drop policy if exists referral_attributions_user_history on referral_attributions")
+        op.execute(
+            "drop policy if exists referral_attributions_user_history on referral_attributions"
+        )
         op.execute(REFERRAL_LINEAGE_POLICY)
+        op.execute("drop policy if exists trial_activations_lineage_history on trial_activations")
         op.execute(
             "create policy trial_activations_lineage_history on trial_activations "
             "for select using (rec_context_kind() in ('request', 'worker') "
@@ -344,9 +348,11 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    linked_workspace_count = op.get_bind().execute(
-        sa.text("select count(*) from workspaces where kind = 'linked'")
-    ).scalar_one()
+    linked_workspace_count = (
+        op.get_bind()
+        .execute(sa.text("select count(*) from workspaces where kind = 'linked'"))
+        .scalar_one()
+    )
     if linked_workspace_count:
         raise RuntimeError(
             "cannot downgrade linked workspace migration while linked workspaces exist"
@@ -357,7 +363,9 @@ def downgrade() -> None:
         op.execute("drop policy if exists fair_use_reviews_tenant_isolation on fair_use_reviews")
         op.execute(LEGACY_FAIR_USE_POLICY)
         op.execute("drop policy if exists trial_activations_lineage_history on trial_activations")
-        op.execute("drop policy if exists referral_attributions_user_history on referral_attributions")
+        op.execute(
+            "drop policy if exists referral_attributions_user_history on referral_attributions"
+        )
         op.execute(LEGACY_REFERRAL_USER_HISTORY_POLICY)
         op.execute("drop function if exists rec_current_user_owns_lineage_workspace(uuid)")
         op.execute("drop function if exists rec_current_user_lineage_contains(uuid)")

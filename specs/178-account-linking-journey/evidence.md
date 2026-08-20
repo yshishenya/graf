@@ -2,6 +2,11 @@
 
 **Date**: 2026-08-20
 
+**Final closeout status**: pending after the current review fixes. Результаты
+ниже — проверенный предыдущий snapshot; они не являются immutable evidence для
+финального diff, пока новый fast gate не привязан к exact commit и retained
+artifact.
+
 Все проверки metadata-only. Реальные email, коды, cookies, tokens, account IDs и
 содержимое встреч не записывались; browser fixtures использовали только
 синтетические профили и метаданные.
@@ -15,20 +20,41 @@
 | Focused Python unit/contract/auth flow | 68 passed |
 | PostgreSQL account merge, exact-role forced RLS, billing lineage и migration upgrade/downgrade regression | 31 passed, 2 existing dependency warnings |
 | Focused sidebar static/runtime contracts | 4 passed |
-| Repository fast gate | 1116 passed, lint/compile/legacy-audio guard passed |
+| Repository fast gate | 1116 passed, lint/compile/legacy-audio guard passed (previous snapshot) |
 | Ruff | passed |
 | Whitespace | `git diff --check` passed |
 
-Финальный fast gate выполнен командой `infra/scripts/ci-local.sh --fast` на
-feature diff поверх `43e20fea95e1d2bce1c44a647069b93ef5527722`. Первый closeout
-проход выявил и закрыл два тестовых хвоста: старый sidebar breakpoint contract
-стал проверять только геометрию app shell, а worker schema-head contract обновлён
-до packaged migration `0074_linked_workspace_proofs`. После финальных review
-повторный gate завершился: `1116 passed`, server lint/compile и legacy-audio
-guard passed, warnings — два существующих dependency warnings. Дополнительно
-focused PostgreSQL exact-role closeout после review: `3 passed`. Exact
-implementation SHA фиксируется PR после коммита; production deploy повторно
-проверяет неизменяемый merged SHA полным release gate.
+Последний review-fix проход после independent correctness и Ponytail review:
+`18 passed` на focused PostgreSQL matrix. Он включает account-closure
+finalization, forced-RLS activation boundary, exact provider proof и полный
+upgrade → downgrade → upgrade regression. Durable переход в `finalizing`
+теперь в той же транзакции закрывает identity, поэтому повторная активация
+fail closed даже когда closure-row не видна текущему RLS context. Downgrade
+сравнивает полные канонические PostgreSQL predicates с pre-upgrade snapshot,
+а не отдельные фрагменты строк. Два dependency warning остаются известными и
+не относятся к Feature 178.
+
+Предыдущий fast gate выполнен командой `infra/scripts/ci-local.sh --fast` на
+feature diff поверх base SHA
+`43e20fea95e1d2bce1c44a647069b93ef5527722`. Первый closeout проход выявил и
+закрыл два тестовых хвоста: старый sidebar breakpoint contract стал проверять
+только геометрию app shell, а worker schema-head contract обновлён до packaged
+migration `0074_linked_workspace_proofs`. Повторный gate для того snapshot
+завершился: `1116 passed`, server lint/compile и legacy-audio guard passed,
+warnings — два существующих dependency warnings. Дополнительно focused
+PostgreSQL exact-role closeout завершился: `3 passed`.
+
+Base SHA не идентифицирует итоговый tested tree, а retained log/artifact для
+этого запуска здесь не закреплён. Поэтому финальные closeout-поля остаются
+честно незаполненными до нового запуска на committed review diff:
+
+- `tested_commit_sha`: pending;
+- `fast_gate_artifact`: pending;
+- `fast_gate_artifact_sha256`: pending;
+- `fast_gate_run_at`: pending.
+
+Production deploy повторно проверяет неизменяемый merged SHA полным release
+gate, но не заменяет отсутствующее PR fast-gate evidence.
 
 PostgreSQL matrix доказала отдельно:
 
@@ -48,6 +74,9 @@ PostgreSQL matrix доказала отдельно:
 
 ## Visual and interaction evidence
 
+- Канонический synthetic capture bundle ID и fixture digest записаны один раз в
+  `design-qa.md`; bundle и fixture остаются вне git, живые локальные пути в
+  evidence не сохраняются.
 - Wide 1280 × 720 и mobile 390 × 844 состояния проверены на локальном
   server-rendered flow; шесть synthetic captures хранятся вне git.
 - Проверены preview, нижние primary/secondary actions, expired recovery,
@@ -66,6 +95,8 @@ PostgreSQL matrix доказала отдельно:
 
 ## Review status
 
+Следующие пункты относятся к предыдущему проверенному snapshot:
+
 - Correctness/security review закрыт: exact-session ownership, архивный template
   collision, referral checkout retry и fail-closed downgrade покрыты
   регрессиями. Финальный проход также закрыл terminal blocked-intent restart,
@@ -77,6 +108,11 @@ PostgreSQL matrix доказала отдельно:
   тестовым engine, закрывает его до удаления роли и убирает четыре повторных
   блока create/dispose. Лишний обход всех workspaces для trial lineage удалён:
   forced-RLS exact-role regression доказывает тот же результат из одного request
-  scope. Повторные независимые review: findings none; Ponytail: Lean already.
-- Repository fast gate пройден; PR exact SHA и production evidence добавляются
-  после фиксации финального diff.
+  scope. Для того snapshot повторные независимые review завершились с
+  `findings: none`; Ponytail: Lean already.
+- Предыдущий repository fast gate пройден для описанного snapshot. Финальный
+  review status, exact SHA и artifact reference остаются pending до нового
+  review-fix gate T043; production evidence добавляется release-процессом.
+- Последний Ponytail проход удалил отдельный 19-строчный self-test приватного
+  test-harness helper; сам helper продолжает использоваться всеми exact app-role
+  regression checks. Повторный targeted matrix прошёл.

@@ -6,6 +6,11 @@
   входа», сохранённый вне репозитория.
 - Browser-rendered captures: два wide 1280 × 720 и четыре состояния 390 × 844,
   сохранённые вне git без реальных пользовательских данных.
+- Capture bundle ID: `01a00c82-e14c-7bd0-9933-d972841d10b1/feature178-audit`;
+  synthetic fixture SHA-256:
+  `daa91c605f3ee2398f7c72d3a5e34ab3cd324b4292f4086e134b8a16d5d101b7`.
+  Bundle и fixture содержат только синтетические данные и остаются вне git;
+  живые локальные пути намеренно не записываются в evidence.
 - Reviewed states: confirmable preview, actions после внутренней прокрутки,
   expired intent, re-auth и billing blocker с recovery action.
 
@@ -48,4 +53,4 @@ blocker recovery на визуальных состояниях не остал�
 между страницами и конфликт Escape: первое нажатие закрывает меню профиля, а не
 два уровня интерфейса одновременно.
 
-final result: passed
+visual QA result: passed; reproducible capture reference: recorded above

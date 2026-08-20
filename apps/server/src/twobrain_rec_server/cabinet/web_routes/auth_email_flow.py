@@ -771,6 +771,15 @@ async def consume_email_link_code(
                 actor_user_id=principal.user_id,
             )
             await db.flush()
+        await apply_tenant_context(
+            db,
+            WorkspaceAuthContext(
+                workspace_id=workspace_id,
+                organization_id=principal.organization_id,
+                user_id=principal.user_id,
+                context_kind="auth_bootstrap",
+            ),
+        )
         if preview.blocker_codes:
             await _record_email_link_failure(
                 db,

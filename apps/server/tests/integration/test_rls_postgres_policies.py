@@ -28,6 +28,11 @@ from scripts.issue_smoke_auth_session import issue_smoke_auth_session
 from scripts.seed_smoke_identity import seed_identity
 from tests.fixtures.postgres_rls import optional_rls_test_database_url, rls_test_database_url
 from tests.fixtures.postgres_test_database import ensure_disposable_media_role
+from twobrain_rec_server.api.problems import ProblemDetail
+from twobrain_rec_server.auth.account_closure import (
+    begin_account_close_finalization,
+    ensure_account_membership_activation_allowed,
+)
 from twobrain_rec_server.auth.account_merge import confirm_merge_intent, preview_merge_intent
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal
 from twobrain_rec_server.auth.provider_links import ProviderLinkError, confirm_provider_link
@@ -249,6 +254,14 @@ async def _drop_probe_role(migration_url: str, role_name: str) -> None:
     engine = create_async_engine(migration_url, isolation_level="AUTOCOMMIT")
     try:
         async with engine.begin() as conn:
+            exists = bool(
+                await conn.scalar(
+                    text("select exists(select 1 from pg_roles where rolname = :role_name)"),
+                    {"role_name": role_name},
+                )
+            )
+            if not exists:
+                return
             quoted_role = _quote_identifier(role_name)
             await conn.execute(text(f"drop owned by {quoted_role}"))
             await conn.execute(text(f"drop role if exists {quoted_role}"))
@@ -258,6 +271,7 @@ async def _drop_probe_role(migration_url: str, role_name: str) -> None:
 
 @asynccontextmanager
 async def _exact_app_role_engine(migration_url: str) -> AsyncIterator[AsyncEngine]:
+    await _drop_probe_role(migration_url, "twobrain_rec_app")
     role_name, password = await _create_probe_role(
         migration_url,
         role_name="twobrain_rec_app",
@@ -1577,7 +1591,41 @@ async def test_merged_billing_lineage_remains_visible_and_appealable_under_force
                 AuthReferralUserLookupContext(user_id=ids["user_a"]),
             )
             assert await referral_attribution_exists_for_lineage(db, user_id=ids["user_a"])
+            await apply_tenant_context(
+                db,
+                AuthReferralUserLookupContext(user_id=ids["user_b"]),
+            )
+            with pytest.raises(RuntimeError, match="exact referral user lookup context"):
+                await referral_attribution_exists_for_lineage(db, user_id=ids["user_a"])
             await db.commit()
+
+    async with rls_engine.begin() as conn:
+        await apply_tenant_context_to_connection(
+            conn,
+            MaintenanceTenantContext(
+                operation_name="migration_verification",
+                actor_id="test_merged_billing_lineage_rls",
+                reason_category="rls_probe_cycle",
+                feature_area="security",
+            ),
+        )
+        await conn.execute(
+            text(
+                "update user_identities set status = 'merged', "
+                "merged_into_user_id = :source_user_id, merged_at = now() "
+                "where id = :survivor_user_id"
+            ),
+            {
+                "source_user_id": ids["user_b"],
+                "survivor_user_id": ids["user_a"],
+            },
+        )
+
+    async with _exact_app_role_engine(migrated_postgres_urls.migration_url) as app_engine:
+        sessionmaker = async_sessionmaker(app_engine, expire_on_commit=False)
+        async with sessionmaker() as db:
+            await apply_tenant_context(db, _request_context(ids, "a"))
+            assert await trial_used_by_lineage(db, user_id=ids["user_a"])
 
     async with rls_engine.connect() as conn:
         await apply_tenant_context_to_connection(
@@ -2555,12 +2603,14 @@ async def test_app_role_gets_only_proof_bound_account_merge_access(
                 """
                     insert into workspace_provider_link_states
                         (id, workspace_id, initiating_user_id,
-                         source_provider_identity_id, initiating_auth_session_id,
+                         source_provider_identity_id, target_provider_identity_id,
+                         initiating_auth_session_id,
                          callback_state_id, candidate_provider,
                          candidate_identity_subject, status, expires_at)
                     values
                         (:id, :workspace_id, :survivor_user_id, :source_provider_identity_id,
-                         :session_id, :callback_id, 'email', :candidate_subject,
+                         :target_provider_identity_id, :session_id, :callback_id,
+                         'email', :candidate_subject,
                          'callback_verified', now() + interval '15 minutes')
                     """
             ),
@@ -2569,6 +2619,7 @@ async def test_app_role_gets_only_proof_bound_account_merge_access(
                 "workspace_id": ids["workspace_a"],
                 "survivor_user_id": ids["user_a"],
                 "source_provider_identity_id": wrong_identity_id,
+                "target_provider_identity_id": source_identity_id,
                 "session_id": ids["session_a"],
                 "callback_id": callback_id,
                 "candidate_subject": f"merge-source-{ids['slug']}",
@@ -2721,7 +2772,7 @@ async def test_app_role_gets_only_proof_bound_account_merge_access(
             id=intent_id,
             link_id=provider_link_id,
         )
-        await assert_access(True)
+        await assert_access(False)
         await update_proof(
             "update workspace_provider_link_states set status = 'confirmed' where id = :id",
             id=provider_link_id,
@@ -2739,6 +2790,19 @@ async def test_app_role_gets_only_proof_bound_account_merge_access(
             "where id = :id",
             id=provider_link_id,
             callback_id=callback_id,
+        )
+        await update_proof(
+            "update workspace_provider_link_states set target_provider_identity_id = :identity_id "
+            "where id = :id",
+            id=provider_link_id,
+            identity_id=wrong_identity_id,
+        )
+        await assert_access(False)
+        await update_proof(
+            "update workspace_provider_link_states set target_provider_identity_id = :identity_id "
+            "where id = :id",
+            id=provider_link_id,
+            identity_id=source_identity_id,
         )
 
         await update_proof(
@@ -2970,15 +3034,22 @@ async def test_email_link_and_oauth_provider_link_terminal_states_restore_narrow
         provider_results = [
             result for result in different_state_results if not isinstance(result, str)
         ]
-        assert len(provider_results) == 1
-        assert different_state_results.count("account_state_changed") == 1
+        assert len(provider_results) == 2, different_state_results
+        assert len({result.merge_intent_id for result in provider_results}) == 1, (
+            different_state_results
+        )
         provider_result = provider_results[0]
 
         concurrent_results = await asyncio.gather(
             confirm_merge_link(link_ids[2]),
             confirm_merge_link(link_ids[2]),
         )
-        assert concurrent_results.count("account_state_changed") == 2
+        concurrent_provider_results = [
+            result for result in concurrent_results if not isinstance(result, str)
+        ]
+        assert len(concurrent_provider_results) == 1, concurrent_results
+        assert concurrent_results.count("provider_link_reused") == 1, concurrent_results
+        assert concurrent_provider_results[0].merge_intent_id == provider_result.merge_intent_id
         assert provider_result.status == "merge_preview_ready"
 
         async with sessionmaker() as db:
@@ -3081,7 +3152,9 @@ async def test_email_link_and_oauth_provider_link_terminal_states_restore_narrow
                 code=code,
                 state_nonce=merge_state.state_nonce,
             )
-            assert isinstance(merge_result, HTMLResponse)
+            assert isinstance(merge_result, EmailLinkCompletion)
+            assert merge_result.status == "merge_preview_ready"
+            assert merge_result.intent_id == provider_result.merge_intent_id
             await db.commit()
 
     async with rls_engine.connect() as conn:
@@ -3162,11 +3235,11 @@ async def test_email_link_and_oauth_provider_link_terminal_states_restore_narrow
             {"user_id": ids["user_a"]},
         )
 
-    assert link_status == 1
+    assert link_status == 3
     assert intent_status == "preview_ready"
-    assert sorted(email_callback_results) == ["completed", "completed", "completed", "failed"]
+    assert email_callback_results == ("completed",) * 4
     assert concurrent_identity_count == 1
-    assert merge_preview_audit_count == 1
+    assert merge_preview_audit_count == 4
 
 
 @pytest.mark.asyncio
@@ -3268,7 +3341,7 @@ async def test_forced_rls_account_merge_confirmation_revokes_access_after_comple
                     values
                         (:id, :workspace_id, :survivor_user_id, :source_user_id,
                          :session_id, :source_identity_id, :callback_id,
-                         'verified', 'verified', 'blocked',
+                         'verified', 'verified', 'preview_ready',
                          now() + interval '15 minutes')
                     """
             ),
@@ -3380,6 +3453,145 @@ async def test_forced_rls_account_merge_confirmation_revokes_access_after_comple
     assert source_membership_count == 1
     assert source_meeting_owner == ids["user_a"]
     assert survivor_session_status == "revoked"
+
+
+@pytest.mark.asyncio
+async def test_forced_rls_hidden_closure_blocks_finalizing_identity_activation(
+    rls_engine: AsyncEngine,
+    migrated_postgres_urls: MigratedPostgresUrls,
+) -> None:
+    ids = await _seed_probe_rows(rls_engine)
+    request_id = uuid4()
+    async with rls_engine.begin() as conn:
+        await apply_tenant_context_to_connection(
+            conn,
+            MaintenanceTenantContext(
+                operation_name="migration_verification",
+                actor_id="test_account_close_admin_race",
+                reason_category="rls_probe_seed",
+                feature_area="security",
+            ),
+        )
+        await conn.execute(
+            text(
+                "update user_identities set organization_id = :organization_id where id = :user_id"
+            ),
+            {"organization_id": ids["org_a"], "user_id": ids["user_b"]},
+        )
+        await conn.execute(
+            text(
+                "update workspaces set organization_id = :organization_id, "
+                "owner_user_id = :user_id, kind = 'personal' where id = :workspace_id"
+            ),
+            {
+                "organization_id": ids["org_a"],
+                "user_id": ids["user_b"],
+                "workspace_id": ids["workspace_b"],
+            },
+        )
+        await conn.execute(
+            text(
+                "insert into workspace_memberships "
+                "(workspace_id, user_id, role, status) "
+                "values (:workspace_id, :user_id, 'member', 'active')"
+            ),
+            {"workspace_id": ids["workspace_a"], "user_id": ids["user_b"]},
+        )
+        await conn.execute(
+            text(
+                "insert into account_closure_requests "
+                "(id, workspace_id, requested_by_user_id, request_key, state, "
+                "policy_version, requested_at, finalize_at, metadata_json) "
+                "values (:id, :workspace_id, :user_id, :request_key, 'scheduled', "
+                "'account-close-v1', now() - interval '8 days', "
+                "now() - interval '1 day', '{}'::json)"
+            ),
+            {
+                "id": request_id,
+                "workspace_id": ids["workspace_b"],
+                "user_id": ids["user_b"],
+                "request_key": f"forced-rls-close-{ids['slug']}",
+            },
+        )
+
+    async with _exact_app_role_engine(migrated_postgres_urls.migration_url) as app_engine:
+        sessionmaker = async_sessionmaker(app_engine, expire_on_commit=False)
+        async with sessionmaker() as db:
+            await apply_tenant_context(
+                db,
+                TenantDatabaseContext(
+                    organization_id=ids["org_a"],
+                    workspace_id=ids["workspace_a"],
+                    user_id=ids["user_a"],
+                ),
+            )
+            await ensure_account_membership_activation_allowed(db, user_id=ids["user_b"])
+            await db.rollback()
+
+        maintenance_sessionmaker = async_sessionmaker(rls_engine, expire_on_commit=False)
+        async with maintenance_sessionmaker() as db:
+            await apply_tenant_context(
+                db,
+                MaintenanceTenantContext(
+                    operation_name="migration_verification",
+                    actor_id="test_account_close_admin_race",
+                    reason_category="account_close_finalization",
+                    feature_area="security",
+                ),
+            )
+            view, workspace_ids = await begin_account_close_finalization(
+                db,
+                request_id=request_id,
+                now=datetime.now(UTC),
+            )
+            assert view.state == "finalizing"
+            assert workspace_ids == (ids["workspace_b"],)
+            await db.commit()
+
+        async with sessionmaker() as db:
+            await apply_tenant_context(
+                db,
+                TenantDatabaseContext(
+                    organization_id=ids["org_a"],
+                    workspace_id=ids["workspace_a"],
+                    user_id=ids["user_a"],
+                ),
+            )
+            with pytest.raises(ProblemDetail) as error:
+                await ensure_account_membership_activation_allowed(
+                    db,
+                    user_id=ids["user_b"],
+                )
+            assert error.value.code == "account_membership_activation_unavailable"
+            await db.rollback()
+
+    async with rls_engine.connect() as conn:
+        await apply_tenant_context_to_connection(
+            conn,
+            MaintenanceTenantContext(
+                operation_name="migration_verification",
+                actor_id="test_account_close_admin_race",
+                reason_category="rls_probe_verify",
+                feature_area="security",
+            ),
+        )
+        assert (
+            await conn.scalar(
+                text("select status from user_identities where id = :user_id"),
+                {"user_id": ids["user_b"]},
+            )
+            == "closed"
+        )
+        assert (
+            await conn.scalar(
+                text(
+                    "select status from workspace_memberships "
+                    "where workspace_id = :workspace_id and user_id = :user_id"
+                ),
+                {"workspace_id": ids["workspace_a"], "user_id": ids["user_b"]},
+            )
+            == "active"
+        )
 
 
 @pytest.mark.asyncio
@@ -3805,6 +4017,16 @@ def test_production_smoke_setup_migration_downgrade_removes_operation(
         finally:
             await engine.dispose()
 
+    async def remove_linked_workspace_downgrade_guard() -> None:
+        engine = create_async_engine(migrated_postgres_urls.migration_url)
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(
+                    text("update workspaces set kind = 'corporate' where kind = 'linked'")
+                )
+        finally:
+            await engine.dispose()
+
     monkeypatch.setenv("TWOBRAIN_DATABASE_URL", migrated_postgres_urls.migration_url)
     get_settings.cache_clear()
     config = Config(str(REPO_ROOT / "apps/server/alembic.ini"))
@@ -3814,6 +4036,7 @@ def test_production_smoke_setup_migration_downgrade_removes_operation(
     )
 
     assert asyncio.run(setup_allowed()) is True
+    asyncio.run(remove_linked_workspace_downgrade_guard())
     try:
         command.downgrade(config, "0022_playback_normalization")
         assert asyncio.run(setup_allowed()) is False

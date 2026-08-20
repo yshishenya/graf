@@ -13,6 +13,7 @@ from twobrain_rec_server.admin.permissions import (
 )
 from twobrain_rec_server.admin.queries import AdminWorkspaceContext
 from twobrain_rec_server.api.problems import ProblemDetail
+from twobrain_rec_server.auth.account_closure import ensure_account_membership_activation_allowed
 from twobrain_rec_server.billing.storage import lock_storage_workspace
 from twobrain_rec_server.db.models import (
     AdminAuditEvent,
@@ -300,6 +301,8 @@ async def update_workspace_membership(
         )
     if not decision.allowed:
         raise ProblemDetail(status=403, code="admin_forbidden", title="Admin access is restricted")
+    if requested_status == "active" and previous_status != "active":
+        await ensure_account_membership_activation_allowed(db, user_id=target_user_id)
     if requested_role is not None:
         membership.role = requested_role
     if requested_status is not None:

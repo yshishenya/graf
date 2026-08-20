@@ -200,6 +200,10 @@ async def _owned_intent(
     principal: AuthenticatedPrincipal,
     tenant_scope: TenantScope,
 ) -> AccountMergeIntent:
+    if principal.session_id is None:
+        raise ProblemDetail(
+            status=404, code="merge_intent_not_found", title="Предпросмотр не найден"
+        )
     intent = await db.scalar(
         select(AccountMergeIntent).where(
             AccountMergeIntent.id == intent_id,

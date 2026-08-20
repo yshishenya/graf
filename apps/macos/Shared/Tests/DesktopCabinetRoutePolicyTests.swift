@@ -114,6 +114,10 @@ final class DesktopCabinetRoutePolicyTests: XCTestCase {
             "/desktop/account/fair-use/unsafe provider/appeal",
             "/desktop/account/fair-use/7f3d6f9f-0f7f-4c13-a9af-000000000033/delete",
             "/desktop/settings/provider-links/unsafe provider/start",
+            "/desktop/settings/provider-links/./start",
+            "/desktop/settings/provider-links/../start",
+            "/desktop/settings/provider-links/%2E/start",
+            "/desktop/settings/provider-links/%2E%2E/start",
             "/desktop/settings/join-offers/7f3d6f9f-0f7f-4c13-a9af-000000000033/delete"
         ] {
             XCTAssertEqual(policy.decision(for: try url(route)).decision, .blockWithMessage, route)

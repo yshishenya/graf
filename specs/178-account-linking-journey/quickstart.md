@@ -36,7 +36,9 @@ uv run pytest \
    preview.
 3. На wide и 390px viewport проверить IA, фактические provider labels, отсутствие
    overflow, keyboard focus, disclosure и console errors.
-4. Сначала отменить и доказать zero mutation.
+4. Сначала отменить и доказать: account/data state не изменился; intent перешёл
+   в `cancelled` ровно один раз; повторный cancel идемпотентен и не создаёт
+   повторного audit/другого побочного эффекта.
 5. Создать новый intent, подтвердить и доказать: current personal workspace не
    изменился; source workspace стал `linked`; оба workspace/meeting IDs прежние;
    все sessions/devices revoked; login каждым сохранённым provider работает.
