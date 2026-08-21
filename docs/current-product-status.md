@@ -1,6 +1,6 @@
 # Текущий статус продукта
 
-Date: 2026-08-20
+Date: 2026-08-21
 
 ## Implementation update (2026-08-20) — Feature 177 WebRTC AEC3 recording
 
@@ -22,9 +22,12 @@ Date: 2026-08-20
   fail-closed смену source format, наблюдение default output device и удалил
   дублирующий non-PTS FIFO. Сквозной synthetic mix, smooth delay drift,
   60-minute plus/minus 100 ppm clock model и 1,000-frame p95 gate проходят.
-- Локальные synthetic/package/CI проверки выполняются в Feature 177. Реальный
-  двух-Mac hardware matrix, Developer ID/notarization и release/deploy пока не
-  заявлены.
+- Feature 177 опубликована как `v2026.08.21.3` на exact SHA
+  `65e411d143a544c6f955794e59bef55f1b5ef847`: full CI, production deploy,
+  Developer ID, notarization, stapling, Gatekeeper и Sparkle update прошли.
+  После выпуска владелец продукта подтвердил успешную T035-матрицу на двух
+  устройствах в двух комнатах; ручная аппаратная приёмка закрыта с явной
+  границей между listening evidence и синтетическими числовыми метриками.
 
 ## Implementation update (2026-08-15) — Feature 150 workspace clean cut
 

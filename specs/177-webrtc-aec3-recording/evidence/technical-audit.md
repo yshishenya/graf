@@ -127,6 +127,11 @@ compatibility; they are not runtime selectors.
   volume, far-end/near-end/double-talk, headphones, wired/Bluetooth route
   changes, clipping, a 60-minute run and listening acceptance.
 
+Post-release update: the list above records the limit at the time of this code
+audit. After `v2026.08.21.3` was published, the product owner completed and
+accepted T035 on two devices in two rooms. The manual evidence and its numeric
+measurement boundary are recorded in `hardware-validation.md`.
+
 ## Validation result
 
 - Vendored arm64/x86_64 artifact and native/Rosetta smoke: PASS.
