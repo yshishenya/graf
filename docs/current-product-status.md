@@ -29,6 +29,21 @@ Date: 2026-08-21
   устройствах в двух комнатах; ручная аппаратная приёмка закрыта с явной
   границей между listening evidence и синтетическими числовыми метриками.
 
+## Implementation update (2026-08-21) — Feature 168 calendar completion
+
+- Feature 168 опубликована как `v2026.08.21.5`: browser и embedded macOS
+  используют единый серверный поток календаря с подключением, выбором
+  календарей, ручной синхронизацией, upcoming meetings, понятными состояниями
+  и GRAF-side disconnect. Native menu-bar surface «Ближайшие встречи» и
+  ручные Record/Stop остаются доступны независимо от состояния календаря.
+- Production rollout на exact code SHA `6cd0eb5e7da3569ef4ddc62e1fa92aeed04cf3d4`
+  прошёл backup/restore, migration `0075_calendar_sync_maintenance`, RLS,
+  smoke и health/readiness. Google Calendar намеренно остаётся выключенным и
+  fail-closed до внешней Google verification и реального production E2E; UI
+  не заявляет поддержку для всех пользователей.
+- Подробные receipts: `docs/deployments/2brain-rec/release-v2026.08.21.5.md`
+  и `specs/168-calendar-integration-completion/validation/implementation-evidence.md`.
+
 ## Implementation update (2026-08-15) — Feature 150 workspace clean cut
 
 - Configured login workspace остаётся только внутренним auth-policy/RLS anchor
