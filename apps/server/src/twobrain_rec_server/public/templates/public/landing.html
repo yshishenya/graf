@@ -7,7 +7,7 @@
     {% include "public/_meta.html" %}
     <meta
       name="description"
-      content="GRAF записывает разговор без бота и привязки к сервису встречи. После обработки остаются расшифровка, краткий итог и следующие действия."
+      content="GRAF записывает разговор без бота, готовит расшифровку и итоги, а данные подключённого Google Calendar использует только для ближайших встреч, напоминаний и контекста."
     >
     <meta name="theme-color" content="#09080d">
     <link rel="icon" href="{{ cabinet_static_asset_url('favicon.ico') }}">
@@ -30,6 +30,7 @@
         <nav class="top-nav" aria-label="Основные разделы">
           <a href="#how">Запись</a>
           <a href="#result">Результат</a>
+          <a href="#calendar">Календарь</a>
           <a href="#trust">Данные</a>
         </nav>
         <div class="header-actions">
@@ -45,6 +46,7 @@
             <nav aria-label="Мобильная навигация">
               <a href="#how">Запись</a>
               <a href="#result">Результат</a>
+              <a href="#calendar">Календарь</a>
               <a href="#trust">Данные</a>
               <a href="{{ download_url }}">Скачать GRAF</a>
               <a href="{{ start_url }}">Войти</a>
@@ -210,9 +212,30 @@
           </article>
         </section>
 
+        <section class="reference-section reference-trust" id="calendar" aria-labelledby="calendar-title">
+          <header class="reference-section-head">
+            <span class="reference-section-index">03 / Календарь</span>
+            <div>
+              <p class="eyebrow">Данные Google — только для функций календаря</p>
+              <h2 id="calendar-title">Как GRAF использует Google Calendar</h2>
+              <p class="chapter-lede">
+                После подключения GRAF читает список календарей и события
+                только из выбранных пользователем календарей. Эти данные нужны,
+                чтобы показать ближайшие встречи, напомнить о начале и
+                предложить событие как контекст записи.
+              </p>
+            </div>
+          </header>
+          <dl class="reference-trust-facts">
+            <div><dt>Только чтение</dt><dd>GRAF не создаёт, не изменяет и не удаляет события Google Calendar.</dd></div>
+            <div><dt>Без скрытого запуска</dt><dd>Подключение календаря само по себе не начинает запись и не подключает пользователя к звонку.</dd></div>
+            <div><dt>Под контролем пользователя</dt><dd>Календари выбираются в настройках GRAF; доступ можно отключить в любой момент. <a href="/privacy">Подробнее о данных</a></dd></div>
+          </dl>
+        </section>
+
         <section class="reference-section reference-trust" id="trust" aria-labelledby="trust-title" data-analytics-section="trust">
           <header class="reference-section-head">
-            <span class="reference-section-index">03 / Данные и модели</span>
+            <span class="reference-section-index">04 / Данные и модели</span>
             <div>
               <p class="eyebrow">Понятный маршрут обработки</p>
               <h2 id="trust-title">Российские и локально развёрнутые модели</h2>
