@@ -120,7 +120,7 @@
 - [X] T032 [P] Update behavior, architecture, QA and known release limitation notes in `CHANGELOG.md`
 - [X] T033 Run focused Swift tests, the synthetic quality matrix and exact package checks from `specs/177-webrtc-aec3-recording/quickstart.md`, recording bounded outcomes in `specs/177-webrtc-aec3-recording/evidence/synthetic-validation.md`
 - [X] T034 Build the universal local ad-hoc installer, inspect architectures/linkage/signature/notices and run `infra/scripts/ci-local.sh --fast`, recording bounded outcomes in `specs/177-webrtc-aec3-recording/evidence/local-validation.md`
-- [ ] T035 Execute the two-Mac/two-room speaker, headphone, double-talk, volume, route-change and 60-minute matrix without committing raw audio in `specs/177-webrtc-aec3-recording/evidence/hardware-validation.md`
+- [X] T035 Execute the two-Mac/two-room speaker, headphone, double-talk, volume, route-change and 60-minute matrix without committing raw audio in `specs/177-webrtc-aec3-recording/evidence/hardware-validation.md`
 - [X] T036 Re-run `speckit-analyze`, `git diff --check`, repository legacy scans and the audio-capture checklist; record the final high-risk/no-release lane in `specs/177-webrtc-aec3-recording/evidence/closeout.md`
 
 ---
