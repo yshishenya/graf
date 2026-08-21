@@ -69,6 +69,7 @@ from twobrain_rec_server.cabinet.view_models import (
     safe_title,
 )
 from twobrain_rec_server.calendar.audit import calendar_context_activity_projections
+from twobrain_rec_server.calendar.google import google_oauth_config_from_settings
 from twobrain_rec_server.calendar.service import (
     SELECTABLE_CALENDAR_VISIBILITIES,
     calendar_event_matches_preferences,
@@ -266,6 +267,7 @@ async def get_calendar_settings_surface(
     db: AsyncSession,
     tenant_scope: TenantScope,
     *,
+    settings: object | None = None,
     notice_codes: tuple[str, ...] = (),
 ):
     from twobrain_rec_server.cabinet.view_models import calendar_settings_surface
@@ -276,6 +278,8 @@ async def get_calendar_settings_surface(
             .where(
                 CalendarSource.workspace_id == tenant_scope.workspace_id,
                 CalendarSource.owner_user_id == tenant_scope.user_id,
+                CalendarSource.disconnected_at.is_(None),
+                CalendarSource.connection_state != "disconnected",
             )
             .order_by(CalendarSource.created_at.desc())
         )
@@ -305,7 +309,17 @@ async def get_calendar_settings_surface(
         preference=preference,
     )
     return calendar_settings_surface(
-        provider_payloads=list_provider_presets(),
+        provider_payloads=list_provider_presets(
+            google_available=(
+                google_oauth_config_from_settings(settings) is not None
+                if settings is not None
+                else None
+            ),
+            allow_uncertified_google=(
+                settings is not None
+                and getattr(settings, "env", "production").lower() == "development"
+            ),
+        ),
         sources=sources,
         calendars_by_source=calendars_by_source,
         preference=preference,

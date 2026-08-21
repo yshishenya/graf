@@ -122,36 +122,44 @@ async def embedded_meeting_list_page(
     raw_status = request.query_params.get("status")
     canonical_status = _normalize_web_meeting_status_filter(raw_status)
     status_was_normalized = (
-        isinstance(raw_status, str)
-        and raw_status != ""
-        and canonical_status != raw_status
+        isinstance(raw_status, str) and raw_status != "" and canonical_status != raw_status
     )
     sort_was_normalized = sort != response.filters.sort
     needs_url_normalization = sort_was_normalized or status_was_normalized
-    canonical_path = _request_path_with_query(
-        request,
-        sort_override=response.filters.sort if sort_was_normalized else None,
-        status_override=status if status_was_normalized else None,
-    ) if needs_url_normalization else _request_path_with_query(request)
+    canonical_path = (
+        _request_path_with_query(
+            request,
+            sort_override=response.filters.sort if sort_was_normalized else None,
+            status_override=status if status_was_normalized else None,
+        )
+        if needs_url_normalization
+        else _request_path_with_query(request)
+    )
     if needs_url_normalization and not _is_hx_request(request):
         return RedirectResponse(url=canonical_path, status_code=303)
     if _is_hx_request(request):
         result = cabinet_html_response(
-            render_meeting_list_fragment(
-                response, embedded=True, poll_url=canonical_path
-            ),
+            render_meeting_list_fragment(response, embedded=True, poll_url=canonical_path),
             hx_request=True,
         )
         if needs_url_normalization:
             result.headers["HX-Replace-Url"] = canonical_path
         return result
+    profile = await get_account_profile_view(db, tenant_scope)
+    calendar_surface = await get_calendar_settings_surface(
+        db,
+        tenant_scope,
+        settings=request.app.state.settings,
+    )
     return cabinet_html_response(
         render_meeting_list_page(
             response,
             embedded=True,
+            calendar_surface=calendar_surface,
+            display_timezone=profile.timezone,
             csrf_token=_csrf_token_for_principal(request, principal),
             poll_url=canonical_path,
-            profile=await get_account_profile_view(db, tenant_scope),
+            profile=profile,
             product_analytics_provider=build_request_browser_provider_context(
                 request,
                 "embedded_desktop_webview",
@@ -259,8 +267,7 @@ async def embedded_meeting_detail_page(
     if response.access is not None and not response.access.can_view_full_meeting:
         return RedirectResponse(
             url=(
-                f"/shared-meetings/{parsed_meeting_id}"
-                f"?workspace_id={tenant_scope.workspace_id}"
+                f"/shared-meetings/{parsed_meeting_id}" f"?workspace_id={tenant_scope.workspace_id}"
             ),
             status_code=302,
         )
@@ -306,7 +313,9 @@ async def embedded_meeting_share_fragment(
     db: AsyncSession | None = WebDbDependency,
 ) -> HTMLResponse:
     if db is None:
-        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
     response = await get_cabinet_meeting_review(
         db,
         workspace_id=tenant_scope.workspace_id,
@@ -350,6 +359,7 @@ async def embedded_calendar_settings_page(
     surface = await get_calendar_settings_surface(
         db,
         tenant_scope,
+        settings=request.app.state.settings,
         notice_codes=calendar_settings_notice_codes(
             connect_result=connect_result,
             policy_limited=policy_limited,
@@ -375,11 +385,13 @@ async def embedded_calendar_settings_page(
             tenant_scope=tenant_scope,
         )
         return response
+    profile = await get_account_profile_view(db, tenant_scope)
     response = cabinet_html_response(
         render_calendar_settings_page(
             surface,
             embedded=True,
             csrf_token=_csrf_token_for_principal(request, principal, tenant_scope=tenant_scope),
+            profile=profile,
             product_analytics_provider=build_request_browser_provider_context(
                 request,
                 "settings",
@@ -396,8 +408,6 @@ async def embedded_calendar_settings_page(
         tenant_scope=tenant_scope,
     )
     return response
-
-
 
 
 @router.get(

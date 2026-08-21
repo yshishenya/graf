@@ -44,6 +44,12 @@ private enum TwoBrainRecAppMain {
             keyEquivalent: ","
         )
         settingsItem.target = zoomTarget
+        let upcomingItem = appMenu.addItem(
+            withTitle: "Ближайшие встречи",
+            action: #selector(AppLifecycleDelegate.openCalendarTray(_:)),
+            keyEquivalent: ""
+        )
+        upcomingItem.target = zoomTarget
         appMenu.addItem(NSMenuItem.separator())
         appMenu.addItem(
             withTitle: "Hide \(displayName)",
@@ -421,6 +427,14 @@ private struct ContentView: View {
             refreshUploadQueueAndProcess(reason: "desktop_auth_session_changed")
             Task { await refreshCalendarReminder(reason: "desktop_auth_session_changed") }
             Task { await refreshMeetingDetectionRegistry(reason: "desktop_auth_session_changed") }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecOpenCalendarSettingsFromTray)) { _ in
+            guard let configuration = desktopCabinetConfiguration else { return }
+            selectedCabinetRoute = configuration.calendarSettingsURL()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecOpenMeetingsFromTray)) { _ in
+            guard let configuration = desktopCabinetConfiguration else { return }
+            selectedCabinetRoute = configuration.meetingsURL()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             refreshPermissionOnboarding(reason: "app_became_active", presentIfNeeded: false)
@@ -2495,6 +2509,7 @@ private struct MeetingDetectionPromptView: View {
 private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var mainWindow: NSWindow?
     private var settingsWindow: NSWindow?
+    private var calendarTrayController: CalendarTrayController?
     private let workspaceZoomStore = WorkspaceZoomStore()
     private let appUpdateController: AppUpdateController
     private var terminationReplyPending = false
@@ -2548,6 +2563,18 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
         )
         NSApp.activate(ignoringOtherApps: true)
         presentMainWindow(reason: "launch")
+        let trayModel = CalendarTrayModel {
+            guard let client = DesktopUploadClient.configuredFromEnvironment() else {
+                throw DesktopUploadClientError.invalidBaseURL
+            }
+            return try await client.listDesktopCalendarUpcoming(beforeMinutes: 15, afterMinutes: 1_440)
+        }
+        calendarTrayController = CalendarTrayController(
+            model: trayModel,
+            onOpenCalendar: { [weak self] in self?.openCalendarFromTray() },
+            onOpenMeetings: { [weak self] in self?.openMeetingsFromTray() }
+        )
+        calendarTrayController?.start()
         appUpdateController.start()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             self.logWindowVisibility()
@@ -2733,6 +2760,24 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
         presentSettingsWindow(reason: "menu")
     }
 
+    @objc func openCalendarTray(_: Any?) {
+        calendarTrayController?.showPopover()
+    }
+
+    private func openCalendarFromTray() {
+        presentMainWindow(reason: "calendar_tray")
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: .twoBrainRecOpenCalendarSettingsFromTray, object: nil)
+        }
+    }
+
+    private func openMeetingsFromTray() {
+        presentMainWindow(reason: "calendar_tray")
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: .twoBrainRecOpenMeetingsFromTray, object: nil)
+        }
+    }
+
     @objc func checkForUpdates(_ sender: Any?) {
         guard appUpdateController.checkForUpdates(sender) else {
             let alert = NSAlert()
@@ -2797,6 +2842,8 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
 private extension Notification.Name {
     static let twoBrainRecApplicationShouldTerminate = Notification.Name("pro.2brain.graf.applicationShouldTerminate")
     static let twoBrainRecApplicationTerminationCleanupFinished = Notification.Name("pro.2brain.graf.applicationTerminationCleanupFinished")
+    static let twoBrainRecOpenCalendarSettingsFromTray = Notification.Name("pro.2brain.graf.openCalendarSettingsFromTray")
+    static let twoBrainRecOpenMeetingsFromTray = Notification.Name("pro.2brain.graf.openMeetingsFromTray")
 }
 
 private struct AppContentRoot: View {

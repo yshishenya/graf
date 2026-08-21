@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
+import json
+import secrets
+import time
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -12,6 +17,7 @@ from twobrain_rec_server.api.ingest import get_request_storage
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
 from twobrain_rec_server.cabinet.queries import (
+    get_account_profile_view,
     get_cabinet_meeting_review,
     get_calendar_settings_surface,
 )
@@ -46,6 +52,13 @@ from twobrain_rec_server.cabinet.web_routes.support import (
     _is_hx_request,
 )
 from twobrain_rec_server.calendar.credentials import calendar_connection_secret
+from twobrain_rec_server.calendar.google import (
+    GoogleCalendarAdapter,
+    GoogleOAuthConfig,
+    build_google_authorization_url,
+    google_oauth_config_from_settings,
+)
+from twobrain_rec_server.calendar.providers import CalendarProviderError
 from twobrain_rec_server.calendar.service import (
     connect_source,
     disconnect_calendar_source,
@@ -55,6 +68,7 @@ from twobrain_rec_server.calendar.service import (
     request_source_sync,
     save_calendar_settings_preferences,
     unlink_meeting_calendar_context,
+    validate_provider_connection,
 )
 from twobrain_rec_server.product_analytics.browser_context import (
     build_request_browser_provider_context,
@@ -70,6 +84,8 @@ CalendarSyncResultQuery = Query(default=None, max_length=48, alias="sync_result"
 CalendarDisconnectResultQuery = Query(default=None, max_length=48, alias="disconnect_result")
 CalendarProviderResultQuery = Query(default=None, max_length=48, alias="result")
 CalendarProviderFamilyQuery = Query(default=None, max_length=80, alias="provider_family")
+CalendarOAuthStateQuery = Query(default=None, max_length=512, alias="state")
+CalendarOAuthCodeQuery = Query(default=None, max_length=4096, alias="code")
 
 CalendarAccountLabelForm = Form(default=None, max_length=160)
 CalendarCalDAVURLForm = Form(default=None, max_length=1000)
@@ -77,6 +93,95 @@ CalendarUsernameForm = Form(default=None, max_length=240)
 CalendarCredentialForm = Form(default=None, max_length=2000)
 CalendarContextEventIdForm = Form()
 CalendarContextReasonForm = Form(default="ambiguity_resolution", max_length=40)
+
+GOOGLE_STATE_COOKIE = "graf_google_calendar_oauth_state"
+GOOGLE_STATE_MAX_AGE_SECONDS = 600
+GOOGLE_STATE_COOKIE_LIMIT = 4
+
+
+def _google_oauth_config(request: Request) -> GoogleOAuthConfig | None:
+    return google_oauth_config_from_settings(request.app.state.settings)
+
+
+def _google_state(
+    request: Request, tenant_scope: TenantScope, principal: AuthenticatedPrincipal
+) -> str:
+    return_path = (
+        "/desktop/settings/integrations/calendar"
+        if request.url.path.startswith("/desktop/")
+        else "/settings/integrations/calendar"
+    )
+    payload = "|".join(
+        (
+            secrets.token_urlsafe(24),
+            str(int(time.time())),
+            str(tenant_scope.workspace_id),
+            str(principal.user_id),
+            return_path,
+        )
+    )
+    secret = str(request.app.state.settings.web_csrf_secret).encode("utf-8")
+    signature = hmac.new(secret, payload.encode("utf-8"), hashlib.sha256).hexdigest()
+    return f"{payload}|{signature}"
+
+
+def _verify_google_state(
+    request: Request, state: str, cookie_state: str | None
+) -> tuple[str, str, str] | None:
+    cookie_states = _google_cookie_states(cookie_state)
+    if not state or not any(hmac.compare_digest(state, item) for item in cookie_states):
+        return None
+    parts = state.split("|")
+    if len(parts) != 6:
+        return None
+    nonce, issued_at, workspace_id, user_id, return_path, signature = parts
+    payload = "|".join((nonce, issued_at, workspace_id, user_id, return_path))
+    secret = str(request.app.state.settings.web_csrf_secret).encode("utf-8")
+    expected = hmac.new(secret, payload.encode("utf-8"), hashlib.sha256).hexdigest()
+    try:
+        fresh = time.time() - int(issued_at) <= GOOGLE_STATE_MAX_AGE_SECONDS
+    except ValueError:
+        fresh = False
+    if not hmac.compare_digest(signature, expected) or not fresh:
+        return None
+    if return_path not in {
+        "/settings/integrations/calendar",
+        "/desktop/settings/integrations/calendar",
+    }:
+        return None
+    return return_path, workspace_id, user_id
+
+
+def _google_cookie_states(value: str | None) -> list[str]:
+    if not value:
+        return []
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return [value]
+    if not isinstance(parsed, list):
+        return []
+    return [item for item in parsed if isinstance(item, str) and item][:GOOGLE_STATE_COOKIE_LIMIT]
+
+
+def _set_google_state_cookie(response: Response, request: Request, states: list[str]) -> None:
+    if not states:
+        response.delete_cookie(GOOGLE_STATE_COOKIE, path="/")
+        return
+    response.set_cookie(
+        GOOGLE_STATE_COOKIE,
+        json.dumps(states[-GOOGLE_STATE_COOKIE_LIMIT:], separators=(",", ":")),
+        max_age=GOOGLE_STATE_MAX_AGE_SECONDS,
+        httponly=True,
+        samesite="lax",
+        secure=request.url.scheme == "https",
+        path="/",
+    )
+
+
+def _consume_google_state(response: Response, request: Request, state: str | None) -> None:
+    states = _google_cookie_states(request.cookies.get(GOOGLE_STATE_COOKIE))
+    _set_google_state_cookie(response, request, [item for item in states if item != state])
 
 
 @router.get("/settings/integrations/calendar", response_class=HTMLResponse, include_in_schema=False)
@@ -99,6 +204,7 @@ async def calendar_settings_page(
     surface = await get_calendar_settings_surface(
         db,
         tenant_scope,
+        settings=request.app.state.settings,
         notice_codes=calendar_settings_notice_codes(
             connect_result=connect_result,
             policy_limited=policy_limited,
@@ -115,10 +221,12 @@ async def calendar_settings_page(
             ),
             hx_request=True,
         )
+    profile = await get_account_profile_view(db, tenant_scope)
     return cabinet_html_response(
         render_calendar_settings_page(
             surface,
             csrf_token=_csrf_token_for_principal(request, principal),
+            profile=profile,
             product_analytics_provider=build_request_browser_provider_context(
                 request,
                 "settings",
@@ -351,6 +459,30 @@ async def calendar_provider_connect(
         )
         await db.commit()
         return calendar_settings_redirect(request, policy_limited="provider_limited")
+    if method_category == "oauth" and provider_family == "google_calendar":
+        config = _google_oauth_config(request)
+        if config is None:
+            await record_calendar_connect_result(
+                db,
+                tenant_scope=tenant_scope,
+                principal=principal,
+                provider_family=provider_family,
+                method_category=method_category,
+                outcome="blocked",
+                safe_reason_code="dependency_missing",
+            )
+            await db.commit()
+            return calendar_settings_redirect(request, connect_result="dependency_missing")
+        state = _google_state(request, tenant_scope, principal)
+        authorization_url = build_google_authorization_url(config, state=state)
+        response = RedirectResponse(authorization_url, status_code=303)
+        _set_google_state_cookie(
+            response,
+            request,
+            [*_google_cookie_states(request.cookies.get(GOOGLE_STATE_COOKIE)), state],
+        )
+        await db.commit()
+        return response
     secret_payload = calendar_connection_secret(
         method_category=method_category,
         caldav_url=caldav_url,
@@ -370,6 +502,13 @@ async def calendar_provider_connect(
         await db.commit()
         return calendar_settings_redirect(request, connect_result="failed")
     try:
+        provider_factory = getattr(request.app.state, "calendar_provider_factory", None)
+        provider = provider_factory(provider_family) if callable(provider_factory) else None
+        validation = await validate_provider_connection(
+            provider_family,
+            secret_payload,
+            provider=provider,
+        )
         source = await connect_source(
             db,
             tenant_scope,
@@ -379,9 +518,13 @@ async def calendar_provider_connect(
             credential_input=secret_payload,
             selected_provider_calendar_ids=[],
             credential_encryption_key=_credential_encryption_key(request),
+            validated_calendars=validation.calendars,
+            account_subject=validation.account_subject,
+            granted_scopes=validation.granted_scopes,
         )
-    except ProblemDetail as exc:
-        result = calendar_connection_result_from_problem(exc.code)
+    except (CalendarProviderError, ProblemDetail) as exc:
+        safe_code = getattr(exc, "safe_code", None) or getattr(exc, "code", None)
+        result = calendar_connection_result_from_problem(safe_code)
         await record_calendar_connect_result(
             db,
             tenant_scope=tenant_scope,
@@ -389,7 +532,7 @@ async def calendar_provider_connect(
             provider_family=provider_family,
             method_category=method_category,
             outcome="failed",
-            safe_reason_code=exc.code,
+            safe_reason_code=safe_code,
         )
         await db.commit()
         return calendar_settings_redirect(request, connect_result=result)
@@ -404,6 +547,121 @@ async def calendar_provider_connect(
     )
     await db.commit()
     return calendar_settings_redirect(request, connect_result="success")
+
+
+@router.get(
+    "/settings/integrations/calendar/google/callback",
+    response_class=HTMLResponse,
+    include_in_schema=False,
+)
+@router.get(
+    "/desktop/settings/integrations/calendar/google/callback",
+    response_class=HTMLResponse,
+    include_in_schema=False,
+)
+async def google_calendar_oauth_callback(
+    request: Request,
+    state: str | None = CalendarOAuthStateQuery,
+    code: str | None = CalendarOAuthCodeQuery,
+    error: str | None = Query(default=None, max_length=80),
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> Response:
+    if db is None:
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
+    state_claims = _verify_google_state(
+        request, state or "", request.cookies.get(GOOGLE_STATE_COOKIE)
+    )
+    if state_claims is not None and (
+        state_claims[1] != str(tenant_scope.workspace_id)
+        or state_claims[2] != str(principal.user_id)
+    ):
+        state_claims = None
+    return_path = state_claims[0] if state_claims else None
+    response_kwargs = {"return_path": return_path} if return_path else {}
+    if return_path is None:
+        response = calendar_settings_redirect(request, connect_result="failed")
+        _consume_google_state(response, request, state)
+        return response
+    if error or not code:
+        await record_calendar_connect_result(
+            db,
+            tenant_scope=tenant_scope,
+            principal=principal,
+            provider_family="google_calendar",
+            method_category="oauth",
+            outcome="cancelled" if error in {"access_denied", "cancelled"} else "failed",
+            safe_reason_code="cancelled"
+            if error in {"access_denied", "cancelled"}
+            else "missing_code",
+        )
+        await db.commit()
+        response = calendar_settings_redirect(
+            request,
+            connect_result="cancelled" if error in {"access_denied", "cancelled"} else "failed",
+            **response_kwargs,
+        )
+        _consume_google_state(response, request, state)
+        return response
+    config = _google_oauth_config(request)
+    if config is None:
+        response = calendar_settings_redirect(
+            request, connect_result="dependency_missing", **response_kwargs
+        )
+        _consume_google_state(response, request, state)
+        return response
+    try:
+        adapter = GoogleCalendarAdapter(config)
+        token_set = await adapter.exchange_code(code)
+        if not token_set.refresh_token:
+            raise CalendarProviderError("provider_policy_denied")
+        validation = await adapter.validate(token_set.access_token)
+        source = await connect_source(
+            db,
+            tenant_scope,
+            provider_family="google_calendar",
+            auth_mode="oauth",
+            display_label="Google Calendar",
+            credential_input=token_set.refresh_token,
+            selected_provider_calendar_ids=[],
+            credential_encryption_key=_credential_encryption_key(request),
+            validated_calendars=validation.calendars,
+            account_subject=validation.account_subject,
+            granted_scopes=token_set.scope or validation.granted_scopes,
+        )
+    except (CalendarProviderError, ProblemDetail) as exc:
+        safe_reason = getattr(exc, "safe_code", None) or getattr(
+            exc, "code", "provider_unavailable"
+        )
+        await record_calendar_connect_result(
+            db,
+            tenant_scope=tenant_scope,
+            principal=principal,
+            provider_family="google_calendar",
+            method_category="oauth",
+            outcome="failed",
+            safe_reason_code=safe_reason,
+        )
+        await db.commit()
+        response = calendar_settings_redirect(request, connect_result="failed", **response_kwargs)
+        _consume_google_state(response, request, state)
+        return response
+    await record_calendar_connect_result(
+        db,
+        tenant_scope=tenant_scope,
+        principal=principal,
+        provider_family="google_calendar",
+        method_category="oauth",
+        outcome="completed",
+        source_id=source.id,
+    )
+    await db.commit()
+    response = calendar_settings_redirect(request, connect_result="success", **response_kwargs)
+    _consume_google_state(response, request, state)
+    return response
 
 
 @router.get(
@@ -483,7 +741,15 @@ async def calendar_source_calendar_selection(
         str(value) for value in form.getlist("selected_provider_calendar_ids") if str(value).strip()
     ]
     source = await get_source(db, tenant_scope, source_id)
-    await replace_selected_calendars(db, tenant_scope, source, selected_ids, allow_missing=False)
+    try:
+        await replace_selected_calendars(
+            db, tenant_scope, source, selected_ids, allow_missing=False
+        )
+    except ProblemDetail as error:
+        if error.code != "calendar_selection_limit_exceeded":
+            raise
+        await db.rollback()
+        return calendar_settings_redirect(request, selection_result="limit_exceeded")
     await db.commit()
     return calendar_settings_redirect(
         request,
@@ -525,6 +791,7 @@ async def calendar_source_manual_sync(
     )
     requested_at = datetime.now(UTC)
     source = await request_source_sync(db, tenant_scope, source.id)
+    source = await get_source(db, tenant_scope, source.id)
     result = calendar_manual_sync_result(source, requested_at=requested_at)
     await record_calendar_source_event(
         db,

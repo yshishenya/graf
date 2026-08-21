@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from hashlib import sha256
+from ipaddress import ip_address
 from urllib.parse import urlparse
 
 from cryptography.fernet import Fernet
@@ -58,12 +59,13 @@ def calendar_connection_secret(
             separators=(",", ":"),
         )
     url = _safe_caldav_url(caldav_url)
-    if method_category != "manual_url" or url is None:
+    user = (username or "").strip()
+    if method_category != "manual_url" or url is None or not user:
         return None
     return json.dumps(
         {
             "caldav_url": url,
-            "username": (username or "").strip(),
+            "username": user,
             "credential_input": secret,
         },
         ensure_ascii=False,
@@ -82,9 +84,22 @@ def safe_credential_failure(reason: str) -> dict[str, str]:
 
 def _safe_caldav_url(value: str | None) -> str | None:
     url = (value or "").strip()
-    parsed = urlparse(url)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+    try:
+        parsed = urlparse(url)
+        hostname = parsed.hostname
+        _port = parsed.port
+    except ValueError:
+        return None
+    if parsed.scheme != "https" or not parsed.netloc or not hostname:
         return None
     if parsed.username or parsed.password:
         return None
+    hostname = hostname.rstrip(".").lower()
+    if hostname == "localhost" or hostname.endswith(".localhost"):
+        return None
+    try:
+        if not ip_address(hostname).is_global:
+            return None
+    except ValueError:
+        pass
     return url

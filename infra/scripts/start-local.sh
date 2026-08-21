@@ -3,6 +3,7 @@ set -eu
 ROOT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
 COMPOSE_FILE="$ROOT_DIR/infra/docker-compose.local.yml"
 SERVER_DIR="$ROOT_DIR/apps/server"
+LOCAL_CREDENTIAL_KEY_FILE="$ROOT_DIR/infra/secrets/graf_credential_encryption_key"
 export TWOBRAIN_ENV=development
 export TWOBRAIN_API_HOST=127.0.0.1
 export TWOBRAIN_API_PORT="${TWOBRAIN_API_PORT:-8081}"
@@ -23,6 +24,15 @@ export TWOBRAIN_PRODUCT_ANALYTICS_ENABLED=false
 export TWOBRAIN_PUBLIC_ANALYTICS_ENABLED=false
 command -v docker >/dev/null || { echo "docker is required" >&2; exit 1; }
 command -v uv >/dev/null || { echo "uv is required" >&2; exit 1; }
+if [ ! -s "$LOCAL_CREDENTIAL_KEY_FILE" ]; then
+  mkdir -p "$(dirname "$LOCAL_CREDENTIAL_KEY_FILE")"
+  (
+    umask 077
+    cd "$SERVER_DIR"
+    uv run python -c 'from cryptography.fernet import Fernet; from pathlib import Path; import sys; Path(sys.argv[1]).write_bytes(Fernet.generate_key() + b"\n")' "$LOCAL_CREDENTIAL_KEY_FILE"
+  )
+fi
+export GRAF_CREDENTIAL_ENCRYPTION_KEY_FILE="${GRAF_CREDENTIAL_ENCRYPTION_KEY_FILE:-$LOCAL_CREDENTIAL_KEY_FILE}"
 docker compose -f "$COMPOSE_FILE" up -d --wait rec-postgres rec-minio
 (
   cd "$SERVER_DIR"

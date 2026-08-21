@@ -24,6 +24,11 @@ from tests.fixtures.postgres_test_database import (
     prepare_schema,
     reset_mapped_tables,
 )
+from twobrain_rec_server.calendar.providers import (
+    CalendarCatalogEntry,
+    CalendarEventPage,
+    CalendarValidation,
+)
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.models import (
     MeetingTargetRegistryEntry,
@@ -49,6 +54,44 @@ REGISTRY_DATA = (
     / "src/twobrain_rec_server/db/migrations/data/0030_meeting_target_registry.json"
 )
 REGISTRY_DOCUMENT = json.loads(REGISTRY_DATA.read_text(encoding="utf-8"))
+
+
+class SyntheticCalendarConnectionProvider:
+    """Metadata-only provider double for routes that must validate before persistence."""
+
+    def __init__(self, provider_family: str) -> None:
+        self.provider_family = provider_family
+        self.catalog = tuple(
+            CalendarCatalogEntry(
+                provider_calendar_id=calendar_id,
+                display_label=f"Synthetic {calendar_id} calendar",
+                primary=calendar_id == "primary",
+            )
+            for calendar_id in ("primary", "secondary", "team", "selected", "synthetic-primary")
+        )
+
+    async def validate(self, credential: str) -> CalendarValidation:
+        assert credential
+        return CalendarValidation(
+            account_subject="sha256:synthetic-account",
+            account_label="Synthetic calendar account",
+            calendars=self.catalog,
+        )
+
+    async def list_calendars(self, credential: str, *, page_token: str | None = None):
+        return self.catalog, None
+
+    async def list_events(
+        self,
+        credential: str,
+        *,
+        calendar_id: str,
+        time_min=None,
+        time_max=None,
+        page_token: str | None = None,
+        sync_token: str | None = None,
+    ) -> CalendarEventPage:
+        return CalendarEventPage()
 
 
 async def _seed_database(database_url: str) -> None:
@@ -185,6 +228,7 @@ def client(test_settings: Settings, postgres_media_database_url: str) -> TestCli
         patch("twobrain_rec_server.main.get_storage", return_value=storage),
     ):
         app = create_app(test_settings)
+    app.state.calendar_provider_factory = SyntheticCalendarConnectionProvider
     try:
         with TestClient(app) as test_client:
             test_client.app_state["engine"] = engine

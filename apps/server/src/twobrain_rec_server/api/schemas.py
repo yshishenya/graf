@@ -213,8 +213,9 @@ class SupportIncidentResponse(BaseModel):
 class CalendarProviderPreset(BaseModel):
     provider_family: str
     label: str
-    adapter_family: Literal["caldav", "rich_api", "ews"]
+    adapter_family: Literal["caldav", "rich_api", "ews", "google_api"]
     supported: bool
+    runtime_available: bool = False
     capability_state: dict[str, str] = Field(default_factory=dict)
 
 
@@ -283,6 +284,9 @@ class CalendarDisconnectResponse(BaseModel):
     connection_state: Literal["disconnected"]
     credentials_purged: bool
     unmatched_future_cache_purged: bool
+    external_revoke: Literal[
+        "confirmed", "not_supported", "pending", "failed", "not_applicable"
+    ] = "not_supported"
     matched_context_retention: Literal["meeting_retention_policy"] = "meeting_retention_policy"
 
 
@@ -303,6 +307,8 @@ class CalendarEventSummary(BaseModel):
 class UpcomingCalendarEventsResponse(BaseModel):
     events: list[CalendarEventSummary] = Field(default_factory=list)
     truncated: bool = False
+    show_upcoming_time: bool = True
+    show_upcoming_title: bool = True
 
 
 class DesktopCalendarPromptEvent(CalendarEventSummary):
@@ -314,6 +320,8 @@ class DesktopCalendarPromptEvent(CalendarEventSummary):
 
 
 class DesktopCalendarPromptResponse(BaseModel):
+    show_upcoming_time: bool = True
+    show_upcoming_title: bool = True
     events: list[DesktopCalendarPromptEvent] = Field(default_factory=list)
 
 

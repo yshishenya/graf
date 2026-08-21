@@ -28,6 +28,19 @@ def test_normalization_preserves_available_fields() -> None:
     assert normalized.source_updated_at == datetime(2026, 7, 1, 8, 0, tzinfo=UTC)
 
 
+def test_normalization_bounds_content_to_calendar_persistence_contract() -> None:
+    normalized = normalize_calendar_event(
+        calendar_event_fixture(
+            "google_calendar",
+            description="d" * 8192,
+            location="l" * 1200,
+        )
+    )
+
+    assert len(normalized.description or "") == 4000
+    assert len(normalized.location or "") == 1000
+
+
 def test_private_free_busy_normalization_does_not_fabricate_content() -> None:
     event = private_free_busy_event_fixture()
     event["conference_links"] = [

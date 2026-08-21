@@ -401,6 +401,8 @@ def test_maintenance_runtime_is_explicit_hardened_and_has_no_user_runtime_secret
     assert service["security_opt"] == ["no-new-privileges:true"]
     assert service["networks"] == ["rec-private"]
     assert secret_sources == {
+        "graf_credential_encryption_key",
+        "twobrain_google_calendar_client_secret",
         "twobrain_postgres_maintenance_password",
         "twobrain_minio_api_access_key",
         "twobrain_minio_api_secret_key",
@@ -413,6 +415,12 @@ def test_maintenance_runtime_is_explicit_hardened_and_has_no_user_runtime_secret
     }
     assert "twobrain_mediascribe_api_key" not in secret_sources
     assert "twobrain_web_csrf_secret" not in secret_sources
+    assert service["environment"]["TWOBRAIN_GOOGLE_CALENDAR_CLIENT_SECRET_FILE"] == (
+        "/run/secrets/twobrain_google_calendar_client_secret"
+    )
+    assert service["environment"]["GRAF_CREDENTIAL_ENCRYPTION_KEY_FILE"] == (
+        "/run/secrets/graf_credential_encryption_key"
+    )
     assert service["environment"]["TWOBRAIN_LITELLM_API_KEY_FILE"] == (
         "/run/secrets/twobrain_litellm_api_key"
     )

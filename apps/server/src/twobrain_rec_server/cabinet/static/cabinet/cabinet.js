@@ -2992,6 +2992,116 @@
   };
 
   const initCalendarSettings = () => {
+    const localDateTime = new Intl.DateTimeFormat("ru-RU", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+    const localTime = new Intl.DateTimeFormat("ru-RU", { timeStyle: "short" });
+    document.querySelectorAll("[data-calendar-local-datetime], [data-calendar-local-time]").forEach((element) => {
+      const value = element.getAttribute("datetime");
+      const date = value ? new Date(value) : null;
+      if (!date || Number.isNaN(date.getTime())) return;
+      element.textContent = element.hasAttribute("data-calendar-local-time")
+        ? localTime.format(date)
+        : localDateTime.format(date);
+    });
+    const mutationCopy = {
+      connect: "Проверяем доступ…",
+      selection: "Сохраняем выбор…",
+      sync: "Ставим синхронизацию в очередь…",
+      disconnect: "Отключаем календарь…",
+    };
+    const initCalendarMutation = (form) => {
+      if (!(form instanceof HTMLFormElement) || form.dataset.calendarMutationReady === "true") return;
+      form.dataset.calendarMutationReady = "true";
+      const kind = form.dataset.calendarMutation || "mutation";
+      const submit = form.querySelector("[data-calendar-mutation-submit], button[type='submit']");
+      const status = form.querySelector("[data-calendar-mutation-status]");
+      const selectionLimit = Number.parseInt(form.dataset.calendarSelectionLimit || "", 10);
+      const selectedCalendarCount = () => form.querySelectorAll(
+        "input[name='selected_provider_calendar_ids']:checked"
+      ).length;
+      const showSelectionLimit = () => {
+        if (!status) return;
+        status.dataset.preserveMessage = "true";
+        status.textContent = `Можно выбрать до ${selectionLimit} календарей.`;
+        status.hidden = false;
+      };
+      form.addEventListener("submit", (event) => {
+        if (Number.isFinite(selectionLimit) && selectedCalendarCount() > selectionLimit) {
+          event.preventDefault();
+          showSelectionLimit();
+          status?.focus?.({ preventScroll: true });
+          return;
+        }
+        form.dataset.state = "submitting";
+        form.setAttribute("aria-busy", "true");
+        if (submit) {
+          submit.disabled = true;
+          submit.dataset.originalLabel = submit.textContent || "";
+          submit.textContent = mutationCopy[kind] || "Выполняем…";
+        }
+        if (status) {
+          status.textContent = mutationCopy[kind] || "Выполняем…";
+          status.hidden = false;
+        }
+      });
+      form.addEventListener("invalid", () => {
+        if (!status) return;
+        status.textContent = "Проверьте обязательные поля.";
+        status.hidden = false;
+      }, true);
+      form.addEventListener("input", () => {
+        if (!status || form.dataset.state === "submitting") return;
+        delete status.dataset.preserveMessage;
+        status.textContent = "";
+        status.hidden = true;
+      });
+      if (Number.isFinite(selectionLimit)) {
+        form.addEventListener("change", (event) => {
+          const target = event.target;
+          if (!(target instanceof HTMLInputElement)
+            || target.name !== "selected_provider_calendar_ids"
+            || !target.checked
+            || selectedCalendarCount() <= selectionLimit) return;
+          target.checked = false;
+          showSelectionLimit();
+        });
+        form.addEventListener("keyup", (event) => {
+          const target = event.target;
+          if (!(target instanceof HTMLInputElement)
+            || target.name !== "selected_provider_calendar_ids"
+            || (event.key !== " " && event.key !== "Spacebar")
+            || target.checked
+            || selectedCalendarCount() !== selectionLimit) return;
+          showSelectionLimit();
+        });
+      }
+    };
+    document.querySelectorAll("[data-calendar-mutation]").forEach(initCalendarMutation);
+    const resultRegion = document.querySelector("[data-calendar-has-result='true'] .calendar-notice");
+    if (resultRegion && window.location.search) {
+      window.setTimeout(() => resultRegion.focus({ preventScroll: true }), 0);
+    }
+    const pendingSyncForm = [...document.querySelectorAll("[data-calendar-mutation='sync']")]
+      .find((form) => form.querySelector("button[type='submit']:disabled"));
+    const syncRefreshKey = `graf-calendar-sync-refresh:${window.location.pathname}`;
+    if (pendingSyncForm) {
+      const refreshAttempt = Number.parseInt(window.sessionStorage.getItem(syncRefreshKey) || "0", 10);
+      if (refreshAttempt < 4) {
+        window.sessionStorage.setItem(syncRefreshKey, String(refreshAttempt + 1));
+        window.setTimeout(() => window.location.reload(), 15000);
+      } else {
+        window.sessionStorage.removeItem(syncRefreshKey);
+        const status = pendingSyncForm.querySelector("[data-calendar-mutation-status]");
+        if (status) {
+          status.textContent = "Синхронизация занимает больше обычного. Обновите страницу позже.";
+          status.hidden = false;
+        }
+      }
+    } else {
+      window.sessionStorage.removeItem(syncRefreshKey);
+    }
     const dialogOpeners = new WeakMap();
     const restoreDialogFocus = (dialog) => {
       const opener = dialogOpeners.get(dialog);
@@ -3010,6 +3120,7 @@
       if (!dialog) return;
       if (typeof dialog.close === "function") dialog.close();
       else dialog.removeAttribute("open");
+      dialog.querySelector("form")?.reset();
       restoreDialogFocus(dialog);
     };
     document.querySelectorAll("[data-calendar-provider-open]").forEach((button) => {
@@ -3030,7 +3141,19 @@
     document.querySelectorAll("[data-calendar-provider-dialog]").forEach((dialog) => {
       if (dialog.dataset.calendarProviderDialogReady === "true") return;
       dialog.dataset.calendarProviderDialogReady = "true";
-      dialog.addEventListener("close", () => restoreDialogFocus(dialog));
+      dialog.addEventListener("close", () => {
+        dialog.querySelector("form")?.reset();
+        restoreDialogFocus(dialog);
+      });
+      dialog.addEventListener("cancel", (event) => {
+        event.preventDefault();
+        closeCalendarDialog(dialog);
+      });
+      dialog.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape") return;
+        event.preventDefault();
+        closeCalendarDialog(dialog);
+      });
       dialog.addEventListener("click", (event) => {
         if (event.target === dialog) closeCalendarDialog(dialog);
       });
@@ -3051,6 +3174,8 @@
       form.dataset.settingsFormReady = "true";
       const status = form.querySelector("[data-settings-form-status]");
       const submit = form.querySelector("button[type='submit']");
+      const reset = form.querySelector("[data-settings-form-reset]");
+      const disablePristine = form.hasAttribute("data-settings-form-disable-pristine");
       if (status) {
         status.setAttribute("role", "status");
         status.setAttribute("aria-live", "polite");
@@ -3060,9 +3185,13 @@
       const update = () => {
         const dirty = snapshot() !== initial;
         form.dataset.state = dirty ? "dirty" : "pristine";
-        if (status) {
+        if (status && status.dataset.preserveMessage !== "true") {
           status.textContent = dirty ? "Есть несохранённые изменения" : "";
           status.hidden = !dirty;
+        }
+        if (disablePristine) {
+          if (submit) submit.disabled = !dirty;
+          if (reset) reset.disabled = !dirty;
         }
       };
       form.addEventListener("input", update);
@@ -3754,11 +3883,13 @@
       const toggle = shell.querySelector("[data-cabinet-rail-toggle]");
       if (!sidebar || !toggle || shell.dataset.railReady === "true") return;
       shell.dataset.railReady = "true";
-      const wideViewport = window.matchMedia("(min-width: 981px)");
+      const expandedMedia = window.matchMedia(
+        shell.classList.contains("desktop-embedded") ? "(min-width: 1121px)" : "(min-width: 981px)"
+      );
       const storedRailState = sessionStorage.getItem("graf-cabinet-rail");
       let manuallySet = ["expanded", "collapsed"].includes(storedRailState);
       const syncViewport = () => {
-        if (!manuallySet) setRailPinned(shell, toggle, wideViewport.matches);
+        if (!manuallySet) setRailPinned(shell, toggle, expandedMedia.matches);
       };
       const setManualRailState = (pinned) => {
         manuallySet = true;
@@ -3770,9 +3901,9 @@
         toggle,
         manuallySet
           ? storedRailState === "expanded"
-          : shell.classList.contains("is-rail-pinned") || wideViewport.matches
+          : shell.classList.contains("is-rail-pinned") || expandedMedia.matches
       );
-      wideViewport.addEventListener("change", syncViewport);
+      expandedMedia.addEventListener("change", syncViewport);
       toggle.addEventListener("click", () => {
         setManualRailState(!shell.classList.contains("is-rail-pinned"));
         toggle.focus({ preventScroll: true });

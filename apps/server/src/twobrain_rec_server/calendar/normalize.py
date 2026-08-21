@@ -87,8 +87,12 @@ def normalize_calendar_event(event: dict[str, Any]) -> NormalizedCalendarEvent:
         all_day=bool(event.get("all_day", False)),
         floating_time=bool(event.get("floating_time", False)),
         title=title,
-        description=event.get("description") if description_state == "available" else None,
-        location=event.get("location") if content_available else None,
+        description=(
+            _bounded_text(event.get("description"), 4000)
+            if description_state == "available"
+            else None
+        ),
+        location=_bounded_text(event.get("location"), 1000) if content_available else None,
         title_state=title_state,
         transparency=event.get("transparency"),
         privacy_class=privacy_class,
@@ -155,6 +159,7 @@ def normalize_icalendar_event(
                 "redacted_url_preview": link.redacted_url_preview,
                 "contains_passcode": link.contains_passcode,
                 "sensitivity_class": "meeting_link",
+                "open_url": link.open_url,
             }
             for link in _extract_ical_links(fields)
         ],
@@ -194,6 +199,10 @@ def _parse_ical_datetime(value: str) -> datetime:
 
 def _optional_datetime(value: Any) -> datetime | None:
     return None if value is None else _coerce_datetime(value)
+
+
+def _bounded_text(value: Any, max_length: int) -> str | None:
+    return None if value is None else str(value)[:max_length]
 
 
 def _default_end(starts_at: datetime, event: dict[str, Any]) -> datetime:

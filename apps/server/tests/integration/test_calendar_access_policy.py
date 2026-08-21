@@ -457,7 +457,12 @@ def _seed_calendar_event_with_roster(
         async with sessionmaker() as session:
             source = await session.get(CalendarSource, source_id)
             calendar = await session.scalar(
-                select(ExternalCalendar).where(ExternalCalendar.calendar_source_id == source.id)
+                select(ExternalCalendar)
+                .where(
+                    ExternalCalendar.calendar_source_id == source.id,
+                    ExternalCalendar.selected.is_(True),
+                )
+                .order_by(ExternalCalendar.provider_calendar_id)
             )
             starts_at = datetime.now(UTC) + timedelta(minutes=5)
             event_payload = calendar_event_fixture(

@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta, timezone
 from html import escape
 from urllib.parse import urlencode
 from uuid import UUID
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from twobrain_rec_server.api.schemas import (
     MeetingListItem,
@@ -136,6 +137,8 @@ def render_meeting_list_page(
     response: MeetingListResponse,
     *,
     embedded: bool = False,
+    calendar_surface: cabinet_view_models.CalendarSettingsSurfaceView | None = None,
+    display_timezone: str = "UTC",
     csrf_token: str | None = None,
     poll_url: str | None = None,
     product_analytics_provider: dict[str, object] | None = None,
@@ -178,7 +181,12 @@ def render_meeting_list_page(
         active_filter_count=active_filter_count,
         filter_label=(f"Фильтры: {active_filter_count}" if active_filter_count else "Фильтры"),
         upcoming_content=trusted_component_html(
-            _render_upcoming_recurring(response, embedded=embedded),
+            _render_home_upcoming(
+                response,
+                calendar_surface=calendar_surface,
+                embedded=embedded,
+                display_timezone=display_timezone,
+            ),
             source="meeting_list.upcoming_recurring",
         ),
     )
@@ -582,6 +590,7 @@ def calendar_settings_notice_codes(
         "denied": "connect_denied",
         "failed": "connect_failed",
         "no_readable_calendars": "no_readable_calendars",
+        "dependency_missing": "dependency_missing",
     }
     if connect_result:
         code = result_map.get(connect_result.strip().lower())
@@ -599,11 +608,15 @@ def calendar_settings_notice_codes(
             codes.append("selection_saved")
         elif normalized_selection == "empty":
             codes.append("selection_empty")
+        elif normalized_selection == "limit_exceeded":
+            codes.append("selection_limit")
     if preferences_result and preferences_result.strip().lower() == "saved":
         codes.append("preferences_saved")
     if sync_result:
         normalized_sync = sync_result.strip().lower()
         sync_codes = {
+            "catalog_updated": "sync_catalog_updated",
+            "completed": "sync_completed",
             "accepted": "sync_accepted",
             "already_running": "sync_already_running",
             "reconnect_required": "sync_reconnect_required",
@@ -634,7 +647,11 @@ def calendar_connection_result_from_problem(code: str | None) -> str:
         "invalid_credentials": "denied",
         "tenant_policy_denied": "denied",
         "provider_timeout": "failed",
+        "provider_unavailable": "failed",
+        "invalid_payload": "failed",
+        "provider_policy_denied": "denied",
         "rate_limited": "failed",
+        "calendar_catalog_empty": "no_readable_calendars",
         "no_readable_calendars": "no_readable_calendars",
     }
     return result_map.get(code or "", "failed")
@@ -1380,6 +1397,111 @@ def _render_upcoming_recurring(response: MeetingListResponse, *, embedded: bool)
     if rows:
         return f'<div class="calendar-upcoming-list">{"".join(rows)}</div>'
     return ""
+
+
+def _render_home_upcoming(
+    response: MeetingListResponse,
+    *,
+    calendar_surface: cabinet_view_models.CalendarSettingsSurfaceView | None,
+    embedded: bool,
+    display_timezone: str,
+) -> str:
+    if calendar_surface is None:
+        return _render_upcoming_recurring(response, embedded=embedded)
+
+    recurring_content = _render_upcoming_recurring(response, embedded=embedded)
+
+    settings_href = (
+        "/desktop/settings/integrations/calendar" if embedded else "/settings/integrations/calendar"
+    )
+    preview = calendar_surface.preview[:4]
+    source_states = {source.sync_health_state for source in calendar_surface.sources}
+    credential_issue = bool(source_states & {"credential_failed", "failed_closed"})
+    provider_issue = bool(source_states & {"provider_unavailable", "rate_limited"})
+    if credential_issue:
+        state_copy = "Нужно переподключить календарь"
+    elif provider_issue:
+        state_copy = "Сервис временно недоступен"
+    elif "stale" in source_states:
+        state_copy = "Данные могут быть устаревшими"
+    elif source_states & {"queued", "syncing", "never_synced", "partial_sync"}:
+        state_copy = "Календарь обновляется"
+    else:
+        state_copy = "Из выбранных календарей"
+
+    if credential_issue:
+        body = (
+            '<div class="calendar-home-upcoming__empty"><strong>Календарь нужно переподключить</strong>'
+            "<p>Откройте настройки и восстановите доступ. Ручная запись по-прежнему доступна.</p></div>"
+        )
+    elif provider_issue:
+        body = (
+            '<div class="calendar-home-upcoming__empty"><strong>Календарный сервис недоступен</strong>'
+            "<p>Попробуйте позже. GRAF не показывает устаревшее событие как актуальное.</p></div>"
+        )
+    elif preview:
+        rows = "".join(
+            f"""
+            <article class="calendar-home-upcoming__row">
+              {f'<time datetime="{escape(item.starts_at.isoformat())}">{escape(_home_upcoming_time_label(item.starts_at, display_timezone))}</time>' if calendar_surface.preferences.show_upcoming_time else '<span class="calendar-home-upcoming__time-hidden">Время скрыто настройкой</span>'}
+              <div>
+                <strong>{escape(item.title if calendar_surface.preferences.show_upcoming_title else "Название скрыто настройкой")}</strong>
+                <small>{"Есть ссылка на встречу" if item.meeting_link_present else "Без ссылки на встречу"}</small>
+              </div>
+              {f'<a class="button quiet calendar-home-upcoming__join" href="/api/v1/calendar/events/{escape(item.event_id)}/open">Подключиться</a>' if item.open_meeting_available else ""}
+            </article>
+            """
+            for item in preview
+        )
+        body = f'<div class="calendar-home-upcoming__list">{rows}</div>'
+    elif not calendar_surface.sources:
+        state_copy = "Календарь не подключен"
+        body = (
+            '<div class="calendar-home-upcoming__empty"><strong>Подключите календарь</strong>'
+            "<p>GRAF покажет ближайшие встречи здесь и в строке меню macOS, но не начнет запись автоматически.</p></div>"
+        )
+    elif calendar_surface.selected_calendar_count_total == 0:
+        state_copy = "Нужно выбрать календари"
+        body = (
+            '<div class="calendar-home-upcoming__empty"><strong>Выберите календари внутри источника</strong>'
+            "<p>До выбора календарей встречи и подсказки не появляются.</p></div>"
+        )
+    else:
+        body = (
+            '<div class="calendar-home-upcoming__empty"><strong>Ближайших встреч нет</strong>'
+            "<p>Когда появится подходящее событие, оно будет показано здесь.</p></div>"
+        )
+
+    return f"""
+      <details class="calendar-home-upcoming" open>
+        <summary>
+          <span>Ближайшие встречи</span>
+          <small>{escape(state_copy)}</small>
+        </summary>
+        {body}
+        {recurring_content}
+        <a class="calendar-home-upcoming__settings" href="{settings_href}">Настроить календарь</a>
+      </details>
+    """
+
+
+def _home_upcoming_time_label(value: datetime, timezone_name: str) -> str:
+    try:
+        target_timezone = ZoneInfo(timezone_name)
+    except ZoneInfoNotFoundError:
+        target_timezone = UTC
+    localized = (value if value.tzinfo is not None else value.replace(tzinfo=UTC)).astimezone(
+        target_timezone
+    )
+    today = datetime.now(target_timezone).date()
+    day_label = (
+        "Сегодня"
+        if localized.date() == today
+        else "Завтра"
+        if localized.date() == today + timedelta(days=1)
+        else localized.strftime("%d.%m")
+    )
+    return f"{day_label}, {localized.strftime('%H:%M')}"
 
 
 def _render_previous_recurring_pointer(

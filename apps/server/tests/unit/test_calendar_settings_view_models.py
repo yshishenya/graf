@@ -8,6 +8,7 @@ from tests.fixtures.calendar_settings import (
     calendar_settings_source,
 )
 from twobrain_rec_server.cabinet import view_models
+from twobrain_rec_server.calendar.capabilities import provider_preset_payloads
 from twobrain_rec_server.calendar.service import calendar_event_matches_preferences
 from twobrain_rec_server.db.models import CalendarSettingsPreference
 
@@ -66,6 +67,92 @@ def test_calendar_settings_provider_limitation_copy_is_plain_and_safe() -> None:
         )
         == "Часть возможностей зависит от политики организации."
     )
+    assert (
+        view_models.calendar_provider_limitation_copy(
+            "oauth",
+            {},
+            runtime_available=False,
+        )
+        == "Подключение появится после полной проверки."
+    )
+    assert (
+        view_models.calendar_provider_limitation_copy(
+            "oauth",
+            {},
+            runtime_available=True,
+        )
+        is None
+    )
+
+
+def test_google_provider_payload_reflects_runtime_availability() -> None:
+    unavailable = next(
+        item
+        for item in provider_preset_payloads(google_available=False)
+        if item["provider_family"] == "google_calendar"
+    )
+    available = next(
+        item
+        for item in provider_preset_payloads(google_available=True)
+        if item["provider_family"] == "google_calendar"
+    )
+    development_verification = next(
+        item
+        for item in provider_preset_payloads(
+            google_available=True,
+            allow_uncertified_google=True,
+        )
+        if item["provider_family"] == "google_calendar"
+    )
+    assert unavailable["supported"] is False
+    assert unavailable["runtime_available"] is False
+    assert available["supported"] is False
+    assert available["runtime_available"] is False
+    assert development_verification["supported"] is True
+    assert development_verification["runtime_available"] is True
+
+
+def test_provider_payload_does_not_claim_missing_ews_or_bitrix_runtime() -> None:
+    payloads = {
+        item["provider_family"]: item for item in provider_preset_payloads(google_available=True)
+    }
+
+    assert payloads["exchange_ews"]["supported"] is False
+    assert payloads["exchange_ews"]["runtime_available"] is False
+    assert payloads["bitrix24"]["supported"] is False
+    assert payloads["bitrix24"]["runtime_available"] is False
+    assert payloads["custom_caldav_vk_workspace"]["runtime_available"] is False
+
+
+def test_provider_view_separates_available_connections_from_roadmap_cards() -> None:
+    surface = view_models.calendar_settings_surface(
+        provider_payloads=provider_preset_payloads(google_available=False),
+        sources=[],
+    )
+    providers = {provider.provider_family: provider for provider in surface.providers}
+
+    assert providers["caldav_yandex"].runtime_available is False
+    assert providers["caldav_yandex"].trigger_label == "Подключить Яндекс Календарь"
+    assert providers["exchange_ews"].runtime_available is False
+    assert providers["exchange_ews"].availability_label == "Скоро"
+    assert (
+        providers["exchange_ews"].limitation_copy == "Подключение появится после полной проверки."
+    )
+
+
+def test_provider_view_prioritizes_common_available_connections() -> None:
+    surface = view_models.calendar_settings_surface(
+        provider_payloads=provider_preset_payloads(google_available=True),
+        sources=[],
+    )
+
+    assert [provider.provider_family for provider in surface.providers[:4]] == [
+        "google_calendar",
+        "caldav_yandex",
+        "caldav_mail_ru",
+        "custom_caldav",
+    ]
+    assert not any(provider.runtime_available for provider in surface.providers)
 
 
 def test_calendar_settings_defaults_keep_manual_safe_prompt_behavior() -> None:
@@ -262,7 +349,7 @@ def test_calendar_settings_selectable_calendar_labels_distinguish_duplicates_and
     assert {calendar.visibility_label for calendar in rendered.calendars} >= {
         "общий календарь",
         "делегированный календарь",
-        "private/free-busy",
+        "приватное / только занятость",
         "недоступен",
     }
     assert [calendar.selectable for calendar in rendered.calendars] == [
@@ -281,6 +368,22 @@ def test_calendar_settings_sync_health_marks_sources_stale_after_24_hours() -> N
     )
 
     assert view_models.calendar_sync_health_state(source, now=now) == "stale"
+
+
+def test_calendar_sync_time_label_is_human_readable() -> None:
+    now = datetime(2026, 7, 2, 12, 0, tzinfo=UTC)
+
+    assert (
+        view_models.calendar_sync_time_label(now - timedelta(seconds=20), now=now) == "только что"
+    )
+    assert (
+        view_models.calendar_sync_time_label(now - timedelta(minutes=2), now=now)
+        == "2 минуты назад"
+    )
+    assert (
+        view_models.calendar_sync_time_label(now - timedelta(hours=5), now=now) == "5 часов назад"
+    )
+    assert view_models.calendar_sync_time_label(now - timedelta(days=1), now=now) == "1 день назад"
 
 
 def test_calendar_settings_sync_health_maps_running_failed_and_never_synced_states() -> None:
@@ -374,7 +477,27 @@ def test_calendar_settings_event_category_eligibility_defaults_and_opt_ins() -> 
         include_all_day_events=True,
         include_private_free_busy_prompt_candidates=True,
     )
+    only_no_participants = CalendarSettingsPreference(
+        workspace_id=source.workspace_id,
+        owner_user_id=source.owner_user_id,
+        include_events_without_participants=True,
+    )
+    only_no_link = CalendarSettingsPreference(
+        workspace_id=source.workspace_id,
+        owner_user_id=source.owner_user_id,
+        include_events_without_link_or_location=True,
+    )
     linked = calendar_settings_snapshot(source, calendar, meeting_link_present=True)
+    linked.conference_summary_json = {
+        "meeting_link_present": True,
+        "participant_count": 3,
+    }
+    linked_without_participants = calendar_settings_snapshot(
+        source,
+        calendar,
+        provider_event_id="linked-solo",
+        meeting_link_present=True,
+    )
     no_link_with_participants = calendar_settings_snapshot(
         source,
         calendar,
@@ -409,11 +532,25 @@ def test_calendar_settings_event_category_eligibility_defaults_and_opt_ins() -> 
     )
 
     assert calendar_event_matches_preferences(linked, None) is True
+    assert calendar_event_matches_preferences(linked_without_participants, None) is True
     assert calendar_event_matches_preferences(no_link_with_participants, None) is True
     assert calendar_event_matches_preferences(no_participants_no_link, None) is False
     assert calendar_event_matches_preferences(all_day, None) is False
     assert calendar_event_matches_preferences(private, None) is False
 
+    assert (
+        calendar_event_matches_preferences(linked_without_participants, only_no_participants)
+        is True
+    )
+    assert (
+        calendar_event_matches_preferences(no_link_with_participants, only_no_participants) is True
+    )
+    assert (
+        calendar_event_matches_preferences(no_participants_no_link, only_no_participants) is False
+    )
+    assert calendar_event_matches_preferences(linked_without_participants, only_no_link) is True
+    assert calendar_event_matches_preferences(no_link_with_participants, only_no_link) is True
+    assert calendar_event_matches_preferences(no_participants_no_link, only_no_link) is False
     assert (
         calendar_event_matches_preferences(no_link_with_participants, permissive_preferences)
         is True

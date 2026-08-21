@@ -55,6 +55,10 @@ services:
       TWOBRAIN_YANDEX_CLIENT_SECRET_FILE: /run/secrets/twobrain_yandex_client_secret
       TWOBRAIN_VK_CLIENT_ID: ${TWOBRAIN_VK_CLIENT_ID:-twobrain-vk-client-id}
       TWOBRAIN_VK_CLIENT_SECRET_FILE: /run/secrets/twobrain_vk_client_secret
+      TWOBRAIN_GOOGLE_CALENDAR_ENABLED: ${TWOBRAIN_GOOGLE_CALENDAR_ENABLED:-false}
+      TWOBRAIN_GOOGLE_CALENDAR_CLIENT_ID: ${TWOBRAIN_GOOGLE_CALENDAR_CLIENT_ID:-}
+      TWOBRAIN_GOOGLE_CALENDAR_CLIENT_SECRET_FILE: /run/secrets/twobrain_google_calendar_client_secret
+      TWOBRAIN_GOOGLE_CALENDAR_REDIRECT_URI: ${TWOBRAIN_GOOGLE_CALENDAR_REDIRECT_URI:-https://rec.2brain.pro/settings/integrations/calendar/google/callback}
       TWOBRAIN_SUPPORT_INCIDENT_GITHUB_TOKEN_FILE: /run/secrets/twobrain_support_incident_github_token
       TWOBRAIN_PUBLIC_ANALYTICS_ENABLED: ${TWOBRAIN_PUBLIC_ANALYTICS_ENABLED:-false}
       TWOBRAIN_PUBLIC_ANALYTICS_YANDEX_METRICA_ID: ${TWOBRAIN_PUBLIC_ANALYTICS_YANDEX_METRICA_ID:-}
@@ -136,6 +140,11 @@ services:
         mode: 0440
       - source: twobrain_vk_client_secret
         target: twobrain_vk_client_secret
+        uid: "100"
+        gid: "101"
+        mode: 0440
+      - source: twobrain_google_calendar_client_secret
+        target: twobrain_google_calendar_client_secret
         uid: "100"
         gid: "101"
         mode: 0440
@@ -693,6 +702,7 @@ services:
       TWOBRAIN_ENV: production
       TWOBRAIN_WEB_RUNTIME_ENABLED: "false"
       TWOBRAIN_DATABASE_URL: postgresql+asyncpg://twobrain_rec_maintenance:__POSTGRES_PASSWORD__@rec-postgres:5432/twobrain_rec
+      GRAF_CREDENTIAL_ENCRYPTION_KEY_FILE: /run/secrets/graf_credential_encryption_key
       TWOBRAIN_POSTGRES_PASSWORD_FILE: /run/secrets/twobrain_postgres_password
       TWOBRAIN_MINIO_ENDPOINT: rec-minio:9000
       TWOBRAIN_MINIO_ACCESS_KEY: __DOCKER_SECRET_FILE__
@@ -702,6 +712,10 @@ services:
       TWOBRAIN_MINIO_BUCKET: twobrain-rec-ingest
       TWOBRAIN_MINIO_SECURE: "false"
       TWOBRAIN_TEMPORAL_ADDRESS: rec-temporal:7233
+      TWOBRAIN_GOOGLE_CALENDAR_ENABLED: ${TWOBRAIN_GOOGLE_CALENDAR_ENABLED:-false}
+      TWOBRAIN_GOOGLE_CALENDAR_CLIENT_ID: ${TWOBRAIN_GOOGLE_CALENDAR_CLIENT_ID:-}
+      TWOBRAIN_GOOGLE_CALENDAR_CLIENT_SECRET_FILE: /run/secrets/twobrain_google_calendar_client_secret
+      TWOBRAIN_GOOGLE_CALENDAR_REDIRECT_URI: ${TWOBRAIN_GOOGLE_CALENDAR_REDIRECT_URI:-https://rec.2brain.pro/settings/integrations/calendar/google/callback}
       TWOBRAIN_BILLING_CHECKOUT_ENABLED: ${TWOBRAIN_BILLING_CHECKOUT_ENABLED:-false}
       TWOBRAIN_BILLING_PROVIDER_OBSERVATION_ENABLED: ${TWOBRAIN_BILLING_PROVIDER_OBSERVATION_ENABLED:-false}
       TWOBRAIN_BILLING_YOOKASSA_ENVIRONMENT: ${TWOBRAIN_BILLING_YOOKASSA_ENVIRONMENT:-production}
@@ -725,6 +739,16 @@ services:
     secrets:
       - source: twobrain_postgres_maintenance_password
         target: twobrain_postgres_password
+      - source: graf_credential_encryption_key
+        target: graf_credential_encryption_key
+        uid: "100"
+        gid: "101"
+        mode: 0440
+      - source: twobrain_google_calendar_client_secret
+        target: twobrain_google_calendar_client_secret
+        uid: "100"
+        gid: "101"
+        mode: 0440
       - source: twobrain_minio_api_access_key
         target: twobrain_minio_api_access_key
         uid: "100"
@@ -1047,6 +1071,8 @@ secrets:
     file: ${TWOBRAIN_YANDEX_CLIENT_SECRET_FILE:-./secrets/twobrain_yandex_client_secret}
   twobrain_vk_client_secret:
     file: ${TWOBRAIN_VK_CLIENT_SECRET_FILE:-./secrets/twobrain_vk_client_secret}
+  twobrain_google_calendar_client_secret:
+    file: ${TWOBRAIN_GOOGLE_CALENDAR_CLIENT_SECRET_FILE:-./secrets/twobrain_google_calendar_client_secret}
   twobrain_support_incident_github_token:
     file: ${TWOBRAIN_SUPPORT_INCIDENT_GITHUB_TOKEN_FILE:-./secrets/twobrain_support_incident_github_token}
   graf_posthog_project_key:

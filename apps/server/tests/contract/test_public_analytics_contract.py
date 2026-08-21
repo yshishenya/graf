@@ -323,7 +323,8 @@ def test_public_analytics_production_env_example_is_disabled_and_redacted() -> N
         for line in env_example.splitlines()
         if line.startswith("TWOBRAIN_PUBLIC_ANALYTICS_YANDEX_METRICA_ID=")
     ]
-    assert "GOOGLE" not in env_example
+    assert "TWOBRAIN_GOOGLE_CALENDAR_CLIENT_SECRET" not in env_example
+    assert "TWOBRAIN_PUBLIC_ANALYTICS_GOOGLE" not in env_example
     assert "GA4" not in env_example
     assert "GTM" not in env_example
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from twobrain_rec_server.calendar.worker import run_calendar_sync_reconciler
 from twobrain_rec_server.config import get_settings
 from twobrain_rec_server.workflows.temporal_client import connect_temporal_client
 from twobrain_rec_server.workflows.worker import (
@@ -30,6 +31,7 @@ async def run_maintenance_worker() -> None:
         asyncio.create_task(run_billing_notification_reconciler(settings)),
         asyncio.create_task(run_deletion_purge_reconciler(settings, temporal_client)),
         asyncio.create_task(run_legacy_processing_lineage_reconciler(settings)),
+        asyncio.create_task(run_calendar_sync_reconciler(settings)),
     ]
     if settings.outcome_generation_enabled:
         tasks.append(asyncio.create_task(run_dispatch_reconciler(settings, temporal_client)))

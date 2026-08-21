@@ -55,6 +55,7 @@ def calendar_event_fixture(provider_family: str = "caldav_yandex", **overrides: 
                 "redacted_url_preview": "meet.example.test/...",
                 "contains_passcode": False,
                 "sensitivity_class": "meeting_link",
+                "open_url": "https://meet.example.test/synthetic-room",
             }
         ],
         "attachments_metadata": [

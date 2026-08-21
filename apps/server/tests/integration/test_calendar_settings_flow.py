@@ -6,6 +6,7 @@ import re
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from time import perf_counter
+from urllib.parse import parse_qs, urlparse
 from uuid import UUID, uuid4
 
 from sqlalchemy import func, select
@@ -18,6 +19,12 @@ from twobrain_rec_server.auth.dependencies import (
     DESKTOP_CALENDAR_AUTH_COOKIE_PATH,
 )
 from twobrain_rec_server.calendar.credentials import unseal_credential
+from twobrain_rec_server.calendar.google import GoogleOAuthConfig, GoogleTokenSet
+from twobrain_rec_server.calendar.providers import (
+    CalendarCatalogEntry,
+    CalendarProviderError,
+    CalendarValidation,
+)
 from twobrain_rec_server.calendar.service import (
     load_calendar_settings_preferences,
     save_calendar_settings_preferences,
@@ -47,6 +54,11 @@ def _csrf_token_from(html: str) -> str:
     match = re.search(r'name="csrf_token" value="([^"]+)"', html)
     assert match is not None
     return match.group(1)
+
+
+def _p95_seconds(samples: list[float]) -> float:
+    ordered = sorted(samples)
+    return ordered[max(0, int(len(ordered) * 0.95) - 1)]
 
 
 def test_calendar_settings_preferences_default_and_save_are_tenant_scoped(client) -> None:
@@ -141,7 +153,10 @@ def test_calendar_settings_page_renders_connected_source_that_needs_calendar_sel
 
     async def load_preferences_count() -> int:
         async with sessionmaker() as session:
-            return int(await session.scalar(select(func.count()).select_from(CalendarSettingsPreference)) or 0)
+            return int(
+                await session.scalar(select(func.count()).select_from(CalendarSettingsPreference))
+                or 0
+            )
 
     assert asyncio.run(load_preferences_count()) == 0
 
@@ -187,9 +202,12 @@ def test_calendar_settings_preview_ignores_selected_unavailable_calendar(client)
                     title="Unavailable preview meeting",
                     privacy_class="public",
                     source_status="confirmed",
-                    conference_summary_json={"meeting_link_present": True},
+                    conference_summary_json={
+                        "meeting_link_present": True,
+                        "participant_count": 1,
+                    },
                     attachments_metadata_json=[],
-                    provider_extras_json={},
+                    provider_extras_json={"participant_count": 1},
                     safe_to_show_in_list=True,
                     safe_to_use_as_title=True,
                     sensitivity_reasons_json=[],
@@ -345,7 +363,9 @@ def test_calendar_settings_unknown_source_actions_return_not_found_without_audit
         async with sessionmaker() as session:
             return list(
                 await session.scalars(
-                    select(CalendarAuditEvent).where(CalendarAuditEvent.calendar_source_id == missing_source_id)
+                    select(CalendarAuditEvent).where(
+                        CalendarAuditEvent.calendar_source_id == missing_source_id
+                    )
                 )
             )
 
@@ -533,6 +553,36 @@ def test_calendar_settings_app_password_requires_username(client) -> None:
     assert asyncio.run(load_source_count()) == 0
 
 
+def test_calendar_provider_failure_does_not_persist_source(client) -> None:
+    class FailingProvider:
+        async def validate(self, credential: str):
+            raise CalendarProviderError("invalid_credentials")
+
+    original_factory = client.app.state.calendar_provider_factory
+    client.app.state.calendar_provider_factory = lambda _provider_family: FailingProvider()
+    try:
+        response = client.post(
+            "/settings/integrations/calendar/providers/caldav_yandex/connect",
+            headers=auth_headers(),
+            data={
+                "username": "owner@example.test",
+                "credential_input": "synthetic-secret",
+            },
+            follow_redirects=False,
+        )
+    finally:
+        client.app.state.calendar_provider_factory = original_factory
+
+    assert response.status_code == 303
+    assert response.headers["location"].endswith("connect_result=denied")
+
+    async def load_source_count() -> int:
+        async with client.app_state["sessionmaker"]() as session:
+            return int(await session.scalar(select(func.count()).select_from(CalendarSource)) or 0)
+
+    assert asyncio.run(load_source_count()) == 0
+
+
 def test_calendar_settings_provider_result_states_are_safe(client) -> None:
     expected = {
         "cancelled": "Подключение отменено",
@@ -593,6 +643,223 @@ def test_calendar_settings_provider_limited_state_does_not_create_source(client)
     ]
     assert events[-1].outcome == "blocked"
     assert events[-1].safe_reason_code == "provider_limited"
+
+
+def test_google_calendar_connect_is_fail_closed_until_oauth_dependencies_exist(client) -> None:
+    response = client.post(
+        "/settings/integrations/calendar/providers/google_calendar/connect",
+        headers=auth_headers(),
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert (
+        response.headers["location"]
+        == "/settings/integrations/calendar?connect_result=dependency_missing"
+    )
+    rendered = client.get(response.headers["location"], headers=auth_headers())
+    assert "Google Calendar пока недоступен" in rendered.text
+    assert "Источник не добавлен" in rendered.text
+
+    sessionmaker = client.app_state["sessionmaker"]
+
+    async def load_source_count() -> int:
+        async with sessionmaker() as session:
+            return int(await session.scalar(select(func.count()).select_from(CalendarSource)) or 0)
+
+    assert asyncio.run(load_source_count()) == 0
+
+
+def test_google_oauth_callback_synthetic_completes_state_identity_catalog_and_sealed_refresh(
+    client, monkeypatch
+) -> None:
+    import twobrain_rec_server.cabinet.web_routes.calendar as calendar_routes
+
+    opened = client.get(
+        "https://testserver/desktop/settings/integrations/calendar",
+        headers=auth_headers(),
+    )
+    config = GoogleOAuthConfig(
+        client_id="synthetic-client-id",
+        client_secret="synthetic-client-secret",
+        redirect_uri="http://testserver/desktop/settings/integrations/calendar/google/callback",
+    )
+
+    class SyntheticGoogleAdapter:
+        def __init__(self, _config: GoogleOAuthConfig) -> None:
+            pass
+
+        async def exchange_code(self, code: str) -> GoogleTokenSet:
+            assert code == "synthetic-code"
+            return GoogleTokenSet(
+                access_token="synthetic-access",
+                refresh_token="synthetic-refresh",
+                expires_in=3600,
+                scope=(*config.scopes, "https://www.googleapis.com/auth/calendar"),
+            )
+
+        async def validate(self, access_token: str) -> CalendarValidation:
+            assert access_token == "synthetic-access"
+            return CalendarValidation(
+                account_subject="sha256:synthetic-google-account",
+                account_label="Google Calendar",
+                calendars=(
+                    CalendarCatalogEntry(
+                        provider_calendar_id="synthetic-primary",
+                        display_label="Synthetic Google Calendar",
+                        primary=True,
+                    ),
+                ),
+                granted_scopes=config.scopes,
+            )
+
+    monkeypatch.setattr(calendar_routes, "_google_oauth_config", lambda request: config)
+    monkeypatch.setattr(calendar_routes, "GoogleCalendarAdapter", SyntheticGoogleAdapter)
+    started = client.post(
+        "/desktop/settings/integrations/calendar/providers/google_calendar/connect",
+        headers=auth_headers(),
+        data={"csrf_token": _csrf_token_from(opened.text)},
+        follow_redirects=False,
+    )
+
+    assert started.status_code == 303
+    authorization = urlparse(started.headers["location"])
+    state = parse_qs(authorization.query)["state"][0]
+    concurrent = client.post(
+        "/desktop/settings/integrations/calendar/providers/google_calendar/connect",
+        headers=auth_headers(),
+        data={"csrf_token": _csrf_token_from(opened.text)},
+        follow_redirects=False,
+    )
+    assert concurrent.status_code == 303
+    callback = client.get(
+        f"/desktop/settings/integrations/calendar/google/callback?state={state}&code=synthetic-code",
+        headers=auth_headers(),
+        follow_redirects=False,
+    )
+
+    assert callback.status_code == 303
+    assert "Max-Age=0" not in callback.headers["set-cookie"]
+    assert (
+        callback.headers["location"]
+        == "/desktop/settings/integrations/calendar?connect_result=success"
+    )
+    sessionmaker = client.app_state["sessionmaker"]
+
+    async def load_source() -> tuple[CalendarSource, CalendarCredentialEnvelope]:
+        async with sessionmaker() as session:
+            source = await session.scalar(select(CalendarSource))
+            envelope = await session.scalar(select(CalendarCredentialEnvelope))
+            return source, envelope
+
+    source, envelope = asyncio.run(load_source())
+    assert source.provider_family == "google_calendar"
+    assert source.capabilities_json["account_subject_hash"] == "sha256:synthetic-google-account"
+    assert source.capabilities_json["granted_scopes"] == sorted(config.scopes)
+    assert (
+        unseal_credential(envelope.sealed_payload, client.app.state.credential_encryption_key)
+        == "synthetic-refresh"
+    )
+
+    async def select_catalog_calendar() -> None:
+        async with sessionmaker() as session:
+            calendar = await session.scalar(
+                select(ExternalCalendar).order_by(ExternalCalendar.provider_calendar_id)
+            )
+            calendar.selected = True
+            source = await session.scalar(select(CalendarSource))
+            source.selected_calendar_count = 1
+            source.sync_state = "failed_closed"
+            source.last_safe_error_code = "provider_unavailable"
+            await session.commit()
+
+    asyncio.run(select_catalog_calendar())
+
+    started_again = client.post(
+        "/desktop/settings/integrations/calendar/providers/google_calendar/connect",
+        headers=auth_headers(),
+        data={"csrf_token": _csrf_token_from(opened.text)},
+        follow_redirects=False,
+    )
+    state_again = parse_qs(urlparse(started_again.headers["location"]).query)["state"][0]
+    callback_again = client.get(
+        f"/desktop/settings/integrations/calendar/google/callback?state={state_again}&code=synthetic-code",
+        headers=auth_headers(),
+        follow_redirects=False,
+    )
+    assert callback_again.status_code == 303
+
+    async def load_source_counts() -> tuple[int, int, int, str, str | None]:
+        async with sessionmaker() as session:
+            source = await session.scalar(select(CalendarSource))
+            return (
+                int(await session.scalar(select(func.count()).select_from(CalendarSource)) or 0),
+                int(
+                    await session.scalar(
+                        select(func.count()).select_from(CalendarCredentialEnvelope)
+                    )
+                    or 0
+                ),
+                int(
+                    await session.scalar(
+                        select(func.count())
+                        .select_from(ExternalCalendar)
+                        .where(ExternalCalendar.selected.is_(True))
+                    )
+                    or 0
+                ),
+                source.sync_state,
+                source.last_safe_error_code,
+            )
+
+    assert asyncio.run(load_source_counts()) == (1, 1, 1, "never_synced", None)
+
+    disconnected = client.post(
+        f"/api/v1/calendar/sources/{source.id}/disconnect",
+        headers=auth_headers(),
+    )
+    assert disconnected.status_code == 200
+
+    started_after_disconnect = client.post(
+        "/desktop/settings/integrations/calendar/providers/google_calendar/connect",
+        headers=auth_headers(),
+        data={"csrf_token": _csrf_token_from(opened.text)},
+        follow_redirects=False,
+    )
+    state_after_disconnect = parse_qs(urlparse(started_after_disconnect.headers["location"]).query)[
+        "state"
+    ][0]
+    callback_after_disconnect = client.get(
+        "/desktop/settings/integrations/calendar/google/callback"
+        f"?state={state_after_disconnect}&code=synthetic-code",
+        headers=auth_headers(),
+        follow_redirects=False,
+    )
+    assert callback_after_disconnect.status_code == 303
+
+    async def load_reconnected_sources() -> tuple[list[str], int, int]:
+        async with sessionmaker() as session:
+            sources = list(
+                await session.scalars(select(CalendarSource).order_by(CalendarSource.created_at))
+            )
+            active = next(item for item in sources if item.connection_state == "active")
+            return (
+                [item.connection_state for item in sources],
+                active.selected_calendar_count,
+                int(
+                    await session.scalar(
+                        select(func.count())
+                        .select_from(ExternalCalendar)
+                        .where(
+                            ExternalCalendar.calendar_source_id == active.id,
+                            ExternalCalendar.selected.is_(True),
+                        )
+                    )
+                    or 0
+                ),
+            )
+
+    assert asyncio.run(load_reconnected_sources()) == (["disconnected", "active"], 0, 0)
 
 
 def test_calendar_settings_unknown_provider_connect_does_not_create_source(client) -> None:
@@ -785,7 +1052,9 @@ def test_calendar_settings_selection_save_empty_and_no_retrospective_matching(cl
             )
 
     selected_calendars = asyncio.run(load_after_selected())
-    assert {calendar.provider_calendar_id: calendar.selected for calendar in selected_calendars} == {
+    assert {
+        calendar.provider_calendar_id: calendar.selected for calendar in selected_calendars
+    } == {
         "noisy": False,
         "primary": True,
         "unavailable": False,
@@ -812,7 +1081,9 @@ def test_calendar_settings_selection_save_empty_and_no_retrospective_matching(cl
         follow_redirects=False,
     )
     assert forged_only.status_code == 303
-    assert forged_only.headers["location"] == "/settings/integrations/calendar?selection_result=empty"
+    assert (
+        forged_only.headers["location"] == "/settings/integrations/calendar?selection_result=empty"
+    )
     rendered_forged_only = client.get(forged_only.headers["location"], headers=auth_headers())
     assert "Календари не выбраны" in rendered_forged_only.text
     assert "Выбор календарей сохранен" not in rendered_forged_only.text
@@ -844,6 +1115,100 @@ def test_calendar_settings_selection_save_empty_and_no_retrospective_matching(cl
         "primary": "available",
         "unavailable": "unavailable",
     }
+
+
+def test_calendar_selection_accepts_twenty_and_rejects_twenty_one_without_truncation(
+    client,
+) -> None:
+    created = client.post(
+        "/api/v1/calendar/sources",
+        headers=auth_headers(),
+        json={
+            "provider_family": "caldav_yandex",
+            "auth_mode": "app_password",
+            "username": "selection-limit@example.test",
+            "credential_input": "synthetic-selection-secret",
+            "selected_provider_calendar_ids": ["primary"],
+        },
+    )
+    assert created.status_code == 201
+    source_id = UUID(created.json()["source"]["source_id"])
+    provider_ids = [
+        "primary",
+        "secondary",
+        "team",
+        "selected",
+        "synthetic-primary",
+        *(f"extra-{index}" for index in range(15)),
+    ]
+
+    async def add_catalog_rows() -> None:
+        async with client.app_state["sessionmaker"]() as session:
+            existing = set(
+                await session.scalars(
+                    select(ExternalCalendar.provider_calendar_id).where(
+                        ExternalCalendar.calendar_source_id == source_id
+                    )
+                )
+            )
+            session.add_all(
+                ExternalCalendar(
+                    calendar_source_id=source_id,
+                    workspace_id=WORKSPACE_ID,
+                    provider_calendar_id=provider_id,
+                    display_label=f"Synthetic {provider_id}",
+                    visibility="available",
+                )
+                for provider_id in provider_ids
+                if provider_id not in existing
+            )
+            await session.commit()
+
+    asyncio.run(add_catalog_rows())
+
+    accepted = client.post(
+        f"/settings/integrations/calendar/sources/{source_id}/calendars",
+        headers=auth_headers(),
+        data={"selected_provider_calendar_ids": provider_ids},
+        follow_redirects=False,
+    )
+    assert accepted.status_code == 303
+    assert accepted.headers["location"].endswith("selection_result=saved")
+
+    overflow_ids = [*provider_ids, "overflow"]
+    rejected = client.post(
+        f"/settings/integrations/calendar/sources/{source_id}/calendars",
+        headers=auth_headers(),
+        data={"selected_provider_calendar_ids": overflow_ids},
+        follow_redirects=False,
+    )
+    assert rejected.status_code == 303
+    assert rejected.headers["location"].endswith("selection_result=limit_exceeded")
+    rendered = client.get(rejected.headers["location"], headers=auth_headers())
+    assert "Можно выбрать до 20 календарей" in rendered.text
+
+    api_rejected = client.patch(
+        f"/api/v1/calendar/sources/{source_id}/selected-calendars",
+        headers=auth_headers(),
+        json={"selected_provider_calendar_ids": overflow_ids},
+    )
+    assert api_rejected.status_code == 422
+    assert api_rejected.json()["code"] == "calendar_selection_limit_exceeded"
+
+    async def selected_ids() -> list[str]:
+        async with client.app_state["sessionmaker"]() as session:
+            return list(
+                await session.scalars(
+                    select(ExternalCalendar.provider_calendar_id)
+                    .where(
+                        ExternalCalendar.calendar_source_id == source_id,
+                        ExternalCalendar.selected.is_(True),
+                    )
+                    .order_by(ExternalCalendar.provider_calendar_id)
+                )
+            )
+
+    assert asyncio.run(selected_ids()) == sorted(provider_ids)
 
 
 def test_calendar_settings_saves_event_category_preferences_and_keeps_manual_recording_copy(
@@ -934,9 +1299,12 @@ def test_calendar_settings_preview_respects_hidden_time_and_title_preferences(
                     title="Hidden preview meeting",
                     privacy_class="public",
                     source_status="confirmed",
-                    conference_summary_json={"meeting_link_present": True},
+                    conference_summary_json={
+                        "meeting_link_present": True,
+                        "participant_count": 1,
+                    },
                     attachments_metadata_json=[],
-                    provider_extras_json={},
+                    provider_extras_json={"participant_count": 1},
                     safe_to_show_in_list=True,
                     safe_to_use_as_title=True,
                     sensitivity_reasons_json=[],
@@ -955,11 +1323,20 @@ def test_calendar_settings_preview_respects_hidden_time_and_title_preferences(
     assert saved.status_code == 303
 
     rendered = client.get("/settings/integrations/calendar", headers=auth_headers())
+    home = client.get("/meetings", headers=auth_headers())
+    upcoming = client.get("/api/v1/calendar/events/upcoming", headers=auth_headers())
 
     assert rendered.status_code == 200
     assert "Время скрыто настройкой" in rendered.text
     assert "Название скрыто настройкой" in rendered.text
     assert "Hidden preview meeting" not in rendered.text
+    assert home.status_code == 200
+    assert "Время скрыто настройкой" in home.text
+    assert "Название скрыто настройкой" in home.text
+    assert "Hidden preview meeting" not in home.text
+    assert upcoming.json()["show_upcoming_time"] is False
+    assert upcoming.json()["show_upcoming_title"] is False
+    assert upcoming.json()["events"][0]["title"] is None
 
 
 def test_calendar_settings_preview_shows_active_overlap_started_before_now(client) -> None:
@@ -1349,7 +1726,12 @@ def test_calendar_settings_manual_sync_results_cover_safe_states_and_audit(clien
             "Синхронизация поставлена в очередь",
         ),
         ("already-running", {"sync_state": "syncing"}, "already_running", "Синхронизация уже идет"),
-        ("provider-failed", {"sync_state": "provider_unavailable"}, "failed", "Синхронизация не запущена"),
+        (
+            "provider-failed",
+            {"sync_state": "provider_unavailable"},
+            "failed",
+            "Синхронизация не запущена",
+        ),
         (
             "needs-action",
             {"connection_state": "needs_action", "sync_state": "credential_failed"},
@@ -1432,6 +1814,78 @@ def test_calendar_settings_manual_sync_results_cover_safe_states_and_audit(clien
     assert "raw_provider_payload" not in str(events)
 
 
+def test_calendar_settings_cached_projection_and_sync_ack_p95(client) -> None:
+    sessionmaker = client.app_state["sessionmaker"]
+
+    async def seed() -> list[UUID]:
+        async with sessionmaker() as session:
+            source_ids: list[UUID] = []
+            for index in range(20):
+                source = CalendarSource(
+                    workspace_id=WORKSPACE_ID,
+                    owner_user_id=USER_ID,
+                    provider_family="caldav_yandex",
+                    provider_label=f"Synthetic calendar {index}",
+                    auth_mode="app_password",
+                    credential_state="sealed",
+                    connection_state="active",
+                    sync_state="stale",
+                    selected_calendar_count=1,
+                    capabilities_json={},
+                )
+                session.add(source)
+                await session.flush()
+                session.add(
+                    ExternalCalendar(
+                        workspace_id=WORKSPACE_ID,
+                        calendar_source_id=source.id,
+                        provider_calendar_id=f"synthetic-{index}",
+                        display_label=f"Synthetic calendar {index}",
+                        visibility="available",
+                        selected=True,
+                    )
+                )
+                source_ids.append(source.id)
+            await session.commit()
+            return source_ids
+
+    source_ids = asyncio.run(seed())
+    projection_samples: list[float] = []
+    sync_ack_samples: list[float] = []
+
+    warmed = client.get(
+        "/settings/integrations/calendar?connect_result=success",
+        headers=auth_headers(),
+    )
+    assert warmed.status_code == 200
+
+    for _ in range(20):
+        started = perf_counter()
+        response = client.get(
+            "/settings/integrations/calendar?connect_result=success",
+            headers=auth_headers(),
+        )
+        projection_samples.append(perf_counter() - started)
+        assert response.status_code == 200
+
+    for source_id in source_ids:
+        started = perf_counter()
+        response = client.post(
+            f"/settings/integrations/calendar/sources/{source_id}/sync",
+            headers=auth_headers(),
+            follow_redirects=False,
+        )
+        sync_ack_samples.append(perf_counter() - started)
+        assert response.status_code == 303
+        assert response.headers["location"].endswith("sync_result=accepted")
+
+    # NFR-006: one warmed cached projection covers the post-callback result and
+    # cached catalog surface; sync acknowledgement never waits for provider I/O.
+    assert _p95_seconds(projection_samples) <= 0.5
+    assert _p95_seconds(projection_samples) <= 1.0
+    assert _p95_seconds(sync_ack_samples) <= 0.3
+
+
 def test_calendar_settings_disconnect_stops_future_contribution_purges_credentials_and_audits(
     client,
 ) -> None:
@@ -1457,7 +1911,12 @@ def test_calendar_settings_disconnect_stops_future_contribution_purges_credentia
             source = await session.get(CalendarSource, source_id)
             source.sync_state = "syncing"
             calendar = await session.scalar(
-                select(ExternalCalendar).where(ExternalCalendar.calendar_source_id == source_id)
+                select(ExternalCalendar)
+                .where(
+                    ExternalCalendar.calendar_source_id == source_id,
+                    ExternalCalendar.selected.is_(True),
+                )
+                .order_by(ExternalCalendar.provider_calendar_id)
             )
             event = CalendarEventSnapshot(
                 workspace_id=WORKSPACE_ID,
@@ -1492,9 +1951,10 @@ def test_calendar_settings_disconnect_stops_future_contribution_purges_credentia
         response.headers["location"] == "/settings/integrations/calendar?disconnect_result=success"
     )
     rendered = client.get(response.headers["location"], headers=auth_headers())
-    assert "Календарь отключен" in rendered.text
+    assert "Календарь отключён от GRAF." in rendered.text
     assert "Future calendar event" not in rendered.text
     assert "secret-app-password" not in rendered.text
+    assert 'class="calendar-source-card"' not in rendered.text
 
     async def load_disconnect_state() -> tuple[
         CalendarSource, CalendarCredentialEnvelope, int, list[CalendarAuditEvent]
@@ -1545,5 +2005,5 @@ def test_calendar_settings_disconnect_partial_feedback_is_safe(client) -> None:
 
     assert rendered.status_code == 200
     assert "Отключение выполнено частично" in rendered.text
-    assert "Будущая синхронизация остановлена" in rendered.text
+    assert "полную локальную очистку" in rendered.text
     assert "raw_provider_payload" not in rendered.text

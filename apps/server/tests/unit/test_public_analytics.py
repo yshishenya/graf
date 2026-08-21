@@ -242,11 +242,6 @@ def test_public_analytics_production_config_accepts_yandex_only_runtime_settings
     assert settings.public_analytics_yandex_metrica_id == "12345678"
     assert settings.public_analytics_validation_mode == "provider_smoke"
     assert settings.public_analytics_replay_enabled is True
-    assert not [
-        field_name
-        for field_name in Settings.model_fields
-        if any(marker in field_name for marker in ("google", "ga4", "gtm"))
-    ]
 
 
 def test_public_analytics_production_config_rejects_missing_or_placeholder_counter_ids() -> None:

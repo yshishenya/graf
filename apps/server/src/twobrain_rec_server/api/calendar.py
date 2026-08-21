@@ -4,8 +4,10 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated
 from uuid import UUID
 
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, InvalidToken
 from fastapi import APIRouter, Depends, Header, Path, Query, Request
+from fastapi.responses import RedirectResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.problems import ProblemDetail
@@ -37,11 +39,17 @@ from twobrain_rec_server.auth.dependencies import (
     require_web_csrf,
 )
 from twobrain_rec_server.cabinet.queries import get_meeting_calendar_context_read_model
+from twobrain_rec_server.calendar.conference_links import safe_open_meeting_url
 from twobrain_rec_server.calendar.credentials import (
     calendar_connection_secret,
     generate_credential_key,
+    unseal_credential,
+)
+from twobrain_rec_server.calendar.google import (
+    google_oauth_config_from_settings,
 )
 from twobrain_rec_server.calendar.matching import resolve_recording_calendar_context
+from twobrain_rec_server.calendar.providers import CalendarProviderError
 from twobrain_rec_server.calendar.service import (
     calendars_for_source,
     connect_source,
@@ -57,6 +65,7 @@ from twobrain_rec_server.calendar.service import (
     request_source_sync,
     require_supported_auth_mode,
     unlink_meeting_calendar_context,
+    validate_provider_connection,
 )
 from twobrain_rec_server.db.models import (
     CalendarEventSnapshot,
@@ -102,7 +111,7 @@ def require_db(db: AsyncSession | None) -> AsyncSession:
     return db
 
 
-def _credential_encryption_key(request: Request) -> bytes:
+def _credential_encryption_key(request: Request, *, required: bool = True) -> bytes | None:
     key = getattr(request.app.state, "credential_encryption_key", None)
     if key is None:
         settings = request.app.state.settings
@@ -112,12 +121,16 @@ def _credential_encryption_key(request: Request) -> bytes:
                 key = key_file.read_text(encoding="utf-8").strip().encode("utf-8")
                 Fernet(key)
             except (OSError, ValueError) as exc:
+                if not required:
+                    return None
                 raise ProblemDetail(
                     status=503,
                     code="credential_encryption_key_unavailable",
                     title="Credential encryption key unavailable",
                 ) from exc
         elif settings.env.lower() == "production":
+            if not required:
+                return None
             raise ProblemDetail(
                 status=503,
                 code="credential_encryption_key_unavailable",
@@ -213,7 +226,9 @@ def _event_title_state(event: CalendarEventSnapshot) -> str:
     )
 
 
-def _event_summary(event: CalendarEventSnapshot) -> CalendarEventSummary:
+def _event_summary(
+    event: CalendarEventSnapshot, *, show_title: bool = True
+) -> CalendarEventSummary:
     extras = event.provider_extras_json or {}
     conference = event.conference_summary_json or {}
     return CalendarEventSummary(
@@ -221,8 +236,8 @@ def _event_summary(event: CalendarEventSnapshot) -> CalendarEventSummary:
         provider_family=extras.get("provider_family") or "calendar",
         starts_at=event.starts_at,
         ends_at=event.ends_at,
-        title=event.title if event.safe_to_show_in_list else None,
-        title_state=_event_title_state(event),
+        title=event.title if event.safe_to_show_in_list and show_title else None,
+        title_state=_event_title_state(event) if show_title else "policy_hidden",
         meeting_link_present=bool(conference.get("meeting_link_present", False)),
         attendee_count=int(extras.get("participant_count", 0)),
         roster_state=str(extras.get("roster_state", "not_available")),
@@ -232,10 +247,15 @@ def _event_summary(event: CalendarEventSnapshot) -> CalendarEventSummary:
 
 
 def _desktop_event(
-    event: CalendarEventSnapshot, *, join_enabled: bool = True, record_enabled: bool = True
+    event: CalendarEventSnapshot,
+    *,
+    join_enabled: bool = True,
+    record_enabled: bool = True,
+    show_title: bool = True,
+    credential_encryption_key: bytes | None = None,
 ) -> DesktopCalendarPromptEvent:
-    summary = _event_summary(event)
-    open_meeting_url = (event.provider_extras_json or {}).get("open_meeting_url")
+    summary = _event_summary(event, show_title=show_title)
+    open_meeting_url = _open_meeting_url(event, credential_encryption_key)
     return DesktopCalendarPromptEvent(
         **summary.model_dump(),
         join_prompt_due_at=event.starts_at - timedelta(minutes=1),
@@ -246,13 +266,32 @@ def _desktop_event(
     )
 
 
+def _open_meeting_url(
+    event: CalendarEventSnapshot, credential_encryption_key: bytes | None
+) -> str | None:
+    sealed = (event.provider_extras_json or {}).get("sealed_open_meeting_url")
+    if not isinstance(sealed, str) or not sealed or credential_encryption_key is None:
+        return None
+    try:
+        value = unseal_credential(sealed.encode("ascii"), credential_encryption_key)
+    except (InvalidToken, UnicodeDecodeError, UnicodeEncodeError, ValueError):
+        return None
+    return safe_open_meeting_url(value)
+
+
 @router.get(
     "/calendar/providers",
     response_model=CalendarProviderListResponse,
     dependencies=[PrincipalDependency],
 )
-async def list_calendar_providers() -> CalendarProviderListResponse:
-    return CalendarProviderListResponse(providers=list_provider_presets())
+async def list_calendar_providers(request: Request) -> CalendarProviderListResponse:
+    return CalendarProviderListResponse(
+        providers=list_provider_presets(
+            google_available=google_oauth_config_from_settings(request.app.state.settings)
+            is not None,
+            allow_uncertified_google=request.app.state.settings.env.lower() == "development",
+        )
+    )
 
 
 @router.get(
@@ -284,6 +323,21 @@ async def connect_calendar_source(
     db: AsyncSession | None = DbDependency,
 ) -> CalendarSourceResponse:
     credential_input = _connect_credential_input(payload)
+    provider_factory = getattr(request.app.state, "calendar_provider_factory", None)
+    provider = provider_factory(payload.provider_family) if callable(provider_factory) else None
+    try:
+        validation = await validate_provider_connection(
+            payload.provider_family,
+            credential_input,
+            provider=provider,
+        )
+    except CalendarProviderError as exc:
+        status = 429 if exc.safe_code == "rate_limited" else 502
+        raise ProblemDetail(
+            status=status,
+            code=exc.safe_code,
+            title="Calendar provider could not be verified",
+        ) from exc
     source = await connect_source(
         require_db(db),
         tenant_scope,
@@ -293,6 +347,9 @@ async def connect_calendar_source(
         credential_input=credential_input,
         selected_provider_calendar_ids=payload.selected_provider_calendar_ids,
         credential_encryption_key=_credential_encryption_key(request) if credential_input else None,
+        validated_calendars=validation.calendars,
+        account_subject=validation.account_subject,
+        granted_scopes=validation.granted_scopes,
     )
     await commit_if_available(db)
     return await _source_response(db, source)
@@ -365,6 +422,46 @@ async def disconnect_calendar_source_endpoint(
 
 
 @router.get(
+    "/calendar/events/{event_id}/open",
+    dependencies=[PrincipalDependency],
+)
+async def open_calendar_meeting(
+    event_id: UUID,
+    request: Request,
+    tenant_scope: TenantScope = TenantDependency,
+    db: AsyncSession | None = DbDependency,
+) -> RedirectResponse:
+    event = await require_db(db).scalar(
+        select(CalendarEventSnapshot)
+        .join(ExternalCalendar, CalendarEventSnapshot.external_calendar_id == ExternalCalendar.id)
+        .join(CalendarSource, CalendarEventSnapshot.calendar_source_id == CalendarSource.id)
+        .where(
+            CalendarEventSnapshot.id == event_id,
+            CalendarEventSnapshot.workspace_id == tenant_scope.workspace_id,
+            CalendarEventSnapshot.source_deleted_at.is_(None),
+            ExternalCalendar.workspace_id == tenant_scope.workspace_id,
+            ExternalCalendar.selected.is_(True),
+            CalendarSource.workspace_id == tenant_scope.workspace_id,
+            CalendarSource.owner_user_id == tenant_scope.user_id,
+            CalendarSource.disconnected_at.is_(None),
+            CalendarSource.connection_state != "disconnected",
+        )
+    )
+    url = (
+        _open_meeting_url(event, _credential_encryption_key(request, required=False))
+        if event is not None
+        else None
+    )
+    if url is None:
+        raise ProblemDetail(
+            status=404,
+            code="calendar_meeting_link_unavailable",
+            title="Calendar meeting link unavailable",
+        )
+    return RedirectResponse(url, status_code=303)
+
+
+@router.get(
     "/calendar/events/upcoming",
     response_model=UpcomingCalendarEventsResponse,
     dependencies=[PrincipalDependency],
@@ -387,7 +484,12 @@ async def list_upcoming_calendar_events(
         preference=preference,
     )
     return UpcomingCalendarEventsResponse(
-        events=[_event_summary(event) for event in events], truncated=truncated
+        events=[
+            _event_summary(event, show_title=preference.show_upcoming_title) for event in events
+        ],
+        truncated=truncated,
+        show_upcoming_time=preference.show_upcoming_time,
+        show_upcoming_title=preference.show_upcoming_title,
     )
 
 
@@ -397,6 +499,7 @@ async def list_upcoming_calendar_events(
     dependencies=[PrincipalDependency],
 )
 async def list_desktop_calendar_upcoming(
+    request: Request,
     before_minutes: Annotated[int, Query(ge=1, le=1440)] = 15,
     after_minutes: Annotated[int, Query(ge=0, le=1440)] = 60,
     tenant_scope: TenantScope = TenantDependency,
@@ -414,14 +517,18 @@ async def list_desktop_calendar_upcoming(
         preference=preference,
     )
     return DesktopCalendarPromptResponse(
+        show_upcoming_time=preference.show_upcoming_time,
+        show_upcoming_title=preference.show_upcoming_title,
         events=[
             _desktop_event(
                 event,
                 join_enabled=preference.join_prompt_enabled if preference else True,
                 record_enabled=preference.record_prompt_enabled if preference else True,
+                show_title=preference.show_upcoming_title,
+                credential_encryption_key=_credential_encryption_key(request, required=False),
             )
             for event in dedupe_calendar_events(events)
-        ]
+        ],
     )
 
 
