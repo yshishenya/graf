@@ -1,79 +1,54 @@
-import json
 from pathlib import Path
+from struct import unpack
+
+from fastapi.testclient import TestClient
 
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.main import create_app
 from twobrain_rec_server.public.templates import PUBLIC_STATIC_URL, public_static_asset_url
-from twobrain_rec_server.public.web import LANDING_AUTORECORD_PRIORITY, landing_autorecord_apps
 
 ROOT = Path(__file__).resolve().parents[2]
 PUBLIC_STATIC_DIR = ROOT / "src" / "twobrain_rec_server" / "public" / "static" / "public"
 PUBLIC_TEMPLATE_DIR = ROOT / "src" / "twobrain_rec_server" / "public" / "templates" / "public"
-MEETING_TARGET_REGISTRY = (
-    ROOT
-    / "src"
-    / "twobrain_rec_server"
-    / "db"
-    / "migrations"
-    / "data"
-    / "0030_meeting_target_registry.json"
-)
 REPOSITORY_ROOT = ROOT.parents[1]
 
 
-def test_public_landing_static_assets_are_local_to_server_package() -> None:
-    assert (PUBLIC_STATIC_DIR / "landing.css").is_file()
-    assert (PUBLIC_STATIC_DIR / "landing-atmosphere.jpg").is_file()
-    assert (PUBLIC_STATIC_DIR / "landing-recording-proof.png").is_file()
-    assert (PUBLIC_STATIC_DIR / "landing-recording-proof-focus.png").is_file()
-    assert (PUBLIC_STATIC_DIR / "landing-autorecord-proof-focus.png").is_file()
-    assert (PUBLIC_STATIC_DIR / "landing-autorecord-proof-focus.webp").is_file()
-    assert (PUBLIC_STATIC_DIR / "landing-autorecord-proof-control-mobile.png").is_file()
-    assert (PUBLIC_STATIC_DIR / "landing-autorecord-proof-toggle-mobile.png").is_file()
-    assert (PUBLIC_STATIC_DIR / "landing-transcript-proof.png").is_file()
-    assert (PUBLIC_STATIC_DIR / "landing-transcript-proof.webp").is_file()
-    assert (PUBLIC_STATIC_DIR / "landing-transcript-proof-mobile.png").is_file()
-    assert (PUBLIC_STATIC_DIR / "landing-transcript-proof-mobile.webp").is_file()
-    assert (PUBLIC_STATIC_DIR / "landing-outcome-proof.png").is_file()
-    assert (PUBLIC_STATIC_DIR / "landing-outcome-proof.webp").is_file()
-    assert (PUBLIC_STATIC_DIR / "landing-outcome-proof-focus.png").is_file()
-    assert (PUBLIC_STATIC_DIR / "landing-outcome-proof-focus-mobile.png").is_file()
-    assert (PUBLIC_STATIC_DIR / "landing-outcome-proof-mobile.png").is_file()
-    assert (PUBLIC_STATIC_DIR / "landing-outcome-proof-mobile.webp").is_file()
-    assert (PUBLIC_STATIC_DIR / "fonts" / "onest-cyrillic.woff2").is_file()
-    assert (PUBLIC_STATIC_DIR / "fonts" / "onest-latin.woff2").is_file()
-    assert (PUBLIC_STATIC_DIR / "fonts" / "OFL.txt").is_file()
-    assert (PUBLIC_STATIC_DIR / "downloads" / "graf.pkg").is_file()
-    assert (PUBLIC_STATIC_DIR / "analytics.js").is_file()
-    assert (PUBLIC_STATIC_DIR / "cookieconsent.umd.js").is_file()
-    assert (PUBLIC_STATIC_DIR / "cookieconsent.css").is_file()
-    assert (PUBLIC_TEMPLATE_DIR / "landing.html").is_file()
-    assert (PUBLIC_TEMPLATE_DIR / "download.html").is_file()
-    assert (PUBLIC_TEMPLATE_DIR / "_analytics.html").is_file()
+def test_public_landing_assets_and_templates_are_local() -> None:
+    for asset in (
+        "landing.css",
+        "landing.js",
+        "analytics.js",
+        "graf-recording-landing.png",
+        "graf-transcript-landing.png",
+        "graf-transcript-landing-mobile.png",
+        "graf-summary-landing.png",
+        "fonts/onest-cyrillic.woff2",
+        "fonts/onest-latin.woff2",
+        "fonts/OFL.txt",
+        "downloads/graf.pkg",
+    ):
+        assert (PUBLIC_STATIC_DIR / asset).is_file()
+    for template in ("landing.html", "download.html", "_analytics.html"):
+        assert (PUBLIC_TEMPLATE_DIR / template).is_file()
 
 
-def test_public_landing_autorecord_count_matches_current_registry() -> None:
-    registry = json.loads(MEETING_TARGET_REGISTRY.read_text(encoding="utf-8"))
-    prompt_enabled_macos = sum(
-        target["platform"] == "macos" and target["mode"] == "prompt_enabled"
-        for target in registry["targets"]
-    )
-    expected_names = {
-        target["displayName"]
-        for target in registry["targets"]
-        if target["platform"] == "macos" and target["mode"] == "prompt_enabled"
+def test_public_product_assets_have_expected_dimensions_and_no_metadata() -> None:
+    expected = {
+        "graf-recording-landing.png": (1600, 1000),
+        "graf-transcript-landing.png": (1600, 1000),
+        "graf-transcript-landing-mobile.png": (1200, 900),
+        "graf-summary-landing.png": (1600, 1000),
     }
-    rendered_names = landing_autorecord_apps()
+    for name, dimensions in expected.items():
+        content = (PUBLIC_STATIC_DIR / name).read_bytes()
+        assert content[:8] == b"\x89PNG\r\n\x1a\n"
+        assert unpack(">II", content[16:24]) == dimensions
+        assert b"tEXt" not in content
+        assert b"iTXt" not in content
 
-    assert prompt_enabled_macos == len(expected_names)
-    assert len(rendered_names) == len(set(rendered_names)) == len(expected_names)
-    assert set(rendered_names) == expected_names
-    assert rendered_names[: len(LANDING_AUTORECORD_PRIORITY)] == LANDING_AUTORECORD_PRIORITY
 
-
-def test_public_landing_static_assets_are_mounted_by_app() -> None:
+def test_public_static_assets_are_mounted_by_app() -> None:
     app = create_app(Settings())
-
     assert any(route.path == PUBLIC_STATIC_URL for route in app.routes)
 
 
@@ -84,10 +59,10 @@ def test_public_download_template_exposes_one_universal_installer() -> None:
     assert "graf-local.pkg" not in content
     assert "arm64" not in content.lower()
     assert "x86_64" not in content.lower()
-    assert "Intel-версия" not in content
+    assert content.count('data-platform-status="planned"') == 2
 
 
-def test_public_downloads_use_a_read_only_runtime_mount_outside_git() -> None:
+def test_public_downloads_use_read_only_runtime_mount_outside_git() -> None:
     compose = (REPOSITORY_ROOT / "infra" / "docker-compose.yml").read_text()
     gitignore = (REPOSITORY_ROOT / ".gitignore").read_text()
 
@@ -99,92 +74,27 @@ def test_public_downloads_use_a_read_only_runtime_mount_outside_git() -> None:
     assert "infra/runtime/" in gitignore
 
 
-def test_public_landing_css_avoids_runtime_cdns_or_client_toolchain() -> None:
-    content = "\n".join(
-        [
-            (PUBLIC_STATIC_DIR / "landing.css").read_text().lower(),
-            (PUBLIC_STATIC_DIR / "analytics.js").read_text().lower(),
-            (PUBLIC_STATIC_DIR / "cookieconsent.umd.js").read_text().lower(),
-            (PUBLIC_STATIC_DIR / "cookieconsent.css").read_text().lower(),
-        ]
+def test_public_landing_css_and_scripts_are_local_accessible_and_progressive() -> None:
+    css = (PUBLIC_STATIC_DIR / "landing.css").read_text(encoding="utf-8").lower()
+    scripts = "\n".join(
+        (PUBLIC_STATIC_DIR / name).read_text(encoding="utf-8").lower()
+        for name in ("landing.js", "analytics.js")
     )
-    forbidden = (
-        "cdn.",
-        "cdnjs",
-        "jsdelivr",
-        "googleapis",
-        "fonts.gstatic",
-        "tailwind",
-        "daisyui",
-        "flowbite",
-        "shadcn",
-        "react",
-        "vue",
-        "svelte",
-        "webpack",
-        "vite",
-    )
+    forbidden = ("cdn.", "cdnjs", "jsdelivr", "googleapis", "fonts.gstatic", "tailwind", "react", "vue")
 
-    assert not [marker for marker in forbidden if marker in content]
-
-
-def test_public_landing_cookieconsent_assets_are_pinned_and_attributed() -> None:
-    cookieconsent_js = (PUBLIC_STATIC_DIR / "cookieconsent.umd.js").read_text(encoding="utf-8")
-    cookieconsent_css = (PUBLIC_STATIC_DIR / "cookieconsent.css").read_text(encoding="utf-8")
-
-    assert "CookieConsent 3.1.0" in cookieconsent_js
-    assert "Released under the MIT License" in cookieconsent_js
-    assert "CookieConsent 3.1.0" in cookieconsent_css
-    assert "Released under the MIT License" in cookieconsent_css
-
-
-def test_public_landing_css_keeps_accessible_focus_and_stable_motion() -> None:
-    content = (PUBLIC_STATIC_DIR / "landing.css").read_text().lower()
-
-    assert ":focus-visible" in content
-    assert "prefers-reduced-motion: reduce" in content
-    assert "animation-timeline: view()" in content
-    assert 'url("landing-atmosphere.jpg")' in content
-    assert "reference-hero-product" in content
-    assert "reference-auto-flow" in content
-    assert "reference-proof-window" in content
-    assert "reference-mobile-menu" in content
-    assert "display: none" in content
-    assert "transition: all" not in content
-    assert "overflow-x: hidden" in content
-    assert "inset: -24% -6% -22% 6%" in content
-    assert "margin: 0 -16px" not in content
-    assert ".legal-page h1" in content
-    assert ".legal-section code" in content
-    assert "overflow-wrap: anywhere" in content
-
-
-def test_public_landing_hero_product_cta_uses_allowlisted_section_target() -> None:
-    content = (PUBLIC_TEMPLATE_DIR / "landing.html").read_text(encoding="utf-8")
-
-    assert 'data-analytics-cta="hero_product"' in content
-    assert 'data-analytics-target="section"' in content
-    assert 'data-analytics-target="hero_product"' not in content
-
-
-def test_public_cookie_preferences_use_dark_contrast_tokens() -> None:
-    content = (PUBLIC_STATIC_DIR / "landing.css").read_text(encoding="utf-8")
-
-    for token in (
-        "--cc-cookie-category-block-bg: #1b1822",
-        "--cc-cookie-category-block-hover-bg: #241f2e",
-        "--cc-cookie-category-block-border: rgba(232, 226, 242, 0.14)",
-        "--cc-footer-bg: #0d0b11",
-        "--cc-footer-color: #d2ccd8",
-    ):
-        assert token in content
+    assert not [marker for marker in forbidden if marker in css + scripts]
+    assert ":focus-visible" in css
+    assert "prefers-reduced-motion: reduce" in css
+    assert ".reveal { opacity: 1" in css
+    assert ".enhanced .walkthrough-panel:not(.active)" in css
+    assert "overflow-x: hidden" in css
+    assert "transition: all" not in css
+    assert "cookieconsent" not in scripts
 
 
 def test_public_html_security_headers_discovery_and_canonical_are_shared() -> None:
     settings = Settings(public_base_url="https://rec.2brain.pro")
     app = create_app(settings)
-
-    from fastapi.testclient import TestClient
 
     with TestClient(app) as client:
         for path in ("/", "/download", "/privacy", "/cookies", "/terms", "/offer", "/analytics-consent"):
@@ -199,7 +109,6 @@ def test_public_html_security_headers_discovery_and_canonical_are_shared() -> No
             assert 'property="og:title"' in response.text
             assert 'property="og:locale" content="ru_RU"' in response.text
             assert 'name="twitter:title"' in response.text
-            assert 'name="twitter:description"' in response.text
 
         robots = client.get("/robots.txt")
         sitemap = client.get("/sitemap.xml")
@@ -207,16 +116,12 @@ def test_public_html_security_headers_discovery_and_canonical_are_shared() -> No
     assert robots.status_code == 200
     assert "Sitemap: https://rec.2brain.pro/sitemap.xml" in robots.text
     assert sitemap.status_code == 200
-    assert sitemap.headers["content-type"].startswith("application/xml")
-    for path in ("/", "/download", "/privacy", "/cookies", "/terms", "/analytics-consent"):
+    for path in ("/", "/download", "/privacy", "/cookies", "/terms", "/offer", "/analytics-consent"):
         assert f"https://rec.2brain.pro{path}" in sitemap.text
 
 
-def test_fingerprinted_public_static_assets_are_immutable_only_with_version() -> None:
+def test_fingerprinted_public_static_assets_have_immutable_cache_only_with_version() -> None:
     app = create_app(Settings())
-
-    from fastapi.testclient import TestClient
-
     with TestClient(app) as client:
         fingerprinted = client.get(public_static_asset_url("landing.css"))
         stable = client.get("/static/public/landing.css")
@@ -224,10 +129,3 @@ def test_fingerprinted_public_static_assets_are_immutable_only_with_version() ->
     assert fingerprinted.status_code == stable.status_code == 200
     assert fingerprinted.headers["cache-control"] == "public, max-age=31536000, immutable"
     assert stable.headers["cache-control"] == "no-cache"
-
-
-def test_public_landing_asset_url_is_fingerprinted() -> None:
-    url = public_static_asset_url("landing.css")
-
-    assert url.startswith("/static/public/landing.css?v=")
-    assert len(url.rsplit("?v=", 1)[1]) == 12

@@ -101,8 +101,8 @@ def public_template_response(
     public_base_url = str(settings.public_base_url or DEFAULT_PUBLIC_BASE_URL).rstrip("/")
     canonical_url = f"{public_base_url}{analytics_path}"
     context.setdefault("canonical_url", canonical_url)
-    context.setdefault("social_title", context.get("page_title", "GRAF"))
-    context.setdefault("social_description", "GRAF записывает встречи и превращает разговор в расшифровку, решения и следующие действия.")
+    context.setdefault("social_title", context.get("page_title", "ГРАФ"))
+    context.setdefault("social_description", "ГРАФ записывает встречи и превращает разговор в расшифровку, решения и следующие действия.")
     response = html_response(
         render_template(template_name, request=request, **context),
         status_code=status_code,

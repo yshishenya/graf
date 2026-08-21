@@ -7,262 +7,340 @@
     {% include "public/_meta.html" %}
     <meta
       name="description"
-      content="GRAF записывает разговор без бота, готовит расшифровку и итоги, а подключённый Google Calendar читает только для ближайших встреч, напоминаний и контекста."
+      content="ГРАФ записывает звонки в любом приложении и готовит расшифровку по спикерам, итоги и следующие действия. 7 дней бесплатно на macOS."
     >
-    <meta name="theme-color" content="#09080d">
-    <link rel="icon" href="{{ cabinet_static_asset_url('favicon.ico') }}">
+    <meta name="theme-color" content="#090b12">
+    <link rel="icon" href="{{ cabinet_static_asset_url('favicon.ico') }}" sizes="any">
     <link rel="preload" href="{{ public_static_asset_url('fonts/onest-cyrillic.woff2') }}" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="{{ public_static_asset_url('fonts/onest-latin.woff2') }}" as="font" type="font/woff2" crossorigin>
     <link rel="stylesheet" href="{{ public_static_asset_url('landing.css') }}">
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "ГРАФ",
+        "applicationCategory": "BusinessApplication",
+        "operatingSystem": "macOS 14.5+",
+        "description": "Приложение для записи звонков в любом сервисе, расшифровки со спикерами и таймкодами, саммари и следующих действий.",
+        "url": "https://rec.2brain.pro/",
+        "downloadUrl": "{{ canonical_url }}download"{% if public_offer.sale_ready %},
+        "offers": [
+          {
+            "@type": "Offer",
+            "name": "Подписка на 1 месяц",
+            "price": "{{ public_offer.monthly_amount_minor // 100 }}",
+            "priceCurrency": "RUB"
+          },
+          {
+            "@type": "Offer",
+            "name": "Подписка на 1 год",
+            "price": "{{ public_offer.annual_amount_minor // 100 }}",
+            "priceCurrency": "RUB"
+          }
+        ]{% endif %}
+      }
+    </script>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "Насколько точно ГРАФ распознаёт русскую речь?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Качество зависит от звука, темпа речи и одновременных реплик. Лучше всего ГРАФ работает с чистым звуком и наушниками."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Почему ГРАФ пока доступен только на macOS?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Первая публичная версия создана для macOS 14.5 и новее, включая Mac на Apple Silicon и Intel. Версии для Windows и Linux появятся после проверки спроса."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Нужен ли интернет во время звонка?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Нет. Запись работает без интернета. После подключения сохранённый разговор можно отправить на транскрибацию."
+            }
+          }
+        ]
+      }
+    </script>
+    <script src="{{ public_static_asset_url('landing.js') }}" defer></script>
   </head>
-  <body class="landing-page reference-landing">
+  <body>
     <a class="skip-link" href="#main">К содержанию</a>
-    <div class="site-shell">
-      <header class="site-header" aria-label="GRAF">
-        <a class="brand" href="/" aria-label="GRAF — главная">
-          <img
-            src="{{ cabinet_static_asset_url('graf-wordmark-dark@2x.png') }}"
-            width="108"
-            height="40"
-            alt="GRAF"
-          >
+
+    <header class="site-header" data-header>
+      <div class="shell header-inner">
+        <a class="brand" href="#top" aria-label="ГРАФ — на главную">
+          <img src="{{ cabinet_static_asset_url('graf-wordmark-dark@2x.png') }}" alt="ГРАФ">
         </a>
-        <nav class="top-nav" aria-label="Основные разделы">
-          <a href="#how">Запись</a>
-          <a href="#result">Результат</a>
-          <a href="#calendar">Календарь</a>
-          <a href="#trust">Данные</a>
+        <nav class="desktop-nav" aria-label="Основная навигация">
+          <a href="#for-whom">Для кого</a>
+          <a href="#how">Как работает</a>
+          <a href="#faq">Вопросы</a>
+          {% if public_offer.catalog_ready %}<a href="#price">Тариф</a>{% endif %}
         </nav>
         <div class="header-actions">
-          <a class="header-login" href="{{ start_url }}">Войти</a>
-          <a
-            class="header-cta"
-            href="{{ download_url }}"
-            data-analytics-cta="header_download"
-            data-analytics-target="download_page"
-          >Скачать</a>
-          <details class="reference-mobile-menu">
-            <summary>Меню</summary>
-            <nav aria-label="Мобильная навигация">
-              <a href="#how">Запись</a>
-              <a href="#result">Результат</a>
-              <a href="#calendar">Календарь</a>
-              <a href="#trust">Данные</a>
-              <a href="{{ download_url }}">Скачать GRAF</a>
-              <a href="{{ start_url }}">Войти</a>
-            </nav>
-          </details>
+          <a class="text-link desktop-only" href="/login?next=/meetings" data-analytics-cta="header_login" data-analytics-target="login">Войти</a>
+          <a class="button button-small" href="/download" data-analytics-cta="header_download" data-analytics-target="download_page">
+            Скачать
+          </a>
+          <button class="menu-button" type="button" aria-label="Открыть меню" aria-expanded="false" data-menu-button>
+            <span></span><span></span>
+          </button>
         </div>
-      </header>
+      </div>
+      <nav class="mobile-nav" aria-label="Мобильная навигация" data-mobile-nav>
+        <a href="#for-whom">Для кого</a>
+        <a href="#how">Как работает</a>
+        <a href="#faq">Вопросы</a>
+        {% if public_offer.catalog_ready %}<a href="#price">Тариф</a>{% endif %}
+        <a href="/login?next=/meetings" data-analytics-cta="header_login" data-analytics-target="login">Войти</a>
+      </nav>
+    </header>
 
-      <main id="main">
-        <section class="reference-hero" aria-labelledby="hero-title" data-analytics-section="hero">
-          <div class="reference-hero-copy">
-            <p class="eyebrow">GRAF · запись без бота в звонке</p>
-            <h1 id="hero-title">
-              <span>Звоните как привыкли</span>
-              <span>Запись ведите в GRAF</span>
-            </h1>
-            <div class="reference-hero-summary">
-              <p class="hero-lede">
-                Включите автозапись для поддерживаемого приложения — GRAF сам
-                начнёт запись при обнаружении встречи. После звонка остаются
-                расшифровка, краткий итог и следующие действия.
-              </p>
-              <div class="hero-actions">
-                <a
-                  class="primary-cta"
-                  href="{{ download_url }}"
-                  data-analytics-cta="hero_download"
-                  data-analytics-target="download_page"
-                >Скачать GRAF</a>
-                <a
-                  class="secondary-cta"
-                  href="#how"
-                  data-analytics-cta="hero_product"
-                  data-analytics-target="section"
-                >Как идёт запись</a>
-              </div>
+    <main id="main">
+      <section class="hero section-dark" id="top" data-analytics-section="hero">
+        <div class="hero-glow hero-glow-one"></div>
+        <div class="hero-glow hero-glow-two"></div>
+        <div class="shell hero-grid">
+          <div class="hero-copy reveal">
+            <p class="eyebrow"><span class="eyebrow-dot"></span> ГРАФ · приложение для записи и расшифровки встреч</p>
+            <h1>Записывайте звонки<br /><span>в любом приложении</span></h1>
+            <p class="hero-lead">
+              ГРАФ сохранит разговор, разберёт его по спикерам и подготовит
+              краткий итог со следующими действиями
+            </p>
+            <div class="hero-actions">
+              <a class="button button-primary button-large" href="/download" data-analytics-cta="hero_download" data-analytics-target="download_page">
+                Скачать — 7 дней бесплатно
+                <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3v12m0 0 5-5m-5 5-5-5M5 21h14" /></svg>
+              </a>
             </div>
           </div>
 
-          <div class="reference-hero-product">
-            <figure class="reference-recording-proof">
-              <img
-                src="{{ public_static_asset_url('landing-recording-proof-focus.png') }}"
-                width="880"
-                height="180"
-                fetchpriority="high"
-                decoding="async"
-                alt="Панель активной записи GRAF с действиями Пауза и Остановить"
-              >
-              <figcaption>
-                <span>Реальный интерфейс GRAF</span>
-                <span>Статус: запись идёт · Управление: пауза и остановка</span>
-              </figcaption>
-            </figure>
-            <div class="reference-result-link">
-              <p>После звонка</p>
-              <strong>Расшифровка и действия связаны с исходными репликами</strong>
-              <a
-                class="secondary-cta"
-                href="#result"
-              >Посмотреть результат</a>
-            </div>
-          </div>
-        </section>
+          <aside class="hero-benefit-panel reveal reveal-delay" aria-label="Ключевые преимущества ГРАФ">
+            <ol class="hero-benefits">
+              <li><span>01</span><p><b>Без ботов</b><br />и приглашений</p></li>
+              <li><span>02</span><p><b>Без VPN</b><br />оплата в рублях</p></li>
+              <li><span>03</span><p><b>Расшифровка по спикерам и итоги</b></p></li>
+            </ol>
+          </aside>
+        </div>
 
-        <section class="reference-section" id="how" aria-labelledby="how-title" data-analytics-section="platforms">
-          <header class="reference-section-head">
-            <span class="reference-section-index">01 / Запись</span>
-            <div>
-              <p class="eyebrow">Без привязки к сервису</p>
-              <h2 id="how-title">Включили один раз — дальше GRAF сам</h2>
-              <p class="chapter-lede">
-                Выберите поддерживаемое приложение и включите автозапись один
-                раз. Когда встреча начнётся, GRAF сам начнёт запись — и так же
-                завершит её после звонка. Статус виден в приложении, а пауза и
-                остановка доступны в любой момент.
-              </p>
-            </div>
-          </header>
-          <div class="reference-auto-flow" aria-label="Как работает автоматическая запись">
-            <div class="reference-auto-flow-setup">
-              <span class="reference-auto-flow-kicker">Настройка один раз</span>
-              <strong>Включите автозапись</strong>
-              <p>Для поддерживаемого приложения</p>
-            </div>
-            <div class="reference-auto-flow-track">
-              <article class="reference-auto-flow-state">
-                <div class="reference-auto-flow-number">01</div>
-                <div>
-                  <span class="reference-auto-flow-label">Встреча началась</span>
-                  <strong>GRAF сам начинает запись</strong>
-                  <p>После обнаружения встречи в поддерживаемом приложении.</p>
-                </div>
-                <span class="reference-auto-flow-status">LIVE</span>
+      </section>
+
+      <section class="problem section-light" id="for-whom" data-analytics-section="audience">
+        <div class="shell">
+          <div class="section-heading for-whom-heading reveal">
+            <p class="eyebrow eyebrow-dark">Для кого</p>
+            <h2>Много встреч<br /><span>Важно не упустить главное</span></h2>
+          </div>
+
+          <div class="problem-band">
+            <article class="problem-item reveal">
+              <span>01</span>
+              <h3>Сводить всё вручную</h3>
+              <p>Решения и договорённости остаются в заметках, чатах, письмах и самой записи.</p>
+            </article>
+            <article class="problem-item reveal reveal-delay-sm">
+              <span>02</span>
+              <h3>Искать важное в длинной записи</h3>
+              <p>Нужная реплика теряется в часе аудио или сплошной расшифровке.</p>
+            </article>
+            <article class="problem-item reveal reveal-delay">
+              <span>03</span>
+              <h3>Подстраиваться под сервис собеседника</h3>
+              <p>Для разных звонков приходится устанавливать отдельные приложения или добавлять ботов.</p>
+            </article>
+          </div>
+
+          <div class="audience-block">
+            <div class="audience-list">
+              <article class="audience-item reveal">
+                <span>Веду бизнес</span>
+                <h3>Собственники и руководители</h3>
+                <p>Держите в поле зрения решения, обещания и следующие шаги — без личного конспекта каждой встречи.</p>
               </article>
-              <span class="reference-auto-flow-arrow" aria-hidden="true">→</span>
-              <article class="reference-auto-flow-state">
-                <div class="reference-auto-flow-number">02</div>
-                <div>
-                  <span class="reference-auto-flow-label">Звонок закончился</span>
-                  <strong>GRAF сам завершает запись</strong>
-                  <p>Запись остаётся в GRAF и готова к обработке.</p>
-                </div>
+              <article class="audience-item reveal reveal-delay-sm">
+                <span>Работаю на себя</span>
+                <h3>Фрилансеры и консультанты</h3>
+                <p>Работайте с клиентами в любом сервисе звонков и не теряйте детали разговора.</p>
+              </article>
+              <article class="audience-item reveal reveal-delay">
+                <span>Работаю в команде</span>
+                <h3>Продажи, HR, проекты и продукты</h3>
+                <p>Возвращайтесь к фактам и задачам после клиентских встреч, интервью и синхронизаций.</p>
               </article>
             </div>
           </div>
-        </section>
+        </div>
+      </section>
 
-        <section class="reference-section" id="result" aria-labelledby="result-title" data-analytics-section="outcomes">
-          <header class="reference-section-head">
-            <span class="reference-section-index">02 / Результат</span>
-            <div>
-              <p class="eyebrow">После обработки</p>
-              <h2 id="result-title">От реплики к следующему действию</h2>
-              <p class="chapter-lede">
-                Сначала GRAF сохраняет разговор с таймкодами, затем собирает
-                краткий итог, решения и следующие действия со ссылками на
-                исходные реплики.
-              </p>
+      <section class="how section-dark" id="how" data-analytics-section="workflow">
+        <div class="shell">
+          <div class="section-heading reveal">
+            <p class="eyebrow">Как работает</p>
+            <h2>ГРАФ встраивается<br /><span>в ваш рабочий ритм</span></h2>
+            <p>От первой фразы в разговоре — до письма с планом действий по итогам</p>
+          </div>
+
+          <div class="walkthrough reveal" data-product-tabs>
+            <div class="walkthrough-tabs" role="tablist" aria-label="Этапы работы ГРАФ">
+              <button class="active" type="button" role="tab" id="tab-record" aria-selected="true" aria-controls="panel-record" tabindex="0" data-tab="recording"><span>01</span> Запись</button>
+              <button type="button" role="tab" id="tab-transcript" aria-selected="false" aria-controls="panel-transcript" tabindex="-1" data-tab="transcript"><span>02</span> Расшифровка</button>
+              <button type="button" role="tab" id="tab-summary" aria-selected="false" aria-controls="panel-summary" tabindex="-1" data-tab="outcomes"><span>03</span> Итоги и действия</button>
             </div>
-          </header>
 
-          <article class="reference-proof-block">
-            <div class="reference-proof-heading">
-              <span class="reference-section-index">Текст разговора</span>
-              <div>
-                <h3>Расшифровка сохраняет контекст</h3>
-                <p>Реплики разделены по спикерам и привязаны к таймкодам, чтобы к нужному моменту можно было вернуться.</p>
+            <article class="walkthrough-panel active" role="tabpanel" id="panel-record" aria-labelledby="tab-record" data-panel="recording">
+              <div class="walkthrough-copy">
+                <span class="step-number">01</span>
+                <h3>Запустите запись</h3>
+                <p>Установите ГРАФ один раз — подключать сервисы звонков и разбираться со сложными настройками не нужно. Откройте любое приложение и нажмите кнопку записи; бот не появится среди участников.</p>
               </div>
-            </div>
-            <figure class="reference-product-proof">
-              <div class="reference-proof-window">
+              <div class="shot-placeholder product-shot shot-record">
+                <img
+                  src="{{ public_static_asset_url('graf-recording-landing.png') }}"
+                  alt="Экран ГРАФ во время записи встречи"
+                  loading="lazy"
+                  decoding="async"
+                />
+              </div>
+            </article>
+
+            <article class="walkthrough-panel" role="tabpanel" id="panel-transcript" aria-labelledby="tab-transcript" data-panel="transcript">
+              <div class="walkthrough-copy">
+                <span class="step-number">02</span>
+                <h3>Читайте, а не переслушивайте</h3>
+                <p>ГРАФ разделит реплики по спикерам и добавит таймкоды. Нажмите на нужный момент, чтобы проверить итог по исходной реплике.</p>
+              </div>
+              <div class="shot-placeholder product-shot shot-transcript">
                 <picture>
-                  <source media="(max-width: 980px)" type="image/webp" srcset="{{ public_static_asset_url('landing-transcript-proof-mobile.webp') }}" width="390" height="1100">
-                  <source media="(max-width: 980px)" srcset="{{ public_static_asset_url('landing-transcript-proof-mobile.png') }}" width="390" height="1100">
-                  <source type="image/webp" srcset="{{ public_static_asset_url('landing-transcript-proof.webp') }}" width="1487" height="1058">
-                  <img src="{{ public_static_asset_url('landing-transcript-proof.png') }}" width="1487" height="1058" loading="lazy" decoding="async" alt="Демонстрационный экран расшифровки встречи GRAF с репликами, спикерами и таймкодами">
+                  <source
+                    media="(max-width: 680px)"
+                    srcset="{{ public_static_asset_url('graf-transcript-landing-mobile.png') }}"
+                  />
+                  <img
+                    src="{{ public_static_asset_url('graf-transcript-landing.png') }}"
+                    alt="Экран ГРАФ: три спикера, крупные таймкоды, подсвеченная реплика и дорожки разговора"
+                    width="1600"
+                    height="1000"
+                    loading="lazy"
+                    decoding="async"
+                  />
                 </picture>
               </div>
-              <figcaption>Реальный интерфейс GRAF · данные встречи созданы для демонстрации.</figcaption>
-            </figure>
-          </article>
+            </article>
 
-          <article class="reference-proof-block">
-            <div class="reference-proof-heading">
-              <span class="reference-section-index">Итог встречи</span>
-              <div>
-                <h3>Краткий итог и следующие действия — на одном экране</h3>
-                <p>Каждый вывод можно проверить по исходной реплике и таймкоду.</p>
+            <article class="walkthrough-panel" role="tabpanel" id="panel-summary" aria-labelledby="tab-summary" data-panel="outcomes">
+              <div class="walkthrough-copy">
+                <span class="step-number">03</span>
+                <h3>Получите итог и план действий</h3>
+                <p>ГРАФ соберёт суть разговора и задачи с ответственными. Каждый вывод и действие можно сверить с исходной репликой.</p>
               </div>
-            </div>
-            <figure class="reference-product-proof">
-              <div class="reference-proof-window">
-                <picture>
-                  <source media="(max-width: 980px)" type="image/webp" srcset="{{ public_static_asset_url('landing-outcome-proof-mobile.webp') }}" width="390" height="1100">
-                  <source media="(max-width: 980px)" srcset="{{ public_static_asset_url('landing-outcome-proof-mobile.png') }}" width="390" height="1100">
-                  <source type="image/webp" srcset="{{ public_static_asset_url('landing-outcome-proof.webp') }}" width="1487" height="1058">
-                  <img src="{{ public_static_asset_url('landing-outcome-proof.png') }}" width="1487" height="1058" loading="lazy" decoding="async" alt="Демонстрационный экран итогов встречи GRAF с кратким итогом, действиями и ссылками на исходные реплики">
-                </picture>
+              <div class="shot-placeholder product-shot shot-result">
+                <img
+                  src="{{ public_static_asset_url('graf-summary-landing.png') }}"
+                  alt="Экран ГРАФ с итогами встречи и следующими действиями"
+                  loading="lazy"
+                  decoding="async"
+                />
               </div>
-              <figcaption>Реальный интерфейс GRAF · данные встречи созданы для демонстрации.</figcaption>
-            </figure>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      {% if public_offer.catalog_ready %}
+      <section class="pricing section-violet" id="price" data-analytics-section="pricing">
+        <div class="shell pricing-grid">
+          <div class="section-heading reveal">
+            <p class="eyebrow eyebrow-violet">Подписка</p>
+            <h2>Все встречи<br />без лимита по объему</h2>
+            <p>Попробуйте ГРАФ в своей работе — карта для пробного периода не нужна</p>
+            <div class="billing-toggle" role="group" aria-label="Период оплаты">
+              <button type="button" aria-pressed="false" data-period="month" data-price="{{ public_offer.monthly_label }}" data-price-period="в месяц" data-price-note="Оплата раз в месяц">1 месяц</button>
+              <button class="active" type="button" aria-pressed="true" data-period="year" data-price="{{ public_offer.annual_label }}" data-price-period="в год" data-price-note="≈ 833 ₽ в месяц · экономия {{ public_offer.annual_saving_label }}">1 год <span>{{ public_offer.annual_saving_label }} экономии</span></button>
+            </div>
+          </div>
+          <article class="price-card reveal reveal-delay">
+            <div class="price-top"><span>ГРАФ</span><b>7 дней бесплатно</b></div>
+            <div class="price" aria-live="polite">
+              <strong data-price-value>{{ public_offer.annual_label }}</strong>
+              <span data-price-period-value>в год</span>
+              <small data-price-note-value>≈ 833 ₽ в месяц · экономия {{ public_offer.annual_saving_label }}</small>
+            </div>
+            <ul>
+              <li>Безлимитные записи и транскрибации</li>
+              <li>Расшифровка по спикерам и таймкоды</li>
+              <li>Краткий итог и следующие действия</li>
+              <li>Календарь и совместный доступ</li>
+              <li>Экспорт записи и результатов</li>
+            </ul>
+            <a class="button button-primary button-large button-full" href="/download" data-analytics-cta="pricing_download" data-analytics-target="download_page">Скачать — 7 дней бесплатно</a>
+            <p class="price-foot">Отменить можно в любой момент · дополнительное хранение и ИИ-вопросы подключаются в приложении</p>
+            {% if not public_offer.sale_ready %}
+            <p class="price-foot">Оплата откроется в приложении после завершения проверки платёжного контура</p>
+            {% endif %}
           </article>
-        </section>
+        </div>
+      </section>
+      {% endif %}
 
-        <section class="reference-section reference-trust" id="calendar" aria-labelledby="calendar-title">
-          <header class="reference-section-head">
-            <span class="reference-section-index">03 / Календарь</span>
-            <div>
-              <p class="eyebrow">Данные Google — только для функций календаря</p>
-              <h2 id="calendar-title">Как GRAF использует Google Calendar</h2>
-              <p class="chapter-lede">
-                После подключения GRAF читает список календарей и события
-                только из выбранных пользователем календарей. Эти данные нужны,
-                чтобы показать ближайшие встречи, напомнить о начале и
-                предложить событие как контекст записи.
-              </p>
-            </div>
-          </header>
-          <dl class="reference-trust-facts">
-            <div><dt>Только чтение</dt><dd>GRAF не создаёт, не изменяет и не удаляет события Google Calendar.</dd></div>
-            <div><dt>Без скрытого запуска</dt><dd>Подключение календаря само по себе не начинает запись и не подключает пользователя к звонку.</dd></div>
-            <div><dt>Под контролем пользователя</dt><dd>Календари выбираются в настройках GRAF; доступ можно отключить в любой момент. <a href="/privacy">Подробнее о данных</a></dd></div>
-          </dl>
-        </section>
-
-        <section class="reference-section reference-trust" id="trust" aria-labelledby="trust-title" data-analytics-section="trust">
-          <header class="reference-section-head">
-            <span class="reference-section-index">04 / Данные и модели</span>
-            <div>
-              <p class="eyebrow">Понятный маршрут обработки</p>
-              <h2 id="trust-title">Российские и локально развёрнутые модели</h2>
-              <p class="chapter-lede">Для расшифровки и итогов GRAF использует российские модели и модели, развёрнутые локально. Маршрут обработки зависит от конфигурации.</p>
-            </div>
-          </header>
-          <dl class="reference-trust-facts">
-            <div><dt>Модели</dt><dd>Российские и локально развёрнутые.</dd></div>
-            <div><dt>Маршрут</dt><dd>Зависит от конфигурации GRAF.</dd></div>
-            <div><dt>Подробнее</dt><dd><a href="/privacy">Как GRAF работает с данными</a></dd></div>
-          </dl>
-        </section>
-
-        <section class="reference-final-cta" id="start" aria-label="Начать пользоваться GRAF" data-analytics-section="final_cta">
-          <div>
-            <p class="eyebrow">К следующему звонку</p>
-            <h2>Сохраните следующий разговор</h2>
-            <p class="chapter-lede">Скачайте GRAF для macOS, включите автозапись и после обработки получите расшифровку, краткий итог и следующие действия.</p>
+      <section class="faq section-light" id="faq" data-analytics-section="faq">
+        <div class="shell faq-grid">
+          <div class="section-heading reveal">
+            <p class="eyebrow eyebrow-dark">Перед первой записью</p>
+            <h2>Коротко о важном</h2>
           </div>
-          <div class="final-actions">
-            <a class="primary-cta" href="{{ download_url }}" data-analytics-cta="final_download" data-analytics-target="download_page">Скачать GRAF</a>
-            <a class="reference-final-login" href="{{ start_url }}" data-analytics-cta="final_login" data-analytics-target="login">Уже используете GRAF? Войти</a>
-            <p class="platform-note">macOS — доступно сейчас · Windows и Linux — скоро</p>
+          <div class="faq-list reveal reveal-delay">
+            <details data-faq-id="recognition"><summary>Насколько точно ГРАФ распознаёт русскую речь?<span>+</span></summary><p>Качество зависит от звука, темпа речи и одновременных реплик. Лучше всего ГРАФ работает с чистым звуком и наушниками.</p></details>
+            <details data-faq-id="calling_apps"><summary>С какими сервисами звонков работает ГРАФ?<span>+</span></summary><p>ГРАФ записывает системный звук и ваш микрофон на Mac, поэтому отдельные интеграции и бот в звонке не нужны. Совместимость конкретного приложения зависит от того, разрешает ли macOS захват его системного звука.</p></details>
+            <details data-faq-id="upload"><summary>Можно ли загрузить готовую запись?<span>+</span></summary><p>Да. Загрузите готовое аудио или видео — ГРАФ подготовит расшифровку и обработает встречу так же, как запись из приложения.</p></details>
+            <details data-faq-id="results"><summary>Что можно сделать с результатами встречи?<span>+</span></summary><p>ГРАФ подготовит расшифровку по спикерам с таймкодами, краткий итог, принятые решения и следующие действия. Запись и результаты можно экспортировать и открыть для совместной работы.</p></details>
+            <details data-faq-id="platforms"><summary>Почему пока только macOS?<span>+</span></summary><p>Первая публичная версия создана для macOS 14.5 и новее — для Mac на Apple Silicon и Intel. Windows и Linux пока не поддерживаются.</p></details>
+            <details data-faq-id="offline"><summary>Нужен ли интернет во время звонка?<span>+</span></summary><p>Нет. Запись работает без интернета. Когда соединение появится, сохранённый разговор можно отправить на транскрибацию.</p></details>
+            <details data-faq-id="storage"><summary>Где хранятся записи?<span>+</span></summary><p>Записи хранятся в инфраструктуре ГРАФ в пределах места, включённого в ваш план. Актуальный объём виден в приложении; дополнительное место подключается отдельно.</p></details>
           </div>
-        </section>
-      </main>
-    </div>
+        </div>
+      </section>
+
+      <section class="closing section-dark" data-analytics-section="final_cta">
+        <div class="shell closing-inner reveal">
+          <img src="{{ cabinet_static_asset_url('graf-icon@2x.png') }}" alt="">
+          <p class="eyebrow">Попробуйте на своей следующей встрече</p>
+          <h2>Будьте в разговоре<br /><span>ГРАФ сделает остальное</span></h2>
+          <p>Установите ГРАФ и начните проводить звонки без заметок и ручной сборки итогов</p>
+          <a class="button button-primary button-large" href="/download" data-analytics-cta="final_download" data-analytics-target="download_page">Скачать — 7 дней бесплатно</a>
+          <small>macOS 14.5+ · работает без VPN</small>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="shell footer-grid">
+        <a class="brand" href="#top"><img src="{{ cabinet_static_asset_url('graf-wordmark-dark@2x.png') }}" alt="ГРАФ"></a>
+        <p>Запись и расшифровка встреч<br />в любом сервисе звонков.</p>
+        <div class="footer-links">
+          <a href="https://t.me/Yan_Shi" rel="noopener" target="_blank">Поддержка в Telegram ↗</a>
+          <a href="/privacy">Конфиденциальность</a>
+          <a href="/cookies">Cookies</a>
+          <a href="/terms">Условия</a>
+          <a href="/offer">Оплата и возврат</a>
+          <a href="/analytics-consent">Об аналитике</a>
+        </div>
+      </div>
+      <div class="shell footer-bottom"><span>© 2026 ГРАФ</span><span>Сделано для разговоров, которые двигают работу</span></div>
+    </footer>
+    {% set suppress_analytics_footer = true %}
     {% include "public/_analytics.html" %}
   </body>
 </html>
