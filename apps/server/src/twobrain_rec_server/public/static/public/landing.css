@@ -203,6 +203,7 @@ img { display: block; max-width: 100%; }
 .billing-toggle button { padding: 12px 15px; color: #777389; border: 0; border-radius: 10px; background: transparent; font-size: 12px; cursor: pointer; }
 .billing-toggle button.active { color: var(--white); background: var(--ink); }
 .billing-toggle button span { margin-left: 5px; color: var(--purple-bright); font-size: 9px; }
+.noscript-pricing { margin: 18px 0 0; color: #777389; font-size: 13px; }
 .price-card { padding: 38px; border: 1px solid rgba(18,18,35,.12); border-radius: 30px; background: rgba(255,255,255,.82); box-shadow: 0 34px 90px rgba(93,65,150,.15); }
 .price-top { display: flex; align-items: center; justify-content: space-between; }
 .price-top > span { font-weight: 760; letter-spacing: .1em; }

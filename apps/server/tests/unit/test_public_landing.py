@@ -146,15 +146,16 @@ async def test_public_offer_uses_latest_effective_catalog_version() -> None:
         "storage_bytes": 2_000_000_000,
         "processing_mode": "unlimited",
         "enabled_for_checkout": True,
-        "policy_snapshot": {"offer_version": "personal-2026-08-21"},
+        "policy_snapshot": {"offer_version": PUBLIC_APPROVED_OFFER_VERSION},
     }
+    future_common = {**common, "policy_snapshot": {"offer_version": "personal-future"}}
     rows = [
         BillingPlanVersion(
             cycle="month",
             version=2,
             amount_minor=100_000,
             effective_from=now + timedelta(days=1),
-            **common,
+            **future_common,
         ),
         BillingPlanVersion(
             cycle="month",

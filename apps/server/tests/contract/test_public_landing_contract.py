@@ -94,6 +94,9 @@ def test_public_landing_css_and_scripts_are_local_accessible_and_progressive() -
     assert "graf:product-tab-selected" in scripts
     assert "graf:pricing-cycle-selected" in scripts
     assert "threshold: 0.12" in scripts
+    landing_template = (PUBLIC_TEMPLATE_DIR / "landing.html").read_text(encoding="utf-8")
+    assert "noscript-pricing" in landing_template
+    assert '"url": "{{ canonical_url }}"' in landing_template
     assert "overflow-x: hidden" in css
     assert "transition: all" not in css
     assert "cookieconsent" not in scripts

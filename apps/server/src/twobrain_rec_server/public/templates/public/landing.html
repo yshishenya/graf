@@ -22,7 +22,7 @@
         "applicationCategory": "BusinessApplication",
         "operatingSystem": "macOS 14.5+",
         "description": "Приложение для записи звонков в любом сервисе, расшифровки со спикерами и таймкодами, саммари и следующих действий.",
-        "url": "https://rec.2brain.pro/",
+        "url": "{{ canonical_url }}",
         "downloadUrl": "{{ canonical_url }}download"{% if public_offer.sale_ready %},
         "offers": [
           {
@@ -270,6 +270,9 @@
               <button type="button" aria-pressed="false" data-period="month" data-price="{{ public_offer.monthly_label }}" data-price-period="в месяц" data-price-note="Оплата раз в месяц">1 месяц</button>
               <button class="active" type="button" aria-pressed="true" data-period="year" data-price="{{ public_offer.annual_label }}" data-price-period="в год" data-price-note="≈ {{ public_offer.annual_monthly_equivalent_label }} в месяц · экономия {{ public_offer.annual_saving_label }}">1 год <span>{{ public_offer.annual_saving_label }} экономии</span></button>
             </div>
+            <noscript>
+              <p class="noscript-pricing">1 месяц — {{ public_offer.monthly_label }} · 1 год — {{ public_offer.annual_label }}</p>
+            </noscript>
           </div>
           <article class="price-card reveal reveal-delay">
             <div class="price-top"><span>ГРАФ</span><b>7 дней бесплатно</b></div>
