@@ -15,6 +15,7 @@ COMPONENT_DIR="$BUILD_DIR/components"
 SCRIPTS_DIR="$BUILD_DIR/scripts"
 APP_BUNDLE="$MACOS_DIR/RecApp/.build/GRAF.app"
 APP_ICON="$MACOS_DIR/RecApp/Resources/AppIcon.icns"
+AEC3_NOTICE="$MACOS_DIR/RecApp/Resources/AEC3-THIRD-PARTY-NOTICES.txt"
 APP_CORE_RESOURCE_BUNDLE_NAME="TwoBrainRecMacOS_TwoBrainRecAppCore.bundle"
 SPARKLE_LICENSE_SOURCE=""
 SPARKLE_LICENSE_SHA256="389a4e4e9a32f059775b13a06e25a591445ba229d2838d26dd3e7c0c45127cfe"
@@ -214,6 +215,10 @@ if [ ! -f "$APP_ICON" ]; then
   echo "Missing app icon at $APP_ICON" >&2
   exit 1
 fi
+if [ ! -f "$AEC3_NOTICE" ]; then
+  echo "Missing AEC3 third-party notice at $AEC3_NOTICE" >&2
+  exit 1
+fi
 if [ ! -d "$APP_CORE_RESOURCE_BUNDLE" ]; then
   echo "Missing app resource bundle at $APP_CORE_RESOURCE_BUNDLE" >&2
   exit 1
@@ -252,6 +257,7 @@ fi
 ditto "$SPARKLE_FRAMEWORK_SOURCE" "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework"
 cp -R "$APP_CORE_RESOURCE_BUNDLE" "$APP_BUNDLE/Contents/Resources/"
 cp "$SPARKLE_LICENSE_SOURCE" "$APP_BUNDLE/Contents/Resources/Sparkle-LICENSE.txt"
+cp "$AEC3_NOTICE" "$APP_BUNDLE/Contents/Resources/AEC3-THIRD-PARTY-NOTICES.txt"
 cp "$APP_ICON" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
 cp "$WORDMARK_DARK" "$APP_BUNDLE/Contents/Resources/GrafWordmarkDark.png"
 cp "$WORDMARK_DARK_2X" "$APP_BUNDLE/Contents/Resources/GrafWordmarkDark@2x.png"

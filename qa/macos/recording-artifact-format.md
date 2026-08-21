@@ -18,7 +18,10 @@ This gate controls the v5 local package consumed by the upload pipeline.
 - [ ] The desktop app stores no MediaScribe credential and performs no
   MediaScribe request during local recording.
 - [ ] A newly encoded current manifest contains no retired routing lifecycle
-  fields, dual source files, AEC or echo-cleanup state.
+  fields or dual source files; it contains the exact AEC3 descriptor and
+  metadata-only completed/degraded echo-processing health.
+- [ ] No raw microphone, render-reference file, AecDump or second audio job is
+  present in the package or diagnostics.
 
 ## Automated Validation
 

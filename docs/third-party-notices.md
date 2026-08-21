@@ -22,3 +22,19 @@ upstream license and attribution text at
 
 - https://github.com/sparkle-project/Sparkle
 - https://github.com/sparkle-project/Sparkle/blob/2.9.4/LICENSE
+
+## WebRTC AEC3
+
+The macOS recording path statically links the AudioProcessing Module from
+`webrtc-audio-processing` `v2.1` (WebRTC M131), pinned to commit
+`846fe90a289f58b7c9303a635142aa2c7caa93e5`. The build also statically includes
+the pinned Abseil fallback and bundled DSP components from the same source tree.
+
+Every packaged `GRAF.app` includes the exact consolidated licenses,
+attributions, and WebRTC patent grant at
+`Contents/Resources/AEC3-THIRD-PARTY-NOTICES.txt`. The source inventory and
+artifact hash are locked in `apps/macos/Native/GrafAEC3/upstream.lock`.
+
+- https://gitlab.freedesktop.org/pulseaudio/webrtc-audio-processing/-/tree/v2.1
+- https://webrtc.googlesource.com/src/+/refs/branch-heads/6613/LICENSE
+- https://github.com/abseil/abseil-cpp/releases/tag/20240722.0

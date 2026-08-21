@@ -51,6 +51,9 @@ final class LocalRecordingWriterSystemAudioTests: XCTestCase {
         XCTAssertEqual(manifest.status, .failed)
         XCTAssertEqual(manifest.failureReason, .captureFailed)
         XCTAssertFalse(manifest.isComplete)
+        XCTAssertEqual(manifest.echoProcessingHealth?.state, .degraded)
+        XCTAssertEqual(manifest.echoProcessingHealth?.reason, .sourceStopped)
+        XCTAssertEqual(manifest.echoProcessingHealth?.processedFrameCount, 10)
         XCTAssertEqual(
             Set(try FileManager.default.contentsOfDirectory(atPath: directory.directoryURL.path)),
             Set(["manifest.json", "meeting-transcription.wav", "meeting-review.m4a"])
@@ -114,15 +117,18 @@ final class LocalRecordingWriterSystemAudioTests: XCTestCase {
         XCTAssertEqual(manifest.status, .failed)
         XCTAssertEqual(manifest.failureReason, .writeFailed)
         XCTAssertFalse(manifest.isComplete)
+        XCTAssertEqual(manifest.echoProcessingHealth?.state, .degraded)
+        XCTAssertEqual(manifest.echoProcessingHealth?.reason, .sourceOverflow)
+        XCTAssertEqual(manifest.echoProcessingHealth?.processedFrameCount, 0)
         XCTAssertEqual(
             Set(try FileManager.default.contentsOfDirectory(atPath: directory.directoryURL.path)),
-            Set(["manifest.json", "meeting-transcription.wav", "meeting-review.m4a"])
+            Set(["manifest.json"])
         )
-        XCTAssertGreaterThan(try Data(contentsOf: directory.transcriptionAudioURL).count, 44)
-        XCTAssertGreaterThan(try Data(contentsOf: directory.reviewAudioURL).count, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.transcriptionAudioURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.reviewAudioURL.path))
     }
 
-    func testStopBoundsAnUnboundedTimestampedSourceAndPreservesCapturedPrefix() throws {
+    func testStopBoundsAnUnboundedTimestampedSourceWithoutPublishingUnprocessedBuffers() throws {
         let root = makeSystemWriterRoot("v5-infinite")
         defer { try? FileManager.default.removeItem(at: root) }
         let microphone = BufferedLocalRecordingSampleSource(channelCount: 1)
@@ -148,12 +154,15 @@ final class LocalRecordingWriterSystemAudioTests: XCTestCase {
         XCTAssertEqual(manifest.failureReason, .writeFailed)
         XCTAssertEqual(manifest.status, .failed)
         XCTAssertFalse(writer.isRecording)
+        XCTAssertEqual(manifest.echoProcessingHealth?.state, .degraded)
+        XCTAssertEqual(manifest.echoProcessingHealth?.reason, .sourceOverflow)
+        XCTAssertEqual(manifest.echoProcessingHealth?.processedFrameCount, 0)
         XCTAssertEqual(
             Set(try FileManager.default.contentsOfDirectory(atPath: directory.directoryURL.path)),
-            Set(["manifest.json", "meeting-transcription.wav", "meeting-review.m4a"])
+            Set(["manifest.json"])
         )
-        XCTAssertGreaterThan(try Data(contentsOf: directory.transcriptionAudioURL).count, 44)
-        XCTAssertGreaterThan(try Data(contentsOf: directory.reviewAudioURL).count, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.transcriptionAudioURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.reviewAudioURL.path))
     }
 
     func testBufferedSourceSplitsBatchesWithTheirOriginalPTS() throws {
@@ -244,8 +253,6 @@ private func systemGrantedPermissions() -> SystemAudioPermissionSnapshot {
 private final class InfiniteTimestampedSampleSource: TimestampedLocalRecordingSampleSource, @unchecked Sendable {
     private let lock = NSLock()
     private var nextTimestamp: Double = 100
-
-    func readSamples(into destination: UnsafeMutablePointer<Float>, capacity: Int) -> Int { 0 }
 
     func readTimestampedBatch(maximumFrameCount: Int) -> RecordingAudioBatch? {
         lock.lock()

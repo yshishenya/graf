@@ -511,6 +511,134 @@ public struct RecordingDisplayMetadata: Codable, Equatable, Sendable {
     }
 }
 
+public struct EchoProcessorDescriptor: Codable, Equatable, Sendable {
+    public static let webrtcAEC3 = EchoProcessorDescriptor(
+        algorithm: "webrtc_aec3_m131",
+        libraryVersion: "2.1",
+        sourceCommit: "846fe90a289f58b7c9303a635142aa2c7caa93e5",
+        sampleRate: 48_000,
+        channels: 1,
+        frameSamples: 480,
+        streamDelayMs: 0,
+        optionalProcessingEnabled: false
+    )
+
+    public var algorithm: String
+    public var libraryVersion: String
+    public var sourceCommit: String
+    public var sampleRate: Int
+    public var channels: Int
+    public var frameSamples: Int
+    public var streamDelayMs: Int
+    public var optionalProcessingEnabled: Bool
+
+    public init(
+        algorithm: String,
+        libraryVersion: String,
+        sourceCommit: String,
+        sampleRate: Int,
+        channels: Int,
+        frameSamples: Int,
+        streamDelayMs: Int,
+        optionalProcessingEnabled: Bool
+    ) {
+        self.algorithm = algorithm
+        self.libraryVersion = libraryVersion
+        self.sourceCommit = sourceCommit
+        self.sampleRate = sampleRate
+        self.channels = channels
+        self.frameSamples = frameSamples
+        self.streamDelayMs = streamDelayMs
+        self.optionalProcessingEnabled = optionalProcessingEnabled
+    }
+}
+
+public enum EchoProcessingHealthState: String, Codable, Equatable, Sendable {
+    case ready
+    case active
+    case completed
+    case degraded
+    case failed
+}
+
+public enum EchoProcessingFailureReason: String, Codable, Equatable, Sendable {
+    case processorUnavailable = "processor_unavailable"
+    case processorConfigurationFailed = "processor_configuration_failed"
+    case renderReferenceMissing = "render_reference_missing"
+    case processReverseFailed = "process_reverse_failed"
+    case processCaptureFailed = "process_capture_failed"
+    case routeChanged = "route_changed"
+    case formatChanged = "format_changed"
+    case timebaseChanged = "timebase_changed"
+    case ptsDiscontinuity = "pts_discontinuity"
+    case sourceStopped = "source_stopped"
+    case sourceOverflow = "source_overflow"
+    case nonFiniteSamples = "non_finite_samples"
+    case finalizationFailed = "finalization_failed"
+}
+
+public struct EchoProcessingHealth: Codable, Equatable, Sendable {
+    public var state: EchoProcessingHealthState
+    public var reason: EchoProcessingFailureReason?
+    public var processedFrameCount: Int64
+    public var processErrorCount: Int
+    public var resetCount: Int
+    public var ptsGapCount: Int
+    public var estimatedDriftPpm: Double?
+    public var hostUnderrunCount: Int
+    public var hostOverrunCount: Int
+    public var clippedSampleCount: Int64
+    public var nonFiniteSampleCount: Int64
+    public var aecDelayMs: Int?
+    public var echoReturnLossDb: Double?
+    public var echoReturnLossEnhancementDb: Double?
+    public var processingTimeP95Ms: Double?
+
+    public init(
+        state: EchoProcessingHealthState,
+        reason: EchoProcessingFailureReason? = nil,
+        processedFrameCount: Int64 = 0,
+        processErrorCount: Int = 0,
+        resetCount: Int = 0,
+        ptsGapCount: Int = 0,
+        estimatedDriftPpm: Double? = nil,
+        hostUnderrunCount: Int = 0,
+        hostOverrunCount: Int = 0,
+        clippedSampleCount: Int64 = 0,
+        nonFiniteSampleCount: Int64 = 0,
+        aecDelayMs: Int? = nil,
+        echoReturnLossDb: Double? = nil,
+        echoReturnLossEnhancementDb: Double? = nil,
+        processingTimeP95Ms: Double? = nil
+    ) {
+        self.state = state
+        self.reason = reason
+        self.processedFrameCount = max(0, processedFrameCount)
+        self.processErrorCount = max(0, processErrorCount)
+        self.resetCount = max(0, resetCount)
+        self.ptsGapCount = max(0, ptsGapCount)
+        self.estimatedDriftPpm = estimatedDriftPpm?.isFinite == true ? estimatedDriftPpm : nil
+        self.hostUnderrunCount = max(0, hostUnderrunCount)
+        self.hostOverrunCount = max(0, hostOverrunCount)
+        self.clippedSampleCount = max(0, clippedSampleCount)
+        self.nonFiniteSampleCount = max(0, nonFiniteSampleCount)
+        self.aecDelayMs = aecDelayMs
+        self.echoReturnLossDb = echoReturnLossDb?.isFinite == true ? echoReturnLossDb : nil
+        self.echoReturnLossEnhancementDb = echoReturnLossEnhancementDb?.isFinite == true
+            ? echoReturnLossEnhancementDb
+            : nil
+        if let processingTimeP95Ms, processingTimeP95Ms.isFinite, processingTimeP95Ms >= 0 {
+            self.processingTimeP95Ms = processingTimeP95Ms
+        } else {
+            self.processingTimeP95Ms = nil
+        }
+    }
+
+    public var permitsNormalPackage: Bool {
+        state == .completed && reason == nil && processErrorCount == 0 && nonFiniteSampleCount == 0
+    }
+}
+
 public struct LocalRecordingManifest: Codable, Equatable, Sendable {
     public static let schemaVersion = "local-recording-manifest.v5"
     public static let canonicalMixProfileVersion = "canonical-mix.v1"
@@ -554,6 +682,8 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
     public var targetMuteCapability: TargetMuteCapability?
     public var limitationCopyShownAt: Date?
     public var recordingMetadata: RecordingDisplayMetadata?
+    public var echoProcessor: EchoProcessorDescriptor?
+    public var echoProcessingHealth: EchoProcessingHealth?
 
     public init(
         schemaVersion: String = Self.schemaVersion,
@@ -587,7 +717,9 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
         meetingMuteTruthEvidence: [MeetingMuteTruthEvidence]? = nil,
         targetMuteCapability: TargetMuteCapability? = nil,
         limitationCopyShownAt: Date? = nil,
-        recordingMetadata: RecordingDisplayMetadata? = nil
+        recordingMetadata: RecordingDisplayMetadata? = nil,
+        echoProcessor: EchoProcessorDescriptor? = nil,
+        echoProcessingHealth: EchoProcessingHealth? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.sessionId = sessionId
@@ -621,6 +753,8 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
         self.targetMuteCapability = targetMuteCapability
         self.limitationCopyShownAt = limitationCopyShownAt
         self.recordingMetadata = recordingMetadata
+        self.echoProcessor = echoProcessor
+        self.echoProcessingHealth = echoProcessingHealth
     }
 
     public var isComplete: Bool {

@@ -44,6 +44,7 @@ let package = Package(
             name: "TwoBrainRecAppCore",
             dependencies: [
                 "TwoBrainRecShared",
+                "GrafAEC3",
                 .product(name: "Sparkle", package: "Sparkle")
             ],
             path: "RecApp",
@@ -51,7 +52,15 @@ let package = Package(
             sources: ["Sources"],
             resources: [
                 .copy("Resources")
+            ],
+            linkerSettings: [
+                .linkedFramework("CoreFoundation"),
+                .linkedLibrary("c++")
             ]
+        ),
+        .binaryTarget(
+            name: "GrafAEC3",
+            path: "Vendor/GrafAEC3.xcframework"
         ),
         .executableTarget(
             name: "TwoBrainRecApp",
@@ -70,7 +79,7 @@ let package = Package(
         ),
         .testTarget(
             name: "TwoBrainRecSharedTests",
-            dependencies: ["TwoBrainRecShared", "TwoBrainRecAppCore"],
+            dependencies: ["TwoBrainRecShared", "TwoBrainRecAppCore", "GrafAEC3"],
             path: "Shared/Tests",
             resources: [
                 .copy("Fixtures")

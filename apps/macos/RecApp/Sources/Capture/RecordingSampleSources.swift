@@ -6,6 +6,7 @@ public enum LocalRecordingWriterError: Error {
     case alreadyRecording
     case notRecording
     case directoryUnavailable
+    case echoProcessorUnavailable
 }
 
 public struct LiveRecordingLevels: Equatable, Sendable {
@@ -14,19 +15,22 @@ public struct LiveRecordingLevels: Equatable, Sendable {
     public var incomingLevel: Double
     public var microphoneUpdatedAt: Date?
     public var incomingUpdatedAt: Date?
+    public var integrityFailureCode: String?
 
     public init(
         isRecording: Bool,
         microphoneLevel: Double,
         incomingLevel: Double,
         microphoneUpdatedAt: Date?,
-        incomingUpdatedAt: Date?
+        incomingUpdatedAt: Date?,
+        integrityFailureCode: String? = nil
     ) {
         self.isRecording = isRecording
         self.microphoneLevel = Self.clamp(microphoneLevel)
         self.incomingLevel = Self.clamp(incomingLevel)
         self.microphoneUpdatedAt = microphoneUpdatedAt
         self.incomingUpdatedAt = incomingUpdatedAt
+        self.integrityFailureCode = integrityFailureCode
     }
 
     public static let inactive = LiveRecordingLevels(
@@ -34,7 +38,8 @@ public struct LiveRecordingLevels: Equatable, Sendable {
         microphoneLevel: 0,
         incomingLevel: 0,
         microphoneUpdatedAt: nil,
-        incomingUpdatedAt: nil
+        incomingUpdatedAt: nil,
+        integrityFailureCode: nil
     )
 
     public func microphoneIsLive(now: Date = Date(), staleAfter: TimeInterval = 2) -> Bool {
@@ -56,22 +61,13 @@ public struct LiveRecordingLevels: Equatable, Sendable {
     }
 }
 
-public protocol LocalRecordingSampleSource: Sendable {
-    func readSamples(into destination: UnsafeMutablePointer<Float>, capacity: Int) -> Int
-}
-
-/// New capture writes PTS-bearing batches. `LocalRecordingSampleSource` remains
-/// temporarily for isolated historic-package reading only; it is not a valid
-/// input to the v5 writer.
-public protocol TimestampedLocalRecordingSampleSource: LocalRecordingSampleSource {
+public protocol TimestampedLocalRecordingSampleSource: Sendable {
     func readTimestampedBatch(maximumFrameCount: Int) -> RecordingAudioBatch?
     var hasTimestampedOverflow: Bool { get }
 }
 
 public final class BufferedLocalRecordingSampleSource: TimestampedLocalRecordingSampleSource, @unchecked Sendable {
     private let lock = NSLock()
-    private var buffer: [Float] = []
-    private var readOffset = 0
     private let capacity: Int
     public let channelCount: Int
     public let sampleRate: Double
@@ -115,9 +111,6 @@ public final class BufferedLocalRecordingSampleSource: TimestampedLocalRecording
         guard !batch.samples.isEmpty || batch.discontinuity != .none else { return }
         lock.lock()
         if !batch.samples.isEmpty {
-            buffer.append(contentsOf: batch.samples)
-            trimUnreadSamplesToCapacity()
-            compactIfNeeded()
             totalAppendedFrameCount += Int64(batch.samples.count / max(1, batch.format.channelCount))
         }
         enqueueTimestampedBatch(batch)
@@ -133,30 +126,12 @@ public final class BufferedLocalRecordingSampleSource: TimestampedLocalRecording
 
     public func reset() {
         lock.lock()
-        buffer.removeAll(keepingCapacity: true)
-        readOffset = 0
         totalAppendedFrameCount = 0
         lastAppendAt = nil
         timestampedBatches.removeAll(keepingCapacity: true)
         timestampedQueuedFrameCount = 0
         timestampedOverflowed = false
         lock.unlock()
-    }
-
-    public func readSamples(into destination: UnsafeMutablePointer<Float>, capacity: Int) -> Int {
-        lock.lock()
-        defer { lock.unlock() }
-        let count = min(capacity, unreadCount)
-        guard count > 0 else {
-            compactIfNeeded()
-            return 0
-        }
-        for index in 0..<count {
-            destination[index] = buffer[readOffset + index]
-        }
-        readOffset += count
-        compactIfNeeded()
-        return count
     }
 
     public func readTimestampedBatch(maximumFrameCount: Int) -> RecordingAudioBatch? {
@@ -202,30 +177,6 @@ public final class BufferedLocalRecordingSampleSource: TimestampedLocalRecording
         lock.lock()
         defer { lock.unlock() }
         return timestampedOverflowed
-    }
-
-    private var unreadCount: Int {
-        buffer.count - readOffset
-    }
-
-    private func trimUnreadSamplesToCapacity() {
-        let overflow = unreadCount - capacity
-        if overflow > 0 {
-            readOffset += overflow
-        }
-    }
-
-    private func compactIfNeeded() {
-        guard readOffset > 0 else { return }
-        if readOffset == buffer.count {
-            buffer.removeAll(keepingCapacity: true)
-            readOffset = 0
-            return
-        }
-        if readOffset >= 16_384 || readOffset > buffer.count / 2 {
-            buffer.removeFirst(readOffset)
-            readOffset = 0
-        }
     }
 
     private func enqueueTimestampedBatch(_ batch: RecordingAudioBatch) {

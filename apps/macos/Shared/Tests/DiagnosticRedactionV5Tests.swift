@@ -21,6 +21,7 @@ final class DiagnosticRedactionTests: XCTestCase {
                 ])
             ]),
             "transcriptText": .string("forbidden"),
+            "aecDump": .string("forbidden"),
             "captureState": .string("failed"),
             "recoveryActionId": .string("rerun_readiness_check")
         ]
@@ -31,6 +32,7 @@ final class DiagnosticRedactionTests: XCTestCase {
         XCTAssertNotNil(result.manifest["browserTargetEvidence"])
         XCTAssertNotNil(result.manifest["captureState"])
         XCTAssertNil(result.manifest["transcriptText"])
+        XCTAssertNil(result.manifest["aecDump"])
         XCTAssertTrue(result.removedFields.contains("capturePermissions.rawAudio"))
         XCTAssertTrue(result.removedFields.contains("browserTargetEvidence[0].meetingContent"))
     }

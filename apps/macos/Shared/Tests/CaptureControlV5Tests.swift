@@ -135,6 +135,31 @@ final class CaptureControlTests: XCTestCase {
         )
     }
 
+    func testEchoProcessingFailureKeepsImmediateDegradedStopAndRecovery() throws {
+        let controller = CaptureSessionController(
+            clock: { Date(timeIntervalSince1970: 24) },
+            idFactory: { "capture-aec-degraded-id" },
+            policySnapshotProvider: { "policy-test" }
+        )
+
+        _ = try controller.beginPreparing(mode: .audioRecording, sourceAppEligibility: .eligible)
+        _ = try controller.markReady()
+        _ = try controller.start()
+        _ = try controller.markCapturing()
+        let degraded = try controller.markDegraded(
+            source: "echo_processing",
+            recoveryAction: "Остановите запись и начните новую после проверки аудиоустройств."
+        )
+
+        XCTAssertEqual(degraded.state, .degraded)
+        XCTAssertEqual(degraded.visibleIndicatorState, .degraded)
+        XCTAssertTrue(degraded.stopActionAvailable)
+        XCTAssertEqual(
+            CaptureControlView.degradedSourceRecovery(for: degraded),
+            "Тракт удаления эха недоступен. Остановите запись и начните новую после проверки аудиоустройств."
+        )
+    }
+
     func testStopFailureMovesSessionOutOfStoppingState() throws {
         let controller = CaptureSessionController(
             clock: { Date(timeIntervalSince1970: 21) },

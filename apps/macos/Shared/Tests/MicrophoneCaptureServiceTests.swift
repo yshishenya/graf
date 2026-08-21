@@ -1,5 +1,5 @@
 import Foundation
-import TwoBrainRecAppCore
+@testable import TwoBrainRecAppCore
 import TwoBrainRecShared
 
 #if canImport(XCTest)
@@ -254,6 +254,19 @@ final class MicrophoneCaptureServiceTests: XCTestCase {
         XCTAssertEqual(restored.format, original.format)
         XCTAssertEqual(restored.routeGeneration, 3)
         XCTAssertEqual(restored.samples, original.samples)
+    }
+
+    func testMicrophoneRuntimeFailurePublishesTerminalDiscontinuityOnce() throws {
+        let source = AppOwnedMicrophoneSampleSource(inputDeviceId: "built-in")
+
+        source.recordRuntimeFailure(.sourceStopped)
+        source.recordRuntimeFailure(.routeChanged)
+
+        let terminal = try XCTUnwrap(source.readTimestampedBatch(maximumFrameCount: 480))
+        XCTAssertEqual(terminal.discontinuity, .sourceStopped)
+        XCTAssertTrue(terminal.samples.isEmpty)
+        XCTAssertGreaterThan(terminal.routeGeneration, 0)
+        XCTAssertNil(source.readTimestampedBatch(maximumFrameCount: 480))
     }
 
     func testBlockedPermissionStatesCreateBlockedMicrophoneStreamEvidence() {

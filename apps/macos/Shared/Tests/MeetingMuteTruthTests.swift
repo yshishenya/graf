@@ -124,7 +124,9 @@ final class MeetingMuteTruthTests: XCTestCase {
                 privacySegments: [segment],
                 targetMuteCapability: .chromeTelemost,
                 meetingMuteTruthEvidence: [evidence],
-                limitationCopyShownAt: Date(timeIntervalSince1970: 11)
+                limitationCopyShownAt: Date(timeIntervalSince1970: 11),
+                echoProcessor: .webrtcAEC3,
+                echoProcessingHealth: EchoProcessingHealth(state: .completed, processedFrameCount: 1)
             )
 
         XCTAssertEqual(manifest.privacySegments?.map(\.segmentId), ["session-privacy-1"])
