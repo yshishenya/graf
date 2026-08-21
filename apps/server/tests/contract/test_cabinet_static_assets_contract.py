@@ -2877,6 +2877,9 @@ def test_feature_159_shared_shell_static_contract_keeps_search_and_download_boun
         'data-sidebar-download href="/download"', "", 1
     )
     assert "data-graf-app-update" in sections
+    assert 'aria-label="{{ item.label }}" title="{{ item.label }}"' in sections
+    assert 'aria-label="К встречам" title="К встречам"' in sections
+    assert 'aria-label="Обзор" title="Обзор"' in sections
 
 
 def test_meeting_list_css_keeps_reset_copy_and_touch_actions_visible() -> None:

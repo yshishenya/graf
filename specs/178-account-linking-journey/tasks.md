@@ -122,7 +122,7 @@
 - [X] T045 [P] Добавить runtime regression для legacy `AccountMergeIntent` без обязательных proof bindings: `proof_required`, без account/data mutation, в `apps/server/tests/integration/test_account_merge.py`
 - [X] T046 [P] Расширить downgrade regression проверкой восстановленного workspace-kind constraint, неизменного partial personal-owner index и точных legacy RLS policy predicates в `apps/server/tests/integration/test_postgres_migrations.py`
 - [X] T047 Закрепить доказуемый вне-git capture bundle ID и synthetic fixture digest без живых локальных путей в `specs/178-account-linking-journey/design-qa.md`; если прежний bundle недоступен, повторить synthetic captures перед closeout
-- [ ] T044 После T043, T045–T047 синхронизировать `tasks.md` и GitHub issues, подготовить русский PR/review/merge и production release evidence по `docs/agent-guidance/release-and-validation.md`
+- [X] T044 После T043, T045–T047 синхронизировать `tasks.md` и GitHub issues, подготовить русский PR/review/merge и production release evidence по `docs/agent-guidance/release-and-validation.md`
 
 ## Dependencies & Execution Order
 
