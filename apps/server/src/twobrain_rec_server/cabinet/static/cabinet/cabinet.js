@@ -3087,12 +3087,12 @@
       .find((form) => form.querySelector("button[type='submit']:disabled"));
     const syncRefreshKey = `graf-calendar-sync-refresh:${window.location.pathname}`;
     if (pendingSyncForm) {
-      const refreshAttempt = Number.parseInt(window.sessionStorage.getItem(syncRefreshKey) || "0", 10);
+      const refreshAttempt = Number.parseInt(sessionStorage.getItem(syncRefreshKey) || "0", 10);
       if (refreshAttempt < 4) {
-        window.sessionStorage.setItem(syncRefreshKey, String(refreshAttempt + 1));
+        sessionStorage.setItem(syncRefreshKey, String(refreshAttempt + 1));
         window.setTimeout(() => window.location.reload(), 15000);
       } else {
-        window.sessionStorage.removeItem(syncRefreshKey);
+        sessionStorage.removeItem(syncRefreshKey);
         const status = pendingSyncForm.querySelector("[data-calendar-mutation-status]");
         if (status) {
           status.textContent = "Синхронизация занимает больше обычного. Обновите страницу позже.";
@@ -3100,7 +3100,7 @@
         }
       }
     } else {
-      window.sessionStorage.removeItem(syncRefreshKey);
+      sessionStorage.removeItem(syncRefreshKey);
     }
     const dialogOpeners = new WeakMap();
     const restoreDialogFocus = (dialog) => {

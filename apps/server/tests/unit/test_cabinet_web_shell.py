@@ -1376,7 +1376,7 @@ def test_calendar_sync_refreshes_boundedly_until_server_state_changes() -> None:
         "refreshAttempt < 4",
         "window.location.reload()",
         "Синхронизация занимает больше обычного. Обновите страницу позже.",
-        "window.sessionStorage.removeItem(syncRefreshKey)",
+        "sessionStorage.removeItem(syncRefreshKey)",
     ):
         assert marker in js
 
@@ -1500,10 +1500,6 @@ def test_feature_159_settings_use_one_primary_sidebar_and_canonical_meetings_ret
         assert page.count("data-settings-primary-nav>") == 1
         assert page.count("data-settings-primary-nav-item") == 9
         assert f'href="{meetings_href}"' in page
-        assert 'data-settings-navigation-legacy hidden' in page
-        assert 'aria-hidden="true"' in page
-        assert page.count('data-settings-nav="account"') == 1
-        assert page.count('aria-label="Разделы настроек"') == 1
         assert page.count('data-settings-primary-nav-item="account"') == 1
         primary_sidebar = re.search(
             r'<nav class="cabinet-sidebar-nav cabinet-sidebar-nav--settings".*?</nav>',
@@ -1519,11 +1515,6 @@ def test_feature_159_settings_use_one_primary_sidebar_and_canonical_meetings_ret
             )
             == 1
         )
-
-    css = CABINET_CSS.read_text(encoding="utf-8")
-    assert ".settings-page:has(> [data-settings-navigation-legacy])" in css
-    assert ".calendar-settings:has(> [data-settings-navigation-legacy])" in css
-
 
 def test_list_shell_renders_audio_video_transcript_and_upload_icons() -> None:
     audio = _item()

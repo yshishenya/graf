@@ -1932,10 +1932,6 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   align-content: start;
   gap: var(--settings-gap);
 }
-.settings-page:has(> [data-settings-navigation-legacy]) > .settings-page__content,
-.calendar-settings:has(> [data-settings-navigation-legacy]) > .calendar-settings__content {
-  grid-column: 1;
-}
 .settings-section {
   max-width: 920px;
   padding: 0 0 24px 0;
@@ -4153,6 +4149,9 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   }
 }
 .sidebar {
+  padding: 12px 10px;
+  gap: 12px;
+  background: #1d1f21;
   --text: #e8eaee;
   --muted: #a8adb5;
   --subtle: #7c828b;
@@ -4160,9 +4159,6 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   --line-soft: rgba(255,255,255,.07);
   --surface: #242629;
   --surface-3: #2f3237;
-  padding: 12px 10px;
-  gap: 12px;
-  background: #1d1f21;
   color: var(--text);
 }
 .cabinet-workspace-header--wordmark-only {

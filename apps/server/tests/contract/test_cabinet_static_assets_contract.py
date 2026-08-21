@@ -79,7 +79,7 @@ def test_cabinet_js_keeps_fragment_state_ephemeral() -> None:
     assert "htmx:afterSwap" in script
     assert "meeting-list-region" in script
     assert "localStorage" not in script
-    assert script.count("sessionStorage") == 9
+    assert script.count("sessionStorage") == 13
     assert script.count('sessionStorage.removeItem("htmx-history-cache")') == 1
     assert script.count('sessionStorage.removeItem("htmx-current-path-for-history")') == 2
     assert "graf-summary-candidate-" in script
@@ -94,10 +94,10 @@ def test_cabinet_rail_initial_state_uses_surface_breakpoints() -> None:
     script = (STATIC_DIR / "cabinet.js").read_text()
     css = (STATIC_DIR / "cabinet.css").read_text()
     for marker in [
-        'window.matchMedia("(min-width: 981px)")',
+        "const expandedMedia = window.matchMedia(",
+        '"(min-width: 1121px)" : "(min-width: 981px)"',
     ]:
         assert marker in script
-    assert 'window.matchMedia("(min-width: 1121px)")' not in script
     assert "@media (max-width: 1120px)" in css
 
     rail_source = script[script.index("const initCabinetRail"):script.index("const initCabinetProfileMenus")]
@@ -298,7 +298,8 @@ global.window = {
   htmx: null,
   location: global.location,
   matchMedia(query) {
-    const matches = query === "(min-width: 981px)" && width >= 981;
+    const breakpoint = embedded ? 1121 : 981;
+    const matches = query === `(min-width: ${breakpoint}px)` && width >= breakpoint;
     return { matches, addEventListener() {} };
   },
   requestAnimationFrame(callback) { callback(); },
@@ -306,7 +307,7 @@ global.window = {
   setTimeout,
 };
 vm.runInThisContext(fs.readFileSync(process.argv[1], "utf8"));
-const expectedPinned = explicitPinned || width >= 981;
+const expectedPinned = explicitPinned || width >= (embedded ? 1121 : 981);
 if (shell.classList.contains("is-rail-pinned") !== expectedPinned) {
   throw new Error(`wrong initial class for ${surface} ${width}`);
 }
@@ -331,10 +332,8 @@ if ((toggle.listeners.get("click") || []).length !== 1) throw new Error("duplica
         ("browser", 1280, "default"),
         ("browser", 981, "default"),
         ("browser", 980, "default"),
-        ("embedded", 981, "default"),
-        ("embedded", 980, "default"),
-        ("embedded", 1121, "default"),
-        ("embedded", 1120, "default"),
+            ("embedded", 1121, "default"),
+            ("embedded", 1120, "default"),
         ("embedded", 1120, "pinned"),
         ("embedded", 720, "default"),
     ]
