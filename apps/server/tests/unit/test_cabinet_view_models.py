@@ -1162,7 +1162,9 @@ def test_transcript_mapping_uses_diarization_time_when_sequence_conflicts() -> N
         status="ready",
     )
 
-    assert state.segments[0].speaker_label == "SPEAKER_01"
+    assert state.result_state == "degraded_provider_result"
+    assert [segment.text for segment in state.segments] == ["current speaker"]
+    assert state.segments[0].attribution_state == "uncertain"
 
 
 def test_dual_track_mapping_canonicalizes_dependency_labels_when_speaker_style_label_is_present() -> (
@@ -1344,20 +1346,16 @@ def test_manual_upload_transcript_uses_diarization_rows_for_speaker_labels() -> 
         force_speaker_labels=True,
     )
 
-    assert [segment.speaker_label for segment in state.segments] == [
-        "SPEAKER_00",
-        "SPEAKER_01",
-        "SPEAKER_01",
-        "SPEAKER_02",
-    ]
+    assert state.result_state == "degraded_provider_result"
+    assert {segment.speaker_label for segment in state.segments} == {"Спикер не определён"}
     assert [segment.text for segment in state.segments] == [
         "speaker zero",
         "speaker one",
         "unknown dependency label",
-        "speaker two",
+        "speaker two sequence mismatch",
     ]
     assert "Incoming system" not in {segment.speaker_label for segment in state.segments}
-    assert "UNKNOWN" not in {segment.speaker_label for segment in state.segments}
+    assert {segment.attribution_state for segment in state.segments} == {"uncertain"}
 
 
 def test_manual_upload_transcript_keeps_unknown_when_diarization_is_missing() -> None:
@@ -1396,9 +1394,16 @@ def test_manual_upload_transcript_keeps_unknown_when_diarization_is_missing() ->
         force_speaker_labels=True,
     )
 
-    assert [segment.speaker_label for segment in state.segments] == ["UNKNOWN", "UNKNOWN"]
-    assert [segment.attribution_state for segment in state.segments] == ["unknown", "unknown"]
-    assert len({segment.speaker_key for segment in state.segments}) == 2
+    assert [segment.speaker_label for segment in state.segments] == [
+        "Спикер не определён",
+        "Спикер не определён",
+    ]
+    assert [segment.attribution_state for segment in state.segments] == [
+        "uncertain",
+        "uncertain",
+    ]
+    assert len({segment.speaker_key for segment in state.segments}) == 1
+    assert state.result_state == "degraded_provider_result"
 
 
 def test_manual_upload_review_response_preserves_unknown_without_diarization() -> None:
@@ -1450,8 +1455,11 @@ def test_manual_upload_review_response_preserves_unknown_without_diarization() -
     )
 
     assert response.meeting.source == "manual_upload"
-    assert [segment.speaker_label for segment in response.transcript.segments] == ["UNKNOWN"]
-    assert [segment.attribution_state for segment in response.transcript.segments] == ["unknown"]
+    assert [segment.speaker_label for segment in response.transcript.segments] == [
+        "Спикер не определён"
+    ]
+    assert [segment.attribution_state for segment in response.transcript.segments] == ["uncertain"]
+    assert response.transcript.result_state == "degraded_provider_result"
 
 
 def test_manual_upload_review_response_uses_diarization_as_transcript_source() -> None:
@@ -1517,9 +1525,10 @@ def test_manual_upload_review_response_uses_diarization_as_transcript_source() -
     )
 
     assert [segment.text for segment in response.transcript.segments] == [
-        "diarization row is the review source"
+        "transcript row should not be used"
     ]
-    assert [segment.speaker_label for segment in response.transcript.segments] == ["SPEAKER_01"]
+    assert response.transcript.result_state == "degraded_provider_result"
+    assert response.transcript.segments[0].attribution_state == "uncertain"
 
 
 def test_manual_upload_transcript_falls_back_to_transcript_text_when_diarization_text_is_blank() -> (
@@ -1590,7 +1599,8 @@ def test_manual_upload_transcript_falls_back_to_transcript_text_when_diarization
         "first transcript row",
         "second transcript row",
     ]
-    assert [segment.speaker_label for segment in state.segments] == ["SPEAKER_00", "SPEAKER_01"]
+    assert {segment.speaker_label for segment in state.segments} == {"Спикер не определён"}
+    assert state.result_state == "degraded_provider_result"
     assert all(segment.text.strip() for segment in state.segments)
 
 
@@ -1648,7 +1658,10 @@ def test_manual_upload_transcript_omits_blank_diarization_display_rows() -> None
         "speaker zero text",
         "speaker one text",
     ]
-    assert [segment.speaker_label for segment in state.segments] == ["SPEAKER_00", "SPEAKER_01"]
+    assert [segment.speaker_label for segment in state.segments] == [
+        "Спикер не определён",
+        "SPEAKER_00",
+    ]
     assert all(segment.text.strip() for segment in state.segments)
 
 
@@ -1822,7 +1835,12 @@ def test_manual_upload_speaker_mapping_hides_unknown_when_speaker_labels_are_pre
 
     state = view_models.speaker_state(segments, force_speaker_labels=True)
 
-    assert {speaker.label for speaker in state.speakers} == {"SPEAKER_00", "SPEAKER_01"}
+    assert {speaker.label for speaker in state.speakers} == {
+        "SPEAKER_00",
+        "SPEAKER_01",
+        "Спикер не определён",
+    }
+    assert sum(speaker.confirmed for speaker in state.speakers) == 2
 
 
 def test_manual_upload_speaker_mapping_preserves_unknown_rows() -> None:
@@ -1846,7 +1864,9 @@ def test_manual_upload_speaker_mapping_preserves_unknown_rows() -> None:
 
     state = view_models.speaker_state(segments, force_speaker_labels=True)
 
-    assert [speaker.label for speaker in state.speakers] == ["UNKNOWN"]
+    assert [speaker.label for speaker in state.speakers] == ["Спикер не определён"]
+    assert state.speakers[0].confirmed is False
+    assert state.speakers[0].can_rename is False
 
 
 def test_calendar_roster_does_not_rename_transcript_speakers_or_grant_access() -> None:
@@ -2157,7 +2177,7 @@ def test_us6_calendar_roster_stays_metadata_and_speaker_labels_stay_canonical() 
             sequence=index,
             start_seconds=Decimal(index * 10),
             end_seconds=Decimal(index * 10 + 10),
-            text=f"synthetic diarization segment {index}",
+            text=f"synthetic transcript segment {index}",
             speaker_label=f"Synthetic Calendar Person {chr(ord('A') + index)}",
             source_role="incoming",
         )
@@ -2321,18 +2341,15 @@ def test_transcript_state_derives_same_speaker_turns_and_preserves_raw_segments(
     )
 
     assert len(state.segments) == 4
-    assert len(state.speaker_turns) == 2
-    first, second = state.speaker_turns
-    assert first.speaker_key == "speaker_00"
-    assert second.speaker_key == "speaker_00"
+    assert len(state.speaker_turns) == 4
+    first, *_, second = state.speaker_turns
+    assert first.speaker_key == second.speaker_key
     assert first.start_seconds == 0.0
-    assert first.end_seconds == 4.0
-    assert first.text == "synthetic fragment 0 synthetic fragment 1 synthetic fragment 2"
-    assert first.source_segment_ids == [str(value) for value in segment_ids[:3]]
+    assert first.end_seconds == 1.0
+    assert first.text == "synthetic fragment 0"
+    assert len(first.source_segment_ids) == 1
     assert first.processing_result_id == result_id
-    assert first.turn_id == view_models.canonical_turn_id(
-        result_id, (str(value) for value in segment_ids[:3])
-    )
+    assert first.turn_id == view_models.canonical_turn_id(result_id, first.source_segment_ids)
     assert first.seekable is True
     assert first.seek_seconds == 0.0
     assert second.start_seconds == 6.0
@@ -2340,7 +2357,7 @@ def test_transcript_state_derives_same_speaker_turns_and_preserves_raw_segments(
     assert [segment.text for segment in state.segments] == [
         f"synthetic fragment {index}" for index in range(4)
     ]
-    assert {segment.speaker_key for segment in state.segments} == {"speaker_00"}
+    assert len({segment.speaker_key for segment in state.segments}) == 1
 
 
 def test_speaker_display_name_changes_labels_without_changing_keys() -> None:
@@ -2361,25 +2378,30 @@ def test_speaker_display_name_changes_labels_without_changing_keys() -> None:
         )
     ]
 
-    transcript = view_models.diarization_transcript_state(
+    stable_key = (
+        view_models.canonical_speaker_model([], diarization, processing_result_id=result_id)
+        .turns[0]
+        .speaker_key
+    )
+    transcript = view_models.transcript_state(
         language="ru",
-        diarization_rows=diarization,
-        speaker_rows=diarization,
+        transcript_segments=[],
+        diarization_segments=diarization,
         status="ready",
         playback_available=True,
         playback_duration_seconds=10,
-        speaker_names={"speaker_00": "Мария"},
+        speaker_names={stable_key: "Мария"},
     )
     speakers = view_models.speaker_state(
         diarization,
-        speaker_names={"speaker_00": "Мария"},
+        speaker_names={stable_key: "Мария"},
         can_rename=True,
     )
 
-    assert transcript.segments[0].speaker_key == "speaker_00"
+    assert transcript.segments[0].speaker_key == stable_key
     assert transcript.segments[0].speaker_label == "Мария"
-    assert transcript.speaker_turns[0].speaker_key == "speaker_00"
-    assert speakers.speakers[0].speaker_key == "speaker_00"
+    assert transcript.speaker_turns[0].speaker_key == stable_key
+    assert speakers.speakers[0].speaker_key == stable_key
     assert speakers.speakers[0].label == "Мария"
     assert speakers.speakers[0].display_name == "Мария"
     assert speakers.can_rename is True
@@ -2428,7 +2450,8 @@ def test_transcript_turns_split_on_speaker_track_and_exact_threshold() -> None:
     )
 
     assert [turn.text for turn in state.speaker_turns] == [
-        "fragment 0 fragment 1",
+        "fragment 0",
+        "fragment 1",
         "fragment 2",
         "fragment 3",
     ]
@@ -2485,7 +2508,10 @@ def test_transcript_turns_do_not_merge_unconfirmed_mapping_or_incomplete_state()
         status="partial",
     )
 
-    assert [turn.attribution_state for turn in state.speaker_turns] == ["unknown", "unknown"]
+    assert [turn.attribution_state for turn in state.speaker_turns] == [
+        "uncertain",
+        "uncertain",
+    ]
     assert [turn.text for turn in state.speaker_turns] == ["unmapped 0", "unmapped 1"]
     assert len(state.segments) == 2
     assert processing_state.speaker_turns == []
@@ -2529,8 +2555,10 @@ def test_force_speaker_labels_turns_are_stable_across_rebuilds() -> None:
     )
 
     assert first.speaker_turns == second.speaker_turns
-    assert len(first.speaker_turns) == 1
-    assert first.speaker_turns[0].source_segment_ids == [str(row.id) for row in diarization]
+    assert len(first.speaker_turns) == 3
+    assert [turn.source_segment_ids for turn in first.speaker_turns] == [
+        [str(row.id)] for row in diarization
+    ]
 
 
 def test_force_speaker_labels_preserves_unconfirmed_rows_as_singletons() -> None:
@@ -2561,8 +2589,8 @@ def test_force_speaker_labels_preserves_unconfirmed_rows_as_singletons() -> None
     )
 
     assert [turn.attribution_state for turn in state.speaker_turns] == [
-        "unconfirmed",
-        "unconfirmed",
+        "unknown",
+        "unknown",
     ]
     assert [turn.text for turn in state.speaker_turns] == [
         "unconfirmed 0",

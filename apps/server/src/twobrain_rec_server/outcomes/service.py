@@ -9,11 +9,6 @@ from sqlalchemy import func, nullslast, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from twobrain_rec_server.cabinet.speakers import speaker_attribution_revision
-from twobrain_rec_server.cabinet.view_models import (
-    canonical_speaker_labels,
-    matching_diarization_segment,
-    speaker_label_for_segment,
-)
 from twobrain_rec_server.db.models import (
     DiarizationSegment,
     MediaRevision,
@@ -25,6 +20,7 @@ from twobrain_rec_server.db.models import (
     ProcessingResult,
     TranscriptSegment,
 )
+from twobrain_rec_server.domain.speaker_turns import canonical_speaker_model
 from twobrain_rec_server.domain.statuses import (
     OutcomeCategoryState,
     OutcomeGenerationAttemptStatus,
@@ -601,30 +597,29 @@ async def load_outcome_transcript_segments(
             )
         ).all()
     }
-    labels_by_key = canonical_speaker_labels(diarization_rows)
-    outcome_segments: list[OutcomeTranscriptSegment] = []
-    for row in rows:
-        diarization = matching_diarization_segment(row, diarization_rows)
-        speaker_label = "UNKNOWN"
-        if diarization is not None and diarization.speaker_label.strip():
-            canonical_label = speaker_label_for_segment(
-                row,
-                diarization,
-                speaker_labels_by_key=labels_by_key,
-            )
-            speaker_label = speaker_names.get(canonical_label.lower(), canonical_label)
-        outcome_segments.append(
-            OutcomeTranscriptSegment(
-                segment_id=row.id,
-                sequence=row.sequence,
-                start_seconds=row.start_seconds,
-                end_seconds=row.end_seconds,
-                speaker_label=speaker_label,
-                source_role=row.source_role,
-                text=row.text,
-            )
+    model = canonical_speaker_model(
+        rows,
+        diarization_rows,
+        processing_result_id=result.id,
+        speaker_names=speaker_names,
+        source_result_hash=result.source_result_hash,
+    )
+    return [
+        OutcomeTranscriptSegment(
+            segment_id=UUID(turn.source_segment_id),
+            sequence=turn.sequence,
+            start_seconds=turn.start_seconds,
+            end_seconds=turn.end_seconds,
+            speaker_label=turn.speaker_label,
+            speaker_key=turn.speaker_key,
+            provider_speaker_key=turn.provider_speaker_key,
+            attribution_state=turn.attribution_state,
+            result_state=turn.result_state,
+            source_role=turn.source_role,
+            text=turn.text,
         )
-    return outcome_segments
+        for turn in model.turns
+    ]
 
 
 def _payload_hash(items: list[object]) -> str:

@@ -86,7 +86,15 @@ def test_capability_is_metadata_only_and_separates_transcript_summary_combined(c
     assert payload["transcript"] == {"state": "available", "reason": None}
     assert payload["summary"]["state"] == "missing"
     assert payload["combined"]["state"] == "missing"
-    assert payload["formats"]["transcript"] == ["txt", "md", "csv", "xlsx", "json", "srt"]
+    assert payload["formats"]["transcript"] == [
+        "txt",
+        "md",
+        "csv",
+        "xlsx",
+        "json",
+        "srt",
+        "vtt",
+    ]
     assert SAFE_TRANSCRIPT_TEXT not in response.text
     assert "storage_object_key" not in response.text
     assert "mediascribe_job_id" not in response.text
@@ -200,7 +208,7 @@ def test_authorized_transcript_formats_share_one_revision_and_safe_headers(clien
     result_id = capability["processing_result_id"]
 
     responses = {}
-    for format_name in ("txt", "md", "csv", "xlsx", "json", "srt"):
+    for format_name in ("txt", "md", "csv", "xlsx", "json", "srt", "vtt"):
         response = client.post(
             f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
             headers=auth_headers(),
@@ -225,6 +233,7 @@ def test_authorized_transcript_formats_share_one_revision_and_safe_headers(clien
     assert SAFE_TRANSCRIPT_TEXT.replace(".", "\\.") in responses["md"].text
     assert SAFE_TRANSCRIPT_TEXT in responses["csv"].content.decode("utf-8-sig")
     assert SAFE_TRANSCRIPT_TEXT in responses["srt"].text
+    assert SAFE_TRANSCRIPT_TEXT in responses["vtt"].text
     payload = responses["json"].json()
     assert payload["revisions"]["processing_result_id"] == result_id
     assert payload["provenance"]["provider_neutral"] is True
@@ -233,7 +242,7 @@ def test_authorized_transcript_formats_share_one_revision_and_safe_headers(clien
     events = audit_events(client, seeds.ready_id)
     assert [event.event_type for event in events] == [
         event
-        for _ in range(6)
+        for _ in range(7)
         for event in ("content_export_requested", "content_export_completed")
     ]
     assert all(SAFE_TRANSCRIPT_TEXT not in json.dumps(event.metadata_json) for event in events)

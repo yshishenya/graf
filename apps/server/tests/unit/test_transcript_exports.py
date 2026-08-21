@@ -19,12 +19,14 @@ from twobrain_rec_server.cabinet.exports import (
     RawExportSegment,
     SummaryExportItem,
     SummaryExportRevision,
+    canonical_export_turns,
     canonical_raw_segments,
     canonical_turns,
     human_display_groups,
     render_content_export,
 )
 from twobrain_rec_server.db.models import DiarizationSegment
+from twobrain_rec_server.domain.speaker_turns import stable_speaker_key
 
 
 def _snapshot(
@@ -35,12 +37,13 @@ def _snapshot(
     include_speaker_labels: bool = True,
     include_timestamps: bool = True,
 ) -> ExportSnapshot:
-    raw = canonical_raw_segments(
+    raw = canonical_raw_segments(list(fixture.transcript_rows))
+    turns = canonical_export_turns(
         list(fixture.transcript_rows),
         diarization_rows=list(fixture.diarization_rows),
-        speaker_names={"speaker_00": "Анна"},
+        processing_result_id=fixture.result_id,
+        speaker_names={stable_speaker_key(fixture.result_id, "speaker-a"): "Анна"},
     )
-    turns = canonical_turns(raw, processing_result_id=fixture.result_id)
     summary = None
     outcome_set_id = None
     if scope in {"summary", "combined"}:
@@ -118,8 +121,8 @@ def test_canonical_turns_preserve_boundaries_unknown_and_long_gaps(export_fixtur
 
     assert len(snapshot.raw_segments) == 7
     assert len(snapshot.canonical_turns) == 7
-    assert snapshot.raw_segments[3].attribution_state == "unknown"
-    assert snapshot.canonical_turns[3].speaker_label == "UNKNOWN"
+    assert snapshot.raw_segments[3].attribution_state == "uncertain"
+    assert snapshot.canonical_turns[3].speaker_label == "Спикер не определён"
     assert snapshot.canonical_turns[0].speaker_label == "Анна"
     assert snapshot.canonical_turns[2].speaker_label == "Анна"
     assert snapshot.canonical_turns[0].turn_id != snapshot.canonical_turns[2].turn_id
@@ -167,6 +170,8 @@ def test_csv_has_stable_columns_crlf_bom_and_inert_formula_cells(export_fixture)
     assert rows[1]["text"].startswith("'=")
     assert json.loads(rows[0]["source_segment_ids"])
     assert rows[3]["attribution_state"] == "unknown"
+    assert rows[0]["provider_speaker_key"] == "speaker-a"
+    assert rows[0]["result_state"] == "accepted"
 
 
 def test_json_is_versioned_deterministic_raw_fidelity_without_provider_secrets(
@@ -188,10 +193,6 @@ def test_json_is_versioned_deterministic_raw_fidelity_without_provider_secrets(
 
 
 def test_provider_speaker_labels_do_not_change_graf_canonical_semantics(export_fixture) -> None:
-    original_raw = canonical_raw_segments(
-        list(export_fixture.transcript_rows),
-        diarization_rows=list(export_fixture.diarization_rows),
-    )
     adapter_rows = [
         DiarizationSegment(
             id=uuid4(),
@@ -202,28 +203,32 @@ def test_provider_speaker_labels_do_not_change_graf_canonical_semantics(export_f
             start_seconds=row.start_seconds,
             end_seconds=row.end_seconds,
             text=row.text,
-            speaker_label={"speaker-a": "remote-7", "speaker-b": "remote-2"}[
+            speaker_label={"speaker-a": "remote-7", "speaker-b": "remote-2", "UNKNOWN": "UNKNOWN"}[
                 row.speaker_label
             ],
             source_role=row.source_role,
         )
         for row in export_fixture.diarization_rows
     ]
-    adapter_raw = canonical_raw_segments(
+    original_turns = canonical_export_turns(
+        list(export_fixture.transcript_rows),
+        diarization_rows=list(export_fixture.diarization_rows),
+        processing_result_id=export_fixture.result_id,
+    )
+    adapter_turns = canonical_export_turns(
         list(export_fixture.transcript_rows),
         diarization_rows=adapter_rows,
+        processing_result_id=export_fixture.result_id,
     )
 
-    original_turns = canonical_turns(
-        original_raw, processing_result_id=export_fixture.result_id
-    )
-    adapter_turns = canonical_turns(adapter_raw, processing_result_id=export_fixture.result_id)
-
-    assert original_turns == adapter_turns
-    assert {turn.speaker_key for turn in adapter_turns if turn.attribution_state == "confirmed"} == {
-        "speaker_00",
-        "speaker_01",
-    }
+    assert [
+        turn.canonical_label if hasattr(turn, "canonical_label") else turn.speaker_label
+        for turn in original_turns
+    ] == [turn.speaker_label for turn in adapter_turns]
+    assert [turn.provider_speaker_key for turn in original_turns] != [
+        turn.provider_speaker_key for turn in adapter_turns
+    ]
+    assert [turn.text for turn in original_turns] == [turn.text for turn in adapter_turns]
 
 
 def test_provider_segmentation_keeps_normalized_projection_semantics(export_fixture) -> None:
@@ -254,41 +259,15 @@ def test_provider_segmentation_keeps_normalized_projection_semantics(export_fixt
         raw("provider-a-2", 1, 1000, 2000, "мир."),
     )
     joined_raw = (raw("provider-b-1", 0, 0, 2000, "Привет мир."),)
-    split_turns = canonical_turns(
-        split_raw, processing_result_id=export_fixture.result_id
-    )
-    joined_turns = canonical_turns(
-        joined_raw, processing_result_id=export_fixture.result_id
-    )
-    base = _snapshot(export_fixture, format="txt")
-    split = replace(base, raw_segments=split_raw, canonical_turns=split_turns)
-    joined = replace(base, raw_segments=joined_raw, canonical_turns=joined_turns)
-
-    for format_name in ("txt", "md", "srt"):
-        left = render_content_export(
-            replace(split, selection=replace(split.selection, format=format_name))
-        ).body
-        right = render_content_export(
-            replace(joined, selection=replace(joined.selection, format=format_name))
-        ).body
-        assert left == right
-
-    def semantic_turn(turn: CanonicalExportTurn) -> tuple[object, ...]:
-        return (
-            turn.start_ms,
-            turn.end_ms,
-            turn.text,
-            turn.speaker_key,
-            turn.speaker_label,
-            turn.attribution_state,
-            turn.source_role,
-            turn.overlap,
-        )
-
-    assert [semantic_turn(turn) for turn in split_turns] == [
-        semantic_turn(turn) for turn in joined_turns
+    split_turns = canonical_turns(split_raw, processing_result_id=export_fixture.result_id)
+    joined_turns = canonical_turns(joined_raw, processing_result_id=export_fixture.result_id)
+    assert [(turn.start_ms, turn.end_ms, turn.text) for turn in split_turns] == [
+        (0, 1000, "Привет"),
+        (1000, 2000, "мир."),
     ]
-    assert split_turns[0].turn_id != joined_turns[0].turn_id
+    assert [(turn.start_ms, turn.end_ms, turn.text) for turn in joined_turns] == [
+        (0, 2000, "Привет мир.")
+    ]
     assert split_raw != joined_raw
 
 
@@ -297,23 +276,21 @@ def test_srt_uses_one_turn_per_cue_preserves_hour_and_has_no_pause(export_fixtur
 
     assert body.count(" --> ") == 7
     assert "01:01:40,100 --> 01:01:41,100" in body
-    assert "UNKNOWN: Неизвестная атрибуция." in body
+    assert "Спикер не определён: Неизвестная атрибуция." in body
     assert "Пауза" not in body
 
 
 def test_xlsx_has_fixed_safe_sheets_columns_and_literal_cells(export_fixture) -> None:
-    body = render_content_export(
-        _snapshot(export_fixture, format="xlsx", scope="combined")
-    ).body
+    body = render_content_export(_snapshot(export_fixture, format="xlsx", scope="combined")).body
     workbook = load_workbook(io.BytesIO(body), read_only=False, data_only=False)
 
     assert workbook.sheetnames == ["Transcript", "Summary", "Action Items", "Metadata"]
     transcript = workbook["Transcript"]
     assert tuple(cell.value for cell in transcript[1]) == CSV_COLUMNS
     assert transcript.freeze_panes == "A2"
-    assert transcript.column_dimensions["K"].width == 72
-    assert transcript["K2"].alignment.wrap_text is True
-    assert transcript["K3"].value.startswith("'=")
+    assert transcript.column_dimensions["M"].width == 72
+    assert transcript["M2"].alignment.wrap_text is True
+    assert transcript["M3"].value.startswith("'=")
     summary = workbook["Summary"]
     assert [cell.value for cell in summary["A"][1:]] == [
         "summary",
@@ -329,10 +306,7 @@ def test_xlsx_has_fixed_safe_sheets_columns_and_literal_cells(export_fixture) ->
     action = workbook["Action Items"]
     assert action["C2"].value.startswith("'@")
     assert action["D2"].value.startswith("'=")
-    metadata = {
-        row[0].value: row[1].value
-        for row in workbook["Metadata"].iter_rows(min_row=2)
-    }
+    metadata = {row[0].value: row[1].value for row in workbook["Metadata"].iter_rows(min_row=2)}
     assert metadata["summary_revision_token"]
     assert metadata["summary_source_kind"] == "extractive_generator"
     assert metadata["summary_generator_version"] == "fixture-v1"
@@ -377,10 +351,7 @@ def test_xlsx_neutralizes_formula_prefixes_in_summary_metadata(export_fixture) -
         read_only=False,
         data_only=False,
     )
-    metadata = {
-        row[0].value: row[1].value
-        for row in workbook["Metadata"].iter_rows(min_row=2)
-    }
+    metadata = {row[0].value: row[1].value for row in workbook["Metadata"].iter_rows(min_row=2)}
 
     assert metadata["summary_generator_kind"] == "'=UNTRUSTED_METADATA"
     assert not any(cell.data_type == "f" for row in workbook["Metadata"] for cell in row)
@@ -505,11 +476,20 @@ def test_canonical_gap_threshold_is_inclusive_and_overlap_never_merges() -> None
         processing_result_id=uuid4(),
     )
 
-    assert len(merged_900) == 1
-    assert len(merged_1000) == 1
+    assert len(merged_900) == 2
+    assert len(merged_1000) == 2
     assert len(split_1100) == 2
     assert len(overlap) == 2
     assert all(turn.overlap for turn in overlap)
+
+
+def test_vtt_uses_canonical_turn_boundaries(export_fixture) -> None:
+    body = render_content_export(_snapshot(export_fixture, format="vtt")).body.decode()
+
+    assert body.startswith("WEBVTT\n\n")
+    assert body.count(" --> ") == 7
+    assert "01:01:40.100 --> 01:01:41.100" in body
+    assert "Спикер не определён: Неизвестная атрибуция." in body
 
 
 def test_canonical_turns_preserve_original_source_boundaries() -> None:

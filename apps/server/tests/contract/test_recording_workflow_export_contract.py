@@ -107,4 +107,5 @@ def test_feature_121_reuses_feature_120_format_matrix_and_renderer() -> None:
         "xlsx",
         "json",
         "srt",
+        "vtt",
     }

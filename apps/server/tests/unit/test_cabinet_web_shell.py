@@ -3095,7 +3095,7 @@ def test_120_meeting_detail_renders_one_accessible_metadata_only_export_dialog()
         summary=ContentExportReadiness(state="missing", reason="stored_summary_missing"),
         combined=ContentExportReadiness(state="missing", reason="combined_components_unavailable"),
         formats={
-            "transcript": ["txt", "md", "csv", "xlsx", "json", "srt"],
+            "transcript": ["txt", "md", "csv", "xlsx", "json", "srt", "vtt"],
             "summary": ["txt", "md", "xlsx", "json"],
             "combined": ["txt", "md", "xlsx", "json"],
         },

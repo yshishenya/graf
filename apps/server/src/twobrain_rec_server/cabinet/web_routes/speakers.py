@@ -69,7 +69,9 @@ async def update_speaker_name(
         speaker_key=speaker_key,
         display_name=display_name,
         actor_user_id=principal.user_id,
-        known_speaker_keys={speaker.speaker_key for speaker in review.speakers.speakers},
+        known_speaker_keys={
+            speaker.speaker_key for speaker in review.speakers.speakers if speaker.can_rename
+        },
     )
     await db.commit()
     base = "/desktop/meetings" if request.url.path.startswith("/desktop/") else "/meetings"

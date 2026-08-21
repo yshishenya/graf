@@ -24,6 +24,7 @@ from twobrain_rec_server.db.models import (
     ProcessingResult,
     SummaryTemplate,
 )
+from twobrain_rec_server.domain.speaker_turns import stable_speaker_key
 from twobrain_rec_server.ingest.desktop_sync import (
     _latest_processing_result as latest_desktop_result,
 )
@@ -202,7 +203,7 @@ def test_candidate_segments_use_stable_confirmed_speaker_name(client) -> None:
                 MeetingSpeakerName(
                     workspace_id=meeting.workspace_id,
                     meeting_id=meeting.id,
-                    speaker_key="speaker_00",
+                    speaker_key=stable_speaker_key(result.id, "same-person"),
                     display_name="Алексей",
                     updated_by_user_id=meeting.created_by_user_id,
                 )
@@ -218,10 +219,10 @@ def test_candidate_segments_use_stable_confirmed_speaker_name(client) -> None:
     assert asyncio.run(run()) == ["Алексей", "Алексей"]
 
 
-def test_candidate_segments_prefer_same_source_speaker_during_overlap(client) -> None:
+def test_candidate_segments_preserve_overlapping_provider_turns(client) -> None:
     meeting_id = create_outcome_ready_meeting(client, "same-source-candidate-speaker")
 
-    async def run() -> str:
+    async def run() -> list[str]:
         async with client.app_state["sessionmaker"]() as db:
             meeting = await db.get(Meeting, meeting_id)
             result = await db.scalar(
@@ -247,14 +248,14 @@ def test_candidate_segments_prefer_same_source_speaker_during_overlap(client) ->
                     MeetingSpeakerName(
                         workspace_id=meeting.workspace_id,
                         meeting_id=meeting.id,
-                        speaker_key="speaker_00",
+                        speaker_key=stable_speaker_key(result.id, "local-person"),
                         display_name="Локальный участник",
                         updated_by_user_id=meeting.created_by_user_id,
                     ),
                     MeetingSpeakerName(
                         workspace_id=meeting.workspace_id,
                         meeting_id=meeting.id,
-                        speaker_key="speaker_01",
+                        speaker_key=stable_speaker_key(result.id, "remote-person"),
                         display_name="Удалённый участник",
                         updated_by_user_id=meeting.created_by_user_id,
                     ),
@@ -266,9 +267,9 @@ def test_candidate_segments_prefer_same_source_speaker_during_overlap(client) ->
                 source_result_id=result.id,
             )
             await db.flush()
-            return (await _candidate_segments(db, attempt))[0].speaker_label
+            return [segment.speaker_label for segment in await _candidate_segments(db, attempt)]
 
-    assert asyncio.run(run()) == "Локальный участник"
+    assert asyncio.run(run()) == ["Локальный участник", "Удалённый участник"]
 
 
 def test_candidate_segments_use_unknown_without_diarization(client) -> None:
@@ -294,7 +295,7 @@ def test_candidate_segments_use_unknown_without_diarization(client) -> None:
             await db.flush()
             return [segment.speaker_label for segment in await _candidate_segments(db, attempt)]
 
-    assert asyncio.run(run()) == ["UNKNOWN", "UNKNOWN"]
+    assert asyncio.run(run()) == ["Спикер не определён", "Спикер не определён"]
 
 
 def test_candidate_request_is_idempotent_and_does_not_replace_accepted_notes(client) -> None:

@@ -86,12 +86,8 @@ def _account_merge_provider_labels(provider_ids: tuple[str, ...]) -> tuple[str, 
 def account_merge_presentation(preview: MergePreview | None) -> AccountMergePresentation | None:
     if preview is None:
         return None
-    current_provider_labels = _account_merge_provider_labels(
-        preview.survivor_provider_ids
-    )
-    other_provider_labels = _account_merge_provider_labels(
-        preview.source_provider_ids
-    )
+    current_provider_labels = _account_merge_provider_labels(preview.survivor_provider_ids)
+    other_provider_labels = _account_merge_provider_labels(preview.source_provider_ids)
     connected_provider_labels = tuple(
         dict.fromkeys((*current_provider_labels, *other_provider_labels))
     )
@@ -1114,7 +1110,7 @@ def _render_content_export_dialog(
         ("Текст", ("txt", "md")),
         ("Таблицы", ("csv", "xlsx")),
         ("Данные", ("json",)),
-        ("Субтитры", ("srt",)),
+        ("Субтитры", ("srt", "vtt")),
     )
     format_labels = {
         "txt": "Текст (.txt)",
@@ -1123,6 +1119,7 @@ def _render_content_export_dialog(
         "xlsx": "Excel (.xlsx)",
         "json": "JSON (.json)",
         "srt": "Субтитры (.srt)",
+        "vtt": "WebVTT (.vtt)",
     }
     initial_formats = set(capability.formats[initial_scope])
     format_options = "".join(
@@ -1933,7 +1930,7 @@ def _render_speaker_manager(
         color_class = f"speaker-color-{speaker_palette.get(speaker.speaker_key, 0)}"
         editor = ""
         action = ""
-        if review.speakers.can_rename:
+        if review.speakers.can_rename and speaker.can_rename:
             form_id = f"speaker-manager-form-{speaker.speaker_key}"
             action = f'<button class="speaker-manager-edit" type="button" data-speaker-name-open aria-expanded="false" aria-controls="{escape(form_id)}">Изменить</button>'
             editor = _render_speaker_name_form(
@@ -1978,7 +1975,7 @@ def _render_speaker_lanes(
     for speaker in review.speakers.speakers:
         speaker_label = _speaker_display_label(speaker.label)
         editor = ""
-        if review.speakers.can_rename and not review.playback.can_play:
+        if review.speakers.can_rename and speaker.can_rename and not review.playback.can_play:
             editor = _render_speaker_name_form(
                 review,
                 speaker,

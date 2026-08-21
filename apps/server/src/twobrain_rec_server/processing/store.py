@@ -291,7 +291,15 @@ async def reconcile_legacy_processing_lineage(
     reconciliation instead of being attached to the wrong source.
     """
     if limit <= 0:
-        return {"scanned": 0, "marked_legacy": 0, "relinked": 0, "jobs_relinked": 0, "results_relinked": 0, "blocked": 0, "unresolved": 0}
+        return {
+            "scanned": 0,
+            "marked_legacy": 0,
+            "relinked": 0,
+            "jobs_relinked": 0,
+            "results_relinked": 0,
+            "blocked": 0,
+            "unresolved": 0,
+        }
     query = (
         select(ProcessingWorkflow)
         .where(ProcessingWorkflow.media_revision_id.is_(None))
@@ -303,9 +311,9 @@ async def reconcile_legacy_processing_lineage(
     candidate_workflows = (await db.scalars(query)).all()
     grouped_ids: dict[tuple[UUID, UUID], list[UUID]] = {}
     for candidate in candidate_workflows:
-        grouped_ids.setdefault(
-            (candidate.workspace_id, candidate.meeting_id), []
-        ).append(candidate.id)
+        grouped_ids.setdefault((candidate.workspace_id, candidate.meeting_id), []).append(
+            candidate.id
+        )
     workflows: list[ProcessingWorkflow] = []
     for (candidate_workspace_id, candidate_meeting_id), candidate_ids in sorted(
         grouped_ids.items(), key=lambda item: tuple(str(value) for value in item[0])
@@ -519,9 +527,8 @@ async def cancel_stale_revision_workflows(
     )
     if latest_revision is None:
         return 0
-    stale_revision = (
-        ProcessingWorkflow.media_revision_id.is_not(None)
-        & (ProcessingWorkflow.media_revision_id != latest_revision.id)
+    stale_revision = ProcessingWorkflow.media_revision_id.is_not(None) & (
+        ProcessingWorkflow.media_revision_id != latest_revision.id
     )
     stale_unmarked_legacy = ProcessingWorkflow.media_revision_id.is_(None) & (
         ProcessingWorkflow.source_fingerprint.is_(None)
@@ -542,10 +549,10 @@ async def cancel_stale_revision_workflows(
                         ProcessingStatus.CANCELED.value,
                     }
                 ),
-                )
-                .with_for_update()
-                .execution_options(populate_existing=True)
             )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
     ).all()
     now = datetime.now(UTC)
     for workflow in stale_workflows:
@@ -751,7 +758,9 @@ async def set_workflow_status(
     )
     if meeting is None or meeting_is_deleted_or_deleting(meeting):
         current = await db.scalar(
-            select(ProcessingWorkflow).where(ProcessingWorkflow.id == workflow.id).with_for_update()
+            select(ProcessingWorkflow)
+            .where(ProcessingWorkflow.id == workflow.id)
+            .with_for_update()
             .execution_options(populate_existing=True)
         )
         if current is None:
@@ -768,7 +777,9 @@ async def set_workflow_status(
         await db.commit()
         raise ProcessingLifecycleBlocked("meeting_deleting")
     current = await db.scalar(
-        select(ProcessingWorkflow).where(ProcessingWorkflow.id == workflow.id).with_for_update()
+        select(ProcessingWorkflow)
+        .where(ProcessingWorkflow.id == workflow.id)
+        .with_for_update()
         .execution_options(populate_existing=True)
     )
     if current is None:
@@ -949,8 +960,12 @@ async def upsert_mediascribe_job(
                 source_fingerprint=source_fingerprint or workflow.source_fingerprint,
                 deletion_epoch_at_start=workflow.deletion_epoch_at_start,
                 mic_track_artifact_id=mic_artifact.id if mic_artifact is not None else None,
-                incoming_track_artifact_id=incoming_artifact.id if incoming_artifact is not None else None,
-                source_track_artifact_id=source_artifact.id if source_artifact is not None else None,
+                incoming_track_artifact_id=incoming_artifact.id
+                if incoming_artifact is not None
+                else None,
+                source_track_artifact_id=source_artifact.id
+                if source_artifact is not None
+                else None,
                 status=MediaScribeJobStatus.NOT_SUBMITTED.value,
                 request_mode=request_mode,
                 diarize=True,
@@ -973,7 +988,9 @@ async def upsert_mediascribe_job(
     elif job.external_job_id is None:
         job.request_mode = request_mode
         job.mic_track_artifact_id = mic_artifact.id if mic_artifact is not None else None
-        job.incoming_track_artifact_id = incoming_artifact.id if incoming_artifact is not None else None
+        job.incoming_track_artifact_id = (
+            incoming_artifact.id if incoming_artifact is not None else None
+        )
         job.source_track_artifact_id = source_artifact.id if source_artifact is not None else None
         await db.commit()
     return job
@@ -985,9 +1002,7 @@ async def claim_mediascribe_submission(
     job: MediaScribeJob,
 ) -> str | None:
     """Claim one provider POST without holding a database lock over network I/O."""
-    meeting = await lock_meeting_fence(
-        db, workspace_id=job.workspace_id, meeting_id=job.meeting_id
-    )
+    meeting = await lock_meeting_fence(db, workspace_id=job.workspace_id, meeting_id=job.meeting_id)
     if meeting is None or meeting_is_deleted_or_deleting(meeting):
         raise ProcessingLifecycleBlocked("meeting_deleting")
     current = await db.scalar(
@@ -1080,9 +1095,7 @@ async def release_mediascribe_submission_claim(
     job: MediaScribeJob,
     claim_token: str,
 ) -> None:
-    meeting = await lock_meeting_fence(
-        db, workspace_id=job.workspace_id, meeting_id=job.meeting_id
-    )
+    meeting = await lock_meeting_fence(db, workspace_id=job.workspace_id, meeting_id=job.meeting_id)
     if meeting is None or meeting_is_deleted_or_deleting(meeting):
         await db.rollback()
         return
@@ -1096,7 +1109,8 @@ async def release_mediascribe_submission_claim(
         current is None
         or current.submission_claim_token != claim_token
         or current.external_job_id
-        or current.status in {
+        or current.status
+        in {
             MediaScribeJobStatus.BLOCKED.value,
             MediaScribeJobStatus.FAILED.value,
             MediaScribeJobStatus.READY.value,
@@ -1115,9 +1129,7 @@ async def _mark_mediascribe_submission_unknown(
     *,
     error_message: str,
 ) -> None:
-    meeting = await lock_meeting_fence(
-        db, workspace_id=job.workspace_id, meeting_id=job.meeting_id
-    )
+    meeting = await lock_meeting_fence(db, workspace_id=job.workspace_id, meeting_id=job.meeting_id)
     current = await db.scalar(
         select(MediaScribeJob)
         .where(MediaScribeJob.id == job.id)
@@ -1150,9 +1162,7 @@ async def persist_mediascribe_submission(
     status: MediaScribeJobStatus,
     submission_claim_token: str | None = None,
 ) -> MediaScribeJob:
-    meeting = await lock_meeting_fence(
-        db, workspace_id=job.workspace_id, meeting_id=job.meeting_id
-    )
+    meeting = await lock_meeting_fence(db, workspace_id=job.workspace_id, meeting_id=job.meeting_id)
     if meeting is None or meeting_is_deleted_or_deleting(meeting):
         current = await db.scalar(
             select(MediaScribeJob)
@@ -1181,7 +1191,10 @@ async def persist_mediascribe_submission(
         raise MediaScribeClientError("mediascribe_job_not_found", retryable=False)
     if current.external_job_id:
         return current
-    if submission_claim_token is not None and current.submission_claim_token != submission_claim_token:
+    if (
+        submission_claim_token is not None
+        and current.submission_claim_token != submission_claim_token
+    ):
         # The provider accepted the opaque job while another worker replaced
         # our claim. Persist the provider ID and blocked projection together;
         # splitting these commits can strand an accepted job without lineage.
@@ -1253,9 +1266,7 @@ async def update_mediascribe_job_status(
     reason_code: str | None = None,
     error_message: str | None = None,
 ) -> MediaScribeJob:
-    meeting = await lock_meeting_fence(
-        db, workspace_id=job.workspace_id, meeting_id=job.meeting_id
-    )
+    meeting = await lock_meeting_fence(db, workspace_id=job.workspace_id, meeting_id=job.meeting_id)
     if meeting is None or meeting_is_deleted_or_deleting(meeting):
         current = await db.scalar(
             select(MediaScribeJob)
@@ -1320,9 +1331,7 @@ async def persist_processing_result(
     result: MediaScribeResult,
     source_result_hash: str,
 ) -> ProcessingResult:
-    meeting = await lock_meeting_fence(
-        db, workspace_id=job.workspace_id, meeting_id=job.meeting_id
-    )
+    meeting = await lock_meeting_fence(db, workspace_id=job.workspace_id, meeting_id=job.meeting_id)
     if meeting is None:
         raise ProcessingLifecycleBlocked("meeting_not_found")
     if meeting_is_deleted_or_deleting(meeting):
@@ -1355,7 +1364,9 @@ async def persist_processing_result(
     )
     if latest_revision is not None and not source_stale:
         try:
-            source_stale = job.source_fingerprint != source_fingerprint_for_revision(latest_revision)
+            source_stale = job.source_fingerprint != source_fingerprint_for_revision(
+                latest_revision
+            )
         except ValueError:
             source_stale = True
     if source_stale:
@@ -1390,7 +1401,8 @@ async def persist_processing_result(
         # workflow/source-hash invariant or duplicating transcript rows.
         return existing_workflow_hash
     existing_hash = await db.scalar(
-        select(ProcessingResult).where(
+        select(ProcessingResult)
+        .where(
             ProcessingResult.workspace_id == job.workspace_id,
             ProcessingResult.mediascribe_job_id == job.id,
             ProcessingResult.source_result_hash == source_result_hash,
@@ -1403,7 +1415,8 @@ async def persist_processing_result(
     existing = existing_workflow_hash or existing_hash
     if existing is None:
         existing = await db.scalar(
-            select(ProcessingResult).where(
+            select(ProcessingResult)
+            .where(
                 ProcessingResult.workspace_id == job.workspace_id,
                 ProcessingResult.mediascribe_job_id == job.id,
                 ProcessingResult.result_version == result.result_version,
@@ -1433,34 +1446,40 @@ async def persist_processing_result(
         # Partial/importing retries reuse the fenced row but replace its child
         # segments; appending would duplicate sequence keys and transcript text.
         await db.execute(
-            delete(TranscriptSegment).where(
-                TranscriptSegment.processing_result_id == existing.id
-            )
+            delete(TranscriptSegment).where(TranscriptSegment.processing_result_id == existing.id)
         )
         await db.execute(
-            delete(DiarizationSegment).where(
-                DiarizationSegment.processing_result_id == existing.id
-            )
+            delete(DiarizationSegment).where(DiarizationSegment.processing_result_id == existing.id)
         )
 
     existing.status = ProcessingResultStatus.IMPORTED.value
     existing.transcript_status = result.transcript_status.value
     existing.diarization_status = (
-        ProcessingAvailabilityStatus.AVAILABLE.value if result.diarization else ProcessingAvailabilityStatus.UNAVAILABLE.value
+        ProcessingAvailabilityStatus.AVAILABLE.value
+        if result.diarization
+        else ProcessingAvailabilityStatus.UNAVAILABLE.value
     )
     existing.summary_status = result.summary_status.value
     existing.language = result.language
     existing.segment_count = len(result.transcript)
     existing.diarization_segment_count = len(result.diarization)
-    existing.failure_reason = result.failure_reason
-    existing.failure_source = result.failure_source
+    attribution_diagnostics = result.attribution_diagnostics
+    existing.failure_reason = (
+        attribution_diagnostics.result_state
+        if attribution_diagnostics is not None
+        and attribution_diagnostics.result_state == "degraded_provider_result"
+        else result.failure_reason
+    )
+    existing.failure_source = (
+        "mediascribe"
+        if attribution_diagnostics is not None
+        and attribution_diagnostics.defect_origin == "provider"
+        else result.failure_source
+    )
     existing.source_result_hash = source_result_hash
     imported_at = datetime.now(UTC)
     existing.imported_at = imported_at
-    if (
-        result.transcript_status == ProcessingAvailabilityStatus.AVAILABLE
-        and result.transcript
-    ):
+    if result.transcript_status == ProcessingAvailabilityStatus.AVAILABLE and result.transcript:
         await mark_source_transcript_imported(
             db,
             workspace_id=job.workspace_id,
@@ -1579,9 +1598,9 @@ async def latest_processing_result(
     media_revision_id: UUID | None = None,
 ) -> ProcessingResult | None:
     query = select(ProcessingResult).where(
-            ProcessingResult.workspace_id == workspace_id,
-            ProcessingResult.meeting_id == meeting_id,
-            ProcessingResult.status == ProcessingResultStatus.IMPORTED.value,
+        ProcessingResult.workspace_id == workspace_id,
+        ProcessingResult.meeting_id == meeting_id,
+        ProcessingResult.status == ProcessingResultStatus.IMPORTED.value,
     )
     if media_revision_id is not None:
         query = query.where(ProcessingResult.media_revision_id == media_revision_id)

@@ -4363,7 +4363,7 @@
       ["Текст", [["txt", "Текст (.txt)"], ["md", "Markdown (.md)"]]],
       ["Таблицы", [["csv", "Таблица CSV (.csv)"], ["xlsx", "Excel (.xlsx)"]]],
       ["Данные", [["json", "JSON (.json)"]]],
-      ["Субтитры", [["srt", "Субтитры (.srt)"]]]
+      ["Субтитры", [["srt", "Субтитры (.srt)"], ["vtt", "WebVTT (.vtt)"]]]
     ];
     let returnFocus = null;
     let submitting = false;
@@ -4381,8 +4381,8 @@
         speakers.disabled = machineFormat;
       }
       if (timestamps) {
-        if (machineFormat || format.value === "srt") timestamps.checked = true;
-        timestamps.disabled = machineFormat || format.value === "srt";
+        if (machineFormat || format.value === "srt" || format.value === "vtt") timestamps.checked = true;
+        timestamps.disabled = machineFormat || format.value === "srt" || format.value === "vtt";
       }
       if (evidence) evidence.disabled = scope.value === "transcript";
     };

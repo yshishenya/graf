@@ -1249,9 +1249,9 @@ ArtifactEgressStateValue = Literal[
 ]
 ArtifactAction = Literal["download", "export", "disabled"]
 ContentExportScope = Literal["transcript", "summary", "combined"]
-ContentExportFormat = Literal["txt", "md", "csv", "xlsx", "json", "srt"]
+ContentExportFormat = Literal["txt", "md", "csv", "xlsx", "json", "srt", "vtt"]
 CONTENT_EXPORT_FORMATS_BY_SCOPE: dict[ContentExportScope, tuple[ContentExportFormat, ...]] = {
-    "transcript": ("txt", "md", "csv", "xlsx", "json", "srt"),
+    "transcript": ("txt", "md", "csv", "xlsx", "json", "srt", "vtt"),
     "summary": ("txt", "md", "xlsx", "json"),
     "combined": ("txt", "md", "xlsx", "json"),
 }
@@ -1978,7 +1978,11 @@ class TranscriptSegmentView(BaseModel):
     source_role: SourceRoleView
     text: str
     speaker_key: str = ""
-    attribution_state: Literal["confirmed", "unconfirmed", "unknown"] = "unknown"
+    attribution_state: Literal["confirmed", "unconfirmed", "unknown", "mixed", "uncertain"] = (
+        "unknown"
+    )
+    result_state: Literal["accepted", "degraded_provider_result"] = "accepted"
+    provider_speaker_key: str | None = None
     processing_result_id: UUID | None = None
     source_role_original: str | None = Field(default=None, exclude=True)
     confidence_label: str | None = None
@@ -1996,7 +2000,11 @@ class TranscriptSpeakerTurnView(BaseModel):
     source_role: SourceRoleView
     text: str
     speaker_key: str = ""
-    attribution_state: Literal["confirmed", "unconfirmed", "unknown"] = "unknown"
+    attribution_state: Literal["confirmed", "unconfirmed", "unknown", "mixed", "uncertain"] = (
+        "unknown"
+    )
+    result_state: Literal["accepted", "degraded_provider_result"] = "accepted"
+    provider_speaker_key: str | None = None
     processing_result_id: UUID | None = None
     source_segment_ids: list[str] = Field(default_factory=list)
     overlap: bool = False
@@ -2012,6 +2020,7 @@ class TranscriptReviewState(BaseModel):
     search_enabled: bool = False
     segments: list[TranscriptSegmentView] = Field(default_factory=list)
     speaker_turns: list[TranscriptSpeakerTurnView] = Field(default_factory=list)
+    result_state: Literal["accepted", "degraded_provider_result"] = "accepted"
 
 
 class SpeakerLaneSegment(BaseModel):
@@ -2027,6 +2036,9 @@ class SpeakerLane(BaseModel):
     source_roles: list[SourceRoleView] = Field(default_factory=list)
     segments: list[SpeakerLaneSegment] = Field(default_factory=list)
     confidence_label: str | None = None
+    provider_speaker_key: str | None = None
+    confirmed: bool = True
+    can_rename: bool = True
 
 
 class SpeakerReviewState(BaseModel):
@@ -2035,6 +2047,8 @@ class SpeakerReviewState(BaseModel):
     degraded_reason: str | None = None
     speakers: list[SpeakerLane] = Field(default_factory=list)
     can_rename: bool = False
+    result_state: Literal["accepted", "degraded_provider_result"] = "accepted"
+    talk_time_label: str = "Доля распознанной речи"
 
 
 class CalendarRosterParticipantView(CalendarRosterSnapshotItem):

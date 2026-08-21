@@ -83,6 +83,7 @@ from twobrain_rec_server.domain.media_filenames import (
     media_filename_leaf,
 )
 from twobrain_rec_server.domain.metadata_text import safe_metadata_text
+from twobrain_rec_server.domain.speaker_turns import canonical_speaker_model
 from twobrain_rec_server.domain.statuses import (
     MediaRevisionSourceKind,
     MeetingStatus,
@@ -2461,7 +2462,6 @@ def transcript_state(
     diarization_rows = sorted(
         diarization_segments, key=lambda row: (row.start_seconds, row.sequence)
     )
-    diarization_display_rows = [row for row in diarization_rows if row.text.strip()]
     if status not in {"ready", "partial"}:
         return TranscriptReviewState(
             available=False,
@@ -2472,19 +2472,8 @@ def transcript_state(
             search_enabled=False,
             segments=[],
         )
-    speaker_labels_by_key = canonical_speaker_labels(diarization_rows)
     speaker_names = speaker_names or {}
-    if force_speaker_labels and diarization_display_rows:
-        return diarization_transcript_state(
-            language=language,
-            diarization_rows=diarization_display_rows,
-            speaker_rows=mediascribe_speaker_rows(diarization_rows),
-            status=status,
-            playback_available=playback_available,
-            playback_duration_seconds=playback_duration_seconds,
-            speaker_names=speaker_names,
-        )
-    if not transcripts:
+    if not transcripts and not diarization_rows:
         return TranscriptReviewState(
             available=False,
             language=language,
@@ -2492,72 +2481,80 @@ def transcript_state(
             search_enabled=False,
             segments=[],
         )
-    segments = []
-    mapped_rows: list[tuple[TranscriptSegmentView, bool]] = []
-    for segment in transcripts:
+    processing_result_id = (
+        transcripts[0].processing_result_id
+        if transcripts
+        else diarization_rows[0].processing_result_id
+    )
+    model = canonical_speaker_model(
+        transcripts,
+        diarization_rows,
+        processing_result_id=processing_result_id,
+        speaker_names=speaker_names,
+    )
+    segments: list[TranscriptSegmentView] = []
+    turns: list[TranscriptSpeakerTurnView] = []
+    for turn in model.turns:
         seek_seconds = _seek_seconds(
-            segment.start_seconds,
+            turn.start_seconds,
             playback_available=playback_available,
             playback_duration_seconds=playback_duration_seconds,
         )
-        matching_diarization = matching_diarization_segment(segment, diarization_rows)
-        confirmed = matching_diarization is not None and bool(
-            matching_diarization.speaker_label.strip()
-        )
-        attribution_state = (
-            "confirmed"
-            if confirmed
-            else ("unconfirmed" if matching_diarization is not None else "unknown")
-        )
-        canonical_label = (
-            speaker_label_for_segment(
-                segment,
-                matching_diarization,
-                speaker_labels_by_key=speaker_labels_by_key,
-            )
-            if confirmed
-            else "UNKNOWN"
-        )
-        speaker_key = (
-            canonical_label.lower()
-            if confirmed
-            else (
-                f"unconfirmed:{matching_diarization.id}"
-                if matching_diarization is not None
-                else f"unknown:{segment.id}"
-            )
-        )
         view = TranscriptSegmentView(
-            segment_id=str(segment.id),
-            sequence=segment.sequence,
-            start_seconds=float(segment.start_seconds),
-            end_seconds=float(segment.end_seconds),
-            timestamp_label=format_timestamp(segment.start_seconds),
-            speaker_label=speaker_names.get(speaker_key, canonical_label),
-            speaker_key=speaker_key,
-            attribution_state=attribution_state,
-            processing_result_id=segment.processing_result_id,
-            source_role=source_role_label(segment.source_role),
-            source_role_original=segment.source_role_original,
-            text=segment.text,
+            segment_id=turn.source_segment_id,
+            sequence=turn.sequence,
+            start_seconds=float(turn.start_seconds),
+            end_seconds=float(turn.end_seconds),
+            timestamp_label=format_timestamp(turn.start_seconds),
+            speaker_label=turn.speaker_label,
+            speaker_key=turn.speaker_key,
+            provider_speaker_key=turn.provider_speaker_key,
+            attribution_state=turn.attribution_state,
+            result_state=turn.result_state,
+            processing_result_id=processing_result_id,
+            source_role=source_role_label(turn.source_role),
+            text=turn.text,
             confidence_label="unknown",
             seekable=seek_seconds is not None,
             seek_seconds=seek_seconds,
         )
         segments.append(view)
-        mapped_rows.append(
-            (
-                view,
-                confirmed,
+        turns.append(
+            TranscriptSpeakerTurnView(
+                turn_id=turn.turn_id,
+                sequence=turn.sequence,
+                start_seconds=float(turn.start_seconds),
+                end_seconds=float(turn.end_seconds),
+                timestamp_label=format_timestamp(turn.start_seconds),
+                speaker_label=turn.speaker_label,
+                speaker_key=turn.speaker_key,
+                provider_speaker_key=turn.provider_speaker_key,
+                attribution_state=turn.attribution_state,
+                result_state=turn.result_state,
+                processing_result_id=processing_result_id,
+                source_role=source_role_label(turn.source_role),
+                text=turn.text,
+                source_segment_ids=[turn.source_segment_id],
+                overlap=turn.overlap,
+                confidence_label="unknown",
+                seekable=seek_seconds is not None,
+                seek_seconds=seek_seconds,
             )
         )
     return TranscriptReviewState(
         available=True,
         language=language,
-        degraded_reason=None if status == "ready" else "partial_transcript",
+        degraded_reason=(
+            "degraded_provider_result"
+            if model.result_state == "degraded_provider_result"
+            else None
+            if status == "ready"
+            else "partial_transcript"
+        ),
         search_enabled=True,
         segments=segments,
-        speaker_turns=derive_speaker_turns(mapped_rows) if status == "ready" else [],
+        speaker_turns=turns if status == "ready" else [],
+        result_state=model.result_state,
     )
 
 
@@ -2888,13 +2885,15 @@ def segment_midpoint(segment: TranscriptSegment | DiarizationSegment) -> float:
 def speaker_state(
     diarization_segments: Iterable[DiarizationSegment],
     *,
+    transcript_segments: Iterable[TranscriptSegment] = (),
     force_speaker_labels: bool = False,
     speaker_names: dict[str, str] | None = None,
     can_rename: bool = False,
 ) -> SpeakerReviewState:
     speaker_names = speaker_names or {}
     rows = sorted(diarization_segments, key=lambda row: (row.start_seconds, row.sequence))
-    if not rows:
+    transcripts = sorted(transcript_segments, key=lambda row: (row.sequence, row.start_seconds))
+    if not rows and not transcripts:
         return SpeakerReviewState(
             available=False,
             assignment_state="reserved",
@@ -2903,35 +2902,32 @@ def speaker_state(
             can_rename=False,
         )
 
-    grouped: dict[str, list[DiarizationSegment]] = defaultdict(list)
-    labels_by_key: dict[str, str] = {}
-    if force_speaker_labels:
-        speaker_labels = mediascribe_speaker_labels_by_time(rows, mediascribe_speaker_rows(rows))
-        for row, speaker_label in zip(rows, speaker_labels, strict=True):
-            speaker_key = speaker_label.lower()
-            labels_by_key[speaker_key] = speaker_label
-            grouped[speaker_key].append(row)
-    else:
-        speaker_labels_by_key = canonical_speaker_labels(rows)
-        for row in rows:
-            speaker_label = speaker_labels_by_key[_speaker_identity_key(row)]
-            speaker_key = speaker_label.lower()
-            labels_by_key[speaker_key] = speaker_label
-            grouped[speaker_key].append(row)
-    total = sum(max(0.0, float(row.end_seconds) - float(row.start_seconds)) for row in rows) or 1.0
+    result_id = rows[0].processing_result_id if rows else transcripts[0].processing_result_id
+    model = canonical_speaker_model(
+        transcripts,
+        rows,
+        processing_result_id=result_id,
+        speaker_names=speaker_names,
+    )
+    grouped = defaultdict(list)
+    for turn in model.turns:
+        grouped[turn.speaker_key].append(turn)
+    total = model.talk_time_denominator_seconds or Decimal("1")
     speakers: list[SpeakerLane] = []
     for speaker_key, speaker_rows in grouped.items():
-        speaker_label = labels_by_key[speaker_key]
+        first = speaker_rows[0]
         duration = sum(
-            max(0.0, float(row.end_seconds) - float(row.start_seconds)) for row in speaker_rows
+            (max(Decimal("0"), row.end_seconds - row.start_seconds) for row in speaker_rows),
+            start=Decimal("0"),
         )
         source_roles = _unique(source_role_label(row.source_role) for row in speaker_rows)
+        confirmed = first.attribution_state == "confirmed"
         speakers.append(
             SpeakerLane(
                 speaker_key=speaker_key,
-                label=speaker_names.get(speaker_key, speaker_label),
+                label=first.speaker_label,
                 display_name=speaker_names.get(speaker_key),
-                talk_time_percent=round(duration / total * 100),
+                talk_time_percent=round(float(duration / total * 100)),
                 source_roles=source_roles,
                 segments=[
                     SpeakerLaneSegment(
@@ -2940,14 +2936,21 @@ def speaker_state(
                     for row in speaker_rows
                 ],
                 confidence_label="unknown",
+                provider_speaker_key=first.provider_speaker_key,
+                confirmed=confirmed,
+                can_rename=can_rename and confirmed,
             )
         )
     return SpeakerReviewState(
         available=True,
         assignment_state="reserved",
-        degraded_reason=None,
+        degraded_reason=(
+            "degraded_provider_result" if model.result_state == "degraded_provider_result" else None
+        ),
         speakers=speakers,
-        can_rename=can_rename,
+        can_rename=can_rename and bool(model.confirmed_speaker_keys),
+        result_state=model.result_state,
+        talk_time_label=model.talk_time_label,
     )
 
 
@@ -3394,10 +3397,7 @@ def build_review_response(
         review_playback,
         media_revision=media_revision,
     )
-    force_speaker_labels = (
-        media_revision is not None
-        and media_revision.source_kind == MediaRevisionSourceKind.MANUAL_UPLOAD.value
-    )
+    force_speaker_labels = False
     return MeetingReviewResponse(
         meeting=item,
         calendar_context=calendar_context_summary(
@@ -3426,6 +3426,7 @@ def build_review_response(
         ),
         speakers=speaker_state(
             diarization_segments,
+            transcript_segments=transcript_segments,
             force_speaker_labels=force_speaker_labels,
             speaker_names=speaker_names,
             can_rename=can_rename_speakers,
