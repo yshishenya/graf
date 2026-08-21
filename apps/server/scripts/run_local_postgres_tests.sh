@@ -2,7 +2,9 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-database_suffix="$(id -u)_$$_${RANDOM}_${RANDOM}"
+# Keep the generated name below PostgreSQL's 63-byte identifier limit after
+# strict-RLS fixtures append their worker and collection digest suffix.
+database_suffix="$(id -u)_$$_${RANDOM}"
 database_suffix="${database_suffix//[^a-z0-9_]/_}"
 test_database="twobrain_rec_test_${database_suffix}"
 rls_database="${test_database}_rls"
