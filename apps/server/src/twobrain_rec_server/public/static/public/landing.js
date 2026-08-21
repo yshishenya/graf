@@ -49,6 +49,7 @@ document.querySelectorAll('[data-product-tabs]').forEach((tabsRoot) => {
   const panels = [...tabsRoot.querySelectorAll('[role="tabpanel"]')];
 
   const activateTab = (nextTab, focus = false) => {
+    const previousTab = tabs.find((tab) => tab.getAttribute('aria-selected') === 'true');
     const target = nextTab.dataset.tab;
     tabs.forEach((tab) => {
       const selected = tab === nextTab;
@@ -62,6 +63,11 @@ document.querySelectorAll('[data-product-tabs]').forEach((tabsRoot) => {
       panel.classList.toggle('active', selected);
     });
     if (focus) nextTab.focus();
+    if (previousTab && previousTab !== nextTab) {
+      document.dispatchEvent(new CustomEvent('graf:product-tab-selected', {
+        detail: { productTab: target },
+      }));
+    }
   };
 
   tabs.forEach((tab, index) => {

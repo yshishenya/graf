@@ -22,6 +22,10 @@ from twobrain_rec_server.db.models import BillingPlanVersion
 PUBLIC_MONTHLY_AMOUNT_MINOR = 100_000
 PUBLIC_ANNUAL_AMOUNT_MINOR = 1_000_000
 PUBLIC_TRIAL_DAYS = 7
+# This revision is the one published by the current /offer legal page. A
+# catalog row with exact prices but another revision must not enable public
+# sale claims for this release.
+PUBLIC_APPROVED_OFFER_VERSION = "personal-2026-08-21"
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,4 +136,5 @@ def _matching_public_catalog(month: PlanCatalogSnapshot, year: PlanCatalogSnapsh
         and month.storage_bytes == year.storage_bytes
         and month.processing_mode == year.processing_mode == "unlimited"
         and month.offer_version == year.offer_version
+        and month.offer_version == PUBLIC_APPROVED_OFFER_VERSION
     )

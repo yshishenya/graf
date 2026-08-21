@@ -89,6 +89,10 @@ def test_public_landing_css_and_scripts_are_local_accessible_and_progressive() -
     assert "prefers-reduced-motion: reduce" in css
     assert ".reveal { opacity: 1" in css
     assert ".enhanced .walkthrough-panel:not(.active)" in css
+    assert "html:not(.enhanced) .mobile-nav" in css
+    assert "html:not(.enhanced) .menu-button" in css
+    assert "graf:product-tab-selected" in scripts
+    assert "threshold: 0.12" in scripts
     assert "overflow-x: hidden" in css
     assert "transition: all" not in css
     assert "cookieconsent" not in scripts

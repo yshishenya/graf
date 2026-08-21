@@ -433,12 +433,11 @@
         });
       });
     });
-    document.querySelectorAll('[role="tab"][data-tab]').forEach(function (element) {
-      element.addEventListener("click", function () {
-        if (allowedLabel("product_tab", element.dataset.tab)) {
-          dispatchOnce("public_product_tab_selected", { product_tab: element.dataset.tab });
-        }
-      });
+    document.addEventListener("graf:product-tab-selected", function (event) {
+      var detail = event && event.detail ? event.detail : {};
+      if (allowedLabel("product_tab", detail.productTab)) {
+        dispatchOnce("public_product_tab_selected", { product_tab: detail.productTab });
+      }
     });
     document.querySelectorAll("[data-period]").forEach(function (element) {
       element.addEventListener("click", function () {
@@ -476,7 +475,9 @@
           }
         });
       },
-      { threshold: 0.52 },
+      // A 12% threshold remains reachable when a section stacks several
+      // blocks on a narrow mobile viewport.
+      { threshold: 0.12 },
     );
 
     document.querySelectorAll("[data-analytics-section]").forEach(function (element) {

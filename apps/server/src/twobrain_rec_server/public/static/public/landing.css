@@ -301,6 +301,8 @@ img { display: block; max-width: 100%; }
   .menu-button { display: block; }
   .mobile-nav { position: absolute; top: 100%; right: 18px; left: 18px; display: grid; padding: 12px; border: 1px solid var(--night-line); border-radius: 16px; background: rgba(16,19,29,.97); box-shadow: 0 24px 60px rgba(0,0,0,.4); opacity: 0; pointer-events: none; transform: translateY(-8px); transition: .2s ease; }
   .mobile-nav.open { opacity: 1; pointer-events: auto; transform: translateY(0); }
+  html:not(.enhanced) .menu-button { display: none; }
+  html:not(.enhanced) .mobile-nav { opacity: 1; pointer-events: auto; transform: none; }
   .mobile-nav a { padding: 13px 12px; color: rgba(255,255,255,.74); border-radius: 8px; }
   .hero { padding-top: 150px; }
   .hero-grid, .calculator-grid, .pricing-grid { grid-template-columns: 1fr; gap: 64px; }

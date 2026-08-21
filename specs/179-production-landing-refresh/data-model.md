@@ -14,6 +14,7 @@ Server-rendered, read-only value derived from two effective `BillingPlanVersion`
 - `annual_saving_label`: localized exact saving
 - `trial_days`: `7`
 - `offer_version`: non-empty version shared with checkout acceptance
+- `approved_offer_version`: for this release, exactly `personal-2026-08-21`; another non-empty catalog revision fails closed until the `/offer` page and release evidence are updated together
 - `catalog_ready`: true only when both rows are enabled, effective and valid
 - `catalog_ready`: true only when the exact approved monthly and annual rows are current and mutually consistent; this controls publication of the tariff
 - `checkout_enabled`: current runtime checkout flag

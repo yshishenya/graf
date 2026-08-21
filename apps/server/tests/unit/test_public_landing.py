@@ -9,7 +9,11 @@ from twobrain_rec_server.billing.launch_gates import MANDATORY_BILLING_LAUNCH_GA
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.models import BillingLaunchGate, BillingPlanVersion
 from twobrain_rec_server.main import create_app
-from twobrain_rec_server.public.offers import PublicOfferView, build_public_offer_view
+from twobrain_rec_server.public.offers import (
+    PUBLIC_APPROVED_OFFER_VERSION,
+    PublicOfferView,
+    build_public_offer_view,
+)
 from twobrain_rec_server.public.templates import render_template
 
 
@@ -54,7 +58,7 @@ def _public_catalog_rows(*, annual_amount_minor: int = 1_000_000):
         "storage_bytes": 2_000_000_000,
         "processing_mode": "unlimited",
         "enabled_for_checkout": True,
-        "policy_snapshot": {"offer_version": "personal-2026-08-21"},
+        "policy_snapshot": {"offer_version": PUBLIC_APPROVED_OFFER_VERSION},
         "effective_from": datetime(2026, 8, 1, tzinfo=UTC),
     }
     return [
@@ -175,8 +179,24 @@ async def test_public_offer_uses_latest_effective_catalog_version() -> None:
     )
 
     assert offer.catalog_ready is True
-    assert offer.offer_version == "personal-2026-08-21"
+    assert offer.offer_version == PUBLIC_APPROVED_OFFER_VERSION
     assert offer.annual_monthly_equivalent_label == "833 ₽"
+
+
+@pytest.mark.anyio
+async def test_public_offer_fails_closed_for_unapproved_offer_revision() -> None:
+    rows = _public_catalog_rows()
+    for row in rows:
+        row.policy_snapshot = {"offer_version": "personal-legacy"}
+
+    offer = await build_public_offer_view(
+        _OfferDb(rows, []),
+        Settings.model_construct(billing_checkout_enabled=False),
+        now=datetime(2026, 8, 21, tzinfo=UTC),
+    )
+
+    assert offer.catalog_ready is False
+    assert offer.sale_ready is False
 
 
 @pytest.mark.anyio
@@ -259,7 +279,7 @@ def test_sale_ready_template_renders_exact_price_and_annual_saving() -> None:
         annual_saving_minor=200_000,
         annual_saving_label="2 000 ₽",
         annual_monthly_equivalent_label="833 ₽",
-        offer_version="personal-2026-08-21",
+        offer_version=PUBLIC_APPROVED_OFFER_VERSION,
     )
     html = render_template(
         "public/landing.html",
@@ -296,7 +316,7 @@ def test_catalog_ready_template_publishes_tariff_before_payment_is_enabled() -> 
         annual_label="10 000 ₽",
         annual_saving_minor=200_000,
         annual_saving_label="2 000 ₽",
-        offer_version="personal-2026-08-21",
+        offer_version=PUBLIC_APPROVED_OFFER_VERSION,
     )
     html = render_template(
         "public/landing.html",

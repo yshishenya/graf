@@ -3,12 +3,15 @@ from __future__ import annotations
 import json
 from functools import lru_cache
 from pathlib import Path
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, Response
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.config import Settings
+from twobrain_rec_server.db.tenant_context import TenantDatabaseContext, apply_tenant_context
 from twobrain_rec_server.public.offers import build_public_offer_view
 from twobrain_rec_server.public.templates import DEFAULT_PUBLIC_BASE_URL, public_template_response
 
@@ -37,6 +40,7 @@ MEETING_TARGET_REGISTRY = (
     / "data"
     / "0030_meeting_target_registry.json"
 )
+PUBLIC_WEB_CONTEXT_ID = UUID(int=0)
 
 
 async def get_public_web_db_session(request: Request):
@@ -45,6 +49,24 @@ async def get_public_web_db_session(request: Request):
         yield None
         return
     async with sessionmaker() as session:
+        # Billing catalog and launch-gate tables are global, but PostgreSQL
+        # still requires the ordinary request RLS context before reading them.
+        # A zero UUID cannot match any tenant-owned row if this dependency is
+        # ever extended with another query.
+        try:
+            await apply_tenant_context(
+                session,
+                TenantDatabaseContext(
+                    organization_id=PUBLIC_WEB_CONTEXT_ID,
+                    workspace_id=PUBLIC_WEB_CONTEXT_ID,
+                    user_id=PUBLIC_WEB_CONTEXT_ID,
+                ),
+            )
+        except (OSError, SQLAlchemyError):
+            # Keep public pages renderable when the catalog database is down;
+            # the offer builder will then fail closed without paid claims.
+            yield None
+            return
         yield session
 
 
