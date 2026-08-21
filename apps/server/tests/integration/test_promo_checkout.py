@@ -6,7 +6,7 @@ from twobrain_rec_server.billing.promotions import PromoCode, PromoError, normal
 
 def test_checkout_preview_revalidates_cycle_and_provider_floor() -> None:
     promo = PromoCode("YEAR10", 10, "personal", 1, cycle="year")
-    assert checkout_preview(plan_code="personal", cycle="year", promo=promo).payable_amount_minor == 711_000
+    assert checkout_preview(plan_code="personal", cycle="year", promo=promo).payable_amount_minor == 900_000
     with pytest.raises(PromoError):
         checkout_preview(
             plan_code="personal",

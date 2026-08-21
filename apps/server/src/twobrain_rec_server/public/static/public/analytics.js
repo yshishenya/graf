@@ -9,7 +9,6 @@
   }
   window.__GRAF_ANALYTICS_CONTROLLER_LOADED__ = true;
 
-  var CONSENT_STORAGE_KEY = "graf_public_analytics_consent";
   var YANDEX_TAG_URL = "https://mc.yandex.ru/metrika/tag.js";
   var productConfigElement = document.getElementById("graf-product-analytics-provider-config");
   var configElement = document.getElementById("graf-public-analytics-config");
@@ -51,25 +50,14 @@
   var sentKeys = {};
   var listenersBound = false;
   var sectionsObserved = false;
-  var currentCategories = [];
-  var currentConsentState = "unknown";
+  var currentCategories = ["analytics", "advertising_attribution"];
+  var currentConsentState = "immediate_public_analytics";
   var providerInitStarted = false;
-  var optionalConsentCategories = ["analytics", "advertising_attribution", "behavior_replay"];
   (config.event_catalog || []).forEach(function (event) {
     if (event && event.event_name) {
       eventNames[event.event_name] = true;
     }
   });
-
-  function hasCategory(categories, category) {
-    if (categories === true || categories === "all") {
-      return true;
-    }
-    if (Array.isArray(categories)) {
-      return categories.indexOf(category) !== -1;
-    }
-    return Boolean(categories && categories[category] === true);
-  }
 
   function stableToken(value, maxLength) {
     if (typeof value !== "string") {
@@ -82,81 +70,12 @@
     return trimmed;
   }
 
-  function normalizedCategories(categories) {
-    if (!Array.isArray(categories)) {
-      return [];
-    }
-    return categories.filter(function (category, index) {
-      return typeof category === "string" && categories.indexOf(category) === index;
-    });
-  }
-
   function configuredValues(labelClass) {
     return (config.stable_labels && config.stable_labels[labelClass]) || [];
   }
 
   function allowedLabel(labelClass, value) {
     return typeof value === "string" && configuredValues(labelClass).indexOf(value) !== -1;
-  }
-
-  function configuredConsentState(state) {
-    return (config.consent_states || []).indexOf(state) !== -1;
-  }
-
-  function readStoredConsent() {
-    try {
-      return JSON.parse(localStorage.getItem(CONSENT_STORAGE_KEY) || "null");
-    } catch (_) {
-      return null;
-    }
-  }
-
-  function writeStoredConsent(state, categories) {
-    var payload = {
-      advertising_attribution_allowed: hasCategory(categories, "advertising_attribution"),
-      analytics_allowed: hasCategory(categories, "analytics"),
-      behavior_replay_allowed: hasCategory(categories, "behavior_replay"),
-      categories: categories.slice(),
-      copy_version: config.consent_copy_version,
-      decided_at: new Date().toISOString(),
-      state: state,
-      surface: config.page_path,
-    };
-    try {
-      localStorage.setItem(CONSENT_STORAGE_KEY, JSON.stringify(payload));
-    } catch (_) {
-      return false;
-    }
-    return true;
-  }
-
-  function previouslyAllowedOptionalCategory(previous) {
-    return Boolean(
-      previous &&
-        (previous.analytics_allowed ||
-          previous.advertising_attribution_allowed ||
-          previous.behavior_replay_allowed),
-    );
-  }
-
-  function consentStateForCategories(categories) {
-    var grantedOptional = optionalConsentCategories.filter(function (category) {
-      return hasCategory(categories, category);
-    });
-    var state = "necessary_only";
-    if (grantedOptional.length === optionalConsentCategories.length) {
-      state = "accepted_all";
-    } else if (grantedOptional.length > 0) {
-      state = "customized";
-    } else if (previouslyAllowedOptionalCategory(readStoredConsent())) {
-      state = "revoked";
-    }
-    return configuredConsentState(state) ? state : "unknown";
-  }
-
-  function revisionFromCopyVersion(copyVersion) {
-    var digits = String(copyVersion || "").replace(/\D/g, "").slice(0, 9);
-    return digits ? Number(digits) : 0;
   }
 
   function safeEventFields(fields) {
@@ -171,6 +90,15 @@
     if (allowedLabel("target_kind", source.target_kind)) {
       safe.target_kind = source.target_kind;
     }
+    if (allowedLabel("product_tab", source.product_tab)) {
+      safe.product_tab = source.product_tab;
+    }
+    if (allowedLabel("pricing_cycle", source.pricing_cycle)) {
+      safe.pricing_cycle = source.pricing_cycle;
+    }
+    if (allowedLabel("faq_item", source.faq_item)) {
+      safe.faq_item = source.faq_item;
+    }
     return safe;
   }
 
@@ -181,13 +109,10 @@
 
     return Object.assign(
       {
-        consent_state: currentConsentState,
         event_name: eventName,
         page_path: config.page_path,
         surface: config.surface,
-        campaign_attribution: hasCategory(currentCategories, "advertising_attribution")
-          ? config.campaign_attribution || {}
-          : {},
+        campaign_attribution: config.campaign_attribution || {},
         product_activation_bridge_supported: Boolean(
           config.product_activation_bridge && config.product_activation_bridge.bridge_supported,
         ),
@@ -196,18 +121,14 @@
     );
   }
 
-  function ensureYandexProvider(categories) {
-    var grantedCategories = normalizedCategories(categories);
+  function ensureYandexProvider() {
     if (!isYandexPageAllowed(config)) {
       api.providerBlocked = true;
       return false;
     }
-    if (api.providerBlocked || !hasCategory(grantedCategories, "analytics") || !config.yandex_metrica_id) {
+    if (api.providerBlocked || !config.yandex_metrica_id) {
       return false;
     }
-    currentCategories = grantedCategories;
-    currentConsentState = consentStateForCategories(grantedCategories);
-    window["disableYaCounter" + config.yandex_metrica_id] = false;
     api.currentCategories = currentCategories.slice();
     api.currentConsentState = currentConsentState;
     if (api.providerLoaded || providerInitStarted || document.querySelector('script[data-graf-provider="yandex-metrica"]')) {
@@ -225,28 +146,34 @@
       };
     window.ym.l = Number(new Date());
 
-    var script = document.createElement("script");
-    script.async = true;
-    script.src = YANDEX_TAG_URL;
-    script.dataset.grafProvider = "yandex-metrica";
-    script.onload = function () {
-      api.providerLoaded = true;
-    };
-    script.onerror = function () {
-      api.providerBlocked = true;
-      api.providerLoaded = false;
-      api.providerInitStarted = false;
-      providerInitStarted = false;
-    };
-    document.head.appendChild(script);
+    if (config.validation_mode !== "render_only") {
+      var script = document.createElement("script");
+      script.async = true;
+      script.src = YANDEX_TAG_URL;
+      script.dataset.grafProvider = "yandex-metrica";
+      script.onload = function () {
+        api.providerLoaded = true;
+      };
+      script.onerror = function () {
+        api.providerBlocked = true;
+        api.providerLoaded = false;
+        api.providerInitStarted = false;
+        providerInitStarted = false;
+      };
+      document.head.appendChild(script);
+    }
     window.ym(config.yandex_metrica_id, "init", {
-      clickmap: true,
-      trackLinks: true,
-      accurateTrackBounce: true,
+      clickmap: false,
+      trackLinks: false,
+      accurateTrackBounce: false,
       defer: true,
-      webvisor: hasCategory(grantedCategories, "behavior_replay") && config.replay_allowed,
+      webvisor: false,
     });
     window.ym(config.yandex_metrica_id, "hit", config.page_path, {
+      params: {
+        campaign_attribution: config.campaign_attribution || {},
+        surface: config.surface,
+      },
       sendTitle: false,
     });
     bindProductYandexUserID(config.yandex_metrica_id, productConfig);
@@ -434,7 +361,6 @@
       return false;
     }
     if (
-      hasCategory(currentCategories, "analytics") &&
       api.providerLoaded &&
       !api.providerBlocked &&
       window.ym &&
@@ -454,6 +380,9 @@
       stable.section_id || "",
       stable.cta_location || "",
       stable.target_kind || "",
+      stable.product_tab || "",
+      stable.pricing_cycle || "",
+      stable.faq_item || "",
       config.page_path || "",
     ].join("|");
   }
@@ -504,6 +433,25 @@
         });
       });
     });
+    document.addEventListener("graf:product-tab-selected", function (event) {
+      var detail = event && event.detail ? event.detail : {};
+      if (allowedLabel("product_tab", detail.productTab)) {
+        dispatchOnce("public_product_tab_selected", { product_tab: detail.productTab });
+      }
+    });
+    document.addEventListener("graf:pricing-cycle-selected", function (event) {
+      var detail = event && event.detail ? event.detail : {};
+      if (allowedLabel("pricing_cycle", detail.pricingCycle)) {
+        dispatchOnce("public_pricing_cycle_selected", { pricing_cycle: detail.pricingCycle });
+      }
+    });
+    document.querySelectorAll("details[data-faq-id]").forEach(function (element) {
+      element.addEventListener("toggle", function () {
+        if (element.open && allowedLabel("faq_item", element.dataset.faqId)) {
+          dispatchOnce("public_faq_opened", { faq_item: element.dataset.faqId });
+        }
+      });
+    });
   }
 
   function observeSections() {
@@ -521,13 +469,14 @@
           if (allowedLabel("section_id", sectionId)) {
             dispatchOnce("public_landing_section_seen", {
               section_id: sectionId,
-              target_kind: "section",
             });
             observer.unobserve(entry.target);
           }
         });
       },
-      { threshold: 0.52 },
+      // A 12% threshold remains reachable when a section stacks several
+      // blocks on a narrow mobile viewport.
+      { threshold: 0.12 },
     );
 
     document.querySelectorAll("[data-analytics-section]").forEach(function (element) {
@@ -535,8 +484,8 @@
     });
   }
 
-  function startGrantedTracking(categories) {
-    if (!ensureYandexProvider(categories)) {
+  function startGrantedTracking() {
+    if (!ensureYandexProvider()) {
       return false;
     }
     dispatchOnce(pageViewEventName(), {});
@@ -545,120 +494,6 @@
     return true;
   }
 
-  function handleConsent(cookie) {
-    var categories = normalizedCategories((cookie && cookie.categories) || []);
-    var state = consentStateForCategories(categories);
-    currentCategories = categories;
-    currentConsentState = state;
-    api.currentCategories = categories.slice();
-    api.currentConsentState = state;
-    writeStoredConsent(state, categories);
-    if (!hasCategory(categories, "analytics")) {
-      disableYandexProvider();
-      return false;
-    }
-    api.providerBlocked = false;
-    return startGrantedTracking(categories);
-  }
-
-  function runCookieConsent() {
-    if (!window.CookieConsent || typeof window.CookieConsent.run !== "function") {
-      api.consentReady = false;
-      return false;
-    }
-    window.CookieConsent.run({
-      autoShow: true,
-      cookie: {
-        expiresAfterDays: 180,
-        name: "graf_public_cookie_consent",
-        path: "/",
-        sameSite: "Lax",
-        secure: window.location.protocol === "https:",
-        useLocalStorage: true,
-      },
-      categories: {
-        necessary: {
-          enabled: true,
-          readOnly: true,
-        },
-        analytics: {},
-        advertising_attribution: {},
-        behavior_replay: {},
-      },
-      language: {
-        default: "ru",
-        translations: {
-          ru: {
-            consentModal: {
-              acceptAllBtn: "Разрешить все",
-              acceptNecessaryBtn: "Только необходимые",
-              description:
-                "Мы используем аналитику Яндекс Метрики только после вашего согласия. " +
-                "Без согласия сайт работает, но мы не увидим источники переходов, клики и прокрутку.",
-              footer:
-                '<a href="/privacy">Конфиденциальность</a>' +
-                '<a href="/cookies">Cookies</a>' +
-                '<a href="/analytics-consent">Согласие на аналитику</a>',
-              showPreferencesBtn: "Настроить",
-              title: "Аналитика и cookies",
-            },
-            preferencesModal: {
-              acceptAllBtn: "Разрешить все",
-              acceptNecessaryBtn: "Только необходимые",
-              closeIconLabel: "Закрыть настройки",
-              savePreferencesBtn: "Сохранить выбор",
-              sections: [
-                {
-                  description:
-                    "Эти cookies и localStorage нужны для сохранения вашего выбора. " +
-                    "Они не включают аналитику и не передают данные провайдерам.",
-                  linkedCategory: "necessary",
-                  title: "Необходимые",
-                },
-                {
-                  description:
-                    "Помогает считать посещения, источники переходов, клики по кнопкам и " +
-                    "достижение страницы скачивания. Не отправляем email, телефоны, " +
-                    "тексты встреч, аудио, токены или приватные ссылки.",
-                  linkedCategory: "analytics",
-                  title: "Аналитика",
-                },
-                {
-                  description:
-                    "Помогает связать рекламные кампании с переходом к скачиванию. " +
-                    "Используются только разрешённые UTM-метки и цели Яндекс Метрики.",
-                  linkedCategory: "advertising_attribution",
-                  title: "Рекламная атрибуция",
-                },
-                {
-                  description:
-                    "Разрешает поведенческую запись Яндекс Метрики только на публичных " +
-                    "страницах / и /download. Не используется на логине, кабинете, " +
-                    "записях встреч, админке и других продуктовых страницах.",
-                  linkedCategory: "behavior_replay",
-                  title: "Поведенческая запись",
-                },
-              ],
-              title: "Настройки аналитики",
-            },
-          },
-        },
-      },
-      mode: "opt-in",
-      onChange: function (details) {
-        handleConsent(details.cookie);
-      },
-      onConsent: function (details) {
-        handleConsent(details.cookie);
-      },
-      onFirstConsent: function (details) {
-        handleConsent(details.cookie);
-      },
-      revision: revisionFromCopyVersion(config.consent_copy_version),
-    });
-    api.consentReady = true;
-    return true;
-  }
 
   var api = {
     buildEventPayload: buildEventPayload,
@@ -679,5 +514,5 @@
   };
 
   window.GRAFPublicAnalytics = api;
-  runCookieConsent();
+  startGrantedTracking();
 })();

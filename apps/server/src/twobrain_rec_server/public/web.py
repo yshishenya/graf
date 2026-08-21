@@ -3,11 +3,15 @@ from __future__ import annotations
 import json
 from functools import lru_cache
 from pathlib import Path
+from uuid import UUID
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, Response
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.config import Settings
+from twobrain_rec_server.db.tenant_context import TenantDatabaseContext, apply_tenant_context
+from twobrain_rec_server.public.offers import build_public_offer_view
 from twobrain_rec_server.public.templates import DEFAULT_PUBLIC_BASE_URL, public_template_response
 
 router = APIRouter(tags=["public-web"])
@@ -35,6 +39,37 @@ MEETING_TARGET_REGISTRY = (
     / "data"
     / "0030_meeting_target_registry.json"
 )
+PUBLIC_WEB_CONTEXT_ID = UUID(int=0)
+
+
+async def get_public_web_db_session(request: Request):
+    sessionmaker = getattr(request.app.state, "db_sessionmaker", None)
+    if sessionmaker is None:
+        yield None
+        return
+    async with sessionmaker() as session:
+        # Billing catalog and launch-gate tables are global, but PostgreSQL
+        # still requires the ordinary request RLS context before reading them.
+        # A zero UUID cannot match any tenant-owned row if this dependency is
+        # ever extended with another query.
+        try:
+            await apply_tenant_context(
+                session,
+                TenantDatabaseContext(
+                    organization_id=PUBLIC_WEB_CONTEXT_ID,
+                    workspace_id=PUBLIC_WEB_CONTEXT_ID,
+                    user_id=PUBLIC_WEB_CONTEXT_ID,
+                ),
+            )
+        except Exception:
+            # Keep public pages renderable when the catalog database is down;
+            # the offer builder will then fail closed without paid claims.
+            yield None
+            return
+        yield session
+
+
+PublicWebDbDependency = Depends(get_public_web_db_session)
 
 
 @lru_cache(maxsize=1)
@@ -54,18 +89,24 @@ def landing_autorecord_apps() -> tuple[str, ...]:
 
 
 @router.get("/", response_class=HTMLResponse, include_in_schema=False)
-async def public_landing_page(request: Request) -> HTMLResponse:
+async def public_landing_page(
+    request: Request,
+    db: AsyncSession | None = PublicWebDbDependency,
+) -> HTMLResponse:
+    settings = getattr(request.app.state, "settings", Settings())
+    public_offer = await build_public_offer_view(db, settings)
     autorecord_apps = landing_autorecord_apps()
     row_split = (len(autorecord_apps) + 1) // 2
     return public_template_response(
         request,
         "public/landing.html",
-        page_title="GRAF — запись без привязки к сервису встречи",
+        page_title="ГРАФ — запись и расшифровка звонков в любом приложении",
         analytics_path="/",
         start_url="/login?next=/meetings",
         download_url="/download",
-        social_title="GRAF — запись без привязки к сервису встречи",
-        social_description="Запишите разговор без бота и получите расшифровку, краткий итог и следующие действия.",
+        social_title="ГРАФ — запись звонков в любом приложении",
+        social_description="Запишите разговор без бота и получите расшифровку по спикерам, итоги и следующие действия.",
+        public_offer=public_offer,
         autorecord_app_count=len(autorecord_apps),
         autorecord_app_rows=(autorecord_apps[:row_split], autorecord_apps[row_split:]),
         autorecord_apps=autorecord_apps,
@@ -77,7 +118,7 @@ async def public_download_page(request: Request) -> HTMLResponse:
     return public_template_response(
         request,
         "public/download.html",
-        page_title="Скачать GRAF для macOS",
+        page_title="Скачать ГРАФ для macOS",
         analytics_path="/download",
         start_url="/login?next=/meetings",
     )
@@ -88,7 +129,7 @@ async def public_privacy_page(request: Request) -> HTMLResponse:
     return public_template_response(
         request,
         "public/privacy.html",
-        page_title="Политика обработки персональных данных GRAF",
+        page_title="Политика обработки персональных данных ГРАФ",
     )
 
 
@@ -97,7 +138,7 @@ async def public_cookies_page(request: Request) -> HTMLResponse:
     return public_template_response(
         request,
         "public/cookies.html",
-        page_title="Политика cookies GRAF",
+        page_title="Политика cookies ГРАФ",
     )
 
 
@@ -106,16 +147,21 @@ async def public_terms_page(request: Request) -> HTMLResponse:
     return public_template_response(
         request,
         "public/terms.html",
-        page_title="Условия использования GRAF",
+        page_title="Условия использования ГРАФ",
     )
 
 
 @router.get("/offer", response_class=HTMLResponse, include_in_schema=False)
-async def public_offer_page(request: Request) -> HTMLResponse:
+async def public_offer_page(
+    request: Request,
+    db: AsyncSession | None = PublicWebDbDependency,
+) -> HTMLResponse:
+    settings = getattr(request.app.state, "settings", Settings())
     return public_template_response(
         request,
         "public/offer.html",
-        page_title="Условия оплаты и возврата GRAF",
+        page_title="Условия оплаты и возврата ГРАФ",
+        public_offer=await build_public_offer_view(db, settings),
     )
 
 
@@ -124,7 +170,7 @@ async def public_analytics_consent_page(request: Request) -> HTMLResponse:
     return public_template_response(
         request,
         "public/analytics_consent.html",
-        page_title="Согласие на аналитику GRAF",
+        page_title="Как ГРАФ использует аналитику",
     )
 
 
@@ -142,7 +188,7 @@ async def public_robots(request: Request) -> PlainTextResponse:
 @router.get("/sitemap.xml", include_in_schema=False)
 async def public_sitemap(request: Request) -> Response:
     base_url = _public_base_url(request)
-    locations = ("/", "/download", "/privacy", "/cookies", "/terms", "/analytics-consent")
+    locations = ("/", "/download", "/privacy", "/cookies", "/terms", "/offer", "/analytics-consent")
     urls = "".join(f"<url><loc>{base_url}{path}</loc></url>" for path in locations)
     return Response(
         f'<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{urls}</urlset>',

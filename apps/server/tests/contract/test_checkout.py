@@ -21,11 +21,11 @@ WORKSPACE_ID = UUID("22222222-2222-4222-8222-222222222222")
 
 def test_catalog_and_checkout_snapshot_use_rub_minor_units_and_exact_cycles() -> None:
     personal = plan_descriptor("personal")
-    assert (personal.monthly_amount_minor, personal.annual_amount_minor) == (79_000, 790_000)
+    assert (personal.monthly_amount_minor, personal.annual_amount_minor) == (100_000, 1_000_000)
     monthly = checkout_preview(plan_code="personal", cycle="month")
     annual = checkout_preview(plan_code="personal", cycle="year")
-    assert monthly == CheckoutPreview("personal", "month", 79_000, 79_000, None)
-    assert annual == CheckoutPreview("personal", "year", 790_000, 790_000, None)
+    assert monthly == CheckoutPreview("personal", "month", 100_000, 100_000, None)
+    assert annual == CheckoutPreview("personal", "year", 1_000_000, 1_000_000, None)
 
 
 def test_checkout_intent_has_stable_safe_reference_and_rejects_bad_keys() -> None:

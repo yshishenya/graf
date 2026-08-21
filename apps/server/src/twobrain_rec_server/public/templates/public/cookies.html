@@ -5,16 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{ page_title }}</title>
     {% include "public/_meta.html" %}
-    <meta name="description" content="Политика cookies и localStorage GRAF.">
-    <meta name="theme-color" content="#05090a">
+    <meta name="description" content="Политика cookies и localStorage ГРАФ">
+    <meta name="theme-color" content="#090b12">
     <link rel="icon" href="{{ cabinet_static_asset_url('favicon.ico') }}">
     <link rel="stylesheet" href="{{ public_static_asset_url('landing.css') }}">
   </head>
   <body>
     <a class="skip-link" href="#main">К содержанию</a>
     <div class="site-shell legal-shell">
-      <header class="site-header" aria-label="GRAF">
-        <a class="brand" href="/" aria-label="GRAF" translate="no">GRAF</a>
+      <header class="site-header" aria-label="ГРАФ">
+        <a class="brand" href="/" aria-label="ГРАФ — главная">ГРАФ</a>
         <nav class="top-nav" aria-label="Основные разделы">
           <a href="/">Главная</a>
           <a href="/download">Скачать</a>
@@ -24,129 +24,69 @@
       <main id="main" class="legal-page">
         <p class="section-label">Cookies</p>
         <h1>Политика cookies</h1>
-        <p class="legal-status">Редакция от 13 августа 2026 года</p>
+        <p class="legal-status">Редакция от 21 августа 2026 года</p>
 
         <section class="legal-section" aria-labelledby="cookies-about">
           <h2 id="cookies-about">1. Что регулирует Политика</h2>
           <p>
-            Эта Политика объясняет, как публичные страницы GRAF используют
-            cookies, localStorage и похожие технологии. Оператор —
-            Индивидуальный предприниматель Шишеня Ян Александрович, ИНН
-            667803118920, ОГРНИП 320665800036109. Вопросы можно направить на
-            <a href="mailto:yan@shishenya.ru">yan@shishenya.ru</a>.
-          </p>
-          <p>
-            Cookies — небольшие данные, которые браузер сохраняет для сайта.
-            LocalStorage выполняет похожую функцию, но управляется браузером
-            отдельно от обычного хранилища cookies.
+            Эта Политика объясняет, как публичные страницы ГРАФ используют cookies,
+            localStorage и похожие технологии. Оператор — Индивидуальный предприниматель
+            Шишеня Ян Александрович, ИНН 667803118920, ОГРНИП 320665800036109.
+            Вопросы можно направить на <a href="mailto:yan@shishenya.ru">yan@shishenya.ru</a>.
           </p>
         </section>
 
-        <section class="legal-section" aria-labelledby="cookies-categories">
-          <h2 id="cookies-categories">2. Категории</h2>
-          <ul>
-            <li>
-              <strong>Необходимые.</strong> Сохраняют выбранные настройки
-              конфиденциальности и обеспечивают работу сайта. Их отключение в
-              настройках GRAF недоступно, но пользователь может удалить их в
-              браузере.
-            </li>
-            <li>
-              <strong>Аналитика.</strong> После согласия подключает Яндекс
-              Метрику для подсчёта посещений, источников, кликов, прокрутки и
-              перехода к скачиванию.
-            </li>
-            <li>
-              <strong>Рекламная атрибуция.</strong> После отдельного выбора и при
-              включённой аналитике связывает безопасные UTM-метки рекламной
-              кампании с web-конверсией. GRAF не передаёт в эти метки email,
-              телефон или содержимое встреч.
-            </li>
-            <li>
-              <strong>Поведенческая запись.</strong> После отдельного выбора и
-              при включённой аналитике разрешает Вебвизор только на главной и
-              странице скачивания. Он не применяется на входе, в кабинете,
-              записях встреч, админке и других продуктовых разделах.
-            </li>
-          </ul>
+        <section class="legal-section" aria-labelledby="cookies-use">
+          <h2 id="cookies-use">2. Что используется</h2>
           <p>
-            Необязательные категории выключены до выбора пользователя. Отказ от
-            них не мешает пользоваться сайтом, скачивать приложение и входить в
-            GRAF.
+            На главной странице и странице скачивания при включённой публичной аналитике
+            загружается Яндекс Метрика. Она может устанавливать cookies, использовать
+            localStorage и получать технические данные браузера, устройства, IP-адрес,
+            безопасный путь страницы, источник перехода и действия по именованным целям.
+          </p>
+          <p>
+            Метрика запускается при открытии этих двух публичных страниц без отдельного
+            предварительного баннера. На юридических страницах, в форме входа, личном
+            кабинете, админке и на страницах встреч публичный счётчик не загружается.
           </p>
         </section>
 
-        <section class="legal-section" aria-labelledby="cookies-storage">
-          <h2 id="cookies-storage">3. Что сохраняется</h2>
-          <ul>
-            <li>
-              <code>graf_public_cookie_consent</code> — категории, версия текста,
-              время и идентификатор выбора в localStorage;
-            </li>
-            <li>
-              <code>graf_public_analytics_consent</code> — техническая копия
-              состояния согласия, нужная для применения выбора;
-            </li>
-            <li>
-              после согласия Яндекс Метрика может устанавливать
-              <code>_ym_uid</code>, <code>_ym_d</code>,
-              <code>_ym_isad</code> и другие идентификаторы, предусмотренные
-              актуальной документацией сервиса.
-            </li>
-          </ul>
+        <section class="legal-section" aria-labelledby="cookies-limits">
+          <h2 id="cookies-limits">3. Ограничения сбора</h2>
           <p>
-            Выбор GRAF хранится 180 дней или до удаления/отзыва. Срок отдельных
-            cookies Метрики устанавливает Яндекс; некоторые из них могут
-            действовать до двух лет. Браузер может удалить данные раньше по
-            своим настройкам.
+            Вебвизор, карты кликов и скроллинга, автоматический анализ форм, advanced
+            matching и автоматическое отслеживание внешних ссылок отключены. ГРАФ не
+            передаёт Метрике содержимое полей, email, телефон, платёжные данные, записи,
+            расшифровки, итоги встреч, данные аккаунта, query-параметры или hash URL.
           </p>
         </section>
 
-        <section class="legal-section" aria-labelledby="cookies-data">
-          <h2 id="cookies-data">4. Яндекс Метрика</h2>
+        <section class="legal-section" aria-labelledby="cookies-provider">
+          <h2 id="cookies-provider">4. Яндекс Метрика</h2>
           <p>
-            После согласия счётчик может получать IP-адрес, идентификатор
-            браузера, путь и источник страницы, характеристики устройства и
-            браузера, время визита и действия на странице. Передаваемый GRAF
-            путь не должен включать произвольные query-параметры или fragment.
-          </p>
-          <p>
-            ООО «ЯНДЕКС» обрабатывает эти данные по своим
-            <a href="https://yandex.ru/legal/metrica_termsofuse/ru/">условиям Яндекс Метрики</a>
-            и
-            <a href="https://yandex.ru/legal/confidential/ru/">политике конфиденциальности</a>.
-            Список и назначение cookies опубликованы в
-            <a href="https://yandex.ru/support/metrica/ru/general/cookie-usage">документации Яндекса</a>.
+            Данные обрабатываются Яндексом по его документам и могут сохраняться в
+            инфраструктуре Яндекса. Подробнее:
+            <a href="https://yandex.ru/legal/metrica_termsofuse/ru/">условия Яндекс Метрики</a>
+            и <a href="https://yandex.ru/legal/confidential/ru/">политика конфиденциальности Яндекса</a>.
           </p>
         </section>
 
-        <section class="legal-section" aria-labelledby="cookies-choice">
-          <h2 id="cookies-choice">5. Как изменить или отозвать выбор</h2>
+        <section class="legal-section" aria-labelledby="cookies-control">
+          <h2 id="cookies-control">5. Как ограничить аналитику</h2>
           <p>
-            Когда необязательная аналитика включена, кнопка «Настройки cookies»
-            доступна внизу на главной странице или странице скачивания. Через
-            неё можно разрешить все категории, оставить только необходимые либо
-            выбрать категории отдельно. Если кнопки нет, необязательная
-            публичная аналитика отключена: GRAF не запускает счётчик и не
-            отправляет новые необязательные данные с этих страниц. Ранее
-            созданные cookies и localStorage можно удалить в настройках
-            браузера.
-          </p>
-          <p>
-            Ранее правомерно переданные Яндексу сведения не удаляются одним
-            изменением настроек. Запрос об их удалении можно направить Оператору
-            на <a href="mailto:yan@shishenya.ru">yan@shishenya.ru</a>. Также
-            cookies и localStorage можно удалить средствами браузера.
+            Пользователь может запретить или удалить cookies и localStorage в настройках
+            браузера, использовать блокировку сторонних скриптов или официальный механизм
+            отказа Яндекса. Это может прекратить дальнейший сбор, но не удаляет автоматически
+            сведения, переданные до блокировки. Подробности приведены на странице
+            <a href="/analytics-consent">об аналитике</a>.
           </p>
         </section>
 
         <section class="legal-section" aria-labelledby="cookies-logs">
           <h2 id="cookies-logs">6. Серверные журналы</h2>
           <p>
-            Технические журналы безопасности и доступности не являются cookies
-            и могут создаваться независимо от выбора аналитики. Они используются
-            для защиты сайта, диагностики сбоев и исполнения закона в пределах
-            <a href="/privacy">Политики обработки персональных данных</a>.
+            Технические журналы безопасности и доступности не являются cookies. Их состав,
+            цели и сроки описаны в <a href="/privacy">Политике обработки персональных данных</a>.
           </p>
         </section>
       </main>
