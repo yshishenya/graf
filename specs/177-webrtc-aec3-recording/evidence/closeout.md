@@ -2,8 +2,9 @@
 
 Date: 2026-08-21
 
-Lane: significant/high-risk capture feature; local implementation validation,
-no release or deployment.
+Lane: significant/high-risk capture feature; controlled pilot release with
+explicit product-owner risk acceptance and open post-release hardware
+acceptance.
 
 ## Spec Kit consistency
 
@@ -36,11 +37,13 @@ groups are recorded in `technical-audit.md`.
 ## Open gate
 
 T035 remains open. The two-Mac/two-room controlled hardware matrix was not
-executed, so this feature is not hardware-accepted or release-ready and no claim
-is made that real speaker recordings are echo-free. Developer ID, notarization,
-stapling, Gatekeeper, full release CI, publication and deployment were not run.
+executed, so this feature is not hardware-accepted and no claim is made that
+real speaker recordings are echo-free. On 2026-08-21 the product owner
+explicitly authorized a limited pilot with the owner and known testers before
+T035 is complete. Public Developer ID/notarization/full-CI gates remain
+mandatory; release notes must name this limitation and a material regression
+requires a forward CalVer rollback.
 
 The feature branch was pushed and then merged with current `origin/master` for
-final validation. No PR, issue closure, release or deployment was performed. No
-raw audio, transcript, private meeting content, credential, signed URL or
-private device/path evidence is included.
+final validation. No raw audio, transcript, private meeting content,
+credential, signed URL or private device/path evidence is included.
