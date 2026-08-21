@@ -1,10 +1,12 @@
 # Feature 168 implementation evidence ledger
 
 Implementation is complete for the tested, feature-gated slice and remains
-intentionally fail-closed for external provider gates. No production rollout,
-issue sync or commit was performed. One real Google account was used only for
-local end-to-end validation; no account identity, token, event content or
-meeting metadata was retained in evidence.
+intentionally fail-closed for external provider gates. Production rollout was
+completed for the server and UI surface; Google Calendar remains disabled in
+production until its external verification and production E2E gates pass. No
+issue sync was performed. One real Google account was used only for local
+end-to-end validation; no account identity, token, event content or meeting
+metadata was retained in evidence.
 
 ## Audit receipts — 2026-08-19
 
@@ -148,25 +150,44 @@ meeting metadata was retained in evidence.
 | Native boundary | The installed local app showed the embedded zero-selection state and the native `Начать запись` control at login, home and calendar settings. Recording was not started, avoiding capture of ambient user audio. | OBSERVED-RUNTIME; manual-control availability proven visually, Stop remains covered by the focused Swift regression. |
 | Final local macOS walkthrough | The installed `GRAF Local.app` rendered the same local Google source as the browser: 1 source, 6/6 calendars selected and current sync. Its upcoming section rendered 2 rows, and native `Начать запись` remained available on both calendar settings and meetings screens. | OBSERVED-RUNTIME; AX/visual review only, counts and states retained, no event title, participant, URL, token or audio retained. The separately installed production-origin app was not used as local parity evidence. |
 
-## Required future receipts
+## Production rollout receipt — 2026-08-21
+
+| Check | Result | Interpretation |
+|---|---|---|
+| Release commit and tag | `6cd0eb5e7da3569ef4ddc62e1fa92aeed04cf3d4`; `v2026.08.21.5` | Exact commit is on `master`, `origin/master`, and the production checkout. |
+| Conflict/ancestry check | PASS | Release commit is a direct descendant of the previous `origin/master`; no merge conflict or unrelated worktree change was included. |
+| Exact-SHA full CI | PASS | macOS `725 passed`; server `3219 passed, 1 skipped`; strict RLS `50 passed, 1 skipped`; lint, compile, Compose and evidence scan passed. Disposable PostgreSQL was removed. |
+| Dry-run | PASS | `infra/scripts/cd-remote.sh --dry-run --branch master` returned `deploy_result=dry_run` and required full CI, backup, restore, migration, health, smoke and rollback gates. |
+| Backup and restore rehearsal | PASS | Production backup and restore rehearsal completed before deployment; backup reference is retained in the private deployment receipt. |
+| Migration and RLS | PASS | Production reached migration `0075_calendar_sync_maintenance`; runtime database identity and direct SQL RLS boundary passed. |
+| Runtime health | PASS | Temporal, processing worker, API live/readiness and public download/update smoke passed. |
+| Production smoke | PASS | Smoke upload, metadata-only cleanup and automatic dispatch gate passed; no smoke content was retained. |
+| Remote identity | PASS | Remote `master` and deployed SHA both equal `6cd0eb5e7da3569ef4ddc62e1fa92aeed04cf3d4`. |
+| Google Calendar production state | Intentionally disabled | `TWOBRAIN_GOOGLE_CALENDAR_ENABLED=false`; provider remains fail-closed and the UI must not claim all-users Google support before Google verification and real production E2E. |
+| Rollback | Not required | Deployment completed successfully; guarded backup/rollback path remains available. |
+
+The CD runner also reports `automatic_retry_result`, `backfill_inventory_result`,
+`range_playback_result` and `normalization_cleanup_result` as
+`required_post_deploy`. These are existing playback-maintenance follow-ups,
+not calendar acceptance gates, and were not expanded into this feature rollout.
 
 ```text
-commit_sha:
+commit_sha: 6cd0eb5e7da3569ef4ddc62e1fa92aeed04cf3d4
 spec_kit_analysis:
 provider_matrix:
 postgres_url_class: disposable-local-only
 server_focused_result: full calendar selection 389 passed; disposable Postgres, 2026-08-21
-server_integration_result: full 3086 passed, 1 skipped; strict RLS 42 passed, 1 skipped; isolated containers removed, 2026-08-19
+server_integration_result: exact-SHA full 3219 passed, 1 skipped; strict RLS 50 passed, 1 skipped; isolated containers removed, 2026-08-21
 swift_focused_result: DesktopCalendarReminderTests 24 passed, 2026-08-21; historical broader/full receipts remain 242/693 with ContractValidation PASS
 browser_scenario_result: real local Google connect/select/sync/upcoming/disconnect/reconnect passed; 20/21 synthetic mouse/keyboard limit passed; uncertified providers remain fail-closed as Soon
 embedded_scenario_result: real local Google settings/upcoming parity passed; disconnect/reload truth shares the same server state; complete native release certification remains open
 google_test_account_result: local real-account OAuth/catalog/select/sync/upcoming/disconnect/reconnect observed; no private content retained; production-wide access remains blocked by Google verification
 oauth_verification_result: External/In production; approved scopes configured; branding hidden and Calendar data access unverified; no submission or production approval performed
 forbidden_content_scan: detector-only schema-name matches manually reviewed; no forbidden values
-rls_result: strict RLS boundary 42 passed, 1 skipped; disposable Postgres only
-ci_local_result: fast lane unit 1138 passed, Ruff/compile/legacy guard PASS, 2026-08-21; historical full server 3088 passed/1 skipped, strict RLS 42 passed/1 skipped, macOS full 693 passed
-rollout_flag:
-rollback_receipt:
+rls_result: strict RLS boundary 50 passed, 1 skipped; disposable Postgres plus production runtime boundary passed
+ci_local_result: exact-SHA full gate 725 macOS passed, 3219 server passed/1 skipped, strict RLS 50 passed/1 skipped, 2026-08-21
+rollout_flag: production server/UI rollout pass; Google provider disabled fail-closed
+rollback_receipt: backup and restore rehearsal pass; guarded rollback not required
 ```
 
 Never write token values, account email, event title, meeting URL, attendee
