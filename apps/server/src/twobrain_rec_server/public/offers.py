@@ -34,6 +34,7 @@ class PublicOfferView:
     annual_label: str | None = None
     annual_saving_minor: int | None = None
     annual_saving_label: str | None = None
+    annual_monthly_equivalent_label: str | None = None
     offer_version: str | None = None
     trial_days: int = PUBLIC_TRIAL_DAYS
 
@@ -72,13 +73,20 @@ async def build_public_offer_view(
         # Public pages remain available if the catalog database is unavailable.
         # Paid copy must fail closed instead of advertising an unverified sale.
         return unavailable_public_offer()
-    newest_by_cycle: dict[str, BillingPlanVersion] = {}
+    approved_by_cycle: dict[str, PlanCatalogSnapshot] = {}
     for row in rows:
-        newest_by_cycle.setdefault(row.cycle, row)
-    try:
-        month = validate_plan_version(newest_by_cycle.get("month"), now=current)
-        year = validate_plan_version(newest_by_cycle.get("year"), now=current)
-    except CatalogNotApproved:
+        if row.cycle in approved_by_cycle:
+            continue
+        try:
+            approved_by_cycle[row.cycle] = validate_plan_version(row, now=current)
+        except (CatalogNotApproved, ValueError):
+            # A future, expired, disabled or malformed newest version must
+            # not hide an older version that is currently effective. This is
+            # the same first-valid-row selection used by checkout.
+            continue
+    month = approved_by_cycle.get("month")
+    year = approved_by_cycle.get("year")
+    if month is None or year is None:
         return unavailable_public_offer()
     if not _matching_public_catalog(month, year):
         return unavailable_public_offer()
@@ -111,6 +119,7 @@ async def build_public_offer_view(
         annual_label=_rubles_label(PUBLIC_ANNUAL_AMOUNT_MINOR),
         annual_saving_minor=saving_minor,
         annual_saving_label=_rubles_label(saving_minor),
+        annual_monthly_equivalent_label=_rubles_label(PUBLIC_ANNUAL_AMOUNT_MINOR // 12),
         offer_version=month.offer_version,
     )
 

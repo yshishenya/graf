@@ -20,7 +20,7 @@ Replace the server-rendered public landing with the owner-approved local design,
 
 **Risk / Validation Lane**: `release-deploy` and `high-risk-feature` because this changes public brand-distance UX, paid claims, legal copy, external analytics and production deployment
 
-**Release Gate**: `cd dry-run` after implementation validation; `cd execute` only after explicit release authorization. Billing enablement additionally requires the existing independent finance/legal/security/infrastructure/release gates and provider canary.
+**Release Gate**: `cd dry-run` after implementation validation; `cd execute` only after explicit release authorization. Before a release is considered complete, the exact reviewed SHA also needs a unique application CalVer tag (`vYYYY.MM.DD.N`), a matching GitHub Release and Russian plain-language notes in `docs/releases/`. Billing enablement additionally requires the existing independent finance/legal/security/infrastructure/release gates and provider canary; legal approval for immediate Metrica is a separate gate.
 
 **Target Platform**: Linux/Docker server at `2brain.dev`; public web for modern desktop/mobile browsers; download target macOS 14.5+ universal installer
 

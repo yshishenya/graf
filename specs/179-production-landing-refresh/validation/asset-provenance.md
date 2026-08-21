@@ -9,4 +9,4 @@ All landing screenshots are synthetic, public-safe compositions created from the
 | `graf-transcript-landing-mobile.png` | 1200×900 | `fcb04491bd07b3de87d33ee14d76fff94582bcbdba1c380903ce4c10d4bedab2` |
 | `graf-summary-landing.png` | 1600×1000 | `11ab2fb0317c87b6b5fb90745f59fc2690566f26297f2633502639c4e357989b` |
 
-Contract checks confirmed PNG signatures, expected dimensions and absence of `tEXt`/`iTXt` metadata chunks.
+Contract checks confirmed PNG signatures, expected dimensions and absence of `tEXt`, `iTXt`, `zTXt` and `eXIf` metadata chunks.

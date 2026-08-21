@@ -2,6 +2,8 @@ from pydantic import ValidationError
 
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.public.analytics import (
+    PUBLIC_ANALYTICS_EVENT_CATALOG,
+    PUBLIC_ANALYTICS_TARGET_KINDS,
     build_public_analytics_context,
     normalize_public_campaign_attribution,
     public_analytics_event_names,
@@ -62,7 +64,7 @@ def test_public_analytics_event_catalog_and_labels_match_new_funnel() -> None:
             "download_page_installer",
             "download_page_login",
         ),
-        "target_kind": ("download_page", "installer_package", "login"),
+        "target_kind": ("download_page", "installer_package", "login", "section"),
         "product_tab": ("recording", "transcript", "outcomes"),
         "pricing_cycle": ("month", "year"),
         "faq_item": (
@@ -75,6 +77,11 @@ def test_public_analytics_event_catalog_and_labels_match_new_funnel() -> None:
             "storage",
         ),
     }
+    assert all(
+        item["target_kind"] in PUBLIC_ANALYTICS_TARGET_KINDS
+        for item in PUBLIC_ANALYTICS_EVENT_CATALOG
+        if item["target_kind"]
+    )
 
 
 def test_public_analytics_stays_disabled_outside_public_scope() -> None:

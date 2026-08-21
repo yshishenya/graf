@@ -52,9 +52,15 @@
 - [x] CHK029 Are exact-SHA, backup, dry-run, explicit execute authorization, post-deploy smoke and rollback criteria all documented? [Completeness, Spec §FR-023]
 - [x] CHK030 Is the scope boundary clear that desktop capture, account auth, meeting processing and package construction are unchanged? [Scope, Spec §Assumptions]
 
+## Release Artifact Gates
+
+- [ ] REL001 Does the reviewed production SHA have a unique application CalVer tag in the form `vYYYY.MM.DD.N`? [Release, Tasks T049]
+- [ ] REL002 Does the same tag have a published GitHub Release with Russian plain-language notes in `docs/releases/`? [Release, Tasks T049]
+- [ ] REL003 Are the tag, GitHub Release and release notes all verified against the exact reviewed SHA before merge or deployment? [Release, Tasks T048–T049]
+- [ ] REL004 Are immediate-Metrica legal approval, billing provider canary, finance/accounting, four-eyes and production-execute approvals recorded as separate evidence items? [Release, Tasks T050–T053]
+
 ## Notes
 
 - This is a formal PR and production-release requirement-quality gate.
 - Unchecked items indicate a requirement gap, not an implementation failure.
 - Implementation may start only after every material gap is resolved or explicitly blocked with an owner.
-

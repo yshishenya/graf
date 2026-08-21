@@ -10,4 +10,4 @@
 - Shared private product analytics functions remain present and are covered by preservation tests.
 - Security header, canonical, sitemap, immutable-cache and read-only installer-mount contracts pass.
 
-No production secret or provider identifier was written to validation evidence.
+No production secret, OAuth credential or provider token was written to validation evidence. The public Yandex counter identifier and provider domain are intentionally recorded only in the provider-side validation evidence needed to reproduce the configured goals.

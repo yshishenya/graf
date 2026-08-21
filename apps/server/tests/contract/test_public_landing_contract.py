@@ -45,6 +45,8 @@ def test_public_product_assets_have_expected_dimensions_and_no_metadata() -> Non
         assert unpack(">II", content[16:24]) == dimensions
         assert b"tEXt" not in content
         assert b"iTXt" not in content
+        assert b"zTXt" not in content
+        assert b"eXIf" not in content
 
 
 def test_public_static_assets_are_mounted_by_app() -> None:

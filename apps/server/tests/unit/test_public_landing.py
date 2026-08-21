@@ -134,6 +134,52 @@ async def test_public_offer_fails_closed_for_wrong_price() -> None:
 
 
 @pytest.mark.anyio
+async def test_public_offer_uses_latest_effective_catalog_version() -> None:
+    now = datetime(2026, 8, 21, tzinfo=UTC)
+    common = {
+        "plan_code": "personal",
+        "currency": "RUB",
+        "storage_bytes": 2_000_000_000,
+        "processing_mode": "unlimited",
+        "enabled_for_checkout": True,
+        "policy_snapshot": {"offer_version": "personal-2026-08-21"},
+    }
+    rows = [
+        BillingPlanVersion(
+            cycle="month",
+            version=2,
+            amount_minor=100_000,
+            effective_from=now + timedelta(days=1),
+            **common,
+        ),
+        BillingPlanVersion(
+            cycle="month",
+            version=1,
+            amount_minor=100_000,
+            effective_from=now - timedelta(days=1),
+            **common,
+        ),
+        BillingPlanVersion(
+            cycle="year",
+            version=1,
+            amount_minor=1_000_000,
+            effective_from=now - timedelta(days=1),
+            **common,
+        ),
+    ]
+
+    offer = await build_public_offer_view(
+        _OfferDb(rows, []),
+        Settings.model_construct(billing_checkout_enabled=False),
+        now=now,
+    )
+
+    assert offer.catalog_ready is True
+    assert offer.offer_version == "personal-2026-08-21"
+    assert offer.annual_monthly_equivalent_label == "833 ₽"
+
+
+@pytest.mark.anyio
 async def test_public_offer_keeps_landing_available_when_catalog_database_is_down() -> None:
     offer = await build_public_offer_view(
         _UnavailableOfferDb(),
@@ -212,6 +258,7 @@ def test_sale_ready_template_renders_exact_price_and_annual_saving() -> None:
         annual_label="10 000 ₽",
         annual_saving_minor=200_000,
         annual_saving_label="2 000 ₽",
+        annual_monthly_equivalent_label="833 ₽",
         offer_version="personal-2026-08-21",
     )
     html = render_template(
@@ -228,6 +275,7 @@ def test_sale_ready_template_renders_exact_price_and_annual_saving() -> None:
     assert "1 000 ₽" in html
     assert "10 000 ₽" in html
     assert "2 000 ₽ экономии" in html
+    assert "≈ 833 ₽ в месяц" in html
     assert "−20%" not in html
 
     parser = _StructuredDataParser()

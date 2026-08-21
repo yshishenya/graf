@@ -36,7 +36,7 @@ PUBLIC_ANALYTICS_CTA_LOCATIONS = (
     "download_page_installer",
     "download_page_login",
 )
-PUBLIC_ANALYTICS_TARGET_KINDS = ("download_page", "installer_package", "login")
+PUBLIC_ANALYTICS_TARGET_KINDS = ("download_page", "installer_package", "login", "section")
 PUBLIC_ANALYTICS_PRODUCT_TABS = ("recording", "transcript", "outcomes")
 PUBLIC_ANALYTICS_PRICING_CYCLES = ("month", "year")
 PUBLIC_ANALYTICS_FAQ_IDS = (

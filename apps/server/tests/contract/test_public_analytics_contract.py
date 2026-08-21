@@ -129,7 +129,7 @@ def test_public_analytics_is_absent_from_private_and_legal_surfaces(
 
     with TestClient(app) as client:
         responses = [
-            client.get(path, follow_redirects=False)
+            client.get(path, follow_redirects=True)
             for path in (
                 "/login", "/admin", "/cabinet/not-a-real-page", "/api/v1/health/live",
                 "/privacy", "/cookies", "/terms", "/offer", "/analytics-consent",
@@ -137,6 +137,7 @@ def test_public_analytics_is_absent_from_private_and_legal_surfaces(
         ]
 
     for response in responses:
+        assert response.status_code < 500
         assert "graf-public-analytics-config" not in response.text
         assert "analytics.js" not in response.text
         assert "metrika/tag.js" not in response.text
