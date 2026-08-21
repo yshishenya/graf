@@ -7,7 +7,6 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, Response
-from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.config import Settings
@@ -62,7 +61,7 @@ async def get_public_web_db_session(request: Request):
                     user_id=PUBLIC_WEB_CONTEXT_ID,
                 ),
             )
-        except (OSError, SQLAlchemyError):
+        except Exception:
             # Keep public pages renderable when the catalog database is down;
             # the offer builder will then fail closed without paid claims.
             yield None
