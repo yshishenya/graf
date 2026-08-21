@@ -439,12 +439,11 @@
         dispatchOnce("public_product_tab_selected", { product_tab: detail.productTab });
       }
     });
-    document.querySelectorAll("[data-period]").forEach(function (element) {
-      element.addEventListener("click", function () {
-        if (allowedLabel("pricing_cycle", element.dataset.period)) {
-          dispatchOnce("public_pricing_cycle_selected", { pricing_cycle: element.dataset.period });
-        }
-      });
+    document.addEventListener("graf:pricing-cycle-selected", function (event) {
+      var detail = event && event.detail ? event.detail : {};
+      if (allowedLabel("pricing_cycle", detail.pricingCycle)) {
+        dispatchOnce("public_pricing_cycle_selected", { pricing_cycle: detail.pricingCycle });
+      }
     });
     document.querySelectorAll("details[data-faq-id]").forEach(function (element) {
       element.addEventListener("toggle", function () {

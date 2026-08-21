@@ -31,7 +31,9 @@ const priceNote = document.querySelector('[data-price-note-value]');
 billingButtons.forEach((button) => {
   button.addEventListener('click', () => {
     const period = button.dataset.period;
+    const previousButton = [...billingButtons].find((item) => item.getAttribute('aria-pressed') === 'true');
     if (!period || !button.dataset.price || !price || !pricePeriod || !priceNote) return;
+    if (previousButton === button) return;
 
     billingButtons.forEach((item) => {
       const selected = item === button;
@@ -41,6 +43,9 @@ billingButtons.forEach((button) => {
     price.textContent = button.dataset.price;
     pricePeriod.textContent = button.dataset.pricePeriod || '';
     priceNote.textContent = button.dataset.priceNote || '';
+    document.dispatchEvent(new CustomEvent('graf:pricing-cycle-selected', {
+      detail: { pricingCycle: period },
+    }));
   });
 });
 
