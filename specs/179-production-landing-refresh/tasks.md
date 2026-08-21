@@ -136,7 +136,7 @@
 - [X] T044 Run no-secret, personal-data, asset-provenance, CSP and forbidden-provider scans and record results in `specs/179-production-landing-refresh/validation/security-privacy.md`
 - [ ] T045 Run `infra/scripts/cd-remote.sh --dry-run` and record exact-SHA/backup/rollback readiness in `specs/179-production-landing-refresh/validation/deploy-dry-run.md`
 - [ ] T046 Run the five-person, five-second hero-comprehension and download-finding check with owner-approved neutral participants and record anonymized outcomes in `specs/179-production-landing-refresh/validation/comprehension-test.md`
-- [ ] T047 Obtain explicit implementation commit approval, record it in `specs/179-production-landing-refresh/validation/release-approval.md`, then commit and push `codex/179-production-landing-refresh`
+- [X] T047 Obtain explicit implementation commit approval, record it in `specs/179-production-landing-refresh/validation/release-approval.md`, then commit and push `codex/179-production-landing-refresh`
 - [ ] T048 Create the PR, run checks, perform independent review, resolve findings, merge only the reviewed exact SHA and record the result in `specs/179-production-landing-refresh/validation/pr-review.md`
 - [ ] T049 Create a version tag and GitHub Release with plain-language notes in `docs/releases/`
 - [ ] T050 Record the owner's 2026-08-21 confirmation of external legal approval for immediate Metrica and every required billing canary/four-eyes gate in `specs/179-production-landing-refresh/validation/operational-approvals.md`
