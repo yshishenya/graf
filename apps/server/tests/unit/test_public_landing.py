@@ -27,6 +27,11 @@ def test_public_landing_is_self_serve_entry(client) -> None:
     assert "Краткий итог и следующие действия" in response.text
     assert "данные встречи созданы для демонстрации" in response.text.lower()
     assert "Реальный интерфейс GRAF" in response.text
+    assert 'href="#calendar"' in response.text
+    assert "Как GRAF использует Google Calendar" in response.text
+    assert "Данные Google — только для функций календаря" in response.text
+    assert "GRAF не создаёт, не изменяет и не удаляет события Google Calendar" in response.text
+    assert "Подключение календаря само по себе не начинает запись" in response.text
     assert "Российские и локально развёрнутые модели" in response.text
     assert "ничего за рубеж" not in response.text.lower()
     assert response.text.count('href="/download"') >= 2
