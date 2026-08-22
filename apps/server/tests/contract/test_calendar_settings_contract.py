@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -12,8 +13,16 @@ from tests.fixtures.calendar_settings import (
     calendar_settings_snapshot,
     calendar_settings_source,
 )
-from twobrain_rec_server.api.schemas import ConnectCalendarSourceRequest, SelectCalendarsRequest
-from twobrain_rec_server.cabinet.rendering import render_calendar_settings_fragment
+from twobrain_rec_server.api.schemas import (
+    ConnectCalendarSourceRequest,
+    MeetingFilterState,
+    MeetingListResponse,
+    SelectCalendarsRequest,
+)
+from twobrain_rec_server.cabinet.rendering import (
+    render_calendar_settings_fragment,
+    render_meeting_list_page,
+)
 from twobrain_rec_server.cabinet.view_models import CALENDAR_PROVIDER_UI, calendar_settings_surface
 
 REQUIRED_PROVIDER_LABELS = {
@@ -21,15 +30,14 @@ REQUIRED_PROVIDER_LABELS = {
     "Mail.ru Календарь",
     "Exchange / Exchange Server / EWS",
     "Bitrix24",
-    "VK WorkSpace / custom CalDAV",
+    "VK WorkSpace / свой CalDAV",
     "Mailion / MyOffice",
     "R7-Office",
     "CommuniGate Pro",
     "RuPost",
-    "Nextcloud / SOGo-like CalDAV",
+    "Nextcloud / SOGo через CalDAV",
     "Другой CalDAV",
 }
-
 REPO_ROOT = Path(__file__).resolve().parents[4]
 CALENDAR_CSS = REPO_ROOT / "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css"
 
@@ -98,7 +106,10 @@ def test_calendar_source_contract_accepts_zero_selected_after_connect_and_empty_
     assert created.status_code == 201
     source_id = created.json()["source"]["source_id"]
     assert created.json()["source"]["selected_calendar_count"] == 0
-    assert created.json()["calendars"] == []
+    assert {calendar["calendar_id"] for calendar in created.json()["calendars"]} >= {
+        "primary",
+        "secondary",
+    }
     assert "synthetic-secret" not in str(created.json())
 
     empty_saved = client.patch(
@@ -130,8 +141,7 @@ def test_calendar_settings_web_route_renders_working_settings_screen(client) -> 
     assert "Настройки" in html
     assert "Календари" in html
     assert (
-        '<a class="button primary" href="#calendar-providers-title">Выбрать провайдера</a>'
-        in html
+        '<a class="button primary" href="#calendar-providers-title">Выбрать провайдера</a>' in html
     )
     assert '<a class="button quiet" href="#calendar-providers-title">Добавить</a>' not in html
     assert '<button class="primary" type="button">Подключить первый календарь</button>' not in html
@@ -163,16 +173,21 @@ def test_calendar_settings_connection_flow_uses_progressive_disclosure(client) -
     assert response.status_code == 200
     html = response.text
     assert '<section class="calendar-boundary"' not in html
-    assert 'class="calendar-provider-button"' in html
+    assert 'class="calendar-provider-button calendar-provider-button--unavailable"' in html
     assert 'class="calendar-provider-logo"' in html
     assert 'class="calendar-provider-buttons"' in html
-    assert 'class="calendar-provider-dialog"' in html
-    assert "data-calendar-provider-open" in html
-    assert "data-calendar-provider-dialog" in html
-    assert 'aria-haspopup="dialog"' in html
-    assert "Реквизиты вводятся в отдельном окне" in html
-    assert "Подключить Яндекс Календарь" in html
-    assert "Подключить Mail.ru Календарь" in html
+    assert 'class="calendar-provider-dialog"' not in html
+    assert "data-calendar-provider-open" not in html
+    assert "data-calendar-provider-dialog" not in html
+    assert 'aria-haspopup="dialog"' not in html
+    assert "Доступные подключения работают только на чтение" in html
+    assert "Яндекс Календарь" in html
+    assert "Mail.ru Календарь" in html
+    assert 'data-calendar-mutation="connect"' not in html
+    assert "data-calendar-mutation-status" not in html
+    assert "Google Calendar" in html
+    assert "Скоро" in html
+    assert "Подключение появится после полной проверки." in html
     assert 'class="calendar-connect-details"' not in html
     assert 'class="calendar-provider-list"' not in html
     assert 'class="calendar-provider-grid"' not in html
@@ -180,13 +195,83 @@ def test_calendar_settings_connection_flow_uses_progressive_disclosure(client) -
     assert "calendar-connect-details" not in css
     assert "calendar-provider-row" not in css
     assert "calendar-provider-cta" not in css
-    assert 'class="calendar-advanced-fields"' in html
-    assert "https://calendar.example/caldav…" in html
-    assert "https://calendar.example/caldav..." not in html
+    assert 'class="calendar-advanced-fields"' not in html
+    assert "https://calendar.example/caldav…" not in html
     assert html.index('id="calendar-sources-title"') < html.index('id="calendar-providers-title"')
     assert html.index('id="calendar-providers-title"') < html.index('id="calendar-boundary-title"')
-    assert html.index('class="calendar-advanced-fields"') < html.index('name="account_label"')
     assert_no_forbidden_calendar_settings_content(html)
+
+
+def test_meeting_home_renders_authoritative_calendar_upcoming_projection() -> None:
+    source = calendar_settings_source(
+        sync_state="synced",
+        last_successful_sync_at=datetime(2026, 8, 20, tzinfo=UTC),
+    )
+    calendar = calendar_settings_calendar(source=source, selected=True)
+    snapshot = calendar_settings_snapshot(
+        source=source,
+        calendar=calendar,
+        starts_at=datetime(2026, 8, 20, 9, 0, tzinfo=UTC),
+        open_meeting_available=True,
+    )
+    surface = calendar_settings_surface(
+        provider_payloads=[],
+        sources=[source],
+        calendars_by_source={source.id: [calendar]},
+        preview_events=[snapshot],
+        now=datetime(2026, 8, 20, tzinfo=UTC),
+    )
+    page = render_meeting_list_page(
+        MeetingListResponse(
+            items=[],
+            filters=MeetingFilterState(q=None, status=None, access=None, sort="started_desc"),
+            generated_at=datetime(2026, 8, 20, tzinfo=UTC),
+        ),
+        calendar_surface=surface,
+        display_timezone="Europe/Moscow",
+    )
+
+    assert 'aria-label="Ближайшие встречи"' in page
+    assert "Из выбранных календарей" in page
+    assert snapshot.title in page
+    assert f"/api/v1/calendar/events/{snapshot.id}/open" in page
+    assert ">Подключиться</a>" in page
+    assert "synthetic-envelope" not in page
+    assert "/settings/integrations/calendar" in page
+
+
+def test_meeting_home_names_credential_recovery_without_false_freshness() -> None:
+    source = calendar_settings_source(sync_state="credential_failed")
+    source.last_safe_error_code = "invalid_credentials"
+    calendar = calendar_settings_calendar(source=source, selected=True)
+    snapshot = calendar_settings_snapshot(
+        source=source,
+        calendar=calendar,
+        starts_at=datetime(2026, 8, 20, 9, 0, tzinfo=UTC),
+        open_meeting_available=True,
+    )
+    surface = calendar_settings_surface(
+        provider_payloads=[],
+        sources=[source],
+        calendars_by_source={source.id: [calendar]},
+        preview_events=[snapshot],
+        now=datetime(2026, 8, 20, tzinfo=UTC),
+    )
+    page = render_meeting_list_page(
+        MeetingListResponse(
+            items=[],
+            filters=MeetingFilterState(q=None, status=None, access=None, sort="started_desc"),
+            generated_at=datetime(2026, 8, 20, tzinfo=UTC),
+        ),
+        calendar_surface=surface,
+    )
+
+    assert "Нужно переподключить календарь" in page
+    assert "Календарь нужно переподключить" in page
+    assert "Ручная запись по-прежнему доступна" in page
+    assert "Календарь обновляется" not in page
+    assert snapshot.title not in page
+    assert f"/api/v1/calendar/events/{snapshot.id}/open" not in page
 
 
 def test_calendar_settings_disconnect_confirmation_copy_is_truthful_and_safe() -> None:
@@ -201,12 +286,77 @@ def test_calendar_settings_disconnect_confirmation_copy_is_truthful_and_safe() -
     html = render_calendar_settings_fragment(surface)
 
     assert "Отключить календарь?" in html
-    assert "Будущая синхронизация из этого источника остановится" in html
-    assert "Данные подключения будут удалены или отозваны там, где это контролирует GRAF" in html
-    assert "Уже связанный контекст встреч живет по политике хранения встречи" in html
-    assert "не обещает удалить данные вне своего контроля" in html
+    assert ">Отключить</button>" in html
+    assert '<dialog class="calendar-provider-dialog calendar-disconnect-dialog"' in html
+    assert 'aria-haspopup="dialog"' in html
+    assert "Новые встречи перестанут появляться в GRAF" in html
+    assert "Уже созданные встречи останутся" in html
+    assert "удалены или отозваны" not in html
+    assert "отозвать доступ" not in html.lower()
     assert "удалит события у провайдера" not in html
     assert_no_forbidden_calendar_settings_content(html)
+
+
+def test_calendar_reconnect_action_requires_matching_available_provider_dialog() -> None:
+    source = calendar_settings_source(sync_state="credential_failed")
+    unavailable_surface = calendar_settings_surface(
+        provider_payloads=[
+            {
+                "provider_family": source.provider_family,
+                "runtime_available": False,
+            }
+        ],
+        sources=[source],
+    )
+    available_surface = calendar_settings_surface(
+        provider_payloads=[
+            {
+                "provider_family": source.provider_family,
+                "runtime_available": True,
+            }
+        ],
+        sources=[source],
+    )
+
+    unavailable_html = render_calendar_settings_fragment(unavailable_surface)
+    available_html = render_calendar_settings_fragment(available_surface)
+    dialog_id = f"calendar-provider-dialog-{source.provider_family}"
+
+    assert "Переподключить" not in unavailable_html
+    assert f'id="{dialog_id}"' not in unavailable_html
+    assert "Переподключить" in available_html
+    assert f'aria-controls="{dialog_id}"' in available_html
+    assert f'id="{dialog_id}"' in available_html
+
+
+def test_calendar_dialog_escape_closes_and_restores_focus() -> None:
+    script = (
+        REPO_ROOT / "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js"
+    ).read_text()
+    calendar_dialog_source = script[
+        script.index("const dialogOpeners = new WeakMap()") : script.index(
+            "const initSettingsFormState"
+        )
+    ]
+
+    assert 'dialog.addEventListener("cancel"' in calendar_dialog_source
+    assert 'dialog.addEventListener("keydown"' in calendar_dialog_source
+    assert 'event.key !== "Escape"' in calendar_dialog_source
+    assert "event.preventDefault()" in calendar_dialog_source
+    assert "closeCalendarDialog(dialog)" in calendar_dialog_source
+
+
+def test_calendar_selection_limit_message_has_priority_over_dirty_state() -> None:
+    script = (
+        REPO_ROOT / "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js"
+    ).read_text()
+
+    assert 'form.addEventListener("keyup", (event) =>' in script
+    assert '(event.key !== " " && event.key !== "Spacebar")' in script
+    assert "selectedCalendarCount() !== selectionLimit" in script
+    assert 'status.dataset.preserveMessage = "true"' in script
+    assert "delete status.dataset.preserveMessage" in script
+    assert 'status.dataset.preserveMessage !== "true"' in script
 
 
 def test_calendar_settings_accessibility_contract_for_states_and_controls(client) -> None:
@@ -220,17 +370,25 @@ def test_calendar_settings_accessibility_contract_for_states_and_controls(client
     assert 'aria-labelledby="calendar-boundary-title"' in html
     assert 'aria-labelledby="calendar-sources-title"' in html
     assert 'aria-labelledby="calendar-providers-title"' in html
-    assert 'aria-label="Закрыть окно подключения"' in html
-    assert 'aria-haspopup="dialog"' in html
+    assert 'aria-label="Закрыть окно подключения"' not in html
+    status_nodes = re.findall(r"<[^>]*role=\"status\"[^>]*>", html)
+    assert status_nodes
+    assert all('aria-live="polite"' in node for node in status_nodes)
+    assert 'aria-haspopup="dialog"' not in html
+    assert 'role="dialog" aria-modal="true"' not in html
+    assert 'data-calendar-has-result="false"' in html
     assert 'aria-live="polite"' in html
     assert 'role="status"' in html
     assert 'name="join_prompt_enabled"' in html
     assert 'name="record_prompt_enabled"' in html
-    assert 'name="credential_input"' in html
+    assert 'name="credential_input"' not in html
+    assert "data-settings-form-disable-pristine" in html
+    assert "data-settings-form-reset" in html
+    assert "Отменить изменения" in html
     assert "Если настройка ограничена политикой организации" in html
     assert "Во время загрузки настроек ручная запись остается доступной" in html
     assert "Если настройки календарей временно недоступны" in html
-    assert "Private/free-busy события показываются без названия" in html
+    assert "Приватные события и события только со статусом занятости" in html
     assert "onclick=" not in html
     assert "onkeydown=" not in html
     assert "summary:focus-visible" in css
@@ -290,7 +448,8 @@ def test_calendar_settings_overlap_conflict_renders_explicit_choice() -> None:
     html = render_calendar_settings_fragment(surface)
 
     assert "Нужно выбрать событие для пересечения" in html
-    assert "12:30 - 13:00 UTC" in html
+    assert "data-calendar-local-time" in html
+    assert "12:30 - 13:00 UTC" not in html
     assert "GRAF не выбирает событие автоматически" in html
     assert "Можно продолжить без календарного контекста" in html
     assert "Вариант:" in html
@@ -340,22 +499,19 @@ def test_calendar_settings_html_lists_all_required_providers(client) -> None:
     assert response.status_code == 200
     for label in REQUIRED_PROVIDER_LABELS:
         assert label in response.text
-    assert "Пароль приложения" in response.text
-    assert "может понадобиться настройка организации" in response.text
+    assert "Скоро" in response.text
+    assert "Подключение появится после полной проверки." in response.text
     assert "Подключить по паролю приложения" not in response.text
     assert "Подключить CalDAV" not in response.text
     assert "Показать условия подключения" not in response.text
-    assert "Проверить подключение" in response.text
-    assert "Подключить Яндекс Календарь" in response.text
-    assert "Подключить Mail.ru Календарь" in response.text
-    assert response.text.count('class="calendar-provider-dialog"') >= len(REQUIRED_PROVIDER_LABELS)
-    assert "data-calendar-provider-close" in response.text
-    assert 'name="credential_input"' in response.text
-    assert 'name="caldav_url"' in response.text
-    assert (
-        "Данные для подключения остаются на сервере GRAF"
-        in response.text
-    )
+    assert "Неподдерживаемые сервисы отмечены честно" in response.text
+    assert "Яндекс Календарь" in response.text
+    assert "Mail.ru Календарь" in response.text
+    assert 'class="calendar-provider-dialog"' not in response.text
+    assert "data-calendar-provider-open" not in response.text
+    assert "data-calendar-provider-close" not in response.text
+    assert 'name="credential_input"' not in response.text
+    assert 'name="caldav_url"' not in response.text
     assert "secret-app-password" not in response.text
 
 

@@ -58,6 +58,13 @@ else
   export TWOBRAIN_BILLING_YOOKASSA_WEBHOOK_SECRET_FILE="$disabled_billing_secret"
   export TWOBRAIN_BILLING_REFERRAL_SECRET_FILE="$disabled_billing_secret"
 fi
+if [[ "${TWOBRAIN_GOOGLE_CALENDAR_ENABLED:-false}" == "true" ]]; then
+  export TWOBRAIN_GOOGLE_CALENDAR_CLIENT_SECRET_FILE="$(
+    normalize_compose_secret_path "${TWOBRAIN_GOOGLE_CALENDAR_CLIENT_SECRET_FILE:-./secrets/twobrain_google_calendar_client_secret}"
+  )"
+else
+  export TWOBRAIN_GOOGLE_CALENDAR_CLIENT_SECRET_FILE="$disabled_billing_secret"
+fi
 
 # File-backed Compose secrets retain host ownership. Keep generated files in
 # the deploy user's private primary group and grant only that numeric group to

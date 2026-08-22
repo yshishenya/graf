@@ -29,6 +29,7 @@ ALLOWED_MAINTENANCE_OPERATIONS = frozenset(
         "billing_reconciliation",
         "billing_notification_reconciliation",
         "account_merge",
+        "calendar_sync_reconciliation",
     }
 )
 

@@ -1152,8 +1152,8 @@ def test_cabinet_list_web_shell_renders_reference_informed_controls(client) -> N
 
     assert response.status_code == 200
     assert "Мои встречи" in response.text
-    assert "Ближайшие" not in response.text
-    assert "Подключить календари" not in response.text
+    assert "Ближайшие встречи" in response.text
+    assert "Подключите календарь" in response.text
     assert "Пробный период" not in response.text
     assert "Пригласить" not in response.text
     assert "Командный синк" not in response.text

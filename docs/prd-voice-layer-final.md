@@ -37,6 +37,12 @@ Current accepted local baseline:
   `meeting-transcription.wav` (PCM s16le mono 16 kHz, only ASR input), and
   `meeting-review.m4a` (AAC mono 48 kHz, playback only). It is not a release or
   production-acceptance claim until its high-risk evidence is complete.
+- Feature `177-webrtc-aec3-recording` adds mandatory local WebRTC AEC3 before
+  the existing canonical mix. It processes the aligned system reference before
+  each matching microphone block, leaves system audio unchanged, disables
+  HPF/NS/AGC/VAD/gates, and fails closed without a raw-microphone fallback.
+  Synthetic and local packaging evidence are required in this slice; controlled
+  two-Mac hardware acceptance and public release remain separate gates.
 - The current MediaScribe integration contract is the v5 single-WAV section in
   `docs/integrations/mediascribe-dual-track-api.md`; the dual endpoint there is
   retained solely for immutable v3/v4 compatibility records.
@@ -558,7 +564,8 @@ Track requirements:
 - `manifest.json`: source roles, timing, artifact readiness, degraded/failure
   truth, and metadata-only evidence.
 - The two files are required v5 final members. No new writer creates per-source
-  WAV artifacts, runs AEC, performs echo cleanup, or merges two transcripts.
+  WAV artifacts or merges two transcripts. Before this unchanged mix, Feature
+  177 removes the aligned system echo only from the microphone component.
 
 Frame/chunk metadata:
 

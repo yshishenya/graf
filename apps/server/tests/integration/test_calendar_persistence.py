@@ -6,6 +6,7 @@ from uuid import UUID
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fixtures.calendar import calendar_event_fixture
@@ -46,6 +47,21 @@ CALENDAR_TABLES = {
     "calendar_audit_events",
 }
 RESOLVE_PATH = "/api/v1/desktop/recordings/{local_recording_id}/calendar-context/resolve"
+
+
+async def _selected_calendar(
+    session: AsyncSession, source_id: UUID
+) -> ExternalCalendar:
+    calendar = await session.scalar(
+        select(ExternalCalendar)
+        .where(
+            ExternalCalendar.calendar_source_id == source_id,
+            ExternalCalendar.selected.is_(True),
+        )
+        .order_by(ExternalCalendar.provider_calendar_id)
+    )
+    assert calendar is not None
+    return calendar
 
 
 def test_calendar_models_define_required_tables() -> None:
@@ -188,9 +204,7 @@ def test_calendar_event_snapshot_upsert_and_upcoming_response(client) -> None:
     async def seed_event() -> None:
         async with sessionmaker() as session:
             source = await session.get(CalendarSource, UUID(source_id))
-            external_calendar = await session.scalar(
-                select(ExternalCalendar).where(ExternalCalendar.calendar_source_id == source.id)
-            )
+            external_calendar = await _selected_calendar(session, source.id)
             await upsert_event_snapshot(
                 session,
                 tenant_scope=client.app_state.get("tenant_scope") or _tenant_scope(),
@@ -268,9 +282,7 @@ def test_calendar_upcoming_ignores_selected_unavailable_calendar(client) -> None
     async def seed_unavailable_event() -> None:
         async with sessionmaker() as session:
             source = await session.get(CalendarSource, source_id)
-            external_calendar = await session.scalar(
-                select(ExternalCalendar).where(ExternalCalendar.calendar_source_id == source.id)
-            )
+            external_calendar = await _selected_calendar(session, source.id)
             external_calendar.visibility = "unavailable"
             session.add(
                 CalendarEventSnapshot(
@@ -327,7 +339,10 @@ def test_desktop_calendar_upcoming_respects_selection_and_prompt_preferences(cli
         async with sessionmaker() as session:
             source = await session.get(CalendarSource, source_id)
             selected_calendar = await session.scalar(
-                select(ExternalCalendar).where(ExternalCalendar.calendar_source_id == source.id)
+                select(ExternalCalendar).where(
+                    ExternalCalendar.calendar_source_id == source.id,
+                    ExternalCalendar.provider_calendar_id == "selected",
+                )
             )
             unselected_calendar = ExternalCalendar(
                 workspace_id=source.workspace_id,
@@ -417,7 +432,10 @@ def test_desktop_calendar_upcoming_includes_events_overlapping_lookup_window(cli
         async with sessionmaker() as session:
             source = await session.get(CalendarSource, source_id)
             calendar = await session.scalar(
-                select(ExternalCalendar).where(ExternalCalendar.calendar_source_id == source.id)
+                select(ExternalCalendar).where(
+                    ExternalCalendar.calendar_source_id == source.id,
+                    ExternalCalendar.selected.is_(True),
+                )
             )
             for event_id, starts_at, ends_at in (
                 ("already-running", now - timedelta(minutes=45), now + timedelta(minutes=15)),
@@ -478,7 +496,10 @@ def test_calendar_upcoming_applies_default_preferences_before_limit(client) -> N
         async with sessionmaker() as session:
             source = await session.get(CalendarSource, source_id)
             calendar = await session.scalar(
-                select(ExternalCalendar).where(ExternalCalendar.calendar_source_id == source.id)
+                select(ExternalCalendar).where(
+                    ExternalCalendar.calendar_source_id == source.id,
+                    ExternalCalendar.selected.is_(True),
+                )
             )
             noisy_events = [
                 CalendarEventSnapshot(
@@ -567,9 +588,7 @@ def test_calendar_event_snapshot_persists_context_fields_and_recurrence_instance
     async def seed_events() -> tuple[str | None, str | None, int, list[datetime]]:
         async with sessionmaker() as session:
             source = await session.get(CalendarSource, source_id)
-            calendar = await session.scalar(
-                select(ExternalCalendar).where(ExternalCalendar.calendar_source_id == source.id)
-            )
+            calendar = await _selected_calendar(session, source.id)
             tenant_scope = client.app_state.get("tenant_scope") or _tenant_scope()
             first = await upsert_event_snapshot(
                 session,
@@ -759,9 +778,7 @@ def test_calendar_sync_result_updates_token_and_marks_missing_future_events_dele
     async def sync_twice() -> tuple[str, datetime | None, str | None]:
         async with sessionmaker() as session:
             source = await session.get(CalendarSource, source_id)
-            calendar = await session.scalar(
-                select(ExternalCalendar).where(ExternalCalendar.calendar_source_id == source.id)
-            )
+            calendar = await _selected_calendar(session, source.id)
             tenant_scope = client.app_state.get("tenant_scope") or _tenant_scope()
             first = normalize_calendar_event(
                 calendar_event_fixture(
@@ -926,6 +943,8 @@ def test_calendar_title_fallback_preserves_manual_title_and_names_untitled_recor
         json={"event_id": fallback_event, "context_reason": "manual_selection"},
     )
 
+    assert manual_link.status_code == 200, manual_link.json()
+    assert fallback_link.status_code == 200, fallback_link.json()
     assert manual_link.json()["title_source"] == "legacy_unknown"
     assert fallback_link.json()["title_source"] == "calendar"
     assert _meeting_title(client, UUID(manual.json()["meeting_id"])) == "Manual title"
@@ -958,9 +977,7 @@ def _seed_stable_matched_calendar_context(client, suffix: str) -> dict[str, UUID
             source.last_sync_finished_at = source.last_successful_sync_at
             source.sync_horizon_start = recording_started_at - timedelta(days=1)
             source.sync_horizon_end = recording_started_at + timedelta(days=365)
-            calendar = await session.scalar(
-                select(ExternalCalendar).where(ExternalCalendar.calendar_source_id == source.id)
-            )
+            calendar = await _selected_calendar(session, source.id)
             event = normalize_calendar_event(
                 calendar_event_fixture(
                     "caldav_yandex",
@@ -1048,10 +1065,10 @@ def _mutate_matched_provider_event(
     async def mutate() -> dict[str, object]:
         async with sessionmaker() as session:
             source = await session.get(CalendarSource, source_id)
-            calendar = await session.scalar(
-                select(ExternalCalendar).where(ExternalCalendar.calendar_source_id == source.id)
-            )
             existing = await session.get(CalendarEventSnapshot, event_id)
+            assert existing is not None
+            calendar = await session.get(ExternalCalendar, existing.external_calendar_id)
+            assert calendar is not None
             starts_at = existing.starts_at
             ends_at = existing.ends_at
             events = []
@@ -1203,9 +1220,7 @@ def _seed_calendar_event_at(client, *, starts_at: datetime, ends_at: datetime) -
     async def seed_event() -> str:
         async with sessionmaker() as session:
             source = await session.get(CalendarSource, source_id)
-            external_calendar = await session.scalar(
-                select(ExternalCalendar).where(ExternalCalendar.calendar_source_id == source.id)
-            )
+            external_calendar = await _selected_calendar(session, source.id)
             snapshot = await upsert_event_snapshot(
                 session,
                 tenant_scope=client.app_state.get("tenant_scope") or _tenant_scope(),

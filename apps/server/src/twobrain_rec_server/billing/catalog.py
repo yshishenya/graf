@@ -151,8 +151,8 @@ def plan_descriptor(code: PlanCode) -> PlanDescriptor:
         "Личный",
         PERSONAL_STORAGE_BYTES,
         "unlimited",
-        monthly_amount_minor=79_000,
-        annual_amount_minor=790_000,
+        monthly_amount_minor=100_000,
+        annual_amount_minor=1_000_000,
     )
 
 

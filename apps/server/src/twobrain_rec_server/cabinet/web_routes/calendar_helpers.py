@@ -22,6 +22,7 @@ def calendar_settings_redirect(
     preferences_result: str | None = None,
     sync_result: str | None = None,
     disconnect_result: str | None = None,
+    return_path: str | None = None,
 ) -> RedirectResponse:
     embedded = request.url.path.startswith("/desktop/")
     params = {}
@@ -38,13 +39,22 @@ def calendar_settings_redirect(
     if disconnect_result:
         params["disconnect_result"] = disconnect_result
     suffix = f"?{urlencode(params)}" if params else ""
-    path = "/desktop/settings/integrations/calendar" if embedded else "/settings/integrations/calendar"
+    path = return_path or (
+        "/desktop/settings/integrations/calendar" if embedded else "/settings/integrations/calendar"
+    )
     return RedirectResponse(f"{path}{suffix}", status_code=303)
 
 
 def safe_calendar_provider_result(value: str | None) -> str:
     normalized = (value or "").strip().lower()
-    if normalized in {"success", "cancelled", "denied", "failed", "no_readable_calendars"}:
+    if normalized in {
+        "success",
+        "cancelled",
+        "denied",
+        "failed",
+        "no_readable_calendars",
+        "dependency_missing",
+    }:
         return normalized
     return "failed"
 
@@ -66,7 +76,11 @@ def calendar_manual_sync_result(source, *, requested_at: datetime | None = None)
         return "unavailable"
     if source.connection_state in {"disabled", "disabled_by_policy"}:
         return "unavailable"
-    if source.connection_state in {"needs_action", "error"} or source.sync_state == "credential_failed":
+    if (
+        source.connection_state in {"needs_action", "error"}
+        or source.sync_state == "credential_failed"
+        or source.credential_state in {"invalid", "revoked", "purged"}
+    ):
         return "reconnect_required"
     if source.sync_state in {"queued", "syncing"}:
         if (
@@ -78,13 +92,30 @@ def calendar_manual_sync_result(source, *, requested_at: datetime | None = None)
         return "already_running"
     if source.sync_state in {"failed", "failed_closed", "provider_unavailable", "rate_limited"}:
         return "failed"
+    if (
+        source.sync_state == "never_synced"
+        and requested_at is not None
+        and source.last_sync_finished_at is not None
+        and source.last_sync_finished_at >= requested_at
+    ):
+        return "catalog_updated"
+    if (
+        source.sync_state == "synced"
+        and requested_at is not None
+        and source.last_sync_finished_at is not None
+        and source.last_sync_finished_at >= requested_at
+    ):
+        return "completed"
     return "accepted"
 
 
 def calendar_disconnect_result(result: dict[str, object]) -> str:
     if result.get("connection_state") != "disconnected":
         return "failed"
-    if result.get("credentials_purged") is not True or result.get("unmatched_future_cache_purged") is not True:
+    if (
+        result.get("credentials_purged") is not True
+        or result.get("unmatched_future_cache_purged") is not True
+    ):
         return "partial"
     return "success"
 

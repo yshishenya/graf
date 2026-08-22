@@ -72,6 +72,34 @@ def test_calendar_connection_secret_packs_manual_url_without_url_credentials() -
     )
 
 
+def test_calendar_connection_secret_rejects_insecure_and_private_caldav_urls() -> None:
+    for url in (
+        "http://calendar.example.test/dav/",
+        "https://localhost/dav/",
+        "https://127.0.0.1/dav/",
+        "https://[::1]/dav/",
+        "https://169.254.169.254/latest/meta-data/",
+    ):
+        assert (
+            calendar_connection_secret(
+                method_category="manual_url",
+                caldav_url=url,
+                username="owner@example.test",
+                credential_input="synthetic-secret",
+            )
+            is None
+        )
+    assert (
+        calendar_connection_secret(
+            method_category="manual_url",
+            caldav_url="https://calendar.example.test/dav/",
+            username="",
+            credential_input="synthetic-secret",
+        )
+        is None
+    )
+
+
 def test_calendar_provider_problem_codes_are_retryable_and_metadata_only() -> None:
     response = problem_response(
         ProblemDetail(

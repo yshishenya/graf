@@ -60,6 +60,8 @@ EXECUTABLE="$APP_BUNDLE/Contents/MacOS/GRAF"
 SPARKLE_FRAMEWORK="$APP_BUNDLE/Contents/Frameworks/Sparkle.framework"
 SPARKLE_LICENSE="$APP_BUNDLE/Contents/Resources/Sparkle-LICENSE.txt"
 SPARKLE_LICENSE_SHA256="389a4e4e9a32f059775b13a06e25a591445ba229d2838d26dd3e7c0c45127cfe"
+AEC3_NOTICE="$APP_BUNDLE/Contents/Resources/AEC3-THIRD-PARTY-NOTICES.txt"
+AEC3_NOTICE_SHA256="a016a4d4e652d25a797f50dc97290ec051532ef45874cb477241eaa1b4ff0b40"
 
 [ -d "$APP_BUNDLE" ] || fail "app bundle is missing"
 [ -f "$INFO_PLIST" ] || fail "Info.plist is missing"
@@ -67,6 +69,8 @@ SPARKLE_LICENSE_SHA256="389a4e4e9a32f059775b13a06e25a591445ba229d2838d26dd3e7c0c
 [ -d "$SPARKLE_FRAMEWORK" ] || fail "Contents/Frameworks/Sparkle.framework is missing"
 [ -f "$SPARKLE_LICENSE" ] || fail "Sparkle license notice is missing"
 [ "$(shasum -a 256 "$SPARKLE_LICENSE" | awk '{print $1}')" = "$SPARKLE_LICENSE_SHA256" ] || fail "Sparkle license notice differs from release 2.9.4"
+[ -f "$AEC3_NOTICE" ] || fail "AEC3 third-party notice is missing"
+[ "$(shasum -a 256 "$AEC3_NOTICE" | awk '{print $1}')" = "$AEC3_NOTICE_SHA256" ] || fail "AEC3 third-party notice differs from the reviewed dependency inventory"
 
 plist_read() {
   /usr/bin/plutil -extract "$1" raw -o - "$2" 2>/dev/null || true
@@ -120,8 +124,15 @@ SYSTEM_AUDIO_COPY=$(plist_read NSScreenCaptureUsageDescription "$INFO_PLIST")
 [ -n "$SYSTEM_AUDIO_CAPTURE_COPY" ] || fail "system-audio capture usage description is missing"
 [ -n "$SYSTEM_AUDIO_COPY" ] || fail "screen/system-audio usage description is missing"
 
-lipo -archs "$EXECUTABLE" | tr ' ' '\n' | grep -qx arm64 || fail "GRAF executable is not arm64-capable"
+EXECUTABLE_ARCHES=$(lipo -archs "$EXECUTABLE" | tr ' ' '\n' | sort | tr '\n' ' ' | sed 's/ $//')
+[ "$EXECUTABLE_ARCHES" = "arm64 x86_64" ] || fail "GRAF executable must contain arm64 and x86_64: $EXECUTABLE_ARCHES"
 otool -L "$EXECUTABLE" | grep -Fq '@rpath/Sparkle.framework/' || fail "GRAF executable is not linked to embedded Sparkle"
+if otool -L "$EXECUTABLE" | grep -Eiq 'webrtc|absl'; then
+  fail "GRAF executable has an unexpected WebRTC/Abseil dynamic dependency"
+fi
+if find "$APP_BUNDLE" -type f \( -iname '*webrtc*.dylib' -o -iname '*absl*.dylib' \) -print | grep -q .; then
+  fail "GRAF bundle contains an unexpected WebRTC/Abseil dynamic library"
+fi
 
 for nested in \
   "$SPARKLE_FRAMEWORK/Versions/B/XPCServices/Downloader.xpc" \

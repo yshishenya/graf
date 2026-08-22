@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -25,6 +26,7 @@ from twobrain_rec_server.api.product_analytics_guard import ProductAnalyticsIngr
 from twobrain_rec_server.api.support_incidents import router as support_incidents_router
 from twobrain_rec_server.cabinet.templates import CABINET_STATIC_URL, cabinet_static_dir
 from twobrain_rec_server.cabinet.web import router as cabinet_web_router
+from twobrain_rec_server.calendar.worker import run_calendar_sync_reconciler
 from twobrain_rec_server.config import Settings, get_settings
 from twobrain_rec_server.db.session import create_engine, create_sessionmaker
 from twobrain_rec_server.observability.logging import configure_logging, request_logging_middleware
@@ -46,9 +48,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        calendar_task = (
+            asyncio.create_task(run_calendar_sync_reconciler(settings))
+            if settings.env.lower() == "development"
+            and settings.credential_encryption_key_file is not None
+            else None
+        )
         try:
             yield
         finally:
+            if calendar_task is not None:
+                calendar_task.cancel()
+                await asyncio.gather(calendar_task, return_exceptions=True)
             close_storage = getattr(app.state.storage, "close", None)
             if close_storage is not None:
                 close_storage()

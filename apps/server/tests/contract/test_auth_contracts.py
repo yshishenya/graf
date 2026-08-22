@@ -19,20 +19,29 @@ from tests.fakes.auth_contexts import (
     WORKSPACE_ID,
 )
 from tests.fakes.auth_providers import fake_provider_map
-from twobrain_rec_server.api.auth import router as auth_api_router
+from twobrain_rec_server.api.auth import (
+    BROWSER_AUTH_STATE_COOKIE_NAME,
+    _provider_link_callback_result,
+)
+from twobrain_rec_server.api.auth import (
+    router as auth_api_router,
+)
 from twobrain_rec_server.auth import provider_links as provider_links_module
+from twobrain_rec_server.auth import rate_limit as rate_limit_module
 from twobrain_rec_server.auth.account_merge import AccountMergeError
 from twobrain_rec_server.auth.audit import write_auth_audit_event
 from twobrain_rec_server.auth.csrf import issue_csrf_token
 from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
-from twobrain_rec_server.auth.sessions import issue_auth_session
+from twobrain_rec_server.auth.sessions import decode_session_token, hash_token, issue_auth_session
 from twobrain_rec_server.auth.workspace_onboarding import ensure_personal_workspace
 from twobrain_rec_server.cabinet.auth_rendering import render_login_page
+from twobrain_rec_server.cabinet.web_routes import auth_email_flow as auth_email_flow_module
 from twobrain_rec_server.cabinet.web_routes.account_merge import _error_copy
 from twobrain_rec_server.db.models import (
     AccountMergeIntent,
     AuthAuditEvent,
     AuthCallbackState,
+    AuthRateLimitBucket,
     AuthSession,
     AuthSessionDeviceBinding,
     ExternalIdentity,
@@ -136,10 +145,10 @@ class FakeProviderHttpClient:
 
 AUTH_LINK_ERROR_COPY = {
     "ambiguous_email_recovery_required": "Этот адрес связан с несколькими профилями.",
-    "merge_preview_stale": "Состояние профилей изменилось. Данные не изменены; подключите email заново.",
-    "merge_intent_expired": "Время подтверждения истекло. Данные не изменены; подключите email заново.",
-    "proof_required": "Нужно повторно подтвердить оба способа входа.",
-    "merge_blocked": "Email не подключён. Данные не изменены.",
+    "merge_preview_stale": "Состояние профилей изменилось. Данные не изменены; подключите способ входа заново.",
+    "merge_intent_expired": "Время подтверждения истекло. Данные не изменены; подключите способ входа заново.",
+    "proof_required": "Подтверждение больше не действует. Данные не изменены; подключите способ входа заново.",
+    "merge_blocked": "Способ входа не подключён. Данные не изменены.",
 }
 
 
@@ -161,6 +170,9 @@ def test_successful_account_link_login_copy_is_positive_and_requests_relogin() -
 
     assert "Email подключён к текущему профилю." in page
     assert "Войдите снова любым сохранённым способом." in page
+    assert 'class="auth-alert auth-alert--success" role="status"' in page
+    assert "Подключение завершено" in page
+    assert "Вход выполнен" not in page
     assert "Сессия не найдена" not in page
     assert "auth_session_invalid" not in page
 
@@ -328,10 +340,14 @@ def _prepare_provider_link_merge_candidate(
             assert link is not None
             source_identity = await db.get(ExternalIdentity, link.source_provider_identity_id)
             assert source_identity is not None
+            source_email = f"provider-link-source-{uuid4()}@example.test"
             source_identity.provider = "email"
-            source_identity.provider_subject = f"provider-link-source-{uuid4()}@example.test"
-            source_identity.email = source_identity.provider_subject
+            source_identity.provider_subject = source_email
+            source_identity.email = source_email
             session.provider = "email"
+            session.claims_fingerprint = hash_token(
+                f"email:{source_email}:{session.workspace_id}"
+            )
             db.add(
                 UserIdentity(
                     id=other_user_id,
@@ -340,13 +356,30 @@ def _prepare_provider_link_merge_candidate(
                 )
             )
             await db.flush()
-            db.add(
-                ExternalIdentity(
-                    user_id=other_user_id,
-                    provider="vk",
-                    provider_subject=provider_subject,
-                    is_verified=True,
-                )
+            personal_workspace = Workspace(
+                id=uuid4(),
+                organization_id=ORG_ID,
+                owner_user_id=other_user_id,
+                slug=f"provider-link-personal-{other_user_id.hex}",
+                name="Моё пространство",
+                kind="personal",
+            )
+            db.add_all(
+                [
+                    personal_workspace,
+                    WorkspaceMembership(
+                        workspace_id=personal_workspace.id,
+                        user_id=other_user_id,
+                        role="owner",
+                        status="active",
+                    ),
+                    ExternalIdentity(
+                        user_id=other_user_id,
+                        provider="vk",
+                        provider_subject=provider_subject,
+                        is_verified=True,
+                    ),
+                ]
             )
             await db.commit()
 
@@ -582,14 +615,14 @@ def test_auth_policy_read_endpoints_do_not_create_rows(client: TestClient) -> No
     assert asyncio.run(count_policy_rows()) == (0, 0)
 
 
-def test_auth_callback_returns_session_and_me_shapes_primary_link(
+def test_unbound_api_auth_callback_returns_token_without_browser_session_or_redirect(
     monkeypatch, client: TestClient
 ) -> None:
     _patch_fake_providers(monkeypatch, client)
 
     start = client.post(
         "/api/v1/auth/providers/yandex/start",
-        json={"workspace_return_url": "app://auth-callback"},
+        json={"workspace_return_url": "/meetings"},
     )
     assert start.status_code == 200
     start_payload = start.json()
@@ -624,12 +657,8 @@ def test_auth_callback_returns_session_and_me_shapes_primary_link(
     assert callback_payload["provider"] == "yandex"
     assert callback_payload["provider_subject"] == "test-ya-user"
     assert callback_payload["session_token"]
-    set_cookie = callback.headers["set-cookie"]
-    assert f"{AUTH_SESSION_COOKIE_NAME}=" in set_cookie
-    assert "HttpOnly" in set_cookie
-    assert "Secure" in set_cookie
-    assert "SameSite=lax" in set_cookie
-    assert "Domain=" not in set_cookie
+    assert "location" not in callback.headers
+    assert AUTH_SESSION_COOKIE_NAME not in callback.headers.get("set-cookie", "")
 
     events = _load_auth_audit_events(client)
     assert [event.event_type for event in events] == [
@@ -747,7 +776,7 @@ def test_provider_link_start_requires_session_csrf_and_creates_bound_state(
             "X-CSRF-Token": csrf,
         },
     )
-    assert response.status_code == 200
+    assert response.status_code == 200, response.text
     payload = response.json()
     assert payload["provider"] == "vk"
     assert payload["authorization_url"]
@@ -769,6 +798,68 @@ def test_provider_link_start_requires_session_csrf_and_creates_bound_state(
     assert link.candidate_provider == "vk"
     assert link.candidate_identity_subject is None
     assert state.result == "pending"
+
+
+def test_provider_link_start_binds_session_to_exact_same_provider_identity(
+    monkeypatch, client: TestClient
+) -> None:
+    _patch_fake_providers(monkeypatch, client)
+    started = client.post(
+        "/api/v1/auth/providers/yandex/start",
+        json={"workspace_return_url": "app://auth-callback"},
+    )
+    login = client.get(
+        "/api/v1/auth/callback/yandex",
+        params={"state": started.json()["state_nonce"], "code": "FIRST-YANDEX"},
+    )
+    assert login.status_code == 200
+    session_id = UUID(login.json()["active_session_id"])
+    workspace_id = UUID(login.json()["workspace_id"])
+    second_identity_id = uuid4()
+
+    async def seed_second_identity_and_rebind_session() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            db.add(
+                ExternalIdentity(
+                    id=second_identity_id,
+                    user_id=UUID(login.json()["user_id"]),
+                    provider="yandex",
+                    provider_subject="second-yandex",
+                    is_verified=True,
+                    is_active=True,
+                )
+            )
+            session = await db.get(AuthSession, session_id)
+            assert session is not None
+            session.claims_fingerprint = hashlib.sha256(
+                f"{workspace_id}|yandex|second-yandex".encode()
+            ).hexdigest()
+            await db.commit()
+
+    import asyncio
+
+    asyncio.run(seed_second_identity_and_rebind_session())
+    csrf = issue_csrf_token(session_id=session_id, secret=client.app.state.web_csrf_secret)
+    response = client.post(
+        "/api/v1/auth/providers/vk/link/start",
+        params={"workspace_id": str(workspace_id)},
+        headers={
+            "Authorization": f"Bearer {login.json()['session_token']}",
+            "X-CSRF-Token": csrf,
+        },
+    )
+    assert response.status_code == 200
+
+    async def load_source_identity_id() -> UUID:
+        async with client.app_state["sessionmaker"]() as db:
+            link = await db.get(
+                WorkspaceProviderLinkState,
+                UUID(response.json()["link_state_id"]),
+            )
+            assert link is not None
+            return link.source_provider_identity_id
+
+    assert asyncio.run(load_source_identity_id()) == second_identity_id
 
 
 def test_provider_link_start_rechecks_disabled_provider_without_creating_intent(
@@ -823,6 +914,316 @@ def test_provider_link_start_rechecks_disabled_provider_without_creating_intent(
     assert asyncio.run(count_intents()) == 0
 
 
+def test_missing_link_and_merge_states_recover_in_web_and_embedded_but_api_stays_json(
+    monkeypatch, client: TestClient
+) -> None:
+    _patch_fake_providers(monkeypatch, client)
+    started = client.get(
+        "/login/yandex/start?next=/settings/account",
+        follow_redirects=False,
+    )
+    state = parse_qs(urlparse(started.headers["location"]).query)["state"][0]
+    browser_nonce = started.cookies.get(BROWSER_AUTH_STATE_COOKIE_NAME)
+    assert browser_nonce is not None
+    client.cookies.set(
+        BROWSER_AUTH_STATE_COOKIE_NAME,
+        browser_nonce,
+        domain="testserver.local",
+        path="/",
+    )
+    login = client.get(
+        "/api/v1/auth/callback/yandex",
+        params={"state": state, "code": "TEST-YA-USER"},
+        follow_redirects=False,
+    )
+    assert login.status_code == 303
+    session_token = login.cookies.get(AUTH_SESSION_COOKIE_NAME)
+    assert session_token is not None
+
+    async def load_session_id() -> UUID:
+        async with client.app_state["sessionmaker"]() as db:
+            session_id = await db.scalar(
+                select(AuthSession.id).where(
+                    AuthSession.session_token_hash == decode_session_token(session_token)
+                )
+            )
+            assert session_id is not None
+            return session_id
+
+    session_id = client.portal.call(load_session_id)
+    missing_id = uuid4()
+    csrf = issue_csrf_token(
+        session_id=session_id,
+        secret=client.app.state.web_csrf_secret,
+    )
+    client.cookies.set(AUTH_SESSION_COOKIE_NAME, session_token)
+
+    for prefix in ("", "/desktop"):
+        expected = f"{prefix}/settings/account?provider_link=provider_link_invalid"
+        page = client.get(
+            f"{prefix}/settings/provider-links/{missing_id}",
+            follow_redirects=False,
+        )
+        confirm = client.post(
+            f"{prefix}/settings/provider-links/{missing_id}/confirm",
+            data={"csrf_token": csrf},
+            follow_redirects=False,
+        )
+        merge_page = client.get(
+            f"{prefix}/settings/account/merge/{missing_id}",
+            follow_redirects=False,
+        )
+        merge_confirm = client.post(
+            f"{prefix}/settings/account/merge/{missing_id}/confirm",
+            data={"csrf_token": csrf},
+            follow_redirects=False,
+        )
+        merge_cancel = client.post(
+            f"{prefix}/settings/account/merge/{missing_id}/cancel",
+            data={"csrf_token": csrf},
+            follow_redirects=False,
+        )
+
+        for response in (page, confirm, merge_page, merge_confirm, merge_cancel):
+            assert response.status_code == 303
+            assert response.headers["location"] == expected
+
+    api = client.post(
+        f"/api/v1/auth/provider-links/{missing_id}/confirm",
+        headers={
+            "Authorization": f"Bearer {session_token}",
+            "X-CSRF-Token": csrf,
+        },
+    )
+    assert api.status_code == 404
+    assert api.json()["code"] == "provider_link_not_found"
+
+
+def test_throttled_public_provider_start_precedes_state_growth_and_adapter(
+    monkeypatch, client: TestClient
+) -> None:
+    captured_scopes: list[tuple[tuple[str, str], ...]] = []
+
+    async def limited(*args, scopes, **kwargs) -> int:
+        captured_scopes.append(tuple(scopes))
+        return 60
+
+    def unexpected_adapter(provider: str):
+        raise AssertionError(f"provider adapter must not run while throttled: {provider}")
+
+    async def count_states() -> int:
+        async with client.app_state["sessionmaker"]() as db:
+            return len(list(await db.scalars(select(AuthCallbackState))))
+
+    import asyncio
+
+    before = asyncio.run(count_states())
+    monkeypatch.setattr(
+        "twobrain_rec_server.api.auth.enforce_auth_rate_limits",
+        limited,
+    )
+    monkeypatch.setattr(
+        "twobrain_rec_server.api.auth.get_provider_adapter",
+        unexpected_adapter,
+    )
+
+    response = client.post(
+        "/api/v1/auth/providers/yandex/start",
+        json={"workspace_return_url": "app://auth-callback"},
+    )
+
+    assert response.status_code == 429
+    assert response.json()["code"] == "auth_rate_limited"
+    assert response.headers["retry-after"] == "60"
+    assert asyncio.run(count_states()) == before
+    assert captured_scopes == [
+        (
+            ("provider_start_ip", "testclient"),
+            ("provider_start_provider", "yandex"),
+        )
+    ]
+
+
+def test_throttled_browser_provider_start_precedes_state_growth_and_adapter(
+    monkeypatch, client: TestClient
+) -> None:
+    captured_scopes: list[tuple[tuple[str, str], ...]] = []
+
+    async def limited(*args, scopes, **kwargs) -> int:
+        captured_scopes.append(tuple(scopes))
+        return 60
+
+    def unexpected_adapter(provider: str):
+        raise AssertionError(f"provider adapter must not run while throttled: {provider}")
+
+    async def count_states() -> int:
+        async with client.app_state["sessionmaker"]() as db:
+            return len(list(await db.scalars(select(AuthCallbackState))))
+
+    import asyncio
+
+    before = asyncio.run(count_states())
+    monkeypatch.setattr(
+        "twobrain_rec_server.cabinet.web_routes.auth.enforce_auth_rate_limits",
+        limited,
+    )
+    monkeypatch.setattr(
+        "twobrain_rec_server.cabinet.web_routes.auth.get_provider_adapter",
+        unexpected_adapter,
+    )
+
+    response = client.get("/login/yandex/start?next=/meetings", follow_redirects=False)
+
+    assert response.status_code == 429
+    assert response.headers["retry-after"] == "60"
+    assert "Слишком много попыток" in response.text
+    assert asyncio.run(count_states()) == before
+    assert captured_scopes == [
+        (
+            ("provider_start_ip", "testclient"),
+            ("provider_start_provider", "yandex"),
+        )
+    ]
+
+
+def test_blocked_ip_stops_attacker_controlled_rate_limit_bucket_growth(
+    monkeypatch, client: TestClient
+) -> None:
+    monkeypatch.setitem(
+        rate_limit_module.AUTH_RATE_LIMITS,
+        "provider_callback_ip",
+        (1, 15 * 60),
+    )
+    shared_ip = f"rate-limit-{uuid4()}"
+
+    async def exercise() -> tuple[int | None, int | None, int, int]:
+        async with client.app_state["sessionmaker"]() as db:
+            before = len(
+                list(
+                    await db.scalars(
+                        select(AuthRateLimitBucket).where(
+                            AuthRateLimitBucket.workspace_id == AUTH_BOOTSTRAP_WORKSPACE_ID,
+                            AuthRateLimitBucket.action_key == "provider_callback_state",
+                        )
+                    )
+                )
+            )
+            first = await rate_limit_module.enforce_auth_rate_limits(
+                db,
+                workspace_id=AUTH_BOOTSTRAP_WORKSPACE_ID,
+                scopes=(
+                    ("provider_callback_state", f"state-{uuid4()}"),
+                    ("provider_callback_ip", shared_ip),
+                    ("provider_callback_provider", "yandex"),
+                ),
+                scope_secret="test-rate-limit-secret",
+            )
+            await db.commit()
+            await apply_tenant_context(
+                db,
+                WorkspaceAuthContext(workspace_id=AUTH_BOOTSTRAP_WORKSPACE_ID),
+            )
+            after_first = len(
+                list(
+                    await db.scalars(
+                        select(AuthRateLimitBucket).where(
+                            AuthRateLimitBucket.workspace_id == AUTH_BOOTSTRAP_WORKSPACE_ID,
+                            AuthRateLimitBucket.action_key == "provider_callback_state",
+                        )
+                    )
+                )
+            )
+            second = await rate_limit_module.enforce_auth_rate_limits(
+                db,
+                workspace_id=AUTH_BOOTSTRAP_WORKSPACE_ID,
+                scopes=(
+                    ("provider_callback_state", f"state-{uuid4()}"),
+                    ("provider_callback_ip", shared_ip),
+                    ("provider_callback_provider", "yandex"),
+                ),
+                scope_secret="test-rate-limit-secret",
+            )
+            await db.commit()
+            await apply_tenant_context(
+                db,
+                WorkspaceAuthContext(workspace_id=AUTH_BOOTSTRAP_WORKSPACE_ID),
+            )
+            after_block = len(
+                list(
+                    await db.scalars(
+                        select(AuthRateLimitBucket).where(
+                            AuthRateLimitBucket.workspace_id == AUTH_BOOTSTRAP_WORKSPACE_ID,
+                            AuthRateLimitBucket.action_key == "provider_callback_state",
+                        )
+                    )
+                )
+            )
+            return first, second, after_first - before, after_block - after_first
+
+    first, second, initial_growth, blocked_growth = client.portal.call(exercise)
+
+    assert first is None
+    assert second == 15 * 60
+    assert initial_growth == 1
+    assert blocked_growth == 0
+
+
+def test_throttled_public_provider_callback_precedes_provider_resolution(
+    monkeypatch, client: TestClient
+) -> None:
+    _patch_fake_providers(monkeypatch, client)
+    started = client.post(
+        "/api/v1/auth/providers/yandex/start",
+        json={"workspace_return_url": "app://auth-callback"},
+    )
+    state = started.json()["state_nonce"]
+    captured_scopes: list[tuple[tuple[str, str], ...]] = []
+
+    async def limited(*args, scopes, **kwargs) -> int:
+        captured_scopes.append(tuple(scopes))
+        return 30
+
+    async def unexpected_resolution(*args, **kwargs):
+        raise AssertionError("provider callback resolution must not run while throttled")
+
+    monkeypatch.setattr(
+        "twobrain_rec_server.api.auth.enforce_auth_rate_limits",
+        limited,
+    )
+    monkeypatch.setattr(
+        "twobrain_rec_server.api.auth.resolve_callback_to_user",
+        unexpected_resolution,
+    )
+
+    response = client.get(
+        "/api/v1/auth/callback/yandex",
+        params={"state": state, "code": "THROTTLED-CODE"},
+    )
+
+    assert response.status_code == 429
+    assert response.json()["code"] == "auth_rate_limited"
+    assert response.headers["retry-after"] == "30"
+    assert captured_scopes == [
+        (
+            ("provider_callback_ip", "testclient"),
+            ("provider_callback_state", state),
+            ("provider_callback_provider", "yandex"),
+        )
+    ]
+
+    async def load_state_result() -> str:
+        async with client.app_state["sessionmaker"]() as db:
+            callback_state = await db.scalar(
+                select(AuthCallbackState).where(AuthCallbackState.state_nonce == state)
+            )
+            assert callback_state is not None
+            return callback_state.result
+
+    import asyncio
+
+    assert asyncio.run(load_state_result()) == "pending"
+
+
 def test_provider_link_callback_stores_candidate_without_changing_login_session(
     monkeypatch, client: TestClient
 ) -> None:
@@ -864,9 +1265,9 @@ def test_provider_link_callback_stores_candidate_without_changing_login_session(
     )
     assert AUTH_SESSION_COOKIE_NAME not in callback.headers.get("set-cookie", "")
 
-    async def load() -> tuple[
-        WorkspaceProviderLinkState, list[AuthSession], ExternalIdentity | None
-    ]:
+    async def load() -> (
+        tuple[WorkspaceProviderLinkState, list[AuthSession], ExternalIdentity | None]
+    ):
         async with client.app_state["sessionmaker"]() as db:
             link = await db.get(WorkspaceProviderLinkState, link_id)
             assert link is not None
@@ -916,9 +1317,9 @@ def test_provider_link_callback_stores_candidate_without_changing_login_session(
     assert confirmed.status_code == 200
     assert confirmed.json() == {"provider": "vk", "status": "confirmed", "idempotent": False}
 
-    async def load_confirmed() -> tuple[
-        WorkspaceProviderLinkState, ExternalIdentity, list[AuthSession]
-    ]:
+    async def load_confirmed() -> (
+        tuple[WorkspaceProviderLinkState, ExternalIdentity, list[AuthSession]]
+    ):
         async with client.app_state["sessionmaker"]() as db:
             link = await db.get(WorkspaceProviderLinkState, link_id)
             assert link is not None
@@ -1002,7 +1403,99 @@ def test_provider_link_callback_stores_candidate_without_changing_login_session(
         assert "candidate_email" not in event.metadata_json
 
 
-def test_provider_link_callback_replay_scrubs_pending_candidate(
+def test_provider_link_callback_binds_existing_verified_candidate_without_transfer(
+    monkeypatch, client: TestClient
+) -> None:
+    _patch_fake_providers(monkeypatch, client)
+    started = client.post(
+        "/api/v1/auth/providers/yandex/start",
+        json={"workspace_return_url": "app://auth-callback"},
+    )
+    login = client.get(
+        "/api/v1/auth/callback/yandex",
+        params={"state": started.json()["state_nonce"], "code": "TEST-YA-USER"},
+    )
+    session_id = UUID(login.json()["active_session_id"])
+    csrf = issue_csrf_token(session_id=session_id, secret=client.app.state.web_csrf_secret)
+    link_start = client.post(
+        "/api/v1/auth/providers/vk/link/start",
+        params={"workspace_id": login.json()["workspace_id"]},
+        headers={
+            "Authorization": f"Bearer {login.json()['session_token']}",
+            "X-CSRF-Token": csrf,
+        },
+    )
+    link_id = UUID(link_start.json()["link_state_id"])
+    provider_state = parse_qs(urlparse(link_start.json()["authorization_url"]).query)["state"][0]
+    other_user_id = uuid4()
+
+    async def seed_existing_identity() -> UUID:
+        async with client.app_state["sessionmaker"]() as db:
+            db.add(
+                UserIdentity(
+                    id=other_user_id,
+                    organization_id=ORG_ID,
+                    external_subject=f"existing-provider-owner-{other_user_id}",
+                )
+            )
+            await db.flush()
+            identity = ExternalIdentity(
+                user_id=other_user_id,
+                provider="vk",
+                provider_subject="vk:existing-candidate",
+                is_verified=True,
+            )
+            db.add(identity)
+            await db.commit()
+            return identity.id
+
+    import asyncio
+
+    existing_identity_id = asyncio.run(seed_existing_identity())
+    callback = client.get(
+        "/api/v1/auth/callback/vk",
+        params={"state": provider_state, "code": "vk:existing-candidate"},
+        follow_redirects=False,
+    )
+    assert callback.status_code == 303
+    assert callback.headers["location"].endswith("?result=callback_verified")
+
+    async def load_binding() -> (
+        tuple[WorkspaceProviderLinkState, AuthCallbackState, ExternalIdentity]
+    ):
+        async with client.app_state["sessionmaker"]() as db:
+            link = await db.get(WorkspaceProviderLinkState, link_id)
+            assert link is not None
+            state = await db.get(AuthCallbackState, link.callback_state_id)
+            identity = await db.get(ExternalIdentity, existing_identity_id)
+            assert state is not None and identity is not None
+            return link, state, identity
+
+    link, callback_state, identity = asyncio.run(load_binding())
+    assert callback_state.verified_external_identity_id == existing_identity_id
+    assert link.target_provider_identity_id is None
+    assert identity.user_id == other_user_id
+    assert link.initiating_user_id == UUID(login.json()["user_id"])
+
+
+@pytest.mark.parametrize(
+    ("code", "expected"),
+    (
+        ("callback_denied", "provider_link_denied"),
+        ("callback_state_invalid", "provider_link_invalid"),
+        ("callback_parse_error", "provider_link_invalid"),
+        ("callback_state_expired", "provider_link_expired"),
+        ("callback_state_reused", "provider_link_reused"),
+        ("provider_unavailable", "provider_link_unavailable"),
+    ),
+)
+def test_provider_link_callback_errors_have_bounded_first_party_outcomes(
+    code: str, expected: str
+) -> None:
+    assert _provider_link_callback_result(code) == expected
+
+
+def test_provider_link_callback_replay_preserves_verified_candidate_and_redirects(
     monkeypatch, client: TestClient
 ) -> None:
     _patch_fake_providers(monkeypatch, client)
@@ -1039,8 +1532,8 @@ def test_provider_link_callback_replay_scrubs_pending_candidate(
         params={"state": provider_state, "code": "vk:replayed-user"},
         follow_redirects=False,
     )
-    assert replay.status_code == 400
-    assert replay.json()["code"] == "callback_state_reused"
+    assert replay.status_code == 303
+    assert replay.headers["location"].endswith("?result=provider_link_reused")
 
     async def load() -> tuple[WorkspaceProviderLinkState, ExternalIdentity | None]:
         async with client.app_state["sessionmaker"]() as db:
@@ -1057,11 +1550,43 @@ def test_provider_link_callback_replay_scrubs_pending_candidate(
     import asyncio
 
     link, identity = asyncio.run(load())
-    assert link.status == "rejected"
-    assert link.candidate_identity_subject is None
-    assert link.candidate_email is None
-    assert link.candidate_phone is None
+    assert link.status == "callback_verified"
+    assert link.candidate_identity_subject == "vk:replayed-user"
     assert identity is None
+
+
+def test_provider_link_callback_denial_redirects_to_first_party_recovery(
+    monkeypatch, client: TestClient
+) -> None:
+    _patch_fake_providers(monkeypatch, client)
+    started = client.post(
+        "/api/v1/auth/providers/yandex/start",
+        json={"workspace_return_url": "app://auth-callback"},
+    )
+    login = client.get(
+        "/api/v1/auth/callback/yandex",
+        params={"state": started.json()["state_nonce"], "code": "TEST-YA-USER"},
+    )
+    session_id = UUID(login.json()["active_session_id"])
+    csrf = issue_csrf_token(session_id=session_id, secret=client.app.state.web_csrf_secret)
+    link_start = client.post(
+        "/api/v1/auth/providers/vk/link/start",
+        params={"workspace_id": login.json()["workspace_id"]},
+        headers={
+            "Authorization": f"Bearer {login.json()['session_token']}",
+            "X-CSRF-Token": csrf,
+        },
+    )
+    provider_state = parse_qs(urlparse(link_start.json()["authorization_url"]).query)["state"][0]
+
+    denied = client.get(
+        "/api/v1/auth/callback/vk",
+        params={"state": provider_state, "error": "access_denied"},
+        follow_redirects=False,
+    )
+
+    assert denied.status_code == 303
+    assert denied.headers["location"].endswith("?result=provider_link_denied")
 
 
 def test_provider_link_confirmation_expiry_scrubs_candidate(
@@ -1142,7 +1667,7 @@ def test_provider_link_confirmation_expiry_scrubs_candidate(
     assert str(link_id) not in str(expired_event.metadata_json)
 
 
-def test_provider_link_confirmation_rejects_foreign_identity_without_transfer(
+def test_non_email_session_provider_link_builds_merge_preview_without_transfer(
     monkeypatch, client: TestClient
 ) -> None:
     _patch_fake_providers(monkeypatch, client)
@@ -1186,13 +1711,30 @@ def test_provider_link_confirmation_rejects_foreign_identity_without_transfer(
                 )
             )
             await db.flush()
-            db.add(
-                ExternalIdentity(
-                    user_id=other_user_id,
-                    provider="vk",
-                    provider_subject="vk:foreign-user",
-                    is_verified=True,
-                )
+            personal_workspace = Workspace(
+                id=uuid4(),
+                organization_id=ORG_ID,
+                owner_user_id=other_user_id,
+                slug=f"foreign-provider-link-{other_user_id.hex}",
+                name="Моё пространство",
+                kind="personal",
+            )
+            db.add_all(
+                [
+                    personal_workspace,
+                    WorkspaceMembership(
+                        workspace_id=personal_workspace.id,
+                        user_id=other_user_id,
+                        role="owner",
+                        status="active",
+                    ),
+                    ExternalIdentity(
+                        user_id=other_user_id,
+                        provider="vk",
+                        provider_subject="vk:foreign-user",
+                        is_verified=True,
+                    ),
+                ]
             )
             await db.commit()
 
@@ -1206,8 +1748,9 @@ def test_provider_link_confirmation_rejects_foreign_identity_without_transfer(
             "X-CSRF-Token": csrf,
         },
     )
-    assert confirmation.status_code == 409
-    assert confirmation.json()["code"] == "provider_link_conflict"
+    assert confirmation.status_code == 200
+    assert confirmation.json()["status"] == "merge_preview_ready"
+    assert confirmation.json()["merge_intent_id"]
     assert str(other_user_id) not in confirmation.text
     assert "foreign-user" not in confirmation.text
 
@@ -1225,19 +1768,20 @@ def test_provider_link_confirmation_rejects_foreign_identity_without_transfer(
             return link, identity
 
     link, identity = asyncio.run(load())
-    assert link.status == "rejected"
+    assert link.status == "confirmed"
+    assert link.resolution == "merge_preview_ready"
     assert link.candidate_identity_subject is None
     assert identity.user_id == other_user_id
 
-    conflict_event = next(
+    confirmed_event = next(
         event
         for event in _load_auth_audit_events(client)
-        if event.event_type == "provider_link_conflict"
+        if event.event_type == "provider_link_confirmed"
     )
-    assert conflict_event.metadata_json["error_code"] == "provider_link_conflict"
-    assert len(conflict_event.metadata_json["link_state_sha256"]) == 64
-    assert str(link_id) not in str(conflict_event.metadata_json)
-    assert "foreign-user" not in str(conflict_event.metadata_json)
+    assert confirmed_event.metadata_json["idempotent"] is False
+    assert len(confirmed_event.metadata_json["link_state_sha256"]) == 64
+    assert str(link_id) not in str(confirmed_event.metadata_json)
+    assert "foreign-user" not in str(confirmed_event.metadata_json)
 
 
 def test_provider_link_conflict_requires_merge_preview_and_restores_link_context(
@@ -1346,26 +1890,13 @@ def test_blocked_provider_link_keeps_confirmed_proof_for_recovery_page(
 
     async def block_with_active_billing() -> None:
         async with client.app_state["sessionmaker"]() as db:
-            source_workspace = Workspace(
-                id=uuid4(),
-                organization_id=ORG_ID,
-                owner_user_id=other_user_id,
-                slug=f"provider-blocked-{other_user_id.hex}",
-                name="Blocked provider source",
-                kind="corporate",
+            source_workspace = await db.scalar(
+                select(Workspace).where(
+                    Workspace.owner_user_id == other_user_id,
+                    Workspace.kind == "personal",
+                )
             )
-            db.add_all(
-                [
-                    source_workspace,
-                    WorkspaceMembership(
-                        workspace_id=source_workspace.id,
-                        user_id=other_user_id,
-                        role="owner",
-                        status="active",
-                    ),
-                ]
-            )
-            await db.flush()
+            assert source_workspace is not None
             db.add(
                 WorkspaceSubscription(
                     workspace_id=source_workspace.id,
@@ -2081,6 +2612,18 @@ def test_email_signup_reuses_new_and_existing_identities_without_internal_enroll
         )
         assert state_match is not None
         assert code_match is not None
+        cookie_name = auth_email_flow_module._email_auth_browser_cookie_name(
+            state_nonce=state_match.group(1),
+            secure=True,
+        )
+        browser_nonce = started.cookies.get(cookie_name)
+        assert browser_nonce is not None
+        client.cookies.set(
+            cookie_name,
+            browser_nonce,
+            domain="testserver.local",
+            path="/",
+        )
         completed = client.post(
             "/sign-up/email/verify",
             data={
@@ -2163,9 +2706,13 @@ def test_email_signup_reuses_new_and_existing_identities_without_internal_enroll
                 {session.workspace_id for session in sessions},
             )
 
-    new_spaces, existing_spaces, bootstrap_memberships, session_count, session_workspaces = (
-        asyncio.run(load_result())
-    )
+    (
+        new_spaces,
+        existing_spaces,
+        bootstrap_memberships,
+        session_count,
+        session_workspaces,
+    ) = asyncio.run(load_result())
     assert new_spaces == 1
     assert existing_spaces == 1
     assert bootstrap_memberships == 1
@@ -2307,6 +2854,26 @@ def test_auth_callback_without_state_is_invalid(monkeypatch, client: TestClient)
     )
     assert response.status_code == 400
     assert response.json()["code"] == "callback_state_invalid"
+
+
+@pytest.mark.parametrize(
+    "params", [{"code": "TEST-YA-USER"}, {"state": "unknown-state", "code": "TEST-YA-USER"}]
+)
+def test_browser_auth_callback_without_resolvable_state_returns_to_login(
+    monkeypatch, client: TestClient, params: dict[str, str]
+) -> None:
+    _patch_fake_providers(monkeypatch, client)
+
+    response = client.get(
+        "/api/v1/auth/callback/yandex",
+        params=params,
+        headers={"Accept": "text/html"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"].startswith("/login?")
+    assert "error=callback_state_invalid" in response.headers["location"]
 
 
 def test_auth_callback_fails_for_identity_bound_to_other_organization(

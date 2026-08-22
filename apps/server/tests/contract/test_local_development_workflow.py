@@ -21,6 +21,7 @@ def test_local_files_and_dev_auth_contract() -> None:
     assert "TWOBRAIN_ENV=development" in start
     assert "TWOBRAIN_LOCAL_HTTP_AUTH_COOKIE_ENABLED=true" in start
     assert "TWOBRAIN_LOCAL_EMAIL_LOGIN_CODE=000000" in start
+    assert "GRAF_CREDENTIAL_ENCRYPTION_KEY_FILE" in start
     assert "cd-remote.sh" not in start
     assert "twobrain_rec_server.main:create_app --factory" in start
     assert "GRAF_CABINET_REQUIRE_EXPLICIT_BASE_URL=1" in app

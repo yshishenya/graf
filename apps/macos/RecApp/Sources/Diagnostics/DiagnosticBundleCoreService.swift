@@ -280,7 +280,42 @@ public struct DiagnosticBundleService: Sendable {
             "meetingMuteTruthEvidence": .array((manifest.meetingMuteTruthEvidence ?? []).map(Self.diagnosticValue)),
             "targetMuteCapability": manifest.targetMuteCapability.map(Self.diagnosticValue) ?? .null,
             "limitationCopyShownAt": .string(manifest.limitationCopyShownAt.map(Self.formatDate) ?? "none"),
-            "recordingMetadata": manifest.recordingMetadata.map(Self.diagnosticValue) ?? .null
+            "recordingMetadata": manifest.recordingMetadata.map(Self.diagnosticValue) ?? .null,
+            "echoProcessor": manifest.echoProcessor.map(Self.diagnosticValue) ?? .null,
+            "echoProcessingHealth": manifest.echoProcessingHealth.map(Self.diagnosticValue) ?? .null
+        ])
+    }
+
+    private static func diagnosticValue(_ descriptor: EchoProcessorDescriptor) -> DiagnosticFieldValue {
+        .object([
+            "algorithm": .string(descriptor.algorithm),
+            "libraryVersion": .string(descriptor.libraryVersion),
+            "sourceCommit": .string(descriptor.sourceCommit),
+            "sampleRate": .int(descriptor.sampleRate),
+            "channels": .int(descriptor.channels),
+            "frameSamples": .int(descriptor.frameSamples),
+            "streamDelayMs": .int(descriptor.streamDelayMs),
+            "optionalProcessingEnabled": .bool(descriptor.optionalProcessingEnabled)
+        ])
+    }
+
+    private static func diagnosticValue(_ health: EchoProcessingHealth) -> DiagnosticFieldValue {
+        .object([
+            "state": .string(health.state.rawValue),
+            "reason": .string(health.reason?.rawValue ?? "none"),
+            "processedFrameCount": .int(Int(health.processedFrameCount)),
+            "processErrorCount": .int(health.processErrorCount),
+            "resetCount": .int(health.resetCount),
+            "ptsGapCount": .int(health.ptsGapCount),
+            "estimatedDriftPpm": .double(health.estimatedDriftPpm ?? 0),
+            "hostUnderrunCount": .int(health.hostUnderrunCount),
+            "hostOverrunCount": .int(health.hostOverrunCount),
+            "clippedSampleCount": .int(Int(health.clippedSampleCount)),
+            "nonFiniteSampleCount": .int(Int(health.nonFiniteSampleCount)),
+            "aecDelayMs": .int(health.aecDelayMs ?? -1),
+            "echoReturnLossDb": .double(health.echoReturnLossDb ?? 0),
+            "echoReturnLossEnhancementDb": .double(health.echoReturnLossEnhancementDb ?? 0),
+            "processingTimeP95Ms": .double(health.processingTimeP95Ms ?? 0)
         ])
     }
 

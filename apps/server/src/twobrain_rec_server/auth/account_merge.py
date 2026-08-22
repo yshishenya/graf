@@ -196,12 +196,32 @@ async def _count_for_meetings(
     )
 
 
+async def _lock_active_account_roots(
+    db: AsyncSession,
+    *,
+    survivor_user_id: UUID,
+    source_user_id: UUID,
+) -> list[UserIdentity]:
+    user_ids = sorted((survivor_user_id, source_user_id), key=str)
+    users = list(
+        await db.scalars(
+            select(UserIdentity)
+            .where(UserIdentity.id.in_(user_ids))
+            .order_by(UserIdentity.id)
+            .with_for_update()
+        )
+    )
+    if len(users) != 2 or any(user.status != "active" for user in users):
+        raise AccountMergeError("account_state_changed")
+    return users
+
+
 async def _lock_merge_domain_rows(
     db: AsyncSession,
     *,
     survivor_user_id: UUID,
     source_user_id: UUID,
-) -> list[Workspace]:
+) -> tuple[list[Workspace], list[WorkspaceMembership]]:
     """Lock every mutable row that can change merge eligibility or access."""
     user_ids = (survivor_user_id, source_user_id)
     memberships = list(
@@ -384,7 +404,34 @@ async def _lock_merge_domain_rows(
         )
     for statement in statements:
         await db.execute(statement.with_for_update())
-    return owned_workspaces
+    return owned_workspaces, memberships
+
+
+def _workspace_ownership_shape_is_safe(
+    *,
+    workspaces,
+    memberships,
+    survivor_user_id: UUID,
+    source_user_id: UUID,
+    organization_id: UUID,
+) -> bool:
+    """Accept only one personal root per profile plus already-linked spaces."""
+    active_owner_memberships = {
+        (membership.workspace_id, membership.user_id)
+        for membership in memberships
+        if membership.status == "active" and membership.role == "owner"
+    }
+    for user_id in (survivor_user_id, source_user_id):
+        owned = [workspace for workspace in workspaces if workspace.owner_user_id == user_id]
+        if len([workspace for workspace in owned if workspace.kind == "personal"]) != 1:
+            return False
+        if any(workspace.organization_id != organization_id for workspace in owned):
+            return False
+        if any(workspace.kind not in {"personal", "linked"} for workspace in owned):
+            return False
+        if any((workspace.id, user_id) not in active_owner_memberships for workspace in owned):
+            return False
+    return True
 
 
 async def _merge_preview_from_db(
@@ -467,8 +514,8 @@ async def _merge_preview_from_db(
         blockers.add("workspace_role_conflict")
 
     workspace_rows = list(
-        await db.execute(
-            select(Workspace.id, Workspace.kind, Workspace.owner_user_id, Workspace.name)
+        await db.scalars(
+            select(Workspace)
             .where(
                 or_(
                     Workspace.owner_user_id.in_((survivor_user_id, source_user_id)),
@@ -479,39 +526,15 @@ async def _merge_preview_from_db(
         )
     )
     source_owned_workspaces = {
-        workspace_id_value
-        for workspace_id_value, _kind, owner_user_id, _name in workspace_rows
-        if owner_user_id == source_user_id
+        workspace.id for workspace in workspace_rows if workspace.owner_user_id == source_user_id
     }
-    survivor_owned_workspaces = {
-        workspace_id_value
-        for workspace_id_value, _kind, owner_user_id, _name in workspace_rows
-        if owner_user_id == survivor_user_id
-    }
-    personal_source = {
-        workspace_id_value
-        for workspace_id_value, kind, owner_user_id, _name in workspace_rows
-        if owner_user_id == source_user_id and kind == "personal"
-    }
-    personal_survivor = {
-        workspace_id_value
-        for workspace_id_value, kind, owner_user_id, _name in workspace_rows
-        if owner_user_id == survivor_user_id and kind == "personal"
-    }
-    active_owner_memberships = {
-        (membership.workspace_id, membership.user_id)
-        for membership in memberships
-        if membership.role == "owner"
-    }
-    owned_workspace_pairs = {
-        *((workspace_id_value, source_user_id) for workspace_id_value in source_owned_workspaces),
-        *(
-            (workspace_id_value, survivor_user_id)
-            for workspace_id_value in survivor_owned_workspaces
-        ),
-    }
-    missing_owner_membership = not owned_workspace_pairs <= active_owner_memberships
-    if len(personal_source) > 1 or len(personal_survivor) > 1 or missing_owner_membership:
+    if not _workspace_ownership_shape_is_safe(
+        workspaces=workspace_rows,
+        memberships=all_memberships,
+        survivor_user_id=survivor_user_id,
+        source_user_id=source_user_id,
+        organization_id=survivor.organization_id,
+    ):
         blockers.add("workspace_ownership_conflict")
 
     identity_rows = list(
@@ -563,7 +586,19 @@ async def _merge_preview_from_db(
                 for membership in all_memberships
             ),
         ),
-        _state_digest("workspace", workspace_rows),
+        _state_digest(
+            "workspace",
+            (
+                (
+                    workspace.id,
+                    workspace.organization_id,
+                    workspace.kind,
+                    workspace.owner_user_id,
+                    workspace.name,
+                )
+                for workspace in workspace_rows
+            ),
+        ),
     ]
 
     state_tokens.append(_state_digest("meeting", meeting_state_rows))
@@ -987,6 +1022,11 @@ async def create_merge_intent(
     actor_user_id: UUID | None = None,
 ) -> tuple[AccountMergeIntent, MergePreview]:
     now = now or datetime.now(UTC)
+    await _lock_active_account_roots(
+        db,
+        survivor_user_id=survivor_user_id,
+        source_user_id=source_user_id,
+    )
     requested_proof = (
         initiating_auth_session_id,
         source_external_identity_id,
@@ -1160,7 +1200,9 @@ async def preview_merge_intent(db: AsyncSession, *, intent_id: UUID) -> MergePre
         source_user_id=intent.source_user_id,
     )
     if intent.status == "blocked" and not preview.blocker_codes:
-        raise AccountMergeError("merge_blocked")
+        raise AccountMergeError("merge_restart_required")
+    if intent.status == "preview_ready" and intent.preview_fingerprint != preview.fingerprint:
+        raise AccountMergeError("merge_preview_stale")
     return preview
 
 
@@ -1249,6 +1291,26 @@ async def confirm_merge_intent(
         if intent.provider_link_state_id is not None
         else None
     )
+    provider_proof_mismatch = (
+        proof_link is not None
+        and (
+            proof_callback is None
+            or proof_identity is None
+            or proof_link.candidate_provider != proof_callback.provider
+            or proof_link.candidate_provider != proof_identity.provider
+            or proof_link.target_provider_identity_id != proof_identity.id
+        )
+    ) or (
+        proof_link is None
+        and (
+            proof_callback is None
+            or proof_callback.provider not in {"email_link", "email"}
+            or proof_identity is None
+            or proof_identity.provider != "email"
+            or not proof_identity.email
+            or not proof_identity.is_verified
+        )
+    )
     if (
         proof_session is None
         or proof_session.user_id != intent.survivor_user_id
@@ -1258,11 +1320,12 @@ async def confirm_merge_intent(
         or proof_identity is None
         or proof_identity.user_id != intent.source_user_id
         or not proof_identity.is_active
-        or not proof_identity.is_verified
         or proof_callback is None
         or proof_callback.workspace_id != intent.workspace_id
         or proof_callback.result != "completed"
         or proof_callback.used_at is None
+        or proof_callback.verified_external_identity_id != proof_identity.id
+        or provider_proof_mismatch
         or (
             intent.provider_link_state_id is not None
             and (
@@ -1284,19 +1347,14 @@ async def confirm_merge_intent(
     # Lock both account roots before reading the preview. User-owned rows moved
     # below reference these roots, so concurrent inserts/updates wait for this
     # transaction instead of changing the preview between check and use.
-    user_ids = sorted((intent.survivor_user_id, intent.source_user_id), key=str)
-    locked_users = list(
-        await db.scalars(
-            select(UserIdentity)
-            .where(UserIdentity.id.in_(user_ids))
-            .order_by(UserIdentity.id)
-            .with_for_update()
-        )
+    user_ids = (intent.survivor_user_id, intent.source_user_id)
+    locked_users = await _lock_active_account_roots(
+        db,
+        survivor_user_id=intent.survivor_user_id,
+        source_user_id=intent.source_user_id,
     )
-    if len(locked_users) != 2 or any(user.status != "active" for user in locked_users):
-        raise AccountMergeError("account_state_changed")
 
-    locked_workspaces = await _lock_merge_domain_rows(
+    locked_workspaces, locked_memberships = await _lock_merge_domain_rows(
         db,
         survivor_user_id=intent.survivor_user_id,
         source_user_id=intent.source_user_id,
@@ -1312,24 +1370,34 @@ async def confirm_merge_intent(
     if intent.preview_fingerprint != preview.fingerprint:
         raise AccountMergeError("merge_preview_stale")
 
+    if not _workspace_ownership_shape_is_safe(
+        workspaces=locked_workspaces,
+        memberships=locked_memberships,
+        survivor_user_id=intent.survivor_user_id,
+        source_user_id=intent.source_user_id,
+        organization_id=next(
+            user.organization_id
+            for user in locked_users
+            if user.id == intent.survivor_user_id
+        ),
+    ):
+        raise AccountMergeError("workspace_ownership_conflict")
+
     source_personal = [
         workspace
         for workspace in locked_workspaces
         if workspace.owner_user_id == intent.source_user_id and workspace.kind == "personal"
     ]
-    survivor_personal = [
-        workspace
+    preserved = source_personal[0]
+    preserved.kind = "linked"
+    if preserved.name == "Моё пространство":
+        preserved.name = "Пространство из другого профиля"
+    source_owned_workspace_ids = {
+        workspace.id
         for workspace in locked_workspaces
-        if workspace.owner_user_id == intent.survivor_user_id and workspace.kind == "personal"
-    ]
-    if len(source_personal) > 1 or len(survivor_personal) > 1:
-        raise AccountMergeError("workspace_ownership_conflict")
-    if source_personal and survivor_personal:
-        preserved = source_personal[0]
-        preserved.kind = "linked"
-        if preserved.name == "Моё пространство":
-            preserved.name = "Пространство из другого профиля"
-        await db.flush()
+        if workspace.owner_user_id == intent.source_user_id
+    }
+    await db.flush()
 
     source_identities = list(
         await db.scalars(
@@ -1562,7 +1630,10 @@ async def confirm_merge_intent(
     )
     await db.execute(
         Workspace.__table__.update()
-        .where(Workspace.owner_user_id == intent.source_user_id)
+        .where(
+            Workspace.id.in_(source_owned_workspace_ids),
+            Workspace.owner_user_id == intent.source_user_id,
+        )
         .values(owner_user_id=intent.survivor_user_id)
     )
     await db.execute(

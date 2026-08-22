@@ -272,6 +272,10 @@ class Settings(BaseSettings):
     vk_redirect_path: str = "/api/v1/auth/callback/vk"
     telegram_redirect_path: str = "/api/v1/auth/callback/telegram"
     auth_base_url: AnyUrl | None = None
+    google_calendar_enabled: bool = False
+    google_calendar_client_id: str | None = None
+    google_calendar_client_secret_file: Path | None = None
+    google_calendar_redirect_uri: str | None = None
 
     redact_headers: tuple[str, ...] = (
         "authorization",
@@ -289,6 +293,9 @@ class Settings(BaseSettings):
         "langfuse_health_url",
         "litellm_base_url",
         "auth_base_url",
+        "google_calendar_client_id",
+        "google_calendar_client_secret_file",
+        "google_calendar_redirect_uri",
         "web_login_workspace_id",
         "postal_host_header",
         "credential_encryption_key_file",
@@ -511,13 +518,13 @@ class Settings(BaseSettings):
         if self.outcome_transcript_max_bytes != 8_388_608:
             raise ValueError("outcome transcript snapshot ceiling must remain exactly 8 MiB")
         if self.outcome_transcript_chunk_bytes >= self.outcome_temporal_payload_bytes:
-            raise ValueError("outcome transcript chunk must remain below serialized payload ceiling")
+            raise ValueError(
+                "outcome transcript chunk must remain below serialized payload ceiling"
+            )
         if not (self.outcome_generation_enabled or self.prompt_optimization_enabled):
             return self
         capability = (
-            "outcome generation"
-            if self.outcome_generation_enabled
-            else "prompt optimization"
+            "outcome generation" if self.outcome_generation_enabled else "prompt optimization"
         )
         if self.temporal_address is None:
             raise ValueError(f"{capability} requires temporal_address")
@@ -537,9 +544,7 @@ class Settings(BaseSettings):
         if self.langfuse_base_url is None:
             raise ValueError(f"{capability} requires langfuse_base_url")
         if self.langfuse_public_key_file is None or self.langfuse_secret_key_file is None:
-            raise ValueError(
-                f"{capability} requires Langfuse public and secret key files"
-            )
+            raise ValueError(f"{capability} requires Langfuse public and secret key files")
         if not self.langfuse_environment.strip():
             raise ValueError(f"{capability} requires a Langfuse environment")
         if self.prompt_optimization_enabled and (
@@ -569,18 +574,11 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_recording_sharing_safety(self) -> "Settings":
         if self.share_team_audience_enabled:
-            raise ValueError(
-                "team sharing requires a canonical workspace team directory"
-            )
+            raise ValueError("team sharing requires a canonical workspace team directory")
         if self.share_public_links_enabled and self.public_base_url is None:
             raise ValueError("public meeting links require public_base_url")
-        if (
-            self.share_public_links_enabled
-            and not self.share_public_links_abuse_gate_approved
-        ):
-            raise ValueError(
-                "public meeting links require the shared ingress abuse gate"
-            )
+        if self.share_public_links_enabled and not self.share_public_links_abuse_gate_approved:
+            raise ValueError("public meeting links require the shared ingress abuse gate")
         if not self.share_external_invitations_enabled:
             return self
         if self.temporal_address is None:
@@ -595,18 +593,22 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_billing_safety(self) -> "Settings":
-        observation_enabled = self.billing_provider_observation_enabled or self.billing_checkout_enabled
+        observation_enabled = (
+            self.billing_provider_observation_enabled or self.billing_checkout_enabled
+        )
         if not observation_enabled:
             return self
         if self.legacy_header_auth_enabled:
             raise ValueError("enabled billing observation cannot use legacy header authentication")
-        if self.billing_yookassa_base_url is None or self.billing_yookassa_base_url.scheme != "https":
-            raise ValueError("enabled billing observation requires an HTTPS YooKassa base URL")
         if (
-            not self.billing_yookassa_shop_id
-            or self.billing_yookassa_secret_file is None
+            self.billing_yookassa_base_url is None
+            or self.billing_yookassa_base_url.scheme != "https"
         ):
-            raise ValueError("enabled billing observation requires YooKassa shop and provider secret file")
+            raise ValueError("enabled billing observation requires an HTTPS YooKassa base URL")
+        if not self.billing_yookassa_shop_id or self.billing_yookassa_secret_file is None:
+            raise ValueError(
+                "enabled billing observation requires YooKassa shop and provider secret file"
+            )
         billing_secrets: list[tuple[str, str]] = []
         for field_name, path in (
             ("billing_yookassa_secret_file", self.billing_yookassa_secret_file),
@@ -617,7 +619,11 @@ class Settings(BaseSettings):
         if self.env.lower() == "production":
             placeholder_values = {"replace-me", "changeme", "password", "secret", "default"}
             for field_name, value in billing_secrets:
-                if len(value) < 32 or value.lower() in placeholder_values or value.lower().startswith("synthetic"):
+                if (
+                    len(value) < 32
+                    or value.lower() in placeholder_values
+                    or value.lower().startswith("synthetic")
+                ):
                     raise ValueError(
                         f"production billing secret must be at least 32 characters and non-placeholder: {field_name}"
                     )
@@ -625,7 +631,10 @@ class Settings(BaseSettings):
             return self
         if self.public_base_url is None or self.public_base_url.scheme != "https":
             raise ValueError("enabled billing requires an HTTPS public_base_url")
-        if self.billing_yookassa_webhook_secret_file is None or self.billing_referral_secret_file is None:
+        if (
+            self.billing_yookassa_webhook_secret_file is None
+            or self.billing_referral_secret_file is None
+        ):
             raise ValueError("enabled billing requires webhook and referral secret files")
         for field_name, path in (
             ("billing_yookassa_webhook_secret_file", self.billing_yookassa_webhook_secret_file),
@@ -636,7 +645,11 @@ class Settings(BaseSettings):
             if self.env.lower() == "production":
                 value = path.read_text(encoding="utf-8").strip()
                 placeholder_values = {"replace-me", "changeme", "password", "secret", "default"}
-                if len(value) < 32 or value.lower() in placeholder_values or value.lower().startswith("synthetic"):
+                if (
+                    len(value) < 32
+                    or value.lower() in placeholder_values
+                    or value.lower().startswith("synthetic")
+                ):
                     raise ValueError(
                         f"production billing secret must be at least 32 characters and non-placeholder: {field_name}"
                     )
@@ -734,8 +747,13 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "production product_analytics_yandex_counter_id must be a real numeric Yandex counter ID"
                 )
-        if self.product_analytics_yandex_offline_enabled and self.product_analytics_yandex_oauth_token_file is None:
-            raise ValueError("production Yandex offline upload requires product_analytics_yandex_oauth_token_file")
+        if (
+            self.product_analytics_yandex_offline_enabled
+            and self.product_analytics_yandex_oauth_token_file is None
+        ):
+            raise ValueError(
+                "production Yandex offline upload requires product_analytics_yandex_oauth_token_file"
+            )
         if self.product_analytics_direct_desktop_egress_enabled and not (
             self.product_analytics_direct_desktop_egress_approved
             and self.product_analytics_live_provider_delivery_allowed()
@@ -799,9 +817,7 @@ class Settings(BaseSettings):
             }
             for field_name, path in ai_secret_files.items():
                 if path is None or path.read_text(encoding="utf-8").strip() == "":
-                    raise ValueError(
-                        f"production AI secret file must be non-empty: {field_name}"
-                    )
+                    raise ValueError(f"production AI secret file must be non-empty: {field_name}")
         if self.processing_enabled and not self.temporal_address:
             raise ValueError("production processing requires temporal_address")
         if (
@@ -861,8 +877,10 @@ class Settings(BaseSettings):
                 encoding="utf-8"
             ).strip()
             if self.prompt_optimization_database_url is not None:
-                self.prompt_optimization_database_url = self.prompt_optimization_database_url.replace(
-                    "__POSTGRES_PASSWORD__", quote(maintenance_password, safe="")
+                self.prompt_optimization_database_url = (
+                    self.prompt_optimization_database_url.replace(
+                        "__POSTGRES_PASSWORD__", quote(maintenance_password, safe="")
+                    )
                 )
         if self.minio_access_key_file is not None:
             self.minio_access_key = self.minio_access_key_file.read_text(encoding="utf-8").strip()

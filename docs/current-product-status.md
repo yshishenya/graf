@@ -1,6 +1,48 @@
 # Текущий статус продукта
 
-Date: 2026-08-15
+Date: 2026-08-21
+
+## Implementation update (2026-08-20) — Feature 177 WebRTC AEC3 recording
+
+- Новый v5 capture-тракт использует один обязательный локальный WebRTC AEC3:
+  PTS-aligned system reference обрабатывается перед соответствующим 10-ms
+  microphone frame, после чего очищенный микрофон попадает в прежний
+  `canonical-mix.v1`; system audio не меняется.
+- HPF, noise suppression/ANC, AGC1/AGC2, transient suppression, VAD, gates и
+  AecDump выключены. Raw microphone не является fallback и не сохраняется
+  отдельным артефактом.
+- Процессор — pinned freedesktop `webrtc-audio-processing` v2.1/WebRTC M131 в
+  статическом universal `GrafAEC3.xcframework`; runtime Homebrew/WebRTC dylib
+  не требуется.
+- Startup/runtime failure, missing reference, route/source discontinuity и
+  overflow завершают доверенный сегмент; сохраняется только уже очищенный
+  prefix с degraded metadata. Historical v3/v4 и pre-feature v5 readers
+  сохраняются без возврата удалённого runtime.
+- Аудит 2026-08-21 добавил bounded clock recovery до 1 ms на callback,
+  fail-closed смену source format, наблюдение default output device и удалил
+  дублирующий non-PTS FIFO. Сквозной synthetic mix, smooth delay drift,
+  60-minute plus/minus 100 ppm clock model и 1,000-frame p95 gate проходят.
+- Feature 177 опубликована как `v2026.08.21.3` на exact SHA
+  `65e411d143a544c6f955794e59bef55f1b5ef847`: full CI, production deploy,
+  Developer ID, notarization, stapling, Gatekeeper и Sparkle update прошли.
+  После выпуска владелец продукта подтвердил успешную T035-матрицу на двух
+  устройствах в двух комнатах; ручная аппаратная приёмка закрыта с явной
+  границей между listening evidence и синтетическими числовыми метриками.
+
+## Implementation update (2026-08-21) — Feature 168 calendar completion
+
+- Feature 168 опубликована как `v2026.08.21.5`: browser и embedded macOS
+  используют единый серверный поток календаря с подключением, выбором
+  календарей, ручной синхронизацией, upcoming meetings, понятными состояниями
+  и GRAF-side disconnect. Native menu-bar surface «Ближайшие встречи» и
+  ручные Record/Stop остаются доступны независимо от состояния календаря.
+- Production rollout на exact code SHA `6cd0eb5e7da3569ef4ddc62e1fa92aeed04cf3d4`
+  прошёл backup/restore, migration `0075_calendar_sync_maintenance`, RLS,
+  smoke и health/readiness. Google Calendar намеренно остаётся выключенным и
+  fail-closed до внешней Google verification и реального production E2E; UI
+  не заявляет поддержку для всех пользователей.
+- Подробные receipts: `docs/deployments/2brain-rec/release-v2026.08.21.5.md`
+  и `specs/168-calendar-integration-completion/validation/implementation-evidence.md`.
 
 ## Implementation update (2026-08-15) — Feature 150 workspace clean cut
 
@@ -1604,10 +1646,10 @@ receipt не заявляются; они остаются отдельными 
   truth is product-owned through 2brain `Pause`/`Resume`/`Stop`; Zoom/browser
   mute state remains unverified unless a future adapter provides fresh
   target-specific evidence.
-- No AEC, Apple voice processing, WebRTC cleanup, derived-cleaned fallback or
-  dual-track speakerphone mode is an active v5 candidate. Any future proposal
-  would require a new approved product decision and cannot reuse retired code
-  or silently alter a recorded conversation.
+- WebRTC AEC3 Feature 177 — единственный активный echo-removal тракт v5.
+  Apple voice processing, derived-cleaned fallback, dual-track speakerphone
+  mode и удалённый legacy runtime не являются кандидатами и не могут быть
+  скрытым fallback.
 - Any future advanced routing requires a new approved spec, implementation,
   packaging model, and safety evidence; the removed implementation must not be
   revived as a hidden fallback.
@@ -1756,9 +1798,9 @@ Keep separate unless the next spec explicitly changes scope:
 - Generalized meeting detection and unrestricted assisted auto-start remain
   deferred. Verified-target, target-scoped auto-record with the Feature-124
   countdown/prompt contract is current and must not be removed as cleanup.
-- The former live speakerphone cleanup/AEC research is archived in
-  `docs/audio-capture-backlog.md`. It is neither an active feature backlog nor
-  a fallback for v5; new capture must keep the truthful one-timeline contract.
+- Старое speakerphone cleanup/AEC research в `docs/audio-capture-backlog.md`
+  остаётся историческим и не является fallback. Активный тракт Feature 177
+  сохраняет один PTS timeline и одну каноническую пару WAV/M4A.
 - Post-MVP editing and media revision work is tracked in
   `docs/post-mvp-editing-media-backlog.md`: local media trim/edit revisions,
   online transcript/speaker edit sync, video capture package foundation, and

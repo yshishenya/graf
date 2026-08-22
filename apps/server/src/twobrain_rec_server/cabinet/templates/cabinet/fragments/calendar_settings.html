@@ -8,13 +8,27 @@
 {% macro provider_button(provider) -%}
 <button class="calendar-provider-button" type="button" data-provider="{{ provider.provider_family }}" data-calendar-provider-open="calendar-provider-dialog-{{ provider.provider_family }}" aria-haspopup="dialog" aria-controls="calendar-provider-dialog-{{ provider.provider_family }}">
   {{ provider_logo(provider) }}
-  <span>Подключить {{ provider.label }}</span>
+  <span class="calendar-provider-button__copy">
+    <strong>{{ provider.label }}</strong>
+    <small>{% if provider.connected_source_count %}{{ provider.connected_source_count }} подключено · добавить ещё{% else %}{{ provider.method_label }}{% endif %}</small>
+  </span>
 </button>
 {%- endmacro %}
 
+{% macro unavailable_provider(provider) -%}
+<article class="calendar-provider-button calendar-provider-button--unavailable" data-provider="{{ provider.provider_family }}" aria-label="{{ provider.label }} — {{ provider.availability_label }}">
+  {{ provider_logo(provider) }}
+  <span class="calendar-provider-button__copy">
+    <strong>{{ provider.label }}</strong>
+    <small>{{ provider.availability_label }}</small>
+  </span>
+  <p>{{ provider.limitation_copy }}</p>
+</article>
+{%- endmacro %}
+
 {% macro provider_dialog(provider, base_path, csrf_token) -%}
-<dialog class="calendar-provider-dialog" id="calendar-provider-dialog-{{ provider.provider_family }}" data-calendar-provider-dialog aria-labelledby="calendar-provider-dialog-{{ provider.provider_family }}-title">
-  <form class="calendar-provider-modal" action="{{ base_path }}/providers/{{ provider.provider_family }}/connect" method="post">
+<dialog class="calendar-provider-dialog" id="calendar-provider-dialog-{{ provider.provider_family }}" role="dialog" aria-modal="true" data-calendar-provider-dialog aria-labelledby="calendar-provider-dialog-{{ provider.provider_family }}-title">
+  <form class="calendar-provider-modal" action="{{ base_path }}/providers/{{ provider.provider_family }}/connect" method="post" data-calendar-mutation="connect" aria-describedby="calendar-provider-dialog-{{ provider.provider_family }}-status">
     {{ sections.csrf_field(csrf_token) }}
     <header class="calendar-provider-modal__header">
       {{ provider_logo(provider) }}
@@ -25,7 +39,9 @@
       <button type="button" class="calendar-provider-modal__close" data-calendar-provider-close aria-label="Закрыть окно подключения">×</button>
     </header>
     <div class="calendar-provider-modal__body">
-      {% if provider.method_category in ["app_password", "manual_url"] %}
+      {% if provider.method_category == "oauth" %}
+      <p class="calendar-provider-safe-hint">GRAF откроет страницу Google для выдачи доступа только на чтение. Пароль Google вводится только на стороне Google и не попадает в GRAF.</p>
+      {% elif provider.method_category in ["app_password", "manual_url"] %}
       {% if provider.method_category == "manual_url" %}
       <label>
         <span>{{ provider.url_label }}</span>
@@ -33,8 +49,8 @@
       </label>
       {% endif %}
       <label>
-        <span>{% if provider.method_category == "manual_url" %}Логин, если нужен{% else %}Логин{% endif %}</span>
-        <input type="text" name="username" maxlength="240" autocomplete="username" spellcheck="false"{% if provider.method_category == "app_password" %} required{% endif %}>
+        <span>Логин</span>
+        <input type="text" name="username" maxlength="240" autocomplete="username" spellcheck="false" required>
       </label>
       <label>
         <span>{{ provider.credential_label }}</span>
@@ -53,20 +69,23 @@
       {% if provider.limitation_copy %}
       <p class="calendar-provider-limitation">{{ provider.limitation_copy }}</p>
       {% endif %}
+      <p class="settings-form-status" id="calendar-provider-dialog-{{ provider.provider_family }}-status" data-calendar-mutation-status role="status" aria-live="polite" hidden></p>
     </div>
     <footer class="calendar-provider-modal__footer">
       {{ ui.badge("Только чтение", "ready") }}
       <p>Данные для подключения остаются на сервере GRAF. Приложение на Mac их не хранит.</p>
       <div class="calendar-provider-modal__actions">
         <button type="button" class="quiet" data-calendar-provider-close>Отмена</button>
-        <button type="submit" class="primary">{{ provider.action_label }}</button>
+        <button type="submit" class="primary" data-calendar-mutation-submit>{{ provider.action_label }}</button>
       </div>
     </footer>
   </form>
 </dialog>
 {%- endmacro %}
 
-<main class="cabinet-main calendar-settings-main" id="calendar-settings-region" data-cabinet-fragment="calendar-settings">
+{% set available_provider_families = surface.providers|selectattr("runtime_available")|map(attribute="provider_family")|list %}
+
+<main class="cabinet-main calendar-settings-main" id="calendar-settings-region" data-cabinet-fragment="calendar-settings" data-calendar-has-result="{{ 'true' if surface.notices else 'false' }}">
   <div class="cabinet-workspace calendar-settings">
     <div class="calendar-settings__content">
     <header class="cabinet-topbar calendar-settings__topbar">
@@ -82,9 +101,9 @@
     {% if surface.notices %}
     <div class="calendar-notice-list" aria-label="Состояние подключения календаря">
       {% for notice in surface.notices %}
-      <section class="calendar-notice calendar-notice--{{ notice.tone }}" role="status" aria-labelledby="calendar-notice-{{ notice.code }}-title">
+      <section class="calendar-notice calendar-notice--{{ notice.tone }}" role="status" aria-live="polite" tabindex="-1" aria-labelledby="calendar-notice-{{ notice.code }}-title">
         <h2 id="calendar-notice-{{ notice.code }}-title">{{ notice.title }}</h2>
-        <p>{{ notice.body }}</p>
+        {% if notice.body %}<p>{{ notice.body }}</p>{% endif %}
       </section>
       {% endfor %}
     </div>
@@ -125,13 +144,13 @@
           </div>
 
           {% if source.safe_error_message %}
-          <p class="calendar-safe-error" role="status">{{ source.safe_error_message }}</p>
+          <p class="calendar-safe-error" role="status" aria-live="polite">{{ source.safe_error_message }}</p>
           {% endif %}
 
           {% if source.calendars %}
           <details class="calendar-source-details calendar-source-details--picker" {% if source.selected_calendar_count == 0 %}open{% endif %}>
             <summary>Календари внутри источника</summary>
-            <form class="calendar-selection-form" action="{{ base_path }}/sources/{{ source.source_id }}/calendars" method="post" data-settings-form>
+            <form class="calendar-selection-form" action="{{ base_path }}/sources/{{ source.source_id }}/calendars" method="post" data-settings-form data-settings-form-disable-pristine data-calendar-mutation="selection" data-calendar-selection-limit="20">
               {{ sections.csrf_field(csrf_token) }}
               <fieldset class="calendar-picker">
                 <legend>Что подтягивать</legend>
@@ -144,25 +163,30 @@
                 </label>
                 {% endfor %}
               </fieldset>
+              <p class="calendar-policy-note">Можно выбрать до 20 календарей.</p>
               {% if source.selected_calendar_count == 0 %}
-              <p class="calendar-empty-inline" role="status">{{ surface.no_selected_calendars_copy }}</p>
+              <p class="calendar-empty-inline" role="status" aria-live="polite">{{ surface.no_selected_calendars_copy }}</p>
               {% endif %}
               <div class="calendar-source-card__actions">
-                <button type="submit" class="primary">Сохранить выбор</button>
-                <button type="reset" class="quiet">Отмена</button>
+                <button type="submit" class="primary" data-calendar-mutation-submit>Сохранить выбор</button>
+                <button type="reset" class="quiet" data-settings-form-reset>Отмена</button>
               </div>
-              <p class="settings-form-status" data-settings-form-status role="status" aria-live="polite" hidden></p>
+              <p class="settings-form-status" data-settings-form-status data-calendar-mutation-status role="status" aria-live="polite" hidden></p>
             </form>
           </details>
           {% else %}
-          <p class="calendar-empty-inline" role="status">{{ surface.no_readable_calendars_copy }} Проверьте подключение или запустите синхронизацию.</p>
+          <p class="calendar-empty-inline" role="status" aria-live="polite">{{ surface.no_readable_calendars_copy }} Проверьте подключение или запустите синхронизацию.</p>
           {% endif %}
 
           <div class="calendar-source-card__actions">
-            <form action="{{ base_path }}/sources/{{ source.source_id }}/sync" method="post">
+            <form action="{{ base_path }}/sources/{{ source.source_id }}/sync" method="post" data-calendar-mutation="sync" aria-describedby="calendar-sync-{{ source.source_id }}-status">
               {{ sections.csrf_field(csrf_token) }}
-              <button type="submit" class="quiet">Синхронизировать</button>
+              <button type="submit" class="quiet" data-calendar-mutation-submit{% if not source.sync_action_enabled %} disabled aria-disabled="true"{% endif %}>{{ source.sync_action_label }}</button>
+              <span class="settings-form-status" id="calendar-sync-{{ source.source_id }}-status" data-calendar-mutation-status role="status" aria-live="polite" hidden></span>
             </form>
+            {% if source.reconnect_recommended and source.provider_family in available_provider_families %}
+            <button type="button" class="quiet" data-calendar-provider-open="calendar-provider-dialog-{{ source.provider_family }}" aria-haspopup="dialog" aria-controls="calendar-provider-dialog-{{ source.provider_family }}">Переподключить</button>
+            {% endif %}
             <details class="calendar-source-details calendar-source-details--meta">
               <summary>Детали</summary>
               <dl class="calendar-source-meta">
@@ -172,19 +196,32 @@
                 <div><dt>Что сделать</dt><dd>{{ source.sync_recovery_label }}</dd></div>
               </dl>
             </details>
-            <details class="calendar-disconnect">
-              <summary class="danger-button">{{ source.disconnect_confirmation.title }}</summary>
-              <div class="calendar-disconnect__body" role="group" aria-label="Подтверждение отключения календаря">
-                <p>{{ source.disconnect_confirmation.future_sync_copy }}</p>
-                <p>{{ source.disconnect_confirmation.credential_copy }}</p>
-                <p>{{ source.disconnect_confirmation.retention_copy }}</p>
-                <form action="{{ base_path }}/sources/{{ source.source_id }}/disconnect" method="post">
-                  {{ sections.csrf_field(csrf_token) }}
-                  <button type="submit" class="danger-button">{{ source.disconnect_confirmation.confirm_label }}</button>
-                  <button type="button" class="quiet" data-calendar-disconnect-cancel>{{ source.disconnect_confirmation.cancel_label }}</button>
-                </form>
-              </div>
-            </details>
+            <button type="button" class="danger-button" data-calendar-provider-open="calendar-disconnect-dialog-{{ source.source_id }}" aria-haspopup="dialog" aria-controls="calendar-disconnect-dialog-{{ source.source_id }}">Отключить</button>
+            <dialog class="calendar-provider-dialog calendar-disconnect-dialog" id="calendar-disconnect-dialog-{{ source.source_id }}" data-calendar-provider-dialog aria-labelledby="calendar-disconnect-dialog-{{ source.source_id }}-title">
+              <form class="calendar-provider-modal" action="{{ base_path }}/sources/{{ source.source_id }}/disconnect" method="post" data-calendar-mutation="disconnect" aria-describedby="calendar-disconnect-{{ source.source_id }}-status">
+                {{ sections.csrf_field(csrf_token) }}
+                <header class="calendar-provider-modal__header">
+                  <span class="calendar-provider-logo" data-provider="{{ source.provider_family }}" aria-hidden="true">{{ source.provider_mark }}</span>
+                  <div>
+                    <h2 id="calendar-disconnect-dialog-{{ source.source_id }}-title">{{ source.disconnect_confirmation.title }}</h2>
+                    <p>{{ source.provider_label }}</p>
+                  </div>
+                  <button type="button" class="calendar-provider-modal__close" data-calendar-provider-close aria-label="Закрыть подтверждение отключения">×</button>
+                </header>
+                <div class="calendar-provider-modal__body calendar-disconnect__body">
+                  <p>{{ source.disconnect_confirmation.future_sync_copy }}</p>
+                  {% if source.disconnect_confirmation.credential_copy %}<p>{{ source.disconnect_confirmation.credential_copy }}</p>{% endif %}
+                  {% if source.disconnect_confirmation.retention_copy %}<p>{{ source.disconnect_confirmation.retention_copy }}</p>{% endif %}
+                  <p class="settings-form-status" id="calendar-disconnect-{{ source.source_id }}-status" data-calendar-mutation-status role="status" aria-live="polite" hidden></p>
+                </div>
+                <footer class="calendar-provider-modal__footer">
+                  <div class="calendar-provider-modal__actions">
+                    <button type="button" class="quiet" data-calendar-provider-close>{{ source.disconnect_confirmation.cancel_label }}</button>
+                    <button type="submit" class="danger-button" data-calendar-mutation-submit>{{ source.disconnect_confirmation.confirm_label }}</button>
+                  </div>
+                </footer>
+              </form>
+            </dialog>
           </div>
         </article>
         {% endfor %}
@@ -200,55 +237,82 @@
       {% endif %}
     </section>
 
-    <section class="calendar-settings-section" aria-labelledby="calendar-providers-title">
-      <div class="calendar-section-head">
-        <div>
-          <h2 id="calendar-providers-title" tabindex="-1">Подключить календарь</h2>
-          <p>Выберите сервис. Реквизиты вводятся в отдельном окне.</p>
-        </div>
-      </div>
-      <div class="calendar-provider-buttons" role="group" aria-labelledby="calendar-providers-title">
-        {% for provider in surface.providers %}
-        {{ provider_button(provider) }}
-        {{ provider_dialog(provider, base_path, csrf_token) }}
-        {% endfor %}
-      </div>
-    </section>
-
     <section class="calendar-settings-section" aria-labelledby="calendar-behavior-title">
       <div class="calendar-section-head">
         <div>
-          <h2 id="calendar-behavior-title">Напоминания</h2>
-          <p>{{ surface.preferences.manual_recording_copy }}</p>
+          <h2 id="calendar-behavior-title">Отображение и напоминания</h2>
+          <p>Настройки одинаково действуют на главной, в кабинете внутри macOS и в строке меню. {{ surface.preferences.manual_recording_copy }}</p>
         </div>
+        <a class="button quiet" href="{{ '/desktop/meetings' if embedded else '/meetings' }}">Посмотреть ближайшие</a>
       </div>
-      <form class="calendar-preferences-form" action="{{ base_path }}/preferences" method="post" data-settings-form>
+      <form class="calendar-preferences-form" action="{{ base_path }}/preferences" method="post" data-settings-form data-settings-form-disable-pristine>
         {{ sections.csrf_field(csrf_token) }}
-        <div class="calendar-preference-grid">
-          {{ ui.checkbox("join_prompt_enabled", surface.preferences.join_prompt_label, checked=surface.preferences.join_prompt_enabled) }}
-          {{ ui.checkbox("record_prompt_enabled", surface.preferences.record_prompt_label, checked=surface.preferences.record_prompt_enabled) }}
-          {{ ui.checkbox("show_upcoming_time", "Показывать время ближайшей встречи", checked=surface.preferences.show_upcoming_time) }}
-          {{ ui.checkbox("show_upcoming_title", "Показывать безопасное название встречи", checked=surface.preferences.show_upcoming_title) }}
+        <div class="calendar-preference-groups">
+          <section class="calendar-preference-group" aria-labelledby="calendar-upcoming-preferences-title">
+            <div><h3 id="calendar-upcoming-preferences-title">Ближайшие встречи</h3><p>Что показывать на главной и в строке меню macOS.</p></div>
+            <div class="calendar-preference-grid">
+              {{ ui.checkbox("show_upcoming_time", "Показывать время", checked=surface.preferences.show_upcoming_time) }}
+              {{ ui.checkbox("show_upcoming_title", "Показывать безопасное название", checked=surface.preferences.show_upcoming_title) }}
+            </div>
+          </section>
+          <section class="calendar-preference-group" aria-labelledby="calendar-prompt-preferences-title">
+            <div><h3 id="calendar-prompt-preferences-title">Подсказки на Mac</h3><p>GRAF только предлагает действие и ничего не запускает сам.</p></div>
+            <div class="calendar-preference-grid">
+              {{ ui.checkbox("join_prompt_enabled", surface.preferences.join_prompt_label, checked=surface.preferences.join_prompt_enabled) }}
+              {{ ui.checkbox("record_prompt_enabled", surface.preferences.record_prompt_label, checked=surface.preferences.record_prompt_enabled) }}
+            </div>
+          </section>
         </div>
         <details class="calendar-secondary-settings">
-          <summary>Фильтры и ограничения</summary>
+          <summary>Какие события показывать</summary>
           <div class="calendar-preference-grid">
             {{ ui.checkbox("include_events_without_participants", "Показывать события без участников", checked=surface.preferences.include_events_without_participants) }}
             {{ ui.checkbox("include_events_without_link_or_location", "Показывать события без ссылки или места", checked=surface.preferences.include_events_without_link_or_location) }}
             {{ ui.checkbox("include_all_day_events", "Показывать события на весь день", checked=surface.preferences.include_all_day_events) }}
-            {{ ui.checkbox("include_private_free_busy_prompt_candidates", "Показывать private/free-busy минимум", checked=surface.preferences.include_private_free_busy_prompt_candidates) }}
-            {{ ui.checkbox("auto_record_disabled", surface.preferences.disabled_auto_record_label, checked=false, disabled=true) }}
+            {{ ui.checkbox("include_private_free_busy_prompt_candidates", "Показывать приватные события и занятость", checked=surface.preferences.include_private_free_busy_prompt_candidates) }}
           </div>
           <p class="calendar-policy-note" data-calendar-auto-context-boundary>{{ surface.auto_context_boundary_copy }}</p>
           <p class="calendar-policy-note">По умолчанию подсказки используют только похожие на встречи события. {{ surface.private_free_busy_copy }}</p>
           <p class="calendar-policy-note">{{ surface.policy_constrained_copy }}</p>
           <p class="calendar-policy-note">{{ surface.preferences.overlap_prompt_copy }}</p>
           <p class="calendar-policy-note">{{ surface.preferences.prompt_policy_copy }}</p>
-          <p class="calendar-policy-note" data-state="not_enabled">{{ surface.preferences.disabled_auto_record_copy }}</p>
+          <p class="calendar-policy-note" data-state="not_enabled"><strong>Автоматическая запись выключена.</strong> {{ surface.preferences.disabled_auto_record_copy }}</p>
         </details>
         <p class="settings-form-status" data-settings-form-status role="status" aria-live="polite" hidden></p>
-        <button type="submit" class="primary">Сохранить настройки</button>
+        <div class="calendar-form-actions">
+          <button type="submit" class="primary">Сохранить настройки</button>
+          <button type="reset" class="quiet" data-settings-form-reset>Отменить изменения</button>
+        </div>
       </form>
+    </section>
+
+    <section class="calendar-settings-section" aria-labelledby="calendar-providers-title">
+      <div class="calendar-section-head">
+        <div>
+          <h2 id="calendar-providers-title" tabindex="-1">Добавить источник</h2>
+          <p>Доступные подключения работают только на чтение. Неподдерживаемые сервисы отмечены честно и не открывают пустую форму.</p>
+        </div>
+      </div>
+      <div class="calendar-provider-buttons" role="group" aria-labelledby="calendar-providers-title">
+        {% for provider in surface.providers %}
+        {% if provider.runtime_available %}
+        {{ provider_button(provider) }}
+        {{ provider_dialog(provider, base_path, csrf_token) }}
+        {% endif %}
+        {% endfor %}
+      </div>
+      {% if surface.providers|selectattr("runtime_available", "equalto", false)|list %}
+      <details class="calendar-unavailable-providers">
+        <summary>Сервисы, которые пока нельзя подключить</summary>
+        <div class="calendar-provider-buttons calendar-provider-buttons--unavailable">
+          {% for provider in surface.providers %}
+          {% if not provider.runtime_available %}
+          {{ unavailable_provider(provider) }}
+          {% endif %}
+          {% endfor %}
+        </div>
+      </details>
+      {% endif %}
     </section>
 
     <div class="calendar-settings-folders">
@@ -260,7 +324,7 @@
           {% for event in surface.preview %}
           <article class="calendar-preview-row" data-state="{{ event.title_state }}" data-sync="{{ event.sync_confidence_state }}">
             {% if surface.preferences.show_upcoming_time %}
-            <time datetime="{{ event.starts_at.isoformat() }}">{{ event.starts_at.strftime("%Y-%m-%d %H:%M UTC") }}</time>
+            <time datetime="{{ event.starts_at.isoformat() }}" data-calendar-local-datetime>Определяем местное время…</time>
             {% else %}
             <span class="calendar-preview-muted">Время скрыто настройкой</span>
             {% endif %}
@@ -288,7 +352,7 @@
           {% for conflict in surface.conflicts %}
           <section class="calendar-conflict" role="group" aria-labelledby="{{ conflict.conflict_id }}-title">
             <h3 id="{{ conflict.conflict_id }}-title">Нужно выбрать событие для пересечения</h3>
-            <p>Пересечение: {{ conflict.overlap_starts_at.strftime("%H:%M") }} - {{ conflict.overlap_ends_at.strftime("%H:%M") }} UTC. GRAF не выбирает событие автоматически.</p>
+            <p>Пересечение: <time datetime="{{ conflict.overlap_starts_at.isoformat() }}" data-calendar-local-time>…</time>–<time datetime="{{ conflict.overlap_ends_at.isoformat() }}" data-calendar-local-time>…</time>. GRAF не выбирает событие автоматически.</p>
             <div class="calendar-conflict-actions">
               {% for event in conflict.events %}
               <span class="calendar-conflict-choice">Вариант: {{ event.title if surface.preferences.show_upcoming_title else "название скрыто настройкой" }}</span>
@@ -300,7 +364,7 @@
         </div>
         {% endif %}
         {% else %}
-        <p class="calendar-empty-inline" role="status">{{ surface.preview_empty_reason }}</p>
+        <p class="calendar-empty-inline" role="status" aria-live="polite">{{ surface.preview_empty_reason }}</p>
         {% endif %}
       </details>
 

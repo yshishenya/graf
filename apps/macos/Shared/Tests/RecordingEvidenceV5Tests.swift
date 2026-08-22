@@ -154,6 +154,17 @@ final class RecordingEvidenceTests: XCTestCase {
                 cleanupReadiness: .readyForFutureProcessing,
                 evidenceCodes: ["mic_graph_ready"]
             ),
+            echoProcessor: .webrtcAEC3,
+            echoProcessingHealth: EchoProcessingHealth(
+                state: .completed,
+                processedFrameCount: 100,
+                estimatedDriftPpm: 12.5,
+                hostUnderrunCount: 0,
+                hostOverrunCount: 0,
+                aecDelayMs: 40,
+                echoReturnLossEnhancementDb: 22,
+                processingTimeP95Ms: 1
+            )
         )
 
         let evidence = RecordingEvidenceService().localRecordingEvidence(for: manifest)
@@ -172,6 +183,10 @@ final class RecordingEvidenceTests: XCTestCase {
         XCTAssertEqual(evidence["microphoneStreamGateStatus"], "passed")
         XCTAssertEqual(evidence["microphoneFutureProcessingReadiness"], "ready_for_future_processing")
         XCTAssertEqual(evidence["microphoneGraphDiagnosticSafe"], "true")
+        XCTAssertEqual(evidence["echoAlgorithm"], "webrtc_aec3_m131")
+        XCTAssertEqual(evidence["echoHealthState"], "completed")
+        XCTAssertEqual(evidence["echoProcessedFrameCount"], "100")
+        XCTAssertEqual(evidence["echoEstimatedDriftPpm"], "12.500")
         XCTAssertNil(evidence["rawAudio"])
         XCTAssertNil(evidence["absolutePath"])
     }
@@ -189,7 +204,9 @@ final class RecordingEvidenceTests: XCTestCase {
             transcriptionReadiness: .ready,
             mediaScribeSourceMode: "single_wav_v1",
             canonicalMixProfile: LocalRecordingManifest.canonicalMixProfileVersion,
-            tracks: canonicalEvidenceTracks()
+            tracks: canonicalEvidenceTracks(),
+            echoProcessor: .webrtcAEC3,
+            echoProcessingHealth: EchoProcessingHealth(state: .completed, processedFrameCount: 100)
         )
 
         let bundle = try DiagnosticBundleService().buildLocalRecordingBundle(
@@ -212,6 +229,8 @@ final class RecordingEvidenceTests: XCTestCase {
         XCTAssertEqual(diagnosticManifest["externalEgressStarted"], .bool(false))
         XCTAssertEqual(diagnosticManifest["transcriptionStarted"], .bool(false))
         XCTAssertEqual(diagnosticManifest["diagnosticSafe"], .bool(true))
+        XCTAssertNotNil(diagnosticManifest["echoProcessor"])
+        XCTAssertNotNil(diagnosticManifest["echoProcessingHealth"])
         XCTAssertEqual(summary["diagnosticSafe"], .bool(true))
         XCTAssertEqual(bundle.redactionState, .blockedSensitiveContent)
         XCTAssertNil(bundle.manifest["rawAudio"])

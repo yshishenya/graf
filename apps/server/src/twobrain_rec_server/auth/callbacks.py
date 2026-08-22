@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -29,6 +30,7 @@ from twobrain_rec_server.auth.providers.base import (
     ProviderVerificationError,
     get_provider_http_client,
 )
+from twobrain_rec_server.auth.redirects import safe_first_party_path
 from twobrain_rec_server.auth.sessions import consume_callback_state, issue_auth_session
 from twobrain_rec_server.auth.workspace_onboarding import ensure_personal_workspace
 from twobrain_rec_server.billing.referral_binding import bind_referral_attribution
@@ -41,8 +43,10 @@ from twobrain_rec_server.db.models import (
     Workspace,
     WorkspaceAuthPolicy,
     WorkspaceMembership,
+    WorkspaceProviderLinkState,
 )
 from twobrain_rec_server.db.tenant_context import (
+    AuthCallbackLookupContext,
     TenantDatabaseContext,
     WorkspaceAuthContext,
     apply_tenant_context,
@@ -61,6 +65,7 @@ class CallbackProfile:
     token_expires_at: datetime
     requested_redirect: str | None = None
     registered: bool = False
+    browser_bound: bool = False
 
 
 class CallbackFlowError(ValueError):
@@ -85,6 +90,15 @@ async def _record_callback_audit_event(
     actor_user_id: UUID | None = None,
     metadata: dict[str, object] | None = None,
 ) -> None:
+    await db.flush()
+    await apply_tenant_context(
+        db,
+        WorkspaceAuthContext(
+            workspace_id=workspace_id,
+            user_id=actor_user_id,
+            context_kind="auth_bootstrap",
+        ),
+    )
     await write_auth_audit_event(
         db,
         workspace_id=workspace_id,
@@ -97,7 +111,6 @@ async def _record_callback_audit_event(
         metadata=metadata or {},
         request_id=request_id,
     )
-
 
 
 def _fingerprint_identity(subject: str, provider: str, workspace_id: UUID) -> str:
@@ -115,17 +128,29 @@ def _is_external_identity_unique_conflict(exc: IntegrityError) -> bool:
         }
     )
     return (
-        "external_identities.provider" in message
-        and "external_identities.provider_subject" in message
-    ) or constraint_name in known_constraint_names or any(
-        known_constraint in message for known_constraint in known_constraint_names
+        (
+            "external_identities.provider" in message
+            and "external_identities.provider_subject" in message
+        )
+        or constraint_name in known_constraint_names
+        or any(known_constraint in message for known_constraint in known_constraint_names)
     )
 
 
-async def _mark_state_error(state, code: str, now: datetime | None = None) -> None:
+async def _mark_state_error(
+    db: AsyncSession,
+    state: AuthCallbackState,
+    code: str,
+    now: datetime | None = None,
+) -> None:
+    await apply_tenant_context(
+        db,
+        AuthCallbackLookupContext(state_nonce=state.state_nonce),
+    )
     state.used_at = now or datetime.now(UTC)
     state.result = "rejected"
     state.error_code = code
+    await db.flush()
 
 
 async def assert_workspace_active(db: AsyncSession, workspace_id: UUID) -> Workspace | None:
@@ -183,10 +208,36 @@ def _resolve_oauth_denial(query: dict[str, str]) -> None:
         raise CallbackFlowError("callback_denied", f"callback denied: {error}")
 
 
-async def _assert_provider_allowed(db: AsyncSession, workspace_id: UUID, provider: str) -> WorkspaceAuthPolicy:
+async def _verify_provider_callback(
+    *,
+    provider: str,
+    query: dict[str, str],
+    state_nonce: str,
+    provider_credentials: ProviderCredentials,
+    provider_http_client: ProviderHttpClient | None,
+    now: datetime,
+):
+    adapter = get_provider_adapter(provider)
+    http_client = provider_http_client or get_provider_http_client()
+    # ponytail: keep native sync adapters; the bounded default executor caps provider I/O.
+    return await asyncio.to_thread(
+        adapter.verify_callback,
+        query,
+        expected_state=state_nonce,
+        credentials=provider_credentials,
+        http_client=http_client,
+        now=now,
+    )
+
+
+async def _assert_provider_allowed(
+    db: AsyncSession, workspace_id: UUID, provider: str
+) -> WorkspaceAuthPolicy:
     policy = await load_workspace_auth_policy(db, workspace_id)
     if not is_provider_enabled_in_policy(policy, provider):
-        raise CallbackFlowError("provider_disabled", f"provider {provider} disabled by workspace policy")
+        raise CallbackFlowError(
+            "provider_disabled", f"provider {provider} disabled by workspace policy"
+        )
     return policy
 
 
@@ -275,7 +326,7 @@ async def _create_scoped_user(
             organization_id=organization_id,
             user_id=user.id,
             context_kind="auth_bootstrap",
-        )
+        ),
     )
     return user
 
@@ -329,10 +380,7 @@ async def _resolve_browser_login_device(
 
 
 def _is_browser_requested_redirect(value: str | None) -> bool:
-    if value is None:
-        return False
-    stripped = value.strip()
-    return bool(stripped and stripped.startswith("/") and not stripped.startswith("//") and "\r" not in stripped and "\n" not in stripped)
+    return safe_first_party_path(value) is not None
 
 
 async def _get_or_create_user_from_provider_claims(
@@ -357,7 +405,9 @@ async def _get_or_create_user_from_provider_claims(
     )
     if user is not None:
         if user.status != "active":
-            raise CallbackFlowError("identity_user_inactive", "identity owner account is not active")
+            raise CallbackFlowError(
+                "identity_user_inactive", "identity owner account is not active"
+            )
         await apply_tenant_context(
             db,
             WorkspaceAuthContext(
@@ -467,12 +517,12 @@ async def resolve_callback_to_user(
             browser_state_nonce=browser_state_nonce,
             now=now,
         )
+        await db.flush()
     except ValueError as exc:
         message = str(exc)
         if "already consumed" in message:
             state = await _load_state_if_exists(db, provider=provider, state_nonce=state_nonce)
             if state is not None:
-                await _mark_state_error(state, "callback_state_reused", now=now)
                 await _record_callback_audit_event(
                     db,
                     workspace_id=state.workspace_id,
@@ -483,11 +533,13 @@ async def resolve_callback_to_user(
                     outcome="failure",
                     metadata={"error_code": "callback_state_reused", "state_nonce": state_nonce},
                 )
-            raise CallbackFlowError("callback_state_reused", "callback state already consumed") from exc
+            raise CallbackFlowError(
+                "callback_state_reused", "callback state already consumed"
+            ) from exc
         if "expired" in message:
             state = await _load_state_if_exists(db, provider=provider, state_nonce=state_nonce)
             if state is not None:
-                await _mark_state_error(state, "callback_state_expired", now=now)
+                await _mark_state_error(db, state, "callback_state_expired", now=now)
                 await _record_callback_audit_event(
                     db,
                     workspace_id=state.workspace_id,
@@ -511,16 +563,16 @@ async def resolve_callback_to_user(
 
     try:
         _resolve_oauth_denial(query)
-        adapter = get_provider_adapter(provider)
-        identity = adapter.verify_callback(
-            query,
-            expected_state=state_nonce,
-            credentials=provider_credentials,
-            http_client=provider_http_client or get_provider_http_client(),
+        identity = await _verify_provider_callback(
+            provider=provider,
+            query=query,
+            state_nonce=state_nonce,
+            provider_credentials=provider_credentials,
+            provider_http_client=provider_http_client,
             now=now,
         )
     except ProviderVerificationError as exc:
-        await _mark_state_error(state, "provider_unavailable", now=now)
+        await _mark_state_error(db, state, "provider_unavailable", now=now)
         await _record_callback_audit_event(
             db,
             workspace_id=state.workspace_id,
@@ -531,9 +583,11 @@ async def resolve_callback_to_user(
             outcome="failure",
             metadata={"error_code": "provider_unavailable", "reason": "verification_unavailable"},
         )
-        raise CallbackFlowError("provider_unavailable", "provider callback verification unavailable") from exc
+        raise CallbackFlowError(
+            "provider_unavailable", "provider callback verification unavailable"
+        ) from exc
     except CallbackFlowError as exc:
-        await _mark_state_error(state, exc.code, now=now)
+        await _mark_state_error(db, state, exc.code, now=now)
         await _record_callback_audit_event(
             db,
             workspace_id=state.workspace_id,
@@ -546,7 +600,7 @@ async def resolve_callback_to_user(
         )
         raise
     except ValueError as exc:
-        await _mark_state_error(state, "callback_parse_error", now=now)
+        await _mark_state_error(db, state, "callback_parse_error", now=now)
         await _record_callback_audit_event(
             db,
             workspace_id=state.workspace_id,
@@ -563,7 +617,7 @@ async def resolve_callback_to_user(
         await _assert_provider_allowed(db, state.workspace_id, identity.provider)
         workspace = await assert_workspace_active(db, state.workspace_id)
     except CallbackFlowError as exc:
-        await _mark_state_error(state, exc.code, now=now)
+        await _mark_state_error(db, state, exc.code, now=now)
         await _record_callback_audit_event(
             db,
             workspace_id=state.workspace_id,
@@ -579,7 +633,7 @@ async def resolve_callback_to_user(
         )
         raise
     if workspace is None:
-        await _mark_state_error(state, "workspace_not_found", now=now)
+        await _mark_state_error(db, state, "workspace_not_found", now=now)
         await _record_callback_audit_event(
             db,
             workspace_id=state.workspace_id,
@@ -617,7 +671,7 @@ async def resolve_callback_to_user(
             is_verified=identity.is_verified,
         )
     except CallbackFlowError as exc:
-        await _mark_state_error(state, exc.code, now=now)
+        await _mark_state_error(db, state, exc.code, now=now)
         await _record_callback_audit_event(
             db,
             workspace_id=workspace.id,
@@ -708,7 +762,9 @@ async def resolve_callback_to_user(
             outcome="failure",
             metadata={"error_code": "identity_persistence_failed", "state_nonce": state_nonce},
         )
-        raise CallbackFlowError("identity_persistence_failed", "identity persistence failed", workspace_id=workspace.id)
+        raise CallbackFlowError(
+            "identity_persistence_failed", "identity persistence failed", workspace_id=workspace.id
+        )
 
     await _record_callback_audit_event(
         db,
@@ -741,6 +797,7 @@ async def resolve_callback_to_user(
         token_expires_at=issued.expires_at,
         requested_redirect=state.requested_redirect,
         registered=registered,
+        browser_bound=state.expected_state != state.state_nonce,
     )
 
 
@@ -761,6 +818,29 @@ async def resolve_callback_to_provider_link(
     """Verify a bound provider-link callback without changing login state."""
     now = now or datetime.now(UTC)
     callback_state: AuthCallbackState | None = None
+
+    async def reject_pending(error_code: str) -> None:
+        await apply_tenant_context(
+            db,
+            AuthCallbackLookupContext(state_nonce=state_nonce),
+        )
+        current_link = await db.scalar(
+            select(WorkspaceProviderLinkState)
+            .where(WorkspaceProviderLinkState.id == link_state.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if current_link is not None and current_link.status == "initiated":
+            await apply_tenant_context(
+                db,
+                WorkspaceAuthContext(
+                    workspace_id=current_link.workspace_id,
+                    user_id=current_link.initiating_user_id,
+                    context_kind="auth_bootstrap",
+                ),
+            )
+            await reject_provider_link(db, link=current_link, error_code=error_code)
+
     try:
         callback_state = await consume_callback_state(
             db,
@@ -769,20 +849,34 @@ async def resolve_callback_to_provider_link(
             browser_state_nonce=browser_state_nonce,
             now=now,
         )
+        await db.flush()
         if callback_state.id != link_state.callback_state_id:
             raise ProviderLinkError("provider_link_callback_mismatch")
         _resolve_oauth_denial(query)
-        identity = get_provider_adapter(provider).verify_callback(
-            query,
-            expected_state=state_nonce,
-            credentials=provider_credentials,
-            http_client=provider_http_client or get_provider_http_client(),
+        identity = await _verify_provider_callback(
+            provider=provider,
+            query=query,
+            state_nonce=state_nonce,
+            provider_credentials=provider_credentials,
+            provider_http_client=provider_http_client,
             now=now,
         )
         await apply_tenant_context(
             db,
             WorkspaceAuthContext(
                 workspace_id=link_state.workspace_id,
+                user_id=link_state.initiating_user_id,
+                context_kind="auth_bootstrap",
+            ),
+        )
+        workspace = await assert_workspace_active(db, link_state.workspace_id)
+        if workspace is None:
+            raise ProviderLinkError("workspace_scope_denied")
+        await apply_tenant_context(
+            db,
+            WorkspaceAuthContext(
+                workspace_id=link_state.workspace_id,
+                organization_id=workspace.organization_id,
                 user_id=link_state.initiating_user_id,
                 context_kind="auth_bootstrap",
             ),
@@ -807,10 +901,25 @@ async def resolve_callback_to_provider_link(
             display_name=identity.display_name,
             now=now,
         )
+        candidate_identity = await db.scalar(
+            select(ExternalIdentity).where(
+                ExternalIdentity.provider == identity.provider,
+                ExternalIdentity.provider_subject == identity.normalized_subject(),
+                ExternalIdentity.is_active.is_(True),
+            )
+        )
+        await db.flush()
+        if candidate_identity is not None:
+            await apply_tenant_context(
+                db,
+                AuthCallbackLookupContext(state_nonce=callback_state.state_nonce),
+            )
+            callback_state.verified_external_identity_id = candidate_identity.id
+            await db.flush()
     except CallbackFlowError as exc:
         if callback_state is not None:
-            await _mark_state_error(callback_state, exc.code, now=now)
-        await reject_provider_link(db, link=link_state, error_code=exc.code)
+            await _mark_state_error(db, callback_state, exc.code, now=now)
+        await reject_pending(exc.code)
         await _record_callback_audit_event(
             db,
             workspace_id=link_state.workspace_id,
@@ -825,8 +934,8 @@ async def resolve_callback_to_provider_link(
         raise
     except ProviderVerificationError as exc:
         if callback_state is not None:
-            await _mark_state_error(callback_state, "provider_unavailable", now=now)
-        await reject_provider_link(db, link=link_state, error_code="provider_unavailable")
+            await _mark_state_error(db, callback_state, "provider_unavailable", now=now)
+        await reject_pending("provider_unavailable")
         await _record_callback_audit_event(
             db,
             workspace_id=link_state.workspace_id,
@@ -838,11 +947,13 @@ async def resolve_callback_to_provider_link(
             actor_user_id=link_state.initiating_user_id,
             metadata={"error_code": "provider_unavailable"},
         )
-        raise CallbackFlowError("provider_unavailable", "provider callback verification unavailable") from exc
+        raise CallbackFlowError(
+            "provider_unavailable", "provider callback verification unavailable"
+        ) from exc
     except ProviderLinkError as exc:
         if callback_state is not None:
-            await _mark_state_error(callback_state, exc.code, now=now)
-        await reject_provider_link(db, link=link_state, error_code=exc.code)
+            await _mark_state_error(db, callback_state, exc.code, now=now)
+        await reject_pending(exc.code)
         await _record_callback_audit_event(
             db,
             workspace_id=link_state.workspace_id,
@@ -865,8 +976,8 @@ async def resolve_callback_to_provider_link(
             else "callback_state_invalid"
         )
         if callback_state is not None:
-            await _mark_state_error(callback_state, error_code, now=now)
-        await reject_provider_link(db, link=link_state, error_code=error_code)
+            await _mark_state_error(db, callback_state, error_code, now=now)
+        await reject_pending(error_code)
         await _record_callback_audit_event(
             db,
             workspace_id=link_state.workspace_id,

@@ -479,6 +479,8 @@ final class DesktopCalendarReminderTests: XCTestCase {
     func testDesktopUpcomingResponseDecodesEndpointShape() throws {
         let json = """
         {
+          "show_upcoming_time": false,
+          "show_upcoming_title": false,
           "events": [{
             "event_id": "00000000-0000-0000-0000-000000000060",
             "provider_family": "caldav_yandex",
@@ -503,8 +505,80 @@ final class DesktopCalendarReminderTests: XCTestCase {
         let response = try decoder.decode(DesktopCalendarPromptResponse.self, from: Data(json.utf8))
 
         XCTAssertEqual(response.events.count, 1)
+        XCTAssertFalse(response.showUpcomingTime)
+        XCTAssertFalse(response.showUpcomingTitle)
         XCTAssertEqual(response.events[0].titleState, .freeBusyOnly)
         XCTAssertEqual(response.events[0].openMeetingURL?.host, "meet.example.test")
+    }
+
+    @MainActor
+    func testCalendarTrayModelSortsEventsAndKeepsSafeProjection() async {
+        let later = makeEvent(
+            eventId: "later",
+            startsAt: date(300),
+            endsAt: date(360),
+            title: "Later meeting"
+        )
+        let earlier = makeEvent(
+            eventId: "earlier",
+            startsAt: date(120),
+            endsAt: date(180),
+            title: "Earlier meeting"
+        )
+        let model = CalendarTrayModel {
+            DesktopCalendarPromptResponse(
+                events: [later, earlier],
+                showUpcomingTime: false,
+                showUpcomingTitle: false
+            )
+        }
+
+        await model.refresh()
+
+        XCTAssertEqual(model.state, .loaded)
+        XCTAssertEqual(model.events.map(\.eventId), ["earlier", "later"])
+        XCTAssertEqual(model.events[0].safeDisplayTitle(), "Earlier meeting")
+        XCTAssertFalse(model.showUpcomingTime)
+        XCTAssertFalse(model.showUpcomingTitle)
+    }
+
+    @MainActor
+    func testCalendarTrayModelShowsSignInState() async {
+        let model = CalendarTrayModel {
+            throw DesktopUploadClientError.httpStatus(401, "auth_required")
+        }
+
+        await model.refresh()
+
+        XCTAssertEqual(model.state, .needsSignIn)
+        XCTAssertTrue(model.events.isEmpty)
+    }
+
+    func testCalendarTrayModelIgnoresAnOlderRefreshThatFinishesLast() async {
+        let loader = CalendarTrayControlledLoader()
+        let model = CalendarTrayModel { await loader.load() }
+
+        let first = Task { await model.refresh() }
+        await loader.waitForRequestCount(1)
+        let second = Task { await model.refresh() }
+        await loader.waitForRequestCount(2)
+
+        await loader.complete(
+            request: 1,
+            with: DesktopCalendarPromptResponse(
+                events: [makeEvent(eventId: "new", startsAt: date(120), endsAt: date(180))]
+            )
+        )
+        await second.value
+        await loader.complete(
+            request: 0,
+            with: DesktopCalendarPromptResponse(
+                events: [makeEvent(eventId: "old", startsAt: date(60), endsAt: date(90))]
+            )
+        )
+        await first.value
+
+        XCTAssertEqual(model.events.map(\.eventId), ["new"])
     }
 
     func testPromptAccessibilityCopyNamesManualAction() throws {
@@ -546,5 +620,25 @@ final class DesktopCalendarReminderTests: XCTestCase {
         Date(timeIntervalSince1970: seconds)
     }
 
+}
+
+private actor CalendarTrayControlledLoader {
+    private var continuations: [CheckedContinuation<DesktopCalendarPromptResponse, Never>] = []
+
+    func load() async -> DesktopCalendarPromptResponse {
+        await withCheckedContinuation { continuation in
+            continuations.append(continuation)
+        }
+    }
+
+    func waitForRequestCount(_ count: Int) async {
+        while continuations.count < count {
+            await Task.yield()
+        }
+    }
+
+    func complete(request index: Int, with response: DesktopCalendarPromptResponse) {
+        continuations[index].resume(returning: response)
+    }
 }
 #endif

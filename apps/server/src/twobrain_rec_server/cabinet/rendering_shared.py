@@ -40,13 +40,14 @@ def _page_shell(
         content_source = "cabinet.shell"
     if content is not None:
         context["content"] = trusted_component_html(content, source=content_source)
+    resolved_profile = profile or getattr(context.get("account_surface"), "profile", None)
     shell = render_template(
         page_template,
         embedded=embedded,
         navigation=navigation,
         settings_navigation=settings_navigation,
         settings_active=settings_active,
-        profile=profile or getattr(context.get("account_surface"), "profile", None),
+        profile=resolved_profile,
         csrf_token=csrf_token,
         **context,
     )
@@ -56,6 +57,7 @@ def _page_shell(
         surface_mode="desktop_embedded" if embedded else "standalone_browser",
         csrf_token=csrf_token,
         product_analytics_provider=product_analytics_provider,
+        profile=resolved_profile,
         content=trusted_component_html(shell, source="cabinet.shell"),
     )
 

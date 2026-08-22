@@ -28,11 +28,17 @@ def disconnect_result(source_id: UUID) -> dict[str, object]:
         "connection_state": "disconnected",
         "credentials_purged": True,
         "unmatched_future_cache_purged": True,
+        # Retained for API compatibility. Disconnect is deliberately local to
+        # GRAF and never calls a provider-side revoke endpoint.
+        "external_revoke": "not_applicable",
         "matched_context_retention": "meeting_retention_policy",
     }
 
 
-async def disconnect_source(db: AsyncSession, source: CalendarSource) -> dict[str, object]:
+async def disconnect_source(
+    db: AsyncSession,
+    source: CalendarSource,
+) -> dict[str, object]:
     now = datetime.now(UTC)
     source.connection_state = "disconnected"
     source.credential_state = "purged"
@@ -47,6 +53,10 @@ async def disconnect_source(db: AsyncSession, source: CalendarSource) -> dict[st
     for envelope in envelopes:
         envelope.revoked_at = envelope.revoked_at or now
         envelope.purged_at = envelope.purged_at or now
+        # Keep only a tombstone row for audit/retention checks.  A purged
+        # envelope must never remain decryptable by a later runtime worker.
+        envelope.sealed_payload = b""
+        envelope.secret_kind = "purged"
     calendars = await db.scalars(
         select(ExternalCalendar).where(ExternalCalendar.calendar_source_id == source.id)
     )

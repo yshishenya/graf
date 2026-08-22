@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import urlencode, urlsplit
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query, Request, Response
@@ -32,12 +32,16 @@ from twobrain_rec_server.auth.policy import (
 from twobrain_rec_server.auth.provider_links import (
     ConfirmedProviderLink,
     ProviderLinkError,
+    apply_provider_link_auth_context,
+    apply_provider_link_request_context,
     confirm_provider_link,
     create_link_intent,
     link_for_callback,
 )
 from twobrain_rec_server.auth.providers import build_provider_registry, get_provider_adapter
 from twobrain_rec_server.auth.providers.base import ProviderCredentials
+from twobrain_rec_server.auth.rate_limit import enforce_auth_rate_limits
+from twobrain_rec_server.auth.redirects import safe_first_party_path as _safe_browser_return_path
 from twobrain_rec_server.auth.sessions import create_callback_state
 from twobrain_rec_server.billing.catalog import FREE_STORAGE_BYTES
 from twobrain_rec_server.billing.entitlements import effective_plan_code
@@ -55,6 +59,7 @@ from twobrain_rec_server.db.models import (
     UserIdentity,
     Workspace,
     WorkspaceMembership,
+    WorkspaceProviderLinkState,
     WorkspaceSubscription,
 )
 from twobrain_rec_server.db.tenant_context import (
@@ -228,7 +233,9 @@ PROBLEM_RESPONSES = {
 }
 
 
-router = APIRouter(prefix="/api/v1/auth", tags=["auth"], responses=PROBLEM_RESPONSES, include_in_schema=True)
+router = APIRouter(
+    prefix="/api/v1/auth", tags=["auth"], responses=PROBLEM_RESPONSES, include_in_schema=True
+)
 WebCSRFDependency = Depends(require_web_csrf)
 
 
@@ -362,7 +369,11 @@ async def _require_active_customer_membership(
     )
     personal_owner_is_valid = workspace is not None and (
         workspace.kind != "personal"
-        or (workspace.owner_user_id == principal.user_id and membership is not None and membership.role == "owner")
+        or (
+            workspace.owner_user_id == principal.user_id
+            and membership is not None
+            and membership.role == "owner"
+        )
     )
     if (
         workspace is None
@@ -406,7 +417,9 @@ def _read_provider_secret(path: Path | None) -> str | None:
     return value or None
 
 
-def _provider_credentials(settings: Settings, provider: str, redirect_uri: str) -> ProviderCredentials:
+def _provider_credentials(
+    settings: Settings, provider: str, redirect_uri: str
+) -> ProviderCredentials:
     return ProviderCredentials(
         client_id=_provider_client_id(settings, provider),
         client_secret=_read_provider_secret(_provider_secret_file(settings, provider)),
@@ -431,15 +444,35 @@ def _request_client_ip(request: Request) -> str | None:
     return request.client.host if request.client else None
 
 
-def _safe_browser_return_path(value: str | None) -> str | None:
-    if value is None:
-        return None
-    stripped = value.strip()
-    if not stripped or not stripped.startswith("/") or stripped.startswith("//"):
-        return None
-    if any(char in stripped for char in "\r\n"):
-        return None
-    return stripped
+def _provider_link_callback_result(code: str) -> str:
+    if code in {"callback_state_expired", "provider_link_expired"}:
+        return "provider_link_expired"
+    if code in {"callback_state_reused", "provider_link_reused"}:
+        return "provider_link_reused"
+    if code in {
+        "callback_parse_error",
+        "callback_state_invalid",
+        "provider_link_callback_mismatch",
+        "provider_link_candidate_missing",
+    }:
+        return "provider_link_invalid"
+    if code == "callback_denied":
+        return "provider_link_denied"
+    return "provider_link_unavailable"
+
+
+def _provider_link_callback_redirect(
+    callback_state: AuthCallbackState,
+    link: WorkspaceProviderLinkState,
+    *,
+    result: str,
+) -> RedirectResponse:
+    redirect_path = _safe_browser_return_path(callback_state.requested_redirect)
+    if redirect_path is None:
+        redirect_path = f"/settings/provider-links/{link.id}"
+    response = RedirectResponse(f"{redirect_path}?result={result}", status_code=303)
+    _clear_browser_auth_state_cookie(response)
+    return response
 
 
 def _set_browser_auth_state_cookie(response: Response, *, nonce: str, max_age: int) -> None:
@@ -464,6 +497,30 @@ def _clear_browser_auth_state_cookie(response: Response) -> None:
     )
 
 
+def _browser_callback_error_redirect(
+    request: Request,
+    *,
+    callback_state: AuthCallbackState | None,
+    error_code: str,
+) -> RedirectResponse | None:
+    callback_is_browser_bound = (
+        callback_state is not None
+        and callback_state.expected_state != callback_state.state_nonce
+    )
+    requested_redirect = _safe_browser_return_path(
+        callback_state.requested_redirect if callback_is_browser_bound else None
+    )
+    accepts_html = "text/html" in request.headers.get("accept", "").lower()
+    if requested_redirect is None and not accepts_html:
+        return None
+    redirect = RedirectResponse(
+        "/login?" + urlencode({"next": requested_redirect or "/meetings", "error": error_code}),
+        status_code=303,
+    )
+    _clear_browser_auth_state_cookie(redirect)
+    return redirect
+
+
 def _set_auth_cookie(response: Response, *, token: str, expires_at: datetime) -> None:
     token_expires_at = expires_at
     if token_expires_at.tzinfo is None:
@@ -478,6 +535,32 @@ def _set_auth_cookie(response: Response, *, token: str, expires_at: datetime) ->
         httponly=True,
         samesite="lax",
     )
+
+
+async def _enforce_public_provider_rate_limits(
+    request: Request,
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    scopes: tuple[tuple[str, str], ...],
+) -> None:
+    retry_after = await enforce_auth_rate_limits(
+        db,
+        workspace_id=workspace_id,
+        scopes=scopes,
+        sessionmaker=getattr(request.app.state, "db_sessionmaker", None),
+        scope_secret=request.app.state.settings.share_identity_hash_secret,
+    )
+    if retry_after is not None:
+        raise ProblemDetail(
+            status=429,
+            code="auth_rate_limited",
+            title="Too many authentication attempts",
+            headers={
+                "Retry-After": str(max(1, retry_after)),
+                "Cache-Control": "private, no-store",
+            },
+        )
 
 
 async def _record_auth_audit(
@@ -508,7 +591,9 @@ async def _record_auth_audit(
     )
 
 
-def _policy_to_response(snapshot: AuthPolicySnapshot, *, include_disabled: bool = False) -> AuthProvidersResponse:
+def _policy_to_response(
+    snapshot: AuthPolicySnapshot, *, include_disabled: bool = False
+) -> AuthProvidersResponse:
     return AuthProvidersResponse(
         workspace_id=snapshot.workspace_id,
         providers=[
@@ -628,7 +713,9 @@ async def patch_workspace_auth_policy(
             code="policy_payload_empty",
             title="No policy fields provided",
         )
-    snapshot = await update_workspace_auth_policy(db, workspace_id=workspace_id, policy_updates=updates)
+    snapshot = await update_workspace_auth_policy(
+        db, workspace_id=workspace_id, policy_updates=updates
+    )
     await _record_auth_audit(
         db,
         request=request,
@@ -665,6 +752,15 @@ async def start_provider_flow(
     workspace_id = _internal_auth_workspace_id(request)
     await _apply_auth_public_context(db, workspace_id)
     normalized_provider = provider.lower()
+    await _enforce_public_provider_rate_limits(
+        request,
+        db,
+        workspace_id=workspace_id,
+        scopes=(
+            ("provider_start_ip", _request_client_ip(request) or "unknown"),
+            ("provider_start_provider", normalized_provider),
+        ),
+    )
     adapters = build_provider_registry()
     try:
         adapter = get_provider_adapter(normalized_provider)
@@ -684,7 +780,9 @@ async def start_provider_flow(
             title="Provider is not configured",
         ) from exc
     snapshot = await read_auth_providers(db, workspace_id, adapters=adapters, persist_defaults=True)
-    provider_policy = next((entry for entry in snapshot.providers if entry.provider == normalized_provider), None)
+    provider_policy = next(
+        (entry for entry in snapshot.providers if entry.provider == normalized_provider), None
+    )
     if provider_policy is None or not provider_policy.enabled:
         await _record_auth_audit(
             db,
@@ -764,11 +862,20 @@ async def start_provider_link_flow(
     try:
         adapter = get_provider_adapter(normalized_provider)
     except ValueError as exc:
-        raise ProblemDetail(status=403, code="provider_missing", title="Provider is not configured") from exc
+        raise ProblemDetail(
+            status=403, code="provider_missing", title="Provider is not configured"
+        ) from exc
     snapshot = await read_auth_providers(db, workspace_id, adapters=adapters, persist_defaults=True)
-    provider_policy = next((entry for entry in snapshot.providers if entry.provider == normalized_provider), None)
+    provider_policy = next(
+        (entry for entry in snapshot.providers if entry.provider == normalized_provider), None
+    )
     if provider_policy is None or not provider_policy.enabled:
         raise ProblemDetail(status=403, code="provider_disabled", title="Provider disabled")
+    await apply_provider_link_auth_context(
+        db,
+        principal=principal,
+        workspace_id=workspace_id,
+    )
     created_state = create_callback_state(
         db,
         provider=normalized_provider,
@@ -779,7 +886,14 @@ async def start_provider_link_flow(
     await db.flush()
     callback_state = await db.get(AuthCallbackState, created_state.id)
     if callback_state is None:
-        raise ProblemDetail(status=503, code="provider_link_unavailable", title="Provider link unavailable")
+        raise ProblemDetail(
+            status=503, code="provider_link_unavailable", title="Provider link unavailable"
+        )
+    await apply_provider_link_request_context(
+        db,
+        principal=principal,
+        workspace_id=workspace_id,
+    )
     try:
         link = await create_link_intent(
             db,
@@ -790,7 +904,9 @@ async def start_provider_link_flow(
         )
     except ProviderLinkError as exc:
         status_code = 401 if exc.code == "provider_link_session_required" else 403
-        raise ProblemDetail(status=status_code, code=exc.code, title="Provider link denied") from exc
+        raise ProblemDetail(
+            status=status_code, code=exc.code, title="Provider link denied"
+        ) from exc
     callback_url = build_provider_callback_url(request, normalized_provider)
     settings = request.app.state.settings
     credentials = _provider_credentials(settings, normalized_provider, callback_url)
@@ -881,12 +997,26 @@ async def callback(
     db: AsyncSession | None = AuthDbDependency,
 ):
     if db is None:
+        redirect = _browser_callback_error_redirect(
+            request,
+            callback_state=None,
+            error_code="auth_dependency_unavailable",
+        )
+        if redirect is not None:
+            return redirect
         raise ProblemDetail(
             status=503,
             code="auth_dependency_unavailable",
             title="Authentication DB dependency unavailable",
         )
     if not state:
+        redirect = _browser_callback_error_redirect(
+            request,
+            callback_state=None,
+            error_code="callback_state_invalid",
+        )
+        if redirect is not None:
+            return redirect
         raise ProblemDetail(
             status=400,
             code="callback_state_invalid",
@@ -894,8 +1024,18 @@ async def callback(
             detail="callback state is required",
         )
     auth_bootstrap_workspace_id = _internal_auth_workspace_id(request)
-    await apply_tenant_context(db, AuthCallbackLookupContext(state_nonce=state))
     provider = provider.lower()
+    await _enforce_public_provider_rate_limits(
+        request,
+        db,
+        workspace_id=auth_bootstrap_workspace_id,
+        scopes=(
+            ("provider_callback_ip", _request_client_ip(request) or "unknown"),
+            ("provider_callback_state", state),
+            ("provider_callback_provider", provider),
+        ),
+    )
+    await apply_tenant_context(db, AuthCallbackLookupContext(state_nonce=state))
     query = dict(request.query_params)
     settings = request.app.state.settings
     callback_url = build_provider_callback_url(request, provider)
@@ -918,15 +1058,11 @@ async def callback(
                 browser_state_nonce=request.cookies.get(BROWSER_AUTH_STATE_COOKIE_NAME),
             )
             await db.commit()
-            redirect_path = _safe_browser_return_path(callback_state.requested_redirect)
-            if redirect_path is None:
-                redirect_path = f"/settings/provider-links/{link.id}"
-            redirect = RedirectResponse(
-                f"{redirect_path}?result=callback_verified",
-                status_code=303,
+            return _provider_link_callback_redirect(
+                callback_state,
+                link,
+                result="callback_verified",
             )
-            _clear_browser_auth_state_cookie(redirect)
-            return redirect
         profile: CallbackProfile = await resolve_callback_to_user(
             db,
             provider=provider,
@@ -943,6 +1079,19 @@ async def callback(
         )
     except CallbackFlowError as exc:
         await db.commit()
+        if link is not None and callback_state is not None:
+            return _provider_link_callback_redirect(
+                callback_state,
+                link,
+                result=_provider_link_callback_result(exc.code),
+            )
+        redirect = _browser_callback_error_redirect(
+            request,
+            callback_state=callback_state,
+            error_code=exc.code,
+        )
+        if redirect is not None:
+            return redirect
         status_code = 400
         if exc.code == "provider_unavailable":
             status_code = 503
@@ -955,12 +1104,28 @@ async def callback(
             detail=str(exc),
         ) from exc
     except ValueError as exc:
+        if link is not None and callback_state is not None:
+            await db.rollback()
+            return _provider_link_callback_redirect(
+                callback_state,
+                link,
+                result="provider_link_invalid",
+            )
+        redirect = _browser_callback_error_redirect(
+            request,
+            callback_state=callback_state,
+            error_code="callback_state_invalid",
+        )
+        if redirect is not None:
+            return redirect
         raise ProblemDetail(
             status=400,
             code="callback_state_invalid",
             title="Callback state is invalid",
         ) from exc
-    redirect_path = _safe_browser_return_path(profile.requested_redirect)
+    redirect_path = (
+        _safe_browser_return_path(profile.requested_redirect) if profile.browser_bound else None
+    )
     if redirect_path is not None:
         redirect_path = await resolve_browser_auth_return_path(
             db,
@@ -994,16 +1159,17 @@ async def callback(
                 samesite="lax",
             )
         return redirect
-    _set_auth_cookie(response, token=profile.token, expires_at=profile.token_expires_at)
-    _clear_browser_auth_state_cookie(response)
-    if profile.registered:
-        response.delete_cookie(
-            key="graf_referral_token",
-            path="/",
-            secure=True,
-            httponly=True,
-            samesite="lax",
-        )
+    if profile.browser_bound:
+        _set_auth_cookie(response, token=profile.token, expires_at=profile.token_expires_at)
+        _clear_browser_auth_state_cookie(response)
+        if profile.registered:
+            response.delete_cookie(
+                key="graf_referral_token",
+                path="/",
+                secure=True,
+                httponly=True,
+                samesite="lax",
+            )
     return payload
 
 
@@ -1045,7 +1211,9 @@ async def link_provider(
     )
 
 
-@router.post("/devices/register", response_model=AuthDeviceStateResponse, dependencies=[WebCSRFDependency])
+@router.post(
+    "/devices/register", response_model=AuthDeviceStateResponse, dependencies=[WebCSRFDependency]
+)
 async def register_device(
     request: Request,
     payload: AuthDeviceRegisterRequest,
@@ -1264,7 +1432,11 @@ async def get_me(
         and workspace.kind == "personal"
         and workspace.owner_user_id == principal.user_id
     )
-    billing_role = "owner" if is_personal_owner else ("admin" if membership.role in {"owner", "admin"} else "member")
+    billing_role = (
+        "owner"
+        if is_personal_owner
+        else ("admin" if membership.role in {"owner", "admin"} else "member")
+    )
     identities = (
         (
             await db.execute(
@@ -1315,7 +1487,11 @@ async def get_me(
     active_session_id = None
     if principal.auth_via_session and principal.session_id is not None:
         session = await db.get(AuthSession, principal.session_id)
-        if session is not None and session.workspace_id == workspace_id and session.user_id == principal.user_id:
+        if (
+            session is not None
+            and session.workspace_id == workspace_id
+            and session.user_id == principal.user_id
+        ):
             active_session_id = session.id
     policy = _policy_to_response(
         await read_auth_providers(
@@ -1345,7 +1521,9 @@ async def get_me(
         await db.scalar(
             select(
                 func.coalesce(
-                    func.sum(StorageReservation.declared_bytes - StorageReservation.committed_bytes),
+                    func.sum(
+                        StorageReservation.declared_bytes - StorageReservation.committed_bytes
+                    ),
                     0,
                 )
             ).where(
@@ -1394,7 +1572,9 @@ async def get_me(
             if owner_billing and subscription is not None and plan_code == "personal"
             else None,
             bonus_until=bonus_until if owner_billing else None,
-            renewal_resolution=subscription.renewal_resolution if owner_billing and subscription is not None else None,
+            renewal_resolution=subscription.renewal_resolution
+            if owner_billing and subscription is not None
+            else None,
             processing_unlimited=plan_code in {"trial", "personal"},
             storage_used_bytes=None if member_billing else storage.used_bytes,
             storage_capacity_bytes=None if member_billing else storage.capacity_bytes,

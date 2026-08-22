@@ -101,9 +101,10 @@ if TYPE_CHECKING:
 
 PROVIDER_LINK_LABELS = {
     "email": "Email",
+    "email_link": "Email",
     "email_magic_link": "Email",
-    "yandex": "Яндекс",
-    "vk": "VK",
+    "yandex": "Яндекс ID",
+    "vk": "VK ID",
     "telegram": "Telegram",
 }
 
@@ -121,6 +122,8 @@ class ProviderLinkSettingsSurface:
     status: str
     status_label: str
     can_confirm: bool
+    provider: str | None = None
+    can_restart: bool = False
 
 
 def provider_link_settings_surface(link: WorkspaceProviderLinkState) -> ProviderLinkSettingsSurface:
@@ -130,13 +133,16 @@ def provider_link_settings_surface(link: WorkspaceProviderLinkState) -> Provider
         "confirmed": "Способ входа подключён",
         "expired": "Срок подключения истёк. Начните заново.",
         "rejected": "Подключение не завершено. Начните заново.",
+        "unavailable": "Подключение временно недоступно. Попробуйте заново.",
     }
     return ProviderLinkSettingsSurface(
         link_state_id=link.id,
+        provider=link.candidate_provider,
         provider_label=PROVIDER_LINK_LABELS.get(link.candidate_provider or "", "Провайдер"),
         status=link.status,
         status_label=status_labels.get(link.status, "Подключение недоступно. Начните заново."),
         can_confirm=link.status == "callback_verified",
+        can_restart=link.status in {"rejected", "expired", "unavailable"},
     )
 
 
@@ -281,7 +287,8 @@ def account_settings_surface(
             account_device_view(device, current_device_id=current_device_id) for device in devices
         ),
         sessions=tuple(
-            account_session_view(session, current_session_id=current_session_id) for session in sessions
+            account_session_view(session, current_session_id=current_session_id)
+            for session in sessions
         ),
         unavailable=unavailable,
         account_close=account_close,
@@ -484,9 +491,7 @@ GENERATED_CAPTURE_TITLE_RE = re.compile(
     r"\s*-\s*\d{4}-\d{2}-\d{2}(?:[ T]\d{1,2}:\d{2})?$",
     re.IGNORECASE,
 )
-GENERATED_CAPTURE_TITLE_SUFFIX_RE = re.compile(
-    r"\s*-\s*\d{4}-\d{2}-\d{2}(?:[ T]\d{1,2}:\d{2})?$"
-)
+GENERATED_CAPTURE_TITLE_SUFFIX_RE = re.compile(r"\s*-\s*\d{4}-\d{2}-\d{2}(?:[ T]\d{1,2}:\d{2})?$")
 AUTHORITATIVE_TITLE_SOURCES = frozenset({"user_confirmed", "calendar", "upload_provided"})
 CALENDAR_PROVIDER_UI: dict[str, tuple[str, str, str]] = {
     "caldav_yandex": (
@@ -510,7 +515,7 @@ CALENDAR_PROVIDER_UI: dict[str, tuple[str, str, str]] = {
         "Доступ зависит от прав пользователя и политики портала.",
     ),
     "custom_caldav_vk_workspace": (
-        "VK WorkSpace / custom CalDAV",
+        "VK WorkSpace / свой CalDAV",
         "manual_url",
         "CalDAV URL из настроек рабочего пространства.",
     ),
@@ -535,7 +540,7 @@ CALENDAR_PROVIDER_UI: dict[str, tuple[str, str, str]] = {
         "Синхронизация CalDAV зависит от конфигурации организации.",
     ),
     "caldav_nextcloud_sogo": (
-        "Nextcloud / SOGo-like CalDAV",
+        "Nextcloud / SOGo через CalDAV",
         "manual_url",
         "CalDAV URL сервера и выбранные календари.",
     ),
@@ -544,12 +549,18 @@ CALENDAR_PROVIDER_UI: dict[str, tuple[str, str, str]] = {
         "manual_url",
         "Пользователь указывает URL; синхронизация работает только на чтение, насколько это позволяет сервер.",
     ),
+    "google_calendar": (
+        "Google Calendar",
+        "oauth",
+        "OAuth только для чтения. Доступность зависит от настроек Google Cloud и проверки приложения.",
+    ),
 }
 
 CALENDAR_METHOD_LABELS = {
     "app_password": "Пароль приложения",
     "manual_url": "Ручной CalDAV URL",
     "provider_specific_limited": "Может требовать администратора",
+    "oauth": "OAuth только для чтения",
 }
 
 CALENDAR_PROVIDER_MARKS = {
@@ -564,6 +575,7 @@ CALENDAR_PROVIDER_MARKS = {
     "caldav_rupost": "RP",
     "caldav_nextcloud_sogo": "NC",
     "custom_caldav": "CV",
+    "google_calendar": "G",
 }
 
 CALENDAR_BOUNDARY_COPY = (
@@ -627,6 +639,11 @@ CALENDAR_NOTICE_COPY: dict[str, tuple[str, str, str]] = {
         "Мы скрыли технические детали ошибки. Проверьте данные подключения или попробуйте позже.",
         "error",
     ),
+    "dependency_missing": (
+        "Google Calendar пока недоступен",
+        "Владелец GRAF еще не настроил OAuth client, redirect URI и проверку доступа Google. Источник не добавлен.",
+        "warning",
+    ),
     "no_readable_calendars": (
         "Нет доступных для чтения календарей",
         "Источник подключен, но провайдер не вернул календари, которые можно читать. Проверьте права доступа.",
@@ -652,9 +669,24 @@ CALENDAR_NOTICE_COPY: dict[str, tuple[str, str, str]] = {
         "Источник остается подключенным, но не влияет на будущие встречи и подсказки.",
         "warning",
     ),
+    "selection_limit": (
+        "Можно выбрать до 20 календарей",
+        "Снимите лишние отметки и сохраните выбор ещё раз.",
+        "warning",
+    ),
     "preferences_saved": (
         "Настройки сохранены",
-        "Будущие подсказки и preview будут учитывать выбранные типы событий. Ручная запись остается доступной.",
+        "Будущие подсказки и список ближайших встреч будут учитывать выбранные типы событий. Ручная запись остается доступной.",
+        "success",
+    ),
+    "sync_completed": (
+        "Синхронизация завершена",
+        "Календарь обновлен. GRAF использует только выбранные события и не изменяет календарь у провайдера.",
+        "success",
+    ),
+    "sync_catalog_updated": (
+        "Календари загружены",
+        "Выберите один или несколько календарей, чтобы GRAF мог обновлять встречи. Доступ остается только для чтения.",
         "success",
     ),
     "sync_accepted": (
@@ -683,13 +715,13 @@ CALENDAR_NOTICE_COPY: dict[str, tuple[str, str, str]] = {
         "error",
     ),
     "disconnect_success": (
-        "Календарь отключен",
-        "Будущая синхронизация остановлена, данные подключения удалены или отозваны там, где это контролирует GRAF.",
+        "Календарь отключён от GRAF.",
+        "",
         "success",
     ),
     "disconnect_partial": (
         "Отключение выполнено частично",
-        "Будущая синхронизация остановлена. Часть внешнего отзыва доступа может зависеть от провайдера или администратора.",
+        "Не удалось подтвердить полную локальную очистку. Попробуйте ещё раз.",
         "warning",
     ),
     "disconnect_failed": (
@@ -717,16 +749,13 @@ class CalendarSettingsNoticeView:
 @dataclass(frozen=True)
 class CalendarDisconnectConfirmationView:
     title: str = "Отключить календарь?"
-    future_sync_copy: str = "Будущая синхронизация из этого источника остановится, и календарь перестанет влиять на подсказки."
-    credential_copy: str = (
-        "Данные подключения будут удалены или отозваны там, где это контролирует GRAF."
+    future_sync_copy: str = (
+        "Новые встречи перестанут появляться в GRAF. Уже созданные встречи останутся."
     )
-    retention_copy: str = (
-        "Уже связанный контекст встреч живет по политике хранения встречи. "
-        "GRAF не обещает удалить данные вне своего контроля."
-    )
-    confirm_label: str = "Отключить источник"
-    cancel_label: str = "Оставить подключенным"
+    credential_copy: str = ""
+    retention_copy: str = ""
+    confirm_label: str = "Отключить"
+    cancel_label: str = "Отмена"
 
 
 @dataclass(frozen=True)
@@ -741,6 +770,10 @@ class CalendarSettingsProviderPreset:
     url_label: str | None
     limitation_copy: str | None
     explanation: str
+    runtime_available: bool
+    availability_label: str
+    connected_source_count: int
+    trigger_label: str
 
 
 @dataclass(frozen=True)
@@ -797,6 +830,9 @@ class CalendarSourceSettingsView:
     safe_error_message: str | None
     calendars: tuple[SelectableCalendarView, ...]
     disconnect_confirmation: CalendarDisconnectConfirmationView
+    sync_action_enabled: bool
+    sync_action_label: str
+    reconnect_recommended: bool
 
 
 @dataclass(frozen=True)
@@ -808,6 +844,7 @@ class UpcomingPreviewItemView:
     ends_at: datetime
     source_ids: tuple[str, ...]
     meeting_link_present: bool
+    open_meeting_available: bool = False
     calendar_labels: tuple[str, ...] = ()
     source_labels: tuple[str, ...] = ()
     duplicate_source_count: int = 1
@@ -849,7 +886,10 @@ class CalendarSettingsSurfaceView:
         "Календари не выбраны: источник подключен, но не влияет на будущие встречи и подсказки."
     )
     no_matching_events_copy: str = "Нет будущих событий, которые подходят под выбранные настройки."
-    private_free_busy_copy: str = "Private/free-busy события показываются без названия, ссылок, участников, описания и вложений."
+    private_free_busy_copy: str = (
+        "Приватные события и события только со статусом занятости показываются без названия, "
+        "ссылок, участников, описания и вложений."
+    )
     empty_state_title: str = "Календари пока не подключены"
     empty_state_body: str = "Подключите источник календаря, затем выберите календари. Пока календарь не выбран, встречи из него не подтягиваются."
 
@@ -869,7 +909,10 @@ class CalendarSettingsSurfaceView:
 
 def calendar_provider_presets(
     provider_payloads: Iterable[dict[str, object]],
+    *,
+    connected_provider_counts: dict[str, int] | None = None,
 ) -> tuple[CalendarSettingsProviderPreset, ...]:
+    connected_provider_counts = connected_provider_counts or {}
     presets = []
     for payload in provider_payloads:
         family = str(payload.get("provider_family") or "")
@@ -877,6 +920,8 @@ def calendar_provider_presets(
         if provider_copy is None:
             continue
         label, method, explanation = provider_copy
+        runtime_available = bool(payload.get("runtime_available", payload.get("supported", False)))
+        connected_source_count = connected_provider_counts.get(family, 0)
         presets.append(
             CalendarSettingsProviderPreset(
                 provider_family=family,
@@ -890,12 +935,34 @@ def calendar_provider_presets(
                 credential_label=calendar_provider_credential_label(method),
                 url_label="CalDAV URL" if method == "manual_url" else None,
                 limitation_copy=calendar_provider_limitation_copy(
-                    method, payload.get("capability_state") or {}
+                    method,
+                    payload.get("capability_state") or {},
+                    runtime_available=payload.get("runtime_available"),
                 ),
                 explanation=explanation,
+                runtime_available=runtime_available,
+                availability_label=("Доступно" if runtime_available else "Скоро"),
+                connected_source_count=connected_source_count,
+                trigger_label=(
+                    f"Добавить ещё · {label}" if connected_source_count else f"Подключить {label}"
+                ),
             )
         )
-    return tuple(presets)
+    priority = {
+        "google_calendar": 0,
+        "caldav_yandex": 1,
+        "caldav_mail_ru": 2,
+        "custom_caldav": 3,
+    }
+    return tuple(
+        sorted(
+            presets,
+            key=lambda provider: (
+                not provider.runtime_available,
+                priority.get(provider.provider_family, 10),
+            ),
+        )
+    )
 
 
 def _russian_count_word(value: int, one: str, few: str, many: str) -> str:
@@ -938,6 +1005,9 @@ def calendar_settings_surface(
 ) -> CalendarSettingsSurfaceView:
     calendars_by_source = calendars_by_source or {}
     source_rows = tuple(sources)
+    connected_provider_counts: dict[str, int] = defaultdict(int)
+    for source in source_rows:
+        connected_provider_counts[source.provider_family] += 1
     preferences = calendar_settings_preferences_view(preference)
     preview_event_rows = tuple(preview_events)
     rendered_sources = tuple(
@@ -970,7 +1040,10 @@ def calendar_settings_surface(
         boundary_items=calendar_boundary_items(),
         forbidden_action_labels=CALENDAR_FORBIDDEN_ACTION_LABELS,
         notices=calendar_settings_notices(notice_codes),
-        providers=calendar_provider_presets(provider_payloads),
+        providers=calendar_provider_presets(
+            provider_payloads,
+            connected_provider_counts=connected_provider_counts,
+        ),
         sources=rendered_sources,
         preferences=preferences,
         selected_calendar_count_total=sum(
@@ -1033,10 +1106,21 @@ def calendar_source_settings_view(
         sync_recovery_label=calendar_sync_recovery_label(sync_health_state),
         selected_calendar_count=selected_count,
         readable_calendar_count=readable_count,
-        last_successful_sync_label=calendar_sync_time_label(source.last_successful_sync_at),
+        last_successful_sync_label=calendar_sync_time_label(
+            source.last_successful_sync_at, now=now
+        ),
         safe_error_message=safe_calendar_error_message(source.last_safe_error_code),
         calendars=calendar_views,
         disconnect_confirmation=CalendarDisconnectConfirmationView(),
+        sync_action_enabled=sync_health_state not in {"queued", "syncing", "disconnected"},
+        sync_action_label=(
+            "Синхронизация идет…"
+            if sync_health_state == "syncing"
+            else "Синхронизация в очереди…"
+            if sync_health_state == "queued"
+            else "Синхронизировать"
+        ),
+        reconnect_recommended=sync_health_state in {"credential_failed", "failed_closed"},
     )
 
 
@@ -1071,7 +1155,7 @@ def calendar_visibility_label(visibility: str) -> str:
         "selected": "выбран",
         "hidden": "скрыт провайдером",
         "unavailable": "недоступен",
-        "private": "private/free-busy",
+        "private": "приватное / только занятость",
         "shared": "общий календарь",
         "delegated": "делегированный календарь",
         "removed": "удален у провайдера",
@@ -1136,10 +1220,22 @@ def calendar_sync_health_state(source: CalendarSource, *, now: datetime | None =
     return "synced" if source.last_successful_sync_at else "never_synced"
 
 
-def calendar_sync_time_label(value: datetime | None) -> str:
+def calendar_sync_time_label(value: datetime | None, *, now: datetime | None = None) -> str:
     if value is None:
         return "успешной синхронизации еще не было"
-    return value.strftime("%Y-%m-%d %H:%M UTC")
+    synced_at = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+    current = now or datetime.now(UTC)
+    elapsed_seconds = max(0, int((current - synced_at).total_seconds()))
+    if elapsed_seconds < 60:
+        return "только что"
+    if elapsed_seconds < 3600:
+        minutes = elapsed_seconds // 60
+        return f"{minutes} {_russian_count_word(minutes, 'минуту', 'минуты', 'минут')} назад"
+    if elapsed_seconds < 86400:
+        hours = elapsed_seconds // 3600
+        return f"{hours} {_russian_count_word(hours, 'час', 'часа', 'часов')} назад"
+    days = elapsed_seconds // 86400
+    return f"{days} {_russian_count_word(days, 'день', 'дня', 'дней')} назад"
 
 
 def calendar_sync_health_label(state: str) -> str:
@@ -1197,6 +1293,7 @@ def calendar_provider_action_label(method_category: str) -> str:
         "app_password": "Подключить",
         "manual_url": "Подключить",
         "provider_specific_limited": "Проверить подключение",
+        "oauth": "Продолжить в Google",
     }
     return labels.get(method_category, "Подключить календарь")
 
@@ -1209,7 +1306,14 @@ def calendar_provider_credential_label(method_category: str) -> str | None:
     return None
 
 
-def calendar_provider_limitation_copy(method_category: str, capability_state: object) -> str | None:
+def calendar_provider_limitation_copy(
+    method_category: str,
+    capability_state: object,
+    *,
+    runtime_available: object = None,
+) -> str | None:
+    if runtime_available is False and method_category != "oauth":
+        return "Подключение появится после полной проверки."
     if method_category == "provider_specific_limited":
         return "Может понадобиться настройка организации или администратор."
     if isinstance(capability_state, dict) and "admin_policy_dependent" in set(
@@ -1218,6 +1322,10 @@ def calendar_provider_limitation_copy(method_category: str, capability_state: ob
         return "Часть возможностей зависит от политики организации."
     if method_category == "manual_url":
         return "Если URL или пароль неверны, мы покажем безопасную ошибку без деталей провайдера."
+    if method_category == "oauth":
+        if runtime_available is True:
+            return None
+        return "Подключение появится после полной проверки."
     return None
 
 
@@ -1347,6 +1455,10 @@ def upcoming_preview_item(
         ends_at=event.ends_at,
         source_ids=source_ids or (str(event.calendar_source_id),),
         meeting_link_present=meeting_link_present,
+        open_meeting_available=bool(
+            meeting_link_present
+            and (event.provider_extras_json or {}).get("sealed_open_meeting_url")
+        ),
         calendar_labels=calendar_labels,
         source_labels=source_labels,
         duplicate_source_count=duplicate_source_count,
@@ -1826,11 +1938,7 @@ def recording_display_title(
         if meeting.title_source == "app_context":
             app_title = GENERATED_CAPTURE_TITLE_SUFFIX_RE.sub("", title).strip()
             app_title = _authoritative_title(app_title)
-            return (
-                _with_recording_time(app_title, meeting)
-                if include_recording_time
-                else app_title
-            )
+            return _with_recording_time(app_title, meeting) if include_recording_time else app_title
         if GENERATED_CAPTURE_TITLE_RE.fullmatch(title):
             return (
                 _generated_recording_title(meeting) or "Запись без названия"

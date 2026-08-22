@@ -1348,21 +1348,37 @@ def test_cabinet_rail_toggle_js_contract() -> None:
     assert 'toggle.setAttribute("data-tooltip", label)' not in js
 
 
-def test_cabinet_rail_initialization_uses_surface_breakpoints_without_resize_policy() -> None:
+def test_cabinet_rail_collapses_at_surface_breakpoint_without_resize_handler() -> None:
     js = _cabinet_js()
 
     for marker in (
         'shell.classList.contains("is-rail-pinned")',
-        'const wideViewport = window.matchMedia("(min-width: 981px)")',
-        "wideViewport.matches",
+        'const expandedMedia = window.matchMedia(',
+        'shell.classList.contains("desktop-embedded")',
+        '"(min-width: 1121px)" : "(min-width: 981px)"',
+        'expandedMedia.addEventListener("change", syncViewport)',
+        'sessionStorage.getItem("graf-cabinet-rail")',
     ):
         assert marker in js
-    assert 'window.matchMedia("(min-width: 1121px)")' not in js
+    assert "if (!event.matches) setRailPinned(shell, toggle, false)" not in js
 
     rail_source = js[js.index("const initCabinetRail") : js.index("const initCabinetProfileMenus")]
     assert 'window.addEventListener("resize"' not in rail_source
     assert 'sidebar.querySelectorAll("a[href]")' not in rail_source
     assert 'document.addEventListener("click"' not in rail_source
+
+
+def test_calendar_sync_refreshes_boundedly_until_server_state_changes() -> None:
+    js = _cabinet_js()
+
+    for marker in (
+        "graf-calendar-sync-refresh:",
+        "refreshAttempt < 4",
+        "window.location.reload()",
+        "Синхронизация занимает больше обычного. Обновите страницу позже.",
+        "sessionStorage.removeItem(syncRefreshKey)",
+    ):
+        assert marker in js
 
 
 def test_feature_159_shared_shell_toggle_has_one_truthful_focusable_contract() -> None:
@@ -1458,7 +1474,27 @@ def test_feature_159_download_and_profile_surface_contract_is_surface_aware() ->
     assert "candidate_identity_subject" not in web
 
 
-def test_settings_use_one_primary_sidebar_and_canonical_meetings_return() -> None:
+def test_saved_theme_is_applied_to_the_full_cabinet_page() -> None:
+    response = MeetingListResponse(
+        items=[],
+        filters=MeetingFilterState(q=None, status=None, access=None, sort="started_desc"),
+        generated_at=datetime.now(UTC),
+    )
+
+    light = render_meeting_list_page(
+        response,
+        profile=cabinet_view_models.AccountProfileView(display_name="Тест", theme="light"),
+    )
+    system = render_meeting_list_page(
+        response,
+        profile=cabinet_view_models.AccountProfileView(display_name="Тест", theme="system"),
+    )
+
+    assert '<html lang="ru" data-theme="light">' in light
+    assert '<html lang="ru" data-theme=' not in system
+
+
+def test_feature_159_settings_use_one_primary_sidebar_and_canonical_meetings_return() -> None:
     for embedded, meetings_href in ((False, "/meetings"), (True, "/desktop/meetings")):
         page = render_settings_page(embedded=embedded, category="account")
         assert page.count("data-settings-primary-nav>") == 1
@@ -1479,7 +1515,6 @@ def test_settings_use_one_primary_sidebar_and_canonical_meetings_return() -> Non
             )
             == 1
         )
-
 
 def test_list_shell_renders_audio_video_transcript_and_upload_icons() -> None:
     audio = _item()

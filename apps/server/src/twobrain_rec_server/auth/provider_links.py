@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 from datetime import UTC, datetime
 from hashlib import sha256
 from uuid import UUID
@@ -18,6 +19,7 @@ from twobrain_rec_server.auth.policy import (
     is_provider_enabled_in_policy,
     load_workspace_auth_policy,
 )
+from twobrain_rec_server.auth.sessions import hash_token
 from twobrain_rec_server.db.models import (
     AuthCallbackState,
     AuthSession,
@@ -26,6 +28,7 @@ from twobrain_rec_server.db.models import (
     WorkspaceProviderLinkState,
 )
 from twobrain_rec_server.db.tenant_context import (
+    TenantDatabaseContext,
     WorkspaceAuthContext,
     apply_tenant_context,
 )
@@ -35,6 +38,11 @@ class ProviderLinkError(ValueError):
     def __init__(self, code: str) -> None:
         super().__init__(code)
         self.code = code
+
+
+RECOVERY_CAPABLE_PROVIDERS = frozenset({"email", "email_magic_link", "yandex", "vk"})
+FINGERPRINTED_IDENTITY_PROVIDERS = frozenset({"email", "yandex", "vk"})
+OAUTH_IDENTITY_PROVIDERS = frozenset({"yandex", "vk"})
 
 
 class ConfirmedProviderLink:
@@ -50,6 +58,43 @@ class ConfirmedProviderLink:
         self.idempotent = idempotent
         self.status = status
         self.merge_intent_id = merge_intent_id
+
+
+async def apply_provider_link_auth_context(
+    db: AsyncSession,
+    *,
+    principal: AuthenticatedPrincipal,
+    workspace_id: UUID,
+) -> None:
+    """Grant the bounded auth context needed for callback and link state rows."""
+    await apply_tenant_context(
+        db,
+        WorkspaceAuthContext(
+            workspace_id=workspace_id,
+            organization_id=principal.organization_id,
+            user_id=principal.user_id,
+            context_kind="auth_bootstrap",
+        ),
+    )
+
+
+async def apply_provider_link_request_context(
+    db: AsyncSession,
+    *,
+    principal: AuthenticatedPrincipal,
+    workspace_id: UUID,
+) -> None:
+    """Restore the initiating session's narrow request context after state creation."""
+    await apply_tenant_context(
+        db,
+        TenantDatabaseContext(
+            workspace_id=workspace_id,
+            organization_id=principal.organization_id,
+            user_id=principal.user_id,
+            auth_session_id=principal.session_id,
+            context_kind="request",
+        ),
+    )
 
 
 def recovery_safe_unlink_allowed(
@@ -78,6 +123,36 @@ def _as_aware_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=UTC)
     return value.astimezone(UTC)
+
+
+def _identity_matches_session(
+    session: AuthSession,
+    identity: ExternalIdentity,
+    *,
+    workspace_ids: set[UUID],
+) -> bool:
+    if identity.provider != session.provider or session.claims_fingerprint is None:
+        return False
+    if session.provider == "email":
+        email = (identity.email or identity.provider_subject).strip().lower()
+        return any(
+            hmac.compare_digest(
+                session.claims_fingerprint,
+                hash_token(f"email:{email}:{workspace_id}"),
+            )
+            for workspace_id in workspace_ids
+        )
+    if session.provider not in OAUTH_IDENTITY_PROVIDERS:
+        return False
+    return any(
+        hmac.compare_digest(
+            session.claims_fingerprint,
+            sha256(
+                f"{workspace_id}|{identity.provider}|{identity.provider_subject}".encode()
+            ).hexdigest(),
+        )
+        for workspace_id in workspace_ids
+    )
 
 
 def provider_link_audit_metadata(
@@ -161,13 +236,30 @@ async def create_link_intent(
     )
     if session is None:
         raise ProviderLinkError("provider_link_session_required")
-    source = await db.scalar(
-        select(ExternalIdentity).where(
-            ExternalIdentity.user_id == principal.user_id,
-            ExternalIdentity.provider == session.provider,
-            ExternalIdentity.is_active.is_(True),
-        )
+    sources = list(
+        (
+            await db.scalars(
+                select(ExternalIdentity).where(
+                    ExternalIdentity.user_id == principal.user_id,
+                    ExternalIdentity.provider == session.provider,
+                    ExternalIdentity.is_active.is_(True),
+                )
+            )
+        ).all()
     )
+    if session.provider in FINGERPRINTED_IDENTITY_PROVIDERS:
+        matches = [
+            identity
+            for identity in sources
+            if _identity_matches_session(
+                session,
+                identity,
+                workspace_ids={workspace_id, *principal.workspace_ids},
+            )
+        ]
+        source = matches[0] if len(matches) == 1 else None
+    else:
+        source = sources[0] if len(sources) == 1 else None
     if source is None:
         raise ProviderLinkError("provider_link_source_identity_missing")
     link = WorkspaceProviderLinkState(
@@ -190,6 +282,7 @@ async def create_link_intent(
         provider=provider,
         metadata=provider_link_audit_metadata(link_state_id=link.id),
     )
+    await db.flush()
     return link
 
 
@@ -197,9 +290,10 @@ async def link_for_callback(
     db: AsyncSession, callback_state_id: UUID
 ) -> WorkspaceProviderLinkState | None:
     return await db.scalar(
-        select(WorkspaceProviderLinkState).where(
-            WorkspaceProviderLinkState.callback_state_id == callback_state_id
-        )
+        select(WorkspaceProviderLinkState)
+        .where(WorkspaceProviderLinkState.callback_state_id == callback_state_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
 
 
@@ -337,7 +431,22 @@ async def confirm_provider_link(
         if (
             source_session is not None
             and source_identity is not None
-            and source_session.provider == "email"
+            and source_session.user_id == principal.user_id
+            and source_session.workspace_id == link.workspace_id
+            and source_session.status == "active"
+            and source_session.provider in RECOVERY_CAPABLE_PROVIDERS
+            and _as_aware_utc(source_session.expires_at) > _as_aware_utc(_now(now))
+            and source_identity.user_id == principal.user_id
+            and source_identity.provider == source_session.provider
+            and source_identity.is_active
+            and (
+                source_session.provider not in FINGERPRINTED_IDENTITY_PROVIDERS
+                or _identity_matches_session(
+                    source_session,
+                    source_identity,
+                    workspace_ids={link.workspace_id, *principal.workspace_ids},
+                )
+            )
         ):
             link_context = WorkspaceAuthContext(
                 workspace_id=link.workspace_id,

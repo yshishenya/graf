@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta, timezone
 from html import escape
 from urllib.parse import urlencode
 from uuid import UUID
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from twobrain_rec_server.api.schemas import (
     MeetingListItem,
@@ -70,6 +71,105 @@ class AccountMergePresentation:
     preview_fingerprint: str
 
 
+_PROVIDER_LINK_OUTCOMES = {
+    "callback_verified": {
+        "title": "Вход подтверждён",
+        "detail": "Провайдер подтвердил вход. Завершите подключение в GRAF.",
+        "kind": "success",
+    },
+    "confirmed": {
+        "title": "Способ входа подключён",
+        "detail": "Способ входа подключён к текущему профилю.",
+        "kind": "success",
+    },
+    "provider_link_denied": {
+        "title": "Подключение отклонено",
+        "detail": "Провайдер не подтвердил подключение. Данные профиля не изменены.",
+        "kind": "error",
+    },
+    "provider_link_invalid": {
+        "title": "Ссылка недействительна",
+        "detail": "Начните подключение заново: прежняя ссылка не подходит.",
+        "kind": "error",
+    },
+    "provider_link_expired": {
+        "title": "Срок подключения истёк",
+        "detail": "Данные профиля не изменены. Начните подключение заново.",
+        "kind": "error",
+    },
+    "provider_link_reused": {
+        "title": "Подтверждение уже использовано",
+        "detail": "Для безопасности это подтверждение нельзя повторить. Начните подключение заново.",
+        "kind": "error",
+    },
+    "provider_link_unavailable": {
+        "title": "Подключение временно недоступно",
+        "detail": "Данные профиля не изменены. Выберите другой способ входа или попробуйте позже.",
+        "kind": "error",
+    },
+    "provider_link_conflict": {
+        "title": "Нужно проверить профили",
+        "detail": "Этот способ входа уже связан с другим профилем.",
+        "kind": "error",
+    },
+    "merge_blocked": {
+        "title": "Подключение остановлено",
+        "detail": "Текущее состояние профилей требует отдельного действия. Данные не изменены.",
+        "kind": "error",
+    },
+    "merge_cancelled": {
+        "title": "Профили оставлены раздельно",
+        "detail": "Профили остались раздельными. Способ входа не подключён к текущему профилю.",
+        "kind": "success",
+    },
+    "reauth_required": {
+        "title": "Нужно войти снова",
+        "detail": "Войдите снова, затем повторите подключение. Данные профиля не изменены.",
+        "kind": "error",
+    },
+}
+
+_PROVIDER_UNLINK_OUTCOMES = {
+    "success": {
+        "title": "Способ входа отключён",
+        "detail": "Остальные подтверждённые способы входа сохранены.",
+        "kind": "success",
+    },
+    "reauth_required": {
+        "title": "Нужно войти снова",
+        "detail": "Войдите снова, затем повторите отключение. Способы входа не изменены.",
+        "kind": "error",
+    },
+    "recovery_path_required": {
+        "title": "Сначала подключите другой способ входа",
+        "detail": "Этот способ нельзя отключить, пока нет другого подтверждённого способа восстановления.",
+        "kind": "error",
+    },
+    "not_found": {
+        "title": "Способ входа уже недоступен",
+        "detail": "Обновите страницу: возможно, способ входа уже был отключён.",
+        "kind": "error",
+    },
+    "unavailable": {
+        "title": "Не удалось отключить способ входа",
+        "detail": "Данные не изменены. Попробуйте ещё раз позже.",
+        "kind": "error",
+    },
+}
+
+
+def _provider_link_outcome(result: str | None) -> dict[str, str] | None:
+    aliases = {
+        "verified": "callback_verified",
+        "denied": "provider_link_denied",
+        "invalid": "provider_link_invalid",
+        "expired": "provider_link_expired",
+        "reused": "provider_link_reused",
+        "unavailable": "provider_link_unavailable",
+    }
+    return _PROVIDER_LINK_OUTCOMES.get(aliases.get(result or "", result or ""))
+
+
 def _count_label(value: int, one: str, few: str, many: str) -> str:
     return f"{value} {cabinet_view_models._russian_count_word(value, one, few, many)}"
 
@@ -82,15 +182,17 @@ def _account_merge_provider_labels(provider_ids: tuple[str, ...]) -> tuple[str, 
     return tuple(dict.fromkeys(labels))
 
 
+def account_merge_provider_label(provider_id: str | None) -> str:
+    if provider_id in {"email", "email_link", "email_magic_link"}:
+        return "Email"
+    return cabinet_view_models.PROVIDER_LINK_LABELS.get(provider_id or "", "способ входа")
+
+
 def account_merge_presentation(preview: MergePreview | None) -> AccountMergePresentation | None:
     if preview is None:
         return None
-    current_provider_labels = _account_merge_provider_labels(
-        preview.survivor_provider_ids
-    )
-    other_provider_labels = _account_merge_provider_labels(
-        preview.source_provider_ids
-    )
+    current_provider_labels = _account_merge_provider_labels(preview.survivor_provider_ids)
+    other_provider_labels = _account_merge_provider_labels(preview.source_provider_ids)
     connected_provider_labels = tuple(
         dict.fromkeys((*current_provider_labels, *other_provider_labels))
     )
@@ -136,6 +238,8 @@ def render_meeting_list_page(
     response: MeetingListResponse,
     *,
     embedded: bool = False,
+    calendar_surface: cabinet_view_models.CalendarSettingsSurfaceView | None = None,
+    display_timezone: str = "UTC",
     csrf_token: str | None = None,
     poll_url: str | None = None,
     product_analytics_provider: dict[str, object] | None = None,
@@ -178,7 +282,12 @@ def render_meeting_list_page(
         active_filter_count=active_filter_count,
         filter_label=(f"Фильтры: {active_filter_count}" if active_filter_count else "Фильтры"),
         upcoming_content=trusted_component_html(
-            _render_upcoming_recurring(response, embedded=embedded),
+            _render_home_upcoming(
+                response,
+                calendar_surface=calendar_surface,
+                embedded=embedded,
+                display_timezone=display_timezone,
+            ),
             source="meeting_list.upcoming_recurring",
         ),
     )
@@ -359,24 +468,49 @@ def render_settings_page(
     switch_result_copy = {
         "activated": "Текущее пространство изменено. Новые встречи сохранятся здесь.",
     }.get(workspace_switch_result)
-    provider_link_result_copy = {
-        "confirmed": "Способ входа подключён к текущему профилю.",
-        "provider_link_conflict": "Этот способ входа уже связан с другим профилем.",
-        "merge_blocked": "Email не подключён: текущее состояние профилей требует отдельного действия.",
-        "merge_cancelled": "Профили остались раздельными. Email не подключён к текущему профилю.",
-        "reauth_required": "Вы вошли снова. Подключите email ещё раз — прежнее подтверждение больше не действует.",
-        "provider_link_denied": "Подключение не разрешено текущей политикой.",
-        "provider_link_expired": "Срок подключения истёк. Начните заново.",
-    }.get(provider_link_result)
-    provider_unlink_result_copy = {
-        "success": "Способ входа отключён. Остальные подтверждённые способы сохранены.",
-    }.get(provider_unlink_result)
+    provider_link_outcome = _provider_link_outcome(provider_link_result)
+    provider_link_result_copy = provider_link_outcome["detail"] if provider_link_outcome else None
+    provider_unlink_outcome = _PROVIDER_UNLINK_OUTCOMES.get(provider_unlink_result or "")
+    provider_unlink_result_copy = (
+        provider_unlink_outcome["detail"] if provider_unlink_outcome else None
+    )
     device_revoke_result_copy = {
         "revoked": "Устройство отозвано. Его активные сессии больше не действуют.",
         "others_revoked": "Доступ на остальных устройствах завершён. Текущее устройство остаётся активным.",
         "reauth_required": "Для этого действия войдите через подтверждённую веб-сессию и повторите попытку.",
         "failed": "Не удалось отозвать устройство. Попробуйте ещё раз.",
     }.get(device_revoke_result)
+    other_account_result = " ".join(
+        message
+        for message in (
+            provider_unlink_result_copy,
+            device_revoke_result_copy,
+            {
+                "revoked": "Сеанс завершён.",
+                "others_revoked": "Остальные сеансы завершены. Текущая сессия остаётся активной.",
+                "reauth_required": "Для управления сессиями войдите через подтверждённую веб-сессию и повторите попытку.",
+            }.get(session_result),
+            {
+                "scheduled": "Закрытие аккаунта запланировано. До даты отмены доступ и данные сохраняются, будущие списания отключены.",
+                "canceled": "Закрытие аккаунта отменено.",
+                "reauth_required": "Для закрытия аккаунта войдите через подтверждённую веб-сессию и повторите попытку.",
+            }.get(account_close_result),
+        )
+        if message
+    )
+    account_outcome = (
+        provider_link_outcome
+        or provider_unlink_outcome
+        or (
+            {
+                "title": "Настройки обновлены",
+                "detail": other_account_result,
+                "kind": "success",
+            }
+            if other_account_result
+            else None
+        )
+    )
     content_templates = {
         "overview": "cabinet/pages/settings_content.html",
         "recording": "cabinet/pages/settings_recording_content.html",
@@ -413,6 +547,12 @@ def render_settings_page(
         "summary_formats": BUILT_IN_TEMPLATES,
         "account_surface": account_surface or cabinet_view_models.AccountSettingsSurface(),
         "provider_link_result": provider_link_result_copy,
+        "account_outcome": account_outcome,
+        "requires_account_reauth": provider_link_result == "reauth_required"
+        or provider_unlink_result == "reauth_required",
+        "account_reauth_action": "/desktop/meetings" if embedded else "/logout",
+        "account_reauth_next": "/login?next="
+        + ("/desktop/settings/account" if embedded else "/settings/account"),
         "provider_unlink_result": provider_unlink_result_copy,
         "device_revoke_result": device_revoke_result_copy,
         "session_result": {
@@ -471,7 +611,12 @@ def render_provider_link_settings_page(
         surface=surface,
         settings_href="/desktop/settings/account" if embedded else "/settings/account",
         confirmation_action=f"{base_path}/{surface.link_state_id}/confirm",
-        result=result,
+        restart_action=(
+            f"{'/desktop' if embedded else ''}/settings/provider-links/{surface.provider}/start"
+            if surface.can_restart and surface.provider in {"yandex", "vk"}
+            else None
+        ),
+        outcome=_provider_link_outcome(result),
     )
 
 
@@ -486,11 +631,20 @@ def render_account_merge_page(
     error_message: str | None = None,
     blockers: tuple[object, ...] = (),
     requires_reauth: bool = False,
+    requires_restart: bool = False,
+    provider_id: str | None = None,
 ) -> str:
     base_path = "/desktop/settings/account/merge" if embedded else "/settings/account/merge"
     settings_path = "/desktop/settings/account" if embedded else "/settings/account"
+    provider_label = account_merge_provider_label(provider_id)
+    provider_sentence_label = {
+        "Email": "Email",
+        "способ входа": "Этот способ входа",
+    }.get(provider_label, provider_label)
+    restart_provider = provider_id if provider_id in {"yandex", "vk"} else None
+    restart_requires_email = provider_id in {"email", "email_link", "email_magic_link"}
     return _page_shell(
-        "Подключить email к текущему профилю",
+        f"Подключить {provider_label} к текущему профилю",
         embedded=embedded,
         active_nav="settings",
         settings_active="account",
@@ -503,9 +657,26 @@ def render_account_merge_page(
         confirm_action=f"{base_path}/{intent_id}/confirm",
         cancel_action=f"{base_path}/{intent_id}/cancel",
         settings_href="/desktop/settings/account" if embedded else "/settings/account",
+        provider_label=provider_label,
+        provider_sentence_label=provider_sentence_label,
+        connect_action_label=f"Подключить {provider_label}",
+        restart_action=(
+            f"{'/desktop' if embedded else ''}/settings/provider-links/{restart_provider}/start"
+            if restart_provider is not None
+            else f"{settings_path}/email-link/start"
+            if restart_requires_email
+            else None
+        ),
+        restart_label=(
+            "Получить новый код"
+            if restart_requires_email
+            else f"Подключить {provider_label} заново"
+        ),
+        restart_requires_email=restart_requires_email,
         reauth_action="/desktop/meetings" if embedded else "/logout",
         reauth_next=f"/login?next={settings_path}?provider_link=reauth_required",
         requires_reauth=requires_reauth,
+        requires_restart=requires_restart,
         error_message=error_message,
         blockers=blockers,
     )
@@ -582,6 +753,7 @@ def calendar_settings_notice_codes(
         "denied": "connect_denied",
         "failed": "connect_failed",
         "no_readable_calendars": "no_readable_calendars",
+        "dependency_missing": "dependency_missing",
     }
     if connect_result:
         code = result_map.get(connect_result.strip().lower())
@@ -599,11 +771,15 @@ def calendar_settings_notice_codes(
             codes.append("selection_saved")
         elif normalized_selection == "empty":
             codes.append("selection_empty")
+        elif normalized_selection == "limit_exceeded":
+            codes.append("selection_limit")
     if preferences_result and preferences_result.strip().lower() == "saved":
         codes.append("preferences_saved")
     if sync_result:
         normalized_sync = sync_result.strip().lower()
         sync_codes = {
+            "catalog_updated": "sync_catalog_updated",
+            "completed": "sync_completed",
             "accepted": "sync_accepted",
             "already_running": "sync_already_running",
             "reconnect_required": "sync_reconnect_required",
@@ -634,7 +810,11 @@ def calendar_connection_result_from_problem(code: str | None) -> str:
         "invalid_credentials": "denied",
         "tenant_policy_denied": "denied",
         "provider_timeout": "failed",
+        "provider_unavailable": "failed",
+        "invalid_payload": "failed",
+        "provider_policy_denied": "denied",
         "rate_limited": "failed",
+        "calendar_catalog_empty": "no_readable_calendars",
         "no_readable_calendars": "no_readable_calendars",
     }
     return result_map.get(code or "", "failed")
@@ -1380,6 +1560,111 @@ def _render_upcoming_recurring(response: MeetingListResponse, *, embedded: bool)
     if rows:
         return f'<div class="calendar-upcoming-list">{"".join(rows)}</div>'
     return ""
+
+
+def _render_home_upcoming(
+    response: MeetingListResponse,
+    *,
+    calendar_surface: cabinet_view_models.CalendarSettingsSurfaceView | None,
+    embedded: bool,
+    display_timezone: str,
+) -> str:
+    if calendar_surface is None:
+        return _render_upcoming_recurring(response, embedded=embedded)
+
+    recurring_content = _render_upcoming_recurring(response, embedded=embedded)
+
+    settings_href = (
+        "/desktop/settings/integrations/calendar" if embedded else "/settings/integrations/calendar"
+    )
+    preview = calendar_surface.preview[:4]
+    source_states = {source.sync_health_state for source in calendar_surface.sources}
+    credential_issue = bool(source_states & {"credential_failed", "failed_closed"})
+    provider_issue = bool(source_states & {"provider_unavailable", "rate_limited"})
+    if credential_issue:
+        state_copy = "Нужно переподключить календарь"
+    elif provider_issue:
+        state_copy = "Сервис временно недоступен"
+    elif "stale" in source_states:
+        state_copy = "Данные могут быть устаревшими"
+    elif source_states & {"queued", "syncing", "never_synced", "partial_sync"}:
+        state_copy = "Календарь обновляется"
+    else:
+        state_copy = "Из выбранных календарей"
+
+    if credential_issue:
+        body = (
+            '<div class="calendar-home-upcoming__empty"><strong>Календарь нужно переподключить</strong>'
+            "<p>Откройте настройки и восстановите доступ. Ручная запись по-прежнему доступна.</p></div>"
+        )
+    elif provider_issue:
+        body = (
+            '<div class="calendar-home-upcoming__empty"><strong>Календарный сервис недоступен</strong>'
+            "<p>Попробуйте позже. GRAF не показывает устаревшее событие как актуальное.</p></div>"
+        )
+    elif preview:
+        rows = "".join(
+            f"""
+            <article class="calendar-home-upcoming__row">
+              {f'<time datetime="{escape(item.starts_at.isoformat())}">{escape(_home_upcoming_time_label(item.starts_at, display_timezone))}</time>' if calendar_surface.preferences.show_upcoming_time else '<span class="calendar-home-upcoming__time-hidden">Время скрыто настройкой</span>'}
+              <div>
+                <strong>{escape(item.title if calendar_surface.preferences.show_upcoming_title else "Название скрыто настройкой")}</strong>
+                <small>{"Есть ссылка на встречу" if item.meeting_link_present else "Без ссылки на встречу"}</small>
+              </div>
+              {f'<a class="button quiet calendar-home-upcoming__join" href="/api/v1/calendar/events/{escape(item.event_id)}/open">Подключиться</a>' if item.open_meeting_available else ""}
+            </article>
+            """
+            for item in preview
+        )
+        body = f'<div class="calendar-home-upcoming__list">{rows}</div>'
+    elif not calendar_surface.sources:
+        state_copy = "Календарь не подключен"
+        body = (
+            '<div class="calendar-home-upcoming__empty"><strong>Подключите календарь</strong>'
+            "<p>GRAF покажет ближайшие встречи здесь и в строке меню macOS, но не начнет запись автоматически.</p></div>"
+        )
+    elif calendar_surface.selected_calendar_count_total == 0:
+        state_copy = "Нужно выбрать календари"
+        body = (
+            '<div class="calendar-home-upcoming__empty"><strong>Выберите календари внутри источника</strong>'
+            "<p>До выбора календарей встречи и подсказки не появляются.</p></div>"
+        )
+    else:
+        body = (
+            '<div class="calendar-home-upcoming__empty"><strong>Ближайших встреч нет</strong>'
+            "<p>Когда появится подходящее событие, оно будет показано здесь.</p></div>"
+        )
+
+    return f"""
+      <details class="calendar-home-upcoming" open>
+        <summary>
+          <span>Ближайшие встречи</span>
+          <small>{escape(state_copy)}</small>
+        </summary>
+        {body}
+        {recurring_content}
+        <a class="calendar-home-upcoming__settings" href="{settings_href}">Настроить календарь</a>
+      </details>
+    """
+
+
+def _home_upcoming_time_label(value: datetime, timezone_name: str) -> str:
+    try:
+        target_timezone = ZoneInfo(timezone_name)
+    except ZoneInfoNotFoundError:
+        target_timezone = UTC
+    localized = (value if value.tzinfo is not None else value.replace(tzinfo=UTC)).astimezone(
+        target_timezone
+    )
+    today = datetime.now(target_timezone).date()
+    day_label = (
+        "Сегодня"
+        if localized.date() == today
+        else "Завтра"
+        if localized.date() == today + timedelta(days=1)
+        else localized.strftime("%d.%m")
+    )
+    return f"{day_label}, {localized.strftime('%H:%M')}"
 
 
 def _render_previous_recurring_pointer(

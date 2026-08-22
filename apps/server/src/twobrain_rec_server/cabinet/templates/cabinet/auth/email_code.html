@@ -9,9 +9,12 @@
       <h1>{{ page_title }}</h1>
       <div class="auth-subtitle">{{ subtitle }}</div>
     </div>
-    <div class="code-hint">Проверьте почту и введите одноразовый код. Пароль не требуется.</div>
+    {% if can_verify %}<div class="code-hint" id="email-code-hint">Проверьте почту и введите одноразовый код. Пароль не требуется.</div>{% endif %}
     {% if error_message %}
-    <div class="auth-alert" role="alert">{{ error_message }}</div>
+    <section class="auth-alert" role="alert" tabindex="-1" data-outcome-focus aria-labelledby="email-code-outcome-title">
+      <h2 id="email-code-outcome-title">Код не принят</h2>
+      <p>{{ error_message }}</p>
+    </section>
     {% endif %}
     {% if dev_code is not none %}
     <div class="delete-confirmation">
@@ -19,24 +22,23 @@
       <div class="truth-copy">Код для локальной проверки: <strong>{{ dev_code }}</strong></div>
     </div>
     {% endif %}
-    <form class="auth-form" action="{{ verify_path }}" method="post" data-code-form>
-      <div class="code-grid" role="group" aria-label="6-значный код">
-        {% for index in range(1, 7) %}
-        <input class="code-slot" inputmode="numeric" pattern="[0-9]*" maxlength="1" aria-label="Цифра {{ index }}" data-code-slot>
-        {% endfor %}
-      </div>
-      <input data-code-hidden name="code" type="hidden" autocomplete="one-time-code">
+    {% if can_verify %}<form class="auth-form" action="{{ verify_path }}" method="post" data-code-form>
+      <label for="email-code">6-значный код</label>
+      <input class="code-input" id="email-code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required aria-describedby="email-code-hint" data-code-input>
       <input type="hidden" name="email" value="{{ email }}">
       <input type="hidden" name="state" value="{{ state_nonce }}">
       <input type="hidden" name="next" value="{{ next_path }}">
       {% if csrf_token %}<input type="hidden" name="csrf_token" value="{{ csrf_token }}">{% endif %}
       <button class="primary" type="submit">Продолжить</button>
-    </form>
+    </form>{% endif %}
     <form class="auth-form" action="{{ resend_path }}" method="post">
-      <input type="hidden" name="email" value="{{ email }}">
+      {% if retry_requires_email %}
+      <label for="email-code-retry">Email</label>
+      <input id="email-code-retry" name="email" type="email" autocomplete="email" required maxlength="240" placeholder="you@example.com">
+      {% else %}<input type="hidden" name="email" value="{{ email }}">{% endif %}
       <input type="hidden" name="next" value="{{ next_path }}">
       {% if csrf_token %}<input type="hidden" name="csrf_token" value="{{ csrf_token }}">{% endif %}
-      <button class="auth-resend" type="submit">Отправить код еще раз</button>
+      <button class="auth-resend" type="submit">Получить новый код</button>
     </form>
     <div class="auth-secondary">
       <a class="mini-link" href="{{ back_href }}">Изменить почту</a>

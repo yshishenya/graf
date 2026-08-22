@@ -18,7 +18,10 @@
       {% endif %}
     </div>
     {% if error_message %}
-    <div class="auth-alert" role="alert">{{ error_message }}</div>
+    <section class="auth-alert{% if message_kind == 'success' %} auth-alert--success{% endif %}" role="{{ 'status' if message_kind == 'success' else 'alert' }}" tabindex="-1" data-outcome-focus aria-labelledby="auth-outcome-title">
+      <h2 id="auth-outcome-title">{{ message_heading }}</h2>
+      <p>{{ error_message }}</p>
+    </section>
     {% endif %}
     {% if providers or not recovery_mode %}
     <div class="auth-methods">

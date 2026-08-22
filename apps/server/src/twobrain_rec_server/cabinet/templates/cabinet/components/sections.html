@@ -71,6 +71,13 @@
 {% macro cabinet_shell(navigation, embedded=False, content=None, static_url="", skip_target="cabinet-main", csrf_token=None, settings_navigation=(), settings_active="overview", profile=None) -%}
 <div class="app-shell{% if embedded %} desktop-embedded{% endif %}" data-shell-scroll="contained" data-cabinet-shell data-active-nav="{{ navigation.active }}" data-rail-tooltip="Показать боковую панель">
   <a class="skip-link" href="#{{ skip_target }}">К содержимому</a>
+  {% if not embedded %}<noscript><nav class="cabinet-mobile-noscript-nav" aria-label="Навигация кабинета без JavaScript">
+    {% for item in navigation.items %}<a href="{{ item.href }}"{% if item.id == navigation.active %} data-current="true" aria-label="Текущая страница: {{ item.label }}"{% endif %}>{{ item.label }}</a>{% endfor %}
+    {% if navigation.active == "settings" %}
+    <a href="/settings">Обзор настроек</a>
+    {% for item in settings_navigation %}<a href="{{ item.href }}"{% if item.id == settings_active %} data-current="true" aria-label="Текущая страница: {{ item.label }}"{% endif %}>{{ item.label }}</a>{% endfor %}
+    {% endif %}
+  </nav></noscript>{% endif %}
   {{ cabinet_sidebar(navigation, embedded=embedded, static_url=static_url, csrf_token=csrf_token, settings_navigation=settings_navigation, settings_active=settings_active, profile=profile) }}
   {% if content is not none %}
   {{ content }}

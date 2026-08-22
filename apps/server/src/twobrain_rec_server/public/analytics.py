@@ -25,18 +25,29 @@ PUBLIC_ANALYTICS_CONSENT_CATEGORIES = (
     "behavior_replay",
 )
 
-PUBLIC_ANALYTICS_SECTION_IDS = ("hero", "platforms", "outcomes", "trust", "final_cta")
+PUBLIC_ANALYTICS_SECTION_IDS = ("hero", "audience", "workflow", "pricing", "faq", "final_cta")
 PUBLIC_ANALYTICS_CTA_LOCATIONS = (
     "header_download",
     "hero_download",
+    "pricing_download",
     "final_download",
-    "hero_login",
-    "hero_product",
+    "header_login",
     "final_login",
     "download_page_installer",
     "download_page_login",
 )
 PUBLIC_ANALYTICS_TARGET_KINDS = ("download_page", "installer_package", "login", "section")
+PUBLIC_ANALYTICS_PRODUCT_TABS = ("recording", "transcript", "outcomes")
+PUBLIC_ANALYTICS_PRICING_CYCLES = ("month", "year")
+PUBLIC_ANALYTICS_FAQ_IDS = (
+    "recognition",
+    "calling_apps",
+    "upload",
+    "results",
+    "platforms",
+    "offline",
+    "storage",
+)
 PUBLIC_ANALYTICS_CONSENT_STATES = (
     "unknown",
     "accepted_all",
@@ -85,9 +96,27 @@ PUBLIC_ANALYTICS_EVENT_CATALOG = (
     },
     {
         "event_name": "public_login_intent_clicked",
-        "surface": "public_landing",
+        "surface": None,
         "target_kind": "login",
         "stable_fields": ("cta_location", "target_kind"),
+    },
+    {
+        "event_name": "public_product_tab_selected",
+        "surface": "public_landing",
+        "target_kind": None,
+        "stable_fields": ("product_tab",),
+    },
+    {
+        "event_name": "public_pricing_cycle_selected",
+        "surface": "public_landing",
+        "target_kind": None,
+        "stable_fields": ("pricing_cycle",),
+    },
+    {
+        "event_name": "public_faq_opened",
+        "surface": "public_landing",
+        "target_kind": None,
+        "stable_fields": ("faq_item",),
     },
 )
 
@@ -124,6 +153,9 @@ def public_analytics_stable_labels() -> dict[str, tuple[str, ...]]:
         "section_id": PUBLIC_ANALYTICS_SECTION_IDS,
         "cta_location": PUBLIC_ANALYTICS_CTA_LOCATIONS,
         "target_kind": PUBLIC_ANALYTICS_TARGET_KINDS,
+        "product_tab": PUBLIC_ANALYTICS_PRODUCT_TABS,
+        "pricing_cycle": PUBLIC_ANALYTICS_PRICING_CYCLES,
+        "faq_item": PUBLIC_ANALYTICS_FAQ_IDS,
     }
 
 
@@ -210,7 +242,7 @@ def build_public_analytics_context(
         "environment_allowed": environment_allowed,
         "yandex_metrica_id_present": bool(counter_id),
         "yandex_metrica_id": counter_id if enabled else None,
-        "replay_allowed": bool(enabled and settings.public_analytics_replay_enabled),
+        "replay_allowed": False,
         "consent_copy_version": settings.public_analytics_consent_copy_version,
         "cookieconsent_version": COOKIECONSENT_VERSION,
         "page_path": path if surface else None,

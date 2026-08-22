@@ -103,10 +103,13 @@ async def consume_callback_state(
     now = now or datetime.now(UTC)
     now = _as_aware_utc(now)
     state = await db.scalar(
-        select(AuthCallbackState).where(
+        select(AuthCallbackState)
+        .where(
             AuthCallbackState.provider == provider,
             AuthCallbackState.state_nonce == state_nonce,
-        ).with_for_update()
+        )
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if state is None:
         raise ValueError("callback state not found")
@@ -172,4 +175,6 @@ async def issue_auth_session(
     db.add(session)
     await db.flush()
     await db.refresh(session)
-    return IssuedAuthSession(id=session.id, token=raw_token, token_hash=token_hash, expires_at=session.expires_at)
+    return IssuedAuthSession(
+        id=session.id, token=raw_token, token_hash=token_hash, expires_at=session.expires_at
+    )

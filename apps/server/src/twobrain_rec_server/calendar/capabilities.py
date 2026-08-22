@@ -38,27 +38,27 @@ PROVIDER_PRESETS = (
         "Yandex Calendar",
         "caldav",
         True,
-        _capabilities(supports_recurrence="supported", supports_free_busy_only="supported"),
+        _capabilities(supports_recurrence="partial", supports_free_busy_only="unknown"),
     ),
     CalendarProviderPreset(
         "caldav_mail_ru",
         "Mail.ru Calendar",
         "caldav",
         True,
-        _capabilities(supports_recurrence="supported", supports_free_busy_only="supported"),
+        _capabilities(supports_recurrence="partial", supports_free_busy_only="unknown"),
     ),
     CalendarProviderPreset(
         "exchange_ews",
         "Exchange Server EWS",
         "ews",
-        True,
+        False,
         _capabilities(supports_attendees="supported", supports_recurrence_exceptions="supported"),
     ),
     CalendarProviderPreset(
         "bitrix24",
         "Bitrix24 Calendar",
         "rich_api",
-        True,
+        False,
         _capabilities(supports_attendees="supported", supports_rich_provider_extras="supported"),
     ),
     CalendarProviderPreset(
@@ -66,42 +66,46 @@ PROVIDER_PRESETS = (
         "VK WorkSpace Calendar",
         "caldav",
         True,
-        _capabilities(supports_recurrence="admin_policy_dependent", supports_free_busy_only="supported"),
+        _capabilities(supports_recurrence="partial", supports_free_busy_only="unknown"),
     ),
     CalendarProviderPreset(
         "caldav_mailion_myoffice",
         "Mailion / MyOffice Calendar",
         "caldav",
         True,
-        _capabilities(supports_recurrence="admin_policy_dependent", supports_free_busy_only="supported"),
+        _capabilities(supports_recurrence="partial", supports_free_busy_only="unknown"),
     ),
     CalendarProviderPreset(
         "caldav_r7_office",
         "R7-Office Calendar",
         "caldav",
         True,
-        _capabilities(supports_recurrence="admin_policy_dependent", supports_free_busy_only="supported"),
+        _capabilities(supports_recurrence="partial", supports_free_busy_only="unknown"),
     ),
     CalendarProviderPreset(
         "caldav_communigate_pro",
         "CommuniGate Pro Calendar",
         "caldav",
         True,
-        _capabilities(supports_recurrence="supported", supports_free_busy_only="supported"),
+        _capabilities(supports_recurrence="partial", supports_free_busy_only="unknown"),
     ),
     CalendarProviderPreset(
         "caldav_rupost",
         "RuPost Calendar",
         "caldav",
         True,
-        _capabilities(supports_recurrence="admin_policy_dependent", supports_free_busy_only="supported"),
+        _capabilities(supports_recurrence="partial", supports_free_busy_only="unknown"),
     ),
     CalendarProviderPreset(
         "caldav_nextcloud_sogo",
         "Nextcloud / SOGo Calendar",
         "caldav",
         True,
-        _capabilities(supports_recurrence="supported", supports_recurrence_exceptions="supported"),
+        _capabilities(
+            supports_recurrence="partial",
+            supports_recurrence_exceptions="partial",
+            supports_free_busy_only="unknown",
+        ),
     ),
     CalendarProviderPreset(
         "custom_caldav",
@@ -110,17 +114,62 @@ PROVIDER_PRESETS = (
         True,
         _capabilities(supports_recurrence="unknown", supports_free_busy_only="unknown"),
     ),
+    CalendarProviderPreset(
+        "google_calendar",
+        "Google Calendar",
+        "google_api",
+        False,
+        _capabilities(
+            supports_attendees="supported",
+            supports_recurrence="supported",
+            supports_recurrence_exceptions="supported",
+            supports_private_events="supported",
+            supports_conference_metadata="supported",
+            supports_delta_sync="supported",
+            supports_updates_deletes="supported",
+            supports_free_busy_only="supported",
+        ),
+    ),
 )
 
+# A provider becomes visible as connectable only after its exact real
+# browser/macOS matrix is recorded. Adapters remain available to dedicated
+# synthetic and certification tests while this set is empty.
+REAL_E2E_CERTIFIED_PROVIDER_FAMILIES: frozenset[str] = frozenset()
 
-def provider_preset_payloads() -> list[dict[str, object]]:
-    return [
-        {
+
+def provider_preset(provider_family: str) -> CalendarProviderPreset | None:
+    return next(
+        (preset for preset in PROVIDER_PRESETS if preset.provider_family == provider_family),
+        None,
+    )
+
+
+def provider_adapter_family(provider_family: str) -> str | None:
+    preset = provider_preset(provider_family)
+    return preset.adapter_family if preset is not None and preset.supported else None
+
+
+def provider_preset_payloads(
+    *,
+    google_available: bool | None = None,
+    allow_uncertified_google: bool = False,
+) -> list[dict[str, object]]:
+    payloads = []
+    for preset in PROVIDER_PRESETS:
+        certified = preset.provider_family in REAL_E2E_CERTIFIED_PROVIDER_FAMILIES
+        configured = preset.provider_family != "google_calendar" or google_available is True
+        development_google = (
+            preset.provider_family == "google_calendar" and allow_uncertified_google
+        )
+        connectable = configured and (certified or development_google)
+        payload = {
             "provider_family": preset.provider_family,
             "label": preset.label,
             "adapter_family": preset.adapter_family,
-            "supported": preset.supported,
+            "supported": connectable,
+            "runtime_available": connectable,
             "capability_state": preset.capability_state,
         }
-        for preset in PROVIDER_PRESETS
-    ]
+        payloads.append(payload)
+    return payloads

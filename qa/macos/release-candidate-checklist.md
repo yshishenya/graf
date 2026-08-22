@@ -10,6 +10,7 @@ instructions.
 - [ ] `swift build --package-path apps/macos` passes.
 - [ ] `swift test --package-path apps/macos` passes.
 - [ ] `swift run --package-path apps/macos ContractValidation` passes.
+- [ ] `sh apps/macos/Scripts/validate-graf-aec3-artifact.sh` passes.
 - [ ] `sh apps/macos/Scripts/validate-no-legacy-audio-driver.sh` passes.
 - [ ] `sh apps/macos/Scripts/validate-system-audio-capture-pivot.sh --self-test-artifact-metadata` passes.
 - [ ] `infra/scripts/ci-local.sh` passes.
@@ -27,6 +28,11 @@ instructions.
 - [ ] Microphone and system-audio permissions are both enforced.
 - [ ] The persistent local capture indicator and one-action `Stop` pass.
 - [ ] Existing recording-directory and manifest compatibility tests pass.
+- [ ] New recordings report mandatory AEC3 metadata and never publish a raw
+  microphone or render-reference artifact.
+- [ ] Far-end, near-end and double-talk synthetic AEC3 thresholds pass; real
+  speakerphone quality remains unclaimed until the controlled hardware matrix
+  passes.
 
 ## v5 Control-Period Receipt
 
@@ -79,6 +85,8 @@ instructions.
 - [ ] The package contains no privileged audio component, lifecycle sidecar, or
   host-service mutation script.
 - [ ] Package expansion/inspection passes without installing it.
+- [ ] `GRAF` contains both `arm64` and `x86_64`, bundles
+  `AEC3-THIRD-PARTY-NOTICES.txt`, and has no WebRTC/Abseil dylib dependency.
 - [ ] Developer ID Application signing is used for the app and Developer ID
   Installer signing for the package; notarization, stapling and Gatekeeper
   evidence all pass.

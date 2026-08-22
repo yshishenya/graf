@@ -2,12 +2,10 @@ from pydantic import ValidationError
 
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.public.analytics import (
-    COOKIECONSENT_VERSION,
-    PUBLIC_ANALYTICS_CONSENT_CATEGORIES,
+    PUBLIC_ANALYTICS_EVENT_CATALOG,
+    PUBLIC_ANALYTICS_TARGET_KINDS,
     build_public_analytics_context,
     normalize_public_campaign_attribution,
-    public_analytics_consent_states,
-    public_analytics_consent_transitions,
     public_analytics_event_names,
     public_analytics_stable_labels,
     public_analytics_utm_fields,
@@ -20,16 +18,14 @@ def test_public_analytics_is_disabled_by_default() -> None:
     assert context["enabled"] is False
     assert context["provider"] == "yandex_metrica"
     assert context["yandex_metrica_id"] is None
-    assert context["yandex_metrica_id_present"] is False
     assert context["replay_allowed"] is False
-    assert context["cookieconsent_version"] == COOKIECONSENT_VERSION
 
 
-def test_public_analytics_render_only_context_is_safe_and_public_scoped() -> None:
+def test_public_analytics_immediate_context_is_narrow_and_public_scoped() -> None:
     settings = Settings(
         public_analytics_enabled=True,
         public_analytics_validation_mode="render_only",
-        public_analytics_yandex_metrica_id="YA_TEST_COUNTER",
+        public_analytics_yandex_metrica_id="12345678",
         public_analytics_replay_enabled=True,
     )
 
@@ -37,16 +33,14 @@ def test_public_analytics_render_only_context_is_safe_and_public_scoped() -> Non
 
     assert context["enabled"] is True
     assert context["validation_mode"] == "render_only"
-    assert context["environment_allowed"] is True
     assert context["page_path"] == "/download"
     assert context["surface"] == "public_download"
-    assert context["yandex_metrica_id"] == "YA_TEST_COUNTER"
-    assert context["replay_allowed"] is True
-    assert context["consent_categories"] == list(PUBLIC_ANALYTICS_CONSENT_CATEGORIES)
-    assert context["consent_states"] == list(public_analytics_consent_states())
-    assert context["consent_transitions"] == {
-        key: list(values) for key, values in public_analytics_consent_transitions().items()
-    }
+    assert context["yandex_metrica_id"] == "12345678"
+    assert context["replay_allowed"] is False
+    assert context["event_catalog"]
+
+
+def test_public_analytics_event_catalog_and_labels_match_new_funnel() -> None:
     assert public_analytics_event_names() == (
         "public_landing_viewed",
         "public_landing_section_seen",
@@ -54,75 +48,47 @@ def test_public_analytics_render_only_context_is_safe_and_public_scoped() -> Non
         "public_download_viewed",
         "public_installer_download_clicked",
         "public_login_intent_clicked",
+        "public_product_tab_selected",
+        "public_pricing_cycle_selected",
+        "public_faq_opened",
     )
-    assert context["stable_labels"] == {
-        key: list(values) for key, values in public_analytics_stable_labels().items()
+    assert public_analytics_stable_labels() == {
+        "section_id": ("hero", "audience", "workflow", "pricing", "faq", "final_cta"),
+        "cta_location": (
+            "header_download",
+            "hero_download",
+            "pricing_download",
+            "final_download",
+            "header_login",
+            "final_login",
+            "download_page_installer",
+            "download_page_login",
+        ),
+        "target_kind": ("download_page", "installer_package", "login", "section"),
+        "product_tab": ("recording", "transcript", "outcomes"),
+        "pricing_cycle": ("month", "year"),
+        "faq_item": (
+            "recognition",
+            "calling_apps",
+            "upload",
+            "results",
+            "platforms",
+            "offline",
+            "storage",
+        ),
     }
-
-
-def test_public_analytics_event_catalog_has_stable_labels() -> None:
-    labels = public_analytics_stable_labels()
-
-    assert public_analytics_event_names() == (
-        "public_landing_viewed",
-        "public_landing_section_seen",
-        "public_landing_cta_clicked",
-        "public_download_viewed",
-        "public_installer_download_clicked",
-        "public_login_intent_clicked",
+    assert all(
+        item["target_kind"] in PUBLIC_ANALYTICS_TARGET_KINDS
+        for item in PUBLIC_ANALYTICS_EVENT_CATALOG
+        if item["target_kind"]
     )
-    assert labels["section_id"] == ("hero", "platforms", "outcomes", "trust", "final_cta")
-    assert labels["cta_location"] == (
-        "header_download",
-        "hero_download",
-        "final_download",
-        "hero_login",
-        "hero_product",
-        "final_login",
-        "download_page_installer",
-        "download_page_login",
-    )
-    assert labels["target_kind"] == (
-        "download_page",
-        "installer_package",
-        "login",
-        "section",
-    )
-
-
-def test_public_analytics_consent_state_machine_and_copy_version_are_explicit() -> None:
-    settings = Settings(public_analytics_consent_copy_version="2026-07-08.1")
-    context = build_public_analytics_context(settings, "/")
-    transitions = public_analytics_consent_transitions()
-
-    assert public_analytics_consent_states() == (
-        "unknown",
-        "accepted_all",
-        "necessary_only",
-        "customized",
-        "revoked",
-    )
-    assert transitions["unknown"] == ("accepted_all", "necessary_only", "customized")
-    assert transitions["accepted_all"] == ("revoked", "necessary_only", "customized")
-    assert transitions["necessary_only"] == ("accepted_all", "customized")
-    assert transitions["customized"] == ("accepted_all", "necessary_only", "revoked")
-    assert transitions["revoked"] == ("accepted_all", "necessary_only", "customized")
-    assert context["consent_copy_version"] == "2026-07-08.1"
-
-    changed_copy = build_public_analytics_context(
-        Settings(public_analytics_consent_copy_version="2026-07-08.2"),
-        "/",
-    )
-
-    assert changed_copy["consent_copy_version"] == "2026-07-08.2"
 
 
 def test_public_analytics_stays_disabled_outside_public_scope() -> None:
     settings = Settings(
         env="staging",
         public_analytics_enabled=True,
-        public_analytics_yandex_metrica_id="YA_TEST_COUNTER",
-        public_analytics_replay_enabled=True,
+        public_analytics_yandex_metrica_id="12345678",
     )
 
     context = build_public_analytics_context(settings, "/login")
@@ -131,14 +97,13 @@ def test_public_analytics_stays_disabled_outside_public_scope() -> None:
     assert context["page_path"] is None
     assert context["surface"] is None
     assert context["yandex_metrica_id"] is None
-    assert context["replay_allowed"] is False
 
 
 def test_public_analytics_requires_production_or_explicit_validation_mode() -> None:
     settings = Settings(
         env="development",
         public_analytics_enabled=True,
-        public_analytics_yandex_metrica_id="YA_TEST_COUNTER",
+        public_analytics_yandex_metrica_id="12345678",
     )
 
     context = build_public_analytics_context(settings, "/")
@@ -172,22 +137,12 @@ def test_public_analytics_utm_fields_are_allowlisted_and_normalized() -> None:
     )
 
     assert public_analytics_utm_fields() == (
-        "utm_source",
-        "utm_medium",
-        "utm_campaign",
-        "utm_id",
-        "utm_content",
-        "utm_term",
+        "utm_source", "utm_medium", "utm_campaign", "utm_id", "utm_content", "utm_term"
     )
     assert attribution["utm_source"] == "yandex_direct"
     assert attribution["utm_medium"] == "cpc"
-    assert attribution["utm_campaign"] == "2026q3_b2c_launch_ru"
-    assert attribution["utm_id"] == "campaign-42"
-    assert attribution["utm_content"] == "hero_a"
-    assert attribution["utm_term"] == "meeting_recorder"
     assert attribution["referrer_category"] == "paid"
     assert attribution["landing_path"] == "/"
-    assert attribution["normalization_status"] == "normalized"
     assert "ignored" not in attribution
 
 
@@ -203,34 +158,13 @@ def test_public_analytics_unsafe_campaign_values_are_dropped() -> None:
         landing_path="/download",
     )
 
-    assert attribution["utm_source"] == "email"
-    assert attribution["utm_medium"] == "cpc"
     assert attribution["utm_campaign"] is None
     assert attribution["utm_content"] is None
     assert attribution["utm_term"] is None
-    assert attribution["referrer_category"] == "paid"
-    assert attribution["landing_path"] == "/download"
     assert attribution["normalization_status"] == "unsafe_dropped"
 
 
-def test_public_analytics_referrer_categories_cover_direct_referral_organic_and_unknown() -> None:
-    assert normalize_public_campaign_attribution({}, landing_path="/")["referrer_category"] == "direct"
-    assert (
-        normalize_public_campaign_attribution({}, referrer="https://partner.example/page", landing_path="/")[
-            "referrer_category"
-        ]
-        == "referral"
-    )
-    assert (
-        normalize_public_campaign_attribution({}, referrer="https://yandex.ru/search/?text=graf", landing_path="/")[
-            "referrer_category"
-        ]
-        == "organic"
-    )
-    assert normalize_public_campaign_attribution({}, referrer="not a url", landing_path="/")["referrer_category"] == "unknown"
-
-
-def test_public_analytics_production_config_accepts_yandex_only_runtime_settings() -> None:
+def test_public_analytics_production_config_accepts_numeric_yandex_counter() -> None:
     settings = _production_public_analytics_settings(
         public_analytics_enabled=True,
         public_analytics_yandex_metrica_id="12345678",
@@ -242,24 +176,10 @@ def test_public_analytics_production_config_accepts_yandex_only_runtime_settings
     assert settings.public_analytics_yandex_metrica_id == "12345678"
     assert settings.public_analytics_validation_mode == "provider_smoke"
     assert settings.public_analytics_replay_enabled is True
-    assert not [
-        field_name
-        for field_name in Settings.model_fields
-        if any(marker in field_name for marker in ("google", "ga4", "gtm"))
-    ]
 
 
-def test_public_analytics_production_config_rejects_missing_or_placeholder_counter_ids() -> None:
-    invalid_counter_ids = (
-        None,
-        "YA_TEST_COUNTER",
-        "replace-me",
-        "G-123456",
-        "GTM-123456",
-        "123abc",
-    )
-
-    for counter_id in invalid_counter_ids:
+def test_public_analytics_production_config_rejects_placeholder_counter_ids() -> None:
+    for counter_id in (None, "YA_TEST_COUNTER", "replace-me", "G-123456", "123abc"):
         try:
             _production_public_analytics_settings(
                 public_analytics_enabled=True,

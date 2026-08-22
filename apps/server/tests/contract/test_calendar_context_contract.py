@@ -133,8 +133,16 @@ def test_calendar_source_lifecycle_contract_never_returns_credentials(client) ->
     assert selected.status_code == 200
     assert {calendar["calendar_id"] for calendar in selected.json()["calendars"]} == {
         "primary",
+        "secondary",
         "team",
+        "selected",
+        "synthetic-primary",
     }
+    assert {
+        calendar["calendar_id"]
+        for calendar in selected.json()["calendars"]
+        if calendar["selected"]
+    } == {"primary", "team"}
 
     sync = client.post(f"/api/v1/calendar/sources/{source_id}/sync", headers=auth_headers())
     assert sync.status_code == 202
@@ -301,7 +309,12 @@ def _seed_calendar_event(client) -> str:
         async with sessionmaker() as session:
             source = await session.get(CalendarSource, source_id)
             calendar = await session.scalar(
-                select(ExternalCalendar).where(ExternalCalendar.calendar_source_id == source.id)
+                select(ExternalCalendar)
+                .where(
+                    ExternalCalendar.calendar_source_id == source.id,
+                    ExternalCalendar.selected.is_(True),
+                )
+                .order_by(ExternalCalendar.provider_calendar_id)
             )
             starts_at = datetime(2026, 7, 1, 9, 0, tzinfo=UTC) + timedelta(minutes=5)
             snapshot = await upsert_event_snapshot(

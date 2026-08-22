@@ -97,7 +97,23 @@ public struct RecordingEvidenceService: Sendable {
             "microphoneStreamTimingConfidence": manifest.microphoneStreamHealth?.timingConfidence.rawValue ?? "",
             "microphoneStreamSilenceStatus": manifest.microphoneStreamHealth?.silenceStatus.rawValue ?? "",
             "microphoneFutureProcessingReadiness": manifest.microphoneStreamHealth?.cleanupReadiness.rawValue ?? "",
-            "microphoneGraphDiagnosticSafe": graphDiagnosticSafe
+            "microphoneGraphDiagnosticSafe": graphDiagnosticSafe,
+            "echoAlgorithm": manifest.echoProcessor?.algorithm ?? "",
+            "echoLibraryVersion": manifest.echoProcessor?.libraryVersion ?? "",
+            "echoSourceCommit": manifest.echoProcessor?.sourceCommit ?? "",
+            "echoHealthState": manifest.echoProcessingHealth?.state.rawValue ?? "",
+            "echoFailureReason": manifest.echoProcessingHealth?.reason?.rawValue ?? "",
+            "echoProcessedFrameCount": manifest.echoProcessingHealth.map { String($0.processedFrameCount) } ?? "",
+            "echoProcessErrorCount": manifest.echoProcessingHealth.map { String($0.processErrorCount) } ?? "",
+            "echoEstimatedDriftPpm": manifest.echoProcessingHealth?.estimatedDriftPpm.map { String(format: "%.3f", $0) } ?? "",
+            "echoHostUnderrunCount": manifest.echoProcessingHealth.map { String($0.hostUnderrunCount) } ?? "",
+            "echoHostOverrunCount": manifest.echoProcessingHealth.map { String($0.hostOverrunCount) } ?? "",
+            "echoClippedSampleCount": manifest.echoProcessingHealth.map { String($0.clippedSampleCount) } ?? "",
+            "echoNonFiniteSampleCount": manifest.echoProcessingHealth.map { String($0.nonFiniteSampleCount) } ?? "",
+            "echoAECDelayMs": manifest.echoProcessingHealth?.aecDelayMs.map(String.init) ?? "",
+            "echoReturnLossDb": manifest.echoProcessingHealth?.echoReturnLossDb.map { String(format: "%.3f", $0) } ?? "",
+            "echoReturnLossEnhancementDb": manifest.echoProcessingHealth?.echoReturnLossEnhancementDb.map { String(format: "%.3f", $0) } ?? "",
+            "echoProcessingTimeP95Ms": manifest.echoProcessingHealth?.processingTimeP95Ms.map { String(format: "%.3f", $0) } ?? ""
         ]
     }
 

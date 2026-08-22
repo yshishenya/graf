@@ -163,6 +163,7 @@ printf 'posthog_guard_container_count=%s\n' "$container_count"
 printf 'posthog_guard_oom_count=%s\n' "$oom_count"
 printf 'posthog_guard_restart_count=%s\n' "$restart_count"
 printf 'posthog_guard_health_failures=%s\n' "$health_failures"
+printf 'posthog_guard_product_impact=measurement_gap_only\n'
 
 if [[ -z "$breach" ]]; then
   log_event pass "result=pass containers=$container_count oom=$oom_count restarts=$restart_count"
@@ -261,7 +262,6 @@ if [[ "$auto_rollback" == "1" ]]; then
   fi
 fi
 printf 'posthog_guard_rollback=%s\n' "$rollback_status"
-printf 'posthog_guard_product_impact=measurement_gap_only\n'
 if [[ "${rollback_failure:-0}" == "1" ]]; then
   exit 1
 fi

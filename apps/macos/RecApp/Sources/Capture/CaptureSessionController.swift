@@ -341,7 +341,7 @@ public final class CaptureSessionController {
         case .active:
             return destination == .paused || destination == .degraded || destination == .failed || destination == .stopping
         case .paused:
-            return destination == .active || destination == .stopping || destination == .failed
+            return destination == .active || destination == .degraded || destination == .stopping || destination == .failed
         case .degraded:
             return destination == .stopping || destination == .active || destination == .failed
         case .stopping:

@@ -36,6 +36,10 @@ from twobrain_rec_server.api.schemas import (
 )
 from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.auth.policy import read_auth_providers
+from twobrain_rec_server.auth.provider_links import (
+    RECOVERY_CAPABLE_PROVIDERS,
+    recovery_safe_unlink_allowed,
+)
 from twobrain_rec_server.auth.providers import build_provider_registry
 from twobrain_rec_server.cabinet.access import (
     ShareRecipientAccessProof,
@@ -52,6 +56,7 @@ from twobrain_rec_server.cabinet.egress import (
 )
 from twobrain_rec_server.cabinet.view_models import (
     AUTHORITATIVE_TITLE_SOURCES,
+    PROVIDER_LINK_LABELS,
     MeetingListTimeBasis,
     ProviderLinkSettingsSurface,
     ProviderLinkStartOption,
@@ -69,6 +74,7 @@ from twobrain_rec_server.cabinet.view_models import (
     safe_title,
 )
 from twobrain_rec_server.calendar.audit import calendar_context_activity_projections
+from twobrain_rec_server.calendar.google import google_oauth_config_from_settings
 from twobrain_rec_server.calendar.service import (
     SELECTABLE_CALENDAR_VISIBILITIES,
     calendar_event_matches_preferences,
@@ -147,9 +153,12 @@ async def get_provider_link_start_options(
         persist_defaults=True,
     )
     return tuple(
-        ProviderLinkStartOption(provider=entry.provider, label=entry.label)
+        ProviderLinkStartOption(
+            provider=entry.provider,
+            label=PROVIDER_LINK_LABELS.get(entry.provider, entry.label),
+        )
         for entry in snapshot.providers
-        if entry.enabled
+        if entry.enabled and entry.provider in RECOVERY_CAPABLE_PROVIDERS
     )
 
 
@@ -190,7 +199,11 @@ async def get_account_settings_surface(
             .order_by(ExternalIdentity.created_at.asc())
         )
     )
-    verified_identity_count = sum(1 for identity in identities if identity.is_verified)
+    verified_recovery_count = sum(
+        1
+        for identity in identities
+        if identity.is_verified and identity.provider in RECOVERY_CAPABLE_PROVIDERS
+    )
     devices = tuple(
         await db.scalars(
             select(RegisteredDevice)
@@ -227,7 +240,11 @@ async def get_account_settings_surface(
         sessions=sessions,
         current_session_id=tenant_scope.auth_session_id,
         current_device_id=tenant_scope.device_id,
-        can_unlink_provider=lambda identity: identity.is_verified and verified_identity_count > 1,
+        can_unlink_provider=lambda identity: recovery_safe_unlink_allowed(
+            verified_identity_count=verified_recovery_count
+            + int(identity.is_verified and identity.provider not in RECOVERY_CAPABLE_PROVIDERS),
+            target_is_verified=identity.is_verified,
+        ),
         account_close=(close_view(closure, now=datetime.now(UTC)) if closure else None),
     )
 
@@ -266,6 +283,7 @@ async def get_calendar_settings_surface(
     db: AsyncSession,
     tenant_scope: TenantScope,
     *,
+    settings: object | None = None,
     notice_codes: tuple[str, ...] = (),
 ):
     from twobrain_rec_server.cabinet.view_models import calendar_settings_surface
@@ -276,6 +294,8 @@ async def get_calendar_settings_surface(
             .where(
                 CalendarSource.workspace_id == tenant_scope.workspace_id,
                 CalendarSource.owner_user_id == tenant_scope.user_id,
+                CalendarSource.disconnected_at.is_(None),
+                CalendarSource.connection_state != "disconnected",
             )
             .order_by(CalendarSource.created_at.desc())
         )
@@ -305,7 +325,17 @@ async def get_calendar_settings_surface(
         preference=preference,
     )
     return calendar_settings_surface(
-        provider_payloads=list_provider_presets(),
+        provider_payloads=list_provider_presets(
+            google_available=(
+                google_oauth_config_from_settings(settings) is not None
+                if settings is not None
+                else None
+            ),
+            allow_uncertified_google=(
+                settings is not None
+                and getattr(settings, "env", "production").lower() == "development"
+            ),
+        ),
         sources=sources,
         calendars_by_source=calendars_by_source,
         preference=preference,

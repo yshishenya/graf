@@ -3169,6 +3169,72 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/calendar/events/{event_id}/open:
+    get:
+      tags:
+      - calendar
+      summary: Open Calendar Meeting
+      operationId: open_calendar_meeting_api_v1_calendar_events__event_id__open_get
+      parameters:
+      - name: event_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Event Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/calendar/events/upcoming:
     get:
       tags:
@@ -9885,6 +9951,16 @@ components:
         unmatched_future_cache_purged:
           type: boolean
           title: Unmatched Future Cache Purged
+        external_revoke:
+          type: string
+          enum:
+          - confirmed
+          - not_supported
+          - pending
+          - failed
+          - not_applicable
+          title: External Revoke
+          default: not_supported
         matched_context_retention:
           type: string
           const: meeting_retention_policy
@@ -9999,10 +10075,15 @@ components:
           - caldav
           - rich_api
           - ews
+          - google_api
           title: Adapter Family
         supported:
           type: boolean
           title: Supported
+        runtime_available:
+          type: boolean
+          title: Runtime Available
+          default: false
         capability_state:
           additionalProperties:
             type: string
@@ -11187,6 +11268,14 @@ components:
       title: DesktopCalendarPromptEvent
     DesktopCalendarPromptResponse:
       properties:
+        show_upcoming_time:
+          type: boolean
+          title: Show Upcoming Time
+          default: true
+        show_upcoming_title:
+          type: boolean
+          title: Show Upcoming Title
+          default: true
         events:
           items:
             $ref: '#/components/schemas/DesktopCalendarPromptEvent'
@@ -15635,6 +15724,14 @@ components:
           type: boolean
           title: Truncated
           default: false
+        show_upcoming_time:
+          type: boolean
+          title: Show Upcoming Time
+          default: true
+        show_upcoming_title:
+          type: boolean
+          title: Show Upcoming Title
+          default: true
       type: object
       title: UpcomingCalendarEventsResponse
     UpdateDefaultSummaryTemplateRequest:

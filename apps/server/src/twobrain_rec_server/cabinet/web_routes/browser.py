@@ -38,6 +38,7 @@ from twobrain_rec_server.cabinet.access import (
 from twobrain_rec_server.cabinet.queries import (
     get_account_profile_view,
     get_cabinet_meeting_review,
+    get_calendar_settings_surface,
     list_cabinet_meetings,
     list_shared_with_me_meetings,
 )
@@ -756,12 +757,20 @@ async def meeting_list_page(
         if needs_url_normalization:
             result.headers["HX-Replace-Url"] = canonical_path
         return result
+    profile = await get_account_profile_view(db, tenant_scope)
+    calendar_surface = await get_calendar_settings_surface(
+        db,
+        tenant_scope,
+        settings=request.app.state.settings,
+    )
     return cabinet_html_response(
         render_meeting_list_page(
             response,
+            calendar_surface=calendar_surface,
+            display_timezone=profile.timezone,
             csrf_token=_csrf_token_for_principal(request, principal),
             poll_url=canonical_path,
-            profile=await get_account_profile_view(db, tenant_scope),
+            profile=profile,
             product_analytics_provider=build_request_browser_provider_context(
                 request,
                 "recording_list",

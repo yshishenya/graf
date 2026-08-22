@@ -15,7 +15,9 @@ final class CanonicalRecordingManifestTests: XCTestCase {
                 stoppedAt: Date(timeIntervalSince1970: 20),
                 tracks: canonicalTracks(),
                 scopeApproval: acceptedScopeApproval(),
-                permissions: grantedPermissions()
+                permissions: grantedPermissions(),
+                echoProcessor: .webrtcAEC3,
+                echoProcessingHealth: completedEchoHealth()
             )
 
         XCTAssertEqual(manifest.schemaVersion, LocalRecordingManifest.schemaVersion)
@@ -32,6 +34,8 @@ final class CanonicalRecordingManifestTests: XCTestCase {
         XCTAssertTrue(manifest.isComplete)
         XCTAssertFalse(manifest.externalEgressStarted)
         XCTAssertFalse(manifest.transcriptionStarted)
+        XCTAssertEqual(manifest.echoProcessor, .webrtcAEC3)
+        XCTAssertEqual(manifest.echoProcessingHealth?.state, .completed)
     }
 
     func testV5FactoryFailsClosedWhenTheCanonicalWaveIsUnavailable() {
@@ -48,7 +52,9 @@ final class CanonicalRecordingManifestTests: XCTestCase {
                 stoppedAt: Date(timeIntervalSince1970: 20),
                 tracks: tracks,
                 scopeApproval: acceptedScopeApproval(),
-                permissions: grantedPermissions()
+                permissions: grantedPermissions(),
+                echoProcessor: .webrtcAEC3,
+                echoProcessingHealth: completedEchoHealth()
             )
 
         XCTAssertEqual(manifest.status, .degraded)
@@ -67,7 +73,9 @@ final class CanonicalRecordingManifestTests: XCTestCase {
                 tracks: canonicalTracks(),
                 failureReason: .permissionDenied,
                 scopeApproval: acceptedScopeApproval(),
-                permissions: grantedPermissions()
+                permissions: grantedPermissions(),
+                echoProcessor: .webrtcAEC3,
+                echoProcessingHealth: completedEchoHealth()
             )
 
         XCTAssertEqual(manifest.status, .blocked)
@@ -91,7 +99,9 @@ final class CanonicalRecordingManifestTests: XCTestCase {
             canonicalMixProfile: LocalRecordingManifest.canonicalMixProfileVersion,
             tracks: tracks,
             scopeApproval: acceptedScopeApproval(),
-            permissions: grantedPermissions()
+            permissions: grantedPermissions(),
+            echoProcessor: .webrtcAEC3,
+            echoProcessingHealth: completedEchoHealth()
         )
 
         XCTAssertTrue(tracks[0].isCanonicalTranscriptionArtifact)
@@ -112,13 +122,17 @@ final class CanonicalRecordingManifestTests: XCTestCase {
             stoppedAt: Date(timeIntervalSince1970: 20),
             tracks: canonicalTracks(),
             scopeApproval: acceptedScopeApproval(),
-            permissions: grantedPermissions()
+            permissions: grantedPermissions(),
+            echoProcessor: .webrtcAEC3,
+            echoProcessingHealth: completedEchoHealth()
         )
         try service.write(manifest, to: url)
         let data = try Data(contentsOf: url)
         let decoded = try service.read(from: url)
 
         XCTAssertEqual(decoded, manifest)
+        XCTAssertEqual(decoded.echoProcessor, .webrtcAEC3)
+        XCTAssertEqual(decoded.echoProcessingHealth?.processedFrameCount, 1_000)
         XCTAssertFalse(String(decoding: data, as: UTF8.self).contains("rawAudio"))
         XCTAssertFalse(String(decoding: data, as: UTF8.self).contains("transcriptText"))
     }
@@ -143,7 +157,9 @@ final class CanonicalRecordingManifestTests: XCTestCase {
                 tracks: canonicalTracks(),
                 scopeApproval: acceptedScopeApproval(),
                 permissions: grantedPermissions(),
-                privacySegments: [segment]
+                privacySegments: [segment],
+                echoProcessor: .webrtcAEC3,
+                echoProcessingHealth: completedEchoHealth()
             )
 
         XCTAssertEqual(manifest.privacySegments, [segment])
@@ -161,7 +177,9 @@ final class CanonicalRecordingManifestTests: XCTestCase {
                 tracks: canonicalTracks(),
                 failureReason: .deviceUnavailable,
                 scopeApproval: acceptedScopeApproval(),
-                permissions: grantedPermissions()
+                permissions: grantedPermissions(),
+                echoProcessor: .webrtcAEC3,
+                echoProcessingHealth: completedEchoHealth()
             )
 
         XCTAssertEqual(manifest.status, .failed)
@@ -186,6 +204,8 @@ final class HistoricalRecordingPackageCompatibilityTests: XCTestCase {
             XCTAssertTrue(decoded.isComplete)
             XCTAssertFalse(decoded.isV5Package)
             XCTAssertEqual(decoded.transcriptionReadiness, .ready)
+            XCTAssertNil(decoded.echoProcessor)
+            XCTAssertNil(decoded.echoProcessingHealth)
         }
     }
 
@@ -277,6 +297,18 @@ private func canonicalTracks() -> [LocalRecordingTrack] {
             timelineAligned: true
         )
     ]
+}
+
+private func completedEchoHealth() -> EchoProcessingHealth {
+    EchoProcessingHealth(
+        state: .completed,
+        processedFrameCount: 1_000,
+        estimatedDriftPpm: 0,
+        aecDelayMs: 20,
+        echoReturnLossDb: 10,
+        echoReturnLossEnhancementDb: 25,
+        processingTimeP95Ms: 1
+    )
 }
 
 private func historicalManifest(schemaVersion: String) -> LocalRecordingManifest {

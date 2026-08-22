@@ -315,6 +315,8 @@ public struct CaptureControlView: View {
             "Микрофон"
         case "system_audio":
             "Системный звук"
+        case "echo_processing":
+            "Тракт удаления эха"
         default:
             "Один из источников"
         }

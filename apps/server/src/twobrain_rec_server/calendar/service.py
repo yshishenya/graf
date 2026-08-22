@@ -20,8 +20,13 @@ from twobrain_rec_server.calendar.audit import (
     calendar_match_audit_metadata,
     write_calendar_audit_event,
 )
-from twobrain_rec_server.calendar.capabilities import PROVIDER_PRESETS, provider_preset_payloads
+from twobrain_rec_server.calendar.capabilities import (
+    PROVIDER_PRESETS,
+    provider_adapter_family,
+    provider_preset_payloads,
+)
 from twobrain_rec_server.calendar.credentials import seal_credential, sealed_credential_metadata
+from twobrain_rec_server.calendar.google import GOOGLE_READONLY_SCOPES
 from twobrain_rec_server.calendar.lifecycle import disconnect_source
 from twobrain_rec_server.calendar.matching import (
     MAX_CANDIDATE_ROWS,
@@ -33,6 +38,12 @@ from twobrain_rec_server.calendar.matching import (
     calendar_event_source_version_fingerprint,
     is_safe_calendar_context_candidate,
     safe_calendar_event_title,
+)
+from twobrain_rec_server.calendar.providers import (
+    CalendarCatalogEntry,
+    CalendarProvider,
+    CalendarProviderError,
+    CalendarValidation,
 )
 from twobrain_rec_server.calendar.sync import future_sync_horizon, record_source_sync_failure
 from twobrain_rec_server.db.models import (
@@ -55,11 +66,13 @@ SELECTABLE_CALENDAR_VISIBILITIES = {
     "delegated",
     "duplicate_label",
 }
+MAX_SELECTED_CALENDARS = 20
 SUPPORTED_PROVIDER_FAMILIES = {preset.provider_family for preset in PROVIDER_PRESETS}
 PROVIDER_LABELS = {preset.provider_family: preset.label for preset in PROVIDER_PRESETS}
 PROVIDER_CAPABILITIES = {
     preset.provider_family: preset.capability_state for preset in PROVIDER_PRESETS
 }
+CALENDAR_GRANTED_SCOPE_ALLOWLIST = frozenset(GOOGLE_READONLY_SCOPES)
 PROVIDER_AUTH_MODES = {
     "caldav_yandex": {"app_password"},
     "caldav_mail_ru": {"app_password"},
@@ -70,6 +83,7 @@ PROVIDER_AUTH_MODES = {
     "caldav_rupost": {"manual_url"},
     "caldav_nextcloud_sogo": {"manual_url"},
     "custom_caldav": {"manual_url"},
+    "google_calendar": {"oauth"},
 }
 EXPLICIT_CONTEXT_REASONS = {
     "manual_selection",
@@ -140,8 +154,15 @@ VALID_MEETING_TITLE_SOURCES = {
 }
 
 
-def list_provider_presets() -> list[dict[str, object]]:
-    return provider_preset_payloads()
+def list_provider_presets(
+    *,
+    google_available: bool | None = None,
+    allow_uncertified_google: bool = False,
+) -> list[dict[str, object]]:
+    return provider_preset_payloads(
+        google_available=google_available,
+        allow_uncertified_google=allow_uncertified_google,
+    )
 
 
 def calendar_duplicate_group_key(event: CalendarEventSnapshot) -> str:
@@ -194,6 +215,8 @@ async def list_sources(db: AsyncSession, tenant_scope: TenantScope) -> list[Cale
         select(CalendarSource).where(
             CalendarSource.workspace_id == tenant_scope.workspace_id,
             CalendarSource.owner_user_id == tenant_scope.user_id,
+            CalendarSource.disconnected_at.is_(None),
+            CalendarSource.connection_state != "disconnected",
         )
     )
     return list(rows)
@@ -282,23 +305,86 @@ async def connect_source(
     credential_input: str | None,
     selected_provider_calendar_ids: list[str],
     credential_encryption_key: bytes | None,
+    validated_calendars: Iterable[CalendarCatalogEntry],
+    account_subject: str | None = None,
+    granted_scopes: Iterable[str] = (),
 ) -> CalendarSource:
     require_supported_auth_mode(provider_family, auth_mode)
-    selected_calendar_ids = list(dict.fromkeys(selected_provider_calendar_ids))
-    source = CalendarSource(
-        workspace_id=tenant_scope.workspace_id,
-        owner_user_id=tenant_scope.user_id,
-        provider_family=provider_family,
-        provider_label=display_label or PROVIDER_LABELS.get(provider_family, provider_family),
-        auth_mode=auth_mode,
-        credential_state="sealed" if credential_input else "pending",
-        connection_state="active",
-        sync_state="never_synced",
-        selected_calendar_count=len(selected_calendar_ids),
-        capabilities_json=PROVIDER_CAPABILITIES.get(provider_family, {}),
-    )
-    db.add(source)
-    await db.flush()
+    catalog = tuple(validated_calendars)
+    if credential_input and not catalog:
+        raise ProblemDetail(
+            status=502,
+            code="calendar_catalog_empty",
+            title="Calendar provider returned no readable calendars",
+        )
+    selected_calendar_ids = selected_calendar_ids_or_error(selected_provider_calendar_ids)
+    capabilities = dict(PROVIDER_CAPABILITIES.get(provider_family, {}))
+    if account_subject:
+        capabilities["account_subject_hash"] = account_subject
+    if provider_family == "google_calendar":
+        capabilities["granted_scopes"] = sorted(
+            {scope for scope in granted_scopes if scope in CALENDAR_GRANTED_SCOPE_ALLOWLIST}
+        )
+    source = None
+    preserved_selected_ids: list[str] = []
+    if account_subject:
+        active_sources = list(
+            await db.scalars(
+                select(CalendarSource)
+                .where(
+                    CalendarSource.workspace_id == tenant_scope.workspace_id,
+                    CalendarSource.owner_user_id == tenant_scope.user_id,
+                    CalendarSource.provider_family == provider_family,
+                    CalendarSource.disconnected_at.is_(None),
+                    CalendarSource.connection_state != "disconnected",
+                )
+                .order_by(CalendarSource.created_at.desc())
+                .with_for_update()
+            )
+        )
+        source = next(
+            (
+                candidate
+                for candidate in active_sources
+                if (candidate.capabilities_json or {}).get("account_subject_hash")
+                == account_subject
+            ),
+            None,
+        )
+        if source is not None:
+            preserved_selected_ids = [
+                calendar.provider_calendar_id
+                for calendar in await calendars_for_source(db, source.id)
+                if calendar.selected
+            ]
+
+    if source is None:
+        source = CalendarSource(
+            workspace_id=tenant_scope.workspace_id,
+            owner_user_id=tenant_scope.user_id,
+            provider_family=provider_family,
+            provider_label=display_label or PROVIDER_LABELS.get(provider_family, provider_family),
+            auth_mode=auth_mode,
+            credential_state="sealed" if credential_input else "pending",
+            connection_state="active",
+            sync_state="never_synced",
+            selected_calendar_count=len(selected_calendar_ids),
+            capabilities_json=capabilities,
+        )
+        db.add(source)
+        await db.flush()
+    else:
+        source.provider_label = display_label or source.provider_label
+        source.auth_mode = auth_mode
+        source.credential_state = "sealed" if credential_input else "pending"
+        source.connection_state = "active"
+        # Reconnect replaces the credential and must reopen a terminal sync
+        # failure; otherwise the source remains permanently unavailable.
+        source.sync_state = "never_synced"
+        source.last_safe_error_code = None
+        source.capabilities_json = capabilities
+        if not selected_calendar_ids:
+            selected_calendar_ids = preserved_selected_ids
     if credential_input:
         if credential_encryption_key is None:
             raise ProblemDetail(
@@ -307,18 +393,72 @@ async def connect_source(
                 title="Credential encryption key unavailable",
             )
         metadata = sealed_credential_metadata(secret=credential_input, secret_kind=auth_mode)
-        db.add(
-            CalendarCredentialEnvelope(
-                calendar_source_id=source.id,
-                workspace_id=tenant_scope.workspace_id,
-                secret_kind=auth_mode,
-                sealed_payload=seal_credential(credential_input, credential_encryption_key),
-                key_version="local-v1",
-                secret_fingerprint_sha256=metadata["secret_fingerprint_sha256"],
+        envelope = await db.scalar(
+            select(CalendarCredentialEnvelope)
+            .where(
+                CalendarCredentialEnvelope.calendar_source_id == source.id,
+                CalendarCredentialEnvelope.purged_at.is_(None),
             )
+            .order_by(CalendarCredentialEnvelope.created_at.desc())
         )
-    await replace_selected_calendars(db, tenant_scope, source, selected_calendar_ids)
+        if envelope is None:
+            db.add(
+                CalendarCredentialEnvelope(
+                    calendar_source_id=source.id,
+                    workspace_id=tenant_scope.workspace_id,
+                    secret_kind=auth_mode,
+                    sealed_payload=seal_credential(credential_input, credential_encryption_key),
+                    key_version="local-v1",
+                    secret_fingerprint_sha256=metadata["secret_fingerprint_sha256"],
+                )
+            )
+        else:
+            envelope.secret_kind = auth_mode
+            envelope.sealed_payload = seal_credential(credential_input, credential_encryption_key)
+            envelope.key_version = "local-v1"
+            envelope.secret_fingerprint_sha256 = metadata["secret_fingerprint_sha256"]
+            envelope.revoked_at = None
+    await replace_calendar_catalog(db, source, catalog)
+    await replace_selected_calendars(
+        db,
+        tenant_scope,
+        source,
+        selected_calendar_ids,
+        allow_missing=False,
+    )
     return source
+
+
+def provider_for_connection(provider_family: str) -> CalendarProvider | None:
+    """Return the smallest read-only adapter for a manual connection flow."""
+
+    if provider_adapter_family(provider_family) == "caldav":
+        from twobrain_rec_server.calendar.caldav import CalDAVAdapter
+
+        return CalDAVAdapter(provider_family)
+    return None
+
+
+async def validate_provider_connection(
+    provider_family: str,
+    credential: str,
+    *,
+    provider: CalendarProvider | None = None,
+) -> CalendarValidation:
+    """Validate provider access and discover a non-empty catalog before persistence."""
+
+    provider = provider or provider_for_connection(provider_family)
+    if provider is None:
+        raise CalendarProviderError("provider_unavailable")
+    try:
+        validation = await provider.validate(credential)
+    except CalendarProviderError:
+        raise
+    except Exception as exc:  # pragma: no cover - defensive provider boundary
+        raise CalendarProviderError("provider_unavailable", retryable=True) from exc
+    if not validation.calendars:
+        raise CalendarProviderError("calendar_catalog_empty")
+    return validation
 
 
 async def replace_selected_calendars(
@@ -329,7 +469,7 @@ async def replace_selected_calendars(
     *,
     allow_missing: bool = True,
 ) -> None:
-    selected_ids = list(dict.fromkeys(selected_provider_calendar_ids))
+    selected_ids = selected_calendar_ids_or_error(selected_provider_calendar_ids)
     existing = {
         calendar.provider_calendar_id: calendar
         for calendar in await calendars_for_source(db, source.id)
@@ -360,6 +500,62 @@ async def replace_selected_calendars(
         source.selected_calendar_count += sum(
             1 for provider_calendar_id in selected_ids if provider_calendar_id not in existing
         )
+
+
+def selected_calendar_ids_or_error(values: Iterable[str]) -> list[str]:
+    selected_ids = list(dict.fromkeys(values))
+    if len(selected_ids) > MAX_SELECTED_CALENDARS:
+        raise ProblemDetail(
+            status=422,
+            code="calendar_selection_limit_exceeded",
+            title="Select no more than 20 calendars",
+        )
+    return selected_ids
+
+
+async def replace_calendar_catalog(
+    db: AsyncSession,
+    source: CalendarSource,
+    entries: Iterable[CalendarCatalogEntry],
+) -> list[ExternalCalendar]:
+    """Reconcile provider truth without making any calendar writable."""
+
+    existing = {
+        calendar.provider_calendar_id: calendar
+        for calendar in await calendars_for_source(db, source.id)
+    }
+    seen: set[str] = set()
+    for entry in entries:
+        seen.add(entry.provider_calendar_id)
+        calendar = existing.get(entry.provider_calendar_id)
+        if calendar is None:
+            calendar = ExternalCalendar(
+                calendar_source_id=source.id,
+                workspace_id=source.workspace_id,
+                provider_calendar_id=entry.provider_calendar_id,
+                display_label=entry.display_label,
+                visibility=entry.visibility,
+            )
+            db.add(calendar)
+        else:
+            calendar.display_label = entry.display_label
+            calendar.visibility = entry.visibility
+        calendar.owner_email_hash = entry.owner_email_hash
+        calendar.color = entry.color
+        calendar.selected = bool(
+            calendar.selected and entry.visibility in SELECTABLE_CALENDAR_VISIBILITIES
+        )
+    for provider_id, calendar in existing.items():
+        if provider_id not in seen:
+            calendar.selected = False
+            calendar.visibility = "removed"
+    await db.flush()
+    source.selected_calendar_count = sum(
+        1
+        for calendar in await calendars_for_source(db, source.id)
+        if calendar.selected and calendar.visibility in SELECTABLE_CALENDAR_VISIBILITIES
+    )
+    return await calendars_for_source(db, source.id)
 
 
 async def request_source_sync(
@@ -398,10 +594,14 @@ async def request_source_sync(
 
 
 async def disconnect_calendar_source(
-    db: AsyncSession, tenant_scope: TenantScope, source_id: UUID
+    db: AsyncSession,
+    tenant_scope: TenantScope,
+    source_id: UUID,
 ) -> dict[str, object]:
     source = await get_source(db, tenant_scope, source_id)
-    return await disconnect_source(db, source)
+    result = await disconnect_source(db, source)
+    await db.commit()
+    return result
 
 
 async def list_upcoming_events(
@@ -558,7 +758,9 @@ async def link_meeting_calendar_context(
     if meeting is None:
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
     if meeting_is_deleted_or_deleting(meeting):
-        raise ProblemDetail(status=409, code="meeting_deletion_active", title="Meeting deletion is active")
+        raise ProblemDetail(
+            status=409, code="meeting_deletion_active", title="Meeting deletion is active"
+        )
     choice = await _owner_event_choice_data(
         db,
         workspace_id=tenant_scope.workspace_id,
@@ -674,7 +876,9 @@ async def unlink_meeting_calendar_context(
     if meeting is None:
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
     if meeting_is_deleted_or_deleting(meeting):
-        raise ProblemDetail(status=409, code="meeting_deletion_active", title="Meeting deletion is active")
+        raise ProblemDetail(
+            status=409, code="meeting_deletion_active", title="Meeting deletion is active"
+        )
     link = await db.scalar(
         select(RecordingCalendarContextLink)
         .where(

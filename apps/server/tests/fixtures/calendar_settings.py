@@ -6,6 +6,16 @@ from uuid import uuid4
 from tests.fixtures.calendar import calendar_event_fixture, private_free_busy_event_fixture
 from twobrain_rec_server.db.models import CalendarEventSnapshot, CalendarSource, ExternalCalendar
 
+# Synthetic-only result matrix used by route/UI tests.  Values are safe public
+# categories, never provider payloads or credentials.
+CALENDAR_CONNECT_RESULT_FIXTURES = (
+    ("empty", "failed"),
+    ("cancelled", "cancelled"),
+    ("validation", "failed"),
+    ("denied", "denied"),
+    ("timeout", "failed"),
+)
+
 
 def calendar_settings_source(
     *,
@@ -80,6 +90,7 @@ def calendar_settings_snapshot(
     ends_at: datetime | None = None,
     provider_event_id: str = "synthetic-event",
     meeting_link_present: bool = True,
+    open_meeting_available: bool = False,
     safe_to_show: bool = True,
 ) -> CalendarEventSnapshot:
     start = starts_at or datetime(2026, 7, 1, 9, 0, tzinfo=UTC)
@@ -96,7 +107,11 @@ def calendar_settings_snapshot(
         source_status="confirmed",
         conference_summary_json={"meeting_link_present": meeting_link_present},
         attachments_metadata_json=[],
-        provider_extras_json={},
+        provider_extras_json=(
+            {"sealed_open_meeting_url": "synthetic-envelope"}
+            if open_meeting_available
+            else {}
+        ),
         safe_to_show_in_list=safe_to_show,
         safe_to_use_as_title=safe_to_show,
         sensitivity_reasons_json=[] if safe_to_show else ["private"],

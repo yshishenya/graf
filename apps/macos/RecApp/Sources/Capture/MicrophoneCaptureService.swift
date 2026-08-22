@@ -32,11 +32,15 @@ public final class AppOwnedMicrophoneSampleSource: TimestampedLocalRecordingSamp
 
     private let bufferedSource: BufferedLocalRecordingSampleSource
     private let stateLock = NSLock()
+    private let routeGeneration = RecordingAudioRouteGeneration.next()
+    private var lastPresentationTime: RecordingAudioPresentationTimestamp?
+    private var terminalFailurePublished = false
     #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(AudioToolbox)
     private let captureQueue = DispatchQueue(label: "com.2brain.rec.microphone-sample-source")
     private var session: AVCaptureSession?
     private var audioOutput: AVCaptureAudioDataOutput?
     private var captureDelegate: AppOwnedMicrophoneCaptureDelegate?
+    private var notificationObservers: [NSObjectProtocol] = []
     #endif
 
     public init(
@@ -81,10 +85,6 @@ public final class AppOwnedMicrophoneSampleSource: TimestampedLocalRecordingSamp
         bufferedSource.stats()
     }
 
-    public func readSamples(into destination: UnsafeMutablePointer<Float>, capacity: Int) -> Int {
-        bufferedSource.readSamples(into: destination, capacity: capacity)
-    }
-
     public func readTimestampedBatch(maximumFrameCount: Int) -> RecordingAudioBatch? {
         bufferedSource.readTimestampedBatch(maximumFrameCount: maximumFrameCount)
     }
@@ -98,6 +98,27 @@ public final class AppOwnedMicrophoneSampleSource: TimestampedLocalRecordingSamp
     /// timeline instead of reconstructing them while draining a FIFO.
     public func appendCapturedBatch(_ batch: RecordingAudioBatch) {
         bufferedSource.append(batch)
+    }
+
+    func recordRuntimeFailure(_ discontinuity: RecordingAudioDiscontinuity) {
+        stateLock.lock()
+        guard !terminalFailurePublished else {
+            stateLock.unlock()
+            return
+        }
+        terminalFailurePublished = true
+        let presentationTime = lastPresentationTime
+        stateLock.unlock()
+        bufferedSource.append(RecordingAudioBatch(
+            samples: [],
+            format: RecordingAudioFormat(sampleRate: 48_000, channelCount: 1),
+            presentationTime: presentationTime ?? RecordingAudioPresentationTimestamp(
+                seconds: ProcessInfo.processInfo.systemUptime,
+                clockDomain: .hostTime
+            ),
+            discontinuity: discontinuity,
+            routeGeneration: routeGeneration
+        ))
     }
 
     #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(AudioToolbox)
@@ -152,28 +173,59 @@ public final class AppOwnedMicrophoneSampleSource: TimestampedLocalRecordingSamp
         }
 
         stateLock.lock()
+        terminalFailurePublished = false
         self.session = session
         self.audioOutput = output
         self.captureDelegate = captureDelegate
         stateLock.unlock()
+
+        notificationObservers = [
+            NotificationCenter.default.addObserver(
+                forName: AVCaptureSession.runtimeErrorNotification,
+                object: session,
+                queue: nil
+            ) { [weak self] _ in
+                self?.recordRuntimeFailure(.sourceStopped)
+            },
+            NotificationCenter.default.addObserver(
+                forName: AVCaptureDevice.wasDisconnectedNotification,
+                object: captureDevice,
+                queue: nil
+            ) { [weak self] _ in
+                self?.recordRuntimeFailure(.routeChanged)
+            }
+        ]
     }
 
     private func stopCaptureSession() {
         stateLock.lock()
         let session = self.session
         let output = self.audioOutput
+        let observers = notificationObservers
         self.session = nil
         self.audioOutput = nil
         self.captureDelegate = nil
+        notificationObservers = []
         stateLock.unlock()
 
+        observers.forEach(NotificationCenter.default.removeObserver)
         output?.setSampleBufferDelegate(nil, queue: nil)
         session?.stopRunning()
     }
 
     private func append(_ sampleBuffer: CMSampleBuffer) {
         guard let batch = SystemAudioSampleExtractor.extractRecordingAudioBatch(from: sampleBuffer) else { return }
-        appendCapturedBatch(batch)
+        let routedBatch = RecordingAudioBatch(
+            samples: batch.samples,
+            format: batch.format,
+            presentationTime: batch.presentationTime,
+            discontinuity: batch.discontinuity,
+            routeGeneration: routeGeneration
+        )
+        stateLock.lock()
+        lastPresentationTime = routedBatch.presentationTime
+        stateLock.unlock()
+        appendCapturedBatch(routedBatch)
     }
 
     private static func captureDevice(id: String?) -> AVCaptureDevice? {

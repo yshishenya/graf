@@ -169,7 +169,12 @@ def _seed_future_event(client, source_id: UUID) -> UUID:
         async with sessionmaker() as session:
             source = await session.get(CalendarSource, source_id)
             calendar = await session.scalar(
-                select(ExternalCalendar).where(ExternalCalendar.calendar_source_id == source.id)
+                select(ExternalCalendar)
+                .where(
+                    ExternalCalendar.calendar_source_id == source.id,
+                    ExternalCalendar.selected.is_(True),
+                )
+                .order_by(ExternalCalendar.provider_calendar_id)
             )
             starts_at = datetime.now(UTC) + timedelta(minutes=10)
             snapshot = await upsert_event_snapshot(
