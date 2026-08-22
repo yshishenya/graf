@@ -20,7 +20,7 @@ source root переводятся в survivor root, а corporate memberships о
   существующие macOS route/runtime проверки.
 - **Storage**: существующие `auth_callback_states`,
   `workspace_provider_link_states`, `account_merge_intents`; миграция
-  `0076_account_linking_rls` уточняет operation-specific RLS и
+  `0076_account_linking_rls` и `0077_provider_unlink_cross_workspace` уточняют operation-specific RLS и
   exact semantic bindings без переноса пользовательских данных.
 - **Security boundary**: callback state создаётся в bounded `auth_bootstrap`,
   merge подтверждается в exact `account_merge` context; обычный request не

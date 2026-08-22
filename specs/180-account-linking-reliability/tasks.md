@@ -49,3 +49,4 @@
 - [x] T034 [US2] Add integration coverage for personal data transfer, source root removal, corporate membership preservation, collision rollback, and no-data-loss invariants in `apps/server/tests/integration/test_account_merge.py`
 - [x] T035 [US4] Update workspace listing and account-linking presentation so users see one personal space plus invited corporate spaces in `apps/server/src/twobrain_rec_server/auth/workspace_onboarding.py`, `apps/server/src/twobrain_rec_server/cabinet/rendering.py`, and cabinet templates
 - [x] T036 [US4] Update account-linking contracts, UX checklist, quickstart, and design evidence for the one-personal-space rule
+- [x] T037 [US4] Restore cross-workspace provider unlink revocation with a bounded RLS context and migration `0077_provider_unlink_cross_workspace`

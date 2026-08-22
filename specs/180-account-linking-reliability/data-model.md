@@ -5,6 +5,10 @@
 и индекс для него. Callback proof теперь связан с точной внешней identity,
 которую повторно проверяет подтверждение объединения.
 
+Миграция `0077_provider_unlink_cross_workspace` добавляет отдельный bounded
+RLS-контекст для отзыва сессий и device bindings выбранного provider во всех
+активных workspace текущего пользователя.
+
 ## Existing entities and invariants
 
 ### AuthCallbackState

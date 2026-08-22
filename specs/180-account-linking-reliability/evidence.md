@@ -1,8 +1,8 @@
 # Evidence: Надёжное подключение способов входа
 
-**Дата**: 2026-08-21
+**Дата**: 2026-08-23
 **Branch**: `180-account-linking-reliability`
-**Base HEAD**: `f043691a3b6f9caaec40a396a636614d1b6594e9`
+**Base HEAD**: `374aa56f` before the T037 cross-workspace unlink correction
 **Lane**: high-risk auth/RLS/product flow, полный Spec Kit.
 
 ## Инцидент и root cause
@@ -20,6 +20,11 @@ context для session/membership/source-identity проверок.
 - связывает account-merge context с exact session, callback identity,
   provider-link state, survivor/source users и intent;
 - сохраняет fail-closed organization/workspace boundaries.
+
+T037 добавляет migration `0077_provider_unlink_cross_workspace` и отдельный
+`auth_provider_unlink` context. Он позволяет отзывать только выбранный
+provider во всех активных workspace текущего пользователя, включая скрытые
+legacy linked roots, не расширяя обычный request context.
 
 ## Реализованный путь
 
@@ -88,12 +93,20 @@ cd apps/server
 
 ### Static/browser checks
 
-- `infra/scripts/ci-local.sh --fast` после remediation: **1132 passed**, server lint pass,
+- `infra/scripts/ci-local.sh --fast` после T037: **1167 passed**, server lint pass,
   Python compile pass, legacy-audio architecture guard pass; isolated
   PostgreSQL container удалён harness-ом.
-- Первый fast-gate обнаружил устаревший packaged schema-head assertion
-  `0074_linked_workspace_proofs`; guard синхронизирован с
-  `0076_account_linking_rls`, targeted test и полный fast-gate прошли.
+- Provider unlink regression matrix: **13 passed** в
+  `test_account_lifecycle.py`, включая cross-workspace revoke; strict provider
+  link context: **1 passed**; migration-head upgrade: **1 passed**; packaged
+  schema-head unit: **1 passed**.
+- `infra/scripts/ci-local.sh --fast` до T037: **1132 passed**, server lint pass,
+  Python compile pass, legacy-audio architecture guard pass; isolated
+  PostgreSQL container удалён harness-ом.
+- Первый full-gate на `374aa56f` обнаружил cross-workspace unlink regression:
+  одна Yandex-сессия в корпоративном workspace оставалась active из-за
+  workspace-local RLS policy. Исправлено в T037; новый migration head —
+  `0077_provider_unlink_xworkspace` (file: `0077_provider_unlink_cross_workspace.py`).
 - Ruff по всем изменённым Python files: pass.
 - `node --check .../cabinet.js`: pass.
 - `git diff --check`: pass.
@@ -119,9 +132,12 @@ cd apps/server
   `c531df02-7cee-4f70-aeb8-d44ed7394f64` завершён с **0 активных findings**.
   Он покрывает account-linking/auth-merge surface, а не весь server package;
   две последние remediation отдельно проверены на текущем working tree.
+- Повторный diff scan T037 `e0913b7d-d63e-45fc-98be-8b890ec1bf56` завершён с
+  **0 findings** и полной заявленной coverage по трём изменённым source/RLS
+  файлам. TAC advisory был недоступен, так как security connector не подключён.
 
-- Commit, release, migration execution в production и deploy не выполнялись:
-  для них требуется отдельное approval.
+- Production migration, release и deploy пока не выполнялись; они требуют
+  отдельного exact-SHA release gate.
 - Конкретная production-запись пользователя не изменялась.
 - In-app Browser policy заблокировала прямой visual capture
   `/desktop/settings/account`; embedded parity подтверждается shared templates
