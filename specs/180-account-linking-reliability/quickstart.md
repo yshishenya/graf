@@ -26,6 +26,24 @@ ordinary request insert and successful bounded provider-link start context.
 5. Use synthetic identities only; keep captures outside git and record only
    metadata-safe conclusions.
 
+## One-personal-space merge checks
+
+Run the focused merge/workspace checks through the repository PostgreSQL
+harness:
+
+```sh
+bash apps/server/scripts/run_local_postgres_tests.sh --focused -q \
+  tests/contract/test_account_merge_contract.py \
+  tests/integration/test_account_merge.py \
+  tests/unit/test_workspace_onboarding.py
+```
+
+The acceptance path is: survivor has 4 meetings, source has 10, confirm the
+merge, then the survivor personal space shows 14 meetings. Audio, transcript,
+processing and summary rows stay attached to their meeting; no deduplication is
+performed. Corporate memberships remain separate, and a source personal root
+is removed when no dependent rows remain.
+
 ## Repository gate
 
 ```sh

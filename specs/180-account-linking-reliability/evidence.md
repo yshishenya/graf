@@ -146,3 +146,24 @@ cd apps/server
 - Ruff по затронутым Python files и `git diff --check`: pass.
 - Production migration/deploy, release tag и GitHub Release по-прежнему не
   запускались.
+
+### One-personal-space correction
+
+- Merge contract/integration/onboarding matrix: **97 passed**.
+- Strict app-role/RLS regression subset: **4 passed**.
+- Synthetic 4 + 10 path: survivor personal space contains **14** meetings
+  after merge; no meeting deduplication; audio, transcript, processing and
+  summary rows retain their meeting IDs and move to the survivor root.
+- Source personal root is deleted when no dependent rows remain. If a legacy
+  non-meeting reference remains, the root is hidden as an ownerless `linked`
+  row and excluded from user-facing listing/activation.
+- Workspace contract/UI path: one personal space plus separately listed
+  corporate access through membership/invitation.
+- Current-worktree browser smoke: local server on `127.0.0.1:8082`, disposable
+  database, login → settings → account/security → workspace; Yandex start
+  reached external consent without HTTP 500; wide and 390 px captures had no
+  relevant console errors.
+- `infra/scripts/ci-local.sh --fast`: **1167 passed**; lint, compile and
+  legacy-audio guard passed.
+- This correction has not been committed, migrated in production, released or
+  deployed. No production user record was changed.

@@ -36,9 +36,14 @@ from twobrain_rec_server.db.models import (
     ExportPackage,
     ExternalIdentity,
     FairUseReviewRecord,
+    MediaRevision,
+    MediaScribeJob,
     Meeting,
+    MeetingOutcomeSet,
     MeetingShareGrant,
     Organization,
+    ProcessingResult,
+    ProcessingWorkflow,
     RegisteredDevice,
     SummaryTemplate,
     UploadSession,
@@ -234,7 +239,7 @@ async def _seed_source_meeting(
     return meeting
 
 
-def test_personal_profiles_merge_without_combining_workspaces(client) -> None:
+def test_personal_profiles_merge_into_one_workspace(client) -> None:
     source = duplicate_account_fixture(94, email="personal-source@example.test")
 
     async def exercise() -> None:
@@ -272,20 +277,16 @@ def test_personal_profiles_merge_without_combining_workspaces(client) -> None:
             await db.commit()
 
             primary_workspace = await db.get(Workspace, PERSONAL_WORKSPACE_ID)
-            linked_workspace = await db.get(Workspace, source.workspace_id)
             assert result.status == "completed"
             assert primary_workspace is not None
             assert primary_workspace.kind == "personal"
             assert primary_workspace.owner_user_id == USER_ID
-            assert linked_workspace is not None
-            assert linked_workspace.kind == "linked"
-            assert linked_workspace.owner_user_id == USER_ID
-            assert linked_workspace.name == "Пространство из другого профиля"
+            assert await db.get(Workspace, source.workspace_id) is None
 
     client.portal.call(exercise)
 
 
-def test_personal_merge_preserves_custom_workspace_name(client) -> None:
+def test_personal_merge_does_not_expose_source_workspace(client) -> None:
     source = duplicate_account_fixture(93, email="named-source@example.test")
 
     async def exercise() -> None:
@@ -320,10 +321,208 @@ def test_personal_merge_preserves_custom_workspace_name(client) -> None:
             )
             await db.commit()
 
-            linked_workspace = await db.get(Workspace, source.workspace_id)
-            assert linked_workspace is not None
-            assert linked_workspace.kind == "linked"
-            assert linked_workspace.name == "Проект Альфа"
+            assert await db.get(Workspace, source.workspace_id) is None
+
+    client.portal.call(exercise)
+
+
+def test_personal_merge_unions_four_and_ten_meetings_without_deduplication(client) -> None:
+    source = duplicate_account_fixture(92, email="meeting-union-source@example.test")
+
+    async def exercise() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            await _seed_empty_source(
+                db,
+                user_id=source.user_id,
+                workspace_id=source.workspace_id,
+                email=source.email,
+            )
+            for index in range(4):
+                db.add(
+                    Meeting(
+                        id=uuid4(),
+                        workspace_id=PERSONAL_WORKSPACE_ID,
+                        created_by_user_id=USER_ID,
+                        device_id=DEVICE_ID,
+                        local_recording_id=f"survivor-{index}",
+                        duration_seconds=1,
+                    )
+                )
+            await db.flush()
+            for index in range(10):
+                await _seed_source_meeting(
+                    db,
+                    source_user_id=source.user_id,
+                    source_workspace_id=source.workspace_id,
+                    suffix=f"source-{index}",
+                )
+            await db.commit()
+
+            intent, preview = await _create_ready_merge(db, source_user_id=source.user_id)
+            assert preview.counts.meetings == 10
+            result = await confirm_merge_intent(
+                db,
+                intent_id=intent.id,
+                preview_fingerprint=preview.fingerprint,
+                idempotency_key="meeting-union-4-plus-10",
+            )
+            await db.commit()
+
+            meetings = list(
+                await db.scalars(
+                    select(Meeting).where(Meeting.workspace_id == PERSONAL_WORKSPACE_ID)
+                )
+            )
+            assert result.status == "completed"
+            assert len(meetings) == 14
+            assert all(meeting.created_by_user_id == USER_ID for meeting in meetings)
+            assert await db.get(Workspace, source.workspace_id) is None
+
+    client.portal.call(exercise)
+
+
+def test_personal_merge_moves_audio_transcript_and_summary_rows(client) -> None:
+    source = duplicate_account_fixture(196, email="meeting-graph-source@example.test")
+
+    async def exercise() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            await _seed_empty_source(
+                db,
+                user_id=source.user_id,
+                workspace_id=source.workspace_id,
+                email=source.email,
+            )
+            meeting = await _seed_source_meeting(
+                db,
+                source_user_id=source.user_id,
+                source_workspace_id=source.workspace_id,
+                suffix="graph",
+            )
+            media = MediaRevision(
+                workspace_id=source.workspace_id,
+                meeting_id=meeting.id,
+                local_media_revision_id="graph-media",
+                revision_number=1,
+            )
+            workflow = ProcessingWorkflow(
+                workspace_id=source.workspace_id,
+                meeting_id=meeting.id,
+                workflow_id="graph-workflow",
+            )
+            db.add_all([media, workflow])
+            await db.flush()
+            job = MediaScribeJob(
+                workspace_id=source.workspace_id,
+                meeting_id=meeting.id,
+                media_revision_id=media.id,
+                processing_workflow_id=workflow.id,
+                external_job_id="graph-job",
+            )
+            db.add(job)
+            await db.flush()
+            result = ProcessingResult(
+                workspace_id=source.workspace_id,
+                meeting_id=meeting.id,
+                media_revision_id=media.id,
+                mediascribe_job_id=job.id,
+                processing_workflow_id=workflow.id,
+                transcript_status="complete",
+                summary_status="complete",
+            )
+            db.add(result)
+            await db.flush()
+            outcome = MeetingOutcomeSet(
+                workspace_id=source.workspace_id,
+                meeting_id=meeting.id,
+                media_revision_id=media.id,
+                processing_result_id=result.id,
+                generator_version="graph-test-v1",
+                status="completed",
+                summary_state="available",
+            )
+            db.add(outcome)
+            await db.commit()
+            row_ids = (
+                meeting.id,
+                media.id,
+                workflow.id,
+                job.id,
+                result.id,
+                outcome.id,
+            )
+
+            intent, preview = await _create_ready_merge(db, source_user_id=source.user_id)
+            assert preview.counts.meetings == 1
+            assert preview.counts.recordings == 1
+            assert preview.counts.processing == 1
+            await confirm_merge_intent(
+                db,
+                intent_id=intent.id,
+                preview_fingerprint=preview.fingerprint,
+                idempotency_key="meeting-graph-transfer",
+            )
+            await db.commit()
+
+            for model, row_id in zip(
+                (
+                    Meeting,
+                    MediaRevision,
+                    ProcessingWorkflow,
+                    MediaScribeJob,
+                    ProcessingResult,
+                    MeetingOutcomeSet,
+                ),
+                row_ids,
+                strict=True,
+            ):
+                row = await db.get(model, row_id)
+                assert row is not None and row.workspace_id == PERSONAL_WORKSPACE_ID
+            assert (await db.get(Meeting, row_ids[0])).created_by_user_id == USER_ID
+            assert await db.get(Workspace, source.workspace_id) is None
+
+    client.portal.call(exercise)
+
+
+def test_personal_merge_blocks_local_recording_collision_before_mutation(client) -> None:
+    source = duplicate_account_fixture(195, email="meeting-collision-source@example.test")
+
+    async def exercise() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            await _seed_empty_source(
+                db,
+                user_id=source.user_id,
+                workspace_id=source.workspace_id,
+                email=source.email,
+            )
+            await _seed_source_meeting(
+                db,
+                source_user_id=source.user_id,
+                source_workspace_id=source.workspace_id,
+                suffix="same-recording",
+            )
+            db.add(
+                Meeting(
+                    workspace_id=PERSONAL_WORKSPACE_ID,
+                    created_by_user_id=USER_ID,
+                    device_id=DEVICE_ID,
+                    local_recording_id="merge-domain-same-recording",
+                    duration_seconds=1,
+                )
+            )
+            await db.commit()
+
+            intent, preview = await _create_ready_merge(db, source_user_id=source.user_id)
+            assert preview.blocker_codes == ("meeting_owner_conflict",)
+            with pytest.raises(AccountMergeError, match="blocked"):
+                await confirm_merge_intent(
+                    db,
+                    intent_id=intent.id,
+                    preview_fingerprint=preview.fingerprint,
+                    idempotency_key="meeting-collision",
+                )
+            await db.rollback()
+            assert (await db.get(UserIdentity, source.user_id)).status == "active"
+            assert (await db.get(Workspace, source.workspace_id)).owner_user_id == source.user_id
 
     client.portal.call(exercise)
 
@@ -548,7 +747,7 @@ def test_corporate_only_source_fails_closed_without_mutation(client) -> None:
                 oauth_proof_state="verified",
                 actor_user_id=USER_ID,
             )
-            assert preview.counts == MergeEntityCounts(meetings=1)
+            assert preview.counts == MergeEntityCounts(meetings=0)
             assert preview.blocker_codes == ("workspace_ownership_conflict",)
             with pytest.raises(AccountMergeError, match="blocked"):
                 await confirm_merge_intent(

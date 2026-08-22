@@ -61,8 +61,8 @@ def test_personal_workspace_carries_its_owner_marker() -> None:
     assert workspace.owner_user_id == owner_id
 
 
-def test_active_linked_membership_can_be_listed_and_activated(client) -> None:
-    async def exercise() -> tuple[set[UUID], UUID, str, str]:
+def test_linked_membership_is_not_user_visible_or_activatable(client) -> None:
+    async def exercise() -> tuple[set[UUID], UUID]:
         async with client.app_state["sessionmaker"]() as db:
             linked = Workspace(
                 organization_id=ORG_ID,
@@ -81,12 +81,6 @@ def test_active_linked_membership_can_be_listed_and_activated(client) -> None:
                     status="active",
                 )
             )
-            current = await issue_auth_session(
-                db,
-                user_id=USER_ID,
-                workspace_id=WORKSPACE_ID,
-                provider="linked-activation-test",
-            )
             await db.commit()
 
             spaces = await list_active_workspaces(
@@ -96,31 +90,15 @@ def test_active_linked_membership_can_be_listed_and_activated(client) -> None:
                 internal_workspace_id=AUTH_BOOTSTRAP_WORKSPACE_ID,
                 user_id=USER_ID,
             )
-            activated = await activate_workspace_session(
-                db,
-                organization_id=ORG_ID,
-                current_workspace_id=WORKSPACE_ID,
-                internal_workspace_id=AUTH_BOOTSTRAP_WORKSPACE_ID,
-                user_id=USER_ID,
-                current_session_id=current.id,
-                target_workspace_id=linked.id,
-            )
-            await db.commit()
-            source = await db.get(AuthSession, current.id)
-            assert source is not None
             return (
                 {space.id for space in spaces},
                 linked.id,
-                activated.workspace.kind,
-                source.status,
             )
 
-    visible_workspace_ids, linked_id, activated_kind, source_status = asyncio.run(exercise())
+    visible_workspace_ids, linked_id = asyncio.run(exercise())
 
     assert PERSONAL_WORKSPACE_ID in visible_workspace_ids
-    assert linked_id in visible_workspace_ids
-    assert activated_kind == "linked"
-    assert source_status == "replaced"
+    assert linked_id not in visible_workspace_ids
 
 
 def test_join_offer_is_bound_to_one_user_and_invitation() -> None:

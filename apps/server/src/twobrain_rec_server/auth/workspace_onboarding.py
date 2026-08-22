@@ -212,7 +212,6 @@ async def list_active_workspaces(
                 WorkspaceMembership.status == "active",
                 or_(
                     Workspace.kind == "corporate",
-                    Workspace.kind == "linked",
                     and_(
                         Workspace.kind == "personal",
                         Workspace.owner_user_id == user_id,

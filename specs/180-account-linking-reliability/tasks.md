@@ -42,3 +42,10 @@
 - [x] T021 Run `infra/scripts/ci-local.sh --fast` and record validation in `specs/180-account-linking-reliability/evidence.md`
 - [x] T022 Reconcile tasks with GitHub issues #5476–#5480; keep them open until commit/PR evidence exists
 - [x] T027 Re-run focused PostgreSQL, auth security regressions, independent reviews and fast CI after security remediation
+
+## Phase 5: One personal workspace product correction
+
+- [x] T033 [US2] Replace linked-workspace merge behavior with atomic source-personal-to-survivor-personal transfer of meetings and their audio/transcript/summary rows without deduplication in `apps/server/src/twobrain_rec_server/auth/account_merge.py`, preserving corporate memberships and fail-closed billing/calendar blockers
+- [x] T034 [US2] Add integration coverage for personal data transfer, source root removal, corporate membership preservation, collision rollback, and no-data-loss invariants in `apps/server/tests/integration/test_account_merge.py`
+- [x] T035 [US4] Update workspace listing and account-linking presentation so users see one personal space plus invited corporate spaces in `apps/server/src/twobrain_rec_server/auth/workspace_onboarding.py`, `apps/server/src/twobrain_rec_server/cabinet/rendering.py`, and cabinet templates
+- [x] T036 [US4] Update account-linking contracts, UX checklist, quickstart, and design evidence for the one-personal-space rule
