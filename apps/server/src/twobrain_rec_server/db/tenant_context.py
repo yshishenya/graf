@@ -475,6 +475,7 @@ async def apply_tenant_context_to_connection(
         | AccountMergeTenantContext
         | AuthSessionLookupContext
         | WorkspaceAuthContext
+        | AuthProviderUnlinkContext
         | AuthCallbackLookupContext
         | AuthReferralLookupContext
         | AuthReferralUserLookupContext
@@ -493,6 +494,8 @@ async def apply_tenant_context_to_connection(
         settings = auth_session_lookup_settings(context)
     elif isinstance(context, WorkspaceAuthContext):
         settings = workspace_auth_context_settings(context)
+    elif isinstance(context, AuthProviderUnlinkContext):
+        settings = auth_provider_unlink_context_settings(context)
     elif isinstance(context, AuthCallbackLookupContext):
         settings = auth_callback_lookup_settings(context)
     elif isinstance(context, AuthReferralLookupContext):

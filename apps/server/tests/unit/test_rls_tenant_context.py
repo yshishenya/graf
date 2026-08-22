@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+from types import SimpleNamespace
 from uuid import UUID
 
 import pytest
@@ -9,6 +11,7 @@ from tests.fixtures.rls import RLS_ALLOWED_MAINTENANCE_OPERATIONS
 from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.db.tenant_context import (
     AuthCallbackLookupContext,
+    AuthProviderUnlinkContext,
     AuthReferralLookupContext,
     AuthReferralUserLookupContext,
     AuthSessionLookupContext,
@@ -18,6 +21,8 @@ from twobrain_rec_server.db.tenant_context import (
     ShareInvitationLookupContext,
     TenantDatabaseContext,
     WorkspaceAuthContext,
+    apply_tenant_context_to_connection,
+    auth_provider_unlink_context_settings,
     auth_referral_lookup_settings,
     auth_referral_user_lookup_settings,
     auth_session_lookup_settings,
@@ -96,6 +101,25 @@ def test_auth_context_helpers_reject_wrong_context_kind() -> None:
             token_hash="a" * 64,
             context_kind="auth_public",
         )
+
+
+def test_provider_unlink_context_is_supported_by_session_and_connection_helpers() -> None:
+    context = AuthProviderUnlinkContext(
+        workspace_id=WORKSPACE_ID,
+        organization_id=ORG_ID,
+        user_id=USER_ID,
+    )
+    expected = {
+        "app.context_kind": "auth_provider_unlink",
+        "app.workspace_id": str(WORKSPACE_ID),
+        "app.organization_id": str(ORG_ID),
+        "app.user_id": str(USER_ID),
+    }
+    assert auth_provider_unlink_context_settings(context) == expected
+
+    connection = SimpleNamespace(info={}, dialect=SimpleNamespace(name="sqlite"))
+    asyncio.run(apply_tenant_context_to_connection(connection, context))
+    assert connection.info["tenant_context"] == expected
 
 
 def test_auth_referral_lookup_context_is_token_scoped() -> None:
