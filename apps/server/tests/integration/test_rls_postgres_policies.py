@@ -53,7 +53,7 @@ from twobrain_rec_server.auth.provider_links import (
     link_for_callback,
 )
 from twobrain_rec_server.auth.providers.base import ProviderCredentials, ProviderIdentity
-from twobrain_rec_server.auth.sessions import hash_token
+from twobrain_rec_server.auth.sessions import fingerprint_identity, hash_token
 from twobrain_rec_server.auth.workspace_onboarding import activate_workspace_session
 from twobrain_rec_server.billing.fair_use import (
     appeal_persisted_review,
@@ -1192,6 +1192,7 @@ async def test_active_space_switch_replaces_session_inside_rls_context(
 ) -> None:
     ids = await _seed_probe_rows(rls_engine)
     target_workspace_id = uuid4()
+    provider_subject = f"rls-switch-yandex-{ids['slug']}"
 
     async with rls_engine.begin() as conn:
         await apply_tenant_context_to_connection(
@@ -1214,6 +1215,34 @@ async def test_active_space_switch_replaces_session_inside_rls_context(
                 "id": target_workspace_id,
                 "organization_id": ids["org_a"],
                 "slug": f"rls-switch-target-{ids['slug']}",
+            },
+        )
+        await conn.execute(
+            text(
+                """
+                insert into external_identities
+                    (id, user_id, provider, provider_subject, is_verified, is_active)
+                values (:id, :user_id, 'yandex', :provider_subject, true, true)
+                """
+            ),
+            {
+                "id": uuid4(),
+                "user_id": ids["user_a"],
+                "provider_subject": provider_subject,
+            },
+        )
+        await conn.execute(
+            text(
+                "update auth_sessions set claims_fingerprint = :fingerprint "
+                "where id = :session_id"
+            ),
+            {
+                "session_id": ids["session_a"],
+                "fingerprint": fingerprint_identity(
+                    provider_subject,
+                    "yandex",
+                    ids["workspace_a"],
+                ),
             },
         )
         await conn.execute(
