@@ -604,22 +604,39 @@ async def load_outcome_transcript_segments(
         speaker_names=speaker_names,
         source_result_hash=result.source_result_hash,
     )
-    return [
-        OutcomeTranscriptSegment(
-            segment_id=UUID(turn.source_segment_id),
-            sequence=turn.sequence,
-            start_seconds=turn.start_seconds,
-            end_seconds=turn.end_seconds,
-            speaker_label=turn.speaker_label,
-            speaker_key=turn.speaker_key,
-            provider_speaker_key=turn.provider_speaker_key,
-            attribution_state=turn.attribution_state,
-            result_state=turn.result_state,
-            source_role=turn.source_role,
-            text=turn.text,
+    segments: list[OutcomeTranscriptSegment] = []
+    for turn in model.turns:
+        matching_asr_rows = [
+            row
+            for row in rows
+            if row.sequence == turn.sequence
+            and row.source_role == turn.source_role
+            and min(row.end_seconds, turn.end_seconds)
+            > max(row.start_seconds, turn.start_seconds)
+        ]
+        # Preserve the historical ASR id only for an unambiguous 1:1 turn.
+        # When one ASR row spans multiple provider turns, keep each provider id.
+        segment_id = (
+            matching_asr_rows[0].id
+            if len(matching_asr_rows) == 1
+            else UUID(turn.source_segment_id)
         )
-        for turn in model.turns
-    ]
+        segments.append(
+            OutcomeTranscriptSegment(
+                segment_id=segment_id,
+                sequence=turn.sequence,
+                start_seconds=turn.start_seconds,
+                end_seconds=turn.end_seconds,
+                speaker_label=turn.speaker_label,
+                speaker_key=turn.speaker_key,
+                provider_speaker_key=turn.provider_speaker_key,
+                attribution_state=turn.attribution_state,
+                result_state=turn.result_state,
+                source_role=turn.source_role,
+                text=turn.text,
+            )
+        )
+    return segments
 
 
 def _payload_hash(items: list[object]) -> str:

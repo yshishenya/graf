@@ -2893,7 +2893,9 @@ def speaker_state(
     speaker_names = speaker_names or {}
     rows = sorted(diarization_segments, key=lambda row: (row.start_seconds, row.sequence))
     transcripts = sorted(transcript_segments, key=lambda row: (row.sequence, row.start_seconds))
-    if not rows and not transcripts:
+    # Provider-attributed rows are the canonical speaker source. Transcript
+    # evidence alone must not create a speaker lane for partial results.
+    if not rows:
         return SpeakerReviewState(
             available=False,
             assignment_state="reserved",
