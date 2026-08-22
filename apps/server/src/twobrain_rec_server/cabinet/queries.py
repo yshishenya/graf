@@ -158,7 +158,7 @@ async def get_provider_link_start_options(
             label=PROVIDER_LINK_LABELS.get(entry.provider, entry.label),
         )
         for entry in snapshot.providers
-        if entry.enabled and entry.provider in RECOVERY_CAPABLE_PROVIDERS
+        if entry.enabled
     )
 
 

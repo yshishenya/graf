@@ -5,7 +5,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,6 +28,7 @@ from twobrain_rec_server.auth.provider_links import (
     recovery_safe_unlink_allowed,
 )
 from twobrain_rec_server.auth.rate_limit import enforce_auth_rate_limits
+from twobrain_rec_server.auth.sessions import fingerprint_identity
 from twobrain_rec_server.auth.workspace_onboarding import (
     list_active_workspaces,
     list_workspace_join_offers,
@@ -765,6 +766,15 @@ async def _unlink_account_provider(
                     AuthSession.user_id == principal.user_id,
                     AuthSession.provider == identity.provider,
                     AuthSession.status == "active",
+                    or_(
+                        AuthSession.claims_fingerprint.is_(None),
+                        AuthSession.claims_fingerprint
+                        == fingerprint_identity(
+                            identity.email or identity.provider_subject,
+                            identity.provider,
+                            workspace_id,
+                        ),
+                    ),
                 )
                 .order_by(AuthSession.id)
                 .with_for_update()

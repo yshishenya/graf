@@ -12,7 +12,7 @@ from twobrain_rec_server.auth.account_closure import finalize_account_close
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
 from twobrain_rec_server.auth.csrf import issue_csrf_token
 from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
-from twobrain_rec_server.auth.sessions import issue_auth_session
+from twobrain_rec_server.auth.sessions import fingerprint_identity, issue_auth_session
 from twobrain_rec_server.auth.workspace_onboarding import ensure_personal_workspace
 from twobrain_rec_server.billing.trial import require_trial_activation
 from twobrain_rec_server.cabinet.web_routes.settings import _unlink_account_provider
@@ -534,6 +534,22 @@ def test_telegram_identity_never_counts_as_the_remaining_recovery_path(client) -
     assert unlinked.headers["location"].endswith("provider_unlink=success")
 
 
+def test_account_settings_keeps_telegram_available_for_linking(client) -> None:
+    workspace_id, device_id = asyncio.run(_seed_personal_workspace(client))
+    token, session_id = asyncio.run(
+        _issue_web_session(client, user_id=USER_ID, workspace_id=workspace_id, device_id=device_id)
+    )
+    headers = _bind_web_session(client, token=token, session_id=session_id)
+
+    browser = client.get("/settings/account", headers=headers)
+    embedded = client.get("/desktop/settings/account", headers=headers)
+
+    assert browser.status_code == 200
+    assert embedded.status_code == 200
+    assert 'action="/settings/provider-links/telegram/start"' in browser.text
+    assert 'action="/desktop/settings/provider-links/telegram/start"' in embedded.text
+
+
 def test_provider_unlink_revokes_provider_sessions_and_recovers_current_login(client) -> None:
     workspace_id, device_id = asyncio.run(_seed_personal_workspace(client))
     current_token, current_session_id = asyncio.run(
@@ -546,6 +562,15 @@ def test_provider_unlink_revokes_provider_sessions_and_recovers_current_login(cl
         )
     )
     stolen_token, stolen_session_id = asyncio.run(
+        _issue_web_session(
+            client,
+            user_id=USER_ID,
+            workspace_id=workspace_id,
+            device_id=device_id,
+            provider="yandex",
+        )
+    )
+    _, same_provider_session_id = asyncio.run(
         _issue_web_session(
             client,
             user_id=USER_ID,
@@ -583,6 +608,13 @@ def test_provider_unlink_revokes_provider_sessions_and_recovers_current_login(cl
                     target,
                     ExternalIdentity(
                         user_id=USER_ID,
+                        provider="yandex",
+                        provider_subject="unlink-session-yandex-other",
+                        is_verified=True,
+                        is_active=True,
+                    ),
+                    ExternalIdentity(
+                        user_id=USER_ID,
                         provider="email",
                         provider_subject="unlink-session-recovery@example.test",
                         email="unlink-session-recovery@example.test",
@@ -595,6 +627,17 @@ def test_provider_unlink_revokes_provider_sessions_and_recovers_current_login(cl
             return target.id
 
     identity_id = asyncio.run(seed_identities())
+
+    async def bind_same_provider_session() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            same_provider = await db.get(AuthSession, same_provider_session_id)
+            assert same_provider is not None
+            same_provider.claims_fingerprint = fingerprint_identity(
+                "unlink-session-yandex-other", "yandex", workspace_id
+            )
+            await db.commit()
+
+    asyncio.run(bind_same_provider_session())
     response = client.post(
         f"/settings/account/providers/{identity_id}/unlink",
         headers=headers,
@@ -631,7 +674,12 @@ def test_provider_unlink_revokes_provider_sessions_and_recovers_current_login(cl
                 for session in await db.scalars(
                     select(AuthSession).where(
                         AuthSession.id.in_(
-                            [current_session_id, stolen_session_id, other_provider_session_id]
+                            [
+                                current_session_id,
+                                stolen_session_id,
+                                same_provider_session_id,
+                                other_provider_session_id,
+                            ]
                         )
                     )
                 )
@@ -652,6 +700,7 @@ def test_provider_unlink_revokes_provider_sessions_and_recovers_current_login(cl
             )
             assert sessions[current_session_id].status == "revoked"
             assert sessions[stolen_session_id].status == "revoked"
+            assert sessions[same_provider_session_id].status == "active"
             assert sessions[other_provider_session_id].status == "active"
             for session_id in (current_session_id, stolen_session_id):
                 assert bindings[session_id].device_state == "blocked"

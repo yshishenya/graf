@@ -135,5 +135,14 @@ cd apps/server
 - Strict app-role/NOBYPASSRLS migration/provider-link subset: **2 passed**,
   32 deselected.
 - Ruff по затронутым Python files и `git diff --check`: pass.
-- CodeRabbit review: подтверждённые P1/P2 и RLS/UX gaps исправляются в этом
-  follow-up; production migration/deploy по-прежнему не запускались.
+- Новый review после commit `6b66f8c7` подтвердил три замечания: гонку unlink/OAuth
+  session issuance, чрезмерную отзывку другой same-provider identity и потерю
+  Telegram из attachable settings UI. Все три исправлены в текущем working tree.
+- Повторный локальный PostgreSQL harness для затронутых auth/UI suites: **87
+  passed**, 2 dependency warnings; в том числе новые Telegram web/embedded и
+  same-provider fingerprint regression cases.
+- `infra/scripts/ci-local.sh --fast`: **1167 passed**, server lint, Python
+  compile и legacy-audio guard: pass.
+- Ruff по затронутым Python files и `git diff --check`: pass.
+- Production migration/deploy, release tag и GitHub Release по-прежнему не
+  запускались.

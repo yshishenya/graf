@@ -668,6 +668,21 @@ async def resolve_callback_to_user(
             display_name=identity.display_name,
             is_verified=identity.is_verified,
         )
+        linked_identity = await db.scalar(
+            select(ExternalIdentity)
+            .where(
+                ExternalIdentity.provider == identity.provider,
+                ExternalIdentity.provider_subject == identity.normalized_subject(),
+                ExternalIdentity.user_id == user.id,
+                ExternalIdentity.is_active.is_(True),
+            )
+            .with_for_update()
+        )
+        if linked_identity is None:
+            raise CallbackFlowError(
+                "identity_unlinked",
+                "provider identity was disconnected before session issuance",
+            )
     except CallbackFlowError as exc:
         await _mark_state_error(db, state, exc.code, now=now)
         await _record_callback_audit_event(

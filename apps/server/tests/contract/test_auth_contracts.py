@@ -32,7 +32,12 @@ from twobrain_rec_server.auth.account_merge import AccountMergeError
 from twobrain_rec_server.auth.audit import write_auth_audit_event
 from twobrain_rec_server.auth.csrf import issue_csrf_token
 from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
-from twobrain_rec_server.auth.sessions import decode_session_token, hash_token, issue_auth_session
+from twobrain_rec_server.auth.sessions import (
+    decode_session_token,
+    fingerprint_identity,
+    hash_token,
+    issue_auth_session,
+)
 from twobrain_rec_server.auth.workspace_onboarding import ensure_personal_workspace
 from twobrain_rec_server.cabinet.auth_rendering import render_login_page
 from twobrain_rec_server.cabinet.web_routes import auth_email_flow as auth_email_flow_module
@@ -831,9 +836,9 @@ def test_provider_link_start_binds_session_to_exact_same_provider_identity(
             )
             session = await db.get(AuthSession, session_id)
             assert session is not None
-            session.claims_fingerprint = hashlib.sha256(
-                f"{workspace_id}|yandex|second-yandex".encode()
-            ).hexdigest()
+            session.claims_fingerprint = fingerprint_identity(
+                "second-yandex", "yandex", workspace_id
+            )
             await db.commit()
 
     import asyncio
