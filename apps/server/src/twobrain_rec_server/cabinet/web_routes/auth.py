@@ -975,7 +975,6 @@ async def browser_login_provider_start(
         workspace_id=resolved_workspace_id,
         scopes=(
             ("provider_start_ip", _request_ip(request)),
-            ("provider_start_provider", normalized_provider),
         ),
         sessionmaker=getattr(request.app.state, "db_sessionmaker", None),
         scope_secret=request.app.state.settings.share_identity_hash_secret,

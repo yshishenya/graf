@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID
@@ -31,7 +30,11 @@ from twobrain_rec_server.auth.providers.base import (
     get_provider_http_client,
 )
 from twobrain_rec_server.auth.redirects import safe_first_party_path
-from twobrain_rec_server.auth.sessions import consume_callback_state, issue_auth_session
+from twobrain_rec_server.auth.sessions import (
+    consume_callback_state,
+    fingerprint_identity,
+    issue_auth_session,
+)
 from twobrain_rec_server.auth.workspace_onboarding import ensure_personal_workspace
 from twobrain_rec_server.billing.referral_binding import bind_referral_attribution
 from twobrain_rec_server.db.models import (
@@ -111,11 +114,6 @@ async def _record_callback_audit_event(
         metadata=metadata or {},
         request_id=request_id,
     )
-
-
-def _fingerprint_identity(subject: str, provider: str, workspace_id: UUID) -> str:
-    key = f"{workspace_id}|{provider}|{subject}".encode()
-    return hashlib.sha256(key).hexdigest()
 
 
 def _is_external_identity_unique_conflict(exc: IntegrityError) -> bool:
@@ -727,7 +725,7 @@ async def resolve_callback_to_user(
         device_id=browser_device.id if browser_device is not None else None,
         provider=identity.provider,
         ttl_seconds=session_ttl_seconds,
-        claims_fingerprint=_fingerprint_identity(
+        claims_fingerprint=fingerprint_identity(
             identity.provider_subject,
             identity.provider,
             workspace.id,
@@ -778,7 +776,7 @@ async def resolve_callback_to_user(
         user_id=user.id,
         metadata={
             "state_nonce": state_nonce,
-            "identity_subject_fingerprint": _fingerprint_identity(
+            "identity_subject_fingerprint": fingerprint_identity(
                 identity.provider_subject,
                 identity.provider,
                 workspace.id,

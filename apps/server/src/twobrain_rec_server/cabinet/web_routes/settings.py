@@ -698,6 +698,7 @@ async def _unlink_account_provider(
     identity_id: UUID,
     principal: AuthenticatedPrincipal,
     tenant_scope: TenantScope,
+    internal_workspace_id: UUID,
 ) -> bool:
     identity = await db.scalar(
         select(ExternalIdentity)
@@ -739,7 +740,15 @@ async def _unlink_account_provider(
         )
     revoked_count = 0
     current_session_revoked = False
-    for workspace_id in sorted(principal.workspace_ids, key=str):
+    workspaces = await list_active_workspaces(
+        db,
+        organization_id=principal.organization_id,
+        current_workspace_id=tenant_scope.workspace_id,
+        internal_workspace_id=internal_workspace_id,
+        user_id=principal.user_id,
+    )
+    workspace_ids = {tenant_scope.workspace_id} | {workspace.id for workspace in workspaces}
+    for workspace_id in sorted(workspace_ids, key=str):
         await apply_tenant_context(
             db,
             TenantDatabaseContext(
@@ -757,15 +766,17 @@ async def _unlink_account_provider(
                     AuthSession.provider == identity.provider,
                     AuthSession.status == "active",
                 )
+                .order_by(AuthSession.id)
                 .with_for_update()
             )
         )
-        session_ids = {session.id for session in sessions}
+        session_ids = [session.id for session in sessions]
         bindings = (
             list(
                 await db.scalars(
                     select(AuthSessionDeviceBinding)
                     .where(AuthSessionDeviceBinding.auth_session_id.in_(session_ids))
+                    .order_by(AuthSessionDeviceBinding.id)
                     .with_for_update()
                 )
             )
@@ -778,7 +789,7 @@ async def _unlink_account_provider(
             binding.device_state = "blocked"
             binding.revocation_reason = "provider_unlinked"
         if sessions:
-            current_session_revoked |= principal.session_id in session_ids
+            current_session_revoked |= principal.session_id in set(session_ids)
             revoked_count += len(sessions)
             await db.flush()
 
@@ -792,7 +803,7 @@ async def _unlink_account_provider(
         user_id=principal.user_id,
         provider=identity.provider,
         event_type="provider_unlinked",
-        metadata={"count": revoked_count, "provider": identity.provider},
+        metadata={"revoked_session_count": revoked_count, "provider": identity.provider},
     )
     await db.commit()
     return current_session_revoked
@@ -1041,6 +1052,7 @@ async def _unlink_provider_action(
             identity_id=identity_id,
             principal=principal,
             tenant_scope=tenant_scope,
+            internal_workspace_id=request.app.state.settings.web_login_workspace_id,
         )
     except ProblemDetail as exc:
         await db.rollback()

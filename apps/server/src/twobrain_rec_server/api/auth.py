@@ -543,7 +543,8 @@ async def _enforce_public_provider_rate_limits(
     *,
     workspace_id: UUID,
     scopes: tuple[tuple[str, str], ...],
-) -> None:
+    callback_state: AuthCallbackState | None = None,
+) -> RedirectResponse | None:
     retry_after = await enforce_auth_rate_limits(
         db,
         workspace_id=workspace_id,
@@ -552,6 +553,15 @@ async def _enforce_public_provider_rate_limits(
         scope_secret=request.app.state.settings.share_identity_hash_secret,
     )
     if retry_after is not None:
+        redirect = _browser_callback_error_redirect(
+            request,
+            callback_state=callback_state,
+            error_code="auth_rate_limited",
+        )
+        if redirect is not None:
+            redirect.headers["Retry-After"] = str(max(1, retry_after))
+            redirect.headers["Cache-Control"] = "private, no-store"
+            return redirect
         raise ProblemDetail(
             status=429,
             code="auth_rate_limited",
@@ -561,6 +571,7 @@ async def _enforce_public_provider_rate_limits(
                 "Cache-Control": "private, no-store",
             },
         )
+    return None
 
 
 async def _record_auth_audit(
@@ -752,15 +763,16 @@ async def start_provider_flow(
     workspace_id = _internal_auth_workspace_id(request)
     await _apply_auth_public_context(db, workspace_id)
     normalized_provider = provider.lower()
-    await _enforce_public_provider_rate_limits(
+    rate_limit_response = await _enforce_public_provider_rate_limits(
         request,
         db,
         workspace_id=workspace_id,
         scopes=(
             ("provider_start_ip", _request_client_ip(request) or "unknown"),
-            ("provider_start_provider", normalized_provider),
         ),
     )
+    if rate_limit_response is not None:
+        return rate_limit_response
     adapters = build_provider_registry()
     try:
         adapter = get_provider_adapter(normalized_provider)
@@ -1025,16 +1037,16 @@ async def callback(
         )
     auth_bootstrap_workspace_id = _internal_auth_workspace_id(request)
     provider = provider.lower()
-    await _enforce_public_provider_rate_limits(
+    rate_limit_response = await _enforce_public_provider_rate_limits(
         request,
         db,
         workspace_id=auth_bootstrap_workspace_id,
         scopes=(
             ("provider_callback_ip", _request_client_ip(request) or "unknown"),
-            ("provider_callback_state", state),
-            ("provider_callback_provider", provider),
         ),
     )
+    if rate_limit_response is not None:
+        return rate_limit_response
     await apply_tenant_context(db, AuthCallbackLookupContext(state_nonce=state))
     query = dict(request.query_params)
     settings = request.app.state.settings
@@ -1046,6 +1058,16 @@ async def callback(
         )
     )
     link = await link_for_callback(db, callback_state.id) if callback_state is not None else None
+    if callback_state is not None:
+        rate_limit_response = await _enforce_public_provider_rate_limits(
+            request,
+            db,
+            workspace_id=auth_bootstrap_workspace_id,
+            scopes=(("provider_callback_state", state),),
+            callback_state=callback_state,
+        )
+        if rate_limit_response is not None:
+            return rate_limit_response
     try:
         if link is not None:
             await resolve_callback_to_provider_link(

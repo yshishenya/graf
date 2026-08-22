@@ -168,7 +168,13 @@ def render_email_code_page(
     )
     back_path = link_base_path if link_flow else ("/sign-up" if flow == "signup" else "/login")
     invitation_flow = flow == "share_invitation"
-    can_verify = bool(state_nonce) and error is None
+    can_verify = bool(state_nonce) and error not in {"email_code_invalid", "email_code_expired"}
+    message_heading = {
+        "auth_rate_limited": "Слишком много попыток",
+        "email_delivery_unavailable": "Почта временно недоступна",
+        "email_invalid": "Проверьте email",
+        "email_code_expired": "Код истёк",
+    }.get(error, "Код не принят")
     page_title = (
         "Запросите новый код"
         if not can_verify
@@ -215,6 +221,7 @@ def render_email_code_page(
         csrf_token=csrf_token,
         dev_code=dev_code,
         error_message=_login_error_message(error, link_flow=link_flow),
+        message_heading=message_heading,
         embedded_code_panel=flow == "desktop_link",
         can_verify=can_verify,
         retry_requires_email=not bool(email),

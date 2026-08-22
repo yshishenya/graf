@@ -1022,28 +1022,42 @@ async def create_merge_intent(
     actor_user_id: UUID | None = None,
 ) -> tuple[AccountMergeIntent, MergePreview]:
     now = now or datetime.now(UTC)
-    await _lock_active_account_roots(
-        db,
-        survivor_user_id=survivor_user_id,
-        source_user_id=source_user_id,
-    )
     requested_proof = (
         initiating_auth_session_id,
         source_external_identity_id,
         proof_callback_state_id,
         provider_link_state_id,
     )
-    intent = None
-    while intent is None:
+    existing = await db.scalar(
+        select(AccountMergeIntent).where(
+            AccountMergeIntent.survivor_user_id == survivor_user_id,
+            AccountMergeIntent.source_user_id == source_user_id,
+            AccountMergeIntent.status.in_(ACTIVE_INTENT_STATES),
+        )
+    )
+    if existing is not None:
         existing = await db.scalar(
             select(AccountMergeIntent)
-            .where(
-                AccountMergeIntent.survivor_user_id == survivor_user_id,
-                AccountMergeIntent.source_user_id == source_user_id,
-                AccountMergeIntent.status.in_(ACTIVE_INTENT_STATES),
-            )
+            .where(AccountMergeIntent.id == existing.id)
             .with_for_update()
         )
+    await _lock_active_account_roots(
+        db,
+        survivor_user_id=survivor_user_id,
+        source_user_id=source_user_id,
+    )
+    intent = None
+    while intent is None:
+        if existing is None:
+            existing = await db.scalar(
+                select(AccountMergeIntent)
+                .where(
+                    AccountMergeIntent.survivor_user_id == survivor_user_id,
+                    AccountMergeIntent.source_user_id == source_user_id,
+                    AccountMergeIntent.status.in_(ACTIVE_INTENT_STATES),
+                )
+                .with_for_update()
+            )
         if existing is not None:
             existing_proof = (
                 existing.initiating_auth_session_id,

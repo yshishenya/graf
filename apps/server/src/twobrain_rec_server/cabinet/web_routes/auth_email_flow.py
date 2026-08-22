@@ -23,7 +23,11 @@ from twobrain_rec_server.auth.dependencies import (
     auth_session_cookie_name,
     auth_session_cookie_secure,
 )
-from twobrain_rec_server.auth.sessions import callback_expiry, hash_token, issue_auth_session
+from twobrain_rec_server.auth.sessions import (
+    callback_expiry,
+    fingerprint_identity,
+    issue_auth_session,
+)
 from twobrain_rec_server.auth.workspace_onboarding import ensure_personal_workspace
 from twobrain_rec_server.billing.referral_binding import bind_referral_attribution
 from twobrain_rec_server.cabinet.auth_rendering import (
@@ -482,7 +486,7 @@ async def _consume_email_login_code(
         device_id=device.id,
         provider="email",
         ttl_seconds=request.app.state.settings.auth_session_ttl_seconds,
-        claims_fingerprint=hash_token(f"email:{email}:{workspace.id}"),
+        claims_fingerprint=fingerprint_identity(email, "email", workspace.id),
         now=now,
     )
     db.add(

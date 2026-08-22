@@ -23,6 +23,14 @@ def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
+def fingerprint_identity(subject: str, provider: str, workspace_id: UUID) -> str:
+    if provider == "email":
+        return hash_token(f"email:{subject}:{workspace_id}")
+    if provider == "email_magic_link":
+        return hash_token(f"magic:{subject}:{workspace_id}")
+    return hash_token(f"{workspace_id}|{provider}|{subject}")
+
+
 def decode_session_token(token: str) -> str:
     return hash_token(token)
 

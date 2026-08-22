@@ -1039,7 +1039,6 @@ def test_throttled_public_provider_start_precedes_state_growth_and_adapter(
     assert captured_scopes == [
         (
             ("provider_start_ip", "testclient"),
-            ("provider_start_provider", "yandex"),
         )
     ]
 
@@ -1081,7 +1080,6 @@ def test_throttled_browser_provider_start_precedes_state_growth_and_adapter(
     assert captured_scopes == [
         (
             ("provider_start_ip", "testclient"),
-            ("provider_start_provider", "yandex"),
         )
     ]
 
@@ -1114,7 +1112,6 @@ def test_blocked_ip_stops_attacker_controlled_rate_limit_bucket_growth(
                 scopes=(
                     ("provider_callback_state", f"state-{uuid4()}"),
                     ("provider_callback_ip", shared_ip),
-                    ("provider_callback_provider", "yandex"),
                 ),
                 scope_secret="test-rate-limit-secret",
             )
@@ -1139,7 +1136,6 @@ def test_blocked_ip_stops_attacker_controlled_rate_limit_bucket_growth(
                 scopes=(
                     ("provider_callback_state", f"state-{uuid4()}"),
                     ("provider_callback_ip", shared_ip),
-                    ("provider_callback_provider", "yandex"),
                 ),
                 scope_secret="test-rate-limit-secret",
             )
@@ -1206,8 +1202,6 @@ def test_throttled_public_provider_callback_precedes_provider_resolution(
     assert captured_scopes == [
         (
             ("provider_callback_ip", "testclient"),
-            ("provider_callback_state", state),
-            ("provider_callback_provider", "yandex"),
         )
     ]
 

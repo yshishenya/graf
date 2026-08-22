@@ -61,6 +61,26 @@ EXTERNAL_ACCOUNT_MERGE_SURVIVOR_SCOPE = f"""
     and user_id = rec_setting_uuid('app.account_merge_survivor_user_id')
 """
 
+EXTERNAL_ACCOUNT_MERGE_SOURCE_PROOF_DEACTIVATION_SCOPE = f"""
+    ({ACCOUNT_MERGE_SCOPE})
+    and id = (
+        select source_external_identity_id
+        from account_merge_intents
+        where account_merge_intents.id = rec_setting_uuid('app.account_merge_intent_id')
+    )
+    and user_id = rec_setting_uuid('app.account_merge_source_user_id')
+    and is_active = false
+    and is_verified = false
+    and exists (
+        select 1
+        from external_identities survivor_identity
+        where survivor_identity.user_id = rec_setting_uuid('app.account_merge_survivor_user_id')
+          and survivor_identity.provider = external_identities.provider
+          and survivor_identity.provider_subject = external_identities.provider_subject
+          and survivor_identity.id <> external_identities.id
+    )
+"""
+
 CALLBACK_ACCOUNT_MERGE_SCOPE = f"""
     ({ACCOUNT_MERGE_SCOPE})
     and id = (
@@ -501,6 +521,7 @@ def _create_operation_policies() -> None:
     external_update_check = _or(
         EXTERNAL_IDENTITY_SELF_WRITE_SCOPE,
         EXTERNAL_ACCOUNT_MERGE_SURVIVOR_SCOPE,
+        EXTERNAL_ACCOUNT_MERGE_SOURCE_PROOF_DEACTIVATION_SCOPE,
         MAINTENANCE_SCOPE,
     )
     _create_operation_policy("external_identities", "select", using=external_select)

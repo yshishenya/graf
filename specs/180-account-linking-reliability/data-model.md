@@ -1,6 +1,9 @@
 # Data Model: Надёжное подключение способов входа
 
-Схема данных не меняется.
+Миграция `0076_account_linking_rls` добавляет nullable foreign key
+`auth_callback_states.verified_external_identity_id` на `external_identities.id`
+и индекс для него. Callback proof теперь связан с точной внешней identity,
+которую повторно проверяет подтверждение объединения.
 
 ## Existing entities and invariants
 

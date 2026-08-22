@@ -659,7 +659,7 @@ def test_provider_unlink_revokes_provider_sessions_and_recovers_current_login(cl
             assert bindings[other_provider_session_id].device_state == "trusted"
             assert identity is not None and identity.is_active is False
             assert audit is not None
-            assert audit.metadata_json == {"count": 2, "provider": "yandex"}
+            assert audit.metadata_json == {"revoked_session_count": 2, "provider": "yandex"}
 
     asyncio.run(assert_revoked())
 
@@ -778,6 +778,7 @@ def test_provider_unlink_revokes_sessions_across_authorized_workspaces(client) -
                 identity_id=identity_id,
                 principal=principal,
                 tenant_scope=tenant_scope,
+                internal_workspace_id=client.app.state.settings.web_login_workspace_id,
             )
             assert current_revoked is True
             assert db.info["tenant_context"]["app.context_kind"] == "request"

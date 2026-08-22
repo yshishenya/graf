@@ -19,7 +19,7 @@ from twobrain_rec_server.auth.policy import (
     is_provider_enabled_in_policy,
     load_workspace_auth_policy,
 )
-from twobrain_rec_server.auth.sessions import hash_token
+from twobrain_rec_server.auth.sessions import fingerprint_identity
 from twobrain_rec_server.db.models import (
     AuthCallbackState,
     AuthSession,
@@ -138,7 +138,7 @@ def _identity_matches_session(
         return any(
             hmac.compare_digest(
                 session.claims_fingerprint,
-                hash_token(f"email:{email}:{workspace_id}"),
+                fingerprint_identity(email, "email", workspace_id),
             )
             for workspace_id in workspace_ids
         )
@@ -147,9 +147,7 @@ def _identity_matches_session(
     return any(
         hmac.compare_digest(
             session.claims_fingerprint,
-            sha256(
-                f"{workspace_id}|{identity.provider}|{identity.provider_subject}".encode()
-            ).hexdigest(),
+            fingerprint_identity(identity.provider_subject, identity.provider, workspace_id),
         )
         for workspace_id in workspace_ids
     )

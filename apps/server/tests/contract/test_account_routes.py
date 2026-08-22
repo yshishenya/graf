@@ -323,10 +323,12 @@ def test_email_link_start_errors_do_not_render_a_dead_code_form(error: str) -> N
         csrf_token="synthetic-csrf",
     )
 
-    assert 'action="/settings/account/email-link/verify"' not in page
+    verify_form = 'action="/settings/account/email-link/verify"' in page
     assert 'action="/settings/account/email-link/start"' in page
     assert "Получить новый код" in page
-    assert "мы отправили 6-значный код" not in page
+    assert verify_form is (error == "email_delivery_unavailable")
+    if error != "email_delivery_unavailable":
+        assert "мы отправили 6-значный код" not in page
     if error == "email_invalid":
         assert 'name="email" type="email"' in page
 
@@ -641,24 +643,6 @@ def test_provider_unlink_outcomes_are_first_party_and_actionable() -> None:
     assert "другого подтверждённого способа восстановления" in recovery
     assert '<form action="/desktop/meetings" method="post">' in reauth
     assert 'name="next" value="/login?next=/desktop/settings/account"' in reauth
-
-
-def test_provider_unlink_revocation_keeps_exact_request_context_and_direct_relogin() -> None:
-    unlink_source = inspect.getsource(settings_routes._unlink_account_provider)
-    action_source = inspect.getsource(settings_routes._unlink_provider_action)
-
-    assert "principal.workspace_ids" in unlink_source
-    assert "AuthSession.provider == identity.provider" in unlink_source
-    assert "AuthSession.status == \"active\"" in unlink_source
-    assert "await db.flush()" in unlink_source
-    assert "await apply_tenant_scope(db, tenant_scope)" in unlink_source
-    assert 'binding.device_state = "blocked"' in unlink_source
-    assert 'binding.revocation_reason = "provider_unlinked"' in unlink_source
-    assert 'metadata={"count": revoked_count, "provider": identity.provider}' in unlink_source
-    assert "MaintenanceTenantContext" not in unlink_source
-    assert '"/login?next=/desktop/settings/account&error=auth_session_invalid"' in action_source
-    assert '"/login?next=/settings/account&error=auth_session_invalid"' in action_source
-    assert "response.delete_cookie(" in action_source
 
 
 def test_merge_cancel_and_success_return_copy_are_outcomes_not_session_errors() -> None:

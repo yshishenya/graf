@@ -2,7 +2,7 @@
 
 **Дата**: 2026-08-21
 **Branch**: `180-account-linking-reliability`
-**Base HEAD**: `a77740fed252b594c05a7a798578083b007ad940`
+**Base HEAD**: `f043691a3b6f9caaec40a396a636614d1b6594e9`
 **Lane**: high-risk auth/RLS/product flow, полный Spec Kit.
 
 ## Инцидент и root cause
@@ -42,6 +42,11 @@ context для session/membership/source-identity проверок.
   вне event loop;
 - atomic revoke provider sessions/device bindings и direct relogin после unlink;
 - resolved-blocker/stale-preview restart без заведомо неработающего confirm.
+- workspace switch пересчитывает session fingerprint для целевой workspace;
+  unlink проходит по всем активным workspace пользователя и отзывает provider
+  sessions/device bindings с детерминированным порядком блокировок.
+- callback throttling использует только IP и exact state buckets; browser
+  получает first-party recovery response с `Retry-After`.
 
 ## Validation
 
@@ -121,3 +126,14 @@ cd apps/server
 - In-app Browser policy заблокировала прямой visual capture
   `/desktop/settings/account`; embedded parity подтверждается shared templates
   и automated route/runtime tests, но не заявляется как отдельный visual proof.
+
+### Повторная проверка после PR review
+
+- Unit/contract subset: **105 passed**, 2 dependency warnings.
+- Изолированный PostgreSQL account/workspace/merge harness: **64 passed**,
+  контейнер удалён harness-ом.
+- Strict app-role/NOBYPASSRLS migration/provider-link subset: **2 passed**,
+  32 deselected.
+- Ruff по затронутым Python files и `git diff --check`: pass.
+- CodeRabbit review: подтверждённые P1/P2 и RLS/UX gaps исправляются в этом
+  follow-up; production migration/deploy по-прежнему не запускались.

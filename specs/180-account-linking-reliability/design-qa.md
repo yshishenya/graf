@@ -69,7 +69,7 @@ templates и отдельными route contracts.
 
 Снимки сохранены вне git:
 
-`/Users/yshishenya/.codex/visualizations/2026/08/21/01a023c4-4f39-74b1-921a-49ce99e37eee/feature180-account-linking-audit`
+`visualizations/2026/08/21/01a023c4-4f39-74b1-921a-49ce99e37eee/feature180-account-linking-audit`
 
 - `01-login-wide-1440.png`
 - `08-account-wide-final.png`
