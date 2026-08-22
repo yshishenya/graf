@@ -4,6 +4,8 @@
 
 - Release tag: `v2026.08.23.1`
 - Deployed/runtime SHA: `2c2bb1ef9ff6c48048c9c0018e06998d44720556`
+- Release metadata candidate SHA: `4fe2c36698f67dc76938aad7524ece726b844384`
+- Master merge/tag SHA: `9e8fa35761be33aefd2a1d54618ab1a63dcb883c`
 - Ветка runtime: `master`
 - Validation lane: `release-deploy`
 - Backup reference: `20260822T191351Z`
@@ -33,6 +35,8 @@ audio, transcripts and private user data are not included.
 - Migration/RLS validation и runtime database identities: pass.
 - Production smoke и cleanup: pass; synthetic identity only.
 - API health/readiness: HTTP 200 / HTTP 200.
+- Public download and signed update feed: pass; verified during the production
+  deployment smoke/readback.
 - `rec-api`, `rec-media-worker`, `rec-processing-worker`, Temporal, Postgres и
   MinIO: healthy/running.
 - Playback normalization worker control probe: pass; workflow/activity pollers
@@ -48,6 +52,11 @@ audio, transcripts and private user data are not included.
 - Historical audit counts: `playback_backfill_inventory_planned=5`,
   `playback_backfill_inventory_completed=10`,
   `playback_backfill_completed=10`, `playback_normalization_retried=252`.
+- CD fields remain explicit: `automatic_retry=required_post_deploy`,
+  `backfill_inventory=required_post_deploy`,
+  `range_playback=required_post_deploy`,
+  `normalization_cleanup=required_post_deploy`. No forced production
+  maintenance mutation was run for this auth release.
 - A synthetic upload-only range probe returned HTTP `409`, because that fixture
   has no canonical playback artifact. Its data, temporary auth session, object
   and token were cleaned up. This is recorded as a maintenance-fixture limit,
