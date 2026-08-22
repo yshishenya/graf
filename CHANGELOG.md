@@ -45,6 +45,9 @@
   получает first-party recovery с `Retry-After`.
 - Отключение способа входа отзывает выданные им сессии и device bindings; если
   текущая сессия тоже отозвана, пользователь сразу попадает на повторный вход.
+- Strict RLS-проверка source proof больше не читает `external_identities` из
+  policy этой же таблицы; deactivation разрешён только для exact proof identity
+  активного merge context, без PostgreSQL recursion.
 
 ### Безопасность
 - Новая миграция `0076_account_linking_rls` разделяет callback,

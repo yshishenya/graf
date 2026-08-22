@@ -71,14 +71,7 @@ EXTERNAL_ACCOUNT_MERGE_SOURCE_PROOF_DEACTIVATION_SCOPE = f"""
     and user_id = rec_setting_uuid('app.account_merge_source_user_id')
     and is_active = false
     and is_verified = false
-    and exists (
-        select 1
-        from external_identities survivor_identity
-        where survivor_identity.user_id = rec_setting_uuid('app.account_merge_survivor_user_id')
-          and survivor_identity.provider = external_identities.provider
-          and survivor_identity.provider_subject = external_identities.provider_subject
-          and survivor_identity.id <> external_identities.id
-    )
+    and rec_account_merge_source_proof_deactivation_allowed(external_identities.id)
 """
 
 CALLBACK_ACCOUNT_MERGE_SCOPE = f"""
@@ -303,6 +296,32 @@ as $$
                   and proof_link.status = 'confirmed'
               )
           )
+    )
+$$
+"""
+
+
+EXACT_SOURCE_PROOF_DEACTIVATION_CONTEXT = """
+create or replace function rec_account_merge_source_proof_deactivation_allowed(
+    candidate_identity_id uuid
+)
+returns boolean
+language sql
+stable
+security definer
+set search_path = pg_catalog, public
+set row_security = off
+as $$
+    select session_user = 'twobrain_rec_app'
+    and rec_setting('app.context_kind') = 'account_merge'
+    and candidate_identity_id = (
+        select merge_intent.source_external_identity_id
+        from account_merge_intents merge_intent
+        where merge_intent.id = rec_setting_uuid('app.account_merge_intent_id')
+          and merge_intent.source_user_id =
+              rec_setting_uuid('app.account_merge_source_user_id')
+          and merge_intent.status in ('preview_ready', 'blocked')
+          and merge_intent.expires_at > now()
     )
 $$
 """
@@ -653,6 +672,7 @@ def upgrade() -> None:
         return
 
     op.execute(EXACT_SEMANTIC_ACCOUNT_MERGE_CONTEXT)
+    op.execute(EXACT_SOURCE_PROOF_DEACTIVATION_CONTEXT)
     for table_name in POLICY_TABLES:
         _drop_account_linking_policies(table_name)
     _create_operation_policies()
@@ -664,6 +684,10 @@ def downgrade() -> None:
         for table_name in POLICY_TABLES:
             _drop_account_linking_policies(table_name)
         _restore_legacy_all_policies()
+        op.execute(
+            "drop function if exists "
+            "rec_account_merge_source_proof_deactivation_allowed(uuid)"
+        )
 
     op.drop_index(
         "ix_auth_callback_states_verified_external_identity",
