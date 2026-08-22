@@ -1155,48 +1155,35 @@
     document.querySelectorAll("[data-code-form]").forEach((form) => {
       if (form.dataset.codeReady === "true") return;
       form.dataset.codeReady = "true";
-      const slots = Array.from(form.querySelectorAll("[data-code-slot]"));
-      const hidden = form.querySelector("[data-code-hidden]");
+      const input = form.querySelector("[data-code-input]");
+      if (!input) return;
       let submitted = false;
-      const sync = () => {
-        if (hidden) hidden.value = slots.map((slot) => slot.value).join("");
+      const sanitize = () => {
+        input.value = input.value.replace(/\D/g, "").slice(0, 6);
       };
-      const maybeSubmit = () => {
-        if (submitted || !slots.every((target) => target.value.length === 1)) return;
+      input.addEventListener("input", () => {
+        sanitize();
+        if (submitted || input.value.length !== 6) return;
         submitted = true;
         if (form.requestSubmit) {
           form.requestSubmit();
         } else {
           form.submit();
         }
-      };
-      slots.forEach((slot, index) => {
-        slot.addEventListener("input", () => {
-          slot.value = slot.value.replace(/\D/g, "").slice(0, 1);
-          sync();
-          if (slot.value && slots[index + 1]) slots[index + 1].focus();
-          maybeSubmit();
-        });
-        slot.addEventListener("keydown", (event) => {
-          if (event.key === "Backspace" && !slot.value && slots[index - 1]) slots[index - 1].focus();
-        });
-        slot.addEventListener("paste", (event) => {
-          const text = (event.clipboardData || window.clipboardData).getData("text").replace(/\D/g, "").slice(0, 6);
-          if (!text) return;
-          event.preventDefault();
-          slots.forEach((target, offset) => { target.value = text[offset] || ""; });
-          sync();
-          const next = slots[Math.min(text.length, slots.length) - 1];
-          if (next) next.focus();
-          maybeSubmit();
-        });
       });
       form.addEventListener("submit", () => {
         submitted = true;
-        sync();
+        sanitize();
       });
-      slots[0]?.focus();
+      input.focus();
     });
+  };
+
+  const initOutcomeFocus = () => {
+    const outcome = document.querySelector("[data-outcome-focus]:not([data-outcome-focused])");
+    if (!outcome) return;
+    outcome.dataset.outcomeFocused = "true";
+    outcome.focus();
   };
 
   const initAuthTransition = () => {
@@ -5122,6 +5109,7 @@
     initCabinetProfileMenus();
     initListDisclosures();
     initCodeForms();
+    initOutcomeFocus();
     initMeetingList();
     announceUploadProgress();
     initManualUpload();

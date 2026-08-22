@@ -1,3 +1,4 @@
+import hmac
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID
@@ -9,10 +10,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.auth.account_closure import ensure_account_membership_activation_allowed
 from twobrain_rec_server.auth.audit import write_onboarding_audit_event
-from twobrain_rec_server.auth.sessions import IssuedAuthSession, issue_auth_session
+from twobrain_rec_server.auth.sessions import (
+    IssuedAuthSession,
+    fingerprint_identity,
+    issue_auth_session,
+)
 from twobrain_rec_server.db.models import (
     AuthSession,
     AuthSessionDeviceBinding,
+    ExternalIdentity,
     RegisteredDevice,
     Workspace,
     WorkspaceInvitation,
@@ -299,6 +305,44 @@ async def activate_workspace_session(
             auth_session_id=current_session_id,
         ),
     )
+    replacement_fingerprint = current_session.claims_fingerprint
+    if current_session.provider in {"email", "yandex", "vk"}:
+        identities = list(
+            await db.scalars(
+                select(ExternalIdentity).where(
+                    ExternalIdentity.user_id == user_id,
+                    ExternalIdentity.provider == current_session.provider,
+                    ExternalIdentity.is_active.is_(True),
+                )
+            )
+        )
+        identity = next(
+            (
+                item
+                for item in identities
+                if current_session.claims_fingerprint is not None
+                and hmac.compare_digest(
+                    current_session.claims_fingerprint,
+                    fingerprint_identity(
+                        item.provider_subject,
+                        item.provider,
+                        current_workspace_id,
+                    ),
+                )
+            ),
+            None,
+        )
+        if identity is None:
+            raise ProblemDetail(
+                status=401,
+                code="auth_session_invalid",
+                title="Auth session is invalid",
+            )
+        replacement_fingerprint = fingerprint_identity(
+            identity.provider_subject,
+            identity.provider,
+            target.id,
+        )
     current_session.status = "replaced"
     await db.flush()
     await apply_tenant_context(
@@ -320,7 +364,7 @@ async def activate_workspace_session(
         workspace_id=target.id,
         device_id=device.id,
         provider=current_session.provider,
-        claims_fingerprint=current_session.claims_fingerprint,
+        claims_fingerprint=replacement_fingerprint,
     )
     db.add(
         AuthSessionDeviceBinding(

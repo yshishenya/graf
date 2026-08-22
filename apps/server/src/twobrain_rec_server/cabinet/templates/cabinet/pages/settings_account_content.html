@@ -9,11 +9,19 @@
       </div>
     </header>
     {% if show_account_navigation %}{{ account_ui.navigation(embedded=embedded, active=account_active, csrf_token=csrf_token) }}{% endif %}
-    {% if provider_link_result %}<p class="settings-status" role="status" aria-live="polite">{{ provider_link_result }}</p>{% endif %}
-    {% if provider_unlink_result %}<p class="settings-status" role="status" aria-live="polite">{{ provider_unlink_result }}</p>{% endif %}
-    {% if device_revoke_result %}<p class="settings-status" role="status" aria-live="polite">{{ device_revoke_result }}</p>{% endif %}
-    {% if session_result %}<p class="settings-status" role="status" aria-live="polite">{{ session_result }}</p>{% endif %}
-    {% if account_close_result %}<p class="settings-status" role="status" aria-live="polite">{{ account_close_result }}</p>{% endif %}
+    {% if account_outcome %}
+    <section class="settings-status{% if account_outcome.kind == 'error' %} settings-status--error{% endif %}" role="{{ 'alert' if account_outcome.kind == 'error' else 'status' }}" tabindex="-1" data-outcome-focus aria-labelledby="account-outcome-title">
+      <h2 id="account-outcome-title">{{ account_outcome.title }}</h2>
+      <p>{{ account_outcome.detail }}</p>
+      {% if requires_account_reauth %}
+      <form action="{{ account_reauth_action }}" method="post">
+        {{ sections.csrf_field(csrf_token) }}
+        <input type="hidden" name="next" value="{{ account_reauth_next }}">
+        <button class="button primary" type="submit">Войти снова</button>
+      </form>
+      {% endif %}
+    </section>
+    {% endif %}
     {% if account_surface.unavailable %}
     <section class="settings-section settings-unavailable-card" role="status" aria-live="polite"><h2>Данные аккаунта временно недоступны</h2><p class="muted">Попробуйте обновить страницу. Пока данные не загружены, мы не показываем частичную или непроверенную информацию.</p></section>
     {% else %}
@@ -62,7 +70,7 @@
         {{ sections.csrf_field(csrf_token) }}
         <label class="field-label" for="account-email-link">Подключить email</label>
         <input id="account-email-link" name="email" type="email" autocomplete="email" required maxlength="240" placeholder="you@example.com">
-        <p class="muted" id="account-email-link-help">Мы отправим код. Пароль не нужен. Если у этого email уже есть данные, сначала покажем безопасный preview объединения.</p>
+        <p class="muted" id="account-email-link-help">Мы отправим код. Пароль не нужен. Если у этого email уже есть другой профиль, сначала покажем, что сохранится после подключения.</p>
         <button class="button quiet" type="submit">Подключить email</button>
       </form>
       {% if provider_link_options %}

@@ -22,6 +22,9 @@ AUTH_RATE_LIMITS: dict[str, tuple[int, int]] = {
     "email_code_verify_address": (10, 15 * 60),
     "email_code_verify_ip": (40, 15 * 60),
     "email_code_verify_state": (10, 15 * 60),
+    "provider_start_ip": (20, 15 * 60),
+    "provider_callback_ip": (60, 15 * 60),
+    "provider_callback_state": (5, 15 * 60),
     "billing_checkout_start": (5, 15 * 60),
     "billing_status_refresh": (30, 15 * 60),
     "billing_promo_action": (20, 15 * 60),
@@ -74,7 +77,8 @@ async def _enforce_auth_rate_limits_in_session(
 ) -> int | None:
     resolved_now = now or datetime.now(UTC)
     retry_after: int | None = None
-    for action_key, raw_scope in scopes:
+    ordered_scopes = sorted(scopes, key=lambda scope: not scope[0].endswith("_ip"))
+    for action_key, raw_scope in ordered_scopes:
         if not raw_scope or action_key not in AUTH_RATE_LIMITS:
             continue
         limit, window_seconds = AUTH_RATE_LIMITS[action_key]
@@ -123,11 +127,11 @@ async def _enforce_auth_rate_limits_in_session(
                 retry_after or 0,
                 max(1, math.ceil((blocked_until - resolved_now).total_seconds())),
             )
-            continue
+            break
         if bucket.attempt_count >= limit:
             bucket.blocked_until = resolved_now + timedelta(seconds=window_seconds)
             retry_after = max(retry_after or 0, window_seconds)
-            continue
+            break
         bucket.attempt_count += 1
         bucket.last_attempt_at = resolved_now
     await db.flush()

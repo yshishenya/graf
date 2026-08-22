@@ -18,7 +18,7 @@ from twobrain_rec_server.api.cabinet import (
 )
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
-from twobrain_rec_server.auth.sessions import hash_token, issue_auth_session
+from twobrain_rec_server.auth.sessions import fingerprint_identity, issue_auth_session
 from twobrain_rec_server.auth.workspace_onboarding import (
     ensure_personal_workspace,
 )
@@ -460,7 +460,9 @@ async def share_invitation_magic_link(
             device_id=device.id,
             provider="email_magic_link",
             ttl_seconds=request.app.state.settings.auth_session_ttl_seconds,
-            claims_fingerprint=hash_token(f"magic:{recipient_email}:{workspace_id}"),
+            claims_fingerprint=fingerprint_identity(
+                recipient_email, "email_magic_link", workspace_id
+            ),
             now=now,
         )
         session.add(

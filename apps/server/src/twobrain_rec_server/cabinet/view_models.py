@@ -101,9 +101,10 @@ if TYPE_CHECKING:
 
 PROVIDER_LINK_LABELS = {
     "email": "Email",
+    "email_link": "Email",
     "email_magic_link": "Email",
-    "yandex": "Яндекс",
-    "vk": "VK",
+    "yandex": "Яндекс ID",
+    "vk": "VK ID",
     "telegram": "Telegram",
 }
 
@@ -121,6 +122,8 @@ class ProviderLinkSettingsSurface:
     status: str
     status_label: str
     can_confirm: bool
+    provider: str | None = None
+    can_restart: bool = False
 
 
 def provider_link_settings_surface(link: WorkspaceProviderLinkState) -> ProviderLinkSettingsSurface:
@@ -130,13 +133,16 @@ def provider_link_settings_surface(link: WorkspaceProviderLinkState) -> Provider
         "confirmed": "Способ входа подключён",
         "expired": "Срок подключения истёк. Начните заново.",
         "rejected": "Подключение не завершено. Начните заново.",
+        "unavailable": "Подключение временно недоступно. Попробуйте заново.",
     }
     return ProviderLinkSettingsSurface(
         link_state_id=link.id,
+        provider=link.candidate_provider,
         provider_label=PROVIDER_LINK_LABELS.get(link.candidate_provider or "", "Провайдер"),
         status=link.status,
         status_label=status_labels.get(link.status, "Подключение недоступно. Начните заново."),
         can_confirm=link.status == "callback_verified",
+        can_restart=link.status in {"rejected", "expired", "unavailable"},
     )
 
 

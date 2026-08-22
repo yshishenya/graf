@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
 import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -7,7 +9,7 @@ from uuid import UUID
 
 from fastapi import Request
 from fastapi.responses import HTMLResponse
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,7 +23,11 @@ from twobrain_rec_server.auth.dependencies import (
     auth_session_cookie_name,
     auth_session_cookie_secure,
 )
-from twobrain_rec_server.auth.sessions import callback_expiry, hash_token, issue_auth_session
+from twobrain_rec_server.auth.sessions import (
+    callback_expiry,
+    fingerprint_identity,
+    issue_auth_session,
+)
 from twobrain_rec_server.auth.workspace_onboarding import ensure_personal_workspace
 from twobrain_rec_server.billing.referral_binding import bind_referral_attribution
 from twobrain_rec_server.cabinet.auth_rendering import (
@@ -50,6 +56,8 @@ from twobrain_rec_server.product_analytics.browser_context import (
 EMAIL_LOGIN_PROVIDER = "email"
 EMAIL_SIGNUP_PROVIDER = "email_signup"
 EMAIL_LINK_PROVIDER = "email_link"
+_EMAIL_AUTH_DIGEST_DOMAIN = "graf.email-auth-code.v1"
+_EMAIL_AUTH_COOKIE_DOMAIN = "graf.email-auth-browser-cookie.v1"
 
 
 class _AmbiguousEmailIdentityError(RuntimeError):
@@ -88,6 +96,7 @@ async def _finalize_email_callback(
     result: str,
     now: datetime,
     error_code: str | None = None,
+    verified_external_identity_id: UUID | None = None,
 ) -> None:
     """Flush scoped work, then finish exactly this callback under forced RLS."""
     await db.flush()
@@ -98,6 +107,7 @@ async def _finalize_email_callback(
     state.result = result
     state.used_at = now
     state.error_code = error_code
+    state.verified_external_identity_id = verified_external_identity_id
     await db.flush()
 
 
@@ -230,14 +240,29 @@ async def _create_email_login_state(
     code: str,
     ttl_seconds: int,
     provider: str = EMAIL_LOGIN_PROVIDER,
+    browser_nonce: str | None = None,
+    secret: str | None = None,
 ) -> AuthCallbackState:
     await apply_tenant_context(db, WorkspaceAuthContext(workspace_id=workspace_id))
+    state_nonce = secrets.token_urlsafe(24)
+    if secret is None:
+        raise ValueError("Email authentication requires a server-keyed digest")
+    if provider != EMAIL_LINK_PROVIDER and browser_nonce is None:
+        raise ValueError("Public email authentication requires browser binding")
+    expected_state = _email_auth_expected_state(
+        secret=secret,
+        provider=provider,
+        state_nonce=state_nonce,
+        email=email,
+        code=code,
+        browser_nonce=browser_nonce or "",
+    )
     state = AuthCallbackState(
         provider=provider,
-        state_nonce=secrets.token_urlsafe(24),
+        state_nonce=state_nonce,
         workspace_id=workspace_id,
         requested_redirect=_safe_browser_next_path(next_path),
-        expected_state=_hash_email_login_code(email=email, code=code),
+        expected_state=expected_state,
         expires_at=callback_expiry(ttl_seconds=ttl_seconds),
         result="pending",
     )
@@ -338,7 +363,21 @@ async def _consume_email_login_code(
             error="email_code_expired",
             flow=flow,
         )
-    if state.expected_state != _hash_email_login_code(email=email, code=code):
+    browser_nonce = request.cookies.get(
+        _email_auth_browser_cookie_name(
+            state_nonce=state_nonce,
+            secure=auth_session_cookie_secure(request),
+        )
+    )
+    supplied_digest = _email_auth_expected_state(
+        secret=request.app.state.web_csrf_secret,
+        provider=provider,
+        state_nonce=state_nonce,
+        email=email,
+        code=code,
+        browser_nonce=browser_nonce or "",
+    )
+    if not hmac.compare_digest(state.expected_state, supplied_digest):
         await apply_tenant_context(db, WorkspaceAuthContext(workspace_id=workspace_id))
         await _record_email_login_audit(
             db,
@@ -447,7 +486,7 @@ async def _consume_email_login_code(
         device_id=device.id,
         provider="email",
         ttl_seconds=request.app.state.settings.auth_session_ttl_seconds,
-        claims_fingerprint=hash_token(f"email:{email}:{workspace.id}"),
+        claims_fingerprint=fingerprint_identity(email, "email", workspace.id),
         now=now,
     )
     db.add(
@@ -585,7 +624,17 @@ async def consume_email_link_code(
             csrf_token=csrf_token,
             result="expired",
         )
-    if state.expected_state != _hash_email_login_code(email=email, code=code):
+    if not hmac.compare_digest(
+        state.expected_state,
+        _email_auth_expected_state(
+            secret=request.app.state.web_csrf_secret,
+            provider=EMAIL_LINK_PROVIDER,
+            state_nonce=state_nonce,
+            email=email,
+            code=code,
+            browser_nonce="",
+        ),
+    ):
         return await _fail_email_link_callback(
             db,
             request=request,
@@ -617,8 +666,12 @@ async def consume_email_link_code(
             .where(
                 UserIdentity.organization_id == principal.organization_id,
                 UserIdentity.status == "active",
+                ExternalIdentity.provider == EMAIL_LOGIN_PROVIDER,
                 or_(
-                    ExternalIdentity.is_active.is_(True),
+                    and_(
+                        ExternalIdentity.is_active.is_(True),
+                        ExternalIdentity.is_verified.is_(True),
+                    ),
                     and_(
                         ExternalIdentity.user_id == principal.user_id,
                         ExternalIdentity.provider == EMAIL_LOGIN_PROVIDER,
@@ -626,9 +679,16 @@ async def consume_email_link_code(
                 ),
                 func.lower(ExternalIdentity.email) == email,
             )
+            .order_by(
+                UserIdentity.id,
+                case((ExternalIdentity.provider == EMAIL_LOGIN_PROVIDER, 0), else_=1),
+                ExternalIdentity.id,
+            )
         )
     )
-    candidate_users = {user.id: (identity, user) for identity, user in candidates}
+    candidate_users: dict[UUID, tuple[ExternalIdentity, UserIdentity]] = {}
+    for identity, user in candidates:
+        candidate_users.setdefault(user.id, (identity, user))
     other_candidates = {
         user_id: item for user_id, item in candidate_users.items() if user_id != principal.user_id
     }
@@ -680,18 +740,17 @@ async def consume_email_link_code(
                 )
             try:
                 async with db.begin_nested():
-                    db.add(
-                        ExternalIdentity(
-                            user_id=principal.user_id,
-                            provider=EMAIL_LOGIN_PROVIDER,
-                            provider_subject=email,
-                            provider_username=email,
-                            email=email,
-                            is_verified=True,
-                            last_seen_at=now,
-                            meta={"flow": "authenticated_link"},
-                        )
+                    current_email_identity = ExternalIdentity(
+                        user_id=principal.user_id,
+                        provider=EMAIL_LOGIN_PROVIDER,
+                        provider_subject=email,
+                        provider_username=email,
+                        email=email,
+                        is_verified=True,
+                        last_seen_at=now,
+                        meta={"flow": "authenticated_link"},
                     )
+                    db.add(current_email_identity)
                     await db.flush()
             except IntegrityError:
                 concurrent_identity = await db.scalar(
@@ -717,6 +776,7 @@ async def consume_email_link_code(
                 concurrent_identity.is_active = True
                 concurrent_identity.is_verified = True
                 concurrent_identity.last_seen_at = now
+                current_email_identity = concurrent_identity
         else:
             current_email_identity.is_active = True
             current_email_identity.is_verified = True
@@ -735,6 +795,7 @@ async def consume_email_link_code(
             state=state,
             result="completed",
             now=now,
+            verified_external_identity_id=current_email_identity.id,
         )
         return EmailLinkCompletion(status="identity_linked")
 
@@ -747,6 +808,7 @@ async def consume_email_link_code(
                 state=state,
                 result="completed",
                 now=now,
+                verified_external_identity_id=source_identity.id,
             )
             await apply_tenant_context(
                 db,
@@ -855,6 +917,8 @@ async def _resolve_email_login_user(
                 UserIdentity.organization_id == workspace.organization_id,
                 UserIdentity.status == "active",
                 ExternalIdentity.is_active.is_(True),
+                ExternalIdentity.is_verified.is_(True),
+                ExternalIdentity.provider == EMAIL_LOGIN_PROVIDER,
                 func.lower(ExternalIdentity.email) == email,
             )
             .order_by(ExternalIdentity.created_at.asc())
@@ -936,6 +1000,7 @@ async def _ensure_email_registration_user(
             .where(
                 UserIdentity.organization_id == workspace.organization_id,
                 UserIdentity.status == "active",
+                ExternalIdentity.provider == EMAIL_LOGIN_PROVIDER,
                 func.lower(ExternalIdentity.email) == email,
                 (
                     ExternalIdentity.is_active.is_(True)
@@ -1122,8 +1187,80 @@ def _normalize_email_code(value: str) -> str:
     return "".join(char for char in value.strip() if char.isdigit())
 
 
-def _hash_email_login_code(*, email: str, code: str) -> str:
-    return hash_token(f"{email}\0{_normalize_email_code(code)}")
+def _issue_email_auth_browser_nonce() -> str:
+    return secrets.token_urlsafe(32)
+
+
+def _email_auth_browser_cookie_name(*, state_nonce: str, secure: bool) -> str:
+    state_hash = hashlib.sha256(
+        f"{_EMAIL_AUTH_COOKIE_DOMAIN}\0{state_nonce}".encode()
+    ).hexdigest()[:32]
+    prefix = "__Host-graf_email_auth_" if secure else "graf_email_auth_"
+    return f"{prefix}{state_hash}"
+
+
+def _set_email_auth_browser_cookie(
+    request: Request,
+    response,
+    *,
+    state_nonce: str,
+    browser_nonce: str,
+    max_age: int,
+) -> None:
+    response.set_cookie(
+        key=_email_auth_browser_cookie_name(
+            state_nonce=state_nonce,
+            secure=auth_session_cookie_secure(request),
+        ),
+        value=browser_nonce,
+        max_age=max_age,
+        path="/",
+        secure=auth_session_cookie_secure(request),
+        httponly=True,
+        samesite="lax",
+    )
+
+
+def _clear_email_auth_browser_cookie(
+    request: Request,
+    response,
+    *,
+    state_nonce: str,
+) -> None:
+    response.delete_cookie(
+        key=_email_auth_browser_cookie_name(
+            state_nonce=state_nonce,
+            secure=auth_session_cookie_secure(request),
+        ),
+        path="/",
+        secure=auth_session_cookie_secure(request),
+        httponly=True,
+        samesite="lax",
+    )
+
+
+def _email_auth_expected_state(
+    *,
+    secret: str,
+    provider: str,
+    state_nonce: str,
+    email: str,
+    code: str,
+    browser_nonce: str,
+) -> str:
+    parts = (
+        _EMAIL_AUTH_DIGEST_DOMAIN,
+        provider.strip().lower(),
+        state_nonce,
+        email.strip().lower(),
+        _normalize_email_code(code),
+        browser_nonce,
+    )
+    payload = b"".join(
+        len(encoded).to_bytes(4, "big") + encoded
+        for encoded in (part.encode("utf-8") for part in parts)
+    )
+    return hmac.new(secret.encode("utf-8"), payload, hashlib.sha256).hexdigest()
 
 
 def _should_echo_email_code(request: Request) -> bool:

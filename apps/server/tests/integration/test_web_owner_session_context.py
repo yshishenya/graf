@@ -74,6 +74,7 @@ def _login_owner_and_get_settings_csrf(client) -> str:
     state = re.search(r'name="state" value="([^"]+)"', start.text)
     code = re.search(r"Код для локальной проверки: <strong>(\d{6})</strong>", start.text)
     assert state is not None and code is not None
+    _bind_email_auth_attempt_cookie(client, start, state_nonce=state.group(1))
     callback = client.post(
         "/login/email/verify",
         data={
@@ -93,6 +94,20 @@ def _login_owner_and_get_settings_csrf(client) -> str:
     csrf = re.search(r'name="csrf_token" value="([^"]+)"', settings.text)
     assert csrf is not None
     return csrf.group(1)
+
+
+def _bind_email_auth_attempt_cookie(client, response, *, state_nonce: str) -> tuple[str, str]:
+    cookie_name = auth_email_flow_module._email_auth_browser_cookie_name(
+        state_nonce=state_nonce,
+        secure=True,
+    )
+    browser_nonce = response.cookies.get(cookie_name)
+    assert browser_nonce is not None
+    # TestClient uses HTTP and correctly withholds Secure cookies. Re-add only
+    # this synthetic cookie without transport attributes so the next request
+    # can exercise the server-side production cookie contract.
+    client.cookies.set(cookie_name, browser_nonce, domain="testserver.local", path="/")
+    return cookie_name, browser_nonce
 
 
 def _start_email_link(client, *, email: str, csrf_token: str) -> tuple[str, str, str]:
@@ -546,8 +561,9 @@ def test_browser_yandex_callback_rejects_missing_browser_state_cookie(client) ->
         follow_redirects=False,
     )
 
-    assert callback.status_code == 400
-    assert callback.json()["code"] == "callback_state_invalid"
+    assert callback.status_code == 303
+    assert callback.headers["location"].startswith("/login?")
+    assert "error=callback_state_invalid" in callback.headers["location"]
 
 
 @pytest.mark.parametrize("cookie_mode", ["correct", "missing", "wrong"])
@@ -594,8 +610,8 @@ def test_settings_provider_link_callback_keeps_browser_nonce_binding(
         assert callback.status_code == 303
         assert callback.headers["location"].endswith("?result=callback_verified")
     else:
-        assert callback.status_code == 400
-        assert callback.json()["code"] == "callback_state_invalid"
+        assert callback.status_code == 303
+        assert callback.headers["location"].endswith("?result=provider_link_invalid")
 
 
 def test_browser_provider_callback_keeps_only_authorized_detail_return(monkeypatch, client) -> None:
@@ -617,6 +633,7 @@ def test_browser_provider_callback_keeps_only_authorized_detail_return(monkeypat
 
     assert allowed_callback.status_code == 303
     assert allowed_callback.headers["location"] == "/meetings"
+    assert f"{AUTH_SESSION_COOKIE_NAME}=" in allowed_callback.headers["set-cookie"]
 
     client.cookies.clear()
     client.portal.call(_set_workspace_self_enrollment_policy, client, True)
@@ -769,10 +786,16 @@ def test_browser_email_login_flow_sets_cookie_binds_browser_device_and_opens_mee
     code_match = re.search(r"Код для локальной проверки: <strong>(\d{6})</strong>", start.text)
     assert state_match is not None
     assert code_match is not None
+    cookie_name, _browser_nonce = _bind_email_auth_attempt_cookie(
+        client,
+        start,
+        state_nonce=state_match.group(1),
+    )
     assert 'name="workspace_id"' not in start.text
     assert str(WORKSPACE_ID) not in start.text
     assert 'class="auth-panel"' in start.text
-    assert 'class="code-grid"' in start.text
+    assert 'class="code-input"' in start.text
+    assert 'name="code"' in start.text
     assert "data-code-form" in start.text
     assert 'src="/static/cabinet/cabinet.js?v=' in start.text
 
@@ -789,6 +812,7 @@ def test_browser_email_login_flow_sets_cookie_binds_browser_device_and_opens_mee
 
     assert callback.status_code == 303
     assert callback.headers["location"] == "/meetings"
+    assert cookie_name not in client.cookies
     session_cookie = callback.cookies.get(AUTH_SESSION_COOKIE_NAME)
     assert session_cookie
     client.cookies.set(AUTH_SESSION_COOKIE_NAME, session_cookie)
@@ -797,6 +821,227 @@ def test_browser_email_login_flow_sets_cookie_binds_browser_device_and_opens_mee
     assert meetings.status_code == 200
     assert "Проектный синк" not in meetings.text
     assert "missing_auth_context" not in meetings.text
+
+
+@pytest.mark.parametrize("cookie_mode", ("missing", "wrong"))
+def test_browser_email_login_rejects_relayed_code_without_exact_browser_cookie(
+    client,
+    cookie_mode: str,
+) -> None:
+    client.portal.call(_link_owner_email_identity, client)
+    start = client.post(
+        "/login/email/start",
+        data={"email": BROWSER_OWNER_EMAIL, "next": "/meetings"},
+    )
+    state_match = re.search(r'name="state" value="([^"]+)"', start.text)
+    code_match = re.search(r"Код для локальной проверки: <strong>(\d{6})</strong>", start.text)
+    assert state_match is not None and code_match is not None
+    state_nonce = state_match.group(1)
+    cookie_name, _browser_nonce = _bind_email_auth_attempt_cookie(
+        client,
+        start,
+        state_nonce=state_nonce,
+    )
+    client.cookies.delete(cookie_name)
+    if cookie_mode == "wrong":
+        client.cookies.set(
+            cookie_name,
+            "relayed-from-another-browser",
+            domain="testserver.local",
+            path="/",
+        )
+
+    callback = client.post(
+        "/login/email/verify",
+        data={
+            "email": BROWSER_OWNER_EMAIL,
+            "code": code_match.group(1),
+            "state": state_nonce,
+            "next": "/meetings",
+        },
+        follow_redirects=False,
+    )
+
+    assert callback.status_code == 400
+    assert callback.cookies.get(AUTH_SESSION_COOKIE_NAME) is None
+    assert cookie_name not in client.cookies
+    assert "Max-Age=0" in callback.headers["set-cookie"]
+
+    async def read_result() -> tuple[str, str | None, int]:
+        async with client.app_state["sessionmaker"]() as db:
+            callback_state = await db.scalar(
+                select(AuthCallbackState).where(AuthCallbackState.state_nonce == state_nonce)
+            )
+            sessions = list(
+                await db.scalars(
+                    select(AuthSession).where(
+                        AuthSession.user_id == USER_ID,
+                        AuthSession.provider == "email",
+                    )
+                )
+            )
+            assert callback_state is not None
+            return callback_state.result, callback_state.error_code, len(sessions)
+
+    assert client.portal.call(read_result) == ("failed", "email_code_invalid", 0)
+
+
+def test_parallel_browser_email_login_attempts_keep_independent_nonce_cookies(client) -> None:
+    client.portal.call(_link_owner_email_identity, client)
+
+    attempts: list[tuple[str, str, str, str]] = []
+    for _ in range(2):
+        start = client.post(
+            "/login/email/start",
+            data={"email": BROWSER_OWNER_EMAIL, "next": "/meetings"},
+        )
+        state_match = re.search(r'name="state" value="([^"]+)"', start.text)
+        code_match = re.search(
+            r"Код для локальной проверки: <strong>(\d{6})</strong>", start.text
+        )
+        assert state_match is not None and code_match is not None
+        cookie_name, browser_nonce = _bind_email_auth_attempt_cookie(
+            client,
+            start,
+            state_nonce=state_match.group(1),
+        )
+        attempts.append(
+            (state_match.group(1), code_match.group(1), cookie_name, browser_nonce)
+        )
+
+    assert attempts[0][2] != attempts[1][2]
+    assert attempts[0][3] != attempts[1][3]
+
+    for index, (state_nonce, code, cookie_name, _browser_nonce) in enumerate(attempts):
+        callback = client.post(
+            "/login/email/verify",
+            data={
+                "email": BROWSER_OWNER_EMAIL,
+                "code": code,
+                "state": state_nonce,
+                "next": "/meetings",
+            },
+            follow_redirects=False,
+        )
+        assert callback.status_code == 303
+        assert cookie_name not in client.cookies
+        if index == 0:
+            assert attempts[1][2] in client.cookies
+
+    async def count_sessions() -> int:
+        async with client.app_state["sessionmaker"]() as db:
+            return len(
+                list(
+                    await db.scalars(
+                        select(AuthSession).where(
+                            AuthSession.user_id == USER_ID,
+                            AuthSession.provider == "email",
+                        )
+                    )
+                )
+            )
+
+    assert client.portal.call(count_sessions) == 2
+
+
+def test_email_login_digest_requires_server_secret_and_browser_nonce(client) -> None:
+    client.portal.call(_link_owner_email_identity, client)
+    start = client.post(
+        "/login/email/start",
+        data={"email": BROWSER_OWNER_EMAIL, "next": "/meetings"},
+    )
+    state_match = re.search(r'name="state" value="([^"]+)"', start.text)
+    code_match = re.search(r"Код для локальной проверки: <strong>(\d{6})</strong>", start.text)
+    assert state_match is not None and code_match is not None
+    state_nonce = state_match.group(1)
+    code = code_match.group(1)
+    _cookie_name, browser_nonce = _bind_email_auth_attempt_cookie(
+        client,
+        start,
+        state_nonce=state_nonce,
+    )
+
+    async def stored_digest() -> str:
+        async with client.app_state["sessionmaker"]() as db:
+            callback_state = await db.scalar(
+                select(AuthCallbackState).where(AuthCallbackState.state_nonce == state_nonce)
+            )
+            assert callback_state is not None
+            return callback_state.expected_state
+
+    digest = client.portal.call(stored_digest)
+    assert digest != hash_token(f"{BROWSER_OWNER_EMAIL}\0{code}")
+    assert digest == auth_email_flow_module._email_auth_expected_state(
+        secret=client.app.state.web_csrf_secret,
+        provider="email",
+        state_nonce=state_nonce,
+        email=BROWSER_OWNER_EMAIL,
+        code=code,
+        browser_nonce=browser_nonce,
+    )
+    assert digest != auth_email_flow_module._email_auth_expected_state(
+        secret="wrong-offline-secret",
+        provider="email",
+        state_nonce=state_nonce,
+        email=BROWSER_OWNER_EMAIL,
+        code=code,
+        browser_nonce=browser_nonce,
+    )
+    assert digest != auth_email_flow_module._email_auth_expected_state(
+        secret=client.app.state.web_csrf_secret,
+        provider="email",
+        state_nonce=state_nonce,
+        email=BROWSER_OWNER_EMAIL,
+        code=code,
+        browser_nonce="nonce-from-another-browser",
+    )
+
+
+@pytest.mark.parametrize("provider", ("yandex", "vk"))
+def test_email_login_rejects_oauth_provider_email_metadata(client, provider: str) -> None:
+    email = f"{provider}-metadata-only@example.test"
+
+    async def seed_oauth_metadata() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            db.add(
+                ExternalIdentity(
+                    user_id=USER_ID,
+                    provider=provider,
+                    provider_subject=f"{provider}:metadata-only",
+                    email=email,
+                    is_active=True,
+                    is_verified=True,
+                )
+            )
+            await db.commit()
+
+    client.portal.call(seed_oauth_metadata)
+    response = client.post(
+        "/login/email/start",
+        data={"email": email, "next": "/meetings"},
+    )
+
+    assert response.status_code == 400
+    assert "Код для локальной проверки" not in response.text
+
+    async def read_result() -> tuple[int, int]:
+        async with client.app_state["sessionmaker"]() as db:
+            callbacks = list(
+                await db.scalars(
+                    select(AuthCallbackState).where(AuthCallbackState.provider == "email")
+                )
+            )
+            sessions = list(
+                await db.scalars(
+                    select(AuthSession).where(
+                        AuthSession.user_id == USER_ID,
+                        AuthSession.provider == "email",
+                    )
+                )
+            )
+            return len(callbacks), len(sessions)
+
+    assert client.portal.call(read_result) == (0, 0)
 
 
 def test_browser_email_login_response_failure_rolls_back_session_and_callback(
@@ -811,6 +1056,7 @@ def test_browser_email_login_response_failure_rolls_back_session_and_callback(
     state = re.search(r'name="state" value="([^"]+)"', start.text)
     code = re.search(r"Код для локальной проверки: <strong>(\d{6})</strong>", start.text)
     assert state is not None and code is not None
+    _bind_email_auth_attempt_cookie(client, start, state_nonce=state.group(1))
 
     async def fail_response_resolution(*_args, **_kwargs):
         raise RuntimeError("synthetic response resolution failure")
@@ -862,6 +1108,7 @@ def test_browser_email_login_verification_uses_state_bound_return_path(client) -
     code_match = re.search(r"Код для локальной проверки: <strong>(\d{6})</strong>", start.text)
     assert state_match is not None
     assert code_match is not None
+    _bind_email_auth_attempt_cookie(client, start, state_nonce=state_match.group(1))
 
     callback = client.post(
         "/login/email/verify",
@@ -898,6 +1145,25 @@ def test_authenticated_email_link_is_passwordless_and_csrf_protected(client) -> 
 
     assert verified.status_code == 303
     assert verified.headers["location"] == "/settings/account?provider_link=confirmed"
+
+
+def test_authenticated_email_link_delivery_failure_is_recoverable(monkeypatch, client) -> None:
+    csrf = _login_owner_and_get_settings_csrf(client)
+    client.app.state.settings.env = "production"
+
+    async def fail_send_email_login_code(**_kwargs):
+        raise email_delivery.EmailLoginDeliveryError("postal_request_failed")
+
+    monkeypatch.setattr(email_delivery, "send_email_login_code", fail_send_email_login_code)
+
+    response = client.post(
+        "/settings/account/email-link/start",
+        data={"email": "delivery-failure@example.test", "csrf_token": csrf},
+    )
+
+    assert response.status_code == 503
+    assert "Почтовая доставка временно недоступна" in response.text
+    assert "Код для локальной проверки" not in response.text
 
 
 def test_authenticated_email_link_reactivates_inactive_identity(client) -> None:
@@ -953,6 +1219,100 @@ def test_authenticated_email_link_reactivates_inactive_identity(client) -> None:
             )
 
     assert client.portal.call(read_result) == (1, True, True, "completed")
+
+
+def test_authenticated_email_link_digest_requires_server_secret(client) -> None:
+    email = "server-keyed-link@example.test"
+    csrf = _login_owner_and_get_settings_csrf(client)
+    state, code, _link_csrf = _start_email_link(client, email=email, csrf_token=csrf)
+
+    async def stored_digest() -> str:
+        async with client.app_state["sessionmaker"]() as db:
+            callback = await db.scalar(
+                select(AuthCallbackState).where(AuthCallbackState.state_nonce == state)
+            )
+            assert callback is not None
+            return callback.expected_state
+
+    digest = client.portal.call(stored_digest)
+    assert digest != hash_token(f"{email}\0{code}")
+    assert digest == auth_email_flow_module._email_auth_expected_state(
+        secret=client.app.state.web_csrf_secret,
+        provider="email_link",
+        state_nonce=state,
+        email=email,
+        code=code,
+        browser_nonce="",
+    )
+    assert digest != auth_email_flow_module._email_auth_expected_state(
+        secret="wrong-offline-secret",
+        provider="email_link",
+        state_nonce=state,
+        email=email,
+        code=code,
+        browser_nonce="",
+    )
+
+
+@pytest.mark.parametrize("provider", ("yandex", "vk"))
+def test_email_link_does_not_merge_from_oauth_provider_email_metadata(
+    client,
+    provider: str,
+) -> None:
+    email = f"{provider}-merge-metadata@example.test"
+    foreign_user_id = uuid4()
+    foreign_identity_id = uuid4()
+
+    async def seed_foreign_oauth_metadata() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            db.add(
+                UserIdentity(
+                    id=foreign_user_id,
+                    organization_id=ORG_ID,
+                    external_subject=str(foreign_user_id),
+                )
+            )
+            await db.flush()
+            db.add(
+                ExternalIdentity(
+                    id=foreign_identity_id,
+                    user_id=foreign_user_id,
+                    provider=provider,
+                    provider_subject=f"{provider}:foreign-metadata",
+                    email=email,
+                    is_active=True,
+                    is_verified=True,
+                )
+            )
+            await db.commit()
+
+    client.portal.call(seed_foreign_oauth_metadata)
+    csrf = _login_owner_and_get_settings_csrf(client)
+    state, code, link_csrf = _start_email_link(client, email=email, csrf_token=csrf)
+    verified = client.post(
+        "/settings/account/email-link/verify",
+        data={"email": email, "code": code, "state": state, "csrf_token": link_csrf},
+        follow_redirects=False,
+    )
+
+    assert verified.status_code == 303
+    assert verified.headers["location"] == "/settings/account?provider_link=confirmed"
+
+    async def read_result() -> tuple[UUID, str, int]:
+        async with client.app_state["sessionmaker"]() as db:
+            foreign_identity = await db.get(ExternalIdentity, foreign_identity_id)
+            linked_email = await db.scalar(
+                select(ExternalIdentity).where(
+                    ExternalIdentity.user_id == USER_ID,
+                    ExternalIdentity.provider == "email",
+                    ExternalIdentity.provider_subject == email,
+                )
+            )
+            intents = list(await db.scalars(select(AccountMergeIntent)))
+            assert foreign_identity is not None and linked_email is not None
+            return foreign_identity.user_id, linked_email.provider, len(intents)
+
+    assert client.portal.call(read_result) == (foreign_user_id, "email", 0)
 
 
 def test_authenticated_email_link_rejects_foreign_inactive_identity(client) -> None:
@@ -1100,7 +1460,7 @@ def test_authenticated_email_link_requires_preview_for_one_other_account(
                         owner_user_id=source_user_id,
                         slug=f"source-{source_user_id.hex}",
                         name="Source account",
-                        kind="corporate",
+                        kind="personal",
                     ),
                 ]
             )
@@ -1207,6 +1567,108 @@ def test_authenticated_email_link_requires_preview_for_one_other_account(
         "expired",
         "completed",
         "merge_intent_expired",
+    )
+
+
+def test_real_email_link_callback_merges_after_explicit_preview_confirmation(client) -> None:
+    source_user_id = uuid4()
+    source_workspace_id = uuid4()
+    email = "email-link-merge-success@example.test"
+
+    async def seed_source() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            db.add_all(
+                [
+                    UserIdentity(
+                        id=source_user_id,
+                        organization_id=ORG_ID,
+                        external_subject=str(source_user_id),
+                    ),
+                    Workspace(
+                        id=source_workspace_id,
+                        organization_id=ORG_ID,
+                        owner_user_id=source_user_id,
+                        slug=f"source-{source_user_id.hex}",
+                        name="Source account",
+                        kind="personal",
+                    ),
+                ]
+            )
+            await db.flush()
+            db.add_all(
+                [
+                    WorkspaceMembership(
+                        workspace_id=source_workspace_id,
+                        user_id=source_user_id,
+                        role="owner",
+                        status="active",
+                    ),
+                    ExternalIdentity(
+                        user_id=source_user_id,
+                        provider="email",
+                        provider_subject=email,
+                        email=email,
+                        is_verified=True,
+                        is_active=True,
+                    ),
+                ]
+            )
+            await db.commit()
+
+    client.portal.call(seed_source)
+    csrf = _login_owner_and_get_settings_csrf(client)
+    state, code, link_csrf = _start_email_link(client, email=email, csrf_token=csrf)
+    verified = client.post(
+        "/settings/account/email-link/verify",
+        data={"email": email, "code": code, "state": state, "csrf_token": link_csrf},
+        follow_redirects=False,
+    )
+    assert verified.status_code == 303
+    match = re.fullmatch(r"/settings/account/merge/([0-9a-f-]+)", verified.headers["location"])
+    assert match is not None
+
+    preview = client.get(verified.headers["location"])
+    fields = {
+        name: re.search(rf'name="{name}" value="([^"]+)"', preview.text)
+        for name in ("csrf_token", "preview_fingerprint", "idempotency_key")
+    }
+    assert all(match is not None for match in fields.values())
+    confirmed = client.post(
+        f"{verified.headers['location']}/confirm",
+        data={name: match.group(1) for name, match in fields.items() if match is not None},
+        follow_redirects=False,
+    )
+    assert confirmed.status_code == 303
+    assert confirmed.headers["location"].startswith(
+        "/login?next=/settings/account&error=email_connected_relogin_required"
+    )
+
+    async def read_result() -> tuple[str, UUID | None, str, bool]:
+        async with client.app_state["sessionmaker"]() as db:
+            source = await db.get(UserIdentity, source_user_id)
+            callback = await db.scalar(
+                select(AuthCallbackState).where(AuthCallbackState.state_nonce == state)
+            )
+            source_identity = await db.scalar(
+                select(ExternalIdentity).where(
+                    ExternalIdentity.user_id == USER_ID,
+                    ExternalIdentity.provider == "email",
+                    ExternalIdentity.provider_subject == email,
+                )
+            )
+            assert source is not None and callback is not None and source_identity is not None
+            return (
+                source.status,
+                source.merged_into_user_id,
+                callback.provider,
+                callback.verified_external_identity_id == source_identity.id,
+            )
+
+    assert client.portal.call(read_result) == (
+        "merged",
+        USER_ID,
+        "email_link",
+        True,
     )
 
 
@@ -1377,6 +1839,7 @@ def test_browser_email_signup_verification_uses_state_bound_return_path(client) 
     code_match = re.search(r"Код для локальной проверки: <strong>(\d{6})</strong>", start.text)
     assert state_match is not None
     assert code_match is not None
+    _bind_email_auth_attempt_cookie(client, start, state_nonce=state_match.group(1))
 
     callback = client.post(
         "/sign-up/email/verify",
@@ -1453,6 +1916,7 @@ def test_browser_email_signup_flow_creates_user_and_opens_meetings(client) -> No
     code_match = re.search(r"Код для локальной проверки: <strong>(\d{6})</strong>", start.text)
     assert state_match is not None
     assert code_match is not None
+    _bind_email_auth_attempt_cookie(client, start, state_nonce=state_match.group(1))
     assert 'action="/sign-up/email/verify"' in start.text
     assert 'name="workspace_id"' not in start.text
     assert str(WORKSPACE_ID) not in start.text
@@ -1517,6 +1981,7 @@ def test_browser_email_login_reuses_personal_space_after_signup(client) -> None:
     code_match = re.search(r"Код для локальной проверки: <strong>(\d{6})</strong>", started.text)
     assert state_match is not None
     assert code_match is not None
+    _bind_email_auth_attempt_cookie(client, started, state_nonce=state_match.group(1))
     completed = client.post(
         "/sign-up/email/verify",
         data={
@@ -1540,6 +2005,11 @@ def test_browser_email_login_reuses_personal_space_after_signup(client) -> None:
     assert login_started.status_code == 200
     assert login_state_match is not None
     assert login_code_match is not None
+    _bind_email_auth_attempt_cookie(
+        client,
+        login_started,
+        state_nonce=login_state_match.group(1),
+    )
 
     callback = client.post(
         "/login/email/verify",
@@ -1657,6 +2127,7 @@ def test_browser_email_signup_fails_closed_for_ambiguous_existing_users(client) 
     assert start.status_code == 200
     assert state_match is not None
     assert code_match is not None
+    _bind_email_auth_attempt_cookie(client, start, state_nonce=state_match.group(1))
 
     completed = client.post(
         "/sign-up/email/verify",
@@ -1795,6 +2266,7 @@ def test_browser_email_signup_is_not_retargeted_when_corporate_policy_changes(cl
     code_match = re.search(r"Код для локальной проверки: <strong>(\d{6})</strong>", start.text)
     assert state_match is not None
     assert code_match is not None
+    _bind_email_auth_attempt_cookie(client, start, state_nonce=state_match.group(1))
 
     client.portal.call(_set_workspace_self_enrollment_policy, client, False)
     callback = client.post(

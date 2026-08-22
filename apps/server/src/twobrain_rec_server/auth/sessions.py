@@ -23,6 +23,14 @@ def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
+def fingerprint_identity(subject: str, provider: str, workspace_id: UUID) -> str:
+    if provider == "email":
+        return hash_token(f"email:{subject}:{workspace_id}")
+    if provider == "email_magic_link":
+        return hash_token(f"magic:{subject}:{workspace_id}")
+    return hash_token(f"{workspace_id}|{provider}|{subject}")
+
+
 def decode_session_token(token: str) -> str:
     return hash_token(token)
 
@@ -103,10 +111,13 @@ async def consume_callback_state(
     now = now or datetime.now(UTC)
     now = _as_aware_utc(now)
     state = await db.scalar(
-        select(AuthCallbackState).where(
+        select(AuthCallbackState)
+        .where(
             AuthCallbackState.provider == provider,
             AuthCallbackState.state_nonce == state_nonce,
-        ).with_for_update()
+        )
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if state is None:
         raise ValueError("callback state not found")
@@ -172,4 +183,6 @@ async def issue_auth_session(
     db.add(session)
     await db.flush()
     await db.refresh(session)
-    return IssuedAuthSession(id=session.id, token=raw_token, token_hash=token_hash, expires_at=session.expires_at)
+    return IssuedAuthSession(
+        id=session.id, token=raw_token, token_hash=token_hash, expires_at=session.expires_at
+    )
