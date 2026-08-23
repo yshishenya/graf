@@ -8,6 +8,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "GrafWindowsContractTests", 
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "GrafWindowsPackageTests", "Tests\GrafWindowsPackageTests\GrafWindowsPackageTests.vcxproj", "{4B4C31DA-2000-4E1A-9D4A-6BF7B4B23003}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "GrafWindowsApp", "RecApp\GrafWindowsApp.vcxproj", "{4B4C31DA-2000-4E1A-9D4A-6BF7B4B24001}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -26,6 +28,10 @@ Global
 		{4B4C31DA-2000-4E1A-9D4A-6BF7B4B23003}.Debug|x64.Build.0 = Debug|x64
 		{4B4C31DA-2000-4E1A-9D4A-6BF7B4B23003}.Release|x64.ActiveCfg = Release|x64
 		{4B4C31DA-2000-4E1A-9D4A-6BF7B4B23003}.Release|x64.Build.0 = Release|x64
+		{4B4C31DA-2000-4E1A-9D4A-6BF7B4B24001}.Debug|x64.ActiveCfg = Debug|x64
+		{4B4C31DA-2000-4E1A-9D4A-6BF7B4B24001}.Debug|x64.Build.0 = Debug|x64
+		{4B4C31DA-2000-4E1A-9D4A-6BF7B4B24001}.Release|x64.ActiveCfg = Release|x64
+		{4B4C31DA-2000-4E1A-9D4A-6BF7B4B24001}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

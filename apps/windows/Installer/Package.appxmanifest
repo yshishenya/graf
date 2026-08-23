@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10" xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10" IgnorableNamespaces="uap">
+  <Identity Name="com.graf.desktop" Publisher="CN=GRAF" Version="0.1.0.0" />
+  <Properties>
+    <DisplayName>GRAF</DisplayName>
+    <PublisherDisplayName>GRAF</PublisherDisplayName>
+    <Description>GRAF meeting capture desktop application</Description>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19045.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+  <Resources><Resource Language="x-generate" /></Resources>
+  <Applications>
+    <Application Id="GRAF" Executable="GrafWindowsApp.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements DisplayName="GRAF" Description="GRAF" Square150x150Logo="Assets\Square150x150Logo.png" Square44x44Logo="Assets\Square44x44Logo.png" AppListEntry="default" />
+    </Application>
+  </Applications>
+</Package>

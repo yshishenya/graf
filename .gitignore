@@ -73,6 +73,9 @@ out/
 # Local editor metadata
 .idea/
 .vscode/
+.vs/
+*.suo
+*.user
 
 # Spec Kit local runtime state that should not contain project source
 .specify/feature.json

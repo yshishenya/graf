@@ -13,15 +13,23 @@
   SDK native shell, x64 test targets, проверяемый pinned AEC3 build boundary и
   первый portable C++ contract/session/readiness/storage/upload fixture; это ещё
   не заявление о поддерживаемой Windows-дистрибуции.
+- Добавлены portable C++ реализации bounded WASAPI/AEC3/timeline контрактов,
+  v5 WAV/AAC writer boundary, native indicator/permission recovery, exact-origin
+  WebView2 policy/bridge, local upload custody/recovery, fault projection и
+  verified-target auto-record policy; Windows hardware, WebView2 runtime и MSIX
+  остаются отдельными host-gates.
 
 ### Изменено
-- _Пока нет записей._
+- Windows solution теперь содержит native `RecApp`, CMake/CTest contract surface
+  и x64 package metadata без driver, service, elevation или второго web UI.
 
 ### Исправлено
 - _Пока нет записей._
 
 ### Безопасность
-- _Пока нет записей._
+- Native/Web boundary не принимает capture/file/token/cookie/process commands,
+  требует exact origin и ephemeral nonce, а очередь сохраняет accepted ranges и
+  quarantine вместо тихой замены повреждённого ledger.
 
 ### Документы
 - Зафиксированы Windows v5 wire-значения, parity source-of-truth и второй

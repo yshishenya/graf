@@ -91,7 +91,8 @@ TransitionResult WindowsDesktopSession::transition(SessionState next, ReasonCode
     }
     state_ = next;
     reason_ = reason;
-    if (next == SessionState::savedLocal || next == SessionState::blocked ||
+    if (next == SessionState::savedLocal || next == SessionState::queued ||
+        next == SessionState::uploaded || next == SessionState::blocked ||
         next == SessionState::failed) {
         releaseActiveLeaseIfNeeded();
     }
