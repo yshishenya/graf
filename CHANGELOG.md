@@ -1072,9 +1072,16 @@
   воспроизведение наблюдаемого UX/UI/IA Krisp. Обязательная искусственная
   brand-distance отменена; независимая реализация, accessibility, правдивые
   состояния продукта и права на сторонние ассеты/фразы остаются release gates.
+- Feature 183 перевела выдачу итогов на type-slot состояние: новый результат
+  остаётся candidate, текущие сохранённые итоги не заменяются, а accept/reject
+  и предпросмотр candidate удалены из обычного кабинета.
 
 ### Исправлено
-- _Пока нет записей._
+- API итогов больше не читает legacy meeting-global pointer для candidate
+  lifecycle; список не возвращает старые accepted-попытки без current slot.
+- После объединения Feature 183 с актуальным master добавлена merge-migration
+  для двух Alembic heads (`0076_meeting_summary_slots` и
+  `0077_provider_unlink_xworkspace`).
 
 ### Безопасность
 - _Пока нет записей._

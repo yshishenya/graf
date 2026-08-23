@@ -25,17 +25,11 @@ def test_summary_template_and_candidate_routes_are_explicit_and_csrf_protected(c
             "/api/v1/cabinet/meetings/{meeting_id}/summary-candidates/{candidate_id}",
             "get",
         ): "getSummaryCandidate",
-        (
-            "/api/v1/cabinet/meetings/{meeting_id}/summary-candidates/{candidate_id}/accept",
-            "post",
-        ): "acceptSummaryCandidate",
-        (
-            "/api/v1/cabinet/meetings/{meeting_id}/summary-candidates/{candidate_id}/reject",
-            "post",
-        ): "rejectSummaryCandidate",
     }
     for (path, method), operation_id in expected.items():
         assert schema["paths"][path][method]["operationId"] == operation_id
+    assert "/api/v1/cabinet/meetings/{meeting_id}/summary-candidates/{candidate_id}/accept" not in schema["paths"]
+    assert "/api/v1/cabinet/meetings/{meeting_id}/summary-candidates/{candidate_id}/reject" not in schema["paths"]
 
 
 def test_template_schema_is_bounded_structured_and_includes_evidence(client) -> None:

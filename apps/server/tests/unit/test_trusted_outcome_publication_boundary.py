@@ -5,8 +5,10 @@ import inspect
 from uuid import UUID
 
 import pytest
-import twobrain_rec_server.outcomes.ai_service as ai_service
 from sqlalchemy import select
+
+import twobrain_rec_server.outcomes.ai_service as ai_service
+from tests.fixtures.cabinet import create_outcome_ready_meeting
 from twobrain_rec_server.db.models import (
     DispatchIntent,
     Meeting,
@@ -20,8 +22,6 @@ from twobrain_rec_server.outcomes.ai_service import (
     publish_model_generated_outcome,
 )
 from twobrain_rec_server.outcomes.service import ensure_summary_slot
-
-from tests.fixtures.cabinet import create_outcome_ready_meeting
 
 
 def test_model_publication_entry_point_is_fail_closed_without_feature_195_proof() -> None:

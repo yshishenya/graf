@@ -300,8 +300,8 @@ def test_production_smoke_runs_metadata_only_outcome_value_path() -> None:
     assert "prove_meeting_outcome_live.py" in runtime
     assert 'OUTCOME_SMOKE_ENABLED="${TWOBRAIN_OUTCOME_SMOKE_ENABLED:-false}"' in runtime
     assert 'if [[ "$OUTCOME_SMOKE_ENABLED" == "true" ]]' in runtime
-    assert "accept_state accepted" in runtime
-    assert "public_projection_state ready" in runtime
+    assert "candidate_state ready" in runtime
+    assert "slot_state unpublished" in runtime
 
 
 def test_outcome_live_proof_dry_run_is_metadata_safe(tmp_path: Path) -> None:
@@ -325,7 +325,7 @@ def test_outcome_live_proof_dry_run_is_metadata_safe(tmp_path: Path) -> None:
         env={**os.environ, "PYTHONPATH": str(REPO_ROOT / "apps/server/src")},
     )
     payload = json.loads(result.stdout)
-    assert payload["proof_id"] == "feature-139-meeting-outcome-live"
+    assert payload["proof_id"] == "feature-183-trusted-outcome-lifecycle"
     assert payload["candidate_state"] == "deferred"
     assert payload["cleanup_state"] == "deferred"
     assert "bearer" not in result.stdout.lower()
