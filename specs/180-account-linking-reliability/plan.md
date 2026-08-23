@@ -7,7 +7,10 @@
 Исправить общий разрыв RLS-контекста в provider-link start, сделать merge и
 recovery presentation зависимыми от фактического способа входа, убрать retry
 loop устаревшего proof и закрепить весь путь production-equivalent тестами.
-Реализация переиспользует server-rendered кабинет и существующие модели.
+После merge оставить пользователю одно personal пространство: личные данные
+source root переводятся в survivor root, а corporate memberships остаются
+отдельными. Реализация переиспользует server-rendered кабинет и существующие
+модели.
 
 ## Technical Context
 
@@ -17,7 +20,7 @@ loop устаревшего proof и закрепить весь путь produc
   существующие macOS route/runtime проверки.
 - **Storage**: существующие `auth_callback_states`,
   `workspace_provider_link_states`, `account_merge_intents`; миграция
-  `0076_account_linking_rls` уточняет operation-specific RLS и
+  `0076_account_linking_rls` и `0077_provider_unlink_cross_workspace` уточняют operation-specific RLS и
   exact semantic bindings без переноса пользовательских данных.
 - **Security boundary**: callback state создаётся в bounded `auth_bootstrap`,
   merge подтверждается в exact `account_merge` context; обычный request не
@@ -90,6 +93,11 @@ apps/server/tests/
 9. При unlink атомарно отзывать sessions/device bindings отключаемого provider
    во всех доступных пользователю пространствах и вести текущую сессию прямо к
    повторному входу.
+10. В merge confirm переместить личные workspace-scoped rows source personal
+    root в survivor personal root; встречи и связанные audio/transcript/summary
+    rows объединять простым сложением без dedupe. Corporate memberships не
+    менять, активные billing/calendar состояния блокировать, source root удалить
+    только после проверки отсутствия ссылок.
 
 ## Complexity Tracking
 

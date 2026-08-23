@@ -9,3 +9,5 @@
 - [X] Keyboard, visible focus, headings, live status and target labels are explicit.
 - [X] Wide, 390 px, zoom/reflow and no-horizontal-overflow checks are required.
 - [X] Screenshot-only evidence is not treated as full accessibility compliance.
+- [X] Workspace IA shows one personal space and corporate spaces only through active membership/invitation.
+- [X] Account merge copy states that personal meetings are visible in one list without deduplication and corporate access remains separate.

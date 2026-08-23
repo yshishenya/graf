@@ -5,7 +5,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -67,7 +67,7 @@ from twobrain_rec_server.db.models import (
     UserIdentity,
 )
 from twobrain_rec_server.db.tenant_context import (
-    TenantDatabaseContext,
+    AuthProviderUnlinkContext,
     apply_tenant_context,
     apply_tenant_scope,
 )
@@ -741,67 +741,59 @@ async def _unlink_account_provider(
         )
     revoked_count = 0
     current_session_revoked = False
-    workspaces = await list_active_workspaces(
+    await apply_tenant_context(
         db,
-        organization_id=principal.organization_id,
-        current_workspace_id=tenant_scope.workspace_id,
-        internal_workspace_id=internal_workspace_id,
-        user_id=principal.user_id,
+        AuthProviderUnlinkContext(
+            workspace_id=tenant_scope.workspace_id,
+            organization_id=principal.organization_id,
+            user_id=principal.user_id,
+        ),
     )
-    workspace_ids = {tenant_scope.workspace_id} | {workspace.id for workspace in workspaces}
-    for workspace_id in sorted(workspace_ids, key=str):
-        await apply_tenant_context(
-            db,
-            TenantDatabaseContext(
-                organization_id=principal.organization_id,
-                workspace_id=workspace_id,
-                user_id=principal.user_id,
-            ),
+    candidate_sessions = list(
+        await db.scalars(
+            select(AuthSession)
+            .where(
+                AuthSession.user_id == principal.user_id,
+                AuthSession.provider == identity.provider,
+                AuthSession.status == "active",
+            )
+            .order_by(AuthSession.id)
+            .with_for_update()
         )
-        sessions = list(
+    )
+    sessions = [
+        session
+        for session in candidate_sessions
+        if session.claims_fingerprint is None
+        or session.claims_fingerprint
+        == fingerprint_identity(
+            identity.email or identity.provider_subject,
+            identity.provider,
+            session.workspace_id,
+        )
+    ]
+    session_ids = [session.id for session in sessions]
+    bindings = (
+        list(
             await db.scalars(
-                select(AuthSession)
-                .where(
-                    AuthSession.workspace_id == workspace_id,
-                    AuthSession.user_id == principal.user_id,
-                    AuthSession.provider == identity.provider,
-                    AuthSession.status == "active",
-                    or_(
-                        AuthSession.claims_fingerprint.is_(None),
-                        AuthSession.claims_fingerprint
-                        == fingerprint_identity(
-                            identity.email or identity.provider_subject,
-                            identity.provider,
-                            workspace_id,
-                        ),
-                    ),
-                )
-                .order_by(AuthSession.id)
+                select(AuthSessionDeviceBinding)
+                .where(AuthSessionDeviceBinding.auth_session_id.in_(session_ids))
+                .order_by(AuthSessionDeviceBinding.id)
                 .with_for_update()
             )
         )
-        session_ids = [session.id for session in sessions]
-        bindings = (
-            list(
-                await db.scalars(
-                    select(AuthSessionDeviceBinding)
-                    .where(AuthSessionDeviceBinding.auth_session_id.in_(session_ids))
-                    .order_by(AuthSessionDeviceBinding.id)
-                    .with_for_update()
-                )
-            )
-            if session_ids
-            else []
-        )
-        for session in sessions:
-            session.status = "revoked"
-        for binding in bindings:
-            binding.device_state = "blocked"
-            binding.revocation_reason = "provider_unlinked"
-        if sessions:
-            current_session_revoked |= principal.session_id in set(session_ids)
-            revoked_count += len(sessions)
-            await db.flush()
+        if session_ids
+        else []
+    )
+    for session in sessions:
+        session.status = "revoked"
+    for binding in bindings:
+        binding.device_state = "blocked"
+        binding.revocation_reason = "provider_unlinked"
+    if sessions:
+        current_session_revoked = principal.session_id in set(session_ids)
+        revoked_count = len(sessions)
+        await db.flush()
 
     await apply_tenant_scope(db, tenant_scope)
     identity.is_active = False
