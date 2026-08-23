@@ -1303,6 +1303,20 @@ private struct RecordingTitlebarHUD: View {
                     Text(CaptureStatusItem.statusLabel(for: session))
                         .font(.system(size: 12, weight: .semibold, design: .rounded))
                         .lineLimit(1)
+
+                    if let sourceLabel = CaptureStatusItem.sourceIndicatorLabel(for: session) {
+                        Text(sourceLabel)
+                            .font(.system(size: 10.5, weight: .medium, design: .rounded))
+                            .foregroundStyle(Color.white.opacity(0.62))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .frame(minWidth: 0, maxWidth: 180, alignment: .leading)
+                            .accessibilityLabel(
+                                CaptureStatusItem.sourceAccessibilityLabel(for: session) ?? sourceLabel
+                            )
+                            .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.recordingSource)
+                            .help(CaptureStatusItem.sourceAccessibilityLabel(for: session) ?? sourceLabel)
+                    }
                 }
 
                 Divider()

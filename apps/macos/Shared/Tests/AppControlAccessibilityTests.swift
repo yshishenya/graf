@@ -132,13 +132,15 @@ final class AppControlAccessibilityTests: XCTestCase {
                 .appendingPathComponent("apps/macos/RecApp/Sources/Capture/CaptureStatusItem.swift"),
             encoding: .utf8
         )
+        let shellSource = try String(
+            contentsOf: Self.repositoryRoot()
+                .appendingPathComponent("apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift"),
+            encoding: .utf8
+        )
 
         XCTAssertTrue(source.contains(".accessibilityElement(children: .contain)"))
         XCTAssertTrue(source.contains(".accessibilityElement(children: .combine)"))
         XCTAssertTrue(source.contains(".accessibilityIdentifier(SystemAudioAccessibilityIdentifier.statusSurface)"))
-        XCTAssertTrue(source.contains("SystemAudioAccessibilityIdentifier.recordingSource"))
-        XCTAssertTrue(source.contains("sourceAccessibilityLabel(for: session)"))
-        XCTAssertTrue(source.contains(".help(Self.sourceAccessibilityLabel(for: session)"))
         XCTAssertTrue(source.contains(".lineLimit(1)"))
         XCTAssertTrue(source.contains(".accessibilityRemoveTraits(.isSelected)"))
         XCTAssertTrue(source.contains("VStack(alignment: .leading, spacing: 8)"))
@@ -150,6 +152,13 @@ final class AppControlAccessibilityTests: XCTestCase {
         )
         XCTAssertTrue(source.contains("checkmark.circle.fill"))
         XCTAssertTrue(source.contains("session.state == .stopped || session.state == .finalized"))
+        XCTAssertFalse(source.contains("SystemAudioAccessibilityIdentifier.recordingSource"))
+        XCTAssertTrue(shellSource.contains("CaptureStatusItem.sourceIndicatorLabel(for: session)"))
+        XCTAssertTrue(shellSource.contains("SystemAudioAccessibilityIdentifier.recordingSource"))
+        XCTAssertTrue(shellSource.contains("CaptureStatusItem.sourceAccessibilityLabel(for: session)"))
+        XCTAssertTrue(shellSource.contains(".help(CaptureStatusItem.sourceAccessibilityLabel(for: session)"))
+        XCTAssertTrue(shellSource.contains(".truncationMode(.tail)"))
+        XCTAssertTrue(shellSource.contains("maxWidth: 180, alignment: .leading"))
         XCTAssertFalse(source.contains(".keyboardShortcut(.escape, modifiers: [])"))
     }
 
