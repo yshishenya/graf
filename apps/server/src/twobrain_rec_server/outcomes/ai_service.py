@@ -23,6 +23,7 @@ from twobrain_rec_server.db.models import (
     MeetingOutcomeGenerationAttempt,
     MeetingOutcomeItem,
     MeetingOutcomeSet,
+    MeetingSummarySlot,
     ProcessingResult,
     SummaryTemplate,
     Workspace,
@@ -107,6 +108,37 @@ class OutcomeGenerationTerminalError(RuntimeError):
 
 class OutcomeGenerationDependencyError(RuntimeError):
     pass
+
+
+class SummarySlotCASConflict(OutcomeGenerationTerminalError):
+    """The requested replacement no longer matches the fenced slot state."""
+
+    def __init__(self, reason: str = "summary_slot_conflict") -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
+async def publish_model_generated_outcome(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+    candidate_id: UUID,
+    expected_current_outcome_set_id: UUID | None,
+    publication_proof: object | None = None,
+) -> MeetingOutcomeSet:
+    """Own the only model-publication boundary.
+
+    Feature 183 intentionally has no receipt, canonical-artifact, calibration,
+    or presentation proof that can authorize publication. Feature 195 extends
+    this function in place; it must not add a second publisher. Keeping the
+    denial before any database access also makes a missing proof incapable of
+    changing a slot, candidate visibility, or dispatch state.
+    """
+
+    del db, workspace_id, meeting_id, candidate_id, expected_current_outcome_set_id
+    del publication_proof
+    raise OutcomeGenerationTerminalError("verified_runtime_unavailable")
 
 
 def _expire_candidate_attempt(
@@ -2039,6 +2071,115 @@ async def mark_candidate_generation_terminal_failure(
         await db.commit()
 
 
+async def _cas_summary_slot(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+    template_key: str,
+    replacement_outcome_set_id: UUID,
+    expected_current_outcome_set_id: UUID | None,
+    expected_source_fingerprint: str,
+    expected_deletion_epoch: int,
+    expected_access_policy_epoch: int | None = None,
+) -> MeetingSummarySlot:
+    """Atomically move one type slot after its non-model fences pass.
+
+    The meeting deletion fence is always acquired first, followed by the
+    target slot and (when present) its prior current revision. This primitive
+    deliberately does not touch receipts, dispatch intents, or the meeting's
+    legacy global pointer. Feature 195 supplies the proof and invokes this
+    same primitive inside its larger publication transaction.
+    """
+
+    meeting = await lock_meeting_fence(db, workspace_id=workspace_id, meeting_id=meeting_id)
+    if (
+        meeting is None
+        or meeting_is_deleted_or_deleting(meeting)
+        or int(meeting.deletion_epoch or 0) != int(expected_deletion_epoch)
+    ):
+        raise SummarySlotCASConflict("summary_slot_conflict")
+
+    slot = await db.scalar(
+        select(MeetingSummarySlot)
+        .where(
+            MeetingSummarySlot.workspace_id == workspace_id,
+            MeetingSummarySlot.meeting_id == meeting_id,
+            MeetingSummarySlot.template_key == template_key,
+        )
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if slot is None or slot.current_outcome_set_id != expected_current_outcome_set_id:
+        raise SummarySlotCASConflict()
+
+    replacement = await db.scalar(
+        select(MeetingOutcomeSet).where(
+            MeetingOutcomeSet.workspace_id == workspace_id,
+            MeetingOutcomeSet.meeting_id == meeting_id,
+            MeetingOutcomeSet.id == replacement_outcome_set_id,
+            MeetingOutcomeSet.template_key == template_key,
+        )
+    )
+    if (
+        replacement is None
+        or replacement.lifecycle_state != "active"
+        or replacement.status not in {"available", "partial"}
+        or replacement.revision_state not in {"candidate", "accepted"}
+        or replacement.source_fingerprint != expected_source_fingerprint
+        or int(replacement.deletion_epoch_at_start or 0) != int(expected_deletion_epoch)
+    ):
+        raise SummarySlotCASConflict()
+
+    if expected_access_policy_epoch is not None:
+        attempt = await db.scalar(
+            select(MeetingOutcomeGenerationAttempt)
+            .where(
+                MeetingOutcomeGenerationAttempt.workspace_id == workspace_id,
+                MeetingOutcomeGenerationAttempt.meeting_id == meeting_id,
+                MeetingOutcomeGenerationAttempt.outcome_set_id == replacement.id,
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if attempt is None or (attempt.metadata_json or {}).get("access_policy_epoch") != (
+            expected_access_policy_epoch
+        ):
+            raise SummarySlotCASConflict()
+
+    prior = None
+    if slot.current_outcome_set_id is not None:
+        prior = await db.scalar(
+            select(MeetingOutcomeSet)
+            .where(
+                MeetingOutcomeSet.workspace_id == workspace_id,
+                MeetingOutcomeSet.meeting_id == meeting_id,
+                MeetingOutcomeSet.id == slot.current_outcome_set_id,
+                MeetingOutcomeSet.template_key == template_key,
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if prior is None:
+            raise SummarySlotCASConflict()
+
+    if slot.current_outcome_set_id == replacement.id:
+        return slot
+
+    now = datetime.now(UTC)
+    if prior is not None:
+        prior.revision_state = "superseded"
+        replacement.supersedes_outcome_set_id = prior.id
+    replacement.revision_state = "accepted"
+    replacement.accepted_at = replacement.accepted_at or now
+    replacement.expires_at = None
+    slot.current_outcome_set_id = replacement.id
+    slot.current_binding_class = "verified_complete"
+    slot.legacy_migration_proof_hash = None
+    await db.flush()
+    return slot
+
+
 async def resolve_summary_candidate(
     db: AsyncSession,
     *,
@@ -2189,35 +2330,14 @@ async def resolve_summary_candidate(
             failure_code="summary_candidate_rejected",
         )
         return outcome_set
-    if meeting.current_outcome_set_id is not None:
-        previous = await db.scalar(
-            select(MeetingOutcomeSet)
-            .where(
-                MeetingOutcomeSet.workspace_id == workspace_id,
-                MeetingOutcomeSet.id == meeting.current_outcome_set_id,
-            )
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-        if previous is not None:
-            previous.revision_state = "superseded"
-            outcome_set.supersedes_outcome_set_id = previous.id
-    now = datetime.now(UTC)
-    outcome_set.revision_state = "accepted"
-    outcome_set.expires_at = None
-    outcome_set.accepted_by_user_id = requested_by_user_id
-    outcome_set.accepted_at = now
-    attempt.status = "accepted"
-    attempt.ended_at = now
-    meeting.current_outcome_set_id = outcome_set.id
-    await finalize_dispatch_for_candidate(
+    await publish_model_generated_outcome(
         db,
         workspace_id=workspace_id,
+        meeting_id=meeting_id,
         candidate_id=candidate_id,
-        outcome="completed",
+        expected_current_outcome_set_id=expected_current_outcome_set_id,
     )
-    await db.flush()
-    return outcome_set
+    raise AssertionError("fail-closed publication entry point must not return")
 
 
 async def _candidate_attempt(
