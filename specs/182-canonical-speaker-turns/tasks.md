@@ -105,7 +105,7 @@
 - [X] T026 Re-run Spec Kit analyze and all high-risk checklist gates after implementation
 - [X] T027 Reconcile completed tasks with GitHub issues using Russian status comments; do not close incomplete tasks or create a PR
 - [X] T028 Inspect `git diff --check`, scan for forbidden content, prove no external MediaScribe/config/deploy change, and stop without commit or deploy
-- [ ] T029 After all preceding validation is clean, run `infra/scripts/ci-local.sh --full` once and stop without commit or deploy
+- [X] T029 After all preceding validation is clean, run `infra/scripts/ci-local.sh --full` once and stop without commit or deploy
 
 ## Dependencies and execution order
 
