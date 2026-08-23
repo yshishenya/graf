@@ -895,8 +895,11 @@ SHA-256("GRAF-AUTO-INPUT\0v1" ||
 `AutoResolverResultV1` has exactly `schema_version=1`, `result=complete`,
 `auto_resolver_input_hash`, `reason_code_version=1`, `assessments` and
 `overflow_detected=false`. `assessments` contains exactly one
-`ProfileAssessmentV1` for every compatible profile, sorted by profile key.
-Missing, extra or duplicate profiles reject the call.
+`ProfileAssessmentV1` for every row in the policy's `all_policy_rows` set,
+sorted by profile key. `compatible_profile_keys` is the subset eligible for
+selection; assessments for policy rows outside that subset are still required
+and are excluded from ranking. Missing, extra or duplicate profiles reject the
+call.
 
 `ProfileAssessmentV1` has exactly `profile_key`, `fit_class`, `signals` and
 `contraindications`. `fit_class` is `strong`, `plausible`, `weak` or

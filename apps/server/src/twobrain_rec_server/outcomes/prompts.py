@@ -514,7 +514,6 @@ def _validate_base_config(
         ):
             raise ValueError("max_completion_tokens is invalid")
 
-
 def _validate_outcome_config(config: Mapping[str, object], *, judge: bool) -> None:
     version = config.get("config_contract_version")
     without_limit = version == (3 if judge else 2)

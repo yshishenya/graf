@@ -216,6 +216,23 @@ previously shipped payload before rollout.
   hash-only body.
 - Search Attributes/Memo contain bounded low-cardinality operational metadata only.
 - Full transcript remains in Temporal History per current constitution, but deterministic chunks must fit both per-payload and aggregate serialized History budgets.
+- The pinned transcript snapshot is carried by one closed
+  `TranscriptHistoryManifestV1` plus its plaintext chunk payloads. The manifest
+  has exactly `schema_version=1`, `candidate_id`, `source_result_id`,
+  `snapshot_hash`, `transcript_bytes`, `chunk_count`,
+  `chunk_byte_limit`, `serialized_payload_byte_limit`, ordered
+  `chunk_descriptors` and `chunk_descriptors_hash`. Descriptors are exactly
+  `(chunk_index, chunk_count, chunk_byte_length, chunk_hash)` for every index
+  `0..chunk_count-1`; each history chunk repeats the immutable candidate/source/
+  snapshot identity and index/count, and its plaintext bytes/hash must equal
+  the descriptor. `snapshot_hash` is SHA-256 over the concatenation of the
+  ordered chunk UTF-8 bytes, and
+  `chunk_descriptors_hash = SHA-256("GRAF-TRANSCRIPT-CHUNKS\0v1" ||
+  uint64be(canonical_descriptor_array_byte_length) ||
+  canonical_json(chunk_descriptors))`. The workflow rejects missing, duplicate,
+  reordered, overlapping, gapped, oversized or hash-mismatched chunks before
+  any model phase; the manifest and reassembled bytes are retained in History
+  and are never represented by Search Attributes or Memo.
 - Concurrent type generations for the same source/extraction bundle share one
   canonical-generation identity; profile fan-out cannot duplicate transcript
   extraction.

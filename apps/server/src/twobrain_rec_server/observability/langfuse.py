@@ -426,5 +426,5 @@ def _float_mapping(value: Mapping[str, object] | None) -> dict[str, float]:
 def _model_parameters(request: object) -> dict[str, str | int | float | bool | list[str] | None]:
     if not isinstance(request, Mapping):
         return {}
-    allowed = {"temperature", "max_completion_tokens"}
+    allowed = {"temperature"}
     return {key: value for key, value in request.items() if key in allowed}  # type: ignore[return-value]

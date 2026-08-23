@@ -708,17 +708,19 @@ implementation-owner text or aggregate profile tests cannot add or waive a cell.
 Every model request is a closed body consisting of the common fields below plus
 exactly the phase payload named in the following table. "Plus" here is a schema
 composition operation at build time: the emitted JSON is one flat object and
-unknown or duplicate keys fail.
+unknown or duplicate keys fail. The execution authority is a closed union: a
+production request carries the complete `PromotedRootBindingV1` including its
+immutable `root_promotion_event_binding`; a candidate-evaluation request carries
+the complete `CandidateEvaluationAuthorityV1` plus its allowlisted run and arm.
+The candidate branch never carries, requires or fabricates a future promotion
+event.
 
 ```text
 schema_version = 1
 phase = exact closed phase
 attempt_id
 request_id
-root_bundle_numeric_version
-root_bundle_hash
-activation_manifest_hash
-root_promotion_event_hash
+execution_authority = one of the closed production/candidate authority unions
 gateway_route_binding_hash
 request_settings = complete RequestSettingsV1 body
 request_settings_hash
@@ -762,27 +764,28 @@ contains its own hash. The closed `type_key` domain is `extract`, `resolve`,
 match the request phase:
 
 ```text
-model_request_hash =
-  SHA-256("GRAF-MODEL-REQUEST\0v1\0" ||
-    uint16be(type_key_utf8_byte_length) || type_key_utf8 ||
-    uint64be(request_body_byte_length) || canonical_json(request_body))
+request_hash = SHA-256(
+  "GRAF-GENERATION-CALL\0request\0v1" ||
+  uint16be(phase_utf8_byte_length) || phase_utf8 ||
+  uint64be(logical_request_byte_length) || logical_request_canonical_json)
 
-model_result_hash =
-  SHA-256("GRAF-MODEL-RESULT\0v1\0" ||
-    uint16be(type_key_utf8_byte_length) || type_key_utf8 ||
-    uint64be(result_body_byte_length) || canonical_json(result_body))
+validated_result_hash = SHA-256(
+  "GRAF-GENERATION-CALL\0validated-result\0v1" ||
+  uint16be(phase_utf8_byte_length) || phase_utf8 ||
+  uint64be(validated_result_byte_length) || validated_result_canonical_json)
 ```
 
 GenerationCall persists both hashes, the actual provider/model and the echoed
-route binding, plus the exact `root_promotion_event_hash` from its request.
-Before compilation, GRAF loads the immutable `RootPromotionEventV1` body,
-recomputes that hash and verifies that the event binds the same qualification
-record, target root and successful read-back root as this request's exact
-`root_bundle_numeric_version`/`root_bundle_hash`. An absent, revoked,
-unqualified, mismatched or out-of-band root therefore fails before provider
-egress. Because the event hash is inside the closed request body and hence the
-domain-separated `model_request_hash`, a call under an unqualified root cannot
-produce a GenerationCall indistinguishable from one under the promoted root.
+route binding. For production, GRAF loads the complete immutable
+`root_promotion_event_binding`, recomputes it and verifies that the event binds
+the same qualification record, target root and successful read-back root as the
+request authority. An absent, revoked, unqualified, mismatched or out-of-band
+root therefore fails before provider egress. For candidate evaluation, the
+complete evaluation authority, selected arm and allowed run are re-fetched and
+rehashed instead; no promotion event is required. Because the selected
+authority is inside the closed request body and hence `request_hash`, a call
+under an unqualified or evaluation-only authority cannot produce a
+GenerationCall indistinguishable from one under the promoted root.
 A body/hash mismatch, phase/type mismatch, missing compiled
 binding, an `applicability=profile` clause in a canonical phase, or a payload field not legal for
 the exact request type fails before provider egress. This keeps canonical cache
@@ -2430,11 +2433,11 @@ receipt amendment, not hidden presentation work.
 `RendererInputV1` is a closed deterministic body, not a model request. It has
 exactly `schema_version=1`, `attempt_id`, `root_bundle_numeric_version`,
 `root_bundle_hash`, `activation_manifest_hash`,
-`root_promotion_event_hash`, `resolved_run_manifest_hash`,
+`root_promotion_event_binding`, `resolved_run_manifest_hash`,
 `gateway_route_binding_hash`,
 `renderer_version`, `renderer_hash`, `composite_profile_contract`,
-`composite_profile_contract_hash`, conditional Auto-only
-`canonical_kind_state_matrix`, `canonical_kind_state_matrix_hash`,
+`composite_profile_contract_hash`, `canonical_kind_state_matrix`,
+`canonical_kind_state_matrix_hash`,
 `auto_section_mapping_policy`, `auto_section_mapping_policy_hash`,
 `auto_presentation_profile_contract` and
 `auto_presentation_profile_contract_hash`, `controls`,
@@ -2447,10 +2450,11 @@ exactly `schema_version=1`, `attempt_id`, `root_bundle_numeric_version`,
 no other conditional shape is legal.
 
 The root, activation, route, composite and controls identities byte-equal their
-immutable attempt authorities. The renderer independently loads and rehashes
-the named `RootPromotionEventV1` and requires its target/read-back root to equal
-the renderer's root identity; it cannot rely on a current label or on model-call
-history. Resolved-run-manifest and publication-receipt schema synchronization
+immutable attempt authorities. The renderer independently fetches the complete
+immutable `root_promotion_event_binding`, rehashes the named
+`RootPromotionEventV1` and requires its target/read-back root to equal the
+renderer's root identity; it cannot rely on a bare digest, current label or
+model-call history. Resolved-run-manifest and publication-receipt schema synchronization
 of this identity is owned by their respective contract updates, but absence
 from either does not relax this renderer precondition.
 `compiled_clause_bindings` is the complete unique registry/profile closure for

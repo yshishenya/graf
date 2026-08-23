@@ -154,7 +154,11 @@ Feature 183 adds one pointer table only. It reuses `MeetingOutcomeSet`, `Meeting
   root-bound qualification/promotion records. Fresh reruns, not this statement,
   must close those findings.
 - Current GRAF browser audit used only synthetic fixtures. Installed Krisp black-box research used private records only in the local outside-git evidence directory; no private transcript/output or screenshot was added to git.
-- No implementation or repository test suite was run because this stage is planning-only.
+- The complete Feature 183 implementation matrix has not been run because 43
+  of 48 implementation tasks remain open. The current partial branch was
+  nevertheless rechecked independently: the valid focused PostgreSQL helper
+  and the fast repository gate results are recorded in the fresh recheck
+  section below.
 - The 2026-08-23 final prompt and Spec Kit reviewers initially returned NO-GO
   (`0/9/3/0` and `0/3/6/2` by CRITICAL/HIGH/MEDIUM/LOW). The documents were
   amended for mandatory semantic/omission gates, typed canonical relations,
@@ -172,6 +176,108 @@ Feature 183 adds one pointer table only. It reuses `MeetingOutcomeSet`, `Meeting
   dataset latest/versioned wording; the owner-controlled queue/evaluator/dataset
   manifests, stable observation names, numeric last-known-good-only runtime and
   read-back gates now make those platform behaviors explicit.
+
+## Fresh source and validation recheck — 2026-08-24
+
+- `git fetch origin master` resolved `origin/master` to `65d46da9`
+  (`v2026.08.24.5`). Feature 183 is based directly on that commit; `HEAD` is
+  `90fe2b6c`, and the branch contains five Feature 183 commits after master.
+  The active worktree is the separate
+  `183-trusted-outcome-lifecycle` worktree; the older
+  `181-meeting-summary-experience` worktree is not an evidence source for this
+  feature.
+- `.specify/scripts/bash/check-prerequisites.sh --json --require-tasks
+  --include-tasks` resolved `specs/183-trusted-outcome-lifecycle` and the
+  required task/supporting documents.
+- The valid focused PostgreSQL helper run passed **64 tests**. A direct pytest
+  invocation without the helper is not valid evidence: it passed the
+  environment-independent tests but produced setup errors because
+  `TWOBRAIN_DATABASE_URL` was intentionally absent.
+- `infra/scripts/ci-local.sh --fast` passed **1223 tests**. `git diff --check`
+  passed. These are current-branch regression signals, not proof that all 48
+  Feature 183 tasks are implemented.
+- The fresh runtime recheck found and fixed the previously recorded artificial
+  output caps: outcome/judge prompt configs no longer contain
+  `max_completion_tokens`, `PromptSnapshot.litellm_request()` does not send it,
+  Langfuse seed/observation metadata does not advertise it, and the optimizer
+  uses only its database-backed run budget for reservation accounting. The
+  focused prompt/gateway tests passed **20/21**; the remaining failure is the
+  environment's missing `langfuse.api.prompts` v4 SDK module, not an assertion
+  failure in the changed behavior.
+
+## Current implementation blockers
+
+The current code is intentionally not represented as a completed Feature 183
+or production-ready prompt runtime:
+
+- The artificial `4096/2048` caps are removed in the active working tree, but
+  the changed runtime has not yet been promoted or exercised through a real
+  `gpt-5.6-luna` LiteLLM/Langfuse/Temporal run. The missing v4 Langfuse SDK
+  module must be resolved in the authoritative project environment before that
+  contract test can be green.
+- Legacy meeting-global pointer and newest-row owners remain in the current
+  runtime, including cabinet API/egress/query/browser paths and the operational
+  reconciliation script. T035/T036/T043 still own the verifier, closed
+  allowlist and final cutover; no strict slot-only completion claim is valid
+  until those tasks pass.
+- No real LiteLLM, Langfuse or Temporal generation/evaluation was executed in
+  this recheck. No prompt was promoted and no production state was changed.
+- The current-source link recheck returned HTTP 200 for the cited OpenAI,
+  Langfuse, Temporal, MeetingBank, QMSum and GitHub sources after updating the
+  Temporal Worker Versioning URL to its current production-deployment path.
+  The Krisp Help URL remains access-restricted (HTTP 403); installed-app
+  black-box evidence remains the authoritative reference for the observable
+  UX claims and no Help-page claim is treated as verified.
+- The installed Krisp metadata recheck still found version `3.15.6` and the
+  recorded executable hash, but its current stable `app.asar` hash is
+  `d247c922e78ea432779aedc7d1e7378281f08aeec9452a37191cf9a3e24f3ec0`, while
+  the 2026-08-23 frame set was captured from the historical hash recorded in
+  `krisp-parity-matrix.md`. This does not invalidate the frame manifest, but a
+  future visual re-audit must bind new screenshots to the current package hash;
+  this metadata-only pass adds no new interaction claim.
+- A current read-only accessibility/screenshot spot-check of one authenticated
+  meeting-detail view was captured outside git and inspected. It confirms the
+  visible Notes/Transcript, Copy, RU, Share, Connect, reformat, timestamp,
+  feedback and assistant surfaces, but intentionally does not prove keyboard,
+  async, mutation or second-record behavior.
+
+## Independent follow-up contract audit — 2026-08-24
+
+The follow-up was run against `HEAD=90fe2b6c`, not the older subagent snapshot.
+The following findings were confirmed and corrected in the planning package:
+
+- `AutoSelectionPolicyV1` now records the recomputed digest
+  `99ca480ffa81e6085037a822bb29cc3a3c6533b9d57f1729fa6a87e4c94bdcb5`; the
+  canonical JSON body is 20,087 UTF-8 bytes and the profile-catalog digest and
+  all embedded profile/row digests independently recompute successfully.
+- Model request/result hashes now have one `GenerationCall` authority and one
+  phase-separated `GRAF-GENERATION-CALL` formula; the stale parallel
+  `GRAF-MODEL-*` family was removed from the pipeline wording.
+- Model execution authority is now an explicit production/candidate union:
+  production re-fetches a complete promoted-root/promotion-event binding,
+  candidate evaluation re-fetches its complete evaluation authority and does
+  not require a future promotion event.
+- `RendererInputV1` now carries the complete immutable promotion-event binding,
+  not a bare digest. The canonical kind/state matrix is required for every
+  renderer/content type; only the Auto mapping/profile bodies remain
+  conditional.
+- Auto resolver cardinality now explicitly requires the policy's complete
+  `all_policy_rows` assessment set while ranking only the compatible subset.
+- Summary state updates now have a monotonic per-meeting/type `state_version`,
+  opaque `event_id`, ETag/304 behavior and gap-triggered same-type refetch;
+  Temporal transcript delivery now has a closed chunk manifest, descriptor
+  hashes and complete reassembly/ordering/size checks.
+
+The consistency pass also confirms 26 FR, 5 NFR, 12 SC and 48 task IDs with all
+requirements mentioned by tasks; no unresolved placeholder markers were found.
+These are documentation/contract corrections only. No runtime path, provider
+call, Langfuse object, Temporal workflow or production state was changed.
+
+The planned `validation/focused.md`, `validation/regression.md`,
+`validation/privacy.md` and `validation/closeout.md` artifacts remain absent
+until their implementation-owned tasks run. Creating them now from the
+current regression signals would falsely imply that T041–T045 and T043 are
+complete.
 
 ## Gates before implementation or release
 
