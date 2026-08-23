@@ -37,7 +37,6 @@ def test_outcome_prompt_config_is_closed_and_projected_explicitly() -> None:
         "model",
         "messages",
         "temperature",
-        "max_completion_tokens",
         "response_format",
     }
     assert snapshot.model == "gpt-5.6-luna"
@@ -108,7 +107,6 @@ def test_reflection_and_judges_have_separate_closed_contracts() -> None:
             "config_contract_version": 1,
             "model": "gpt-5.6-luna",
             "temperature": 1,
-            "max_completion_tokens": 4096,
         },
     )
     assert snapshot.prompt_type == "text"

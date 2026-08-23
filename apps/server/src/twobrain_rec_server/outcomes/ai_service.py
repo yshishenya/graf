@@ -1005,7 +1005,6 @@ async def resolve_candidate_prompt(
         attempt.model_route = snapshot.model
         attempt.model_parameters = {
             "temperature": snapshot.config["temperature"],
-            "max_completion_tokens": snapshot.config["max_completion_tokens"],
             "response_format": snapshot.config["response_format"],
         }
         attempt.generator_config_hash = _ai_generator_config_hash(
@@ -2657,7 +2656,6 @@ def _ai_generator_config_hash(
                 output_schema_version = str(json_schema.get("name") or "")
             model_parameters = {
                 "temperature": snapshot.config.get("temperature"),
-                "max_completion_tokens": snapshot.config.get("max_completion_tokens"),
                 "response_format": response_format,
             }
     return _content_hash(

@@ -207,7 +207,7 @@ auto_selection_policy_hash =
 ```
 
 The adjacent `auto_selection_policy_hash` is
-`f0713071d0ce355d435d2ba02d974763cf9004779e08d19dc328e55b2b9c6238`. The row ledger below is a
+`99ca480ffa81e6085037a822bb29cc3a3c6533b9d57f1729fa6a87e4c94bdcb5`. The row ledger below is a
 derived conformance vector, not a second policy authority:
 
 | Profile key | `auto_policy_row_hash` |

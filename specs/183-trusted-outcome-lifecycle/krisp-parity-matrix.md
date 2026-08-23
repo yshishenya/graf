@@ -60,6 +60,37 @@ binaries, private APIs/protocols, secrets and private content remain prohibited.
   pixels contain private meeting/contact data. No meeting title, participant,
   transcript or account identifier is copied into git.
 
+### Current installed-package metadata recheck — 2026-08-24
+
+- The installed bundle still reports `ai.krisp.krispMac` version `3.15.6` and
+  the executable SHA-256 remains
+  `eb5227e047bd78d9a3416a9d71c5def728f17f2fcfe8fb8c40c351423e441147`.
+- The current stable `Contents/Resources/app.asar` SHA-256 is
+  `d247c922e78ea432779aedc7d1e7378281f08aeec9452a37191cf9a3e24f3ec0`.
+  The earlier `0afb19b7fd7dc0a21a68837724f8872222107f3f2e474af610af43071ff60003`
+  value remains the hash of the 2026-08-23 captured package and is not
+  silently reclassified as the current package.
+- This is a metadata/integrity recheck only: it does not change the
+  2026-08-23 frame manifests or their stated claim limits. The separate
+  current spot-check below is intentionally not part of those manifests and
+  records only the visible state it actually captured.
+
+### Current installed-app spot-check — 2026-08-24
+
+- One authenticated meeting-detail screen was read through the macOS
+  accessibility tree and saved outside git as the opaque evidence file
+  `krisp-current-notes-2026-08-24.jpeg`.
+- The screen visibly exposes the split `AI Notes`/`Transcript` control, exact
+  revision `Copy`, transcript-language `RU`, persistent `Share` and `Connect`
+  header actions, the reformat banner, timestamped action items, `Key Points`,
+  section feedback and the `Ask anything...` assistant host. The accessibility
+  tree also exposed the action-item timestamp links and `Due date` controls.
+- Evidence SHA-256:
+  `1772bfb7a6fe6e5d9a74d566856d16815e20bcd33a2ac63bf1ff21d54d8923d4`.
+  The screenshot contains private meeting content and remains outside git;
+  this spot-check does not claim keyboard, async, mutation or second-record
+  behavior.
+
 ### Opaque 14-image manifest
 
 `KRP-183-01`–`KRP-183-14` map one-to-one to the bundle's numeric capture order.

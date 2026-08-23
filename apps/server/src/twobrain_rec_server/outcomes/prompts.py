@@ -27,7 +27,6 @@ OUTCOME_CONFIG_KEYS: Final = {
     "config_contract_version",
     "model",
     "temperature",
-    "max_completion_tokens",
     "response_format",
 }
 REFLECTION_CONFIG_KEYS: Final = OUTCOME_CONFIG_KEYS - {"response_format"}
@@ -135,7 +134,6 @@ def outcome_config(*, schema_name: str, model: str = "gpt-5.6-luna") -> dict[str
         "config_contract_version": 1,
         "model": model,
         "temperature": 1,
-        "max_completion_tokens": 4096,
         "response_format": {
             "type": "json_schema",
             "json_schema": {"name": schema_name, "strict": True, "schema": outcome_schema()},
@@ -147,7 +145,6 @@ def judge_config(*, schema_name: str, model: str = "gpt-5.6-luna") -> dict[str, 
     config = outcome_config(schema_name=schema_name, model=model)
     config["config_contract_version"] = 2
     config["temperature"] = 1
-    config["max_completion_tokens"] = 2048
     config["response_format"] = {
         "type": "json_schema",
         "json_schema": {"name": schema_name, "strict": True, "schema": judge_schema()},
@@ -174,7 +171,6 @@ class PromptSnapshot:
             "model": self.model,
             "messages": [dict(message) for message in messages],
             "temperature": self.config["temperature"],
-            "max_completion_tokens": self.config["max_completion_tokens"],
         }
         if "response_format" in self.config:
             request["response_format"] = self.config["response_format"]
@@ -489,7 +485,6 @@ def _validate_base_config(
         raise ValueError(f"prompt config does not match {contract_label}")
     model = config.get("model")
     temperature = config.get("temperature")
-    max_tokens = config.get("max_completion_tokens")
     if not isinstance(model, str) or not ALLOWED_MODEL_RE.fullmatch(model):
         raise ValueError("model route is invalid")
     if (
@@ -498,13 +493,6 @@ def _validate_base_config(
         or not 0 <= temperature <= 2
     ):
         raise ValueError("temperature is invalid")
-    if (
-        isinstance(max_tokens, bool)
-        or not isinstance(max_tokens, int)
-        or not 1 <= max_tokens <= 8192
-    ):
-        raise ValueError("max_completion_tokens is invalid")
-
 
 def _validate_outcome_config(config: Mapping[str, object], *, judge: bool) -> None:
     _validate_base_config(
@@ -532,7 +520,7 @@ def _validate_outcome_config(config: Mapping[str, object], *, judge: bool) -> No
         raise ValueError("response schema does not match the closed contract v1")
     if judge:
         expected_temperature = 0 if config["config_contract_version"] == 1 else 1
-        if config["temperature"] != expected_temperature or config["max_completion_tokens"] != 2048:
+        if config["temperature"] != expected_temperature:
             raise ValueError("judge settings do not match the config contract")
 
 

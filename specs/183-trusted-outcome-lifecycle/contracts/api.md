@@ -191,6 +191,21 @@ Response keeps current result, source freshness and attempt status separate. A s
 
 Every response/event carries `meeting_id`, `template_key`, `current_outcome_set_id` and bounded `attempt_id`. A valid event may update the cached availability/status for its own type even when that type is not visible. It may repaint visible content, move the selector or update the remembered successful type only when meeting, selected type and the latest client-owned presentation-intent version still match. An event for type A can never repaint type B, and a stale event cannot override newer navigation or selection intent.
 
+The summary snapshot and every summary state event additionally carry a positive
+`state_version` scoped to `(meeting_id, template_key)`. The version starts at 1
+for the first durable slot/attempt state and increments exactly once for each
+committed client-visible state transition; it is never derived from wall-clock
+time or an attempt ID. A summary event has exactly one opaque non-zero
+`event_id`, `schema_version=1`, the meeting/type/attempt identity above, the
+`state_version`, current result/generation/source/catalog state and the bounded
+capability/error fields. The server sends
+`ETag: "sum-{meeting_id}-{template_key}-v{state_version}"` with a private
+no-store response; `If-None-Match` may return `304` without content. The client
+ignores an event with `state_version <= cached_state_version`, and a detected
+gap (`state_version > cached_state_version + 1`) triggers one authoritative
+read before applying later events. Refetch is scoped to the same meeting/type
+and cannot repaint another active tab.
+
 ## Regenerate transcript in the selected language (Feature 197)
 
 `POST /cabinet/meetings/{meeting_id}/transcript/regenerate`

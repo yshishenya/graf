@@ -345,7 +345,8 @@ current result; fail receipt не создаётся.
 duration and kind counts. `AutoResolverInputV1` supplies one complete bounded
 canonical profile view (IDs, kind/state/text, typed relations and trusted roles;
 no raw transcript). `AutoResolverResultV1` returns one strict evidence-backed
-assessment for every compatible profile. A versioned deterministic policy alone
+assessment for every row in the policy's complete `all_policy_rows` set; only
+the compatible subset participates in ranking. A versioned deterministic policy alone
 computes primary, optional compatible secondary and confidence, with stronger
 eligibility for high-stakes profiles and conservative `general_summary` on ties,
 insufficient evidence or a full view that does not fit the proven route
@@ -412,7 +413,7 @@ production rule.
 - [Langfuse error analysis](https://langfuse.com/guides/cookbook/error-analysis-llm-applications)
 - [Langfuse judge calibration](https://langfuse.com/guides/llm-as-a-judge-calibration-skill)
 - [Temporal Task Queue priority and fairness](https://docs.temporal.io/develop/task-queue-priority-fairness)
-- [Temporal Worker Versioning](https://docs.temporal.io/develop/worker-versioning)
+- [Temporal Worker Versioning](https://docs.temporal.io/production-deployment/worker-deployments/worker-versioning)
 - [Temporal Worker Deployments](https://docs.temporal.io/production-deployment/worker-deployments)
 - [MeetingBank](https://arxiv.org/abs/2305.17529)
 - [QMSum](https://arxiv.org/abs/2104.05938)
