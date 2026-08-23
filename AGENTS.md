@@ -27,7 +27,8 @@ Read the guidance index first, then only the file for the task:
 
 - `codex-worktrees.md` — project root and worktree source of truth.
 - `spec-kit-flow.md` — risk lanes and Spec Kit sequence.
-- `product-gates.md` — capture, privacy, AI, deletion, and clean-room gates.
+- `product-gates.md` — capture, privacy, AI, deletion, reference-fidelity and
+  third-party provenance gates.
 - `tracker-policy.md` and `github-issue-canon.md` — tasks and GitHub issues.
 - `release-and-validation.md` — CI, deployment, release, and evidence.
 - `macos-notarization.md` — Developer ID, notarization, stapling, and Sparkle.
@@ -74,7 +75,9 @@ deployment, or user-facing workflow, read the constitution, product baseline,
 current status, and `product-gates.md` before editing. Keep the MVP
 system-audio-first, preserve visible manual capture controls, never put
 MediaScribe credentials in the desktop app, and keep deletion copy within GRAF's
-control. UI must pass clean-room and brand-distance review.
+control. UI may faithfully reproduce the approved Krisp UX/UI/IA reference, but
+must pass accessibility, reference-fidelity, independent-implementation and
+third-party asset-provenance review.
 
 ## Validation and release
 

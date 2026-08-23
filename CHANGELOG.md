@@ -1068,7 +1068,10 @@
 - _Пока нет записей._
 
 ### Изменено
-- _Пока нет записей._
+- Конституция обновлена до `5.0.0`: для Feature 196 разрешено буквальное
+  воспроизведение наблюдаемого UX/UI/IA Krisp. Обязательная искусственная
+  brand-distance отменена; независимая реализация, accessibility, правдивые
+  состояния продукта и права на сторонние ассеты/фразы остаются release gates.
 
 ### Исправлено
 - _Пока нет записей._
@@ -1077,7 +1080,13 @@
 - _Пока нет записей._
 
 ### Документы
-- _Пока нет записей._
+- Повторно сверены Feature 183 и программа итогов встреч: Krisp parity,
+  prompt pipeline, типы итогов, Langfuse/Temporal и quality/evaluation path;
+  добавлены строгий Auto input/result/selection contract, non-cyclic
+  qualification/promotion-event binding и полная propagation authority без
+  искусственного лимита 4048/4096. Ранний schema-invalid checksum-драфт
+  receipt-векторов удалён: положительные P1–P4/full-matrix векторы и первый
+  receipt-backed publish принадлежат Feature 195.
 
 ### Операции
 - _Пока нет записей._
