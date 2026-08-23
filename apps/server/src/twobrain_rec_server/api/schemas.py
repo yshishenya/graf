@@ -464,6 +464,7 @@ class MeetingTargetNonTargetRule(BaseModel):
 class AssistedAutoStartPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
+    scope: Literal["workspace", "all_workspaces"] = "workspace"
     policy_ref: str = Field(alias="policyRef", pattern=r"^sha256:[0-9a-f]{64}$")
     acknowledgement_subject_ref: str = Field(
         alias="acknowledgementSubjectRef",

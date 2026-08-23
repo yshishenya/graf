@@ -323,6 +323,15 @@ public struct MeetingTargetRegistryTarget: Codable, Equatable, Sendable {
     public let browserServicePatterns: [MeetingTargetBrowserServicePattern]
     public let comments: String?
 
+    public var isVerifiedNativePromptTarget: Bool {
+        platform == .macos &&
+            targetFamily == .nativeApp &&
+            mode == .promptEnabled &&
+            !nativeBundleIds.isEmpty &&
+            evidence != .verifyRequired &&
+            evidence != .futureWindows
+    }
+
     public init(
         id: String,
         displayName: String,
@@ -386,7 +395,13 @@ public struct MeetingTargetRegistryTarget: Codable, Equatable, Sendable {
     }
 }
 
+public enum AssistedAutoStartPolicyScope: String, Codable, Equatable, Sendable {
+    case workspace
+    case allWorkspaces = "all_workspaces"
+}
+
 public struct AssistedAutoStartPolicySnapshot: Codable, Equatable, Sendable {
+    public let scope: AssistedAutoStartPolicyScope
     public let policyRef: String
     public let acknowledgementSubjectRef: String
     public let deviceRef: String
@@ -398,6 +413,7 @@ public struct AssistedAutoStartPolicySnapshot: Codable, Equatable, Sendable {
     public let noticeMode: String
 
     public init(
+        scope: AssistedAutoStartPolicyScope = .workspace,
         policyRef: String,
         acknowledgementSubjectRef: String,
         deviceRef: String,
@@ -408,6 +424,7 @@ public struct AssistedAutoStartPolicySnapshot: Codable, Equatable, Sendable {
         expiresAt: Date,
         noticeMode: String = "internal_no_participant_notice"
     ) {
+        self.scope = scope
         self.policyRef = policyRef
         self.acknowledgementSubjectRef = acknowledgementSubjectRef
         self.deviceRef = deviceRef
@@ -417,6 +434,33 @@ public struct AssistedAutoStartPolicySnapshot: Codable, Equatable, Sendable {
         self.issuedAt = issuedAt
         self.expiresAt = expiresAt
         self.noticeMode = noticeMode
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case scope
+        case policyRef
+        case acknowledgementSubjectRef
+        case deviceRef
+        case policyVersion
+        case acknowledgementVersion
+        case enabled
+        case issuedAt
+        case expiresAt
+        case noticeMode
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        scope = try container.decodeIfPresent(AssistedAutoStartPolicyScope.self, forKey: .scope) ?? .workspace
+        policyRef = try container.decode(String.self, forKey: .policyRef)
+        acknowledgementSubjectRef = try container.decode(String.self, forKey: .acknowledgementSubjectRef)
+        deviceRef = try container.decode(String.self, forKey: .deviceRef)
+        policyVersion = try container.decode(String.self, forKey: .policyVersion)
+        acknowledgementVersion = try container.decode(String.self, forKey: .acknowledgementVersion)
+        enabled = try container.decode(Bool.self, forKey: .enabled)
+        issuedAt = try container.decode(Date.self, forKey: .issuedAt)
+        expiresAt = try container.decode(Date.self, forKey: .expiresAt)
+        noticeMode = try container.decode(String.self, forKey: .noticeMode)
     }
 
     public func isActive(at now: Date = Date()) -> Bool {
@@ -481,9 +525,11 @@ public struct MeetingDetectionCountdown: Equatable, Sendable {
 
     public mutating func resolveStart(
         reason: MeetingDetectionStartReason,
-        at now: Date
+        at now: Date,
+        startIsTemporarilyDisabled: Bool = false
     ) -> MeetingDetectionStartReason? {
         guard !isResolved else { return nil }
+        guard reason == .promptTimeout || !startIsTemporarilyDisabled else { return nil }
         if reason == .promptTimeout,
            now.timeIntervalSince(startedAt) < duration {
             return nil

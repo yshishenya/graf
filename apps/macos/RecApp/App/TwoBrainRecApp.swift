@@ -181,6 +181,11 @@ private struct ContentView: View {
     @State private var meetingDetectionSettings = MeetingDetectionSettings()
     @State private var meetingDetectionRegistryStore: MeetingTargetRegistryStore?
     @State private var meetingDetectionRegistry: MeetingTargetRegistryDocument?
+    @State private var meetingDetectionRegistryRequiresRemoteRefresh = false
+    @State private var meetingDetectionRegistryAuthRejected = false
+    @State private var meetingDetectionRegistryRefreshRevision = 0
+    @State private var meetingDetectionRegistryRefreshInProgress = false
+    @State private var meetingDetectionRegistryRefreshFollowUpRequested = false
     @State private var meetingDetectionDetector = MacOSMeetingActivityDetector()
     @State private var meetingDetectionRollupStore = MeetingDetectionTelemetryRollupStore()
     @State private var meetingDetectionTelemetryUploader: MeetingDetectionTelemetryUploader?
@@ -402,6 +407,20 @@ private struct ContentView: View {
                 await refreshMeetingDetectionRegistry(reason: "periodic_registry_refresh")
             }
         }
+        .task(id: meetingDetectionRegistryRequiresRemoteRefresh) {
+            guard meetingDetectionRegistryRequiresRemoteRefresh else { return }
+            var delayNanoseconds: UInt64 = 2_000_000_000
+            while !Task.isCancelled, meetingDetectionRegistryRequiresRemoteRefresh {
+                do {
+                    try await Task.sleep(nanoseconds: delayNanoseconds)
+                } catch {
+                    return
+                }
+                guard meetingDetectionRegistryRequiresRemoteRefresh else { return }
+                await refreshMeetingDetectionRegistry(reason: "auth_session_refresh_retry")
+                delayNanoseconds = min(delayNanoseconds * 2, 60_000_000_000)
+            }
+        }
         .task(id: localRecordingActive) {
             guard localRecordingActive else { return }
             while !Task.isCancelled {
@@ -424,6 +443,7 @@ private struct ContentView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecDesktopAuthSessionDidChange)) { _ in
+            invalidateMeetingDetectionRegistryForAuthChange()
             refreshUploadQueueAndProcess(reason: "desktop_auth_session_changed")
             Task { await refreshCalendarReminder(reason: "desktop_auth_session_changed") }
             Task { await refreshMeetingDetectionRegistry(reason: "desktop_auth_session_changed") }
@@ -448,6 +468,7 @@ private struct ContentView: View {
             Task { await refreshCalendarReminder(reason: "system_wake") }
             Task { await refreshMeetingDetectionRegistry(reason: "system_wake") }
             Task { await uploadMeetingDetectionTelemetry(reason: "system_wake") }
+            restartMeetingDetectionObservation(reason: "system_wake")
         }
         .onDisappear {
             guard !terminationCleanupInProgress else { return }
@@ -757,9 +778,44 @@ private struct ContentView: View {
 
         let logStream = MacOSAudioOwnershipLogStream()
         meetingDetectionLogStream = logStream
-        meetingDetectionTask = Task {
-            for await event in logStream.events() {
-                await handleMeetingDetectionAudioOwnershipEvent(event)
+        meetingDetectionTask = Task { @MainActor in
+            for await observation in logStream.observations() {
+                switch observation {
+                case .reconcile(let generation):
+                    meetingDetectionDetector.reset()
+                    dismissMeetingDetectionPrompt()
+                    AppLog.writeRaw(
+                        event: "meeting_detection.observer_reconcile",
+                        detail: "generation=\(generation)"
+                    )
+                case .snapshot(let events, let generation):
+                    for event in events {
+                        AppLog.writeRaw(
+                            event: "meeting_detection.source_transition",
+                            detail: "source=\(event.source.rawValue) bundleID=\(event.bundleID) state=\(event.state.rawValue) snapshot=true"
+                        )
+                        meetingDetectionDetector.reconcile(event: event)
+                    }
+                    AppLog.writeRaw(
+                        event: "meeting_detection.snapshot_reconciled",
+                        detail: "generation=\(generation) activeCount=\(events.count)"
+                    )
+                    await advanceMeetingDetection(reason: "snapshot_reconciled")
+                case .lifecycle(let phase, let generation):
+                    if phase == .unexpectedFinish {
+                        meetingDetectionDetector.reset()
+                        dismissMeetingDetectionPrompt()
+                    }
+                    AppLog.writeRaw(
+                        event: "meeting_detection.observer_lifecycle",
+                        detail: "generation=\(generation) phase=\(phase.rawValue)"
+                    )
+                case .ownership(let event):
+                    await handleMeetingDetectionAudioOwnershipEvent(event)
+                }
+            }
+            if !Task.isCancelled {
+                meetingDetectionTask = nil
             }
         }
         meetingDetectionAdvanceTask = Task {
@@ -783,6 +839,22 @@ private struct ContentView: View {
         meetingDetectionTask = nil
         meetingDetectionLogStream?.stop()
         meetingDetectionLogStream = nil
+        meetingDetectionDetector.reset()
+        AppLog.writeRaw(event: "meeting_detection.stopped", detail: "reason=deliberate_stop")
+    }
+
+    @MainActor
+    private func restartMeetingDetectionObservation(reason: String) {
+        guard let meetingDetectionLogStream else {
+            startMeetingDetectionIfNeeded()
+            return
+        }
+        dismissMeetingDetectionPrompt()
+        meetingDetectionLogStream.restart()
+        AppLog.writeRaw(
+            event: "meeting_detection.observer_restart_requested",
+            detail: "reason=\(reason)"
+        )
     }
 
     private func buildMeetingDetectionRegistryStore() -> MeetingTargetRegistryStore {
@@ -790,7 +862,12 @@ private struct ContentView: View {
     }
 
     @MainActor
-    private func resolveMeetingDetectionRegistry(remoteData: Data?, remoteETag: String?) throws {
+    private func resolveMeetingDetectionRegistry(
+        remoteData: Data?,
+        remoteETag: String?,
+        requireRemote: Bool = false
+    ) throws {
+        let registryWasUnavailable = meetingDetectionRegistry == nil
         let store: MeetingTargetRegistryStore
         if let existing = meetingDetectionRegistryStore {
             store = existing
@@ -799,12 +876,50 @@ private struct ContentView: View {
             meetingDetectionRegistryStore = store
         }
         let resolution = try store.resolve(remoteData: remoteData, remoteETag: remoteETag)
+        guard !requireRemote || resolution.source == .remote else {
+            throw MeetingTargetRegistryError.noUsableRegistry
+        }
         meetingDetectionRegistry = resolution.document
+        let defaultTargetIDs = Set(
+            resolution.document.targets
+                .filter(\.isVerifiedNativePromptTarget)
+                .map(\.id)
+        )
+        if let updatedSettings = try meetingDetectionSettingsStore.applyFirstInstallDefaults(
+            targetIDs: defaultTargetIDs
+        ) {
+            meetingDetectionSettings = updatedSettings
+            NotificationCenter.default.post(
+                name: .twoBrainRecMeetingDetectionSettingsDidChange,
+                object: nil
+            )
+            AppLog.writeRaw(
+                event: "meeting_detection.first_install_defaults_applied",
+                detail: "targetCount=\(defaultTargetIDs.count)"
+            )
+        }
         AppLog.writeRaw(
             event: "meeting_detection.registry_resolved",
             detail: "version=\(resolution.document.registryVersion) source=\(resolution.source.rawValue)"
         )
         NotificationCenter.default.post(name: .twoBrainRecMeetingTargetRegistryDidChange, object: nil)
+        if registryWasUnavailable, meetingDetectionLogStream != nil {
+            restartMeetingDetectionObservation(reason: "registry_recovered")
+        }
+    }
+
+    @MainActor
+    private func invalidateMeetingDetectionRegistryForAuthChange() {
+        meetingDetectionRegistryRefreshRevision &+= 1
+        meetingDetectionRegistryRequiresRemoteRefresh = true
+        meetingDetectionRegistryAuthRejected = false
+        meetingDetectionRegistry = nil
+        dismissMeetingDetectionPrompt()
+        meetingDetectionStatus = meetingDetectionStatusText()
+        AppLog.writeRaw(
+            event: "meeting_detection.registry_auth_invalidated",
+            detail: "reason=native_auth_session_changed"
+        )
     }
 
     @MainActor
@@ -824,6 +939,20 @@ private struct ContentView: View {
 
     @MainActor
     private func refreshMeetingDetectionRegistry(reason: String) async {
+        guard !meetingDetectionRegistryRefreshInProgress else {
+            meetingDetectionRegistryRefreshFollowUpRequested = true
+            return
+        }
+        meetingDetectionRegistryRefreshInProgress = true
+        defer {
+            meetingDetectionRegistryRefreshInProgress = false
+            if meetingDetectionRegistryRefreshFollowUpRequested {
+                meetingDetectionRegistryRefreshFollowUpRequested = false
+                Task { await refreshMeetingDetectionRegistry(reason: "coalesced_follow_up") }
+            }
+        }
+        meetingDetectionRegistryRefreshRevision &+= 1
+        let refreshRevision = meetingDetectionRegistryRefreshRevision
         guard let client = DesktopUploadClient.configuredFromEnvironment() else {
             meetingDetectionStatus = meetingDetectionStatusText()
             return
@@ -831,18 +960,49 @@ private struct ContentView: View {
         do {
             let etag = meetingDetectionRegistry?.etag
             let fetched = try await client.fetchMeetingDetectionTargetRegistry(ifNoneMatch: etag)
+            guard refreshRevision == meetingDetectionRegistryRefreshRevision else {
+                AppLog.writeRaw(
+                    event: "meeting_detection.registry_refresh_ignored",
+                    detail: "reason=stale_request"
+                )
+                return
+            }
             if let registry = fetched.registry {
                 let data = try MeetingDetectionCoding.encoder().encode(registry)
-                try resolveMeetingDetectionRegistry(remoteData: data, remoteETag: fetched.etag)
+                try resolveMeetingDetectionRegistry(
+                    remoteData: data,
+                    remoteETag: fetched.etag,
+                    requireRemote: meetingDetectionRegistryRequiresRemoteRefresh
+                )
             }
+            meetingDetectionRegistryRequiresRemoteRefresh = false
+            meetingDetectionRegistryAuthRejected = false
             meetingDetectionStatus = meetingDetectionStatusText()
         } catch let refreshError {
+            guard refreshRevision == meetingDetectionRegistryRefreshRevision else {
+                AppLog.writeRaw(
+                    event: "meeting_detection.registry_refresh_ignored",
+                    detail: "reason=stale_request"
+                )
+                return
+            }
             var fallbackErrorCode: String?
-            do {
-                try resolveMeetingDetectionRegistry(remoteData: nil, remoteETag: nil)
-            } catch let fallbackError {
-                fallbackErrorCode = safeMeetingDetectionRegistryRefreshErrorCode(fallbackError)
+            let authFailure = meetingDetectionRegistryRefreshIsAuthFailure(refreshError)
+            if meetingDetectionRegistryRequiresRemoteRefresh ||
+                meetingDetectionRegistryAuthRejected ||
+                authFailure {
+                meetingDetectionRegistryRequiresRemoteRefresh = !authFailure &&
+                    !meetingDetectionRegistryAuthRejected
+                meetingDetectionRegistryAuthRejected = meetingDetectionRegistryAuthRejected || authFailure
                 meetingDetectionRegistry = nil
+                dismissMeetingDetectionPrompt()
+            } else {
+                do {
+                    try resolveMeetingDetectionRegistry(remoteData: nil, remoteETag: nil)
+                } catch let fallbackError {
+                    fallbackErrorCode = safeMeetingDetectionRegistryRefreshErrorCode(fallbackError)
+                    meetingDetectionRegistry = nil
+                }
             }
             meetingDetectionStatus = meetingDetectionStatusText()
             let fallbackDetail = fallbackErrorCode.map { " fallback=\($0)" } ?? ""
@@ -851,6 +1011,11 @@ private struct ContentView: View {
                 detail: "reason=\(reason) error=\(safeMeetingDetectionRegistryRefreshErrorCode(refreshError))\(fallbackDetail)"
             )
         }
+    }
+
+    private func meetingDetectionRegistryRefreshIsAuthFailure(_ error: Error) -> Bool {
+        guard case DesktopUploadClientError.httpStatus(let status, _) = error else { return false }
+        return status == 401 || status == 403
     }
 
     private func safeMeetingDetectionRegistryRefreshErrorCode(_ error: Error) -> String {
@@ -895,12 +1060,17 @@ private struct ContentView: View {
 
     @MainActor
     private func handleMeetingDetectionAudioOwnershipEvent(_ event: MacOSAudioOwnershipEvent) async {
+        AppLog.writeRaw(
+            event: "meeting_detection.source_transition",
+            detail: "source=\(event.source.rawValue) bundleID=\(event.bundleID) state=\(event.state.rawValue)"
+        )
         guard let registry = meetingDetectionRegistry else { return }
         let outputs = meetingDetectionDetector.handle(
             event: event,
             registry: registry,
             settings: meetingDetectionSettings,
-            prerequisites: meetingDetectionPrerequisites()
+            prerequisites: meetingDetectionPrerequisites(),
+            assistedAutoStartAuthorized: meetingDetectionWorkspacePolicyAllowsRecording
         )
         processMeetingDetectionOutputs(outputs, registry: registry)
         await advanceMeetingDetection(reason: "mic_event")
@@ -912,7 +1082,8 @@ private struct ContentView: View {
         let outputs = meetingDetectionDetector.advance(
             registry: registry,
             settings: meetingDetectionSettings,
-            prerequisites: meetingDetectionPrerequisites()
+            prerequisites: meetingDetectionPrerequisites(),
+            assistedAutoStartAuthorized: meetingDetectionWorkspacePolicyAllowsRecording
         )
         processMeetingDetectionOutputs(outputs, registry: registry)
     }
@@ -926,11 +1097,21 @@ private struct ContentView: View {
         for output in outputs {
             switch output {
             case .promptEligible(let targetID, let bundleID):
+                AppLog.writeRaw(
+                    event: "meeting_detection.detector_offer",
+                    detail: "kind=prompt targetId=\(targetID) bundleID=\(bundleID)"
+                )
                 guard !didHandleRecordingTrigger,
                       meetingDetectionPrompt == nil,
                       !meetingDetectionTriggerInProgress,
                       !calendarPromptRecordingIsActive
-                else { continue }
+                else {
+                    recordMeetingDetectionConsumerOutcome(
+                        bundleID: bundleID,
+                        outcome: .retryable(reason: "consumer_busy")
+                    )
+                    continue
+                }
                 didHandleRecordingTrigger = true
                 let displayName = registry.targets.first { $0.id == targetID }?.displayName ?? bundleID
                 let prerequisites = meetingDetectionPrerequisites()
@@ -941,17 +1122,29 @@ private struct ContentView: View {
                     captureMode: "Режим: аудиозапись встречи",
                     captureSources: "Источники: системный звук и микрофон",
                     workspacePolicyState: meetingDetectionPolicyStateText(for: prerequisites),
-                    detectorReason: "Сигнал: приложение использует аудио встречи"
+                    detectorReason: "Сигнал: приложение использует аудио встречи",
+                    allowsAutomaticStart: meetingDetectionWorkspacePolicyAllowsRecording
                 )
                 meetingDetectionPrompt = prompt
                 presentMeetingDetectionPrompt(prompt)
+                recordMeetingDetectionConsumerOutcome(bundleID: bundleID, outcome: .accepted)
                 meetingDetectionStatus = "Найдена встреча: \(displayName)"
             case .autoRecordEligible(let targetID, let bundleID):
+                AppLog.writeRaw(
+                    event: "meeting_detection.detector_offer",
+                    detail: "kind=auto_record targetId=\(targetID) bundleID=\(bundleID)"
+                )
                 guard !didHandleRecordingTrigger,
                       meetingDetectionPrompt == nil,
                       !meetingDetectionTriggerInProgress,
                       !calendarPromptRecordingIsActive
-                else { continue }
+                else {
+                    recordMeetingDetectionConsumerOutcome(
+                        bundleID: bundleID,
+                        outcome: .retryable(reason: "consumer_busy")
+                    )
+                    continue
+                }
                 didHandleRecordingTrigger = true
                 meetingDetectionTriggerInProgress = true
                 let displayName = registry.targets.first { $0.id == targetID }?.displayName ?? bundleID
@@ -964,19 +1157,31 @@ private struct ContentView: View {
                         reason: .savedTargetPolicy
                     ) else {
                         meetingDetectionStatus = "Автозапись заблокирована: проверьте разрешение и встречу"
+                        recordMeetingDetectionConsumerOutcome(
+                            bundleID: bundleID,
+                            outcome: .retryable(reason: "current_start_decision_blocked")
+                        )
                         return
                     }
-                    await startManualRecording(
+                    let outcome = await startManualRecording(
                         meetingDetectionTarget: decision
                     )
+                    recordMeetingDetectionConsumerOutcome(bundleID: bundleID, outcome: outcome)
+                    if outcome == .accepted {
+                        meetingDetectionStatus = "Автозапись: \(displayName)"
+                    }
                 }
-                meetingDetectionStatus = "Автозапись: \(displayName)"
+                meetingDetectionStatus = "Проверяется автозапись: \(displayName)"
             case .candidateObserved(
-                bundleID: _,
-                score: _,
+                bundleID: let bundleID,
+                score: let score,
                 observation: let observation,
                 decision: let decision
             ):
+                AppLog.writeRaw(
+                    event: "meeting_detection.detector_offer",
+                    detail: "kind=candidate bundleID=\(bundleID) score=\(score)"
+                )
                 do {
                     _ = try meetingDetectionRollupStore.recordObservation(
                         observation,
@@ -984,14 +1189,43 @@ private struct ContentView: View {
                         registryVersion: registry.registryVersion,
                         settings: meetingDetectionSettings
                     )
+                    recordMeetingDetectionConsumerOutcome(bundleID: observation.bundleID, outcome: .accepted)
                     Task { await uploadMeetingDetectionTelemetry(reason: "candidate_observed") }
                     meetingDetectionStatus = "Найден кандидат для проверки"
                 } catch {
+                    recordMeetingDetectionConsumerOutcome(
+                        bundleID: observation.bundleID,
+                        outcome: .retryable(reason: "local_rollup_unavailable")
+                    )
                     AppLog.writeRaw(event: "meeting_detection.rollup_failed", detail: "error=local_rollup_unavailable")
                 }
-            case .suppressed:
+            case .suppressed(let bundleID, let reason):
+                AppLog.writeRaw(
+                    event: "meeting_detection.detector_offer",
+                    detail: "kind=suppressed bundleID=\(bundleID) reason=\(reason)"
+                )
+                let retryableReasons: Set<String> = [
+                    RecordingStartBlocker.alreadyRecording.rawValue,
+                    RecordingStartBlocker.captureUnavailable.rawValue,
+                    RecordingStartBlocker.indicatorUnavailable.rawValue,
+                    RecordingStartBlocker.permissionDenied.rawValue,
+                    RecordingStartBlocker.policyDisabled.rawValue,
+                    RecordingStartBlocker.storageUnsafe.rawValue,
+                    "one_action_stop_unavailable",
+                    "capture_prerequisite_blocked",
+                ]
+                recordMeetingDetectionConsumerOutcome(
+                    bundleID: bundleID,
+                    outcome: retryableReasons.contains(reason)
+                        ? .retryable(reason: reason)
+                        : .terminal(reason: reason)
+                )
                 meetingDetectionStatus = meetingDetectionStatusText()
             case .ended(let bundleID):
+                AppLog.writeRaw(
+                    event: "meeting_detection.candidate_ended",
+                    detail: "bundleID=\(bundleID) result=all_sources_inactive"
+                )
                 if meetingDetectionPrompt?.bundleID == bundleID {
                     dismissMeetingDetectionPrompt()
                 }
@@ -999,6 +1233,24 @@ private struct ContentView: View {
                 meetingDetectionStatus = meetingDetectionStatusText()
             }
         }
+    }
+
+    @MainActor
+    private func recordMeetingDetectionConsumerOutcome(
+        bundleID: String,
+        outcome: MacOSMeetingActivityDetectorConsumerOutcome
+    ) {
+        meetingDetectionDetector.recordConsumerOutcome(bundleID: bundleID, outcome: outcome)
+        let detail: String
+        switch outcome {
+        case .accepted:
+            detail = "bundleID=\(bundleID) result=accepted retryable=false"
+        case .retryable(let reason):
+            detail = "bundleID=\(bundleID) result=rejected reason=\(reason) retryable=true"
+        case .terminal(let reason):
+            detail = "bundleID=\(bundleID) result=rejected reason=\(reason) retryable=false"
+        }
+        AppLog.writeRaw(event: "meeting_detection.consumer_outcome", detail: detail)
     }
 
     @MainActor
@@ -1038,7 +1290,9 @@ private struct ContentView: View {
     }
 
     @MainActor
-    private func meetingDetectionPrerequisites() -> MeetingDetectionCapturePrerequisites {
+    private func meetingDetectionPrerequisites(
+        requiresAssistedAuthorization: Bool = false
+    ) -> MeetingDetectionCapturePrerequisites {
         let currentMicrophone = microphoneCaptureService.preflight(sessionId: "meeting-detection-preflight")
         let currentSystemAudio = effectiveSystemAudioPermissionState(
             systemAudioPermissionAuthorizer.currentPermissionState()
@@ -1049,7 +1303,7 @@ private struct ContentView: View {
         )
         let prerequisite = evaluatedMeetingDetectionRecordingPrerequisite(
             permissions: permissionGate.snapshot,
-            requiresAssistedAuthorization: false
+            requiresAssistedAuthorization: requiresAssistedAuthorization
         )
         return MeetingDetectionCapturePrerequisites(
             recordingAlreadyActive: calendarPromptRecordingIsActive,
@@ -1073,10 +1327,25 @@ private struct ContentView: View {
     }
 
     @MainActor
+    private var meetingDetectionWorkspacePolicyAvailable: Bool {
+        guard !meetingDetectionRegistryRequiresRemoteRefresh,
+              !meetingDetectionRegistryAuthRejected,
+              DesktopUploadClient.configuredFromEnvironment()?.hasCurrentAuthentication == true,
+              let policy = meetingDetectionRegistry?.assistedAutoStartPolicy
+        else {
+            return false
+        }
+        return policy.isActive()
+    }
+
+    @MainActor
     private var meetingDetectionWorkspacePolicyAllowsRecording: Bool {
-        meetingDetectionSettings.allowsAssistedAutoStart(
-            policy: meetingDetectionRegistry?.assistedAutoStartPolicy
-        )
+        guard meetingDetectionWorkspacePolicyAvailable,
+              let policy = meetingDetectionRegistry?.assistedAutoStartPolicy
+        else {
+            return false
+        }
+        return meetingDetectionSettings.allowsAssistedAutoStart(policy: policy)
     }
 
     @MainActor
@@ -1114,6 +1383,9 @@ private struct ContentView: View {
     private func meetingDetectionPolicyStateText(
         for prerequisites: MeetingDetectionCapturePrerequisites
     ) -> String {
+        guard meetingDetectionWorkspacePolicyAvailable else {
+            return "Политика: автоматический старт недоступен; кнопка записи остаётся ручной"
+        }
         guard meetingDetectionWorkspacePolicyAllowsRecording else {
             return "Политика: автоматический старт требует подтверждения"
         }
@@ -1167,8 +1439,8 @@ private struct ContentView: View {
                         reason: reason
                     )
                 },
-                onDismiss: {
-                    dismissMeetingDetectionPrompt()
+                onDismiss: { reason in
+                    dismissMeetingDetectionPrompt(prompt, reason: reason)
                 }
             )
             .frame(width: promptWindowSize.width, height: promptWindowSize.height)
@@ -1206,6 +1478,18 @@ private struct ContentView: View {
         }
         meetingDetectionPrompt = nil
         dismissMeetingDetectionPromptWindow()
+    }
+
+    @MainActor
+    private func dismissMeetingDetectionPrompt(
+        _ prompt: MeetingDetectionPrompt,
+        reason: MeetingDetectionPromptDismissReason = .userSkipped
+    ) {
+        recordMeetingDetectionConsumerOutcome(
+            bundleID: prompt.bundleID,
+            outcome: .terminal(reason: reason.rawValue)
+        )
+        dismissMeetingDetectionPrompt()
     }
 
     @MainActor
@@ -1272,9 +1556,23 @@ private struct ContentView: View {
             detail: "targetId=\(prompt.targetID) bundleID=\(prompt.bundleID) autoRecordOptIn=\(autoRecordOptIn) reason=\(reason.rawValue)"
         )
         if autoRecordOptIn {
+            let previousSettings = meetingDetectionSettings
             meetingDetectionSettings.targetScopedAutoRecordEnabled = true
             meetingDetectionSettings.autoRecordTargetIds.insert(prompt.targetID)
-            saveMeetingDetectionSettings()
+            if let policy = meetingDetectionRegistry?.assistedAutoStartPolicy,
+               policy.isActive() {
+                meetingDetectionSettings.assistedAutoStartAcknowledgement = AssistedAutoStartAcknowledgement(
+                    policyRef: policy.policyRef,
+                    subjectRef: policy.acknowledgementSubjectRef,
+                    deviceRef: policy.deviceRef,
+                    acknowledgementVersion: policy.acknowledgementVersion
+                )
+            }
+            if !saveMeetingDetectionSettings() {
+                // Do not let an acknowledgement that never reached disk
+                // authorize a later automatic start in this process.
+                meetingDetectionSettings = previousSettings
+            }
         }
         dismissMeetingDetectionPrompt()
         Task {
@@ -1285,11 +1583,16 @@ private struct ContentView: View {
                 reason: reason
             ) else {
                 meetingDetectionStatus = "Запись не началась: разрешение или встреча уже изменились"
+                recordMeetingDetectionConsumerOutcome(
+                    bundleID: prompt.bundleID,
+                    outcome: .retryable(reason: "current_prompt_decision_blocked")
+                )
                 return
             }
-            await startManualRecording(
+            let outcome = await startManualRecording(
                 meetingDetectionTarget: decision
             )
+            recordMeetingDetectionConsumerOutcome(bundleID: prompt.bundleID, outcome: outcome)
         }
     }
 
@@ -1300,7 +1603,10 @@ private struct ContentView: View {
         displayName: String,
         reason: MeetingDetectionStartReason
     ) -> MeetingDetectionRecordingTarget? {
-        guard meetingDetectionDetector.isActive(bundleID: bundleID),
+        let policyAllowsCurrentStart = reason == .promptButton || meetingDetectionWorkspacePolicyAllowsRecording
+        guard policyAllowsCurrentStart,
+              meetingDetectionSettings.allowsDetectorAssistedStart(reason: reason, targetID: targetID),
+              meetingDetectionDetector.isActive(bundleID: bundleID),
               let registry = meetingDetectionRegistry,
               let target = registry.target(forBundleID: bundleID),
               target.id == targetID,
@@ -1308,15 +1614,19 @@ private struct ContentView: View {
         else {
             return nil
         }
-        let authorization: (AssistedAutoStartPolicySnapshot?, AssistedAutoStartAcknowledgement?)
+        let policy = registry.assistedAutoStartPolicy
+        let acknowledgement = meetingDetectionSettings.assistedAutoStartAcknowledgement
         if reason.isAutomatic {
-            guard let policy = registry.assistedAutoStartPolicy,
+            guard let policy,
                   policy.isActive(),
-                  let acknowledgement = meetingDetectionSettings.assistedAutoStartAcknowledgement,
+                  let acknowledgement,
                   acknowledgement.matches(policy)
             else {
                 return nil
             }
+        }
+        let authorization: (AssistedAutoStartPolicySnapshot?, AssistedAutoStartAcknowledgement?)
+        if reason.isAutomatic {
             authorization = (policy, acknowledgement)
         } else {
             authorization = (nil, nil)
@@ -1342,32 +1652,38 @@ private struct ContentView: View {
     }
 
     @MainActor
-    private func saveMeetingDetectionSettings() {
+    @discardableResult
+    private func saveMeetingDetectionSettings() -> Bool {
         do {
             try meetingDetectionSettingsStore.save(meetingDetectionSettings)
             NotificationCenter.default.post(name: .twoBrainRecMeetingDetectionSettingsDidChange, object: nil)
+            return true
         } catch {
             AppLog.writeRaw(event: "meeting_detection.settings_save_failed", detail: "error=settings_unavailable")
+            return false
         }
     }
 
     @MainActor
+    @discardableResult
     private func startManualRecording(
         calendarContextEventId: String? = nil,
         calendarMatchDecisionIntent: DesktopCalendarMatchDecisionIntent = .automatic,
         meetingDetectionTarget: MeetingDetectionRecordingTarget? = nil
-    ) async {
+    ) async -> MacOSMeetingActivityDetectorConsumerOutcome {
         if let meetingDetectionTarget, !isCurrentMeetingDetectionDecision(meetingDetectionTarget) {
             recordingBlocker = "Запись не началась: разрешение на автозапуск или состояние встречи изменилось."
             AppLog.writeRaw(
                 event: AuditEventName.recordingStartBlocked.rawValue,
                 detail: "reason=assisted_authorization_stale startReason=\(meetingDetectionTarget.reason.rawValue)"
             )
-            return
+            return .retryable(reason: "assisted_authorization_stale")
         }
-        guard !recordingStartInProgress, !recordingStopInProgress else { return }
+        guard !recordingStartInProgress, !recordingStopInProgress else {
+            return .retryable(reason: "recording_transition_in_progress")
+        }
         if let captureSession, CaptureStatusItem.showsStopButton(for: captureSession) {
-            return
+            return .retryable(reason: RecordingStartBlocker.alreadyRecording.rawValue)
         }
         activeCalendarContextEventId = calendarContextEventId
         activeCalendarMatchAttemptId = nil
@@ -1394,7 +1710,7 @@ private struct ContentView: View {
             }
         } catch {
             recordingBlocker = "Запись не началась: не удалось подтвердить область записи."
-            return
+            return .terminal(reason: "scope_approval_failed")
         }
         do {
             let preparing = if let meetingDetectionTarget {
@@ -1415,7 +1731,7 @@ private struct ContentView: View {
             captureSession = preparing
         } catch {
             recordingBlocker = "Запись не началась: \(recordingStartFailureMessage(for: error))"
-            return
+            return .terminal(reason: "capture_preparing_failed")
         }
         let resolvedMicrophoneSelection = microphoneCaptureService.resolveRecordingMicrophoneSelection(
             selectedInputDeviceId: selectedRecordingMicrophoneDeviceId
@@ -1432,7 +1748,9 @@ private struct ContentView: View {
                 captureSession = blocked
             }
             recordingBlocker = "Запись не началась: \(recoveryCopy)"
-            return
+            return resolvedMicrophoneSelection.rejectionReason == .deviceUnavailable
+                ? .retryable(reason: RecordingStartBlocker.captureFailed.rawValue)
+                : .terminal(reason: RecordingStartBlocker.captureFailed.rawValue)
         }
         let microphoneSession = await microphoneCaptureService.requestPermissionAndPreflight(
             sessionId: "pending",
@@ -1478,7 +1796,15 @@ private struct ContentView: View {
                     event: AuditEventName.recordingStartBlocked.rawValue,
                     detail: "reason=\(permissionGate.allowsAcceptedRecording ? prerequisite.blockedReason.rawValue : RecordingStartBlocker.permissionDenied.rawValue) microphonePermission=\(permissionGate.snapshot.microphone.rawValue) systemAudioPermission=\(permissionGate.snapshot.systemAudio.rawValue) action=\(permissionGate.presentation?.recoveryAction.rawValue ?? prerequisite.recoveryAction ?? "none")"
                 )
-                return
+                let blocker = permissionGate.allowsAcceptedRecording
+                    ? prerequisite.blockedReason
+                    : RecordingStartBlocker.permissionDenied
+                switch blocker {
+                case .alreadyRecording, .captureUnavailable, .indicatorUnavailable, .policyDisabled, .storageUnsafe:
+                    return .retryable(reason: blocker.rawValue)
+                case .none, .permissionDenied, .sourceAppIneligible, .captureFailed, .unknown:
+                    return .terminal(reason: blocker.rawValue)
+                }
             }
 
             _ = try captureController.markReady(triggerEvidence: [
@@ -1568,6 +1894,7 @@ private struct ContentView: View {
                 event: AuditEventName.recordingStarted.rawValue,
                 detail: "sessionId=\(active.id) captureSource=system_audio microphoneSource=app_owned scopeApprovalId=\(scopeApproval.scopeApprovalId) indicator=\(active.visibleIndicatorState.rawValue) localRecordingDirectory=\(directory.directoryId)"
             )
+            return .accepted
         } catch {
             localRecordingActive = false
             liveRecordingLevels = .inactive
@@ -1589,6 +1916,9 @@ private struct ContentView: View {
                 event: AuditEventName.recordingFailed.rawValue,
                 detail: "category=\(failureCategory.rawValue) error=\(error)"
             )
+            return recordingStartFailureIsRetryable(error)
+                ? .retryable(reason: failureCategory.rawValue)
+                : .terminal(reason: failureCategory.rawValue)
         }
     }
 
@@ -1724,6 +2054,31 @@ private struct ContentView: View {
             }
         }
         return .unknown
+    }
+
+    private func recordingStartFailureIsRetryable(_ error: Error) -> Bool {
+        if let writerError = error as? LocalRecordingWriterError {
+            switch writerError {
+            case .alreadyRecording, .directoryUnavailable:
+                return true
+            case .echoProcessorUnavailable, .notRecording:
+                return false
+            }
+        }
+        if let captureError = error as? SystemAudioCaptureServiceError {
+            return captureError == .alreadyRunning ||
+                captureError == .runtimeStartFailed ||
+                captureError == .noShareableDisplay
+        }
+        if let microphoneError = error as? RecordingMicrophoneSampleSourceError {
+            switch microphoneError {
+            case .runtimeUnavailable, .runtimeStartFailed:
+                return true
+            case .selectionNotAccepted:
+                return false
+            }
+        }
+        return false
     }
 
     private func recordingStartFailureMessage(for error: Error) -> String {
@@ -2334,6 +2689,7 @@ private struct MeetingDetectionPrompt: Identifiable, Equatable {
     let captureSources: String
     let workspacePolicyState: String
     let detectorReason: String
+    let allowsAutomaticStart: Bool
 
     init(
         targetID: String,
@@ -2342,7 +2698,8 @@ private struct MeetingDetectionPrompt: Identifiable, Equatable {
         captureMode: String,
         captureSources: String,
         workspacePolicyState: String,
-        detectorReason: String
+        detectorReason: String,
+        allowsAutomaticStart: Bool
     ) {
         self.targetID = targetID
         self.bundleID = bundleID
@@ -2351,8 +2708,14 @@ private struct MeetingDetectionPrompt: Identifiable, Equatable {
         self.captureSources = captureSources
         self.workspacePolicyState = workspacePolicyState
         self.detectorReason = detectorReason
+        self.allowsAutomaticStart = allowsAutomaticStart
         id = "\(targetID):\(bundleID)"
     }
+}
+
+private enum MeetingDetectionPromptDismissReason: String, Sendable {
+    case userSkipped = "user_skipped"
+    case timeoutWithoutAuthorization = "timeout_without_authorization"
 }
 
 private struct MeetingDetectionPromptView: View {
@@ -2361,7 +2724,7 @@ private struct MeetingDetectionPromptView: View {
     let prompt: MeetingDetectionPrompt
     let isStartDisabled: Bool
     let onStart: (Bool, MeetingDetectionStartReason) -> Void
-    let onDismiss: () -> Void
+    let onDismiss: (MeetingDetectionPromptDismissReason) -> Void
 
     @State private var autoRecordOptIn = false
     @State private var appearedAt = Date()
@@ -2380,7 +2743,11 @@ private struct MeetingDetectionPromptView: View {
                         .font(.headline)
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
-                    Text("Началась встреча. Запись стартует автоматически.")
+                    Text(
+                        prompt.allowsAutomaticStart
+                            ? "Началась встреча. Запись стартует автоматически."
+                            : "Началась встреча. Выберите, записать её сейчас или пропустить."
+                    )
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
@@ -2410,7 +2777,7 @@ private struct MeetingDetectionPromptView: View {
                 }
 
                 Button("Пропустить") {
-                    resolveDismiss()
+                    resolveDismiss(reason: .userSkipped)
                 }
                 .buttonStyle(.plain)
                 .keyboardShortcut(.cancelAction)
@@ -2437,7 +2804,11 @@ private struct MeetingDetectionPromptView: View {
                 }
                 await MainActor.run {
                     guard !Task.isCancelled else { return }
-                    resolveStart(reason: .promptTimeout)
+                    if prompt.allowsAutomaticStart {
+                        resolveStart(reason: .promptTimeout)
+                    } else {
+                        resolveDismiss(reason: .timeoutWithoutAuthorization)
+                    }
                 }
             }
         }
@@ -2466,7 +2837,9 @@ private struct MeetingDetectionPromptView: View {
                     Text(
                         isStartDisabled
                             ? "Запись пока недоступна"
-                            : "Записать сейчас · \(remainingSeconds) с"
+                            : (prompt.allowsAutomaticStart
+                                ? "Записать сейчас · \(remainingSeconds) с"
+                                : "Записать сейчас")
                     )
                         .font(.callout)
                         .fontWeight(.semibold)
@@ -2484,8 +2857,10 @@ private struct MeetingDetectionPromptView: View {
         .accessibilityLabel("Записать сейчас")
         .accessibilityValue(
             isStartDisabled
-                ? "Автоматический старт недоступен"
-                : "Запись начнётся автоматически через \(remainingSeconds) секунд"
+                ? "Запись пока недоступна"
+                : (prompt.allowsAutomaticStart
+                    ? "Запись начнётся автоматически через \(remainingSeconds) секунд"
+                    : "Нажмите, чтобы начать запись сейчас")
         )
     }
 
@@ -2495,17 +2870,20 @@ private struct MeetingDetectionPromptView: View {
     }
 
     private func resolveStart(reason: MeetingDetectionStartReason) {
-        guard !isStartDisabled,
-              let resolvedReason = countdown.resolveStart(reason: reason, at: Date())
+        guard let resolvedReason = countdown.resolveStart(
+            reason: reason,
+            at: Date(),
+            startIsTemporarilyDisabled: isStartDisabled
+        )
         else { return }
         autoStartTask?.cancel()
         onStart(autoRecordOptIn, resolvedReason)
     }
 
-    private func resolveDismiss() {
+    private func resolveDismiss(reason: MeetingDetectionPromptDismissReason) {
         guard countdown.cancel() else { return }
         autoStartTask?.cancel()
-        onDismiss()
+        onDismiss(reason)
     }
 }
 

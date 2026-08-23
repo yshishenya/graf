@@ -11,10 +11,10 @@ public struct MeetingDetectionSettingsView: View {
         "Если выключено, запросы не показываются и запись не запускается. Определение встреч продолжает работать."
     public static let assistedAutoStartTitle = "Разрешить запуск записи после таймера"
     public static let assistedAutoStartDetail =
-        "Для найденной встречи GRAF покажет 8 секунд, чтобы записать сразу или пропустить. Если ничего не нажать, запись начнётся автоматически."
+        "Для найденной встречи GRAF покажет обычный prompt на 8 секунд. Автоматический старт по таймеру работает только после вашего явного разрешения."
     public static let autoRecordSectionTitle = "Приложения"
     public static let autoRecordSectionDetail =
-        "Отмеченные приложения пишутся автоматически. Остальные будут спрашивать перед записью."
+        "После вашего разрешения отмеченные приложения пишутся автоматически. Остальные будут спрашивать перед записью."
     public static let autoRecordDisabledSectionDetail =
         "Автоматическая запись выключена. Выбранные приложения остаются в списке для определения встреч."
     public static let selectAllTitle = "Выбрать все"
@@ -305,11 +305,7 @@ public struct MeetingDetectionSettingsView: View {
         in registry: MeetingTargetRegistryDocument
     ) -> [MeetingTargetRegistryTarget] {
         return registry.targets
-            .filter { target in
-                target.mode == .promptEnabled &&
-                    target.platform == .macos &&
-                    target.targetFamily == .nativeApp
-            }
+            .filter(\.isVerifiedNativePromptTarget)
             .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
     }
 }

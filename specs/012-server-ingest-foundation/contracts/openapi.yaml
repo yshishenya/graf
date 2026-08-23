@@ -9413,6 +9413,13 @@ components:
       title: ArtifactEgressState
     AssistedAutoStartPolicy:
       properties:
+        scope:
+          type: string
+          enum:
+          - workspace
+          - all_workspaces
+          title: Scope
+          default: workspace
         policyRef:
           type: string
           pattern: ^sha256:[0-9a-f]{64}$

@@ -1,6 +1,57 @@
 # Текущий статус продукта
 
-Date: 2026-08-21
+Date: 2026-08-23
+
+## Implementation update (2026-08-23) — Feature 194 global defaults and prompt-first install
+
+- Server assisted auto-start получил явный `all_workspaces` scope. Global policy
+  публикуется только при включённых `TWOBRAIN_ASSISTED_AUTO_START_ALL_WORKSPACES`
+  и отдельном approval-флаге; workspace ID при этом запрещён. `policyRef`
+  стабилен для global scope/version, а user/workspace/device references остаются
+  opaque и tenant-bound.
+- На чистой установке после первого валидного registry detection включается в
+  `detect_and_ask`, а все verified native prompt-capable targets выбираются
+  один раз. Существующий settings file и legacy JSON без marker не изменяются.
+- Первая встреча показывает обычный prompt без отдельного pre-consent окна.
+  Пока нет актуального acknowledgement, «Записать сейчас» запускает только
+  текущую запись как явное действие; timeout и saved-target auto-start остаются
+  заблокированы. «Всегда писать это приложение» сохраняет acknowledgement только
+  после успешной atomic-записи.
+- Проверены server config (`71 passed`), PostgreSQL-backed meeting-detection
+  contracts (`6 passed`), Swift shared suite (`752 passed`), focused capture
+  (`43 passed`), policy (`34 passed`) и registry (`15 passed`), Ruff,
+  ContractValidation, Compose config и отдельная подписанная `GRAF Dev.app`.
+  Production policy, deploy, Sparkle publication и `/Applications/GRAF.app` не
+  изменялись.
+
+## Implementation update (2026-08-23) — Feature 193 automatic recording reliability
+
+- Локальная реализация устраняет несколько независимых причин непостоянного
+  старта: AudioHAL и Control Center Sensor Indicator теперь ведутся как
+  отдельные источники; встреча завершается только после окончания всех
+  источников, а trigger закрывается только по результату consumer.
+- Countdown и saved-target старт требуют актуальную policy/acknowledgement уже
+  до обещания записи и повторно проверяют target, authorization, permissions,
+  storage, активную сессию, видимый indicator и Stop непосредственно перед
+  capture. Временные blockers переоцениваются, а accepted/Skip остаются
+  терминальными до реального конца текущего кандидата.
+- Один supervisor выполняет bounded итоговый sensor snapshot, затем live
+  observation; snapshot ограничен двумя часами и 3,5 секунды, не публикует
+  исторические промежуточные состояния и fail closed переходит к live при
+  timeout/redaction. Unexpected finish и wake создают новую generation без
+  второго параллельного `/usr/bin/log` child.
+- WebKit authoritative snapshot теперь заменяет или удаляет native auth cookie
+  для того же origin; native-запрос детерминированно игнорирует просроченные,
+  пустые и неприменимые domain/path/scheme cookies. Общий `Cookie` header и
+  значения сессии в diagnostics не добавлены.
+- Финальная локальная проверка прошла: focused reliability suites `131/131`,
+  fast CI `1168 passed`, full CI — macOS `742/742`, server `3307 passed, 1
+  skipped`, strict PostgreSQL/RLS `52 passed, 1 skipped`; contract validation,
+  lint, compile, Compose и evidence scan также прошли. Свежая dev-сборка
+  восстановила единственный observer child после сбоя за `2.773 s`.
+- Это состояние рабочей ветки `193-automatic-recording-reliability`, а не
+  production enablement: `/Applications/GRAF.app`, production policy, deploy,
+  signing и release в feature не менялись.
 
 ## Implementation update (2026-08-20) — Feature 177 WebRTC AEC3 recording
 

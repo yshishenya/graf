@@ -7,6 +7,8 @@ from fastapi.testclient import TestClient
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fakes.auth_contexts import WORKSPACE_ID
+from twobrain_rec_server.api.meeting_detection import _assisted_auto_start_policy
+from twobrain_rec_server.auth.context import TenantScope
 
 
 def meeting_detection_payload(**overrides: object) -> dict[str, object]:
@@ -171,6 +173,7 @@ def test_meeting_detection_registry_policy_is_fail_closed_and_workspace_scoped(
     )
     policy = enabled_response.json()["assistedAutoStartPolicy"]
     assert policy["enabled"] is True
+    assert policy["scope"] == "workspace"
     assert policy["policyRef"].startswith("sha256:")
     assert policy["acknowledgementSubjectRef"].startswith("sha256:")
     assert policy["deviceRef"].startswith("sha256:")
@@ -191,3 +194,44 @@ def test_meeting_detection_registry_policy_is_fail_closed_and_workspace_scoped(
         headers=auth_headers(),
     )
     assert "assistedAutoStartPolicy" not in expired_response.json()
+
+
+def test_meeting_detection_registry_global_policy_binds_scope_without_cross_workspace_refs(
+    client: TestClient,
+) -> None:
+    settings = client.app.state.settings
+    settings.assisted_auto_start_enabled = True
+    settings.assisted_auto_start_all_workspaces = True
+    settings.assisted_auto_start_all_workspaces_approved = True
+    settings.assisted_auto_start_workspace_id = None
+    settings.assisted_auto_start_policy_version = "2026.08.23.1"
+    settings.assisted_auto_start_acknowledgement_version = "2026.08.23.1"
+    settings.assisted_auto_start_policy_issued_at = datetime.now(UTC) - timedelta(days=1)
+    settings.assisted_auto_start_policy_expires_at = datetime.now(UTC) + timedelta(days=30)
+
+    response = client.get(
+        "/api/v1/desktop/meeting-detection/target-registry",
+        headers=auth_headers(),
+    )
+    policy = response.json()["assistedAutoStartPolicy"]
+    assert policy["scope"] == "all_workspaces"
+
+    base_scope = TenantScope(
+        organization_id=UUID("10000000-0000-0000-0000-000000000001"),
+        workspace_id=UUID("20000000-0000-0000-0000-000000000001"),
+        user_id=UUID("30000000-0000-0000-0000-000000000001"),
+        device_id=UUID("40000000-0000-0000-0000-000000000001"),
+    )
+    other_scope = TenantScope(
+        organization_id=base_scope.organization_id,
+        workspace_id=UUID("20000000-0000-0000-0000-000000000099"),
+        user_id=UUID("30000000-0000-0000-0000-000000000099"),
+        device_id=UUID("40000000-0000-0000-0000-000000000099"),
+    )
+    first = _assisted_auto_start_policy(settings=settings, tenant_scope=base_scope)
+    second = _assisted_auto_start_policy(settings=settings, tenant_scope=other_scope)
+    assert first is not None and second is not None
+    assert first["scope"] == second["scope"] == "all_workspaces"
+    assert first["policyRef"] == second["policyRef"]
+    assert first["acknowledgementSubjectRef"] != second["acknowledgementSubjectRef"]
+    assert first["deviceRef"] != second["deviceRef"]

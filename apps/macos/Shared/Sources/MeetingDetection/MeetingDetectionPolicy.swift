@@ -80,7 +80,8 @@ public struct MeetingDetectionPolicy: Sendable {
                 return .suppress(reason: prerequisites.blockedReasonCode)
             }
             if settings.targetScopedAutoRecordEnabled,
-               settings.autoRecordTargetIds.contains(targetID) {
+               settings.autoRecordTargetIds.contains(targetID),
+               settings.assistedAutoStartAuthorized {
                 return .autoRecord(targetID: targetID)
             }
             return .prompt(targetID: targetID)
@@ -113,14 +114,17 @@ public struct MeetingDetectionSettingsSnapshot: Equatable, Sendable {
     public let detectionMode: MeetingDetectionMode
     public let targetScopedAutoRecordEnabled: Bool
     public let autoRecordTargetIds: Set<String>
+    public let assistedAutoStartAuthorized: Bool
 
     public init(
         detectionMode: MeetingDetectionMode = .detectAndAsk,
         targetScopedAutoRecordEnabled: Bool = false,
-        autoRecordTargetIds: Set<String> = []
+        autoRecordTargetIds: Set<String> = [],
+        assistedAutoStartAuthorized: Bool = false
     ) {
         self.detectionMode = detectionMode
         self.targetScopedAutoRecordEnabled = targetScopedAutoRecordEnabled
         self.autoRecordTargetIds = autoRecordTargetIds
+        self.assistedAutoStartAuthorized = assistedAutoStartAuthorized
     }
 }

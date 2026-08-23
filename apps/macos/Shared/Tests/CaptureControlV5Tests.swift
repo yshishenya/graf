@@ -507,6 +507,45 @@ final class CaptureControlTests: XCTestCase {
 
         XCTAssertTrue(source.contains("indicatorAvailable: meetingDetectionVisibleIndicatorAvailable"))
         XCTAssertFalse(source.contains("indicatorAvailable: meetingDetectionOneActionStopAvailable"))
+        XCTAssertTrue(source.contains("requiresAssistedAuthorization: requiresAssistedAuthorization"))
+        XCTAssertTrue(source.contains("assistedAutoStartAuthorized: meetingDetectionWorkspacePolicyAllowsRecording"))
+        XCTAssertTrue(source.contains("reason == .promptButton"))
+        XCTAssertTrue(source.contains("let policy = registry.assistedAutoStartPolicy"))
+        XCTAssertTrue(source.contains("guard let policy,"))
+        XCTAssertTrue(source.contains("acknowledgement.matches(policy)"))
+    }
+
+    func testMeetingDetectionReconcilesRegistryRecoveryAndPromptOutcomes() throws {
+        let source = try String(
+            contentsOf: repositoryRootForCaptureTests()
+                .appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("let registryWasUnavailable = meetingDetectionRegistry == nil"))
+        XCTAssertTrue(source.contains("if registryWasUnavailable, meetingDetectionLogStream != nil"))
+        XCTAssertTrue(source.contains("restartMeetingDetectionObservation(reason: \"registry_recovered\")"))
+        XCTAssertTrue(source.contains("outcome: .retryable(reason: \"current_prompt_decision_blocked\")"))
+        XCTAssertTrue(source.contains("recordMeetingDetectionConsumerOutcome(bundleID: prompt.bundleID, outcome: outcome)"))
+        XCTAssertTrue(source.contains("reason: .userSkipped"))
+        XCTAssertTrue(source.contains("outcome: .terminal(reason: reason.rawValue)"))
+        XCTAssertTrue(source.contains("timeout_without_authorization"))
+        XCTAssertTrue(source.contains("meeting_detection.detector_offer"))
+        XCTAssertTrue(source.contains("recordingStartFailureIsRetryable(error)"))
+        XCTAssertTrue(source.contains("resolvedMicrophoneSelection.rejectionReason == .deviceUnavailable"))
+        XCTAssertTrue(source.contains("invalidateMeetingDetectionRegistryForAuthChange()"))
+        XCTAssertTrue(source.contains("meetingDetectionRegistryRequiresRemoteRefresh = true"))
+        XCTAssertTrue(source.contains("meetingDetectionRegistryAuthRejected"))
+        XCTAssertTrue(source.contains("meetingDetectionRegistry = nil"))
+        XCTAssertTrue(source.contains("meetingDetectionRegistryRefreshInProgress"))
+        XCTAssertTrue(source.contains("meetingDetectionRegistryRefreshFollowUpRequested"))
+        XCTAssertTrue(source.contains("reason: \"coalesced_follow_up\""))
+        XCTAssertTrue(source.contains("reason: \"auth_session_refresh_retry\""))
+        XCTAssertTrue(source.contains("min(delayNanoseconds * 2, 60_000_000_000)"))
+        XCTAssertTrue(source.contains("guard refreshRevision == meetingDetectionRegistryRefreshRevision else"))
+        XCTAssertTrue(source.contains("requireRemote: meetingDetectionRegistryRequiresRemoteRefresh"))
+        XCTAssertTrue(source.contains("meetingDetectionRegistryRefreshIsAuthFailure(refreshError)"))
+        XCTAssertTrue(source.contains("meetingDetectionSettings.allowsDetectorAssistedStart"))
     }
 
     func testMeetingDetectionPromptRestoresCountdownAndAutoStart() throws {
@@ -536,6 +575,11 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertTrue(source.contains("private static let countdownSeconds: TimeInterval = 8"))
         XCTAssertTrue(source.contains("autoStartTask"))
         XCTAssertTrue(source.contains("Запись стартует автоматически"))
+        XCTAssertTrue(source.contains("Выберите, записать её сейчас или пропустить."))
+        XCTAssertTrue(source.contains("if prompt.allowsAutomaticStart"))
+        XCTAssertTrue(source.contains("resolveDismiss(reason: .userSkipped)"))
+        XCTAssertTrue(source.contains("resolveDismiss(reason: .timeoutWithoutAuthorization)"))
+        XCTAssertTrue(source.contains("Нажмите, чтобы начать запись сейчас"))
         XCTAssertTrue(source.contains("Режим: аудиозапись встречи"))
         XCTAssertTrue(source.contains("Источники: системный звук и микрофон"))
         XCTAssertTrue(source.contains("Политика: запись разрешена"))

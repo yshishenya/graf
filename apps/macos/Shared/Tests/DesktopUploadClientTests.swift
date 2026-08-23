@@ -555,6 +555,28 @@ final class DesktopUploadClientTests: XCTestCase {
         XCTAssertFalse(client.sanitizedHeaderPreview.values.contains("owner-session-token"))
     }
 
+    func testCurrentAuthenticationUsesOnlyDedicatedHeaderOrSessionProvider() throws {
+        let baseURL = try XCTUnwrap(URL(string: "https://rec.2brain.pro"))
+        XCTAssertFalse(DesktopUploadClient(
+            baseURL: baseURL,
+            headers: ["X-User-Id": "not-authentication"],
+            authSessionTokenProvider: { _ in nil }
+        ).hasCurrentAuthentication)
+        XCTAssertTrue(DesktopUploadClient(
+            baseURL: baseURL,
+            headers: ["Authorization": "Bearer fake-test-value"],
+            authSessionTokenProvider: { _ in nil }
+        ).hasCurrentAuthentication)
+        XCTAssertTrue(DesktopUploadClient(
+            baseURL: baseURL,
+            authSessionTokenProvider: { _ in "fake-test-session" }
+        ).hasCurrentAuthentication)
+        XCTAssertFalse(DesktopUploadClient(
+            baseURL: baseURL,
+            authSessionTokenProvider: { _ in "   " }
+        ).hasCurrentAuthentication)
+    }
+
     func testAuthSessionTokenUsesOnlyOwnerSessionCookie() throws {
         let sessionCookie = try XCTUnwrap(HTTPCookie(properties: [
             .domain: "rec.2brain.pro",
@@ -590,6 +612,140 @@ final class DesktopUploadClientTests: XCTestCase {
             "local-owner-session-token"
         )
         XCTAssertNil(DesktopUploadClient.authSessionToken(from: [localCookie]))
+    }
+
+    func testAuthSessionTokenSelectsMostSpecificApplicableLocalCookieDeterministically() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let url = try XCTUnwrap(URL(string: "http://127.0.0.1:8081/desktop/meetings/current"))
+        let expired = try authCookie(
+            name: DesktopUploadClient.localOwnerSessionCookieName,
+            value: "expired",
+            domain: "127.0.0.1",
+            path: "/desktop/meetings",
+            secure: false,
+            expiresAt: now.addingTimeInterval(-1)
+        )
+        let exactRoot = try authCookie(
+            name: DesktopUploadClient.localOwnerSessionCookieName,
+            value: "root",
+            domain: "127.0.0.1",
+            path: "/",
+            secure: false,
+            expiresAt: now.addingTimeInterval(600)
+        )
+        let exactPath = try authCookie(
+            name: DesktopUploadClient.localOwnerSessionCookieName,
+            value: "current",
+            domain: "127.0.0.1",
+            path: "/desktop/meetings",
+            secure: false,
+            expiresAt: now.addingTimeInterval(300)
+        )
+        let wrongPath = try authCookie(
+            name: DesktopUploadClient.localOwnerSessionCookieName,
+            value: "wrong-path",
+            domain: "127.0.0.1",
+            path: "/desktop/admin",
+            secure: false,
+            expiresAt: now.addingTimeInterval(900)
+        )
+
+        let cookies = [expired, exactRoot, exactPath, wrongPath]
+        XCTAssertEqual(DesktopUploadClient.authSessionToken(from: cookies, url, now: now), "current")
+        XCTAssertEqual(DesktopUploadClient.authSessionToken(from: Array(cookies.reversed()), url, now: now), "current")
+    }
+
+    func testProductionHostCookieRequiresSecureExactHostAndRootPath() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let url = try XCTUnwrap(URL(string: "https://rec.2brain.pro/desktop/meetings"))
+        let valid = try authCookie(value: "valid", domain: "rec.2brain.pro")
+        let insecure = try authCookie(value: "insecure", domain: "rec.2brain.pro", secure: false)
+        let domainCookie = try authCookie(value: "domain", domain: ".rec.2brain.pro")
+        let parentDomain = try authCookie(value: "parent", domain: ".2brain.pro")
+        let nonRootPath = try authCookie(value: "path", domain: "rec.2brain.pro", path: "/desktop")
+
+        XCTAssertEqual(
+            DesktopUploadClient.authSessionToken(
+                from: [insecure, domainCookie, parentDomain, nonRootPath, valid],
+                url,
+                now: now
+            ),
+            "valid"
+        )
+
+        let plan = DesktopCabinetSessionBridge.reconciliation(
+            webCookies: [insecure, domainCookie, parentDomain, nonRootPath],
+            nativeCookies: [insecure, domainCookie, parentDomain, nonRootPath, valid],
+            originURL: url,
+            now: now
+        )
+        XCTAssertEqual(Set(plan.cookiesToDelete.map(\.value)), ["domain", "insecure", "parent", "path", "valid"])
+        XCTAssertTrue(plan.cookiesToSet.isEmpty)
+    }
+
+    func testAuthSessionTokenRejectsSecureCookieOnHTTPAndWrongDomain() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let httpURL = try XCTUnwrap(URL(string: "http://127.0.0.1:8081/desktop/meetings"))
+        let secureLocal = try authCookie(
+            name: DesktopUploadClient.localOwnerSessionCookieName,
+            value: "secure-local",
+            domain: "127.0.0.1",
+            secure: true
+        )
+        let wrongDomain = try authCookie(
+            name: DesktopUploadClient.localOwnerSessionCookieName,
+            value: "wrong-domain",
+            domain: "localhost"
+        )
+
+        XCTAssertNil(DesktopUploadClient.authSessionToken(from: [secureLocal, wrongDomain], httpURL, now: now))
+    }
+
+    func testCabinetCookieReconciliationReplacesStaleCookieAndHandlesLogout() throws {
+        let origin = try XCTUnwrap(URL(string: "https://rec.2brain.pro/desktop/meetings"))
+        let oldCookie = try authCookie(value: "old-session", domain: "rec.2brain.pro")
+        let currentCookie = try authCookie(value: "current-session", domain: "rec.2brain.pro")
+        let unrelated = try authCookie(name: "unrelated", value: "keep", domain: "rec.2brain.pro")
+
+        let replacement = DesktopCabinetSessionBridge.reconciliation(
+            webCookies: [currentCookie, unrelated],
+            nativeCookies: [oldCookie, unrelated],
+            originURL: origin
+        )
+        XCTAssertEqual(replacement.cookiesToDelete.map(\.value), ["old-session"])
+        XCTAssertEqual(replacement.cookiesToSet.map(\.value), ["current-session"])
+
+        let logout = DesktopCabinetSessionBridge.reconciliation(
+            webCookies: [unrelated],
+            nativeCookies: [currentCookie, unrelated],
+            originURL: origin
+        )
+        XCTAssertEqual(logout.cookiesToDelete.map(\.value), ["current-session"])
+        XCTAssertTrue(logout.cookiesToSet.isEmpty)
+    }
+
+    func testCabinetCookieReconciliationIgnoresSubsecondExpiryNormalization() throws {
+        let origin = try XCTUnwrap(URL(string: "https://rec.2brain.pro/desktop/meetings"))
+        let webCookie = try authCookie(
+            value: "current-session",
+            domain: "rec.2brain.pro",
+            expiresAt: Date(timeIntervalSince1970: 1_800_000_000.75)
+        )
+        let nativeCookie = try authCookie(
+            value: "current-session",
+            domain: "rec.2brain.pro",
+            expiresAt: Date(timeIntervalSince1970: 1_800_000_000)
+        )
+
+        let plan = DesktopCabinetSessionBridge.reconciliation(
+            webCookies: [webCookie],
+            nativeCookies: [nativeCookie],
+            originURL: origin,
+            now: Date(timeIntervalSince1970: 1_799_999_000)
+        )
+
+        XCTAssertTrue(plan.cookiesToDelete.isEmpty)
+        XCTAssertTrue(plan.cookiesToSet.isEmpty)
     }
 
     func testNativeRequestPromotesOwnerSessionWithoutForwardingCookies() async throws {
@@ -645,6 +801,29 @@ final class DesktopUploadClientTests: XCTestCase {
         XCTAssertEqual(request.value(forHTTPHeaderField: "X-Auth-Session"), "owner-session-token")
         XCTAssertEqual(request.httpMethod, "POST")
         XCTAssertEqual(request.url?.path, "/api/v1/desktop/local-purge-tasks/purge-task/ack")
+    }
+
+    private func authCookie(
+        name: String = DesktopUploadClient.ownerSessionCookieName,
+        value: String,
+        domain: String,
+        path: String = "/",
+        secure: Bool = true,
+        expiresAt: Date? = nil
+    ) throws -> HTTPCookie {
+        var properties: [HTTPCookiePropertyKey: Any] = [
+            .domain: domain,
+            .path: path,
+            .name: name,
+            .value: value,
+        ]
+        if secure {
+            properties[.secure] = "TRUE"
+        }
+        if let expiresAt {
+            properties[.expires] = expiresAt
+        }
+        return try XCTUnwrap(HTTPCookie(properties: properties))
     }
 
     func testConfiguredHeadersAcceptLegacyTwoBrainKeys() {

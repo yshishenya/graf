@@ -5,6 +5,53 @@ import TwoBrainRecShared
 import XCTest
 
 final class MeetingTargetRegistryTests: XCTestCase {
+    func testVerifiedNativePromptTargetSelectionExcludesNonNativeAndUnverifiedTargets() {
+        let verified = Self.promptTarget()
+        let browser = MeetingTargetRegistryTarget(
+            id: "google_meet_web",
+            displayName: "Google Meet web",
+            market: .global,
+            platform: .browser,
+            targetFamily: .browserMeeting,
+            mode: .promptEnabled,
+            evidence: .packageVerified,
+            requiredSignals: [.browserMetadata, .calendarOrJoinIntent],
+            browserServicePatterns: [
+                MeetingTargetBrowserServicePattern(
+                    serviceFamily: "google_meet",
+                    hostCategory: "first_party",
+                    patternClass: "meeting_room"
+                )
+            ]
+        )
+        let diagnostic = MeetingTargetRegistryTarget(
+            id: "unknown_native",
+            displayName: "Unknown native",
+            market: .global,
+            platform: .macos,
+            targetFamily: .nativeApp,
+            mode: .diagnosticOnly,
+            evidence: .verifyRequired,
+            requiredSignals: [.macOSAudioHALAssertion],
+            nativeBundleIds: ["com.example.unknown"]
+        )
+        let missingBundle = MeetingTargetRegistryTarget(
+            id: "missing_bundle",
+            displayName: "Missing bundle",
+            market: .global,
+            platform: .macos,
+            targetFamily: .nativeApp,
+            mode: .promptEnabled,
+            evidence: .packageVerified,
+            requiredSignals: [.macOSAudioHALAssertion]
+        )
+
+        XCTAssertTrue(verified.isVerifiedNativePromptTarget)
+        XCTAssertFalse(browser.isVerifiedNativePromptTarget)
+        XCTAssertFalse(diagnostic.isVerifiedNativePromptTarget)
+        XCTAssertFalse(missingBundle.isVerifiedNativePromptTarget)
+    }
+
     func testAssistedAutoStartPolicyRequiresSafeOpaqueReferences() throws {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         let policy = AssistedAutoStartPolicySnapshot(
