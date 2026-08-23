@@ -26,14 +26,14 @@ surfaces without reviving a driver or second web UI.
 **Purpose**: общие контракты и safety boundaries, без которых ни одна user story
 не может начинать реализацию.
 
-- [ ] T006 Создать `apps/windows/RecApp/Contracts/WindowsDesktopContracts.h` с session states, reason codes, exact v5 wire values (`local-recording-manifest.v5`, `canonical-mix.v1`, `initial_mixed_recording`, `single_wav_v1`, `manifest/media/playback`), queue version и bridge envelope constants из contracts/.
-- [ ] T007 [P] Создать `apps/windows/RecApp/Core/WindowsDesktopSession.h` и `.cpp` с одним active-session invariant и idempotent transition validation.
-- [ ] T008 [P] Создать `apps/windows/RecApp/Diagnostics/MetadataSafeDiagnostics.h` и `.cpp` с allowlist полей, redacted endpoint fingerprint и запретом raw/content-bearing fields.
-- [ ] T009 [P] Создать `apps/windows/RecApp/Storage/AtomicFileStore.h` и `.cpp` для temp-write, flush, atomic-rename и bounded failure codes.
-- [ ] T010 Создать `apps/windows/RecApp/Permissions/WindowsReadinessGate.h` и `.cpp` для microphone privacy, endpoint, storage, WebView runtime и AAC readiness без смешения reason codes.
-- [ ] T011 Создать `apps/windows/RecApp/Upload/DesktopApiClient.h` и `.cpp`, использующий только существующий GRAF desktop HTTP contract и не содержащий MediaScribe/MinIO credentials.
+- [X] T006 Создать `apps/windows/RecApp/Contracts/WindowsDesktopContracts.h` с session states, reason codes, exact v5 wire values (`local-recording-manifest.v5`, `canonical-mix.v1`, `initial_mixed_recording`, `single_wav_v1`, `manifest/media/playback`), queue version и bridge envelope constants из contracts/.
+- [X] T007 [P] Создать `apps/windows/RecApp/Core/WindowsDesktopSession.h` и `.cpp` с одним active-session invariant и idempotent transition validation.
+- [X] T008 [P] Создать `apps/windows/RecApp/Diagnostics/MetadataSafeDiagnostics.h` и `.cpp` с allowlist полей, redacted endpoint fingerprint и запретом raw/content-bearing fields.
+- [X] T009 [P] Создать `apps/windows/RecApp/Storage/AtomicFileStore.h` и `.cpp` для temp-write, flush, atomic-rename и bounded failure codes.
+- [X] T010 Создать `apps/windows/RecApp/Permissions/WindowsReadinessGate.h` и `.cpp` для microphone privacy, endpoint, storage, WebView runtime и AAC readiness без смешения reason codes.
+- [X] T011 Создать foundation `apps/windows/RecApp/Upload/DesktopApiClient.h` и `.cpp` с exact existing GRAF meeting/upload request builders, без MediaScribe/MinIO credentials; transport execution remains in the queue slice.
 - [X] T012 Создать `specs/200-windows-desktop-app/parity-matrix.md` с mapping macOS Features 057/058/177/193/194/197 к Windows ownership, state, copy, accessibility и evidence.
-- [ ] T013 [P] Добавить `apps/windows/Tests/GrafWindowsCoreTests/ContractFixtures.cpp` с metadata-only fixtures для session, manifest, queue, bridge и safe error states.
+- [X] T013 [P] Добавить `apps/windows/Tests/GrafWindowsCoreTests/ContractFixtures.cpp` с metadata-only fixtures для session, manifest, queue, bridge и safe error states.
 - [X] T014 Провести Constitution/contract re-check и зафиксировать итоговую проверку в `specs/200-windows-desktop-app/plan.md` до старта user story phases.
 
 ## Phase 3: User Story 1 — Нативно записать встречу (Priority: P1) 🎯 First Windows slice

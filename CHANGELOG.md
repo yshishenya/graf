@@ -10,8 +10,9 @@
 
 ### Добавлено
 - Начата подготовка Windows desktop-среза Feature 200: WinUI 3/Windows App
-  SDK native shell, x64 test targets и проверяемый pinned AEC3 build boundary;
-  это ещё не заявление о поддерживаемой Windows-дистрибуции.
+  SDK native shell, x64 test targets, проверяемый pinned AEC3 build boundary и
+  первый portable C++ contract/session/readiness/storage/upload fixture; это ещё
+  не заявление о поддерживаемой Windows-дистрибуции.
 
 ### Изменено
 - _Пока нет записей._

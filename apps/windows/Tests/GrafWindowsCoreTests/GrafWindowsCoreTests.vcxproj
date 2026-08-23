@@ -18,6 +18,13 @@
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <ImportGroup Label="PropertySheets" />
-  <ItemGroup><ClCompile Include="SmokeMain.cpp" /></ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="ContractFixtures.cpp" />
+    <ClCompile Include="..\..\RecApp\Core\WindowsDesktopSession.cpp" />
+    <ClCompile Include="..\..\RecApp\Diagnostics\MetadataSafeDiagnostics.cpp" />
+    <ClCompile Include="..\..\RecApp\Permissions\WindowsReadinessGate.cpp" />
+    <ClCompile Include="..\..\RecApp\Storage\AtomicFileStore.cpp" />
+    <ClCompile Include="..\..\RecApp\Upload\DesktopApiClient.cpp" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>
