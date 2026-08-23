@@ -38,4 +38,25 @@ final class MeetingDetectionCountdownTests: XCTestCase {
         XCTAssertFalse(cancelled.cancel())
         XCTAssertNil(cancelled.resolveStart(reason: .promptTimeout, at: start.addingTimeInterval(9)))
     }
+
+    func testDisabledButtonStillDeliversElapsedTimeoutForFreshConsumerRecheck() {
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        var countdown = MeetingDetectionCountdown(startedAt: start)
+
+        XCTAssertNil(
+            countdown.resolveStart(
+                reason: .promptButton,
+                at: start.addingTimeInterval(1),
+                startIsTemporarilyDisabled: true
+            )
+        )
+        XCTAssertEqual(
+            countdown.resolveStart(
+                reason: .promptTimeout,
+                at: start.addingTimeInterval(8),
+                startIsTemporarilyDisabled: true
+            ),
+            .promptTimeout
+        )
+    }
 }

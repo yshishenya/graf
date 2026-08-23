@@ -49,6 +49,15 @@ public struct MeetingDetectionSettings: Codable, Equatable, Sendable {
         guard let policy, let assistedAutoStartAcknowledgement else { return false }
         return assistedAutoStartAcknowledgement.matches(policy, at: now)
     }
+
+    public func allowsDetectorAssistedStart(
+        reason: MeetingDetectionStartReason,
+        targetID: String
+    ) -> Bool {
+        guard detectionMode == .detectAndAsk else { return false }
+        guard reason == .savedTargetPolicy else { return true }
+        return targetScopedAutoRecordEnabled && autoRecordTargetIds.contains(targetID)
+    }
 }
 
 public final class MeetingDetectionSettingsStore: @unchecked Sendable {

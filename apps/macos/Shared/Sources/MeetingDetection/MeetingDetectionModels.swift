@@ -481,9 +481,11 @@ public struct MeetingDetectionCountdown: Equatable, Sendable {
 
     public mutating func resolveStart(
         reason: MeetingDetectionStartReason,
-        at now: Date
+        at now: Date,
+        startIsTemporarilyDisabled: Bool = false
     ) -> MeetingDetectionStartReason? {
         guard !isResolved else { return nil }
+        guard reason == .promptTimeout || !startIsTemporarilyDisabled else { return nil }
         if reason == .promptTimeout,
            now.timeIntervalSince(startedAt) < duration {
             return nil

@@ -2,21 +2,31 @@ import Foundation
 import TwoBrainRecShared
 
 public struct MacOSAudioOwnershipLogStreamConfiguration: Equatable, Sendable {
+    public static let defaultPredicate = "((process == 'runningboardd' OR process == 'RunningBoard') AND (eventMessage CONTAINS[c] 'AudioHAL' OR composedMessage CONTAINS[c] 'AudioHAL')) OR (subsystem == 'com.apple.controlcenter' AND category == 'sensor-indicators' AND eventMessage BEGINSWITH 'Active activity attributions changed to ')"
+    public static let snapshotPredicate = "process == 'ControlCenter' AND subsystem == 'com.apple.controlcenter' AND category == 'sensor-indicators' AND eventMessage BEGINSWITH 'Active activity attributions changed to '"
+
     public let executableURL: URL
     public let arguments: [String]
+    public let snapshotArguments: [String]
+    public let snapshotTimeoutNanoseconds: UInt64
+    public let restartDelayNanoseconds: UInt64
 
     public init(
         executableURL: URL = URL(fileURLWithPath: "/usr/bin/log"),
-        arguments: [String] = [
-            "stream",
-            "--style",
-            "compact",
-            "--predicate",
-            "((process == 'runningboardd' OR process == 'RunningBoard') AND (eventMessage CONTAINS[c] 'AudioHAL' OR composedMessage CONTAINS[c] 'AudioHAL')) OR (subsystem == 'com.apple.controlcenter' AND category == 'sensor-indicators' AND eventMessage BEGINSWITH 'Active activity attributions changed to ')"
-        ]
+        arguments: [String]? = nil,
+        snapshotArguments: [String]? = nil,
+        snapshotTimeoutNanoseconds: UInt64 = 3_500_000_000,
+        restartDelayNanoseconds: UInt64 = 1_000_000_000
     ) {
         self.executableURL = executableURL
-        self.arguments = arguments
+        self.arguments = arguments ?? [
+            "stream", "--style", "compact", "--predicate", Self.defaultPredicate,
+        ]
+        self.snapshotArguments = snapshotArguments ?? [
+            "show", "--last", "2h", "--style", "compact", "--predicate", Self.snapshotPredicate,
+        ]
+        self.snapshotTimeoutNanoseconds = snapshotTimeoutNanoseconds
+        self.restartDelayNanoseconds = restartDelayNanoseconds
     }
 }
 
@@ -33,6 +43,12 @@ public enum MacOSMeetingActivityDetectorOutput: Equatable, Sendable {
     case ended(bundleID: String)
 }
 
+public enum MacOSMeetingActivityDetectorConsumerOutcome: Equatable, Sendable {
+    case accepted
+    case retryable(reason: String)
+    case terminal(reason: String)
+}
+
 public final class MacOSMeetingActivityDetector: @unchecked Sendable {
     public typealias Clock = @Sendable () -> Date
 
@@ -40,21 +56,23 @@ public final class MacOSMeetingActivityDetector: @unchecked Sendable {
     private let policy: MeetingDetectionPolicy
     private let debounceSeconds: TimeInterval
     private let endGraceSeconds: TimeInterval
+    private let retryIntervalSeconds: TimeInterval
     private let clock: Clock
     private var trackedEvents: [String: TrackedAudioOwnership] = [:]
-    private var emittedBundles: Set<String> = []
 
     public init(
         filter: MeetingDetectionCandidateFilter = MeetingDetectionCandidateFilter(),
         policy: MeetingDetectionPolicy = MeetingDetectionPolicy(),
         debounceSeconds: TimeInterval = 5,
         endGraceSeconds: TimeInterval = 15,
+        retryIntervalSeconds: TimeInterval = 2,
         clock: @escaping Clock = Date.init
     ) {
         self.filter = filter
         self.policy = policy
         self.debounceSeconds = debounceSeconds
         self.endGraceSeconds = endGraceSeconds
+        self.retryIntervalSeconds = retryIntervalSeconds
         self.clock = clock
     }
 
@@ -64,31 +82,28 @@ public final class MacOSMeetingActivityDetector: @unchecked Sendable {
         settings: MeetingDetectionSettings,
         prerequisites: MeetingDetectionCapturePrerequisites = MeetingDetectionCapturePrerequisites()
     ) -> [MacOSMeetingActivityDetectorOutput] {
-        switch event.state {
-        case .active:
-            if var tracked = trackedEvents[event.bundleID] {
-                tracked.latestEvent = event
-                tracked.inactiveAt = nil
-                tracked.stableObservationCount += 1
-                trackedEvents[event.bundleID] = tracked
-            } else {
-                trackedEvents[event.bundleID] = TrackedAudioOwnership(event: event)
-            }
+        guard reconcile(event: event) else { return [] }
+        if event.state == .active {
             return []
-        case .inactive:
-            guard var tracked = trackedEvents[event.bundleID] else {
-                return []
-            }
-            tracked.latestEvent = event
-            tracked.inactiveAt = event.observedAt
-            trackedEvents[event.bundleID] = tracked
-            return advance(
-                now: event.observedAt,
-                registry: registry,
-                settings: settings,
-                prerequisites: prerequisites
-            )
         }
+        return advance(
+            now: event.observedAt,
+            registry: registry,
+            settings: settings,
+            prerequisites: prerequisites
+        )
+    }
+
+    @discardableResult
+    public func reconcile(event: MacOSAudioOwnershipEvent) -> Bool {
+        if var tracked = trackedEvents[event.bundleID] {
+            guard tracked.apply(event) else { return false }
+            trackedEvents[event.bundleID] = tracked
+            return true
+        }
+        guard event.state == .active else { return false }
+        trackedEvents[event.bundleID] = TrackedAudioOwnership(event: event)
+        return true
     }
 
     public func advance(
@@ -99,21 +114,26 @@ public final class MacOSMeetingActivityDetector: @unchecked Sendable {
     ) -> [MacOSMeetingActivityDetectorOutput] {
         let value = now ?? clock()
         var outputs: [MacOSMeetingActivityDetectorOutput] = []
-        for tracked in trackedEvents.values {
+        for bundleID in trackedEvents.keys.sorted() {
+            guard var tracked = trackedEvents[bundleID] else { continue }
             if let inactiveAt = tracked.inactiveAt {
                 guard value.timeIntervalSince(inactiveAt) >= endGraceSeconds else {
                     continue
                 }
                 trackedEvents.removeValue(forKey: tracked.bundleID)
-                if emittedBundles.remove(tracked.bundleID) != nil {
+                if tracked.didEmitLifecycleOutput {
                     outputs.append(.ended(bundleID: tracked.bundleID))
                 }
                 continue
             }
 
-            guard !emittedBundles.contains(tracked.bundleID),
+            guard !tracked.isHandled,
                   value.timeIntervalSince(tracked.firstObservedAt) >= debounceSeconds
             else {
+                continue
+            }
+            if let lastOfferedAt = tracked.lastOfferedAt,
+               value.timeIntervalSince(lastOfferedAt) < retryIntervalSeconds {
                 continue
             }
             let output = outputForStableEvent(
@@ -123,14 +143,40 @@ public final class MacOSMeetingActivityDetector: @unchecked Sendable {
                 settings: settings,
                 prerequisites: prerequisites
             )
-            if shouldMarkEmitted(output) {
-                emittedBundles.insert(tracked.bundleID)
+            guard let output else { continue }
+            if case .suppressed(_, let reason) = output {
+                guard tracked.lastSuppressionReason != reason else { continue }
+                tracked.lastSuppressionReason = reason
+            } else {
+                tracked.lastSuppressionReason = nil
+                tracked.lastOfferedAt = value
             }
-            if let output {
-                outputs.append(output)
-            }
+            tracked.didEmitLifecycleOutput = true
+            trackedEvents[bundleID] = tracked
+            outputs.append(output)
         }
         return outputs
+    }
+
+    public func recordConsumerOutcome(
+        bundleID: String,
+        outcome: MacOSMeetingActivityDetectorConsumerOutcome,
+        at: Date? = nil
+    ) {
+        guard var tracked = trackedEvents[bundleID] else { return }
+        switch outcome {
+        case .accepted, .terminal:
+            tracked.isHandled = true
+            tracked.lastOfferedAt = nil
+        case .retryable:
+            tracked.isHandled = false
+            tracked.lastOfferedAt = at ?? clock()
+        }
+        trackedEvents[bundleID] = tracked
+    }
+
+    public func reset() {
+        trackedEvents.removeAll(keepingCapacity: true)
     }
 
     public func purgeStaleInactive(now: Date? = nil) {
@@ -142,13 +188,12 @@ public final class MacOSMeetingActivityDetector: @unchecked Sendable {
                 continue
             }
             trackedEvents.removeValue(forKey: tracked.bundleID)
-            emittedBundles.remove(tracked.bundleID)
         }
     }
 
     public func isActive(bundleID: String) -> Bool {
         guard let tracked = trackedEvents[bundleID] else { return false }
-        return tracked.inactiveAt == nil
+        return !tracked.activeSources.isEmpty
     }
 
     private func outputForStableEvent(
@@ -198,15 +243,6 @@ public final class MacOSMeetingActivityDetector: @unchecked Sendable {
         }
     }
 
-    private func shouldMarkEmitted(_ output: MacOSMeetingActivityDetectorOutput?) -> Bool {
-        switch output {
-        case .promptEligible, .autoRecordEligible, .candidateObserved, .suppressed:
-            true
-        case .ended, nil:
-            false
-        }
-    }
-
     private func shouldEmitSoftSuppression(_ decision: MeetingDetectionCandidateDecision) -> Bool {
         guard case .suppressed = decision.kind,
               !decision.suppressionReasons.isEmpty
@@ -219,18 +255,49 @@ public final class MacOSMeetingActivityDetector: @unchecked Sendable {
 }
 
 private struct TrackedAudioOwnership: Sendable {
-    let firstObservedAt: Date
+    var firstObservedAt: Date
     var latestEvent: MacOSAudioOwnershipEvent
+    var activeSources: Set<MacOSAudioOwnershipSource>
+    var sourceObservedAt: [MacOSAudioOwnershipSource: Date]
     var inactiveAt: Date?
     var stableObservationCount: Int
+    var isHandled = false
+    var didEmitLifecycleOutput = false
+    var lastOfferedAt: Date?
+    var lastSuppressionReason: String?
 
     var bundleID: String { latestEvent.bundleID }
 
     init(event: MacOSAudioOwnershipEvent) {
         firstObservedAt = event.observedAt
         latestEvent = event
-        inactiveAt = nil
+        activeSources = event.state == .active ? [event.source] : []
+        sourceObservedAt = [event.source: event.observedAt]
+        inactiveAt = event.state == .inactive ? event.observedAt : nil
         stableObservationCount = 1
+    }
+
+    mutating func apply(_ event: MacOSAudioOwnershipEvent) -> Bool {
+        if let lastObservedAt = sourceObservedAt[event.source], event.observedAt < lastObservedAt {
+            return false
+        }
+        sourceObservedAt[event.source] = event.observedAt
+        latestEvent = event
+        switch event.state {
+        case .active:
+            firstObservedAt = min(firstObservedAt, event.observedAt)
+            let inserted = activeSources.insert(event.source).inserted
+            inactiveAt = nil
+            if inserted {
+                stableObservationCount += 1
+            }
+            return true
+        case .inactive:
+            if activeSources.remove(event.source) != nil, activeSources.isEmpty {
+                inactiveAt = event.observedAt
+            }
+            return true
+        }
     }
 }
 

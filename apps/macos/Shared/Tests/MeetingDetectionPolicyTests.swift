@@ -94,6 +94,24 @@ final class MeetingDetectionPolicyTests: XCTestCase {
         XCTAssertFalse(acknowledgement.matches(policy, at: now.addingTimeInterval(-1)))
         XCTAssertFalse(policy.isActive(at: now.addingTimeInterval(-1)))
     }
+
+    func testCurrentSettingsRecheckDetectionModeAndSavedTargetOptIn() {
+        let enabled = MeetingDetectionSettings(
+            detectionMode: .detectAndAsk,
+            targetScopedAutoRecordEnabled: true,
+            autoRecordTargetIds: ["zoom"]
+        )
+        XCTAssertTrue(enabled.allowsDetectorAssistedStart(reason: .promptButton, targetID: "meet"))
+        XCTAssertTrue(enabled.allowsDetectorAssistedStart(reason: .promptTimeout, targetID: "meet"))
+        XCTAssertTrue(enabled.allowsDetectorAssistedStart(reason: .savedTargetPolicy, targetID: "zoom"))
+        XCTAssertFalse(enabled.allowsDetectorAssistedStart(reason: .savedTargetPolicy, targetID: "meet"))
+
+        var disabled = enabled
+        disabled.detectionMode = .detectOnly
+        XCTAssertFalse(disabled.allowsDetectorAssistedStart(reason: .promptButton, targetID: "meet"))
+        XCTAssertFalse(disabled.allowsDetectorAssistedStart(reason: .promptTimeout, targetID: "meet"))
+        XCTAssertFalse(disabled.allowsDetectorAssistedStart(reason: .savedTargetPolicy, targetID: "zoom"))
+    }
     func testPromptEnabledKnownTargetCanPromptWhenCaptureGateIsReady() {
         let action = MeetingDetectionPolicy().action(
             for: MeetingDetectionCandidateDecision(
@@ -254,6 +272,205 @@ final class MeetingDetectionPolicyTests: XCTestCase {
         XCTAssertTrue(predicate.contains("sensor-indicators"))
         XCTAssertTrue(predicate.contains("Active activity attributions changed"))
         XCTAssertFalse(predicate.hasPrefix("eventMessage CONTAINS"))
+        XCTAssertEqual(configuration.snapshotArguments.first, "show")
+        XCTAssertTrue(configuration.snapshotArguments.contains("--last"))
+        XCTAssertTrue(configuration.snapshotArguments.contains("2h"))
+        XCTAssertEqual(configuration.snapshotArguments.last, MacOSAudioOwnershipLogStreamConfiguration.snapshotPredicate)
+        XCTAssertFalse(configuration.snapshotArguments.last?.contains("AudioHAL") == true)
+        XCTAssertEqual(configuration.snapshotTimeoutNanoseconds, 3_500_000_000)
+    }
+
+    func testLogStreamSupervisorRestartsAfterUnexpectedLiveCompletion() async {
+        let configuration = MacOSAudioOwnershipLogStreamConfiguration(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: ["-c", "exit 0"],
+            snapshotArguments: ["-c", "exit 0"],
+            restartDelayNanoseconds: 1_000_000
+        )
+        let stream = MacOSAudioOwnershipLogStream(configuration: configuration)
+        var reconciledGenerations: [Int] = []
+        var phases: [MacOSAudioOwnershipObserverPhase] = []
+
+        for await observation in stream.observations() {
+            switch observation {
+            case .reconcile(let generation):
+                reconciledGenerations.append(generation)
+                if generation == 2 {
+                    stream.stop()
+                }
+            case .lifecycle(let phase, _):
+                phases.append(phase)
+            case .snapshot, .ownership:
+                break
+            }
+        }
+
+        XCTAssertEqual(reconciledGenerations, [1, 2])
+        XCTAssertTrue(phases.contains(.snapshotStarted))
+        XCTAssertTrue(phases.contains(.liveStarted))
+        XCTAssertTrue(phases.contains(.unexpectedFinish))
+        XCTAssertTrue(phases.contains(.retryScheduled))
+    }
+
+    func testLogStreamDeliberateStopDoesNotRespawn() async {
+        let configuration = MacOSAudioOwnershipLogStreamConfiguration(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: ["-c", "sleep 5"],
+            snapshotArguments: ["-c", "exit 0"],
+            restartDelayNanoseconds: 1_000_000
+        )
+        let stream = MacOSAudioOwnershipLogStream(configuration: configuration)
+        var reconciledGenerations: [Int] = []
+        var liveGenerations: [Int] = []
+
+        for await observation in stream.observations() {
+            switch observation {
+            case .reconcile(let generation):
+                reconciledGenerations.append(generation)
+            case .lifecycle(.liveStarted, let generation):
+                liveGenerations.append(generation)
+                stream.stop()
+            case .snapshot, .lifecycle, .ownership:
+                break
+            }
+        }
+
+        XCTAssertEqual(reconciledGenerations, [1])
+        XCTAssertEqual(liveGenerations, [1])
+    }
+
+    func testLogStreamStopBeforeObservationNeverStartsGeneration() async {
+        let configuration = MacOSAudioOwnershipLogStreamConfiguration(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: ["-c", "sleep 5"],
+            snapshotArguments: ["-c", "exit 0"],
+            restartDelayNanoseconds: 1_000_000
+        )
+        let stream = MacOSAudioOwnershipLogStream(configuration: configuration)
+        stream.stop()
+        var didReconcile = false
+
+        for await observation in stream.observations() {
+            if case .reconcile = observation {
+                didReconcile = true
+                stream.stop()
+            }
+        }
+
+        XCTAssertFalse(didReconcile)
+    }
+
+    func testLogStreamCoalescesRepeatedRestartRequestsIntoOneGeneration() async {
+        let configuration = MacOSAudioOwnershipLogStreamConfiguration(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: ["-c", "sleep 5"],
+            snapshotArguments: ["-c", "exit 0"],
+            restartDelayNanoseconds: 1_000_000
+        )
+        let stream = MacOSAudioOwnershipLogStream(configuration: configuration)
+        var reconciledGenerations: [Int] = []
+
+        for await observation in stream.observations() {
+            switch observation {
+            case .reconcile(let generation):
+                reconciledGenerations.append(generation)
+                if generation == 2 {
+                    stream.stop()
+                }
+            case .lifecycle(.liveStarted, generation: 1):
+                stream.restart()
+                stream.restart()
+            case .snapshot, .lifecycle, .ownership:
+                break
+            }
+        }
+
+        XCTAssertEqual(reconciledGenerations, [1, 2])
+    }
+
+    func testLogStreamPublishesOnlyTheFinalAtomicSensorSnapshot() async {
+        let snapshotScript = #"printf '%s\n' 'ControlCenter [com.apple.controlcenter:sensor-indicators] Active activity attributions changed to ["mic:ru.yandex.desktop.telemost"]' 'ControlCenter [com.apple.controlcenter:sensor-indicators] Active activity attributions changed to ["mic:us.zoom.xos"]'"#
+        let configuration = MacOSAudioOwnershipLogStreamConfiguration(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: ["-c", "sleep 5"],
+            snapshotArguments: ["-c", snapshotScript],
+            snapshotTimeoutNanoseconds: 1_000_000_000,
+            restartDelayNanoseconds: 1_000_000
+        )
+        let stream = MacOSAudioOwnershipLogStream(configuration: configuration)
+        var snapshotEvents: [MacOSAudioOwnershipEvent] = []
+
+        for await observation in stream.observations() {
+            switch observation {
+            case .snapshot(let events, generation: 1):
+                snapshotEvents = events
+            case .lifecycle(.liveStarted, generation: 1):
+                stream.stop()
+            case .reconcile, .snapshot, .lifecycle, .ownership:
+                break
+            }
+        }
+
+        XCTAssertEqual(snapshotEvents.count, 1)
+        XCTAssertEqual(snapshotEvents.first?.bundleID, "us.zoom.xos")
+        XCTAssertEqual(snapshotEvents.first?.source, .sensorIndicator)
+        XCTAssertEqual(snapshotEvents.first?.state, .active)
+    }
+
+    func testLogStreamSnapshotTimeoutFallsBackToLiveWithoutRetryLoop() async {
+        let configuration = MacOSAudioOwnershipLogStreamConfiguration(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: ["-c", "sleep 5"],
+            snapshotArguments: ["-c", "sleep 5"],
+            snapshotTimeoutNanoseconds: 1_000_000,
+            restartDelayNanoseconds: 1_000_000
+        )
+        let stream = MacOSAudioOwnershipLogStream(configuration: configuration)
+        var phases: [MacOSAudioOwnershipObserverPhase] = []
+
+        for await observation in stream.observations() {
+            switch observation {
+            case .lifecycle(let phase, generation: 1):
+                phases.append(phase)
+                if phase == .liveStarted {
+                    stream.stop()
+                }
+            case .reconcile, .snapshot, .lifecycle, .ownership:
+                break
+            }
+        }
+
+        XCTAssertEqual(phases, [.snapshotStarted, .snapshotUnavailable, .liveStarted])
+    }
+
+    func testLogStreamRejectsSnapshotWhoseLatestStateIsRedacted() async {
+        let snapshotScript = #"printf '%s\n' 'ControlCenter [com.apple.controlcenter:sensor-indicators] Active activity attributions changed to ["mic:us.zoom.xos"]' 'ControlCenter [com.apple.controlcenter:sensor-indicators] Active activity attributions changed to <private>'"#
+        let configuration = MacOSAudioOwnershipLogStreamConfiguration(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: ["-c", "sleep 5"],
+            snapshotArguments: ["-c", snapshotScript],
+            snapshotTimeoutNanoseconds: 1_000_000_000
+        )
+        let stream = MacOSAudioOwnershipLogStream(configuration: configuration)
+        var snapshotWasPublished = false
+        var phases: [MacOSAudioOwnershipObserverPhase] = []
+
+        for await observation in stream.observations() {
+            switch observation {
+            case .snapshot:
+                snapshotWasPublished = true
+            case .lifecycle(let phase, generation: 1):
+                phases.append(phase)
+                if phase == .liveStarted {
+                    stream.stop()
+                }
+            case .reconcile, .lifecycle, .ownership:
+                break
+            }
+        }
+
+        XCTAssertFalse(snapshotWasPublished)
+        XCTAssertTrue(phases.contains(.snapshotUnavailable))
     }
 
     func testLogStreamConvertsSensorIndicatorMicDiffsToOwnershipEvents() {
@@ -277,13 +494,349 @@ final class MeetingDetectionPolicyTests: XCTestCase {
         XCTAssertEqual(
             startEvents,
             [
-                MacOSAudioOwnershipEvent(bundleID: "ai.krisp.krispMac", state: .active, observedAt: observedAt),
-                MacOSAudioOwnershipEvent(bundleID: "ru.yandex.desktop.telemost", state: .active, observedAt: observedAt)
+                MacOSAudioOwnershipEvent(
+                    bundleID: "ai.krisp.krispMac",
+                    source: .sensorIndicator,
+                    state: .active,
+                    observedAt: observedAt
+                ),
+                MacOSAudioOwnershipEvent(
+                    bundleID: "ru.yandex.desktop.telemost",
+                    source: .sensorIndicator,
+                    state: .active,
+                    observedAt: observedAt
+                )
             ]
         )
         XCTAssertEqual(
             endEvents,
-            [MacOSAudioOwnershipEvent(bundleID: "ru.yandex.desktop.telemost", state: .inactive, observedAt: observedAt)]
+            [
+                MacOSAudioOwnershipEvent(
+                    bundleID: "ru.yandex.desktop.telemost",
+                    source: .sensorIndicator,
+                    state: .inactive,
+                    observedAt: observedAt
+                )
+            ]
+        )
+    }
+
+    func testDetectorKeepsBundleActiveUntilEverySourceEnds() throws {
+        let registry = try MeetingDetectionPolicyTests.registry()
+        let detector = MacOSMeetingActivityDetector(debounceSeconds: 1, endGraceSeconds: 2)
+        let bundleID = "ru.yandex.desktop.telemost"
+
+        _ = detector.handle(
+            event: MacOSAudioOwnershipEvent(
+                bundleID: bundleID,
+                source: .audioHAL,
+                state: .active,
+                observedAt: Date(timeIntervalSince1970: 100)
+            ),
+            registry: registry,
+            settings: MeetingDetectionSettings()
+        )
+        _ = detector.handle(
+            event: MacOSAudioOwnershipEvent(
+                bundleID: bundleID,
+                source: .sensorIndicator,
+                state: .active,
+                observedAt: Date(timeIntervalSince1970: 101)
+            ),
+            registry: registry,
+            settings: MeetingDetectionSettings()
+        )
+        XCTAssertEqual(
+            detector.advance(
+                now: Date(timeIntervalSince1970: 102),
+                registry: registry,
+                settings: MeetingDetectionSettings()
+            ),
+            [.promptEligible(targetID: "yandex_telemost", bundleID: bundleID)]
+        )
+        detector.recordConsumerOutcome(bundleID: bundleID, outcome: .accepted)
+
+        _ = detector.handle(
+            event: MacOSAudioOwnershipEvent(
+                bundleID: bundleID,
+                source: .audioHAL,
+                state: .inactive,
+                observedAt: Date(timeIntervalSince1970: 103)
+            ),
+            registry: registry,
+            settings: MeetingDetectionSettings()
+        )
+        XCTAssertTrue(detector.isActive(bundleID: bundleID))
+        XCTAssertTrue(
+            detector.advance(
+                now: Date(timeIntervalSince1970: 106),
+                registry: registry,
+                settings: MeetingDetectionSettings()
+            ).isEmpty
+        )
+
+        _ = detector.handle(
+            event: MacOSAudioOwnershipEvent(
+                bundleID: bundleID,
+                source: .sensorIndicator,
+                state: .inactive,
+                observedAt: Date(timeIntervalSince1970: 107)
+            ),
+            registry: registry,
+            settings: MeetingDetectionSettings()
+        )
+        XCTAssertFalse(detector.isActive(bundleID: bundleID))
+        XCTAssertEqual(
+            detector.advance(
+                now: Date(timeIntervalSince1970: 109),
+                registry: registry,
+                settings: MeetingDetectionSettings()
+            ),
+            [.ended(bundleID: bundleID)]
+        )
+    }
+
+    func testDetectorRetriesRejectedOfferButNotAcceptedOrTerminalOffer() throws {
+        let registry = try MeetingDetectionPolicyTests.registry()
+        let detector = MacOSMeetingActivityDetector(debounceSeconds: 1, retryIntervalSeconds: 2)
+        let bundleID = "ru.yandex.desktop.telemost"
+        _ = detector.handle(
+            event: MacOSAudioOwnershipEvent(
+                bundleID: bundleID,
+                state: .active,
+                observedAt: Date(timeIntervalSince1970: 100)
+            ),
+            registry: registry,
+            settings: MeetingDetectionSettings()
+        )
+
+        let expected = [MacOSMeetingActivityDetectorOutput.promptEligible(
+            targetID: "yandex_telemost",
+            bundleID: bundleID
+        )]
+        XCTAssertEqual(
+            detector.advance(
+                now: Date(timeIntervalSince1970: 102),
+                registry: registry,
+                settings: MeetingDetectionSettings()
+            ),
+            expected
+        )
+        detector.recordConsumerOutcome(
+            bundleID: bundleID,
+            outcome: .retryable(reason: "transition_in_progress"),
+            at: Date(timeIntervalSince1970: 102)
+        )
+        XCTAssertTrue(
+            detector.advance(
+                now: Date(timeIntervalSince1970: 103),
+                registry: registry,
+                settings: MeetingDetectionSettings()
+            ).isEmpty
+        )
+        XCTAssertEqual(
+            detector.advance(
+                now: Date(timeIntervalSince1970: 104),
+                registry: registry,
+                settings: MeetingDetectionSettings()
+            ),
+            expected
+        )
+
+        detector.recordConsumerOutcome(bundleID: bundleID, outcome: .accepted)
+        XCTAssertTrue(
+            detector.advance(
+                now: Date(timeIntervalSince1970: 110),
+                registry: registry,
+                settings: MeetingDetectionSettings()
+            ).isEmpty
+        )
+
+        detector.reset()
+        XCTAssertFalse(detector.isActive(bundleID: bundleID))
+        _ = detector.handle(
+            event: MacOSAudioOwnershipEvent(
+                bundleID: bundleID,
+                state: .active,
+                observedAt: Date(timeIntervalSince1970: 120)
+            ),
+            registry: registry,
+            settings: MeetingDetectionSettings()
+        )
+        XCTAssertEqual(
+            detector.advance(
+                now: Date(timeIntervalSince1970: 122),
+                registry: registry,
+                settings: MeetingDetectionSettings()
+            ),
+            expected
+        )
+        detector.recordConsumerOutcome(
+            bundleID: bundleID,
+            outcome: .terminal(reason: "user_skipped")
+        )
+        XCTAssertTrue(
+            detector.advance(
+                now: Date(timeIntervalSince1970: 130),
+                registry: registry,
+                settings: MeetingDetectionSettings()
+            ).isEmpty
+        )
+    }
+
+    func testDetectorIgnoresDelayedAndDuplicateTransitionsAndAllowsNextMeeting() throws {
+        let registry = try MeetingDetectionPolicyTests.registry()
+        let detector = MacOSMeetingActivityDetector(debounceSeconds: 1, endGraceSeconds: 2)
+        let settings = MeetingDetectionSettings()
+        let bundleID = "ru.yandex.desktop.telemost"
+
+        for event in [
+            MacOSAudioOwnershipEvent(
+                bundleID: bundleID,
+                source: .audioHAL,
+                state: .active,
+                observedAt: Date(timeIntervalSince1970: 100)
+            ),
+            MacOSAudioOwnershipEvent(
+                bundleID: bundleID,
+                source: .sensorIndicator,
+                state: .active,
+                observedAt: Date(timeIntervalSince1970: 101)
+            ),
+        ] {
+            _ = detector.handle(event: event, registry: registry, settings: settings)
+        }
+        XCTAssertEqual(
+            detector.advance(now: Date(timeIntervalSince1970: 102), registry: registry, settings: settings),
+            [.promptEligible(targetID: "yandex_telemost", bundleID: bundleID)]
+        )
+        detector.recordConsumerOutcome(bundleID: bundleID, outcome: .accepted)
+
+        for event in [
+            MacOSAudioOwnershipEvent(
+                bundleID: bundleID,
+                source: .audioHAL,
+                state: .inactive,
+                observedAt: Date(timeIntervalSince1970: 103)
+            ),
+            MacOSAudioOwnershipEvent(
+                bundleID: bundleID,
+                source: .audioHAL,
+                state: .inactive,
+                observedAt: Date(timeIntervalSince1970: 104)
+            ),
+            MacOSAudioOwnershipEvent(
+                bundleID: bundleID,
+                source: .audioHAL,
+                state: .active,
+                observedAt: Date(timeIntervalSince1970: 102)
+            ),
+            MacOSAudioOwnershipEvent(
+                bundleID: bundleID,
+                source: .sensorIndicator,
+                state: .inactive,
+                observedAt: Date(timeIntervalSince1970: 105)
+            ),
+        ] {
+            _ = detector.handle(event: event, registry: registry, settings: settings)
+        }
+        XCTAssertFalse(detector.isActive(bundleID: bundleID))
+
+        _ = detector.handle(
+            event: MacOSAudioOwnershipEvent(
+                bundleID: bundleID,
+                source: .audioHAL,
+                state: .active,
+                observedAt: Date(timeIntervalSince1970: 106)
+            ),
+            registry: registry,
+            settings: settings
+        )
+        XCTAssertTrue(detector.isActive(bundleID: bundleID))
+        XCTAssertTrue(
+            detector.advance(now: Date(timeIntervalSince1970: 108), registry: registry, settings: settings).isEmpty
+        )
+        _ = detector.handle(
+            event: MacOSAudioOwnershipEvent(
+                bundleID: bundleID,
+                source: .audioHAL,
+                state: .inactive,
+                observedAt: Date(timeIntervalSince1970: 109)
+            ),
+            registry: registry,
+            settings: settings
+        )
+        XCTAssertEqual(
+            detector.advance(now: Date(timeIntervalSince1970: 111), registry: registry, settings: settings),
+            [.ended(bundleID: bundleID)]
+        )
+
+        _ = detector.handle(
+            event: MacOSAudioOwnershipEvent(
+                bundleID: bundleID,
+                source: .audioHAL,
+                state: .active,
+                observedAt: Date(timeIntervalSince1970: 120)
+            ),
+            registry: registry,
+            settings: settings
+        )
+        XCTAssertEqual(
+            detector.advance(now: Date(timeIntervalSince1970: 122), registry: registry, settings: settings),
+            [.promptEligible(targetID: "yandex_telemost", bundleID: bundleID)]
+        )
+    }
+
+    func testDetectorReoffersAfterRetryablePolicySuppressionRecovers() throws {
+        let registry = try MeetingDetectionPolicyTests.registry()
+        let detector = MacOSMeetingActivityDetector(debounceSeconds: 1, retryIntervalSeconds: 2)
+        let bundleID = "ru.yandex.desktop.telemost"
+        var settings = MeetingDetectionSettings()
+        settings.targetScopedAutoRecordEnabled = true
+        settings.autoRecordTargetIds = ["yandex_telemost"]
+        _ = detector.handle(
+            event: MacOSAudioOwnershipEvent(
+                bundleID: bundleID,
+                state: .active,
+                observedAt: Date(timeIntervalSince1970: 100)
+            ),
+            registry: registry,
+            settings: settings
+        )
+        let blocked = MeetingDetectionCapturePrerequisites(
+            recordingPrerequisite: RecordingPrerequisiteGate().evaluate(
+                recordingPrerequisite(policyAllowsRecording: false)
+            )
+        )
+        XCTAssertEqual(
+            detector.advance(
+                now: Date(timeIntervalSince1970: 102),
+                registry: registry,
+                settings: settings,
+                prerequisites: blocked
+            ),
+            [.suppressed(bundleID: bundleID, reason: RecordingStartBlocker.policyDisabled.rawValue)]
+        )
+        detector.recordConsumerOutcome(
+            bundleID: bundleID,
+            outcome: .retryable(reason: RecordingStartBlocker.policyDisabled.rawValue),
+            at: Date(timeIntervalSince1970: 102)
+        )
+
+        XCTAssertTrue(
+            detector.advance(
+                now: Date(timeIntervalSince1970: 103),
+                registry: registry,
+                settings: settings
+            ).isEmpty
+        )
+        XCTAssertEqual(
+            detector.advance(
+                now: Date(timeIntervalSince1970: 104),
+                registry: registry,
+                settings: settings
+            ),
+            [.autoRecordEligible(targetID: "yandex_telemost", bundleID: bundleID)]
         )
     }
 

@@ -5,10 +5,16 @@ public enum MacOSAudioOwnershipState: String, Equatable, Sendable {
     case inactive
 }
 
+public enum MacOSAudioOwnershipSource: String, Equatable, Hashable, Sendable {
+    case audioHAL = "audio_hal"
+    case sensorIndicator = "sensor_indicator"
+}
+
 public struct MacOSAudioOwnershipEvent: Equatable, Sendable {
     public let bundleID: String
     public let displayName: String?
     public let processID: Int?
+    public let source: MacOSAudioOwnershipSource
     public let state: MacOSAudioOwnershipState
     public let observedAt: Date
 
@@ -16,12 +22,14 @@ public struct MacOSAudioOwnershipEvent: Equatable, Sendable {
         bundleID: String,
         displayName: String? = nil,
         processID: Int? = nil,
+        source: MacOSAudioOwnershipSource = .audioHAL,
         state: MacOSAudioOwnershipState,
         observedAt: Date
     ) {
         self.bundleID = bundleID
         self.displayName = displayName
         self.processID = processID
+        self.source = source
         self.state = state
         self.observedAt = observedAt
     }
@@ -35,10 +43,24 @@ public struct MacOSAudioOwnershipParser: Sendable {
         return parseAudioHALAssertion(line: line, lowercased: lowercased, observedAt: observedAt)
     }
 
+    public func isSensorIndicatorAttributionLine(_ line: String) -> Bool {
+        let lowercased = line.lowercased()
+        return lowercased.contains("active activity attributions changed to") &&
+            (lowercased.contains("sensor-indicators") || lowercased.contains("com.apple.controlcenter"))
+    }
+
     public func parseSensorIndicatorMicrophoneBundleIDs(line: String) -> Set<String>? {
         let lowercased = line.lowercased()
-        guard lowercased.contains("active activity attributions changed to"),
-              lowercased.contains("sensor-indicators") || lowercased.contains("com.apple.controlcenter")
+        let marker = "active activity attributions changed to"
+        guard let markerRange = lowercased.range(of: marker),
+              isSensorIndicatorAttributionLine(line)
+        else {
+            return nil
+        }
+        let attributions = lowercased[markerRange.upperBound...]
+        guard !attributions.contains("<private>"),
+              attributions.contains("["),
+              attributions.contains("]")
         else {
             return nil
         }
