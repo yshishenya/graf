@@ -302,7 +302,9 @@ def test_sale_ready_template_renders_exact_price_and_annual_saving() -> None:
     parser = _StructuredDataParser()
     parser.feed(html)
     structured_data = [json.loads(document) for document in parser.documents]
-    software = next(document for document in structured_data if document["@type"] == "SoftwareApplication")
+    software = next(
+        document for document in structured_data if document["@type"] == "SoftwareApplication"
+    )
     assert software["downloadUrl"] == "https://rec.2brain.pro/download"
     assert [offer["price"] for offer in software["offers"]] == ["1000", "10000"]
 
@@ -337,7 +339,9 @@ def test_catalog_ready_template_publishes_tariff_before_payment_is_enabled() -> 
     parser = _StructuredDataParser()
     parser.feed(html)
     structured_data = [json.loads(document) for document in parser.documents]
-    software = next(document for document in structured_data if document["@type"] == "SoftwareApplication")
+    software = next(
+        document for document in structured_data if document["@type"] == "SoftwareApplication"
+    )
     assert "offers" not in software
 
 
@@ -432,6 +436,7 @@ def test_public_legal_copy_matches_product_and_analytics_truth(client) -> None:
         "Редакция от 23 августа 2026 года",
         "поставщикам вычислительных ресурсов",
         "поставщикам распознавания речи",
+        "могут передаваться материалы встречи, запросы и результаты обработки",
         "ГРАФ не продаёт персональные данные",
         "трансграничной передачи",
         "Данные Google Calendar",
@@ -448,6 +453,9 @@ def test_public_legal_copy_matches_product_and_analytics_truth(client) -> None:
         "Google API Services User Data Policy",
         "Limited Use",
         "не отзывает доступ на стороне Google",
+        "псевдонимные события продуктовой аналитики — не менее 90 дней",
+        "фактический срок может быть больше",
+        "могут сохраняться после удаления основной записи",
         "шифрование при передаче",
         "ограничения обязательны для сотрудников, подрядчиков и правопреемников",
     ):
@@ -466,6 +474,7 @@ def test_public_legal_copy_matches_product_and_analytics_truth(client) -> None:
         "модельный маршрут",
     ):
         assert internal_detail not in privacy_copy
+    assert "как правило, до 90 дней" not in privacy_copy
     assert "законное основание" in terms
     assert "проинформировать участников о записи" in terms
     assert "загружается сразу" in analytics
