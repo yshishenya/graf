@@ -108,7 +108,10 @@ def test_more_menu_has_complete_keyboard_model_and_visible_return_target() -> No
     for key in ("ArrowUp", "ArrowDown", "Home", "End", "Escape"):
         assert key in script
     assert "menuItems" in script
-    assert "restoreMeetingActionFocus" in script
+    assert "const restoreMeetingActionFocus = (target) => {" in script
+    assert "const visibleTarget = isUsableFocusTarget(target)" in script
+    assert "document.querySelector('[data-meeting-panel-open=\"more\"]')" in script
+    assert "visibleTarget?.focus({ preventScroll: true })" in script
     assert 'data-meeting-panel-open="details"' in governance
     assert "data-meeting-panel-close" in governance
     assert ".meeting-action-item" in css

@@ -18,10 +18,10 @@
 
 **Purpose**: One pure, deterministic model blocks every consumer change.
 
-- [X] T004 [P] Add failing 2-turn, 3-turn, below-50-percent, 1/2/11-label, exact-time, and idempotence tests in `apps/server/tests/unit/test_canonical_speaker_turns.py`
+- [X] T004 [P] Add failing 2-turn, 3-turn, below-50-percent, 1/2/11-label, exact-time, idempotence, and linear-scan guard tests in `apps/server/tests/unit/test_canonical_speaker_turns.py`
 - [X] T005 [P] Add failing malformed-result tests for non-positive time, chronology, 40 ms unknown, triplicated full text, and text conservation in `apps/server/tests/unit/test_mediascribe_result_import.py`
 - [X] T006 Implement bounded provider-contract diagnostics in `apps/server/src/twobrain_rec_server/mediascribe/schemas.py` and `apps/server/src/twobrain_rec_server/mediascribe/import_results.py`
-- [X] T007 Implement the shared canonical speaker model, stable provider identity, accepted/degraded projections, and talk-time denominator in `apps/server/src/twobrain_rec_server/cabinet/view_models.py`
+- [X] T007 Implement the shared canonical speaker model, stable provider identity, accepted/degraded projections, and talk-time denominator in `apps/server/src/twobrain_rec_server/domain/speaker_turns.py`
 - [X] T008 Persist allowlisted metadata-only import diagnostics and defect ownership through `apps/server/src/twobrain_rec_server/processing/audit.py`, `apps/server/src/twobrain_rec_server/processing/store.py`, and `apps/server/src/twobrain_rec_server/processing/submit.py`
 
 **Checkpoint**: Synthetic production defect classes fail closed without guessed repair.
@@ -35,7 +35,7 @@
 **Independent Test**: Two/three valid provider turns remain separate with exact keys, text, and boundaries.
 
 - [X] T009 [US1] Add failing review API and transcript/timeline tests for accepted provider turns in `apps/server/tests/unit/test_cabinet_view_models.py`
-- [X] T010 [US1] Route `transcript_state`, `derive_speaker_turns`, and `speaker_state` through the shared canonical model and remove winner attribution from `apps/server/src/twobrain_rec_server/cabinet/view_models.py`
+- [X] T010 [US1] Route `transcript_state` and `speaker_state` through the shared canonical model and remove the legacy winner, derived-turn, and ordinal-label projections from `apps/server/src/twobrain_rec_server/cabinet/view_models.py`
 - [X] T011 [US1] Expose provider key, canonical result state, unknown copy, and the `Доля распознанной речи` label through `apps/server/src/twobrain_rec_server/api/schemas.py` and `apps/server/src/twobrain_rec_server/cabinet/rendering.py`
 
 **Checkpoint**: Review and timeline independently preserve provider truth.
@@ -44,9 +44,9 @@
 
 ## Phase 4: User Story 2 - Truthful degraded results (Priority: P1)
 
-**Goal**: Unsafe provider attribution becomes one uncertain ASR representation everywhere.
+**Goal**: Structurally unsafe provider attribution becomes one uncertain ASR representation everywhere; a tiny explicit unknown remains isolated without hiding valid confirmed turns.
 
-**Independent Test**: Triplicated text and 40 ms unknown never create repeated text or an extra confirmed participant.
+**Independent Test**: Triplicated text becomes one uncertain ASR copy; a 40 ms unknown creates neither repeated text nor an extra participant and leaves valid confirmed turns intact.
 
 - [X] T012 [US2] Add failing degraded review/timeline tests in `apps/server/tests/unit/test_cabinet_view_models.py`
 - [X] T013 [US2] Apply one degraded state/reason to review and timeline projections in `apps/server/src/twobrain_rec_server/cabinet/view_models.py`
@@ -63,7 +63,7 @@
 **Independent Test**: Renumbering display order never moves a saved name.
 
 - [X] T015 [US3] Add failing stable-name, legacy ambiguity, and unknown-rename tests in `apps/server/tests/integration/test_speaker_names.py`
-- [X] T016 [US3] Resolve names by stable key and reject non-confirmed rename keys in `apps/server/src/twobrain_rec_server/cabinet/speakers.py`, `apps/server/src/twobrain_rec_server/cabinet/queries.py`, and `apps/server/src/twobrain_rec_server/cabinet/view_models.py`
+- [X] T016 [US3] Resolve names by stable key, migrate only provable current-result legacy names, and reject non-confirmed rename keys in `apps/server/src/twobrain_rec_server/domain/speaker_turns.py`, `apps/server/src/twobrain_rec_server/cabinet/speakers.py`, `apps/server/src/twobrain_rec_server/cabinet/queries.py`, `apps/server/src/twobrain_rec_server/cabinet/web_routes/speakers.py`, and `apps/server/src/twobrain_rec_server/cabinet/view_models.py`
 
 **Checkpoint**: User names cannot silently rebind to another provider identity.
 
@@ -79,7 +79,7 @@
 - [X] T018 [P] [US4] Add failing normal-recording/manual-upload and downstream outcomes parity tests in `apps/server/tests/integration/test_meeting_outcomes_generation.py` and `apps/server/tests/integration/test_mediascribe_processing_happy_path.py`
 - [X] T019 [US4] Replace independent export reconstruction with the shared canonical model and add VTT in `apps/server/src/twobrain_rec_server/cabinet/exports.py`
 - [X] T020 [US4] Add VTT to request/UI format contracts in `apps/server/src/twobrain_rec_server/api/schemas.py`, `apps/server/src/twobrain_rec_server/cabinet/rendering.py`, and `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`
-- [X] T021 [US4] Replace independent outcome reconstruction with the shared canonical model in `apps/server/src/twobrain_rec_server/outcomes/service.py`
+- [X] T021 [US4] Replace independent outcome reconstruction with the shared canonical model and keep unambiguous legacy source links readable in `apps/server/src/twobrain_rec_server/outcomes/service.py` and `apps/server/src/twobrain_rec_server/api/cabinet.py`
 
 **Checkpoint**: All requested consumers and both ingest histories are semantically identical.
 
@@ -105,6 +105,7 @@
 - [X] T026 Re-run Spec Kit analyze and all high-risk checklist gates after implementation
 - [X] T027 Reconcile completed tasks with GitHub issues using Russian status comments; do not close incomplete tasks or create a PR
 - [X] T028 Inspect `git diff --check`, scan for forbidden content, prove no external MediaScribe/config/deploy change, and stop without commit or deploy
+- [ ] T029 After all preceding validation is clean, run `infra/scripts/ci-local.sh --full` once and stop without commit or deploy
 
 ## Dependencies and execution order
 
@@ -112,7 +113,7 @@
 - T004-T008 are foundational; T006/T007/T008 follow their failing tests.
 - US1-US3 depend on the shared canonical model and may then be validated independently.
 - US4 depends on US1/US2 semantics; US5 depends on foundational diagnostics.
-- T024-T028 require all implemented story tasks.
+- T024-T029 require all implemented story tasks; T029 runs last.
 
 ## Parallel opportunities
 

@@ -15,27 +15,34 @@ text splitting. All require guessing which speaker owns words.
 
 ## Decision 2: Unsafe result behavior
 
-**Decision**: If any required provider-contract invariant fails, reject the
-attributed projection as a whole and emit the ordered ASR evidence once with
-`degraded_provider_result` and `mixed`/`uncertain` attribution.
+**Decision**: If timing, chronology, duplicate-text, or text-conservation
+invariants fail, reject the attributed projection as a whole and emit the
+ordered ASR evidence once with `degraded_provider_result` and
+`mixed`/`uncertain` attribution. A tiny explicit unknown is handled separately
+by Decision 5 because its identity is already explicit and requires no guess.
 
-**Rationale**: Partial repair can duplicate content or create plausible but
-false attribution. Whole-result degradation is deterministic and conserving.
+**Rationale**: Partial repair of structurally unsafe rows can duplicate content
+or create plausible but false attribution. Whole-result degradation for those
+defects is deterministic and conserving.
 
 **Rejected**: Dropping bad rows, picking one duplicate, merging labels, and
 deduplicating by guessed similarity.
 
 ## Decision 3: Text conservation
 
-**Decision**: Compare Unicode-NFKC, whitespace-collapsed, case-preserving text
-for exact equality after concatenating rows in canonical order. Store only
-`matched`, `mismatched`, or `not_applicable`.
+**Decision**: Compare exact ordered lexical tokens after Unicode NFKC and
+case-folding. Letters, combining marks, and numbers are conserved; punctuation
+and typographic symbols are presentation differences because provider alignment
+may omit them while preserving the same words. Store only `matched`,
+`mismatched`, or `not_applicable`.
 
 **Rationale**: Representation-only normalization is deterministic and does not
-change words.
+change, insert, reorder, or fuzzily match words or numbers. Raw ASR still keeps
+the original punctuation and symbols as separate evidence.
 
 **Rejected**: Fuzzy matching, punctuation repair, token alignment, and edit
-distance thresholds because each can conceal missing or duplicated content.
+distance thresholds because each can conceal missing or duplicated lexical
+content.
 
 ## Decision 4: Chronology and duplicates
 
@@ -50,11 +57,12 @@ cross-talk without inventing attribution.
 
 **Decision**: Any explicit unknown provider key is non-confirmed and displayed
 as `Спикер не определён`. A tiny unknown identity (aggregate duration at or
-below 50 ms) degrades the provider attribution result; its content still appears
-once through ASR evidence.
+below 50 ms) degrades the provider attribution result, remains one explicit
+unknown turn, and does not invalidate other contract-valid confirmed turns.
 
-**Rationale**: This reproduces the supplied 40 ms defect class and prevents an
-artifact from becoming a confirmed participant.
+**Rationale**: This reproduces the supplied 40 ms defect class, prevents an
+artifact from becoming a confirmed participant, and avoids replacing valid
+speaker attribution with an all-unknown transcript.
 
 ## Decision 6: Stable identity and saved names
 
@@ -65,9 +73,11 @@ on canonical/API/export turns. `SPEAKER_XX` is display order only.
 **Rationale**: Existing tables already store the result ID and raw provider key;
 the generated key fits the existing 120-character name key without migration.
 
-**Legacy names**: Accept an old ordinal name only when the old ordinal and the
-new provider identity are uniquely equivalent in the current result. Otherwise
-leave it unresolved; never rebind by order after ambiguity or renumbering.
+**Legacy names**: Accept an old ordinal name only when the raw provider key is
+the exact corresponding `SPEAKER_XX` value and the saved-name timestamp proves
+that the current result already existed. An explicit rename migrates that safe
+row to the stable key. Otherwise leave it unresolved; never rebind by order
+after ambiguity, renumbering, or a newer result.
 
 ## Decision 7: Talk-time
 
@@ -99,8 +109,12 @@ explicit required consumer and differs from SRT only in container syntax.
 ## Production baseline evidence
 
 - Production checkout: `/opt/projects/2brain-rec`, branch `master`, clean.
-- Production SHA: `c72e190d2de14c054fe6ebc04733021240d7f03e`.
-- API, processing worker, and media worker were healthy; live and ready probes
-  returned `ok` and `ready`.
-- `cabinet/view_models.py` SHA-256 matched checkout, API container, and worker.
+- Production checkout and API/processing runtime SHA:
+  `04b711bca06023772d81df165fd6a03d7142ffa0`.
+- Production Alembic revision: `0077_provider_unlink_xworkspace` (`head`).
+- The active uncommitted merge includes `origin/master` at
+  `f0916254fe4c0a84ebe80ec2983cf4407d73b489`; its post-release closeout does not
+  replace the production runtime release SHA.
+- Public live and ready probes returned HTTP 200; API, processing worker, media
+  worker, Temporal, Postgres, and MinIO were healthy.
 - No production content or provider payload was copied into this feature.

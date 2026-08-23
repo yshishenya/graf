@@ -241,6 +241,51 @@ def test_public_landing_explains_product_and_download_path(client) -> None:
     assert 'data-panel="outcomes" hidden' not in response.text
 
 
+def test_public_landing_explains_google_calendar_data_use() -> None:
+    html = render_template(
+        "public/landing.html",
+        page_title="ГРАФ",
+        canonical_url="https://rec.2brain.pro/",
+        social_title="ГРАФ",
+        social_description="ГРАФ",
+        public_offer=PublicOfferView(),
+        public_analytics={"enabled": False},
+    )
+
+    assert 'href="#calendar"' not in html
+    assert 'id="calendar"' not in html
+    faq_marker = '<details open data-faq-id="google_calendar">'
+    assert faq_marker in html
+    assert html.index(faq_marker) < html.index('data-faq-id="recognition"')
+    faq_item = html.split(faq_marker, 1)[1].split("</details>", 1)[0]
+    for copy in (
+        "Как ГРАФ использует Google Calendar",
+        "только в тех календарях, которые вы выбрали",
+        "ближайшие встречи",
+        "напоминать о них",
+        "контекст для записи",
+        "не создаёт, не изменяет и не удаляет события",
+        "можете отключить календарь от ГРАФ",
+        "не начинает запись и не подключает ГРАФ к звонку",
+        "Доступ для всех пользователей откроется после проверки Google",
+    ):
+        assert copy in faq_item
+    assert 'href="/privacy"' in faq_item
+
+    parser = _StructuredDataParser()
+    parser.feed(html)
+    structured_data = [json.loads(document) for document in parser.documents]
+    faq = next(document for document in structured_data if document["@type"] == "FAQPage")
+    google_calendar = next(
+        item
+        for item in faq["mainEntity"]
+        if item["name"] == "Как ГРАФ использует Google Calendar?"
+    )
+    assert "только в тех календарях, которые вы выбрали" in google_calendar[
+        "acceptedAnswer"
+    ]["text"]
+
+
 def test_public_landing_uses_fingerprinted_local_assets(client) -> None:
     response = client.get("/")
 
@@ -302,7 +347,9 @@ def test_sale_ready_template_renders_exact_price_and_annual_saving() -> None:
     parser = _StructuredDataParser()
     parser.feed(html)
     structured_data = [json.loads(document) for document in parser.documents]
-    software = next(document for document in structured_data if document["@type"] == "SoftwareApplication")
+    software = next(
+        document for document in structured_data if document["@type"] == "SoftwareApplication"
+    )
     assert software["downloadUrl"] == "https://rec.2brain.pro/download"
     assert [offer["price"] for offer in software["offers"]] == ["1000", "10000"]
 
@@ -337,7 +384,9 @@ def test_catalog_ready_template_publishes_tariff_before_payment_is_enabled() -> 
     parser = _StructuredDataParser()
     parser.feed(html)
     structured_data = [json.loads(document) for document in parser.documents]
-    software = next(document for document in structured_data if document["@type"] == "SoftwareApplication")
+    software = next(
+        document for document in structured_data if document["@type"] == "SoftwareApplication"
+    )
     assert "offers" not in software
 
 
@@ -418,6 +467,7 @@ def test_public_legal_and_discovery_routes_are_available(client) -> None:
 
 def test_public_legal_copy_matches_product_and_analytics_truth(client) -> None:
     privacy = client.get("/privacy").text
+    privacy_copy = " ".join(privacy.split())
     terms = client.get("/terms").text
     cookies = client.get("/cookies").text
     analytics = client.get("/analytics-consent").text
@@ -427,13 +477,51 @@ def test_public_legal_copy_matches_product_and_analytics_truth(client) -> None:
         "предприниматель Шишеня Ян Александрович",
         "ИНН 667803118920",
         "ОГРНИП 320665800036109",
-        "Langfuse Cloud EU",
-        "LiteLLM",
-        "Temporal",
-        "MediaScribe",
         "yan@shishenya.ru",
+        "Редакция от 23 августа 2026 года",
+        "поставщикам вычислительных ресурсов",
+        "поставщикам распознавания речи",
+        "могут передаваться материалы встречи, запросы и результаты обработки",
+        "ГРАФ не продаёт персональные данные",
+        "трансграничной передачи",
+        "Данные Google Calendar",
+        "доступ только для чтения",
+        "Исходные (необезличенные) данные пользователя Google",
+        "Исходные данные Google могут быть раскрыты только",
+        "Агрегированные или обезличенные показатели",
+        "поставщикам моделей искусственного интеллекта",
+        "не создаёт, не изменяет и не удаляет события Google Calendar",
+        "не отправляет участникам встречи итоги автоматически",
+        "не используются для разработки, улучшения или обучения неперсонализированных",
+        "Другим категориям третьих лиц исходные данные Google не передаются",
+        "передаваться поставщикам внутренней аналитики",
+        "Google API Services User Data Policy",
+        "Limited Use",
+        "При отдельной очистке календарного контекста ГРАФ удаляет связь с событием",
+        "Название, уже присвоенное встрече, может сохраняться как название встречи",
+        "не отзывает доступ на стороне Google",
+        "псевдонимные события продуктовой аналитики — не менее 90 дней",
+        "фактический срок может быть больше",
+        "могут сохраняться после удаления основной записи",
+        "шифрование при передаче",
+        "ограничения обязательны для сотрудников, подрядчиков и правопреемников",
     ):
-        assert required in privacy
+        assert required in privacy_copy
+    for internal_detail in (
+        "MediaScribe",
+        "LiteLLM",
+        "Langfuse",
+        "Temporal",
+        "PostHog",
+        "Яндекс",
+        "AWS",
+        "eu-west",
+        "cloud.langfuse.com",
+        "канонический текст",
+        "модельный маршрут",
+    ):
+        assert internal_detail not in privacy_copy
+    assert "как правило, до 90 дней" not in privacy_copy
     assert "законное основание" in terms
     assert "проинформировать участников о записи" in terms
     assert "загружается сразу" in analytics

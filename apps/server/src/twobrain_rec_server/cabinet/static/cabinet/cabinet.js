@@ -275,6 +275,13 @@
     target.isConnected &&
     target.closest("[hidden], [aria-hidden='true']") === null;
 
+  const restoreMeetingActionFocus = (target) => {
+    const visibleTarget = isUsableFocusTarget(target)
+      ? target
+      : document.querySelector('[data-meeting-panel-open="more"]');
+    visibleTarget?.focus({ preventScroll: true });
+  };
+
   const restoreListRefreshFocus = (recovery = null, { force = false } = {}) => {
     if (!listRefreshShouldRestoreFocus) return false;
     const active = document.activeElement;
@@ -1155,27 +1162,104 @@
     document.querySelectorAll("[data-code-form]").forEach((form) => {
       if (form.dataset.codeReady === "true") return;
       form.dataset.codeReady = "true";
-      const input = form.querySelector("[data-code-input]");
-      if (!input) return;
+      const slots = Array.from(form.querySelectorAll("[data-code-slot]"));
+      const hidden = form.querySelector("[data-code-hidden]");
+      if (slots.length !== 6 || !hidden) return;
+      hidden.disabled = false;
       let submitted = false;
-      const sanitize = () => {
-        input.value = input.value.replace(/\D/g, "").slice(0, 6);
+      const sanitize = (value) => String(value || "").replace(/\D/g, "").slice(0, 6);
+      const sync = () => {
+        hidden.value = slots.map((slot) => slot.value).join("");
       };
-      input.addEventListener("input", () => {
-        sanitize();
-        if (submitted || input.value.length !== 6) return;
+      const isComplete = () => slots.every((slot) => /^\d$/.test(slot.value));
+      const focusSlot = (index) => slots[Math.max(0, Math.min(index, slots.length - 1))]?.focus();
+      const maybeSubmit = () => {
+        if (submitted || !isComplete()) return;
+        sync();
         submitted = true;
         if (form.requestSubmit) {
           form.requestSubmit();
         } else {
           form.submit();
         }
+      };
+      const fillFromStart = (value) => {
+        const digits = sanitize(value);
+        const commit = () => {
+          slots.forEach((slot, index) => { slot.value = digits[index] || ""; });
+          sync();
+          focusSlot(Math.min(digits.length, slots.length - 1));
+          maybeSubmit();
+        };
+        commit();
+        window.setTimeout(commit, 0);
+      };
+      slots.forEach((slot, index) => {
+        slot.addEventListener("input", () => {
+          const digits = sanitize(slot.value);
+          if (digits.length > 1) {
+            fillFromStart(digits);
+            return;
+          }
+          const commit = () => {
+            slot.value = digits;
+            sync();
+            if (digits && slots[index + 1]) focusSlot(index + 1);
+            maybeSubmit();
+          };
+          commit();
+          window.setTimeout(commit, 0);
+        });
+        slot.addEventListener("keydown", (event) => {
+          if (event.key === "Backspace") {
+            event.preventDefault();
+            if (slot.value) slot.value = "";
+            else if (slots[index - 1]) {
+              slots[index - 1].value = "";
+              focusSlot(index - 1);
+            }
+            sync();
+            return;
+          }
+          if (event.key === "Delete") {
+            event.preventDefault();
+            slot.value = "";
+            sync();
+            return;
+          }
+          if (event.key === "ArrowLeft") {
+            event.preventDefault();
+            focusSlot(index - 1);
+          } else if (event.key === "ArrowRight") {
+            event.preventDefault();
+            focusSlot(index + 1);
+          } else if (event.key === "Home") {
+            event.preventDefault();
+            focusSlot(0);
+          } else if (event.key === "End") {
+            event.preventDefault();
+            focusSlot(slots.length - 1);
+          }
+        });
+        slot.addEventListener("paste", (event) => {
+          const pasted = event.clipboardData?.getData("text") || window.clipboardData?.getData("Text") || "";
+          const digits = sanitize(pasted);
+          if (!digits) return;
+          event.preventDefault();
+          fillFromStart(digits);
+        });
       });
-      form.addEventListener("submit", () => {
+      form.addEventListener("submit", (event) => {
+        sync();
+        if (!isComplete()) {
+          event.preventDefault();
+          submitted = false;
+          focusSlot(slots.findIndex((slot) => !/^\d$/.test(slot.value)));
+          return;
+        }
         submitted = true;
-        sanitize();
       });
-      input.focus();
+      slots[0]?.focus();
     });
   };
 
@@ -2842,6 +2926,16 @@
     document.querySelectorAll("[data-playback-shell]").forEach((shell) => {
       if (shell.dataset.playbackReady === "true") return;
       shell.dataset.playbackReady = "true";
+      const detailMain = shell.closest(".app-shell")?.querySelector(".detail-page-main");
+      const syncPlaybackClearance = () => {
+        if (!detailMain) return;
+        const height = Math.ceil(shell.getBoundingClientRect().height);
+        detailMain.style.setProperty("--playback-clearance", `${height + 20}px`);
+      };
+      syncPlaybackClearance();
+      if (typeof ResizeObserver === "function") {
+        new ResizeObserver(syncPlaybackClearance).observe(shell);
+      }
       const player = shell.querySelector("[data-playback-player]");
       if (!player) return;
       const toggle = shell.querySelector("[data-playback-toggle]");
@@ -3202,7 +3296,8 @@
       if (form.dataset.accountPreferencesReady === "true") return;
       form.dataset.accountPreferencesReady = "true";
       const applyTheme = (theme) => {
-        document.documentElement.dataset.theme = theme === "system" ? "" : theme;
+        if (theme === "system") document.documentElement.removeAttribute("data-theme");
+        else document.documentElement.dataset.theme = theme;
         document.documentElement.style.colorScheme = theme === "system" ? "" : theme;
       };
       const currentTheme = form.elements.namedItem("theme")?.value || "system";
@@ -3235,23 +3330,6 @@
     });
   };
 
-  const uploadMessages = {
-    request_validation_error: "Проверьте файл.",
-    csrf_token_missing: "Сессия устарела. Обновите страницу и попробуйте ещё раз.",
-    csrf_token_invalid: "Сессия устарела. Обновите страницу и попробуйте ещё раз.",
-    auth_session_required_for_manual_upload: "Войдите снова, чтобы загрузить файл.",
-    auth_session_invalid: "Войдите снова, чтобы загрузить файл.",
-    auth_session_expired: "Войдите снова, чтобы загрузить файл.",
-    empty_media_upload: "Файл пустой. Выберите другой медиафайл.",
-    upload_part_bytes_exceeded: "Файл больше текущего лимита. Выберите файл меньше.",
-    unsafe_meeting_title: "Название содержит небезопасные данные. Измените его или оставьте поле пустым.",
-    media_revision_not_accepting_uploads: "Эта загрузка уже принята. Откройте встречу в списке.",
-    meeting_not_accepting_uploads: "Эта загрузка уже принята. Откройте встречу в списке.",
-    idempotency_conflict: "Эта попытка отличается от уже начатой загрузки. Выберите файл заново.",
-    media_revision_fingerprint_conflict: "Эта встреча уже приняла другой файл. Выберите файл заново."
-  };
-
-  const safeUploadMessage = (code) => uploadMessages[code] || "Не удалось загрузить файл. Попробуйте ещё раз.";
   const authUploadFailure = (code) => [
     "csrf_token_missing",
     "csrf_token_invalid",
@@ -3265,6 +3343,11 @@
     "meeting_not_accepting_uploads",
     "idempotency_conflict"
   ].includes(code);
+  const uploadFailureMessage = (code) => ({
+    empty_media_upload: "Файл пустой",
+    upload_part_bytes_exceeded: "Файл слишком большой",
+    unsafe_meeting_title: "Измените название"
+  })[code] || "Не удалось загрузить";
 
   const formatBytes = (value) => {
     if (!Number.isFinite(value) || value <= 0) return "";
@@ -3385,7 +3468,7 @@
       if (fileName) fileName.textContent = "Файл не выбран";
       if (fileMeta) fileMeta.textContent = "";
       if (fileDuration) fileDuration.textContent = "";
-      if (dropTitle) dropTitle.textContent = "Перетащите файл сюда";
+      if (dropTitle) dropTitle.textContent = "Перетащите файл";
       dropZone?.classList.remove("has-file");
     };
 
@@ -3454,7 +3537,7 @@
           announceUploadActivity(activity, `Загружаем ${bucket}%`);
         }
       } else {
-        if (activity.progress) activity.progress.hidden = true;
+        if (activity.progress) activity.progress.hidden = false;
         activity.progress?.removeAttribute("aria-valuenow");
         if (activity.progressBar) activity.progressBar.style.width = "0";
         if (activity.percentLabel) {
@@ -3473,7 +3556,7 @@
         activity.status.textContent = message;
         activity.status.dataset.tone = tone;
       }
-      const progressActive = state === "uploading" && activity.progressDeterminate !== false;
+      const progressActive = state === "uploading";
       if (activity.progress) {
         activity.progress.hidden = !progressActive;
         if (!progressActive) {
@@ -3527,18 +3610,20 @@
         <div class="upload-activity-copy">
           <strong data-upload-activity-title></strong>
           <span data-upload-activity-meta></span>
-          <span data-upload-activity-status></span>
+          <span class="upload-activity-state">
+            <span data-upload-activity-status></span>
+            <span class="upload-activity-percent" data-upload-activity-percent hidden></span>
+          </span>
           <span class="upload-activity-progress" role="progressbar" aria-label="Прогресс загрузки" aria-valuemin="0" aria-valuemax="100" hidden>
             <span data-upload-activity-progress-bar></span>
           </span>
         </div>
-        <span class="upload-activity-percent" data-upload-activity-percent hidden></span>
         <div class="upload-activity-actions" aria-label="Управление загрузкой">
-          <button class="upload-activity-action" type="button" data-upload-activity-cancel>Отменить</button>
-          <button class="upload-activity-action" type="button" data-upload-activity-retry hidden>Повторить</button>
-          <button class="upload-activity-action" type="button" data-upload-activity-recover hidden>Восстановить</button>
-          <button class="upload-activity-action" type="button" data-upload-activity-resume hidden>Продолжить</button>
-          <a class="upload-activity-action" href="#" data-upload-activity-detail hidden>Открыть</a>
+          <button class="button quiet upload-activity-action" type="button" data-upload-activity-cancel>Отменить</button>
+          <button class="button quiet upload-activity-action" type="button" data-upload-activity-retry hidden>Повторить</button>
+          <button class="button quiet upload-activity-action" type="button" data-upload-activity-recover hidden>Восстановить</button>
+          <button class="button quiet upload-activity-action" type="button" data-upload-activity-resume hidden>Продолжить</button>
+          <a class="button quiet upload-activity-action" href="#" data-upload-activity-detail hidden>Открыть</a>
         </div>
       `;
       host.prepend(row);
@@ -3615,7 +3700,7 @@
       activity.accepted = false;
       activity.recoveryMode = null;
       activity.announcedProgressBucket = null;
-      setActivityState(activity, "uploading", continued ? "Продолжаем загрузку…" : "Загружаем файл…");
+      setActivityState(activity, "uploading", continued ? "Загрузка продолжена" : "Загрузка");
       setActivityProgress(activity, 0, true);
 
       xhr.upload.onprogress = (event) => {
@@ -3625,7 +3710,7 @@
         }
         const percent = Math.max(0, Math.min(99, Math.round((event.loaded / event.total) * 100)));
         setActivityProgress(activity, percent, true);
-        setActivityState(activity, "uploading", "Загружаем файл…");
+        setActivityState(activity, "uploading", "Загрузка");
       };
       xhr.onload = async () => {
         activity.xhr = null;
@@ -3647,8 +3732,8 @@
             activity,
             "accepted",
             workflowStarted
-              ? "Файл принят. Обработка началась."
-              : "Файл принят. Обработка ещё не запущена. Проверьте статус встречи.",
+              ? "На сервере · Обрабатываем"
+              : "На сервере · Ждёт обработки",
             workflowStarted ? "success" : "warning"
           );
           clearUploadActivityPayload(activity);
@@ -3668,16 +3753,16 @@
         activity.recoveryMode = authUploadFailure(failureCode)
           ? "auth"
           : conflictUploadFailure(failureCode) ? "conflict" : null;
-        setActivityState(activity, "failed", safeUploadMessage(payload.code), "error");
+        setActivityState(activity, "failed", uploadFailureMessage(failureCode), "error");
       };
       xhr.onerror = () => {
         activity.xhr = null;
-        setActivityState(activity, "failed", "Передача не подтверждена. Попробуйте ещё раз.", "error");
+        setActivityState(activity, "failed", "Не удалось загрузить", "error");
       };
       xhr.onabort = () => {
         activity.xhr = null;
         if (!activity.accepted) {
-          setActivityState(activity, "canceled", "Передача остановлена. Можно продолжить из этой вкладки.", "warning");
+          setActivityState(activity, "canceled", "Загрузка остановлена", "warning");
         }
       };
       xhr.open("POST", dialog.dataset.uploadEndpoint || "/api/v1/cabinet/media-uploads");
@@ -3941,31 +4026,35 @@
     const copy = {
       session: ["Нужно войти снова", "Сессия завершилась.", "Войти"],
       workspace: ["Нужно выбрать пространство", "Доступ к выбранному пространству больше не подтверждён.", "Войти и выбрать пространство"],
-      unavailable: ["Встреча больше недоступна", "Эта страница больше не может показывать запись.", "К списку встреч"],
-    }[kind] || ["Встреча больше недоступна", "Эта страница больше не может показывать запись.", "К списку встреч"];
-    const recovery = document.createElement("main");
-    recovery.id = "cabinet-main";
-    recovery.className = "cabinet-main";
-    recovery.tabIndex = -1;
-    const state = document.createElement("section");
-    state.className = "empty-state cabinet-card";
-    state.setAttribute("role", "status");
-    state.setAttribute("aria-live", "polite");
-    const title = document.createElement("h1");
-    title.id = "meeting-detail-recovery-title";
+      unavailable: ["Встреча больше недоступна", "Запись удалена или доступ закрыт.", "К списку встреч"],
+    }[kind] || ["Встреча больше недоступна", "Запись удалена или доступ закрыт.", "К списку встреч"];
+    const recoveryTemplate = document.querySelector("[data-meeting-detail-recovery-template]");
+    const recovery = recoveryTemplate?.content?.firstElementChild?.cloneNode(true);
+    const state = recovery?.querySelector("[data-cabinet-state]");
+    const title = recovery?.querySelector("h1");
+    const body = recovery?.querySelector(".cabinet-state__description");
+    const action = recovery?.querySelector(".cabinet-state__action a");
+    if (
+      !(recovery instanceof HTMLElement)
+      || !(state instanceof HTMLElement)
+      || !(title instanceof HTMLElement)
+      || !(body instanceof HTMLElement)
+      || !(action instanceof HTMLElement)
+    ) {
+      detail.textContent = "";
+      document.title = "GRAF";
+      clearMeetingHistoryCache();
+      location.replace(listPath);
+      return;
+    }
     title.textContent = copy[0];
-    const body = document.createElement("span");
     body.textContent = copy[1];
-    const action = document.createElement("a");
-    action.className = "new-button";
     action.textContent = copy[2];
     const requiresSignIn = kind === "session" || kind === "workspace";
     action.href = requiresSignIn
       ? `/login?next=${encodeURIComponent(listPath)}`
       : listPath;
     state.setAttribute("aria-labelledby", title.id);
-    state.append(title, body, action);
-    recovery.append(state);
     detail.replaceWith(recovery);
     document.title = `${copy[0]} - GRAF`;
     clearMeetingHistoryCache();
@@ -4476,6 +4565,7 @@
       meeting_not_found: "Доступ к встрече изменился. Обновите страницу.",
       export_policy_denied: "Политика доступа к этому составу изменилась.",
       export_unavailable: "Этот состав сейчас недоступен по готовности или политике.",
+      subtitle_timing_unavailable: "Не удалось подготовить субтитры: у одного из фрагментов нет корректного времени. Выберите другой формат, чтобы сохранить весь текст.",
       export_generation_failed: "Не удалось собрать файл. Повторите экспорт.",
       audit_unavailable: "Экспорт остановлен: не удалось сохранить обязательную запись аудита. Повторите позже.",
       unsupported_export_combination: "Выберите совместимый формат.",

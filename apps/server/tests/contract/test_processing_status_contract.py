@@ -51,6 +51,20 @@ def test_attribution_diagnostics_allow_only_bounded_metadata() -> None:
     }
 
 
+def test_attribution_reason_codes_require_the_fixed_allowlist() -> None:
+    allowed = safe_audit_metadata(
+        {"reason_codes": ["invalid_provider_timing", "text_conservation_mismatch"]}
+    )
+    rejected = safe_audit_metadata(
+        {"reason_codes": ["invalid_provider_timing", "private meeting content"]}
+    )
+
+    assert allowed == {
+        "reason_codes": ["invalid_provider_timing", "text_conservation_mismatch"]
+    }
+    assert rejected == {}
+
+
 def test_processing_status_openapi_contract_has_content_safe_fields() -> None:
     contract = yaml.safe_load(
         (ROOT / "specs/015-mediascribe-processing-pipeline/contracts/processing-status.openapi.yaml").read_text(

@@ -138,8 +138,10 @@ def test_manual_upload_exposes_explicit_archive_choice_and_transmits_it() -> Non
     script = (
         ROOT / "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js"
     ).read_text(encoding="utf-8")
-    assert 'data-manual-upload-archive checked' in fragment
-    assert "исходное аудио после обработки" in fragment
+    assert 'ui.switch("archive_audio", "Сохранить аудио", checked=True' in fragment
+    assert "data_manual_upload_archive=True" in fragment
+    assert 'hint_id="manual-upload-archive-help"' in fragment
+    assert "Без аудио останутся расшифровка и итоги. Минуты тарифа спишутся." in fragment
     assert 'data.append("archive_audio", activity.archiveAudio ? "true" : "false")' in script
 
 

@@ -689,7 +689,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         case .uploaded:
             return .green
         case .uploading, .queued:
-            return .blue
+            return DesktopMeetingShellChrome.shellAccentColor
         case .retrying, .degraded:
             return .orange
         case .blocked:
@@ -972,7 +972,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         case .processing:
             return projection.copyKey == "custody.unknown_blocked" ? .orange : .green
         case .partialUploaded, .uploadSessionCreated, .serverRegistered:
-            return .blue
+            return DesktopMeetingShellChrome.shellAccentColor
         case .serverUnknownLocalSaved:
             return .secondary
         case .retainedAwaitingCondition:

@@ -54,6 +54,7 @@ from twobrain_rec_server.cabinet.egress import (
     current_outcome_set,
     review_playback_state,
 )
+from twobrain_rec_server.cabinet.speakers import speaker_names_for_result
 from twobrain_rec_server.cabinet.view_models import (
     AUTHORITATIVE_TITLE_SOURCES,
     PROVIDER_LINK_LABELS,
@@ -669,10 +670,23 @@ def _meeting_matches_query(
     )
     if visible_title_only:
         visible_duration = format_duration(meeting.duration_seconds)
+        visible_time_value = (
+            meeting.updated_at
+            if visible_time_basis == "updated"
+            else meeting.started_at
+        )
+        visible_time_label_basis: MeetingListTimeBasis = visible_time_basis
+        if (
+            visible_time_basis == "meeting"
+            and visible_time_value is None
+            and source == "manual_upload"
+        ):
+            visible_time_value = meeting.created_at
+            visible_time_label_basis = "upload"
         visible_time = meeting_list_time_label(
-            meeting.updated_at if visible_time_basis == "updated" else meeting.started_at,
+            visible_time_value,
             timezone_offset_minutes=meeting.recording_display_timezone_offset_minutes,
-            time_basis=visible_time_basis,
+            time_basis=visible_time_label_basis,
         )
         candidates = (
             visible_title,
@@ -758,7 +772,28 @@ def _meeting_visible_row_search_expression(*, time_basis: MeetingListTimeBasis):
     projected-field searches from expanding into per-meeting access/media queries.
     """
 
-    timestamp_value = Meeting.updated_at if time_basis == "updated" else Meeting.started_at
+    manual_upload = or_(
+        Meeting.title.ilike("manual-upload-%"),
+        Meeting.title.ilike("manual_upload_%"),
+        Meeting.local_recording_id.ilike("manual-upload-%"),
+        Meeting.local_recording_id.ilike("manual_upload_%"),
+        exists(
+            select(MediaRevision.id).where(
+                MediaRevision.workspace_id == Meeting.workspace_id,
+                MediaRevision.meeting_id == Meeting.id,
+                MediaRevision.source_kind == MediaRevisionSourceKind.MANUAL_UPLOAD.value,
+            )
+        ),
+    )
+    upload_fallback = and_(Meeting.started_at.is_(None), manual_upload)
+    timestamp_value = (
+        Meeting.updated_at
+        if time_basis == "updated"
+        else case(
+            (upload_fallback, Meeting.created_at),
+            else_=Meeting.started_at,
+        )
+    )
     timezone_offset = case(
         (
             Meeting.recording_display_timezone_offset_minutes.between(-14 * 60, 14 * 60),
@@ -798,11 +833,15 @@ def _meeting_visible_row_search_expression(*, time_basis: MeetingListTimeBasis):
         ],
         else_=literal(""),
     )
-    date_prefix = "Обновлено " if time_basis == "updated" else ""
+    date_prefix = (
+        literal("Обновлено ")
+        if time_basis == "updated"
+        else case((upload_fallback, literal("Загружено ")), else_=literal(""))
+    )
     time_label = case(
         (timestamp_value.is_(None), literal("Без даты")),
         else_=func.concat(
-            literal(date_prefix),
+            date_prefix,
             cast(cast(func.extract("day", localized_timestamp), Integer), String),
             literal(" "),
             month_label,
@@ -1116,17 +1155,17 @@ async def get_cabinet_meeting_review(
                 .order_by(DiarizationSegment.sequence.asc(), DiarizationSegment.start_seconds.asc())
             )
         ).all()
-    speaker_names = {
-        row.speaker_key: row.display_name
-        for row in (
+    speaker_names = speaker_names_for_result(
+        (
             await db.scalars(
                 select(MeetingSpeakerName).where(
                     MeetingSpeakerName.workspace_id == workspace_id,
                     MeetingSpeakerName.meeting_id == meeting_id,
                 )
             )
-        ).all()
-    }
+        ).all(),
+        result_imported_at=result.imported_at if result is not None else None,
+    )
     outcome_set = await _latest_outcome_set(
         db,
         workspace_id=workspace_id,

@@ -4,6 +4,7 @@ import re
 from collections.abc import Mapping
 from uuid import UUID
 
+from twobrain_rec_server.domain.speaker_turns import SPEAKER_REASON_CODES
 from twobrain_rec_server.observability.redaction import redact_mapping
 
 ALLOWED_AUDIT_KEYS = {
@@ -95,7 +96,9 @@ SAFE_TRANSCRIPT_METADATA_VALUES = {
     "transcript_status": {"available", "unavailable"},
     "transcript_reason": {"no_recognizable_speech", None},
 }
-SAFE_ATTRIBUTION_VALUE_RE = re.compile(r"^[A-Za-z0-9_.:+/-]{1,160}$")
+SAFE_ATTRIBUTION_VALUE_RE = re.compile(r"^[A-Za-z0-9_.:+-]{1,160}$")
+URI_VALUE_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
+LOCAL_PATH_VALUE_RE = re.compile(r"^(?:/|~(?:/|$)|[A-Za-z]:[/\\])")
 SAFE_ATTRIBUTION_STRING_KEYS = {
     "alignment_version",
     "attribution_result_state",
@@ -132,8 +135,23 @@ def safe_audit_metadata(values: Mapping[str, object]) -> dict[str, object]:
             redacted[key] = sanitized[key]
     for key in SAFE_ATTRIBUTION_STRING_KEYS:
         value = sanitized.get(key)
-        if isinstance(value, str) and SAFE_ATTRIBUTION_VALUE_RE.fullmatch(value):
+        if (
+            isinstance(value, str)
+            and SAFE_ATTRIBUTION_VALUE_RE.fullmatch(value)
+            and URI_VALUE_RE.match(value) is None
+            and LOCAL_PATH_VALUE_RE.match(value) is None
+        ):
             redacted[key] = value
+        elif key in sanitized:
+            redacted[key] = "[REDACTED]"
+    reason_codes = sanitized.get("reason_codes")
+    if (
+        isinstance(reason_codes, (list, tuple))
+        and all(isinstance(code, str) and code in SPEAKER_REASON_CODES for code in reason_codes)
+    ):
+        redacted["reason_codes"] = list(reason_codes)
+    else:
+        redacted.pop("reason_codes", None)
     return redacted
 
 

@@ -152,18 +152,29 @@
 </section>
 {%- endmacro %}
 
-{% macro empty_state(title, body) -%}
-<section class="cabinet-empty" data-state="empty">
-  <h2>{{ title }}</h2>
-  <p>{{ body }}</p>
+{% macro state_panel(title, body="", state="empty", heading_id="cabinet-state-title", heading_level=2, icon_name="info", action_label=None, action_href=None, live=False) -%}
+<section class="cabinet-state cabinet-state--{{ state }} cabinet-{{ state }} cabinet-card" data-cabinet-state data-state="{{ state }}"{% if state != "empty" %} role="status"{% endif %}{% if live %} aria-live="polite" aria-atomic="true"{% endif %} aria-labelledby="{{ heading_id }}">
+  {% if icon_name %}<span class="cabinet-state__icon" aria-hidden="true">{{ icons.icon(icon_name) }}</span>{% endif %}
+  <div class="cabinet-state__copy">
+    {% if heading_level == 1 %}<h1 id="{{ heading_id }}">{{ title }}</h1>{% else %}<h2 id="{{ heading_id }}">{{ title }}</h2>{% endif %}
+    {% if body %}<p class="cabinet-state__description">{{ body }}</p>{% endif %}
+  </div>
+  {% if action_label and action_href %}<div class="cabinet-state__action">{{ ui.link(action_label, action_href, variant="primary") }}</div>{% endif %}
 </section>
 {%- endmacro %}
 
+{% macro full_page_state(title, body, action_label, action_href, heading_id="cabinet-state-title", state="unavailable", icon_name="info", live=False) -%}
+<main id="cabinet-main" class="cabinet-main cabinet-state-page" tabindex="-1">
+  {{ state_panel(title, body, state=state, heading_id=heading_id, heading_level=1, icon_name=icon_name, action_label=action_label, action_href=action_href, live=live) }}
+</main>
+{%- endmacro %}
+
+{% macro empty_state(title, body) -%}
+{{ state_panel(title, body, state="empty", icon_name=None) }}
+{%- endmacro %}
+
 {% macro unavailable_state(title, body) -%}
-<section class="cabinet-unavailable" role="status" data-state="unavailable">
-  <h2>{{ title }}</h2>
-  <p>{{ body }}</p>
-</section>
+{{ state_panel(title, body, state="unavailable") }}
 {%- endmacro %}
 
 {% macro csrf_field(csrf_token=None) -%}

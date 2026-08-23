@@ -185,6 +185,10 @@ async def account_meeting_calendar_context_deletion(
     accounted_at: datetime | None = None,
 ) -> int:
     now = accounted_at or datetime.now(UTC)
+    if meeting.title_source == "calendar":
+        meeting.title = None
+        meeting.title_source = "generic"
+        meeting.title_updated_at = now
     links = (
         await db.scalars(
             select(RecordingCalendarContextLink).where(

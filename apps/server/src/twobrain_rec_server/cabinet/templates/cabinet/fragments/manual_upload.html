@@ -1,4 +1,5 @@
 {% import "cabinet/components/icons.html" as icons %}
+{% import "cabinet/components/primitives.html" as ui %}
 
 <dialog class="manual-upload-dialog" data-manual-upload-dialog
   data-upload-endpoint="{{ upload_endpoint }}"
@@ -8,8 +9,8 @@
   <form class="manual-upload-sheet" method="dialog" data-manual-upload-form novalidate>
     <div class="manual-upload-head">
       <div class="manual-upload-title">
-        <h2>Загрузить запись</h2>
-        <p>Один аудио- или видеофайл с аудиодорожкой.</p>
+        <h2>Загрузить файл</h2>
+        <p>Аудио или видео с аудиодорожкой.</p>
       </div>
       <button class="icon-control" type="button" data-manual-upload-close aria-label="Закрыть">{{ icons.icon("x") }}</button>
     </div>
@@ -20,11 +21,11 @@
       <label class="manual-upload-dropzone" for="manual-upload-file-input" data-manual-upload-dropzone>
         <span class="manual-upload-dropzone__icon" aria-hidden="true">{{ icons.icon("upload") }}</span>
         <span class="manual-upload-dropzone__copy">
-          <strong data-manual-upload-drop-title>Перетащите файл сюда</strong>
+          <strong data-manual-upload-drop-title>Перетащите файл</strong>
           <span id="manual-upload-drop-hint">или выберите на компьютере</span>
-          <span class="manual-upload-dropzone__types">WAV/RF64/W64, MP3, AAC, FLAC, Ogg, M4A/MP4/MOV/M4V, WebM, MKV</span>
+          <span class="manual-upload-dropzone__types">WAV, MP3, M4A, MP4 и другие</span>
         </span>
-        <span class="manual-upload-browse" data-manual-upload-browse>Выбрать файл</span>
+        <span class="manual-upload-browse" data-manual-upload-browse>Выбрать</span>
       </label>
     </div>
     <div class="manual-upload-file-card" data-manual-upload-file-card hidden>
@@ -40,11 +41,7 @@
         <span>Название</span>
         <input type="text" name="title" maxlength="500" autocomplete="off" placeholder="Например, созвон по продукту" data-manual-upload-title>
       </label>
-      <label class="manual-upload-archive-choice">
-        <span>Хранение аудио</span>
-        <span><input type="checkbox" name="archive_audio" value="true" data-manual-upload-archive checked> Сохранить аудио для последующего прослушивания</span>
-        <small class="muted">Если снять отметку, GRAF сохранит расшифровку и заметки, но удалит исходное аудио после обработки. На Free расходуются секунды обработки.</small>
-      </label>
+      {{ ui.switch("archive_audio", "Сохранить аудио", checked=True, value="true", hint="Без аудио останутся расшифровка и итоги. Минуты тарифа спишутся.", hint_id="manual-upload-archive-help", data_manual_upload_archive=True) }}
     </div>
     <input type="hidden" name="duration_seconds" data-manual-upload-duration>
     <input type="hidden" name="local_recording_id" data-manual-upload-local-id>

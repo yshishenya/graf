@@ -21,6 +21,14 @@ If provider attribution is unsafe:
 - unsafe provider-row text is not emitted;
 - review, timeline, exports, and outcomes expose the same state and order.
 
+If the only defect is a tiny explicit unknown identity:
+
+- result state is `degraded_provider_result`;
+- the unknown row remains visible once with `unknown` attribution and the
+  display label `Спикер не определён`;
+- other contract-valid provider rows remain confirmed;
+- the unknown row is excluded from participant count and rename.
+
 ## Identity
 
 - `provider_speaker_key` preserves the received key.

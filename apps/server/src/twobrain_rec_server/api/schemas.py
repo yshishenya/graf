@@ -1915,6 +1915,7 @@ class MeetingListItem(BaseModel):
     meeting_id: UUID
     title: str
     started_at: datetime | None = None
+    uploaded_at: datetime | None = None
     ended_at: datetime | None = None
     recording_display_timezone_offset_minutes: int | None = None
     duration_seconds: int = Field(ge=0)
@@ -2045,6 +2046,7 @@ class SpeakerReviewState(BaseModel):
     available: bool
     assignment_state: Literal["available", "reserved", "disabled", "conflict_future", "unavailable"]
     degraded_reason: str | None = None
+    turns: list[TranscriptSpeakerTurnView] = Field(default_factory=list)
     speakers: list[SpeakerLane] = Field(default_factory=list)
     can_rename: bool = False
     result_state: Literal["accepted", "degraded_provider_result"] = "accepted"

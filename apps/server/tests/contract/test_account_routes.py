@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 
@@ -344,6 +345,23 @@ def test_email_link_callers_select_desktop_flow_for_every_local_render() -> None
     assert source.count("render_email_code_page(") == 5
     assert source.count("flow=flow") == 5
     assert 'flow="link"' not in source
+
+
+def test_email_code_inventory_has_one_shared_template_and_no_native_macos_variant() -> None:
+    repo_root = Path(__file__).resolve().parents[4]
+    templates = sorted(
+        repo_root.glob("apps/server/src/**/templates/**/email_code.html")
+    )
+    assert [path.relative_to(repo_root).as_posix() for path in templates] == [
+        "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/auth/email_code.html"
+    ]
+
+    macos_sources = sorted(repo_root.glob("apps/macos/**/*.swift"))
+    assert not any("otp" in path.name.lower() for path in macos_sources)
+    assert "WKWebView" in (
+        repo_root
+        / "apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift"
+    ).read_text()
 
 
 class _EmailLinkTransactionProbe:

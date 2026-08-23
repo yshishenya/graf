@@ -8,7 +8,10 @@ from uuid import UUID, uuid4
 from sqlalchemy import func, nullslast, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from twobrain_rec_server.cabinet.speakers import speaker_attribution_revision
+from twobrain_rec_server.cabinet.speakers import (
+    speaker_attribution_revision,
+    speaker_names_for_result,
+)
 from twobrain_rec_server.db.models import (
     DiarizationSegment,
     MediaRevision,
@@ -20,12 +23,14 @@ from twobrain_rec_server.db.models import (
     ProcessingResult,
     TranscriptSegment,
 )
-from twobrain_rec_server.domain.speaker_turns import canonical_speaker_model
+from twobrain_rec_server.domain.speaker_turns import (
+    canonical_speaker_model,
+    canonical_speech_available,
+)
 from twobrain_rec_server.domain.statuses import (
     OutcomeCategoryState,
     OutcomeGenerationAttemptStatus,
     OutcomeSetStatus,
-    ProcessingAvailabilityStatus,
     ProcessingResultStatus,
 )
 from twobrain_rec_server.ingest.media_revisions import source_fingerprint_for_revision
@@ -169,10 +174,7 @@ async def ensure_outcomes_for_processing_result(
         db, result=result, generator_config_hash=generator_config_hash
     )
     initial_trusted_baseline = result.media_revision_id is None
-    transcript_is_available = (
-        result.transcript_status == ProcessingAvailabilityStatus.AVAILABLE.value
-        and result.segment_count > 0
-    )
+    transcript_is_available = canonical_speech_available(result)
     speaker_revision = await speaker_attribution_revision(
         db,
         workspace_id=result.workspace_id,
@@ -586,17 +588,17 @@ async def load_outcome_transcript_segments(
             .order_by(DiarizationSegment.start_seconds, DiarizationSegment.sequence)
         )
     ).all()
-    speaker_names = {
-        row.speaker_key: row.display_name
-        for row in (
+    speaker_names = speaker_names_for_result(
+        (
             await db.scalars(
                 select(MeetingSpeakerName).where(
                     MeetingSpeakerName.workspace_id == result.workspace_id,
                     MeetingSpeakerName.meeting_id == result.meeting_id,
                 )
             )
-        ).all()
-    }
+        ).all(),
+        result_imported_at=result.imported_at,
+    )
     model = canonical_speaker_model(
         rows,
         diarization_rows,
@@ -606,24 +608,9 @@ async def load_outcome_transcript_segments(
     )
     segments: list[OutcomeTranscriptSegment] = []
     for turn in model.turns:
-        matching_asr_rows = [
-            row
-            for row in rows
-            if row.sequence == turn.sequence
-            and row.source_role == turn.source_role
-            and min(row.end_seconds, turn.end_seconds)
-            > max(row.start_seconds, turn.start_seconds)
-        ]
-        # Preserve the historical ASR id only for an unambiguous 1:1 turn.
-        # When one ASR row spans multiple provider turns, keep each provider id.
-        segment_id = (
-            matching_asr_rows[0].id
-            if len(matching_asr_rows) == 1
-            else UUID(turn.source_segment_id)
-        )
         segments.append(
             OutcomeTranscriptSegment(
-                segment_id=segment_id,
+                segment_id=UUID(turn.source_segment_id),
                 sequence=turn.sequence,
                 start_seconds=turn.start_seconds,
                 end_seconds=turn.end_seconds,

@@ -10,6 +10,10 @@ import pytest
 from sqlalchemy import select
 
 from tests.fixtures.cabinet import create_outcome_ready_meeting
+from twobrain_rec_server.api.cabinet import (
+    _summary_candidate_preview_item,
+    _summary_candidate_segments_by_id,
+)
 from twobrain_rec_server.cabinet.egress import current_outcome_set
 from twobrain_rec_server.cabinet.speakers import save_speaker_name
 from twobrain_rec_server.config import Settings
@@ -19,10 +23,12 @@ from twobrain_rec_server.db.models import (
     MediaScribeJob,
     Meeting,
     MeetingOutcomeGenerationAttempt,
+    MeetingOutcomeItem,
     MeetingOutcomeSet,
     MeetingSpeakerName,
     ProcessingResult,
     SummaryTemplate,
+    TranscriptSegment,
 )
 from twobrain_rec_server.domain.speaker_turns import stable_speaker_key
 from twobrain_rec_server.ingest.desktop_sync import (
@@ -219,10 +225,10 @@ def test_candidate_segments_use_stable_confirmed_speaker_name(client) -> None:
     assert asyncio.run(run()) == ["Алексей", "Алексей"]
 
 
-def test_candidate_segments_preserve_overlapping_provider_turns(client) -> None:
+def test_candidate_segments_preserve_overlapping_provider_turn_ids(client) -> None:
     meeting_id = create_outcome_ready_meeting(client, "same-source-candidate-speaker")
 
-    async def run() -> list[str]:
+    async def run() -> tuple[list[str], list[str], list[str]]:
         async with client.app_state["sessionmaker"]() as db:
             meeting = await db.get(Meeting, meeting_id)
             result = await db.scalar(
@@ -267,9 +273,88 @@ def test_candidate_segments_preserve_overlapping_provider_turns(client) -> None:
                 source_result_id=result.id,
             )
             await db.flush()
-            return [segment.speaker_label for segment in await _candidate_segments(db, attempt)]
+            segments = await _candidate_segments(db, attempt)
+            return (
+                [segment.speaker_label for segment in segments],
+                [str(segment.segment_id) for segment in segments],
+                [str(row.id) for row in diarization],
+            )
 
-    assert asyncio.run(run()) == ["Локальный участник", "Удалённый участник"]
+    labels, segment_ids, provider_ids = asyncio.run(run())
+    assert labels == ["Локальный участник", "Удалённый участник"]
+    assert segment_ids == provider_ids
+
+
+def test_legacy_asr_source_ref_maps_to_one_provider_turn_without_sequence_guessing(client) -> None:
+    meeting_id = create_outcome_ready_meeting(client, "legacy-source-ref")
+
+    async def run() -> tuple[str, str, str]:
+        async with client.app_state["sessionmaker"]() as db:
+            result = await db.scalar(
+                select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
+            )
+            assert result is not None
+            transcript = await db.scalar(
+                select(TranscriptSegment)
+                .where(TranscriptSegment.processing_result_id == result.id)
+                .order_by(TranscriptSegment.sequence)
+            )
+            provider = await db.scalar(
+                select(DiarizationSegment)
+                .where(DiarizationSegment.processing_result_id == result.id)
+                .order_by(DiarizationSegment.sequence)
+            )
+            assert transcript is not None and provider is not None
+            provider.sequence = 100
+            await db.flush()
+            attempt = MeetingOutcomeGenerationAttempt(
+                workspace_id=result.workspace_id,
+                meeting_id=result.meeting_id,
+                source_result_id=result.id,
+            )
+
+            segments_by_id = await _summary_candidate_segments_by_id(db, attempt)
+
+            mapped = segments_by_id[str(transcript.id)]
+            return str(transcript.id), str(provider.id), str(mapped.segment_id)
+
+    transcript_id, provider_id, mapped_id = asyncio.run(run())
+
+    assert transcript_id != provider_id
+    assert mapped_id == provider_id
+
+
+def test_legacy_source_refs_mapping_to_one_canonical_turn_are_shown_once() -> None:
+    canonical_id = uuid4()
+    canonical = OutcomeTranscriptSegment(
+        segment_id=canonical_id,
+        sequence=7,
+        start_seconds=Decimal("12.000"),
+        end_seconds=Decimal("13.000"),
+        speaker_label="SPEAKER_00",
+        source_role="mixed",
+        text="synthetic",
+    )
+    first_legacy_id = uuid4()
+    second_legacy_id = uuid4()
+    item = MeetingOutcomeItem(
+        category="summary",
+        sequence=0,
+        source_refs_json=[
+            {"transcript_segment_id": str(first_legacy_id)},
+            {"transcript_segment_id": str(second_legacy_id)},
+        ],
+    )
+
+    preview = _summary_candidate_preview_item(
+        item,
+        {
+            str(first_legacy_id): canonical,
+            str(second_legacy_id): canonical,
+        },
+    )
+
+    assert [ref.transcript_segment_id for ref in preview.source_refs] == [canonical_id]
 
 
 def test_candidate_segments_use_unknown_without_diarization(client) -> None:

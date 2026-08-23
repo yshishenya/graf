@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import csv
-import hashlib
 import io
 import json
 import re
 from dataclasses import asdict, dataclass, replace
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Literal
 from uuid import UUID
 
@@ -19,9 +18,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.api.schemas import CONTENT_EXPORT_FORMATS_BY_SCOPE
-from twobrain_rec_server.cabinet.view_models import (
-    source_role_label,
-)
+from twobrain_rec_server.cabinet.speakers import speaker_names_for_result
+from twobrain_rec_server.cabinet.view_models import source_role_label
 from twobrain_rec_server.db.models import (
     DiarizationSegment,
     Meeting,
@@ -34,11 +32,9 @@ from twobrain_rec_server.db.models import (
 from twobrain_rec_server.domain.speaker_turns import (
     CanonicalSpeakerModel,
     canonical_speaker_model,
+    canonical_speech_available,
 )
-from twobrain_rec_server.domain.statuses import (
-    ProcessingAvailabilityStatus,
-    ProcessingResultStatus,
-)
+from twobrain_rec_server.domain.statuses import ProcessingResultStatus
 
 ExportScope = Literal["transcript", "summary", "combined"]
 ExportFormat = Literal["txt", "md", "csv", "xlsx", "json", "srt", "vtt"]
@@ -46,7 +42,7 @@ AttributionState = Literal["confirmed", "unconfirmed", "unknown", "mixed", "unce
 
 SCHEMA_VERSION = "graf.transcript-export.v2"
 RENDERER_VERSION = "export-v1"
-TURN_POLICY_VERSION = "canonical-provider-turns-v3"
+TURN_POLICY_VERSION = "canonical-provider-turns-v4"
 UNKNOWN_SPEAKER_LABEL = "Спикер не определён"
 FORMAT_COMPATIBILITY = CONTENT_EXPORT_FORMATS_BY_SCOPE
 MEDIA_TYPES: dict[ExportFormat, str] = {
@@ -235,7 +231,7 @@ async def build_export_snapshot(
         or result.workspace_id != meeting.workspace_id
         or result.meeting_id != meeting.id
         or result.status != ProcessingResultStatus.IMPORTED.value
-        or result.transcript_status != ProcessingAvailabilityStatus.AVAILABLE.value
+        or not canonical_speech_available(result)
     ):
         raise _stale_selection()
 
@@ -252,8 +248,6 @@ async def build_export_snapshot(
             )
         ).all()
     )
-    if not transcript_rows:
-        raise ProblemDetail(status=409, code="export_unavailable", title="Export unavailable")
     diarization_rows = list(
         (
             await db.scalars(
@@ -267,19 +261,18 @@ async def build_export_snapshot(
             )
         ).all()
     )
-    speaker_names = {
-        row.speaker_key: row.display_name
-        for row in (
+    if not transcript_rows and not diarization_rows:
+        raise ProblemDetail(status=409, code="export_unavailable", title="Export unavailable")
+    speaker_names = speaker_names_for_result(
+        (
             await db.scalars(
                 select(MeetingSpeakerName).where(
                     MeetingSpeakerName.workspace_id == meeting.workspace_id,
                     MeetingSpeakerName.meeting_id == meeting.id,
                 )
             )
-        ).all()
-    }
-    raw_segments = canonical_raw_segments(
-        transcript_rows,
+        ).all(),
+        result_imported_at=result.imported_at,
     )
     model = canonical_speaker_model(
         transcript_rows,
@@ -287,6 +280,10 @@ async def build_export_snapshot(
         processing_result_id=result.id,
         speaker_names=speaker_names,
         source_result_hash=result.source_result_hash,
+    )
+    raw_segments = canonical_raw_segments(
+        transcript_rows,
+        result_state=model.result_state,
     )
     turns = _export_turns_from_model(model)
     summary = await _load_summary_revision(
@@ -352,10 +349,12 @@ def _export_turns_from_model(model: CanonicalSpeakerModel) -> tuple[CanonicalExp
 
 def canonical_raw_segments(
     transcript_rows: list[TranscriptSegment],
+    *,
+    result_state: Literal["accepted", "degraded_provider_result"] = "accepted",
 ) -> tuple[RawExportSegment, ...]:
     output: list[RawExportSegment] = []
     for row in transcript_rows:
-        valid_timing = row.start_seconds >= 0 and row.end_seconds >= row.start_seconds
+        valid_timing = row.start_seconds >= 0 and row.end_seconds > row.start_seconds
         omission_reason = None
         if not valid_timing:
             omission_reason = "invalid_timing"
@@ -373,47 +372,12 @@ def canonical_raw_segments(
                 speaker_key=f"evidence:{row.processing_result_id.hex}",
                 speaker_label=UNKNOWN_SPEAKER_LABEL,
                 attribution_state="uncertain",
-                result_state="accepted",
+                result_state=result_state,
                 timing_state="valid" if valid_timing else "invalid",
                 omission_reason=omission_reason,
             )
         )
     return tuple(output)
-
-
-def canonical_turns(
-    rows: tuple[RawExportSegment, ...],
-    *,
-    processing_result_id: UUID,
-) -> tuple[CanonicalExportTurn, ...]:
-    valid_rows = tuple(row for row in rows if row.timing_state == "valid" and row.text.strip())
-    overlap_ids = {
-        row.segment_id
-        for row in valid_rows
-        if any(
-            row.segment_id != other.segment_id
-            and min(row.end_ms, other.end_ms) > max(row.start_ms, other.start_ms)
-            for other in valid_rows
-        )
-    }
-    return tuple(
-        CanonicalExportTurn(
-            turn_id=_export_turn_id(processing_result_id, row.segment_id),
-            sequence=row.sequence,
-            start_ms=row.start_ms,
-            end_ms=row.end_ms,
-            text=row.text,
-            speaker_key=row.speaker_key,
-            speaker_label=row.speaker_label,
-            provider_speaker_key=row.provider_speaker_key,
-            attribution_state=row.attribution_state,
-            result_state=row.result_state,
-            source_role=row.source_role,
-            source_segment_ids=(row.segment_id,),
-            overlap=row.segment_id in overlap_ids,
-        )
-        for row in valid_rows
-    )
 
 
 async def _load_summary_revision(
@@ -475,12 +439,13 @@ async def _load_summary_revision(
         resolved: list[str] = []
         unresolved: list[dict[str, object]] = []
         for reference in references:
-            raw_id = reference.get("transcript_segment_id")
-            turn_id = turn_by_segment.get(str(raw_id)) if raw_id is not None else None
-            if turn_id is None:
+            turn_ids = _reference_turn_ids(reference, turns, turn_by_segment)
+            if not turn_ids:
                 unresolved.append(reference)
-            elif turn_id not in resolved:
-                resolved.append(turn_id)
+                continue
+            for turn_id in turn_ids:
+                if turn_id not in resolved:
+                    resolved.append(turn_id)
         items.append(
             SummaryExportItem(
                 category=row.category,
@@ -520,11 +485,45 @@ async def _load_summary_revision(
     )
 
 
+def _reference_turn_ids(
+    reference: dict[str, object],
+    turns: tuple[CanonicalExportTurn, ...],
+    turn_by_segment: dict[str, str],
+) -> tuple[str, ...]:
+    raw_id = reference.get("transcript_segment_id")
+    direct = turn_by_segment.get(str(raw_id)) if raw_id is not None else None
+    if direct is not None:
+        return (direct,)
+    try:
+        start_ms = _milliseconds(Decimal(str(reference["start_seconds"])))
+        end_ms = _milliseconds(Decimal(str(reference["end_seconds"])))
+    except (KeyError, TypeError, ValueError, InvalidOperation):
+        return ()
+    if end_ms <= start_ms:
+        return ()
+    raw_role = reference.get("source_role")
+    role = source_role_label(str(raw_role)) if raw_role else None
+    return tuple(
+        turn.turn_id
+        for turn in turns
+        if (role is None or turn.source_role == role)
+        and min(end_ms, turn.end_ms) > max(start_ms, turn.start_ms)
+    )
+
+
 def render_content_export(snapshot: ExportSnapshot) -> GeneratedContentExport:
     snapshot = replace(
         snapshot,
         selection=_effective_export_selection(snapshot.selection),
     )
+    if snapshot.selection.format in {"srt", "vtt"} and any(
+        turn.end_ms <= turn.start_ms for turn in snapshot.canonical_turns
+    ):
+        raise ProblemDetail(
+            status=409,
+            code="subtitle_timing_unavailable",
+            title="Subtitle timing unavailable",
+        )
     renderer = {
         "txt": _render_txt,
         "md": _render_markdown,
@@ -563,6 +562,7 @@ def _render_txt(snapshot: ExportSnapshot) -> bytes:
         f"Ревизия транскрипта: {snapshot.processing_result_version}",
         f"Язык: {snapshot.language or 'не указан'}",
         f"Длительность: {_human_time(snapshot.duration_seconds * 1000)}",
+        f"Разделение по спикерам: {_attribution_status_label(snapshot)}",
         "",
     ]
     if snapshot.selection.content_scope in {"transcript", "combined"}:
@@ -584,6 +584,7 @@ def _render_markdown(snapshot: ExportSnapshot) -> bytes:
         f"- Ревизия транскрипта: {snapshot.processing_result_version}",
         f"- Язык: {_markdown_escape(snapshot.language or 'не указан')}",
         f"- Длительность: {_human_time(snapshot.duration_seconds * 1000)}",
+        f"- Разделение по спикерам: {_markdown_escape(_attribution_status_label(snapshot))}",
         "",
     ]
     if snapshot.selection.content_scope in {"transcript", "combined"}:
@@ -926,6 +927,11 @@ def _render_xlsx(snapshot: ExportSnapshot) -> bytes:
         ("content_scope", snapshot.selection.content_scope),
         ("language", snapshot.language or ""),
         ("duration_seconds", snapshot.duration_seconds),
+        ("attribution_result_state", snapshot.attribution_result_state),
+        (
+            "attribution_reason_codes",
+            json.dumps(snapshot.attribution_reason_codes, ensure_ascii=False),
+        ),
         ("summary_status", snapshot.summary.status if snapshot.summary else "not_selected"),
     )
     for row in metadata_rows:
@@ -1052,11 +1058,6 @@ def _vtt_time(milliseconds: int) -> str:
     return _srt_time(milliseconds).replace(",", ".")
 
 
-def _export_turn_id(processing_result_id: UUID, segment_id: str) -> str:
-    digest = hashlib.sha256(f"{processing_result_id}:{segment_id}".encode()).hexdigest()[:24]
-    return f"turn_{digest}"
-
-
 def _safe_title(title: str | None) -> str:
     clean = " ".join((title or "Встреча GRAF").split())
     return clean[:160] or "Встреча GRAF"
@@ -1066,6 +1067,18 @@ def _scope_label(scope: ExportScope) -> str:
     return {"transcript": "транскрипт", "summary": "саммари", "combined": "транскрипт и саммари"}[
         scope
     ]
+
+
+def _attribution_status_label(snapshot: ExportSnapshot) -> str:
+    if snapshot.attribution_result_state == "accepted":
+        return "готово"
+    confirmed = any(turn.attribution_state == "confirmed" for turn in snapshot.canonical_turns)
+    unconfirmed = any(turn.attribution_state != "confirmed" for turn in snapshot.canonical_turns)
+    if confirmed and unconfirmed:
+        return "частично готово; фрагменты без имени отмечены как «Спикер не определён»"
+    if confirmed:
+        return "показано по доступным данным; текст сохранён"
+    return "без имён; текст сохранён"
 
 
 def _effective_export_selection(selection: ExportSelection) -> ExportSelection:

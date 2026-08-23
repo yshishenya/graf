@@ -2,8 +2,9 @@
 
 ## Preconditions
 
-- Work from branch `182-canonical-speaker-turns` at production baseline
-  `c72e190d2de14c054fe6ebc04733021240d7f03e`.
+- Work from branch `182-canonical-speaker-turns` with production baseline
+  `04b711bca06023772d81df165fd6a03d7142ffa0` and current `origin/master`
+  `f0916254fe4c0a84ebe80ec2983cf4407d73b489` included in the uncommitted merge.
 - Use synthetic text and UUIDs only.
 - Do not contact or deploy MediaScribe.
 
@@ -34,7 +35,8 @@ apps/server/scripts/run_local_postgres_tests.sh \
 
 1. One ASR row over two and three provider turns preserves every provider row.
 2. A hypothetical winner below 50 percent is never confirmed.
-3. A 40 ms unknown does not create a confirmed participant.
+3. A 40 ms unknown does not create a confirmed participant or hide other valid
+   confirmed speakers.
 4. Three full-text duplicates degrade and emit ASR text once.
 5. Stable one-, two-, and eleven-label inputs are deterministic.
 6. Normal recording and manual upload produce equivalent models.
@@ -49,6 +51,15 @@ apps/server/scripts/run_local_postgres_tests.sh \
 ```sh
 infra/scripts/ci-local.sh --fast
 ```
+
+After focused tests, browser checks, Spec Kit analyze, privacy scan, and review
+are all clean, run the full baseline exactly once:
+
+```sh
+infra/scripts/ci-local.sh --full
+```
+
+Any later code or configuration edit invalidates that full result.
 
 ## Closeout checks
 

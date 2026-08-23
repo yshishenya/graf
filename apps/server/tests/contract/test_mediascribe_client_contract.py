@@ -286,6 +286,62 @@ async def test_mediascribe_client_accepts_contract_segments_without_optional_rol
 
 
 @pytest.mark.asyncio
+async def test_mediascribe_client_preserves_empty_provider_speaker_key() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/jobs/job_empty_speaker/result"
+        return httpx.Response(
+            200,
+            json={
+                "job": {"id": "job_empty_speaker"},
+                "transcript": [{"start": 0, "end": 1, "text": "synthetic"}],
+                "diarization": [
+                    {"start": 0, "end": 1, "speaker_label": "", "text": "synthetic"}
+                ],
+            },
+        )
+
+    client = MediaScribeClient(
+        base_url="https://mediascribe.test",
+        api_key="server-side-key",
+        transport=httpx.MockTransport(handler),
+    )
+
+    result = await client.fetch_result("job_empty_speaker")
+
+    assert result.diarization[0].speaker_label == ""
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("speaker_fields", [{"speaker": None}, {}])
+async def test_mediascribe_client_keeps_text_when_provider_speaker_key_is_absent(
+    speaker_fields: dict[str, object],
+) -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/jobs/job_absent_speaker/result"
+        return httpx.Response(
+            200,
+            json={
+                "job": {"id": "job_absent_speaker"},
+                "transcript": [{"start": 0, "end": 1, "text": "synthetic"}],
+                "diarization": [
+                    {"start": 0, "end": 1, "text": "synthetic", **speaker_fields}
+                ],
+            },
+        )
+
+    client = MediaScribeClient(
+        base_url="https://mediascribe.test",
+        api_key="server-side-key",
+        transport=httpx.MockTransport(handler),
+    )
+
+    result = await client.fetch_result("job_absent_speaker")
+
+    assert result.diarization[0].speaker_label == ""
+    assert result.diarization[0].text == "synthetic"
+
+
+@pytest.mark.asyncio
 async def test_mediascribe_client_maps_new_result_transcript_status_contract() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/jobs/job_no_speech/result"
@@ -312,6 +368,40 @@ async def test_mediascribe_client_maps_new_result_transcript_status_contract() -
     assert result.transcript_status == ProcessingAvailabilityStatus.UNAVAILABLE
     assert result.transcript_reason == "no_recognizable_speech"
     assert result.transcript == []
+
+
+@pytest.mark.asyncio
+async def test_mediascribe_client_accepts_provider_turns_without_raw_transcript() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/jobs/job_provider_only/result"
+        return httpx.Response(
+            200,
+            json={
+                "job": {"id": "job_provider_only", "status": "ready"},
+                "transcript_status": "unavailable",
+                "transcript": [],
+                "diarization": [
+                    {
+                        "start": 0,
+                        "end": 1,
+                        "speaker": "voice-a",
+                        "text": "synthetic",
+                    }
+                ],
+            },
+        )
+
+    client = MediaScribeClient(
+        base_url="https://mediascribe.test",
+        api_key="server-side-key",
+        transport=httpx.MockTransport(handler),
+    )
+
+    result = await client.fetch_result("job_provider_only")
+
+    assert result.transcript_status == ProcessingAvailabilityStatus.UNAVAILABLE
+    assert result.transcript == []
+    assert result.diarization[0].speaker_label == "voice-a"
 
 
 @pytest.mark.asyncio

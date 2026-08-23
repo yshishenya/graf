@@ -137,7 +137,7 @@ public struct CaptureStatusItem: View {
     private func color(for state: VisibleIndicatorState) -> Color {
         switch state {
         case .ready:
-            return .blue
+            return DesktopMeetingShellChrome.shellAccentColor
         case .active:
             return .green
         case .paused:

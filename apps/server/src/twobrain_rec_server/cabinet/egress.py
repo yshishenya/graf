@@ -60,11 +60,11 @@ from twobrain_rec_server.db.models import (
     TrackArtifact,
     TranscriptSegment,
 )
+from twobrain_rec_server.domain.speaker_turns import canonical_speech_available
 from twobrain_rec_server.domain.statuses import (
     DeletionState,
     MediaRevisionStatus,
     OutcomeSetStatus,
-    ProcessingAvailabilityStatus,
     ProcessingResultStatus,
     TrackRole,
 )
@@ -194,8 +194,7 @@ async def content_export_capabilities(
     elif (
         result is not None
         and result.status == ProcessingResultStatus.IMPORTED.value
-        and result.transcript_status == ProcessingAvailabilityStatus.AVAILABLE.value
-        and result.segment_count > 0
+        and canonical_speech_available(result)
     ):
         transcript = ContentExportReadiness(state="available")
     elif result is not None and result.status in {
@@ -1975,10 +1974,7 @@ def _transcript_state(
             reason="Transcript is still being processed.",
             action="disabled",
         )
-    if (
-        result.transcript_status == ProcessingAvailabilityStatus.AVAILABLE.value
-        and result.segment_count > 0
-    ):
+    if canonical_speech_available(result):
         return ArtifactEgressState(
             artifact_class="transcript",
             state="available",
@@ -2007,8 +2003,7 @@ def _summary_state(
     if (
         result is not None
         and outcome_set is not None
-        and result.transcript_status == ProcessingAvailabilityStatus.AVAILABLE.value
-        and result.segment_count > 0
+        and canonical_speech_available(result)
     ):
         return ArtifactEgressState(
             artifact_class="summary",

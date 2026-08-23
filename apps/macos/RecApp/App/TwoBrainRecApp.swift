@@ -2373,7 +2373,7 @@ private struct MeetingDetectionPromptView: View {
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: "video.badge.checkmark")
                     .font(.title3)
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(DesktopMeetingShellChrome.shellAccentColor)
                     .frame(width: 24)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(prompt.displayName)
@@ -2455,7 +2455,11 @@ private struct MeetingDetectionPromptView: View {
             GeometryReader { proxy in
                 ZStack(alignment: .leading) {
                     RoundedRectangle(cornerRadius: 7)
-                        .fill(isStartDisabled ? Color.secondary.opacity(0.28) : Color.blue)
+                        .fill(
+                            isStartDisabled
+                                ? Color.secondary.opacity(0.28)
+                                : DesktopMeetingShellChrome.shellAccentColor
+                        )
                     RoundedRectangle(cornerRadius: 7)
                         .fill(Color.white.opacity(0.22))
                         .frame(width: proxy.size.width * progress)

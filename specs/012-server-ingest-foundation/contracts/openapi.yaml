@@ -12904,6 +12904,12 @@ components:
             format: date-time
           - type: 'null'
           title: Started At
+        uploaded_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Uploaded At
         ended_at:
           anyOf:
           - type: string
@@ -15015,6 +15021,11 @@ components:
           - type: string
           - type: 'null'
           title: Degraded Reason
+        turns:
+          items:
+            $ref: '#/components/schemas/TranscriptSpeakerTurnView'
+          type: array
+          title: Turns
         speakers:
           items:
             $ref: '#/components/schemas/SpeakerLane'

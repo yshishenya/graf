@@ -144,7 +144,7 @@ def test_merge_page_uses_the_proof_bound_provider_for_copy_and_primary_action(
     assert "Этот email" not in page
 
 
-def test_email_code_is_a_real_no_javascript_form_control() -> None:
+def test_email_code_uses_six_slots_and_preserves_no_javascript_fallback() -> None:
     page = render_email_code_page(
         email="person@example.test",
         state_nonce="fresh-state",
@@ -153,15 +153,28 @@ def test_email_code_is_a_real_no_javascript_form_control() -> None:
         csrf_token="safe-csrf",
     )
 
-    assert page.count('name="code"') == 1
+    assert page.count('class="code-slot"') == 6
+    assert page.count('aria-label="Цифра ') == 6
+    assert 'type="hidden" name="code" value="" data-code-hidden disabled' in page
     assert 'name="code" type="text"' in page
-    assert 'inputmode="numeric"' in page
     assert 'autocomplete="one-time-code"' in page
     assert 'pattern="[0-9]{6}"' in page
     assert 'maxlength="6"' in page
-    assert "required" in page
-    assert "data-code-slot" not in page
-    assert "data-code-hidden" not in page
+    assert 'data-code-input' not in page
+
+
+@pytest.mark.parametrize("flow", ["login", "signup", "share_invitation", "link", "desktop_link"])
+def test_every_email_code_flow_uses_the_same_six_slot_markup(flow: str) -> None:
+    page = render_email_code_page(
+        email="person@example.test",
+        state_nonce="fresh-state",
+        next_path="/desktop/settings/account" if flow == "desktop_link" else "/meetings",
+        flow=flow,
+        csrf_token="safe-csrf",
+    )
+
+    assert page.count('class="code-slot"') == 6
+    assert page.count('data-code-hidden') == 1
 
 
 @pytest.mark.parametrize(

@@ -10,6 +10,7 @@ from tests.fakes.fake_temporal import FakeTemporalClient
 from tests.fixtures.cabinet import create_outcome_ready_meeting, seed_cabinet_meetings
 from twobrain_rec_server.api.cabinet import _summary_candidate_projection
 from twobrain_rec_server.db.models import (
+    DiarizationSegment,
     DispatchIntent,
     MediaScribeJob,
     Meeting,
@@ -800,6 +801,14 @@ def test_owner_preview_is_private_and_cross_workspace_is_hidden(client) -> None:
                 )
             ).all()
             assert len(segments) == 2
+            provider_turns = (
+                await db.scalars(
+                    select(DiarizationSegment)
+                    .where(DiarizationSegment.processing_result_id == result.id)
+                    .order_by(DiarizationSegment.sequence)
+                )
+            ).all()
+            assert len(provider_turns) == 2
             legacy_refs = [
                 {
                     "transcript_segment_id": str(segments[index % len(segments)].id),
@@ -874,13 +883,13 @@ def test_owner_preview_is_private_and_cross_workspace_is_hidden(client) -> None:
             attempt.status = "candidate"
             await db.commit()
             return attempt.candidate_id, {
-                str(segment.id): {
-                    "sequence": segment.sequence,
-                    "start_seconds": float(segment.start_seconds),
-                    "end_seconds": float(segment.end_seconds),
-                    "source_role": segment.source_role,
+                str(turn.id): {
+                    "sequence": turn.sequence,
+                    "start_seconds": float(turn.start_seconds),
+                    "end_seconds": float(turn.end_seconds),
+                    "source_role": turn.source_role,
                 }
-                for segment in segments
+                for turn in provider_turns
             }
 
     candidate_id, canonical_segments = client.portal.call(seed_candidate)

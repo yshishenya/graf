@@ -27,17 +27,17 @@ As a meeting reviewer, I want transcript text split at the actual provider speak
 
 ### User Story 2 - See Truthful Degraded Provider Results (Priority: P1)
 
-As a reviewer or support operator, I want malformed provider results shown as degraded and uncertain so that GRAF never turns duplicated, invalid, or contradictory rows into confident participants or repeated transcript text.
+As a reviewer or support operator, I want malformed provider results shown as degraded without hiding provider turns that are still explicit and contract-valid, so that GRAF never turns duplicated, invalid, or contradictory rows into confident participants or repeated transcript text.
 
 **Why this priority**: Silent repair can fabricate speaker identities, triple visible text, or hide a provider defect behind plausible-looking output.
 
-**Independent Test**: Given malformed provider rows, the review model publishes one content-conserving uncertain representation, a bounded degraded reason, and metadata-only diagnostics without choosing or deduplicating a supposed correct speaker.
+**Independent Test**: Given structurally unsafe provider rows, the review model publishes one content-conserving uncertain ASR representation. Given only a tiny explicit `UNKNOWN` row, it keeps other contract-valid provider turns confirmed and shows that row once as unknown. Both cases publish a bounded degraded reason and metadata-only diagnostics without choosing or deduplicating a supposed correct speaker.
 
 **Acceptance Scenarios**:
 
 1. **Given** the same complete ASR text appears in three provider speaker rows, **When** the result is accepted for review, **Then** its state is `degraded_provider_result`, the text is visible once through unattributed ASR evidence, and no three-speaker output is created.
 2. **Given** a provider row has `end <= start`, impossible chronology, or text that cannot be conserved against the ASR evidence, **When** the result is normalized, **Then** canonical attribution is `mixed` or `uncertain`, the defect is explicit, and no winner or guessed correction is applied.
-3. **Given** the provider emits `UNKNOWN` for 40 milliseconds, **When** speaker state is built, **Then** the text is preserved as "Спикер не определён", no third confirmed participant is created, and the unknown identity cannot be renamed as an ordinary participant.
+3. **Given** the provider emits `UNKNOWN` for 40 milliseconds, **When** speaker state is built, **Then** the result is degraded, the text is preserved once as "Спикер не определён", other contract-valid turns keep their confirmed speakers, no third confirmed participant is created, and the unknown identity cannot be renamed as an ordinary participant.
 4. **Given** a degraded result, **When** review, transcript, timeline, export, or outcome preparation reads it, **Then** every consumer receives the same degraded state and the same content-conserving ordered turns.
 
 ### User Story 3 - Keep Speaker Identity Stable (Priority: P1)
@@ -65,7 +65,7 @@ As a user or downstream GRAF workflow, I want review API, transcript UI, speaker
 **Acceptance Scenarios**:
 
 1. **Given** a valid provider result, **When** each supported consumer builds its output, **Then** all consumers use identical turn boundaries, speaker keys, text, order, and attribution state.
-2. **Given** a degraded provider result, **When** each supported consumer builds its output, **Then** all consumers preserve the same single uncertain text representation and degraded reason.
+2. **Given** a degraded provider result, **When** each supported consumer builds its output, **Then** all consumers preserve the same canonical projection for that defect class: one uncertain ASR representation for unsafe provider rows, or confirmed valid turns plus explicit unknown turns when only tiny `UNKNOWN` is present.
 3. **Given** the same fixture enters through a normal recording and a manual upload, **When** processing completes, **Then** both paths produce equivalent canonical speaker-turn data.
 4. **Given** timestamps contain sub-millisecond precision, **When** API, UI, and caption/spreadsheet formats round for presentation, **Then** canonical boundaries remain unchanged and no consumer feeds rounded values back into identity or ordering.
 
@@ -108,7 +108,7 @@ As a support operator, I want metadata-only result diagnostics so that provider 
 - **FR-006**: Display/canonical renumbering MUST NOT change the provider-key-to-speaker-identity binding or move a saved user name to another identity.
 - **FR-007**: `UNKNOWN` speech MUST retain its text, use the display name "Спикер не определён", remain outside the confirmed participant count, and be ineligible for ordinary participant rename.
 - **FR-008**: GRAF MUST treat duplicated complete text across provider speaker rows, non-positive duration, impossible chronology, unknown/tiny identity, and failed text conservation as explicit provider-contract defects.
-- **FR-009**: A provider-contract defect MUST produce `degraded_provider_result` with `mixed` or `uncertain` attribution and MUST NOT be silently repaired through overlap winners, inferred speaker selection, or guessed deduplication.
+- **FR-009**: Every provider-contract defect MUST produce `degraded_provider_result` and MUST NOT be silently repaired through overlap winners, inferred speaker selection, or guessed deduplication. Structurally unsafe rows MUST fall back to `mixed` or `uncertain` ASR evidence. A tiny explicit `UNKNOWN` row MUST remain `unknown` without invalidating other contract-valid confirmed turns.
 - **FR-010**: When provider speaker rows are unsafe, GRAF MUST preserve content once through unattributed ASR evidence and MUST NOT emit repeated copies from the unsafe attributed rows.
 - **FR-011**: Text conservation MUST compare normalized provider-attributed text with the unattributed ASR evidence and publish a bounded status without storing private text in diagnostics.
 - **FR-012**: Review, timeline, exports, and outcomes MUST expose identical canonical turn boundaries, speaker keys, text order, and degraded state for the same selected result.
@@ -139,7 +139,7 @@ As a support operator, I want metadata-only result diagnostics so that provider 
 
 - **SC-001**: Synthetic two-turn and three-turn overlap fixtures preserve 100 percent of valid provider turns with no whole-ASR winner assignment.
 - **SC-002**: A winner below 50 percent overlap is never reported as confirmed in any consumer.
-- **SC-003**: A 40-millisecond unknown turn creates zero additional confirmed participants and remains visible once as "Спикер не определён".
+- **SC-003**: A 40-millisecond unknown turn creates zero additional confirmed participants, remains visible once as "Спикер не определён", and does not hide or relabel other contract-valid confirmed turns.
 - **SC-004**: A fixture containing the same full ASR text in three provider rows yields one visible uncertain text copy and `degraded_provider_result` in every consumer.
 - **SC-005**: Stable one-speaker, two-speaker, and eleven-label fixtures produce deterministic canonical turns and speaker identities across repeated normalization.
 - **SC-006**: Normal recording and manual upload fixtures with equivalent source results produce semantically identical canonical models.

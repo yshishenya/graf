@@ -35,8 +35,11 @@ Pure GRAF projection, not a new table.
 - result state: `accepted` or `degraded_provider_result`
 - overlap flag
 
-Accepted turns map one-to-one to provider rows. Degraded turns map one-to-one to
-valid non-empty ASR evidence and never use unsafe provider text.
+Accepted turns map one-to-one to provider rows. Structurally unsafe degraded
+turns map one-to-one to valid non-empty ASR evidence and never use unsafe
+provider text. When degradation is caused only by a tiny explicit unknown,
+contract-valid provider turns remain one-to-one and the unknown row stays one
+non-confirmed turn.
 
 ## Canonical Speaker Model
 
@@ -76,7 +79,8 @@ Content-free object:
 
 ```text
 received -> normalized -> accepted -> canonical turns
-                       \-> degraded_provider_result -> ASR evidence once
+                       |-> degraded unsafe result -> ASR evidence once
+                       \-> degraded tiny UNKNOWN -> valid turns + unknown once
 ```
 
 No transition silently repairs provider attribution. Re-running the same source

@@ -175,10 +175,10 @@ def test_settings_templates_use_primary_sidebar_and_single_content_column() -> N
 def test_settings_overview_keeps_navigation_primary_and_copy_compact() -> None:
     page = render_settings_page()
 
-    assert "Выберите раздел. Область действия указана в каждой карточке." in page
+    assert "Все разделы в одном месте." in page
     assert page.count('data-settings-category="') == 7
-    assert "Разрешения, автозапись и приложения настраиваются в GRAF для macOS." in page
-    assert "Текущий тариф, использование, хранилище и платежные состояния." in page
+    assert "Разрешения и автозапись на Mac." in page
+    assert "Тариф, хранилище и платежи." in page
     assert page.count('data-settings-primary-nav-item="') == 9
 
 
@@ -187,18 +187,38 @@ def test_settings_overview_matches_product_reference_geometry() -> None:
     css = (root / "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css").read_text(
         encoding="utf-8"
     )
-    redesign = css[css.index("/* Additional settings redesign styles */") :]
+    settings = css[css.index(".settings-page,") : css.index(".meeting-title {")]
 
-    assert "grid-template-columns: repeat(2, minmax(0, 1fr));" in redesign
-    assert "max-width: 780px;" in redesign
-    assert "min-height: 138px;" in redesign
-    assert "border-radius: 8px;" in redesign
-    assert "background: transparent;" in redesign
-    assert ".settings-scope-badge," in redesign
-    assert ".settings-scope-badge {" in redesign
-    assert "min-height: 24px;" in redesign
-    assert "padding: 2px 7px;" in redesign
-    assert "font: 600 11px ui-monospace" in redesign
+    assert "grid-template-columns: repeat(2, minmax(0, 1fr));" in settings
+    assert "max-width: 780px;" in settings
+    assert "min-height: 112px;" in settings
+    assert "border-radius: var(--radius-compact);" in settings
+    assert "background: var(--surface-2);" in settings
+    assert ".settings-scope-badge," in settings
+    assert ".settings-scope-badge {" in settings
+    assert "min-height: 24px;" in settings
+    assert "padding: 2px 7px;" in settings
+    assert "var(--font-size-caption)" in settings
+
+
+def test_settings_binary_controls_use_shared_switches_and_segmented_theme() -> None:
+    root = Path(__file__).resolve().parents[2]
+    script = (root / "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js").read_text()
+    account = render_settings_page(category="account")
+    notifications = render_settings_page(category="notifications")
+
+    assert 'class="theme-picker"' in account
+    assert account.count('type="radio" name="theme"') == 3
+    assert 'value="system" checked' in account
+    for icon in ("sun", "moon", "laptop"):
+        assert f'data-icon="{icon}"' in account
+    assert 'document.documentElement.removeAttribute("data-theme")' in script
+
+    assert notifications.count('role="switch"') == 2
+    assert 'name="optional_email_enabled"' in notifications
+    assert 'name="optional_in_app_enabled"' in notifications
+    assert notifications.count('class="settings-control-row"') == 2
+    assert "Важные системные сообщения всегда включены." in notifications
 
 
 def test_recording_settings_keep_native_boundary_copy_compact() -> None:
@@ -325,7 +345,7 @@ def test_account_preferences_and_provider_unlink_are_csrf_protected() -> None:
 
 def test_account_surface_template_contains_profile_preference_and_session_controls() -> None:
     page = render_settings_page(category="account")
-    for label in ("Профиль", "Язык интерфейса", "Часовой пояс", "Системная", "Активные сессии"):
+    for label in ("Профиль", ">Язык<", "Часовой пояс", "Системная", "Активные сессии"):
         assert label in page
     assert "data-account-preferences" in page
     assert "session_token_hash" not in page

@@ -3469,10 +3469,9 @@ async def _summary_candidate_segments_by_id(
         candidates = [
             segment
             for segment in canonical_segments
-            if segment.sequence == row.sequence
-            and segment.source_role == row.source_role
-            and min(float(row.end_seconds), float(segment.end_seconds))
-            > max(float(row.start_seconds), float(segment.start_seconds))
+            if segment.source_role == row.source_role
+            and min(row.end_seconds, segment.end_seconds)
+            > max(row.start_seconds, segment.start_seconds)
         ]
         if len(candidates) == 1:
             segments_by_id[str(row.id)] = candidates[0]
@@ -3490,9 +3489,12 @@ def _summary_candidate_preview_item(
             continue
         segment_id = str(ref.get("transcript_segment_id") or "")
         segment = segments_by_id.get(segment_id)
-        if segment is None or segment_id in seen_segment_ids:
+        if segment is None:
             continue
-        seen_segment_ids.add(segment_id)
+        canonical_segment_id = str(segment.segment_id)
+        if canonical_segment_id in seen_segment_ids:
+            continue
+        seen_segment_ids.add(canonical_segment_id)
         source_refs.append(
             {
                 "transcript_segment_id": segment.segment_id,

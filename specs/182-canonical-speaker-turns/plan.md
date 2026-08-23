@@ -9,10 +9,12 @@
 Replace GRAF's three winner-takes-all speaker reconstructions with one pure
 canonicalization function. Contract-valid provider-attributed rows become the
 canonical temporal turns; raw ASR rows remain separate unattributed evidence.
-Unsafe provider results degrade to one mixed/uncertain ASR projection, with
-metadata-only diagnostics and no guessed speaker or deduplication. Stable
-meeting-local speaker keys preserve the raw provider key without exposing it as
-the editable display label.
+Structurally unsafe provider results degrade to one mixed/uncertain ASR
+projection. A tiny explicit unknown row degrades the result but keeps other
+contract-valid provider turns confirmed and shows only that row without a name.
+Both paths use metadata-only diagnostics and no guessed speaker or
+deduplication. Stable meeting-local speaker keys preserve the raw provider key
+without exposing it as the editable display label.
 
 ## Technical Context
 
@@ -27,6 +29,13 @@ the editable display label.
 **Risk / Validation Lane**: `high-risk-feature` because this changes transcription truth, speaker identity, diagnostics, public API/export contracts, and downstream AI input
 
 **Release Gate**: No commit, deploy, or MediaScribe change. Stop after local validation and request separate approval.
+
+**Validated Baselines**: the clean production checkout and API/processing
+runtime remain on `04b711bca06023772d81df165fd6a03d7142ffa0`; live/ready probes
+pass, required services are healthy, and the database is at Alembic head
+`0077_provider_unlink_xworkspace`. The active uncommitted merge includes current
+`origin/master` at `f0916254fe4c0a84ebe80ec2983cf4407d73b489` (verified
+2026-08-23). No production deploy was performed for this feature.
 
 **Target Platform**: GRAF Linux server and browser cabinet
 
@@ -84,6 +93,9 @@ named in diagnostics and validation evidence.
 7. Inspect `git diff`, scan changed/fixture files for forbidden content, verify
    zero MediaScribe external repository/runtime/config/deploy changes, and stop
    without commit or deploy.
+8. After every focused, browser, analyze, privacy, correctness, and simplicity
+   check is clean, run `infra/scripts/ci-local.sh --full` once as the final
+   validation baseline. Any later code or configuration edit invalidates it.
 
 ## Project Structure
 
@@ -115,7 +127,8 @@ apps/server/src/twobrain_rec_server/
 │   ├── view_models.py
 │   ├── exports.py
 │   ├── rendering.py
-│   └── speakers.py
+│   ├── speakers.py
+│   └── web_routes/speakers.py
 ├── domain/speaker_turns.py
 ├── mediascribe/
 │   ├── schemas.py

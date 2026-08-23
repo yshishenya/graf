@@ -519,18 +519,28 @@ def test_cabinet_list_shows_manual_upload_as_normal_meeting_row(client) -> None:
 
     response = client.get("/api/v1/cabinet/meetings?q=Manual%20list%20row", headers=auth_headers())
     page = client.get("/meetings?q=Manual%20list%20row", headers=auth_headers())
+    upload_date_search = client.get(
+        "/meetings",
+        params={"q": "Загружено"},
+        headers=auth_headers(),
+    )
 
     assert response.status_code == 200
     item = response.json()["items"][0]
     assert item["meeting_id"] == meeting_id
     assert item["title"] == "Manual list row"
     assert item["source"] == "manual_upload"
+    assert item["started_at"] is None
+    assert item["uploaded_at"] is not None
     assert item["duration_seconds"] == 90
     assert item["status"] == "submitted"
     assert item["primary_action"] == "wait"
     assert page.status_code == 200
     assert "Manual list row" in page.text
     assert 'data-media-kind="медиа"' in page.text
+    assert "Загружено" in page.text
+    assert upload_date_search.status_code == 200
+    assert f'data-meeting-id="{meeting_id}"' in upload_date_search.text
 
 
 def test_desktop_empty_meeting_list_polls_for_new_local_uploads(client) -> None:

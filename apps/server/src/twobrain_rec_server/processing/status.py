@@ -5,6 +5,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.schemas import ProcessingStatusResponse
+from twobrain_rec_server.domain.speaker_turns import canonical_speech_available
 from twobrain_rec_server.domain.statuses import ProcessingAvailabilityStatus, ProcessingStatus
 from twobrain_rec_server.processing import store
 
@@ -39,11 +40,7 @@ async def get_content_safe_processing_status(
         media_revision_id=media_revision_id,
     )
     state = ProcessingStatus(workflow.status) if workflow is not None else ProcessingStatus(meeting.processing_status)
-    transcript_available = (
-        result is not None
-        and result.transcript_status == ProcessingAvailabilityStatus.AVAILABLE.value
-        and result.segment_count > 0
-    )
+    transcript_available = canonical_speech_available(result)
     diarization_available = (
         result is not None
         and result.diarization_status == ProcessingAvailabilityStatus.AVAILABLE.value

@@ -22,7 +22,7 @@ is explicitly blocked on owner/OAuth/policy dependencies.
 | FR-026..FR-033 | T030–T036 | covered/gated |
 | FR-034..FR-038 | T041–T045 | covered; visual/runtime closeout recorded |
 | FR-039..FR-043 | T046–T058 | covered; provider truth, home upcoming, IA, action-state and post-runtime remediation recorded |
-| FR-044..FR-045 | T059–T064 | covered; approved policy implemented, exact provider certification remains gated |
+| FR-044..FR-045 | T059–T064 | covered; approved policy implemented and every uncertified family fails closed as `Скоро`; each future provider promotion remains independently gated |
 | NFR-001..NFR-007 | T006–T007, T015, T018, T022, T026, T037–T040, T064 | covered; NFR-006 has a repeatable p95 regression |
 | AC-001..AC-013 | T013, T019, T024, T029, T036–T039, T041–T053, T064 | covered/gated |
 
@@ -30,10 +30,10 @@ is explicitly blocked on owner/OAuth/policy dependencies.
 
 | ID | Category | Severity | Location | Finding | Resolution |
 |---|---|---|---|---|---|
-| A168-01 | dependency | CRITICAL before Google launch | `spec.md` FR-033 / plan | Audience is External/In production and approved scopes are configured, but branding is hidden, Calendar data access is unverified, the exposed client secret requires rotation and the production client inventory is incomplete. | Keep explicit launch gates in T036/T040; do not equate In production with Google approval. |
-| A168-02 | validation | HIGH | `research.md` / quickstart | Local Google authorize/catalog/select/full+incremental sync/upcoming/disconnect/reconnect evidence exists, but production-wide access is still blocked by verification and recovery certification. | Keep metadata-only local receipt; require dedicated test-account recovery, verification and rollback evidence before launch. |
+| A168-01 | dependency | CRITICAL before Google launch | `spec.md` FR-033 / plan | Google requested data-sharing disclosures. The corrected privacy policy is live, but the homepage FAQ is not yet published, the review-thread reply is pending and the exposed client secret still requires rotation. | Keep T067, T068 and T072 open; do not equate External/In production or a live privacy page with Google approval. |
+| A168-02 | validation | HIGH | `research.md` / quickstart | Local Google authorize/catalog/select/full+incremental sync/upcoming/disconnect/reconnect evidence exists, and deterministic 410/429/revoked mappings are covered synthetically, but dedicated-account recovery and production-wide access remain unproven. | Keep metadata-only local receipt; require T036 and production rollout/rollback evidence before launch. |
 | A168-03 | scope | HIGH | US2/US6 | Local Google full and incremental runtime coverage is observed, while revoked-access recovery remains synthetic-only. | Keep the provider gated; do not call it production-ready until the remaining external receipts exist. |
-| A168-04 | implementation delta | HIGH | approved disconnect/sync/provider decisions | The owner approved local-only disconnect, a 7-day/365-day horizon, maximum 20 selected calendars and real-E2E-only production connect actions. | T059–T061, T063 and T064 are implemented and validated; T062 remains the exact-provider certification gate. |
+| A168-04 | implementation delta | HIGH | approved disconnect/sync/provider decisions | The owner approved local-only disconnect, a 7-day/365-day horizon, maximum 20 selected calendars and real-E2E-only production connect actions. | T059–T064 are implemented and validated. T062 proves current fail-closed catalog truth; promoting any provider remains conditional on that provider's own real matrix. |
 | A168-05 | implementation risk | MEDIUM | maintenance worker | A new operation table is unnecessary. | Ponytail rule applied: reuse source state, existing audit, maintenance worker and one RLS operation. |
 | A168-06 | runtime UX | HIGH | provider preset/view model | A configured Google client must not retain the dependency blocker, while an absent client must remain fail-closed. | Safe runtime-availability boolean now flows from app settings to the existing provider payload; both branches are tested and observed. |
 | A168-07 | reconnect lifecycle | HIGH | `calendar/service.py` / T036 | Reconnecting one provider account must not create duplicate active sources or lose selected calendars. | Active source matching the hashed account subject is reused; sealed envelope and catalog are refreshed while selected IDs are preserved. Synthetic Postgres coverage added. |
@@ -53,19 +53,19 @@ is explicitly blocked on owner/OAuth/policy dependencies.
 
 ## Unmapped tasks
 
-None. T036, T040 and T062 remain intentionally open. Issue sync was not
-invoked; the implementation slice was executed locally without commit, PR or
-production change.
+None. T036 and T067–T072 remain intentionally open external/release closeout
+gates. Issue sync was not invoked; the current convergence slice was executed
+locally without commit, PR or production mutation.
 
 ## Metrics
 
 - Functional requirements: 45; FR-044..FR-045 are mapped to T059..T064.
 - Non-functional requirements: 7; all mapped.
 - Acceptance criteria: 13; all mapped.
-- Implementation tasks: 64, ordered by story and path; 3 remain open.
-- Critical pre-launch blockers: client-secret rotation, branding/data-access
-  verification, production client inventory, dedicated test-account recovery,
-  exact-provider certification and production rollout/rollback evidence.
+- Implementation tasks: 72, ordered by story and path; 7 remain open.
+- Critical pre-launch blockers: client-secret rotation, public FAQ publication,
+  Google review-thread resubmission/approval, dedicated test-account recovery
+  and production rollout/rollback evidence.
 
 ## Gate result
 

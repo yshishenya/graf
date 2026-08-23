@@ -55,6 +55,24 @@ def _meeting(processing_status: ProcessingStatus = ProcessingStatus.PROCESSED) -
     )
 
 
+def _transcript_evidence(rows: list[DiarizationSegment]) -> list[TranscriptSegment]:
+    return [
+        TranscriptSegment(
+            id=uuid4(),
+            processing_result_id=row.processing_result_id,
+            meeting_id=row.meeting_id,
+            workspace_id=row.workspace_id,
+            sequence=row.sequence,
+            start_seconds=row.start_seconds,
+            end_seconds=row.end_seconds,
+            text=row.text,
+            source_role=row.source_role,
+            source_role_original=row.source_role,
+        )
+        for row in rows
+    ]
+
+
 def _owner_access() -> MeetingAccessState:
     return MeetingAccessState(
         state="owner",
@@ -266,6 +284,7 @@ def _list_item(
     source: str = "desktop_recording",
     title: str = "Synthetic meeting",
     started_at: datetime | None = datetime(2026, 6, 16, 8, 0, tzinfo=UTC),
+    uploaded_at: datetime | None = None,
     recording_display_timezone_offset_minutes: int | None = None,
     transcript_available: bool = False,
     artifacts: list[ArtifactEgressState] | None = None,
@@ -279,6 +298,7 @@ def _list_item(
         meeting_id=uuid4(),
         title=title,
         started_at=started_at,
+        uploaded_at=uploaded_at,
         ended_at=None,
         recording_display_timezone_offset_minutes=recording_display_timezone_offset_minutes,
         duration_seconds=65,
@@ -687,11 +707,23 @@ def test_recording_time_labels_use_started_at_with_truthful_fallbacks() -> None:
         recording_display_timezone_offset_minutes=180,
     )
     legacy = _list_item(title="legacy-no-recording-date", started_at=None)
+    uploaded = _list_item(
+        source="manual_upload",
+        title="manual-upload-with-receipt",
+        started_at=None,
+        uploaded_at=datetime(2026, 6, 26, 21, 30, tzinfo=UTC),
+    )
 
     assert view_models.meeting_time_label(recorded, time_basis="meeting") == "26 июн, 23:30"
     assert view_models.meeting_time_label(timezone_shifted, time_basis="meeting") == "27 июн, 02:30"
     assert view_models.meeting_time_label(offset_shifted, time_basis="meeting") == "27 июн, 00:30"
     assert view_models.meeting_time_label(legacy, time_basis="meeting") == "Без даты"
+    assert (
+        view_models.meeting_time_label(uploaded, time_basis="meeting") == "Загружено 26 июн, 21:30"
+    )
+    assert view_models.date_label(uploaded) == "Загружено 26 июн, 21:30"
+    assert view_models.date_label(legacy) == "Без даты"
+    assert view_models.meeting_time_label(recorded, time_basis="upload") == "Без даты"
 
 
 def test_meeting_list_time_label_is_shared_with_visible_search_projection() -> None:
@@ -995,10 +1027,11 @@ def test_transcript_mapping_uses_timestamp_speaker_and_source_role_truth() -> No
 
     assert state.available is True
     assert state.segments[0].timestamp_label == "01:05"
-    assert state.segments[0].speaker_label == "SPEAKER_00"
+    assert state.segments[0].speaker_label == "Спикер не определён"
     assert state.segments[0].source_role == "incoming_system"
     assert state.segments[0].seekable is False
     assert state.segments[0].seek_seconds is None
+    assert state.speaker_turns[0].speaker_label == "SPEAKER_00"
 
 
 def test_transcript_mapping_matches_diarization_by_sequence_and_source_role() -> None:
@@ -1062,54 +1095,11 @@ def test_transcript_mapping_matches_diarization_by_sequence_and_source_role() ->
         status="ready",
     )
 
-    by_source = {segment.source_role: segment.speaker_label for segment in state.segments}
+    by_source = {segment.source_role: segment.speaker_label for segment in state.speaker_turns}
     assert by_source == {
         "incoming_system": "SPEAKER_01",
         "local_microphone": "SPEAKER_00",
     }
-
-
-def test_matching_diarization_prefers_same_source_then_falls_back() -> None:
-    meeting = _meeting()
-    result_id = uuid4()
-    transcript = TranscriptSegment(
-        id=uuid4(),
-        processing_result_id=result_id,
-        meeting_id=meeting.id,
-        workspace_id=meeting.workspace_id,
-        sequence=0,
-        start_seconds=Decimal("0.000"),
-        end_seconds=Decimal("10.000"),
-        text="local audio",
-        source_role="mic",
-    )
-    remote = DiarizationSegment(
-        id=uuid4(),
-        processing_result_id=result_id,
-        meeting_id=meeting.id,
-        workspace_id=meeting.workspace_id,
-        sequence=0,
-        start_seconds=Decimal("0.000"),
-        end_seconds=Decimal("9.000"),
-        text="remote audio",
-        speaker_label="REMOTE",
-        source_role="incoming",
-    )
-    local = DiarizationSegment(
-        id=uuid4(),
-        processing_result_id=result_id,
-        meeting_id=meeting.id,
-        workspace_id=meeting.workspace_id,
-        sequence=1,
-        start_seconds=Decimal("0.000"),
-        end_seconds=Decimal("8.000"),
-        text="local audio",
-        speaker_label="LOCAL",
-        source_role="mic",
-    )
-
-    assert view_models.matching_diarization_segment(transcript, [remote, local]) is local
-    assert view_models.matching_diarization_segment(transcript, [remote]) is remote
 
 
 def test_transcript_mapping_uses_diarization_time_when_sequence_conflicts() -> None:
@@ -1229,9 +1219,9 @@ def test_dual_track_mapping_canonicalizes_dependency_labels_when_speaker_style_l
         diarization_segments=diarization,
         status="ready",
     )
-    speaker_state = view_models.speaker_state(diarization)
+    speaker_state = view_models.speaker_state(diarization, transcript_segments=transcript)
 
-    assert [segment.speaker_label for segment in transcript_state.segments] == [
+    assert [segment.speaker_label for segment in transcript_state.speaker_turns] == [
         "SPEAKER_00",
         "SPEAKER_01",
     ]
@@ -1343,7 +1333,6 @@ def test_manual_upload_transcript_uses_diarization_rows_for_speaker_labels() -> 
         transcript_segments=transcript,
         diarization_segments=diarization,
         status="ready",
-        force_speaker_labels=True,
     )
 
     assert state.result_state == "degraded_provider_result"
@@ -1391,7 +1380,6 @@ def test_manual_upload_transcript_keeps_unknown_when_diarization_is_missing() ->
         transcript_segments=transcript,
         diarization_segments=[],
         status="ready",
-        force_speaker_labels=True,
     )
 
     assert [segment.speaker_label for segment in state.segments] == [
@@ -1531,6 +1519,164 @@ def test_manual_upload_review_response_uses_diarization_as_transcript_source() -
     assert response.transcript.segments[0].attribution_state == "uncertain"
 
 
+def test_normal_recording_and_manual_upload_share_canonical_speaker_projection() -> None:
+    meeting = _meeting()
+    result_id = uuid4()
+    media_revision_id = uuid4()
+    result = ProcessingResult(
+        id=result_id,
+        meeting_id=meeting.id,
+        media_revision_id=media_revision_id,
+        workspace_id=meeting.workspace_id,
+        mediascribe_job_id=uuid4(),
+        status=ProcessingResultStatus.IMPORTED.value,
+        transcript_status=ProcessingAvailabilityStatus.AVAILABLE.value,
+        diarization_status=ProcessingAvailabilityStatus.AVAILABLE.value,
+        segment_count=1,
+        diarization_segment_count=2,
+    )
+    transcript = [
+        TranscriptSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=0,
+            start_seconds=Decimal("0.000"),
+            end_seconds=Decimal("2.000"),
+            text="alpha beta",
+            source_role="mixed",
+        )
+    ]
+    diarization = [
+        DiarizationSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=0,
+            start_seconds=Decimal("0.000"),
+            end_seconds=Decimal("1.000"),
+            text="alpha",
+            speaker_label="raw-a",
+            source_role="mixed",
+        ),
+        DiarizationSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=1,
+            start_seconds=Decimal("1.000"),
+            end_seconds=Decimal("2.000"),
+            text="beta",
+            speaker_label="raw-b",
+            source_role="mixed",
+        ),
+    ]
+
+    def response_for(source_kind: str):
+        return view_models.build_review_response(
+            meeting,
+            media_revision=MediaRevision(
+                id=media_revision_id,
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                local_media_revision_id=f"synthetic-{source_kind}",
+                revision_number=1,
+                source_kind=source_kind,
+                status="accepted",
+            ),
+            result=result,
+            workflow=None,
+            transcript_segments=transcript,
+            diarization_segments=diarization,
+            dependency=None,
+        )
+
+    normal = response_for(MediaRevisionSourceKind.INITIAL_MIXED_RECORDING.value)
+    manual = response_for(MediaRevisionSourceKind.MANUAL_UPLOAD.value)
+    canonical_fields = {
+        "start_seconds",
+        "end_seconds",
+        "speaker_key",
+        "provider_speaker_key",
+        "text",
+        "attribution_state",
+        "result_state",
+    }
+
+    assert normal.meeting.source == "desktop_recording"
+    assert manual.meeting.source == "manual_upload"
+    assert [
+        turn.model_dump(include=canonical_fields) for turn in normal.transcript.speaker_turns
+    ] == [turn.model_dump(include=canonical_fields) for turn in manual.transcript.speaker_turns]
+    assert [turn.model_dump(include=canonical_fields) for turn in normal.speakers.turns] == [
+        turn.model_dump(include=canonical_fields) for turn in normal.transcript.speaker_turns
+    ]
+    assert normal.speakers == manual.speakers
+
+
+def test_valid_projection_ignores_historical_false_degraded_failure_reason() -> None:
+    meeting = _meeting()
+    result_id = uuid4()
+    result = ProcessingResult(
+        id=result_id,
+        meeting_id=meeting.id,
+        media_revision_id=uuid4(),
+        workspace_id=meeting.workspace_id,
+        mediascribe_job_id=uuid4(),
+        status=ProcessingResultStatus.IMPORTED.value,
+        transcript_status=ProcessingAvailabilityStatus.AVAILABLE.value,
+        diarization_status=ProcessingAvailabilityStatus.AVAILABLE.value,
+        segment_count=1,
+        diarization_segment_count=1,
+        failure_reason="degraded_provider_result",
+        failure_source="mediascribe",
+    )
+    transcript = [
+        TranscriptSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=0,
+            start_seconds=Decimal("0.000"),
+            end_seconds=Decimal("1.000"),
+            text="alpha",
+            source_role="mixed",
+        )
+    ]
+    diarization = [
+        DiarizationSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=0,
+            start_seconds=Decimal("0.000"),
+            end_seconds=Decimal("1.000"),
+            text="alpha",
+            speaker_label="raw-a",
+            source_role="mixed",
+        )
+    ]
+
+    response = view_models.build_review_response(
+        meeting,
+        result=result,
+        workflow=None,
+        transcript_segments=transcript,
+        diarization_segments=diarization,
+        dependency=None,
+    )
+
+    assert response.meeting.status == "ready"
+    assert response.processing.reason_code is None
+    assert response.transcript.result_state == "accepted"
+    assert response.speakers.result_state == "accepted"
+
+
 def test_manual_upload_transcript_falls_back_to_transcript_text_when_diarization_text_is_blank() -> (
     None
 ):
@@ -1592,7 +1738,6 @@ def test_manual_upload_transcript_falls_back_to_transcript_text_when_diarization
         transcript_segments=transcript,
         diarization_segments=diarization,
         status="ready",
-        force_speaker_labels=True,
     )
 
     assert [segment.text for segment in state.segments] == [
@@ -1648,63 +1793,25 @@ def test_manual_upload_transcript_omits_blank_diarization_display_rows() -> None
 
     state = view_models.transcript_state(
         language="ru",
-        transcript_segments=[],
+        transcript_segments=_transcript_evidence(diarization),
         diarization_segments=diarization,
         status="ready",
-        force_speaker_labels=True,
     )
 
     assert [segment.text for segment in state.segments] == [
+        "",
         "speaker zero text",
         "speaker one text",
     ]
-    assert [segment.speaker_label for segment in state.segments] == [
+    assert [segment.text for segment in state.speaker_turns] == [
+        "speaker zero text",
+        "speaker one text",
+    ]
+    assert [segment.speaker_label for segment in state.speaker_turns] == [
         "Спикер не определён",
         "SPEAKER_00",
     ]
-    assert all(segment.text.strip() for segment in state.segments)
-
-
-def test_mediascribe_speaker_time_matcher_handles_long_inputs_without_source_fallbacks() -> None:
-    meeting = _meeting()
-    result_id = uuid4()
-    transcript = [
-        TranscriptSegment(
-            id=uuid4(),
-            processing_result_id=result_id,
-            meeting_id=meeting.id,
-            workspace_id=meeting.workspace_id,
-            sequence=sequence,
-            start_seconds=Decimal(sequence * 5),
-            end_seconds=Decimal(sequence * 5 + 4),
-            text="single track text",
-            source_role="incoming",
-        )
-        for sequence in range(1200)
-    ]
-    diarization = [
-        DiarizationSegment(
-            id=uuid4(),
-            processing_result_id=result_id,
-            meeting_id=meeting.id,
-            workspace_id=meeting.workspace_id,
-            sequence=speaker_index,
-            start_seconds=Decimal(speaker_index * 500),
-            end_seconds=Decimal((speaker_index + 1) * 500 - 1),
-            text="speaker region",
-            speaker_label=f"SPEAKER_{speaker_index:02d}",
-            source_role="incoming",
-        )
-        for speaker_index in range(12)
-    ]
-
-    labels = view_models.mediascribe_speaker_labels_by_time(transcript, diarization)
-
-    assert len(labels) == 1200
-    assert set(labels) == {f"SPEAKER_{speaker_index:02d}" for speaker_index in range(12)}
-    assert labels[0] == "SPEAKER_00"
-    assert labels[100] == "SPEAKER_01"
-    assert labels[-1] == "SPEAKER_11"
+    assert all(segment.text.strip() for segment in state.speaker_turns)
 
 
 def test_transcript_mapping_marks_valid_segments_seekable_when_playback_available() -> None:
@@ -1781,7 +1888,10 @@ def test_speaker_mapping_calculates_talk_time_percentages() -> None:
         ),
     ]
 
-    state = view_models.speaker_state(segments)
+    state = view_models.speaker_state(
+        segments,
+        transcript_segments=_transcript_evidence(segments),
+    )
 
     assert state.available is True
     assert [(speaker.label, speaker.talk_time_percent) for speaker in state.speakers] == [
@@ -1833,7 +1943,10 @@ def test_manual_upload_speaker_mapping_hides_unknown_when_speaker_labels_are_pre
         ),
     ]
 
-    state = view_models.speaker_state(segments, force_speaker_labels=True)
+    state = view_models.speaker_state(
+        segments,
+        transcript_segments=_transcript_evidence(segments),
+    )
 
     assert {speaker.label for speaker in state.speakers} == {
         "SPEAKER_00",
@@ -1862,7 +1975,10 @@ def test_manual_upload_speaker_mapping_preserves_unknown_rows() -> None:
         )
     ]
 
-    state = view_models.speaker_state(segments, force_speaker_labels=True)
+    state = view_models.speaker_state(
+        segments,
+        transcript_segments=_transcript_evidence(segments),
+    )
 
     assert [speaker.label for speaker in state.speakers] == ["Спикер не определён"]
     assert state.speakers[0].confirmed is False
@@ -1896,7 +2012,10 @@ def test_calendar_roster_does_not_rename_transcript_speakers_or_grant_access() -
         )
     ]
 
-    state = view_models.speaker_state(diarization)
+    state = view_models.speaker_state(
+        diarization,
+        transcript_segments=_transcript_evidence(diarization),
+    )
 
     assert roster[0]["display_name"] == "Calendar Name"
     assert state.speakers[0].label == "SPEAKER_00"
@@ -2201,7 +2320,7 @@ def test_us6_calendar_roster_stays_metadata_and_speaker_labels_stay_canonical() 
         "Synthetic Calendar Person A",
         "Synthetic Calendar Person B",
     ]
-    assert [segment.speaker_label for segment in review.transcript.segments] == [
+    assert [segment.speaker_label for segment in review.transcript.speaker_turns] == [
         "SPEAKER_00",
         "SPEAKER_01",
     ]
@@ -2349,7 +2468,7 @@ def test_transcript_state_derives_same_speaker_turns_and_preserves_raw_segments(
     assert first.text == "synthetic fragment 0"
     assert len(first.source_segment_ids) == 1
     assert first.processing_result_id == result_id
-    assert first.turn_id == view_models.canonical_turn_id(result_id, first.source_segment_ids)
+    assert first.turn_id.startswith("turn_")
     assert first.seekable is True
     assert first.seek_seconds == 0.0
     assert second.start_seconds == 6.0
@@ -2357,7 +2476,12 @@ def test_transcript_state_derives_same_speaker_turns_and_preserves_raw_segments(
     assert [segment.text for segment in state.segments] == [
         f"synthetic fragment {index}" for index in range(4)
     ]
-    assert len({segment.speaker_key for segment in state.segments}) == 1
+    assert {segment.speaker_label for segment in state.segments} == {"Спикер не определён"}
+    assert {segment.attribution_state for segment in state.segments} == {"uncertain"}
+    assert {segment.speaker_key for segment in state.segments} == {f"evidence:{result_id.hex}"}
+    assert [turn.source_segment_ids for turn in state.speaker_turns] == [
+        [str(row.id)] for row in diarization
+    ]
 
 
 def test_speaker_display_name_changes_labels_without_changing_keys() -> None:
@@ -2379,13 +2503,17 @@ def test_speaker_display_name_changes_labels_without_changing_keys() -> None:
     ]
 
     stable_key = (
-        view_models.canonical_speaker_model([], diarization, processing_result_id=result_id)
+        view_models.canonical_speaker_model(
+            _transcript_evidence(diarization),
+            diarization,
+            processing_result_id=result_id,
+        )
         .turns[0]
         .speaker_key
     )
     transcript = view_models.transcript_state(
         language="ru",
-        transcript_segments=[],
+        transcript_segments=_transcript_evidence(diarization),
         diarization_segments=diarization,
         status="ready",
         playback_available=True,
@@ -2394,13 +2522,15 @@ def test_speaker_display_name_changes_labels_without_changing_keys() -> None:
     )
     speakers = view_models.speaker_state(
         diarization,
+        transcript_segments=_transcript_evidence(diarization),
         speaker_names={stable_key: "Мария"},
         can_rename=True,
     )
 
-    assert transcript.segments[0].speaker_key == stable_key
-    assert transcript.segments[0].speaker_label == "Мария"
+    assert transcript.segments[0].speaker_key == f"evidence:{result_id.hex}"
+    assert transcript.segments[0].speaker_label == "Спикер не определён"
     assert transcript.speaker_turns[0].speaker_key == stable_key
+    assert transcript.speaker_turns[0].speaker_label == "Мария"
     assert speakers.speakers[0].speaker_key == stable_key
     assert speakers.speakers[0].label == "Мария"
     assert speakers.speakers[0].display_name == "Мария"
@@ -2516,11 +2646,50 @@ def test_transcript_turns_do_not_merge_unconfirmed_mapping_or_incomplete_state()
     assert len(state.segments) == 2
     assert processing_state.speaker_turns == []
     assert processing_state.available is False
-    assert partial_state.speaker_turns == []
+    assert [turn.text for turn in partial_state.speaker_turns] == ["unmapped 0", "unmapped 1"]
     assert partial_state.degraded_reason == "partial_transcript"
 
 
-def test_force_speaker_labels_turns_are_stable_across_rebuilds() -> None:
+def test_transcript_and_timeline_share_degraded_asr_fallback_without_provider_turns() -> None:
+    meeting = _meeting()
+    result_id = uuid4()
+    transcript = [
+        TranscriptSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=0,
+            start_seconds=Decimal("1.250"),
+            end_seconds=Decimal("2.750"),
+            text="synthetic fallback",
+            source_role="incoming",
+        )
+    ]
+
+    transcript_state = view_models.transcript_state(
+        language="ru",
+        transcript_segments=transcript,
+        diarization_segments=[],
+        status="ready",
+    )
+    speaker_state = view_models.speaker_state([], transcript_segments=transcript)
+
+    assert transcript_state.result_state == "degraded_provider_result"
+    assert speaker_state.result_state == "degraded_provider_result"
+    assert speaker_state.available is True
+    assert speaker_state.can_rename is False
+    assert len(speaker_state.speakers) == 1
+    assert speaker_state.speakers[0].label == "Спикер не определён"
+    assert speaker_state.speakers[0].confirmed is False
+    assert speaker_state.turns == transcript_state.speaker_turns
+    assert [
+        (segment.start_seconds, segment.end_seconds)
+        for segment in speaker_state.speakers[0].segments
+    ] == [(1.25, 2.75)]
+
+
+def test_canonical_provider_turns_are_stable_across_rebuilds() -> None:
     meeting = _meeting()
     result_id = uuid4()
     diarization = [
@@ -2541,17 +2710,15 @@ def test_force_speaker_labels_turns_are_stable_across_rebuilds() -> None:
 
     first = view_models.transcript_state(
         language="ru",
-        transcript_segments=[],
+        transcript_segments=_transcript_evidence(diarization),
         diarization_segments=diarization,
         status="ready",
-        force_speaker_labels=True,
     )
     second = view_models.transcript_state(
         language="ru",
-        transcript_segments=[],
+        transcript_segments=_transcript_evidence(diarization),
         diarization_segments=diarization,
         status="ready",
-        force_speaker_labels=True,
     )
 
     assert first.speaker_turns == second.speaker_turns
@@ -2561,7 +2728,7 @@ def test_force_speaker_labels_turns_are_stable_across_rebuilds() -> None:
     ]
 
 
-def test_force_speaker_labels_preserves_unconfirmed_rows_as_singletons() -> None:
+def test_canonical_provider_turns_preserve_unknown_rows_as_singletons() -> None:
     meeting = _meeting()
     result_id = uuid4()
     diarization = [
@@ -2582,10 +2749,9 @@ def test_force_speaker_labels_preserves_unconfirmed_rows_as_singletons() -> None
 
     state = view_models.transcript_state(
         language="ru",
-        transcript_segments=[],
+        transcript_segments=_transcript_evidence(diarization),
         diarization_segments=diarization,
         status="ready",
-        force_speaker_labels=True,
     )
 
     assert [turn.attribution_state for turn in state.speaker_turns] == [
@@ -2596,55 +2762,3 @@ def test_force_speaker_labels_preserves_unconfirmed_rows_as_singletons() -> None
         "unconfirmed 0",
         "unconfirmed 1",
     ]
-
-
-def test_normal_and_diarization_review_paths_share_turn_semantics() -> None:
-    meeting = _meeting()
-    result_id = uuid4()
-    transcript = [
-        TranscriptSegment(
-            id=uuid4(),
-            processing_result_id=result_id,
-            meeting_id=meeting.id,
-            workspace_id=meeting.workspace_id,
-            sequence=index,
-            start_seconds=Decimal(str(index * 1.5)),
-            end_seconds=Decimal(str(index * 1.5 + 1)),
-            text=f"shared fragment {index}",
-            source_role="incoming",
-        )
-        for index in range(2)
-    ]
-    diarization = [
-        DiarizationSegment(
-            id=uuid4(),
-            processing_result_id=result_id,
-            meeting_id=meeting.id,
-            workspace_id=meeting.workspace_id,
-            sequence=index,
-            start_seconds=row.start_seconds,
-            end_seconds=row.end_seconds,
-            text=row.text,
-            speaker_label="SPEAKER_00",
-            source_role="incoming",
-        )
-        for index, row in enumerate(transcript)
-    ]
-
-    normal = view_models.transcript_state(
-        language="ru",
-        transcript_segments=transcript,
-        diarization_segments=diarization,
-        status="ready",
-    )
-    force_labels = view_models.transcript_state(
-        language="ru",
-        transcript_segments=[],
-        diarization_segments=diarization,
-        status="ready",
-        force_speaker_labels=True,
-    )
-
-    assert normal.speaker_turns[0].model_dump(
-        exclude={"turn_id", "source_segment_ids"}
-    ) == force_labels.speaker_turns[0].model_dump(exclude={"turn_id", "source_segment_ids"})
