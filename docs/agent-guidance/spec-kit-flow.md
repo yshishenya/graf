@@ -16,7 +16,7 @@ move down to the stricter lane.
 | Tiny low-risk code | Narrow code edit with no shared behavior, no data contract change, and no high-risk domain | Direct edit; record lane and rationale | Focused test/lint for touched path; add one small check for non-trivial logic |
 | Active Spec Kit slice | Work belongs to an existing `specs/<feature>/` and `tasks.md` | Use the existing spec, plan, quickstart, and tasks; do not create a duplicate slice | Focused quickstart/tests during development; repository gate at closeout when behavior, shared surface, UX/QA expectation, operations, release readiness, or code path changed |
 | Significant feature / architecture | New feature, architecture, cross-module contract, or user-visible workflow | Full Spec Kit sequence below | Quickstart plus `infra/scripts/ci-local.sh` before closeout/PR when behavior, shared surface, UX/QA expectation, operations, release readiness, or code path changed |
-| High-risk product area | Capture, auth, privacy, storage, AI, deletion, diagnostics, deployment, high-risk UX, or brand-distance work | Full Spec Kit with mandatory clarify/checklist/analyze | Domain gates plus quickstart; repository gate before closeout; deploy gate only for release |
+| High-risk product area | Capture, auth, privacy, storage, AI, deletion, diagnostics, deployment, high-risk UX, or reference-fidelity work | Full Spec Kit with mandatory clarify/checklist/analyze | Domain gates plus quickstart; repository gate before closeout; deploy gate only for release |
 | Release / production deploy | Version, release, production rollout, smoke, rollback, or deployment evidence | Release guidance and explicit user approval | `cd-remote.sh --dry-run`; `--execute` only when release gate is met |
 
 Direct lanes never bypass product gates. Escalate to a full Spec Kit lane when
@@ -29,7 +29,7 @@ the change touches:
 - MediaScribe, Langfuse, MinIO, Postgres, Temporal, Docker, deployment, backup,
   restore, rollback, or public health checks;
 - tray, widget, onboarding, delete, admin, accessibility, localization,
-  unavailable/degraded states, or brand-distance UX;
+  unavailable/degraded states, or reference-fidelity UX;
 - public API contracts, migrations, shared helpers, security boundaries, or
   behavior used by multiple feature slices;
 - process and governance surfaces such as `AGENTS.md`, constitution,
@@ -137,7 +137,7 @@ Default checklist set:
 - `advanced-routing.md` only when a newly approved feature introduces a
   distinct audio-routing architecture, packaging model, or privileged boundary.
 - `ux.md` for tray/widget, onboarding, accessibility, theme, deletion UX, and
-  brand distance.
+  reference fidelity and asset provenance.
 - `infra.md` for Docker, Temporal, MinIO, Postgres, MediaScribe, Langfuse,
   backup, and restore.
 
@@ -188,8 +188,10 @@ Mandatory quality loop:
 - Re-run `$speckit-clarify` when ambiguity is the root cause.
 - Re-run `$speckit-checklist` for affected areas.
 - Re-run `$speckit-analyze`.
-- Repeat until one full pass has no unresolved critical issues and no blocking
-  clarification requests.
+- Repeat until the feature's declared analyze threshold passes. When a feature
+  does not declare a stricter threshold, the default is no unresolved critical
+  or high issues and no blocking clarification requests. Feature 183 explicitly
+  requires `CRITICAL 0 · HIGH 0 · MEDIUM 0`.
 
 `$speckit-implement` is blocked until this loop is clean.
 
@@ -215,7 +217,8 @@ Use `$speckit-implement` only after:
 
 - high-risk checklists are complete; non-high-risk checklist gaps may proceed
   only with recorded user risk acceptance;
-- analyze has no critical blockers;
+- analyze meets the feature's declared threshold (or the default zero
+  critical/high threshold when none is declared);
 - tasks are generated and reviewed;
 - GitHub issue sync is complete when implementation is in scope.
 

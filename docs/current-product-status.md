@@ -85,6 +85,26 @@ Date: 2026-08-24
   production enablement: `/Applications/GRAF.app`, production policy, deploy,
   signing и release в feature не менялись.
 
+## Planning/governance update (2026-08-23) — meeting-summary reference fidelity
+
+## Planning/governance update (2026-08-23) — meeting-summary reference fidelity
+
+- Constitution `5.0.0` отменяет прежнюю обязанность визуально отличать GRAF от
+  Krisp и разрешает Feature 196 буквальное воспроизведение наблюдаемого
+  UX/UI/IA референса.
+- Разрешение не распространяется на чужой source code, extracted assets,
+  binaries, private APIs/protocols, secrets, private meeting content или
+  proprietary model behavior. Функциональные UI labels и interaction microcopy
+  разрешено воспроизводить буквально; accessibility, product truth и права на
+  сторонние assets, logos и trademarks остаются release gates.
+- Prompt-control governance дополнен non-cyclic authority chain:
+  candidate root + activation → immutable qualification → protected-label
+  read-back event → complete typed event binding. Runtime и publication должны
+  заново получить и проверить event/qualification bodies; bare hash или label
+  не дают права на inference. Это planning contract Feature 183/195/200, а не
+  заявление о уже работающем production runtime.
+- Это planning/governance decision, а не implementation/release evidence.
+
 ## Implementation update (2026-08-20) — Feature 177 WebRTC AEC3 recording
 
 - Новый v5 capture-тракт использует один обязательный локальный WebRTC AEC3:
@@ -426,9 +446,9 @@ evidence текущего выпуска: [release note](releases/v2026.07.26.8.
   The email/pre-auth flow remains metadata-only and exact-email; the explicit
   accepted recording preset opens summary, timestamped transcript, playback,
   canonical audio download and combined export without workspace auto-join.
-- macOS local artifact `2026.07.24.4` was rebuilt after the review at
-  [`graf-local-release-125-v4.pkg`](../apps/macos/.build/installer/graf-local-release-125-v4.pkg)
-  with SHA-256
+- Historical macOS local artifact `2026.07.24.4` was named
+  `graf-local-release-125-v4.pkg`; the generated local file is not retained in
+  git. Its recorded SHA-256 is
   `112a5f2419d8517a0ef5d9fde26ebac0564bf966d01897576ecb7878c2e5d936`.
   It passes deep strict verification and uses a local-only signer; no
   Developer ID or notarization is claimed.

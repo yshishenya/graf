@@ -64,8 +64,26 @@ Use this file with `.specify/memory/constitution.md`,
   approval for destination, data classes, retention/deletion limits, and
   rollback. Langfuse Prompt Config is the single editable authority for prompt
   text, selected LiteLLM model route, allowlisted request-level generation
-  settings, and strict response format. LiteLLM owns mapping to the approved
-  upstream provider and upstream secrets; workflow code owns neither.
+  settings, and strict response format. A multi-prompt pipeline MUST expose one
+  versioned root bundle Prompt Config as its only production label/activation
+  point; that root pins exact numeric child versions/hashes, schemas,
+  validators/verifiers, renderer and route/settings. Runtime never resolves
+  child labels. Langfuse label mutation is not assumed to provide native
+  expected-source CAS: production movement uses one authorized writer/lock,
+  expected-root read/compare, immutable candidate-root qualification,
+  protected-root-label move, exact read-back and immutable promotion-event
+  binding. Runtime, model calls and publication evidence MUST carry the complete
+  typed event binding and re-fetch/re-hash the passing event and qualification;
+  a bare event digest or label lookup is non-authorizing. The event remains
+  outside the already-hashed root/activation body to avoid a digest cycle.
+  Mismatch fails closed on last-known-good root + activation + event binding. A
+  mixed partially promoted bundle cannot execute. The root also pins a secret-free immutable LiteLLM
+  route-binding descriptor: exact alias, binding version/hash and allowlisted
+  actual provider/model pairs. The gateway MUST compare the expected hash before
+  provider egress and return that hash plus actual provider/model; absence,
+  mismatch or an unallowlisted pair fails closed. Mapping changes require a new
+  evaluated/promoted root. LiteLLM owns mapping to the approved upstream
+  provider and upstream secrets; workflow code owns neither.
 - A private Langfuse Cloud EU project with public trace publishing disabled is
   explicitly approved for internal-MVP AI observability and prompt control; each
   deployment must configure and allowlist its destination and operator-managed
@@ -74,10 +92,15 @@ Use this file with `.specify/memory/constitution.md`,
   MediaScribe credentials.
 - MediaScribe credentials are server-side only.
 - Each completed outcome model call whose response reaches GRAF has exactly one
-  Langfuse `generation` observation with the compiled logical request, complete
-  pinned canonical transcript, raw response, and validated result. Related AI
-  workflow observations may contain the same plaintext content when useful for
-  debugging; GRAF does not redact, mask, truncate, encrypt, or delete it.
+  logical Generation Call and intended Langfuse `generation` identity binding
+  the compiled logical request, complete pinned canonical transcript, raw
+  response and validated result. Related AI workflow observations may contain
+  the same plaintext content when useful for debugging; GRAF does not redact,
+  mask, truncate, encrypt, or delete it.
+- Langfuse v4 duplicate ingest is not an upsert or exactly-once guarantee. The
+  sole publisher records pending/confirmed/ambiguous delivery, retries only a
+  proven pre-export failure, never repeats inference, and collapses any physical
+  duplicate by Generation Call identity before evaluation or annotation.
 - Raw audio and runtime credentials are not model inputs and are not deliberately
   attached as observability attributes. Credential-like speech inside the
   canonical transcript is preserved verbatim without masking.
@@ -129,10 +152,21 @@ Use this file with `.specify/memory/constitution.md`,
   deletion.
 - If a dependency cannot confirm deletion, the UI and admin report must say so.
 
-## UX And Brand Distance
+## UX Reference Fidelity
 
-- UI must use an original `GRAF` design system.
-- Clean-room and brand-distance review are required before production rollout.
+- UI may faithfully reproduce the approved observable Krisp UX/UI/IA,
+  including layout, hierarchy, navigation, interaction states and visible copy.
+- Functional UI labels and interaction microcopy may match the approved
+  observable reference literally; no paraphrase or brand-distance rewrite is
+  required merely because the result matches Krisp.
+- Review measures reference fidelity and documents deviations required by
+  accessibility, localization, privacy, security, deletion truth or a known
+  reference defect; first-glance brand distance is not required.
+- Implementation code must be independently written. Extracted assets, source,
+  binaries, private APIs, protocols, secrets and private user content remain
+  prohibited. Third-party assets, logos and trademarks require documented
+  usage rights. GRAF-specific legal, consent, privacy, plan/pricing and
+  marketing claims remain independently truthful and applicable.
 - High-risk UX includes tray/widget, onboarding, deletion, admin policy,
   accessibility, localization, and unavailable/degraded states.
 

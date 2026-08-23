@@ -16,7 +16,14 @@ for playback. `2brain Rec` uploads that package to the customer-controlled
 server, sends only the canonical WAV to MediaScribe through the server boundary,
 and exposes recordings/transcripts/notes in a web dashboard.
 
-The product is functionally in the same category as Krisp's meeting assistant, but must not copy Krisp's brand, assets, UI expression, copy, icons, proprietary behavior, binaries, or model behavior. The implementation must use public OS APIs, original code, licensed SDKs, and approved open-source or commercial models.
+The product may faithfully reproduce the observable Krisp UX/UI/IA, including
+screen composition, navigation, interaction states, control placement and
+visible wording. Functional UI labels and interaction microcopy may be
+reproduced literally without a brand-distance rewrite. Implementation code
+remains independent and uses public OS APIs, licensed SDKs, approved
+open-source or commercial models, and GRAF-owned or properly licensed assets.
+Competitor source, extracted assets, binaries, private APIs/protocols, secrets,
+private content and model behavior are not reused.
 
 ## 1A. Current Implementation Status
 
@@ -330,7 +337,9 @@ MVP excludes:
 - Auto-start from arbitrary system audio, media playback, notification sounds, music, videos, or non-approved apps.
 - Calendar-driven auto-start.
 - Calendar, vocabulary, integrations, AI chat, public links, advanced search, full export workflows, unless separately pulled into MVP.
-- Any copied Krisp UI, copy, assets, code, binaries, or proprietary behavior.
+- Competitor source code, extracted assets, binaries, private APIs/protocols,
+  secrets, private content or proprietary model behavior. Observable Krisp
+  UX/UI/IA reproduction is explicitly allowed.
 
 ## 5. User Promises
 
@@ -1193,7 +1202,8 @@ MVP notes:
 - Executive summary.
 - Key discussion points.
 - Decisions.
-- Action items with owner and due date only when inferable.
+- Action items with owner and due date only when each field is explicitly
+  supported by source evidence; otherwise the field remains unknown.
 - Follow-up questions.
 - Risks/blockers.
 - Important timestamped quotes.
@@ -1247,8 +1257,15 @@ Quality rules:
   manually assigned deployment labels, never auto-promotes production, and
   requires held-out evaluation plus explicit
   deployment-operator promotion, expected-source verification, and rollback
-  evidence. Automated promotion also requires protected-label capability and a
-  sole deployment-service mutation credential; otherwise it remains disabled.
+  evidence. Langfuse labels are not assumed to provide native expected-source
+  CAS: one authorized deployment writer/lock performs expected-root read/compare,
+  validates an immutable candidate-root qualification, performs protected-label
+  movement and exact read-back, then persists an immutable promotion event and
+  complete typed binding. Runtime/model/publication paths re-fetch/re-hash that
+  binding; a bare event digest or current label is non-authorizing, and the
+  event remains outside the root/activation hashes to avoid a cycle. Automated promotion also
+  requires protected-label capability and a sole deployment-service mutation
+  credential; otherwise it remains disabled and runtime uses last-known-good.
   Workspace admins cannot change the project-global production label. Real
   transcript/output/feedback optimization remains out of scope for this first
   synthetic-only optimizer.
@@ -1845,14 +1862,22 @@ Design principles:
 - Clear state hierarchy.
 - No marketing hero layouts inside product.
 - No card-within-card compositions.
-- No Krisp-like brand colors, icon shapes, screen arrangements, or copied copy.
+- Follow the approved Krisp reference closely unless a documented GRAF gate
+  requires a deviation.
 
-Brand-distance approval gate:
+Reference-fidelity approval gate:
 
-- No UI implementation ticket for onboarding, tray/widget, desktop home, Audio Health, dashboard, or meeting detail may be marked design-ready until the brand-distance checklist is completed.
-- The checklist must include reference screenshots reviewed, explicit notes on how `2brain Rec` differs in layout, palette, typography, iconography, meters, widget shape, navigation, and copy, reviewer name, review date, and approval status.
-- Competitor screenshots may be used only for category awareness and legal/design avoidance, not as implementation references.
-- Prohibited: copied UI labels, slogans, claims, distinctive phrasing, competitor brand colors, gradients, icon shapes, mascots, same widget silhouette/control arrangement, or recreated competitor screen layouts.
+- UI implementation tickets for the approved Krisp-parity surfaces must link
+  the exact reference screen/state and identify any deliberate deviation.
+- Review covers layout, palette, typography, icon treatment, meters, widget
+  shape, navigation, copy, loading/error/empty states and interaction timing.
+- Deviations are required for known defects, misleading state, accessibility,
+  localization, privacy, security, consent or deletion-truth conflicts.
+- Private screenshots remain outside git. They may guide implementation but
+  may not ship as assets or appear in public evidence.
+- Independently recreated visual treatment and independently obtained licensed
+  equivalents are allowed. Assets extracted from a competitor application are
+  never reused.
 
 Required components:
 
@@ -1891,12 +1916,12 @@ Theme requirements:
 
 - Theme follows system preference by default.
 - User can override theme in settings.
-- Both themes must meet WCAG 2.1 AA contrast for text, controls, tables, badges, meters, destructive dialogs, and widget states.
+- Both themes must meet WCAG 2.2 AA contrast and focus requirements for text, controls, tables, badges, meters, destructive dialogs, and widget states.
 - Manual recording and auto-started recording must use distinct text labels and iconography. They may share the same base recording color only if the state remains distinguishable without color.
 
 Accessibility:
 
-- WCAG 2.1 AA target for web dashboard.
+- WCAG 2.2 AA target for web dashboard.
 - Equivalent native accessibility standards for desktop.
 - Full keyboard navigation for desktop, tray, widget, dashboard, player, transcript, admin tables.
 - Visible focus states.
@@ -1951,12 +1976,15 @@ Required UX artifacts before pilot rollout:
 
 Each artifact must define layout hierarchy, primary and secondary actions, empty/loading/error states, permission and policy-blocked states, light and dark theme behavior, keyboard navigation, screen reader labels for critical controls, responsive behavior where applicable, and acceptance criteria.
 
-## 30. Copy And Clean-Room Rules
+## 30. Reference Fidelity And Independent Implementation Rules
 
 Copy rules:
 
-- Do not use Krisp product names, slogans, UI labels, or distinctive phrasing in product UI.
-- Do not call the product a Krisp clone in user-facing surfaces.
+- Observable functional Krisp UI labels and interaction microcopy may be
+  reproduced literally when they are part of the approved reference; they do
+  not require paraphrasing for brand distance. Product names, logos,
+  trademarks, slogans and marketing claims require separate documented rights.
+- Do not describe GRAF as Krisp or imply affiliation in user-facing surfaces.
 - Use "records from your computer using selected audio devices" in user-facing consent and onboarding copy.
 - Avoid relying on "botless" as a trust claim in consent-critical UI. It may appear in positioning, but recording notices must plainly explain what is captured.
 - Avoid absolute claims unless guaranteed.
@@ -1964,20 +1992,29 @@ Copy rules:
 - Error copy must name the issue and next action.
 - Policy-blocked copy must explain workspace policy or permission reason.
 
-IP/trade dress rules:
+Independent-implementation and rights rules:
 
-- Do not copy competitor brand assets, logos, icons, screenshots, color systems, typography, UI layouts, copywriting, or marketing claims.
-- Do not reverse engineer, decompile, inspect, or reuse competitor binaries,
-  system components, protocols, private APIs, or model behavior.
-- Use public OS APIs, original code, licensed SDKs, and approved open-source components.
-- Maintain independent design system and product language.
+- Observable layouts, interaction patterns, color/typography treatment and UI
+  wording may be reproduced under the approved reference-fidelity decision.
+- Do not reuse competitor source, extracted assets, binaries, system
+  components, protocols, private APIs, secrets, private content or model
+  behavior. Do not decompile or circumvent protections.
+- Use public OS APIs, independently written code, licensed SDKs and approved
+  open-source components.
+- Verify rights for logos, trademarks, fonts, icons, illustrations, screenshots,
+  slogans and marketing assets before shipping them.
+- Legal notices, consent/privacy statements, plan or pricing terms and marketing
+  claims must be independently true and applicable to GRAF even when the
+  surrounding functional UI matches Krisp literally.
 - Review STT, diarization, embedding, LLM, and capture SDK licenses before use.
 
 Acceptance criteria:
 
-- Design review includes brand-distance checklist.
+- Design review includes reference-fidelity, accessibility, deviation and asset-
+  provenance checks.
 - Legal/license review complete before shipping third-party model or SDK.
-- No competitor assets or copied UI text appear in product, docs, marketing, or onboarding.
+- No unlicensed third-party asset, logo or trademark appears in product, docs,
+  marketing or onboarding.
 
 ## 31. Observability
 
@@ -2409,7 +2446,11 @@ Decision criteria:
 - Diarization quality may disappoint if oversold.
 - Deletion must cover derived artifacts, indexes, backups, and exports.
 - External providers/integrations can undermine self-hosting promise if not tightly controlled.
-- Trade dress risk if UI imitates Krisp too closely.
+- Copyright, trademark, trade-dress and license risk remains until every copied
+  third-party asset, logo, trademark and protected visual element in the
+  approved Krisp reference scope has documented clearance or an independently
+  created substitute. Literal functional UI labels and interaction microcopy
+  are an approved product target, not a required brand-distance rewrite.
 
 ## 39. Canonical Status
 
