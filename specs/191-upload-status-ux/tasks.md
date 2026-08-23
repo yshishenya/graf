@@ -85,7 +85,7 @@
 
 - [X] T041 [P] Run focused rendered-template, web-shell, invitation, runtime-recovery, and static-asset tests and inspect the shared states locally at desktop, 375px, keyboard focus, and 200% zoom.
 - [X] T042 Run `infra/scripts/ci-local.sh --full` and record the expanded validation result in `specs/191-upload-status-ux/plan.md` and `CHANGELOG.md`.
-- [ ] T043 Complete the approved push, PR, merge, issue closeout, notarized CalVer release, production dry run/execute, and exact deployed-SHA smoke using `docs/agent-guidance/release-and-validation.md` and `docs/agent-guidance/macos-notarization.md`.
+- [X] T043 Complete the approved push, PR, merge, issue closeout, notarized CalVer release, production dry run/execute, and exact deployed-SHA smoke using `docs/agent-guidance/release-and-validation.md` and `docs/agent-guidance/macos-notarization.md`.
 
 ## Dependencies
 
