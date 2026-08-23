@@ -3120,23 +3120,156 @@ if (query.get("q") !== "new search" || query.get("status") !== "failed" || query
     assert completed.returncode == 0, completed.stderr
 
 
-def test_auth_static_assets_keep_compact_panel_and_code_autosubmit() -> None:
+def test_auth_static_assets_keep_compact_panel_and_six_slot_code_autosubmit() -> None:
     css = (STATIC_DIR / "cabinet.css").read_text()
     script = (STATIC_DIR / "cabinet.js").read_text()
 
     assert "--auth-content-width: min(100%, 448px)" in css
     assert "width: min(520px, 100%)" in css
     assert "requestSubmit" in script
-    assert 'input.value = input.value.replace(/\\D/g, "").slice(0, 6)' in script
-    assert "input.value.length !== 6" in script
+    assert 'data-code-slot' in script
+    assert 'data-code-hidden' in script
+    assert 'hidden.disabled = false' in script
+    assert 'replace(/\\D/g, "").slice(0, 6)' in script
+    assert "isComplete" in script
+    assert "fillFromStart" in script
+    assert "event.preventDefault()" in script
     assert "submitted = true" in script
     assert (
         "[data-embedded-code-panel],\n"
         "[data-embedded-code-panel] .auth-form > *,\n"
-        "[data-embedded-code-panel] .code-input {\n"
+        "[data-embedded-code-panel] .code-slot {\n"
         "  animation: none;\n"
         "}"
     ) in css
+    assert ".code-slots {" in css
+    assert "grid-template-columns: repeat(6, minmax(0, 1fr));" in css
+    assert "aspect-ratio: 1;" in css
+
+
+def test_auth_code_slots_distribute_digits_and_submit_once() -> None:
+    script_path = STATIC_DIR / "cabinet.js"
+    harness = r"""
+const fs = require("fs");
+const vm = require("vm");
+const script = fs.readFileSync(process.argv[1], "utf8");
+const initSource = script.slice(
+  script.indexOf("  const initCodeForms = () => {"),
+  script.indexOf("  const initOutcomeFocus = () => {"),
+);
+const timers = [];
+const expect = (condition, message) => {
+  if (!condition) throw new Error(message);
+};
+global.window = { setTimeout(callback) { timers.push(callback); } };
+global.document = { activeElement: null, querySelectorAll() { return []; } };
+const flushTimers = () => {
+  while (timers.length) timers.shift()();
+};
+class FakeInput {
+  constructor() {
+    this.value = "";
+    this.dataset = {};
+    this.listeners = new Map();
+  }
+  addEventListener(name, handler) {
+    const handlers = this.listeners.get(name) || [];
+    handlers.push(handler);
+    this.listeners.set(name, handlers);
+  }
+  dispatch(name, event = {}) {
+    event.target ||= this;
+    for (const handler of this.listeners.get(name) || []) handler(event);
+    return event;
+  }
+  focus() { document.activeElement = this; }
+}
+class FakeForm extends FakeInput {
+  constructor() {
+    super();
+    this.slots = Array.from({ length: 6 }, () => new FakeInput());
+    this.hidden = new FakeInput();
+    this.hidden.disabled = true;
+    this.submitCalls = 0;
+  }
+  querySelectorAll(selector) {
+    return selector === "[data-code-slot]" ? this.slots : [];
+  }
+  querySelector(selector) {
+    return selector === "[data-code-hidden]" ? this.hidden : null;
+  }
+  requestSubmit() {
+    this.submitCalls += 1;
+    let prevented = false;
+    this.dispatch("submit", {
+      preventDefault() { prevented = true; },
+    });
+    expect(!prevented, "complete code was blocked by submit guard");
+  }
+}
+const form = new FakeForm();
+document.querySelectorAll = (selector) => selector === "[data-code-form]" ? [form] : [];
+vm.runInThisContext(`${initSource}\nglobal.initCodeForms = initCodeForms;`);
+global.initCodeForms();
+expect(form.hidden.disabled === false, "hidden code field stayed disabled");
+expect(document.activeElement === form.slots[0], "first slot did not receive focus");
+
+form.slots[0].value = "7";
+form.slots[0].dispatch("input");
+flushTimers();
+expect(form.hidden.value === "7", "single digit was not synchronized");
+expect(document.activeElement === form.slots[1], "focus did not advance after a digit");
+
+form.slots[1].value = "x";
+form.slots[1].dispatch("input");
+flushTimers();
+expect(form.slots[1].value === "", "non-digit was accepted");
+
+let incompletePrevented = false;
+form.dispatch("submit", { preventDefault() { incompletePrevented = true; } });
+expect(incompletePrevented, "incomplete submit was not blocked");
+expect(document.activeElement === form.slots[1], "incomplete submit did not focus the first empty slot");
+
+form.slots[1].value = "2";
+let backspacePrevented = false;
+form.slots[1].dispatch("keydown", {
+  key: "Backspace",
+  preventDefault() { backspacePrevented = true; },
+});
+expect(backspacePrevented && form.slots[1].value === "", "Backspace did not clear the current slot");
+form.slots[1].dispatch("keydown", { key: "Backspace", preventDefault() {} });
+expect(form.slots[0].value === "" && document.activeElement === form.slots[0], "Backspace did not move to the previous slot");
+
+let pastePrevented = false;
+form.slots[2].dispatch("paste", {
+  clipboardData: { getData() { return "a1-2 3foo456789"; } },
+  preventDefault() { pastePrevented = true; },
+});
+flushTimers();
+expect(pastePrevented, "paste was not consumed");
+expect(form.slots.map((slot) => slot.value).join("") === "123456", "paste did not distribute six digits");
+expect(form.hidden.value === "123456", "pasted code was not synchronized");
+expect(form.submitCalls === 1, "complete code did not submit exactly once");
+
+form.slots[5].value = "7";
+form.slots[5].dispatch("input");
+flushTimers();
+expect(form.submitCalls === 1, "same form submitted more than once");
+form.slots[5].dispatch("keydown", { key: "ArrowLeft", preventDefault() {} });
+expect(document.activeElement === form.slots[4], "ArrowLeft navigation failed");
+form.slots[4].dispatch("keydown", { key: "Home", preventDefault() {} });
+expect(document.activeElement === form.slots[0], "Home navigation failed");
+form.slots[0].dispatch("keydown", { key: "End", preventDefault() {} });
+expect(document.activeElement === form.slots[5], "End navigation failed");
+"""
+    completed = subprocess.run(
+        ["node", "-e", harness, str(script_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
 
 
 def test_feature_104_css_uses_shared_density_focus_and_responsive_contracts() -> None:

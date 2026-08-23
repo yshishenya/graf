@@ -1280,7 +1280,7 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
 }
 [data-embedded-code-panel],
 [data-embedded-code-panel] .auth-form > *,
-[data-embedded-code-panel] .code-input {
+[data-embedded-code-panel] .code-slot {
   animation: none;
 }
 .auth-panel h1 { font-size: 22px; text-align: center; }
@@ -1467,24 +1467,49 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
 .auth-alert h2, .auth-alert p { margin: 0; }
 .auth-alert h2 { font-size: var(--font-size-label); }
 .auth-alert p { margin-top: 4px; }
-.code-input {
+.code-entry {
   width: 100%;
-  height: 46px;
-  padding: 0 14px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: grid;
+  gap: 7px;
+}
+.code-entry legend {
+  padding: 0;
+  color: #c5c9d0;
+  font-size: 12px;
+  font-weight: 750;
+}
+.code-slots {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: clamp(6px, 1.7vw, 10px);
+  align-items: center;
+}
+.code-slot {
+  width: min(100%, 54px);
+  aspect-ratio: 1;
+  min-width: 0;
+  min-height: 0 !important;
+  height: auto !important;
+  justify-self: center;
+  padding: 0;
   text-align: center;
   font-size: 22px;
   font-weight: 800;
-  letter-spacing: .35em;
   font-variant-numeric: tabular-nums;
   border-radius: 7px;
   border-color: #3f444d;
   background: #1d2024;
   caret-color: #a89cff;
 }
-.code-input:focus {
+.code-slot:focus {
   border-color: #765fff;
   box-shadow: 0 0 0 1px #765fff;
 }
+.code-slot:not(:placeholder-shown) { background: #24272c; }
+.code-entry-fallback { width: 100%; }
 .code-hint { text-align: center; color: var(--muted); font-size: var(--font-size-caption); font-weight: 650; }
 .auth-resend {
   border: 0;
@@ -2442,7 +2467,7 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
 .dialog-error[hidden] { display: none; }
 .desktop-embedded .empty-state { min-height: 210px; }
 .desktop-embedded .meeting-row:hover { transform: none; }
-.auth-provider, .email-mode-trigger, .code-input, .meeting-row, .icon-control, .new-button {
+.auth-provider, .email-mode-trigger, .code-slot, .meeting-row, .icon-control, .new-button {
   transition:
     background-color .16s cubic-bezier(.2,.8,.2,1),
     border-color .16s cubic-bezier(.2,.8,.2,1),
@@ -2451,7 +2476,7 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
     opacity .16s cubic-bezier(.2,.8,.2,1);
 }
 .auth-provider:active, .email-mode-trigger:active, .new-button:active { transform: translateY(1px) scale(.995); }
-.code-input { animation: rec-slot-in .18s cubic-bezier(.2,.8,.2,1) both; }
+.code-slot { animation: rec-slot-in .18s cubic-bezier(.2,.8,.2,1) both; }
 @keyframes rec-panel-in {
   from { opacity: 0; transform: translateY(10px) scale(.985); }
   to { opacity: 1; transform: translateY(0) scale(1); }

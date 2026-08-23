@@ -794,7 +794,9 @@ def test_browser_email_login_flow_sets_cookie_binds_browser_device_and_opens_mee
     assert 'name="workspace_id"' not in start.text
     assert str(WORKSPACE_ID) not in start.text
     assert 'class="auth-panel"' in start.text
-    assert 'class="code-input"' in start.text
+    assert start.text.count('class="code-slot"') == 6
+    assert 'class="code-slots"' in start.text
+    assert 'data-code-hidden' in start.text
     assert 'name="code"' in start.text
     assert "data-code-form" in start.text
     assert 'src="/static/cabinet/cabinet.js?v=' in start.text

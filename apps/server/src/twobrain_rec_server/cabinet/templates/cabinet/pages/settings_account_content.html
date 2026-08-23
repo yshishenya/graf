@@ -66,7 +66,7 @@
         {% endfor %}
       </ul>
       {% else %}<p class="settings-empty-state" role="status">Подключённых способов входа пока нет.</p>{% endif %}
-      <p class="muted" id="account-recovery-help">Последний способ входа отключить нельзя.</p>
+      <p class="muted" id="account-recovery-help">Для безопасности нельзя отключить последний подтверждённый способ входа.</p>
       <form class="account-email-form" action="{{ '/desktop/settings/account/email-link/start' if embedded else '/settings/account/email-link/start' }}" method="post">
         {{ sections.csrf_field(csrf_token) }}
         <span class="account-email-form__heading"><label class="field-label" for="account-email-link">Email</label>{{ ui.tooltip("account-email-link-help", "Отправим код без пароля. Если email уже связан с профилем, сначала покажем результат подключения.") }}</span>
@@ -86,7 +86,7 @@
       <div class="settings-section__heading"><div><h2 id="account-devices-title">Устройства</h2><p class="muted">Текущее устройство останется активным.</p></div></div>
       <form class="settings-actions" action="{{ '/desktop/settings/account/devices/revoke-others' if embedded else '/settings/account/devices/revoke-others' }}" method="post">
         {{ sections.csrf_field(csrf_token) }}
-        <button class="button quiet" type="submit" data-confirm="Выйти на всех остальных устройствах?">Выйти на остальных</button>
+        <button class="button quiet" type="submit" data-confirm="Выйти на всех остальных устройствах?">Выйти на всех устройствах</button>
       </form>
       {% if account_surface.devices %}
       <ul class="settings-list" aria-label="Зарегистрированные устройства">
@@ -104,7 +104,7 @@
       <div class="settings-section__heading"><div><h2 id="account-sessions-title">Активные сессии</h2><p class="muted">Текущая сессия завершается через «Выйти».</p></div></div>
       <form class="settings-actions" action="{{ '/desktop/settings/account/sessions/revoke-others' if embedded else '/settings/account/sessions/revoke-others' }}" method="post">
         {{ sections.csrf_field(csrf_token) }}
-        <button class="button quiet" type="submit" data-confirm="Завершить остальные сеансы?">Завершить остальные</button>
+        <button class="button quiet" type="submit" data-confirm="Завершить остальные сеансы?">Завершить остальные сеансы</button>
       </form>
       {% if account_surface.sessions %}
       <ul class="settings-list" aria-label="Активные сессии">
