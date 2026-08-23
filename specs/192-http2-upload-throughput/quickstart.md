@@ -26,7 +26,7 @@ function brace_delta(text, total, char) {
 }
 inside {
     if ($0 ~ /^[[:space:]]*listen[[:space:]]+127\.0\.0\.1:10444[[:space:]]+ssl[[:space:]]+http2;/) upload = 1
-    if ($0 ~ /^[[:space:]]*http2_body_preread_size[[:space:]]+2m;/) preread++
+    if (depth == 1 && $0 ~ /^[[:space:]]*http2_body_preread_size[[:space:]]+2m;/) preread++
     depth += brace_delta($0)
     if (depth == 0) {
         if (upload && preread == 1) matched++
