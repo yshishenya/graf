@@ -27,6 +27,7 @@ Receipt содержит только агрегированные технич�
 | Migrations и runtime readiness | PASS; migration, API, workers и Temporal readiness прошли |
 | Production synthetic smoke и cleanup | PASS; без приватных материалов |
 | Public health | PASS; `/api/v1/health/live` вернул `{"status":"ok"}`, `/api/v1/health/ready` — `{"status":"ready"}` |
+| Installed-client Sparkle update | PASS; `/Applications/GRAF.app` обновлён `.9 → .10`, перезапущен и прошёл подпись/notarization/Gatekeeper |
 | Remote checkout readback | PASS; `master` на release SHA, рабочее дерево чистое |
 | Rollback | Не потребовался; предыдущий подписанный appcast сохранён |
 
@@ -58,17 +59,16 @@ follow-ups, а не часть release smoke и не подменяются эт
 
 ## Installed-client update
 
-- До проверки через встроенное меню установленный `/Applications/GRAF.app`
-  был версии `2026.08.23.9`; codesign, stapler и Gatekeeper прошли.
-- Встроенная команда `Check for Updates…` успешно получила публичный feed и
-  показала предложение `2026.08.23.10` (`app_update.available`, затем
-  `app_update.offer_presented`).
-- Установка через GUI в текущей сессии не подтверждена: окно Sparkle не было
-  доступно для интерактивного выбора. Ручной PKG не использовался и результат
-  не заявляется как установленное обновление.
+- Встроенная команда `Check for Updates…` получила публичный feed и показала
+  `2026.08.23.10`; пользователь подтвердил установку через Sparkle.
+- Metadata-only журнал зафиксировал `user_choice_install`,
+  `download_finished`, `install_requested` и последующий `app_update.started`
+  уже с `installedVersion=2026.08.23.10`.
+- `/Applications/GRAF.app` сейчас имеет `CFBundleVersion` и
+  `CFBundleShortVersionString` `2026.08.23.10`, bundle ID `pro.2brain.graf`;
+  codesign, stapler и Gatekeeper прошли. Ручной PKG не использовался.
 
 ## Связи
 
 - Release notes: [v2026.08.23.10](../../releases/v2026.08.23.10.md)
 - Feature tasks: `specs/194-global-auto-start-defaults/tasks.md`
-
