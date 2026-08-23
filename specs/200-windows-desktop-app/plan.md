@@ -105,6 +105,14 @@ server path, x64 first with an explicit ARM64 gate
 the native/web boundary, but no code claim is made until Windows hardware,
 package and fault-injection evidence is produced.
 
+**Second analysis re-check (2026-08-24)**: PASS WITH EVIDENCE GATES. The parity
+matrix now points to the actual macOS `Upload`/`Cabinet` source paths, and the
+v5 contract explicitly pins `local-recording-manifest.v5`, `canonical-mix.v1`,
+`initial_mixed_recording`, `single_wav_v1` and the wire role set
+`manifest/media/playback`. The 22 functional requirements and 10 buildable
+success criteria remain covered by 64 unique ordered tasks. This is a
+consistency result, not Windows build, hardware, package or release evidence.
+
 ## Architecture
 
 ```text

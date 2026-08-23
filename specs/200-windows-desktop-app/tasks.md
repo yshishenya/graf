@@ -15,26 +15,26 @@ validation.
 **Purpose**: создать минимальный Windows solution, pin dependencies and test
 surfaces without reviving a driver or second web UI.
 
-- [ ] T001 Создать `apps/windows/GrafWindows.sln` и базовые `apps/windows/Directory.Build.props` для C++/WinRT, stable Windows App SDK, Windows 10 22H2 x64 и standard-user процесса.
-- [ ] T002 [P] Создать `apps/windows/Directory.Packages.props` с pinned Windows App SDK/WebView2 SDK versions и явным запретом preview API.
-- [ ] T003 [P] Создать `apps/windows/Native/GrafAEC3/upstream.lock`, `apps/windows/Native/GrafAEC3/notices/README.md` и `apps/windows/scripts/build-graf-aec3.ps1` для pinned WebRTC AEC3 source/license identity.
-- [ ] T004 [P] Создать проекты `apps/windows/Tests/GrafWindowsCoreTests/`, `apps/windows/Tests/GrafWindowsContractTests/` и `apps/windows/Tests/GrafWindowsPackageTests/` с общим test configuration.
-- [ ] T005 [P] Создать `apps/windows/scripts/README.md` с reproducible build, synthetic fixture, evidence-redaction и x64-only/ARM64-gate правилами.
+- [X] T001 Создать `apps/windows/GrafWindows.sln` и базовые `apps/windows/Directory.Build.props` для C++/WinRT, stable Windows App SDK, Windows 10 22H2 x64 и standard-user процесса.
+- [X] T002 [P] Создать `apps/windows/Directory.Packages.props` с pinned Windows App SDK/WebView2 SDK versions и явным запретом preview API.
+- [X] T003 [P] Создать `apps/windows/Native/GrafAEC3/upstream.lock`, `apps/windows/Native/GrafAEC3/notices/README.md` и `apps/windows/scripts/build-graf-aec3.ps1` для pinned WebRTC AEC3 source/license identity.
+- [X] T004 [P] Создать проекты `apps/windows/Tests/GrafWindowsCoreTests/`, `apps/windows/Tests/GrafWindowsContractTests/` и `apps/windows/Tests/GrafWindowsPackageTests/` с общим test configuration.
+- [X] T005 [P] Создать `apps/windows/scripts/README.md` с reproducible build, synthetic fixture, evidence-redaction и x64-only/ARM64-gate правилами.
 
 ## Phase 2: Foundational (Blocking Prerequisites)
 
 **Purpose**: общие контракты и safety boundaries, без которых ни одна user story
 не может начинать реализацию.
 
-- [ ] T006 Создать `apps/windows/RecApp/Contracts/WindowsDesktopContracts.h` с session states, reason codes, artifact roles, v5/queue version и bridge envelope constants из contracts/.
+- [ ] T006 Создать `apps/windows/RecApp/Contracts/WindowsDesktopContracts.h` с session states, reason codes, exact v5 wire values (`local-recording-manifest.v5`, `canonical-mix.v1`, `initial_mixed_recording`, `single_wav_v1`, `manifest/media/playback`), queue version и bridge envelope constants из contracts/.
 - [ ] T007 [P] Создать `apps/windows/RecApp/Core/WindowsDesktopSession.h` и `.cpp` с одним active-session invariant и idempotent transition validation.
 - [ ] T008 [P] Создать `apps/windows/RecApp/Diagnostics/MetadataSafeDiagnostics.h` и `.cpp` с allowlist полей, redacted endpoint fingerprint и запретом raw/content-bearing fields.
 - [ ] T009 [P] Создать `apps/windows/RecApp/Storage/AtomicFileStore.h` и `.cpp` для temp-write, flush, atomic-rename и bounded failure codes.
 - [ ] T010 Создать `apps/windows/RecApp/Permissions/WindowsReadinessGate.h` и `.cpp` для microphone privacy, endpoint, storage, WebView runtime и AAC readiness без смешения reason codes.
 - [ ] T011 Создать `apps/windows/RecApp/Upload/DesktopApiClient.h` и `.cpp`, использующий только существующий GRAF desktop HTTP contract и не содержащий MediaScribe/MinIO credentials.
-- [ ] T012 Создать `specs/200-windows-desktop-app/parity-matrix.md` с mapping macOS Features 057/058/177/193/194/197 к Windows ownership, state, copy, accessibility и evidence.
+- [X] T012 Создать `specs/200-windows-desktop-app/parity-matrix.md` с mapping macOS Features 057/058/177/193/194/197 к Windows ownership, state, copy, accessibility и evidence.
 - [ ] T013 [P] Добавить `apps/windows/Tests/GrafWindowsCoreTests/ContractFixtures.cpp` с metadata-only fixtures для session, manifest, queue, bridge и safe error states.
-- [ ] T014 Провести Constitution/contract re-check и зафиксировать итоговую проверку в `specs/200-windows-desktop-app/plan.md` до старта user story phases.
+- [X] T014 Провести Constitution/contract re-check и зафиксировать итоговую проверку в `specs/200-windows-desktop-app/plan.md` до старта user story phases.
 
 ## Phase 3: User Story 1 — Нативно записать встречу (Priority: P1) 🎯 First Windows slice
 

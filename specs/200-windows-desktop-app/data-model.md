@@ -154,7 +154,9 @@ The directory is user-scoped and contains only the established v5 package shape:
 ```text
 LocalRecordingPackage {
   directory_id: String,
-  schema_version: "...v5...",
+  schema_version: "local-recording-manifest.v5",
+  canonical_mix_profile: "canonical-mix.v1",
+  source_kind: "initial_mixed_recording",
   manifest: LocalRecordingManifest,
   artifacts: [ArtifactDescriptor],
   integrity: PackageIntegrity,
@@ -173,6 +175,13 @@ LocalRecordingPackage {
 | `sha256` | 64-char digest |
 | `duration_ms` | duration measured from decoded/known frames |
 | `status` | `writing` / `verified` / `degraded` / `failed` |
+
+The local role names are an app-facing projection. At upload time they MUST map
+to the server roles `media` and `playback`; the manifest track descriptors and
+upload-session request also include `manifest`. The v5 session therefore uses
+`media_scribe_source_mode=single_wav_v1` and the exact role set
+`{manifest, media, playback}`. It must never be sent as the historical dual
+shape `{manifest, microphone, system}`.
 
 The manifest may carry optional Windows capture health and endpoint class fields
 compatible with existing optional v5 decoding. It must not introduce a second

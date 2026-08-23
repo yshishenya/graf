@@ -9,7 +9,9 @@
 ## [Unreleased]
 
 ### Добавлено
-- _Пока нет записей._
+- Начата подготовка Windows desktop-среза Feature 200: WinUI 3/Windows App
+  SDK native shell, x64 test targets и проверяемый pinned AEC3 build boundary;
+  это ещё не заявление о поддерживаемой Windows-дистрибуции.
 
 ### Изменено
 - _Пока нет записей._
@@ -21,7 +23,8 @@
 - _Пока нет записей._
 
 ### Документы
-- _Пока нет записей._
+- Зафиксированы Windows v5 wire-значения, parity source-of-truth и второй
+  consistency re-check; hardware, package и release gates остаются открытыми.
 
 ### Операции
 - _Пока нет записей._

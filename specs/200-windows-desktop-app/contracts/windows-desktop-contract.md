@@ -104,6 +104,26 @@ Normal output is exactly:
 - `manifest.json`: existing v5-compatible schema with optional Windows health
   metadata.
 
+The package-to-server mapping is not optional. Windows MUST write the same wire
+contract as the current macOS v5 client:
+
+- manifest `schema_version`: `local-recording-manifest.v5`;
+- manifest `canonical_mix_profile`: `canonical-mix.v1`;
+- meeting creation `source_kind`: `initial_mixed_recording`;
+- meeting creation `media_scribe_source_mode`: `single_wav_v1`;
+- upload-session roles: `manifest`, `media`, `playback`;
+- local `mixed_meeting_audio` maps to wire role `media` and
+  `meeting-transcription.wav`;
+- local `review_playback` maps to wire role `playback` and
+  `meeting-review.m4a`.
+
+The native client uses the existing endpoints and idempotency scopes: `POST
+/api/v1/meetings`, `POST /api/v1/meetings/{meeting_id}/upload-sessions`, and
+the existing per-track part/missing-range/finalize endpoints. The meeting and
+upload-session keys are derived from the immutable local directory/session
+identity. A Windows implementation MUST NOT omit `source_kind` or silently
+fall back to the historical `initial_recording`/`microphone`/`system` shape.
+
 The writer validates byte count, hash, decodable format, frame count and duration
 before changing the package to normal/saved. No normal package is created from
 an unprocessed raw microphone path.
@@ -167,4 +187,3 @@ Allowed fields include:
 Forbidden fields include raw audio, transcript text, signed URLs, authorization
 headers, cookies, passwords, local absolute paths, process command lines and
 private meeting identifiers.
-
