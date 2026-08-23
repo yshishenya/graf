@@ -418,6 +418,7 @@ def test_public_legal_and_discovery_routes_are_available(client) -> None:
 
 def test_public_legal_copy_matches_product_and_analytics_truth(client) -> None:
     privacy = client.get("/privacy").text
+    privacy_copy = " ".join(privacy.split())
     terms = client.get("/terms").text
     cookies = client.get("/cookies").text
     analytics = client.get("/analytics-consent").text
@@ -427,13 +428,44 @@ def test_public_legal_copy_matches_product_and_analytics_truth(client) -> None:
         "предприниматель Шишеня Ян Александрович",
         "ИНН 667803118920",
         "ОГРНИП 320665800036109",
-        "Langfuse Cloud EU",
-        "LiteLLM",
-        "Temporal",
-        "MediaScribe",
         "yan@shishenya.ru",
+        "Редакция от 23 августа 2026 года",
+        "поставщикам вычислительных ресурсов",
+        "поставщикам распознавания речи",
+        "ГРАФ не продаёт персональные данные",
+        "трансграничной передачи",
+        "Данные Google Calendar",
+        "доступ только для чтения",
+        "Исходные (необезличенные) данные пользователя Google",
+        "Исходные данные Google могут быть раскрыты только",
+        "Агрегированные или обезличенные показатели",
+        "поставщикам моделей искусственного интеллекта",
+        "не создаёт, не изменяет и не удаляет события Google Calendar",
+        "не отправляет участникам встречи итоги автоматически",
+        "не используются для разработки, улучшения или обучения неперсонализированных",
+        "Другим категориям третьих лиц исходные данные Google не передаются",
+        "передаваться поставщикам внутренней аналитики",
+        "Google API Services User Data Policy",
+        "Limited Use",
+        "не отзывает доступ на стороне Google",
+        "шифрование при передаче",
+        "ограничения обязательны для сотрудников, подрядчиков и правопреемников",
     ):
-        assert required in privacy
+        assert required in privacy_copy
+    for internal_detail in (
+        "MediaScribe",
+        "LiteLLM",
+        "Langfuse",
+        "Temporal",
+        "PostHog",
+        "Яндекс",
+        "AWS",
+        "eu-west",
+        "cloud.langfuse.com",
+        "канонический текст",
+        "модельный маршрут",
+    ):
+        assert internal_detail not in privacy_copy
     assert "законное основание" in terms
     assert "проинформировать участников о записи" in terms
     assert "загружается сразу" in analytics
