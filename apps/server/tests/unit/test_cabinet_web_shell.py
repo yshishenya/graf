@@ -399,7 +399,17 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert "data-manual-upload-percent" not in page
     assert "data-manual-upload-progress" not in page
     assert "data-manual-upload-accepted" not in page
-    assert "Перетащите файл сюда" in page
+    assert "Перетащите файл" in page
+    assert "Перетащите файл сюда" not in page
+    assert "Без аудио останутся расшифровка и итоги. Минуты тарифа спишутся." in page
+    assert 'name="archive_audio"' in page
+    assert 'id="archive_audio-switch"' in page
+    assert 'for="archive_audio-switch"' in page
+    assert 'role="switch"' in page
+    assert 'data-manual-upload-archive' in page
+    assert 'aria-describedby="manual-upload-archive-help"' in page
+    assert 'id="manual-upload-archive-help" role="tooltip"' in page
+    assert '<small class="muted">Без аудио' not in page
     assert 'name="duration_seconds"' in page
     assert 'type="hidden" name="duration_seconds"' in page
     assert 'type="number" name="duration_seconds"' not in page
@@ -1131,13 +1141,48 @@ def test_meeting_unavailable_page_uses_safe_shell_and_matching_list_link() -> No
         page = render_meeting_unavailable_page(embedded=embedded)
 
         assert page.count("data-cabinet-shell") == 1
-        assert '<main id="cabinet-main" class="cabinet-main" tabindex="-1">' in page
+        assert '<main id="cabinet-main" class="cabinet-main cabinet-state-page" tabindex="-1">' in page
+        assert 'class="cabinet-state cabinet-state--unavailable cabinet-unavailable cabinet-card"' in page
+        assert 'data-cabinet-state' in page
         assert "Встреча больше недоступна" in page
+        assert "Запись удалена или доступ закрыт." in page
         assert "Страница недоступна" not in page
         assert "у вас нет доступа" not in page
         assert f'href="{list_path}"' in page
+        assert 'class="cabinet-link cabinet-link--primary"' in page
+        assert "new-button" not in page
         assert "meeting_not_found" not in page
         assert "11111111-1111-1111-1111-111111111111" not in page
+
+
+def test_meeting_detail_page_embeds_shared_runtime_recovery_template() -> None:
+    page = render_meeting_detail_page(_review())
+
+    assert '<template data-meeting-detail-recovery-template>' in page
+    assert 'class="cabinet-state cabinet-state--unavailable cabinet-unavailable cabinet-card"' in page
+    assert 'id="meeting-detail-recovery-title"' in page
+    assert 'aria-live="polite" aria-atomic="true"' in page
+    assert "new-button" not in page
+
+
+def test_meeting_detail_page_uses_manual_upload_receipt_date() -> None:
+    review = _review()
+    review = review.model_copy(
+        update={
+            "meeting": review.meeting.model_copy(
+                update={
+                    "source": "manual_upload",
+                    "started_at": None,
+                    "uploaded_at": datetime(2026, 6, 26, 21, 30, tzinfo=UTC),
+                }
+            )
+        }
+    )
+
+    page = render_meeting_detail_page(review)
+
+    assert "Загружено 26 июн, 21:30" in page
+    assert "Без даты" not in page
 
 
 def test_legacy_render_helpers_keep_full_page_contract_after_template_refactor() -> None:
@@ -1183,7 +1228,7 @@ def test_legacy_embedded_render_helpers_keep_webview_shell_contract() -> None:
 
     assert "data-manual-upload-open" in list_page
     assert (
-        'class="new-button manual-upload-trigger" type="button" data-manual-upload-open'
+        'class="button primary manual-upload-trigger" type="button" data-manual-upload-open'
         in list_page
     )
     assert "data-manual-upload-dialog" in list_page
@@ -1893,7 +1938,9 @@ def test_detail_shell_renders_playback_player_and_seekable_timestamps() -> None:
     assert "recoverMeetingDetailFromResponse(response)" in script
     assert 'new URL(response.url, window.location.href).pathname === "/login"' in script
     assert "detail.replaceWith(recovery)" in script
-    assert 'document.createElement("h1")' in script
+    assert 'document.querySelector("[data-meeting-detail-recovery-template]")' in script
+    assert "cloneNode(true)" in script
+    assert 'document.createElement("h1")' not in script
     assert 'state.setAttribute("aria-labelledby", title.id)' in script
     assert "document.title = `${copy[0]} - GRAF`" in script
     assert "neutralizePrivateLocation(listPath)" in script

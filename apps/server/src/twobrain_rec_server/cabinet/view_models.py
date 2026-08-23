@@ -335,7 +335,7 @@ SHORT_MONTH_LABELS = (
     "дек",
 )
 
-MeetingListTimeBasis = Literal["meeting", "updated"]
+MeetingListTimeBasis = Literal["meeting", "updated", "upload"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -1580,7 +1580,7 @@ def settings_category_navigation(
         (
             "recording",
             "Запись",
-            "Разрешения, автозапись и приложения настраиваются в GRAF для macOS.",
+            "Разрешения и автозапись на Mac.",
             "На этом Mac",
             "/recording",
             "Встречи",
@@ -1589,7 +1589,7 @@ def settings_category_navigation(
         (
             "summaries",
             "Итоги",
-            "Формат по умолчанию, встроенные и личные структуры итогов.",
+            "Форматы и структура итогов.",
             "В этом пространстве",
             "/summaries",
             "Встречи",
@@ -1598,7 +1598,7 @@ def settings_category_navigation(
         (
             "calendar",
             "Календари",
-            "Источники только для чтения, выбор календарей и подсказки перед встречей.",
+            "Подключения, календари и подсказки.",
             "Личная настройка",
             "/integrations/calendar",
             "Встречи",
@@ -1607,7 +1607,7 @@ def settings_category_navigation(
         (
             "workspace",
             "Пространства",
-            "Куда сохраняются новые встречи и какие приглашения доступны.",
+            "Новые встречи и приглашения.",
             "В этом пространстве",
             "/workspace",
             "Рабочее пространство",
@@ -1616,7 +1616,7 @@ def settings_category_navigation(
         (
             "account",
             "Аккаунт и безопасность",
-            "Профиль, тема, способы входа, устройства и активные сессии.",
+            "Профиль, интерфейс и безопасность.",
             "Личная настройка",
             "/account",
             "Аккаунт",
@@ -1627,7 +1627,7 @@ def settings_category_navigation(
         (
             "notifications",
             "Уведомления",
-            "Необязательные подсказки и обязательные сообщения о безопасности.",
+            "Подсказки и системные сообщения.",
             "Личная настройка",
             "/notifications",
             "Аккаунт",
@@ -1636,7 +1636,7 @@ def settings_category_navigation(
         (
             "billing",
             "Тариф и оплата",
-            "Текущий тариф, использование, хранилище и платежные состояния.",
+            "Тариф, хранилище и платежи.",
             "В этом пространстве",
             "/billing",
             "Оплата",
@@ -1689,7 +1689,7 @@ def format_duration(seconds: int) -> str:
 
 def date_label(item: MeetingListItem) -> str:
     if item.started_at is None:
-        return "Без даты"
+        return meeting_time_label(item, time_basis="meeting")
     return short_date_label(
         item.started_at,
         timezone_offset_minutes=item.recording_display_timezone_offset_minutes,
@@ -1708,12 +1708,27 @@ def meeting_list_time_label(
         value,
         timezone_offset_minutes=timezone_offset_minutes,
     )
-    prefix = "Обновлено " if time_basis == "updated" else ""
+    prefix = (
+        "Обновлено "
+        if time_basis == "updated"
+        else "Загружено "
+        if time_basis == "upload"
+        else ""
+    )
     return f"{prefix}{localized.day} {SHORT_MONTH_LABELS[localized.month]}, {localized:%H:%M}"
 
 
 def meeting_time_label(item: MeetingListItem, *, time_basis: MeetingListTimeBasis) -> str:
-    value = item.updated_at if time_basis == "updated" else item.started_at
+    if time_basis == "updated":
+        value = item.updated_at
+    elif time_basis == "upload":
+        value = item.uploaded_at
+    else:
+        value = item.started_at
+        if value is None and item.source == "manual_upload":
+            value = item.uploaded_at
+            if value is not None:
+                time_basis = "upload"
     return meeting_list_time_label(
         value,
         timezone_offset_minutes=item.recording_display_timezone_offset_minutes,
@@ -2242,6 +2257,7 @@ def build_list_item(
         meeting_id=meeting.id,
         title=safe_title(meeting, source=source),
         started_at=meeting.started_at,
+        uploaded_at=meeting.created_at,
         ended_at=meeting.ended_at,
         recording_display_timezone_offset_minutes=meeting.recording_display_timezone_offset_minutes,
         duration_seconds=max(0, meeting.duration_seconds),

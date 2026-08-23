@@ -251,25 +251,25 @@
           <section class="calendar-preference-group" aria-labelledby="calendar-upcoming-preferences-title">
             <div><h3 id="calendar-upcoming-preferences-title">Ближайшие встречи</h3><p>Что показывать на главной и в строке меню macOS.</p></div>
             <div class="calendar-preference-grid">
-              {{ ui.checkbox("show_upcoming_time", "Показывать время", checked=surface.preferences.show_upcoming_time) }}
-              {{ ui.checkbox("show_upcoming_title", "Показывать безопасное название", checked=surface.preferences.show_upcoming_title) }}
+              {{ ui.switch("show_upcoming_time", "Показывать время", checked=surface.preferences.show_upcoming_time) }}
+              {{ ui.switch("show_upcoming_title", "Показывать название", checked=surface.preferences.show_upcoming_title, description="Только безопасный текст") }}
             </div>
           </section>
           <section class="calendar-preference-group" aria-labelledby="calendar-prompt-preferences-title">
             <div><h3 id="calendar-prompt-preferences-title">Подсказки на Mac</h3><p>GRAF только предлагает действие и ничего не запускает сам.</p></div>
             <div class="calendar-preference-grid">
-              {{ ui.checkbox("join_prompt_enabled", surface.preferences.join_prompt_label, checked=surface.preferences.join_prompt_enabled) }}
-              {{ ui.checkbox("record_prompt_enabled", surface.preferences.record_prompt_label, checked=surface.preferences.record_prompt_enabled) }}
+              {{ ui.switch("join_prompt_enabled", "Предлагать подключиться", checked=surface.preferences.join_prompt_enabled, hint=surface.preferences.join_prompt_label, hint_id="calendar-join-prompt-help") }}
+              {{ ui.switch("record_prompt_enabled", "Предлагать запись", checked=surface.preferences.record_prompt_enabled, hint=surface.preferences.record_prompt_label, hint_id="calendar-record-prompt-help") }}
             </div>
           </section>
         </div>
         <details class="calendar-secondary-settings">
           <summary>Какие события показывать</summary>
           <div class="calendar-preference-grid">
-            {{ ui.checkbox("include_events_without_participants", "Показывать события без участников", checked=surface.preferences.include_events_without_participants) }}
-            {{ ui.checkbox("include_events_without_link_or_location", "Показывать события без ссылки или места", checked=surface.preferences.include_events_without_link_or_location) }}
-            {{ ui.checkbox("include_all_day_events", "Показывать события на весь день", checked=surface.preferences.include_all_day_events) }}
-            {{ ui.checkbox("include_private_free_busy_prompt_candidates", "Показывать приватные события и занятость", checked=surface.preferences.include_private_free_busy_prompt_candidates) }}
+            {{ ui.checkbox("include_events_without_participants", "Без участников", checked=surface.preferences.include_events_without_participants) }}
+            {{ ui.checkbox("include_events_without_link_or_location", "Без ссылки или места", checked=surface.preferences.include_events_without_link_or_location) }}
+            {{ ui.checkbox("include_all_day_events", "На весь день", checked=surface.preferences.include_all_day_events) }}
+            {{ ui.checkbox("include_private_free_busy_prompt_candidates", "Приватные и занятость", checked=surface.preferences.include_private_free_busy_prompt_candidates) }}
           </div>
           <p class="calendar-policy-note" data-calendar-auto-context-boundary>{{ surface.auto_context_boundary_copy }}</p>
           <p class="calendar-policy-note">По умолчанию подсказки используют только похожие на встречи события. {{ surface.private_free_busy_copy }}</p>

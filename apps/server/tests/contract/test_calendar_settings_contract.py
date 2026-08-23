@@ -381,6 +381,21 @@ def test_calendar_settings_accessibility_contract_for_states_and_controls(client
     assert 'role="status"' in html
     assert 'name="join_prompt_enabled"' in html
     assert 'name="record_prompt_enabled"' in html
+    assert html.count('role="switch"') == 4
+    assert 'aria-describedby="calendar-join-prompt-help"' in html
+    assert 'id="calendar-join-prompt-help" role="tooltip"' in html
+    calendar_template = (
+        REPO_ROOT
+        / "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/fragments/calendar_settings.html"
+    ).read_text()
+    assert 'type="checkbox" name="selected_provider_calendar_ids"' in calendar_template
+    for preference in (
+        "include_events_without_participants",
+        "include_events_without_link_or_location",
+        "include_all_day_events",
+        "include_private_free_busy_prompt_candidates",
+    ):
+        assert f'ui.checkbox("{preference}"' in calendar_template
     assert 'name="credential_input"' not in html
     assert "data-settings-form-disable-pristine" in html
     assert "data-settings-form-reset" in html

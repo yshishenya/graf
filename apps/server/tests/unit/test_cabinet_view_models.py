@@ -266,6 +266,7 @@ def _list_item(
     source: str = "desktop_recording",
     title: str = "Synthetic meeting",
     started_at: datetime | None = datetime(2026, 6, 16, 8, 0, tzinfo=UTC),
+    uploaded_at: datetime | None = None,
     recording_display_timezone_offset_minutes: int | None = None,
     transcript_available: bool = False,
     artifacts: list[ArtifactEgressState] | None = None,
@@ -279,6 +280,7 @@ def _list_item(
         meeting_id=uuid4(),
         title=title,
         started_at=started_at,
+        uploaded_at=uploaded_at,
         ended_at=None,
         recording_display_timezone_offset_minutes=recording_display_timezone_offset_minutes,
         duration_seconds=65,
@@ -687,11 +689,24 @@ def test_recording_time_labels_use_started_at_with_truthful_fallbacks() -> None:
         recording_display_timezone_offset_minutes=180,
     )
     legacy = _list_item(title="legacy-no-recording-date", started_at=None)
+    uploaded = _list_item(
+        source="manual_upload",
+        title="manual-upload-with-receipt",
+        started_at=None,
+        uploaded_at=datetime(2026, 6, 26, 21, 30, tzinfo=UTC),
+    )
 
     assert view_models.meeting_time_label(recorded, time_basis="meeting") == "26 июн, 23:30"
     assert view_models.meeting_time_label(timezone_shifted, time_basis="meeting") == "27 июн, 02:30"
     assert view_models.meeting_time_label(offset_shifted, time_basis="meeting") == "27 июн, 00:30"
     assert view_models.meeting_time_label(legacy, time_basis="meeting") == "Без даты"
+    assert (
+        view_models.meeting_time_label(uploaded, time_basis="meeting")
+        == "Загружено 26 июн, 21:30"
+    )
+    assert view_models.date_label(uploaded) == "Загружено 26 июн, 21:30"
+    assert view_models.date_label(legacy) == "Без даты"
+    assert view_models.meeting_time_label(recorded, time_basis="upload") == "Без даты"
 
 
 def test_meeting_list_time_label_is_shared_with_visible_search_projection() -> None:

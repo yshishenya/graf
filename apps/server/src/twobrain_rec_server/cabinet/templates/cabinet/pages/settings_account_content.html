@@ -1,7 +1,8 @@
 {% import "cabinet/components/sections.html" as sections %}
 {% import "cabinet/components/account_navigation.html" as account_ui %}
+{% import "cabinet/components/primitives.html" as ui %}
 <main id="cabinet-main" class="cabinet-main" tabindex="-1">
-  <div class="cabinet-workspace settings-page">
+  <div class="cabinet-workspace settings-page settings-page--account">
     <div class="settings-page__content">
     <header class="cabinet-topbar settings-page__topbar">
       <div class="page-title">
@@ -28,7 +29,7 @@
     {% if profile_result %}<p class="settings-status" role="status" aria-live="polite">{{ profile_result }}</p>{% endif %}
     {% if preferences_result %}<p class="settings-status" role="status" aria-live="polite">{{ preferences_result }}</p>{% endif %}
     <section class="settings-section" aria-labelledby="account-profile-title">
-      <div class="settings-section__heading"><div><span class="settings-scope-badge">Личная настройка</span><h2 id="account-profile-title">Профиль</h2><p class="muted">Имя отображается в кабинете. Подтверждённый способ входа нельзя изменить из этого поля.</p></div></div>
+      <div class="settings-section__heading"><div><h2 id="account-profile-title">Профиль</h2><p class="muted">Имя в кабинете</p></div></div>
       {% if account_surface.profile %}
       <form class="account-profile-form" data-settings-form method="post" action="{{ '/desktop/settings/account/profile' if embedded else '/settings/account/profile' }}">
         {{ sections.csrf_field(csrf_token) }}
@@ -41,22 +42,22 @@
       {% endif %}
     </section>
     <section class="settings-section" aria-labelledby="account-preferences-title">
-      <div class="settings-section__heading"><div><span class="settings-scope-badge">Личная настройка</span><h2 id="account-preferences-title">Язык, часовой пояс и тема</h2><p class="muted">Тема применяется сразу. Язык и часовой пояс сохраняются после отправки формы и действуют на всех ваших устройствах.</p></div></div>
+      <div class="settings-section__heading"><div><h2 id="account-preferences-title">Интерфейс</h2></div></div>
       <form class="account-preferences-form" data-account-preferences data-settings-form method="post" action="{{ '/desktop/settings/account/preferences' if embedded else '/settings/account/preferences' }}">
         {{ sections.csrf_field(csrf_token) }}
-        <label class="field-label" for="account-locale">Язык интерфейса</label>
-        <select id="account-locale" name="locale"><option value="ru-RU"{% if account_surface.profile and account_surface.profile.locale == 'ru-RU' %} selected{% endif %}>Русский</option><option value="en-US"{% if account_surface.profile and account_surface.profile.locale == 'en-US' %} selected{% endif %}>English</option></select>
-        <label class="field-label" for="account-timezone">Часовой пояс</label>
-        <select id="account-timezone" name="timezone"><option value="Europe/Moscow"{% if account_surface.profile and account_surface.profile.timezone == 'Europe/Moscow' %} selected{% endif %}>Москва (Europe/Moscow)</option><option value="UTC"{% if account_surface.profile and account_surface.profile.timezone == 'UTC' %} selected{% endif %}>UTC</option></select>
-        <fieldset><legend class="field-label">Тема</legend><label><input type="radio" name="theme" value="system"{% if not account_surface.profile or account_surface.profile.theme == 'system' %} checked{% endif %}> Системная</label><label><input type="radio" name="theme" value="dark"{% if account_surface.profile and account_surface.profile.theme == 'dark' %} checked{% endif %}> Тёмная</label><label><input type="radio" name="theme" value="light"{% if account_surface.profile and account_surface.profile.theme == 'light' %} checked{% endif %}> Светлая</label></fieldset>
-        <div class="account-profile-form__actions"><button class="button" type="submit">Сохранить настройки</button><button class="button quiet" type="reset">Отменить</button></div>
+        <div class="settings-form-grid">
+          <label class="settings-field" for="account-locale"><span class="field-label">Язык</span><select id="account-locale" name="locale"><option value="ru-RU"{% if account_surface.profile and account_surface.profile.locale == 'ru-RU' %} selected{% endif %}>Русский</option><option value="en-US"{% if account_surface.profile and account_surface.profile.locale == 'en-US' %} selected{% endif %}>English</option></select></label>
+          <label class="settings-field" for="account-timezone"><span class="field-label">Часовой пояс</span><select id="account-timezone" name="timezone"><option value="Europe/Moscow"{% if account_surface.profile and account_surface.profile.timezone == 'Europe/Moscow' %} selected{% endif %}>Москва (Europe/Moscow)</option><option value="UTC"{% if account_surface.profile and account_surface.profile.timezone == 'UTC' %} selected{% endif %}>UTC</option></select></label>
+        </div>
+        {{ ui.theme_picker(account_surface.profile.theme if account_surface.profile else "system") }}
+        <div class="account-profile-form__actions"><button class="button" type="submit">Сохранить</button><button class="button quiet" type="reset">Отменить</button></div>
         <p class="settings-form-status" data-settings-form-status hidden></p>
       </form>
-      <noscript><p class="muted">Без JavaScript сохранение работает обычной кнопкой формы; предпросмотр применится после обновления страницы.</p></noscript>
+      <noscript><p class="muted">Тема применится после сохранения.</p></noscript>
     </section>
     <section class="settings-section" aria-labelledby="account-providers-title">
       <div class="settings-section__heading">
-        <div><span class="settings-scope-badge">Личная настройка</span><h2 id="account-providers-title">Способы входа</h2><p class="muted">Подключённые провайдеры относятся к вашему аккаунту, а не к отдельному пространству.</p></div>
+        <div><h2 id="account-providers-title">Способы входа</h2><p class="muted">Подключённые провайдеры относятся к вашему аккаунту.</p></div>
       </div>
       {% if account_surface.providers %}
       <ul class="settings-list" aria-label="Подключённые способы входа">
@@ -65,13 +66,11 @@
         {% endfor %}
       </ul>
       {% else %}<p class="settings-empty-state" role="status">Подключённых способов входа пока нет.</p>{% endif %}
-      <p class="muted" id="account-recovery-help">Для безопасности нельзя отключить последний подтверждённый способ входа. Сначала подключите другой способ восстановления.</p>
-      <form class="settings-actions" action="{{ '/desktop/settings/account/email-link/start' if embedded else '/settings/account/email-link/start' }}" method="post" aria-describedby="account-email-link-help">
+      <p class="muted" id="account-recovery-help">Для безопасности нельзя отключить последний подтверждённый способ входа.</p>
+      <form class="account-email-form" action="{{ '/desktop/settings/account/email-link/start' if embedded else '/settings/account/email-link/start' }}" method="post">
         {{ sections.csrf_field(csrf_token) }}
-        <label class="field-label" for="account-email-link">Подключить email</label>
-        <input id="account-email-link" name="email" type="email" autocomplete="email" required maxlength="240" placeholder="you@example.com">
-        <p class="muted" id="account-email-link-help">Мы отправим код. Пароль не нужен. Если у этого email уже есть другой профиль, сначала покажем, что сохранится после подключения.</p>
-        <button class="button quiet" type="submit">Подключить email</button>
+        <span class="account-email-form__heading"><label class="field-label" for="account-email-link">Email</label>{{ ui.tooltip("account-email-link-help", "Отправим код без пароля. Если email уже связан с профилем, сначала покажем результат подключения.") }}</span>
+        <span class="account-email-form__controls"><input id="account-email-link" name="email" type="email" autocomplete="email" required maxlength="240" placeholder="you@example.com" aria-describedby="account-email-link-help"><button class="button quiet" type="submit">Подключить</button></span>
       </form>
       {% if provider_link_options %}
       <div class="settings-actions" aria-label="Добавить способ входа">
@@ -84,7 +83,7 @@
     <noscript><p class="settings-status" role="status">Настройки аккаунта работают без JavaScript: отправка форм откроет страницу с результатом.</p></noscript>
 
     <section class="settings-section" aria-labelledby="account-devices-title">
-      <div class="settings-section__heading"><div><span class="settings-scope-badge">Личная настройка</span><h2 id="account-devices-title">Зарегистрированные устройства</h2><p class="muted">Список показывает только безопасные метаданные. Кнопка ниже завершит доступ на остальных устройствах, текущее устройство останется активным.</p></div></div>
+      <div class="settings-section__heading"><div><h2 id="account-devices-title">Устройства</h2><p class="muted">Текущее устройство останется активным.</p></div></div>
       <form class="settings-actions" action="{{ '/desktop/settings/account/devices/revoke-others' if embedded else '/settings/account/devices/revoke-others' }}" method="post">
         {{ sections.csrf_field(csrf_token) }}
         <button class="button quiet" type="submit" data-confirm="Выйти на всех остальных устройствах?">Выйти на всех устройствах</button>
@@ -102,7 +101,7 @@
       {% else %}<p class="settings-empty-state" role="status">Зарегистрированных устройств пока нет.</p>{% endif %}
     </section>
     <section class="settings-section" aria-labelledby="account-sessions-title">
-      <div class="settings-section__heading"><div><span class="settings-scope-badge">Личная настройка</span><h2 id="account-sessions-title">Активные сессии</h2><p class="muted">Отозванная сессия теряет доступ. Текущую сессию можно завершить через «Выйти».</p></div></div>
+      <div class="settings-section__heading"><div><h2 id="account-sessions-title">Активные сессии</h2><p class="muted">Текущая сессия завершается через «Выйти».</p></div></div>
       <form class="settings-actions" action="{{ '/desktop/settings/account/sessions/revoke-others' if embedded else '/settings/account/sessions/revoke-others' }}" method="post">
         {{ sections.csrf_field(csrf_token) }}
         <button class="button quiet" type="submit" data-confirm="Завершить остальные сеансы?">Завершить остальные сеансы</button>
@@ -110,7 +109,7 @@
       {% if account_surface.sessions %}
       <ul class="settings-list" aria-label="Активные сессии">
         {% for session in account_surface.sessions %}
-        <li class="settings-list-item"><div class="settings-list-item__content"><span class="settings-list-item__title">{{ session.provider_label }}{% if session.current %} · Текущая сессия{% endif %}</span><span class="settings-list-item__desc">{{ session.status_label }}{% if session.last_seen_at %} · Последняя активность: {{ session.last_seen_at.strftime("%Y-%m-%d %H:%M UTC") }}{% endif %}</span></div>{% if session.can_revoke %}<form action="{{ '/desktop/settings/account/sessions/' if embedded else '/settings/account/sessions/' }}{{ session.session_id }}/revoke" method="post">{{ sections.csrf_field(csrf_token) }}<button class="button quiet" type="submit" data-confirm="Завершить этот сеанс?">Завершить сеанс</button></form>{% endif %}</li>
+        <li class="settings-list-item"><div class="settings-list-item__content"><span class="settings-list-item__title">{{ session.provider_label }}{% if session.current %} · Текущая сессия{% endif %}</span><span class="settings-list-item__desc">{{ session.status_label }}{% if session.last_seen_at %} · Последняя активность: {{ session.last_seen_at.strftime("%Y-%m-%d %H:%M UTC") }}{% endif %}</span></div>{% if session.can_revoke %}<form action="{{ '/desktop/settings/account/sessions/' if embedded else '/settings/account/sessions/' }}{{ session.session_id }}/revoke" method="post">{{ sections.csrf_field(csrf_token) }}<button class="button quiet" type="submit" data-confirm="Завершить этот сеанс?">Завершить</button></form>{% endif %}</li>
         {% endfor %}
       </ul>
       {% else %}<p class="settings-empty-state" role="status">Активных сессий не найдено.</p>{% endif %}

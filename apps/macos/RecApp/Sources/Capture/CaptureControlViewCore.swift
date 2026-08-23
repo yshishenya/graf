@@ -579,7 +579,9 @@ private struct CalendarPromptView: View {
                 icon: prompt.kind == .join ? "video.fill" : "record.circle",
                 title: prompt.title,
                 detail: prompt.message,
-                iconColor: prompt.kind == .join ? .blue : .orange
+                iconColor: prompt.kind == .join
+                    ? DesktopMeetingShellChrome.shellAccentColor
+                    : .orange
             )
 
             VStack(alignment: .leading, spacing: 8) {

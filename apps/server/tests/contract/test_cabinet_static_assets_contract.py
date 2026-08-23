@@ -1,3 +1,4 @@
+import re
 import subprocess
 from pathlib import Path
 
@@ -2222,6 +2223,27 @@ class FakeElement {
   }
   setAttribute(name, value) { this[name] = String(value); }
 }
+const makeRecovery = () => {
+  const main = new FakeElement("main");
+  main.id = "cabinet-main";
+  const state = new FakeElement("section");
+  const title = new FakeElement("h1");
+  title.id = "meeting-detail-recovery-title";
+  const description = new FakeElement("p");
+  const action = new FakeElement("a");
+  state.append(title, description, action);
+  main.append(state);
+  main.querySelector = (selector) => ({
+    "[data-cabinet-state]": state,
+    "h1": title,
+    ".cabinet-state__description": description,
+    ".cabinet-state__action a": action,
+  })[selector] || null;
+  return main;
+};
+const recoveryTemplate = {
+  content: { firstElementChild: { cloneNode() { return makeRecovery(); } } },
+};
 const detail = new FakeElement("main");
 detail.id = "cabinet-main";
 detail.dataset.playbackPollActive = "true";
@@ -2245,6 +2267,7 @@ global.document = {
   createElement(tag) { return new FakeElement(tag); },
   getElementById() { return null; },
   querySelector(selector) {
+    if (selector === "[data-meeting-detail-recovery-template]") return recoveryTemplate;
     if (selector === "[data-playback-poll-url]") return currentMain === detail ? detail : null;
     if (selector === "#cabinet-main") return currentMain;
     return null;
@@ -2510,6 +2533,27 @@ class FakeElement {
   replaceWith(node) { this.isConnected = false; currentMain = node; }
   setAttribute(name, value) { this[name] = String(value); }
 }
+const makeRecovery = () => {
+  const main = new FakeElement("main");
+  main.id = "cabinet-main";
+  const state = new FakeElement("section");
+  const title = new FakeElement("h1");
+  title.id = "meeting-detail-recovery-title";
+  const description = new FakeElement("p");
+  const link = new FakeElement("a");
+  state.append(title, description, link);
+  main.append(state);
+  main.querySelector = (selector) => ({
+    "[data-cabinet-state]": state,
+    "h1": title,
+    ".cabinet-state__description": description,
+    ".cabinet-state__action a": link,
+  })[selector] || null;
+  return main;
+};
+const recoveryTemplate = {
+  content: { firstElementChild: { cloneNode() { return makeRecovery(); } } },
+};
 const detail = new FakeElement("main");
 detail.id = "cabinet-main";
 detail.dataset.playbackPollActive = "false";
@@ -2539,6 +2583,7 @@ global.document = {
   createElement(tag) { return new FakeElement(tag); },
   getElementById() { return null; },
   querySelector(selector) {
+    if (selector === "[data-meeting-detail-recovery-template]") return recoveryTemplate;
     if (selector === "[data-playback-poll-url]") return currentMain === detail ? detail : null;
     if (selector === "#cabinet-main") return currentMain;
     return null;
@@ -2783,11 +2828,27 @@ def test_cabinet_js_uses_product_facing_ellipsis_in_async_states() -> None:
         assert legacy_copy not in script
     for product_copy in [
         '"Удаляем…"',
-        '"Загружаем файл…"',
-        '"Продолжаем загрузку…"',
         '"Проверяем…"',
     ]:
         assert product_copy in script
+
+    for short_upload_copy in [
+        '"Загрузка"',
+        '"Загрузка продолжена"',
+        '"На сервере · Обрабатываем"',
+        '"На сервере · Ждёт обработки"',
+        '"Не удалось загрузить"',
+        '"Загрузка остановлена"',
+    ]:
+        assert short_upload_copy in script
+
+    for actionable_upload_error in [
+        'empty_media_upload: "Файл пустой"',
+        'upload_part_bytes_exceeded: "Файл слишком большой"',
+        'unsafe_meeting_title: "Измените название"',
+        "uploadFailureMessage(failureCode)",
+    ]:
+        assert actionable_upload_error in script
 
 
 def test_cabinet_js_owns_component_dom_behavior() -> None:
@@ -2976,7 +3037,8 @@ def test_cabinet_js_owns_manual_upload_without_frontend_toolchain() -> None:
         "abort",
         "refreshMeetingList",
         "workflow_started",
-        "Обработка ещё не запущена",
+        "На сервере · Ждёт обработки",
+        "На сервере · Обрабатываем",
         "authUploadFailure",
         "conflictUploadFailure",
         "window.location.reload()",
@@ -3002,8 +3064,14 @@ def test_cabinet_js_owns_manual_upload_without_frontend_toolchain() -> None:
         ".upload-activity-progress",
         ".upload-activity-actions",
         ".upload-activity-action",
+        "color-mix(in srgb, var(--accent)",
+        "grid-template-columns: 30px minmax(0, 1fr) auto;",
     ]:
         assert marker in css
+    assert '<span class="upload-activity-state">' in script
+    assert script.index('data-upload-activity-status') < script.index('data-upload-activity-percent')
+    assert script.index('data-upload-activity-percent') < script.index('upload-activity-progress')
+    assert "Перетащите файл сюда" not in script
     assert "Длительность не прочитана" in script
     assert 'data-upload-activity-list aria-live="polite"' not in template
     assert 'data-upload-activity-announcer role="status" aria-live="polite" aria-atomic="true"' in template
@@ -3013,7 +3081,7 @@ def test_cabinet_js_owns_manual_upload_without_frontend_toolchain() -> None:
     assert ".manual-upload-duration__control" not in css
 
 
-def test_manual_upload_hides_untrusted_progress_and_preserves_list_query_state() -> None:
+def test_manual_upload_keeps_untrusted_progress_indeterminate_and_preserves_list_query_state() -> None:
     script_path = STATIC_DIR / "cabinet.js"
     harness = r"""
 const fs = require("fs");
@@ -3046,8 +3114,8 @@ const activity = {
   announcedProgressBucket: null,
 };
 setActivityProgress(activity, 36, false);
-if (!progress.hidden || activity.progressBar.style.width !== "0") {
-  throw new Error("untrusted upload progress remained visible");
+    if (progress.hidden || activity.progressBar.style.width !== "0") {
+  throw new Error("untrusted upload progress was not kept visible");
 }
 if (!activity.percentLabel.hidden || activity.percentLabel.textContent) {
   throw new Error("untrusted upload percentage remained visible");
@@ -3267,13 +3335,13 @@ def test_feature_104_css_uses_shared_density_focus_and_responsive_contracts() ->
         "--control-height: 36px;",
         "--meeting-row-height: 48px;",
         "--focus-ring: #b6aaff;",
-        "--app-sidebar-width: 176px;",
+        "--app-sidebar-width: 240px;",
         "--app-rail-width: 64px;",
         "outline: 2px solid var(--focus-ring);",
         ".meeting-row.cabinet-row:hover,\n.meeting-row.cabinet-row:focus-within",
         "grid-template-columns: var(--app-rail-width) minmax(0, 1fr);",
         "@media (max-width: 1120px)",
-        ".new-button.manual-upload-trigger > span",
+        ".manual-upload-trigger > span",
         ".desktop-embedded .cabinet-list-controls .manual-upload-trigger {",
         "grid-column: auto;",
         ".cabinet-workspace-header--brand .cabinet-workspace-header__avatar",
@@ -3301,6 +3369,204 @@ def test_feature_104_css_uses_shared_density_focus_and_responsive_contracts() ->
         "  }"
     ) not in css
     assert 'aria-label="Сохраненные"' not in css
+
+
+def test_feature_191_centralizes_interaction_tokens_and_compact_upload_contract() -> None:
+    css = (STATIC_DIR / "cabinet.css").read_text()
+    script = (STATIC_DIR / "cabinet.js").read_text()
+    manual_upload = (
+        ROOT
+        / "src/twobrain_rec_server/cabinet/templates/cabinet/fragments/manual_upload.html"
+    ).read_text()
+
+    for token in [
+        "--accent-hover:",
+        "--accent-solid: #6347d9;",
+        "--accent-foreground: #fff;",
+        "--sidebar-accent: #8c73ff;",
+        "--sidebar-focus-ring: #b6aaff;",
+        "--accent-soft:",
+        "--accent-surface:",
+        "--accent-border:",
+        "--success-surface:",
+        "--success-border:",
+        "--warning-surface:",
+        "--warning-border:",
+        "--danger-surface:",
+        "--danger-border:",
+        "--font-size-caption: 11px;",
+        "--font-size-helper: 12px;",
+        "--font-size-body: 13px;",
+        "--font-size-label: 14px;",
+        "--control-height-sm: 32px;",
+        "--control-height: 36px;",
+        "--control-height-lg: 40px;",
+        "--radius-control: 7px;",
+        "--radius-card: 10px;",
+        "--radius-panel: 12px;",
+        "--radius-dialog: 16px;",
+    ]:
+        assert token in css
+
+    assert "accent-color: var(--accent);" in css
+    assert "--accent: var(--sidebar-accent);" in css
+    assert "--focus-ring: var(--sidebar-focus-ring);" in css
+    assert (
+        ".primary { background: var(--accent-solid); border-color: var(--accent-solid); "
+        "color: var(--accent-foreground);"
+    ) in css
+    assert "var(--blue)" not in css
+    for product_blue in [
+        "#2f91ff",
+        "#2088ff",
+        "rgba(47,145,255",
+        "rgba(32,136,255",
+        "rgba(92, 155, 235",
+    ]:
+        assert product_blue not in css.lower()
+
+    assert "grid-template-columns: 30px minmax(0, 1fr) auto;" in css
+    assert ".upload-activity-state" in css
+    assert '<span class="upload-activity-state">' in script
+    assert len(re.findall(r"(?m)^\.settings-overview-card \{", css)) == 1
+    assert ".cabinet-sidebar-nav__label" in css
+    assert "text-overflow: ellipsis;" in css
+    assert "white-space: nowrap;" in css
+    for shared_control in [
+        ".cabinet-switch",
+        ".cabinet-switch__track",
+        ".settings-control-row",
+        ".theme-picker",
+        ".theme-picker__option",
+        ".cabinet-tooltip__trigger",
+    ]:
+        assert shared_control in css
+    assert "--switch-width: 36px;" in css
+    assert "--switch-height: 20px;" in css
+    assert "--switch-thumb: 14px;" in css
+    assert ".calendar-settings__topbar h1 {\n  font-size: var(--font-size-page-title);" in css
+    assert ".calendar-provider-modal__header h2 {\n  font-size: var(--font-size-section);" in css
+
+    for copy in [
+        "Загрузить файл",
+        "Аудио или видео с аудиодорожкой.",
+        "Перетащите файл",
+        "WAV, MP3, M4A, MP4 и другие",
+        ">Выбрать<",
+        "Сохранить аудио",
+        "Без аудио останутся расшифровка и итоги. Минуты тарифа спишутся.",
+    ]:
+        assert copy in manual_upload
+    assert "Перетащите файл сюда" not in manual_upload
+    assert "Сохранить аудио для последующего прослушивания" not in manual_upload
+    assert "manual-upload-archive-choice" not in manual_upload
+    assert "ui.switch(" in manual_upload
+    assert 'hint_id="manual-upload-archive-help"' in manual_upload
+
+
+def test_feature_191_shared_button_contract_keeps_actions_centered_and_on_one_line() -> None:
+    css = (STATIC_DIR / "cabinet.css").read_text()
+    script = (STATIC_DIR / "cabinet.js").read_text()
+    account = (
+        ROOT
+        / "src/twobrain_rec_server/cabinet/templates/cabinet/pages/settings_account_content.html"
+    ).read_text()
+    button_contract = css[css.index("button, .button {") : css.index("button[disabled]")]
+
+    for marker in [
+        "align-items: center;",
+        "justify-content: center;",
+        "line-height: var(--line-height-body);",
+        "text-align: center;",
+        "white-space: nowrap;",
+        "overflow-wrap: normal;",
+    ]:
+        assert marker in button_contract
+
+    assert script.count('class="button quiet upload-activity-action"') == 5
+    assert 'class="upload-activity-action"' not in script
+    assert ".settings-list-item > form { flex: 0 0 auto; }" in css
+    assert ".calendar-empty-state > .button { flex: 0 0 auto; }" in css
+    assert "align-self: flex-start;" in css
+    assert ".settings-control-row .cabinet-tooltip," in css
+    assert ".account-email-form__heading .cabinet-tooltip {" in css
+    assert ".account-email-form__heading { position: relative; display: flex; flex-wrap: wrap;" in css
+    assert "display: contents;" in css
+    assert "max-width: min(280px, 100%);" in css
+    assert "flex: 1 0 100%;" in css
+    assert ".account-email-form__heading .cabinet-tooltip:focus-within .cabinet-tooltip__body" in css
+    assert "display: block;" in css
+    assert ".settings-control-row:has(.cabinet-tooltip:focus-within)" in css
+    assert "align-items: start;" in css
+    mobile_controls = css[
+        css.index("@media (max-width: 620px)") : css.index("@media (max-width: 480px)")
+    ]
+    assert ".desktop-embedded .cabinet-list-controls .manual-upload-trigger {" in mobile_controls
+    assert "min-width: 156px;" in mobile_controls
+    assert ".manual-upload-trigger > span {" in mobile_controls
+    assert "position: static;" in mobile_controls
+    assert ".cabinet-titleline {" in mobile_controls
+    assert "flex-direction: column;" in mobile_controls
+    assert ".cabinet-titleline h1 { white-space: normal; }" in mobile_controls
+    assert ".cabinet-titleline > p { margin: 0; }" in mobile_controls
+    calendar_reflow = css[css.index("@media (max-width: 760px)") :]
+    assert ".calendar-empty-state {" in calendar_reflow
+    assert ".calendar-preference-group {" in calendar_reflow
+    assert "grid-template-columns: 1fr;" in calendar_reflow
+    assert ".calendar-section-head > .button { align-self: flex-start; }" in calendar_reflow
+    for compound_action in [
+        ".meeting-action-item {",
+        ".summary-format-grid > button {",
+        ".calendar-provider-button {",
+        ".share-recipient-results button { display: grid;",
+        ".sidebar-profile__trigger {\n  width: 100%;",
+    ]:
+        block = css[css.index(compound_action) : css.index("}", css.index(compound_action))]
+        assert "white-space: normal;" in block
+    assert ">Завершить<" in account
+    assert ">Завершить сеанс<" not in account
+
+
+def test_feature_191_full_page_states_reuse_one_component_and_standard_actions() -> None:
+    css = (STATIC_DIR / "cabinet.css").read_text()
+    script = (STATIC_DIR / "cabinet.js").read_text()
+    templates = ROOT / "src/twobrain_rec_server/cabinet/templates/cabinet"
+    sections = (templates / "components/sections.html").read_text()
+    unavailable = (templates / "pages/meeting_unavailable_content.html").read_text()
+    invitation = (templates / "pages/share_invitation_content.html").read_text()
+    shared = (templates / "pages/shared_with_me_list_content.html").read_text()
+    detail = (templates / "pages/meeting_detail_content.html").read_text()
+    recovery = script[
+        script.index("const renderMeetingDetailRecovery") : script.index(
+            "const renderShareRequestError"
+        )
+    ]
+
+    assert "{% macro state_panel(" in sections
+    assert "{% macro full_page_state(" in sections
+    assert "sections.full_page_state(" in unavailable
+    assert "sections.full_page_state(" in invitation
+    assert "sections.state_panel(" in shared
+    assert "data-meeting-detail-recovery-template" in detail
+    assert "sections.full_page_state(" in detail
+    assert 'document.querySelector("[data-meeting-detail-recovery-template]")' in recovery
+    assert "cloneNode(true)" in recovery
+    assert 'document.createElement("main")' not in recovery
+    assert 'document.createElement("section")' not in recovery
+
+    for source in (css, script, unavailable, invitation, shared, detail):
+        assert "new-button" not in source
+    assert css.count(".empty-state,") == 1
+    assert ".desktop-embedded .empty-state" not in css
+    for marker in [
+        ".cabinet-state-page",
+        ".cabinet-state {",
+        ".cabinet-state__icon",
+        ".cabinet-state__copy",
+        ".cabinet-state__action",
+        ".cabinet-link--primary",
+    ]:
+        assert marker in css
 
 
 def test_meeting_list_css_binds_target_geometry_contrast_and_motion_contracts() -> None:

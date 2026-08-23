@@ -22,6 +22,8 @@ def test_section_component_catalog_covers_composed_cabinet_regions() -> None:
         {{ sections.status_banner("Готово", "Запись доступна", "normal") }}
         {{ sections.empty_state("Нет записей", "Создайте первую запись") }}
         {{ sections.unavailable_state("Сервер недоступен", "Запись остается локальной") }}
+        {{ sections.state_panel("Пока нет встреч", "Новые записи появятся здесь", state="empty", heading_id="empty-title", icon_name="users-round") }}
+        {{ sections.full_page_state("Встреча больше недоступна", "Запись удалена или доступ закрыт.", "К списку встреч", "/meetings", heading_id="unavailable-title") }}
         {{ sections.auth_form("Вход", "/login/email/start") }}
         """
     )
@@ -51,6 +53,11 @@ def test_section_component_catalog_covers_composed_cabinet_regions() -> None:
     assert 'data-state="selected"' in html
     assert 'data-state="destructive"' in html
     assert "Запись остается локальной" in html
+    assert 'data-cabinet-state' in html
+    assert 'class="cabinet-main cabinet-state-page"' in html
+    assert 'id="unavailable-title"' in html
+    assert 'class="cabinet-link cabinet-link--primary" href="/meetings"' in html
+    assert 'data-icon="users-round"' in html
 
 
 def test_cabinet_shell_macro_renders_shared_sidebar_contract() -> None:
@@ -151,6 +158,8 @@ def test_section_css_covers_interaction_and_overflow_states() -> None:
         ".cabinet-text--overflow",
         ".cabinet-playback-controls[data-state=\"unavailable\"]",
         ".cabinet-confirmation-dialog[data-state=\"destructive\"]",
+        ".cabinet-state-page",
+        ".cabinet-state__action",
         ".sidebar-logout__button:hover",
         ".sidebar-app-update:hover",
         ".sidebar-app-update:focus-visible",

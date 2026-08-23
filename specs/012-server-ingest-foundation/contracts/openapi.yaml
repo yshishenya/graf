@@ -12898,6 +12898,12 @@ components:
             format: date-time
           - type: 'null'
           title: Started At
+        uploaded_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Uploaded At
         ended_at:
           anyOf:
           - type: string
