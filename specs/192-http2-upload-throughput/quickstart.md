@@ -9,6 +9,7 @@
 ## 1. Focused source check
 
 ```sh
+set -e
 test "$(grep -c '^[[:space:]]*http2_body_preread_size 2m;' infra/nginx/rec.2brain.pro.conf)" -eq 1
 awk '
 function brace_delta(text, total, char) {
