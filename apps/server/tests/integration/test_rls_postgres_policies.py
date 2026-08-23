@@ -4135,8 +4135,8 @@ async def test_forced_rls_account_merge_confirmation_revokes_access_after_comple
     assert intent_status == "completed"
     assert journal_count == 1
     assert source_status == "merged"
-    assert source_workspace == (ids["user_a"], "linked")
-    assert source_membership_count == 1
+    assert source_workspace == (None, "linked")
+    assert source_membership_count == 0
     assert source_meeting_owner == ids["user_a"]
     assert survivor_session_status == "revoked"
 

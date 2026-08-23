@@ -21,6 +21,7 @@ from twobrain_rec_server.auth.audit import write_auth_audit_event
 from twobrain_rec_server.billing.fair_use import fair_use_restricted_for_lineage
 from twobrain_rec_server.billing.operations import CHECKOUT_BLOCKING_STATES
 from twobrain_rec_server.billing.webhook_reconciliation import RECONCILABLE_WEBHOOK_STATES
+from twobrain_rec_server.db.base import Base
 from twobrain_rec_server.db.models import (
     AccountClosureRequest,
     AccountMergeIntent,
@@ -181,6 +182,63 @@ def _state_digest(prefix: str, rows) -> str:
     )
     digest = sha256("\x1e".join(normalized).encode("utf-8")).hexdigest()
     return f"{prefix}:{digest}"
+
+
+def _meeting_workspace_tables():
+    """Return workspace-scoped meeting tables, including derived artifacts."""
+
+    # ponytail: metadata scan keeps new meeting-graph tables covered; replace
+    # with an explicit registry only if merge latency makes the bounded table
+    # scan measurable in production.
+    return tuple(
+        table
+        for table in Base.metadata.tables.values()
+        if "workspace_id" in table.c and "meeting_id" in table.c
+    )
+
+
+async def _move_meeting_workspace_rows(
+    db: AsyncSession,
+    *,
+    source_workspace_ids: set[UUID],
+    survivor_workspace_id: UUID,
+    meeting_ids: tuple[UUID, ...],
+) -> None:
+    """Move a meeting graph without deduplicating any records."""
+
+    if not source_workspace_ids or not meeting_ids:
+        return
+    for table in _meeting_workspace_tables():
+        await db.execute(
+            table.update()
+            .execution_options(synchronize_session="fetch")
+            .where(
+                table.c.workspace_id.in_(source_workspace_ids),
+                table.c.meeting_id.in_(meeting_ids),
+            )
+            .values(workspace_id=survivor_workspace_id)
+        )
+    for state in db.sync_session.identity_map.all_states():
+        entity = state.obj()
+        if (
+            entity is not None
+            and "workspace_id" in state.mapper.columns
+            and "meeting_id" in state.mapper.columns
+            and entity.workspace_id in source_workspace_ids
+            and entity.meeting_id in meeting_ids
+        ):
+            set_committed_value(entity, "workspace_id", survivor_workspace_id)
+
+
+async def _workspace_has_rows(db: AsyncSession, workspace_id: UUID) -> bool:
+    for table in Base.metadata.tables.values():
+        if table.name == "workspaces" or "workspace_id" not in table.c:
+            continue
+        if await db.scalar(
+            select(func.count()).select_from(table).where(table.c.workspace_id == workspace_id)
+        ):
+            return True
+    return False
 
 
 async def _count_for_meetings(
@@ -476,28 +534,6 @@ async def _merge_preview_from_db(
             .order_by(Meeting.id)
         )
     )
-    source_meeting_rows = [
-        row for row in meeting_state_rows if row.created_by_user_id == source_user_id
-    ]
-    source_meeting_ids = tuple(row.id for row in source_meeting_rows)
-    counts = MergeEntityCounts(
-        meetings=len(source_meeting_rows),
-        recordings=await _count_for_meetings(
-            db, MediaRevision, source_meeting_ids, MediaRevision.meeting_id
-        ),
-        artifacts=await _count_for_meetings(
-            db, TrackArtifact, source_meeting_ids, TrackArtifact.meeting_id
-        ),
-        processing=(
-            await _count_for_meetings(
-                db, ProcessingPlaceholder, source_meeting_ids, ProcessingPlaceholder.meeting_id
-            )
-            + await _count_for_meetings(
-                db, ProcessingWorkflow, source_meeting_ids, ProcessingWorkflow.meeting_id
-            )
-        ),
-    )
-
     blockers: set[str] = set()
     all_memberships = list(
         await db.scalars(
@@ -528,6 +564,35 @@ async def _merge_preview_from_db(
     source_owned_workspaces = {
         workspace.id for workspace in workspace_rows if workspace.owner_user_id == source_user_id
     }
+    source_personal_workspace_ids = {
+        workspace.id
+        for workspace in workspace_rows
+        if workspace.owner_user_id == source_user_id
+        and workspace.kind in {"personal", "linked"}
+    }
+    source_meeting_rows = [
+        row
+        for row in meeting_state_rows
+        if row.workspace_id in source_personal_workspace_ids
+    ]
+    source_meeting_ids = tuple(row.id for row in source_meeting_rows)
+    counts = MergeEntityCounts(
+        meetings=len(source_meeting_rows),
+        recordings=await _count_for_meetings(
+            db, MediaRevision, source_meeting_ids, MediaRevision.meeting_id
+        ),
+        artifacts=await _count_for_meetings(
+            db, TrackArtifact, source_meeting_ids, TrackArtifact.meeting_id
+        ),
+        processing=(
+            await _count_for_meetings(
+                db, ProcessingPlaceholder, source_meeting_ids, ProcessingPlaceholder.meeting_id
+            )
+            + await _count_for_meetings(
+                db, ProcessingWorkflow, source_meeting_ids, ProcessingWorkflow.meeting_id
+            )
+        ),
+    )
     if not _workspace_ownership_shape_is_safe(
         workspaces=workspace_rows,
         memberships=all_memberships,
@@ -602,14 +667,27 @@ async def _merge_preview_from_db(
     ]
 
     state_tokens.append(_state_digest("meeting", meeting_state_rows))
+    survivor_personal_workspace_ids = {
+        workspace.id
+        for workspace in workspace_rows
+        if workspace.owner_user_id == survivor_user_id and workspace.kind == "personal"
+    }
+    survivor_personal_workspace_id = next(iter(survivor_personal_workspace_ids), None)
     survivor_meeting_keys = {
-        (workspace_id_value, local_recording_id)
+        (workspace_id_value, created_by_user_id, local_recording_id)
         for _id, workspace_id_value, created_by_user_id, local_recording_id, _status in meeting_state_rows
         if created_by_user_id == survivor_user_id
     }
     if any(
-        (meeting.workspace_id, meeting.local_recording_id) in survivor_meeting_keys
+        (
+            survivor_personal_workspace_id,
+            survivor_user_id,
+            meeting.local_recording_id,
+        )
+        in survivor_meeting_keys
         for meeting in source_meeting_rows
+        if survivor_personal_workspace_id is not None
+        and meeting.created_by_user_id == source_user_id
     ):
         blockers.add("meeting_owner_conflict")
 
@@ -1397,20 +1475,40 @@ async def confirm_merge_intent(
     ):
         raise AccountMergeError("workspace_ownership_conflict")
 
+    survivor_personal = [
+        workspace
+        for workspace in locked_workspaces
+        if workspace.owner_user_id == intent.survivor_user_id and workspace.kind == "personal"
+    ]
     source_personal = [
         workspace
         for workspace in locked_workspaces
-        if workspace.owner_user_id == intent.source_user_id and workspace.kind == "personal"
-    ]
-    preserved = source_personal[0]
-    preserved.kind = "linked"
-    if preserved.name == "Моё пространство":
-        preserved.name = "Пространство из другого профиля"
-    source_owned_workspace_ids = {
-        workspace.id
-        for workspace in locked_workspaces
         if workspace.owner_user_id == intent.source_user_id
-    }
+        and workspace.kind in {"personal", "linked"}
+    ]
+    if len(survivor_personal) != 1 or not source_personal:
+        raise AccountMergeError("workspace_ownership_conflict")
+    survivor_personal_workspace = survivor_personal[0]
+    source_personal_workspace_ids = {workspace.id for workspace in source_personal}
+    source_meetings = list(
+        await db.scalars(
+            select(Meeting)
+            .where(Meeting.workspace_id.in_(source_personal_workspace_ids))
+            .order_by(Meeting.id)
+            .with_for_update()
+        )
+    )
+    source_meeting_ids = tuple(meeting.id for meeting in source_meetings)
+    for meeting in source_meetings:
+        meeting.workspace_id = survivor_personal_workspace.id
+        if meeting.created_by_user_id == intent.source_user_id:
+            meeting.created_by_user_id = intent.survivor_user_id
+    await _move_meeting_workspace_rows(
+        db,
+        source_workspace_ids=source_personal_workspace_ids,
+        survivor_workspace_id=survivor_personal_workspace.id,
+        meeting_ids=source_meeting_ids,
+    )
     await db.flush()
 
     source_identities = list(
@@ -1458,6 +1556,9 @@ async def confirm_merge_intent(
         )
     )
     for membership in source_memberships:
+        if membership.workspace_id in source_personal_workspace_ids:
+            await db.delete(membership)
+            continue
         existing = await db.get(
             WorkspaceMembership,
             {"workspace_id": membership.workspace_id, "user_id": intent.survivor_user_id},
@@ -1637,19 +1738,15 @@ async def confirm_merge_intent(
             raise AccountMergeError("settings_conflict")
         template.owner_user_id = intent.survivor_user_id
 
-    await db.execute(
-        Meeting.__table__.update()
-        .where(Meeting.created_by_user_id == intent.source_user_id)
-        .values(created_by_user_id=intent.survivor_user_id)
-    )
-    await db.execute(
-        Workspace.__table__.update()
-        .where(
-            Workspace.id.in_(source_owned_workspace_ids),
-            Workspace.owner_user_id == intent.source_user_id,
-        )
-        .values(owner_user_id=intent.survivor_user_id)
-    )
+    # Legacy linked roots are kept only when non-meeting rows still reference
+    # them; they have no membership and are therefore not user-visible.
+    for source_workspace in source_personal:
+        remaining = await _workspace_has_rows(db, source_workspace.id)
+        if remaining:
+            source_workspace.kind = "linked"
+            source_workspace.owner_user_id = None
+        else:
+            await db.delete(source_workspace)
     await db.execute(
         WorkspaceSubscription.__table__.update()
         .where(WorkspaceSubscription.billing_owner_id == intent.source_user_id)

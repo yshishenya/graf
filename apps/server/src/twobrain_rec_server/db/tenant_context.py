@@ -35,6 +35,7 @@ ALLOWED_MAINTENANCE_OPERATIONS = frozenset(
 
 type TenantRequestContextKind = Literal["request", "worker"]
 type WorkspaceAuthContextKind = Literal["auth_public", "auth_bootstrap"]
+type AuthProviderUnlinkContextKind = Literal["auth_provider_unlink"]
 type AuthSessionLookupContextKind = Literal["auth_session_lookup"]
 type AuthCallbackLookupContextKind = Literal["auth_callback_lookup"]
 type AuthReferralLookupContextKind = Literal["auth_referral_lookup"]
@@ -182,6 +183,22 @@ class WorkspaceAuthContext:
             ALLOWED_WORKSPACE_AUTH_CONTEXT_KINDS,
             "workspace auth context_kind",
         )
+
+
+@dataclass(frozen=True, slots=True)
+class AuthProviderUnlinkContext:
+    """Bounded context for revoking one user's provider sessions everywhere."""
+
+    workspace_id: UUID
+    organization_id: UUID
+    user_id: UUID
+    context_kind: AuthProviderUnlinkContextKind = "auth_provider_unlink"
+
+    def __post_init__(self) -> None:
+        if self.context_kind != "auth_provider_unlink":
+            raise ValueError(
+                f"Unsupported auth_provider_unlink context_kind: {self.context_kind}"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -339,6 +356,15 @@ def workspace_auth_context_settings(context: WorkspaceAuthContext) -> dict[str, 
     return settings
 
 
+def auth_provider_unlink_context_settings(context: AuthProviderUnlinkContext) -> dict[str, str]:
+    return {
+        "app.context_kind": context.context_kind,
+        "app.workspace_id": str(context.workspace_id),
+        "app.organization_id": str(context.organization_id),
+        "app.user_id": str(context.user_id),
+    }
+
+
 def auth_callback_lookup_settings(context: AuthCallbackLookupContext) -> dict[str, str]:
     return {
         "app.context_kind": context.context_kind,
@@ -397,6 +423,7 @@ async def apply_tenant_context(
         | AccountMergeTenantContext
         | AuthSessionLookupContext
         | WorkspaceAuthContext
+        | AuthProviderUnlinkContext
         | AuthCallbackLookupContext
         | AuthReferralLookupContext
         | AuthReferralUserLookupContext
@@ -415,6 +442,8 @@ async def apply_tenant_context(
         settings = auth_session_lookup_settings(context)
     elif isinstance(context, WorkspaceAuthContext):
         settings = workspace_auth_context_settings(context)
+    elif isinstance(context, AuthProviderUnlinkContext):
+        settings = auth_provider_unlink_context_settings(context)
     elif isinstance(context, AuthCallbackLookupContext):
         settings = auth_callback_lookup_settings(context)
     elif isinstance(context, AuthReferralLookupContext):
@@ -446,6 +475,7 @@ async def apply_tenant_context_to_connection(
         | AccountMergeTenantContext
         | AuthSessionLookupContext
         | WorkspaceAuthContext
+        | AuthProviderUnlinkContext
         | AuthCallbackLookupContext
         | AuthReferralLookupContext
         | AuthReferralUserLookupContext
@@ -464,6 +494,8 @@ async def apply_tenant_context_to_connection(
         settings = auth_session_lookup_settings(context)
     elif isinstance(context, WorkspaceAuthContext):
         settings = workspace_auth_context_settings(context)
+    elif isinstance(context, AuthProviderUnlinkContext):
+        settings = auth_provider_unlink_context_settings(context)
     elif isinstance(context, AuthCallbackLookupContext):
         settings = auth_callback_lookup_settings(context)
     elif isinstance(context, AuthReferralLookupContext):

@@ -1,6 +1,6 @@
 # Design QA: Надёжное подключение способов входа
 
-**Дата**: 2026-08-21
+**Дата**: 2026-08-23
 **Surface**: server-rendered web cabinet; embedded parity проверяется теми же
 templates и отдельными route contracts.
 **Browser**: Codex in-app Browser, `http://127.0.0.1:8082`.
@@ -38,6 +38,15 @@ templates и отдельными route contracts.
    `/desktop/settings/account` политикой URL. Обход не выполнялся. Embedded
    handlers, тексты, allowlist continuation и narrow/wide contracts покрыты
    автоматическими тестами.
+10. **Workspace IA, wide/390 — здоров.** В интерфейсе отображается одно
+    личное пространство; приглашения в корпоративные пространства вынесены в
+    отдельный блок. Linked legacy-root не появляется в списке и не становится
+    доступным для переключения.
+11. **Merge result — здоров по runtime/contract/integration evidence.** После
+    merge source-встречи переводятся в survivor personal root, в списке виден
+    union без дедупликации, а аудио, transcript, processing и summary rows
+    остаются привязанными к исходным встречам. Corporate memberships сохраняют
+    отдельные границы.
 
 ## UX/UI/IA/CX
 
@@ -78,4 +87,11 @@ templates и отдельными route contracts.
 
 Browser console: релевантных warnings/errors не найдено. Wide page overflow:
 `scrollWidth == innerWidth`; 390 px capture визуально подтверждает отсутствие
-clipped controls и horizontal scroll.
+clipped controls и horizontal scroll. Дополнительные текущие captures:
+
+- `output/playwright/account-settings-wide.png`
+- `output/playwright/account-settings-390.png`
+- `output/playwright/workspaces-390.png`
+
+Merge/meeting-count и source-root assertions проверены отдельным synthetic
+PostgreSQL harness; это runtime evidence, а не screenshot-only claim.

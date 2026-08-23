@@ -197,12 +197,9 @@ def account_merge_presentation(preview: MergePreview | None) -> AccountMergePres
         dict.fromkeys((*current_provider_labels, *other_provider_labels))
     )
     counts = preview.counts
-    workspace_count = preview.workspace_count_after
     workspace_summary = (
-        f"{_count_label(workspace_count, 'пространство', 'пространства', 'пространств')} "
-        "останутся отдельными."
-        if workspace_count
-        else "Пространства останутся отдельными."
+        "Одно личное пространство. Корпоративные пространства останутся доступными "
+        "по приглашению или membership."
     )
     preserved_counts = tuple(
         _count_label(int(value), one, few, many)
