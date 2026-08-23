@@ -17,7 +17,7 @@ Key mutations:
 - `POST .../payment-method` — begin hosted verified replacement.
 - `POST .../renewal/cancel` and `/renewal/resume` — exact preview token + explicit confirmation through the shared atomic recurring-authority service; cancel persists refusal before any provider mutation.
 - `POST .../storage/preview|upgrade|schedule-downgrade|schedule-removal` — one co-termed capacity; only an approved/enabled priced upgrade may create positive pro-rata checkout; an absent price or approval returns `catalog_not_approved` without a quote/invoice.
-- `POST .../promotions/preview|apply|remove` — server-calculated result; apply is bound to invoice creation.
+- `POST .../promotions/preview|apply|remove` — server-calculated result; apply is bound to invoice creation. The current browser-owned implementation exposes the preview as `POST /billing/checkout/preview`; it stores no reservation and the final `POST /billing/checkout/start` remains authoritative.
 - Invoice detail renders a static configured refund/support email, safe invoice number and `mailto:` action. It creates no request/case route, accepts no refund fields and performs no provider mutation. Future-charge refusal remains the separate `renewal/cancel` operation.
 - `POST /account/close|close/cancel` — schedule/cancel durable close request; last-owner-with-members routes to ownership transfer. Sole-member personal finalizer fans out existing meeting deletion and removes workspace-scoped non-financial state after terminal lifecycle accounting.
 

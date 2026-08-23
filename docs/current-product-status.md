@@ -2,6 +2,21 @@
 
 Date: 2026-08-23
 
+## Implementation update (2026-08-23) — Feature 199 billing preview and promo provisioning
+
+- Feature 140 billing получил server-side checkout preview: Owner видит
+  server-calculated цену списка, скидку, сумму сегодня и следующий платёж до
+  hosted YooKassa перехода. Preview не создаёт invoice/reservation/provider
+  mutation; финальный checkout использует повторную eligibility-проверку,
+  fail-closed provider floor и то же правило выбора одной promo/referral
+  скидки.
+- Добавлен internal-only `apps/server/scripts/manage_promo_campaign.py` с
+  dry-run по умолчанию и явным `--execute` для создания/отключения кампаний.
+  Raw code читается скрыто/stdin и хранится только как hash.
+- Это implementation evidence, а не разрешение на launch: `checkout` остаётся
+  default-off, а T078-T080/T083-T085/T087 Feature 140 требуют canary и
+  merchant/finance/legal/security/QA evidence.
+
 ## Implementation update (2026-08-23) — Feature 194 global defaults and prompt-first install
 
 - Server assisted auto-start получил явный `all_workspaces` scope. Global policy
