@@ -85,6 +85,11 @@ Expose the existing server receipt timestamp as `uploaded_at`, use it only as th
   `25-settings-overview-375.png`, `26-settings-account-375.png`,
   `29-settings-account-hint-no-overlap-375.png`, and
   `31-upload-hint-aligned-375.png`.
+- `infra/scripts/ci-local.sh --full` passed on exact implementation commit
+  `686a1b8d7ea5530ad8042ebae5056c9dccb15840`: 726 macOS tests, 3313 server
+  tests plus one expected skip, 52 strict PostgreSQL/RLS tests plus one expected
+  skip, server lint, Python compile, production Compose rendering, and the
+  deployment evidence scan.
 
 ## Project Structure
 
