@@ -241,6 +241,51 @@ def test_public_landing_explains_product_and_download_path(client) -> None:
     assert 'data-panel="outcomes" hidden' not in response.text
 
 
+def test_public_landing_explains_google_calendar_data_use() -> None:
+    html = render_template(
+        "public/landing.html",
+        page_title="ГРАФ",
+        canonical_url="https://rec.2brain.pro/",
+        social_title="ГРАФ",
+        social_description="ГРАФ",
+        public_offer=PublicOfferView(),
+        public_analytics={"enabled": False},
+    )
+
+    assert 'href="#calendar"' not in html
+    assert 'id="calendar"' not in html
+    faq_marker = '<details open data-faq-id="google_calendar">'
+    assert faq_marker in html
+    assert html.index(faq_marker) < html.index('data-faq-id="recognition"')
+    faq_item = html.split(faq_marker, 1)[1].split("</details>", 1)[0]
+    for copy in (
+        "Как ГРАФ использует Google Calendar",
+        "только в тех календарях, которые вы выбрали",
+        "ближайшие встречи",
+        "напоминать о них",
+        "контекст для записи",
+        "не создаёт, не изменяет и не удаляет события",
+        "можете отключить календарь от ГРАФ",
+        "не начинает запись и не подключает ГРАФ к звонку",
+        "Доступ для всех пользователей откроется после проверки Google",
+    ):
+        assert copy in faq_item
+    assert 'href="/privacy"' in faq_item
+
+    parser = _StructuredDataParser()
+    parser.feed(html)
+    structured_data = [json.loads(document) for document in parser.documents]
+    faq = next(document for document in structured_data if document["@type"] == "FAQPage")
+    google_calendar = next(
+        item
+        for item in faq["mainEntity"]
+        if item["name"] == "Как ГРАФ использует Google Calendar?"
+    )
+    assert "только в тех календарях, которые вы выбрали" in google_calendar[
+        "acceptedAnswer"
+    ]["text"]
+
+
 def test_public_landing_uses_fingerprinted_local_assets(client) -> None:
     response = client.get("/")
 

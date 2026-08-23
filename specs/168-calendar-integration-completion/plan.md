@@ -174,7 +174,10 @@ downgrade, RLS inventory and delete/rollback evidence.
 2. Disposable Postgres integration/RLS suite runs with `TWOBRAIN_DATABASE_URL`.
 3. Synthetic provider adapter proves pagination, failure, delete and retry.
 4. Local Google happy path is proven; a dedicated test account must still prove
-   revoked access, 410 and 429 recovery before any production claim.
+   revoked access and reconnect before any production claim. Deterministic 410
+   and 429 recovery must pass provider-double/disposable-PostgreSQL coverage;
+   live 410/429 are required only when a separately approved controlled Google
+   fault/quota test is available.
 5. Browser and embedded scenario matrix passes with keyboard/accessibility.
 6. Warmed local PostgreSQL performance checks enforce NFR-006 independently of
    external provider latency.

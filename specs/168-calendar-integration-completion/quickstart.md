@@ -92,7 +92,7 @@ swift test --package-path apps/macos --disable-swift-testing \
 | C168-13 | desktop | one/none/multiple/overlap/back-to-back/recurring event | deterministic match/ambiguous/no-context; no context switch mid-recording | 098 suite |
 | C168-14 | desktop | private/free-busy/all-day/cancelled/offline | safe generic state; no content/link leak; capture continues | fixture + redaction |
 | C168-15 | Google | authorize → callback → catalog → select → sync → preview | test account completes with approved scopes and safe result | real test-account E2E |
-| C168-16 | Google | token expiry/revocation/410/429/pagination | reconnect/full-resync/backoff state; no silent stale success | test account + stub |
+| C168-16 | Google | token expiry/revocation/410/429/pagination | reconnect/full-resync/backoff state; no silent stale success | dedicated test account for expiry/revocation/reconnect; deterministic provider double + disposable PostgreSQL for 410/429 unless a separately approved controlled Google fault/quota test is available |
 | C168-17 | Google | disconnect and reload/logout/login/other tenant | no provider calls/cache/credential access, no provider revoke call; tenant isolation | E2E + DB/RLS |
 | C168-18 | a11y | keyboard, focus, screen reader, narrow/dark/light | labeled controls, live status, no focus trap, readable copy | browser a11y evidence |
 | C168-19 | provider certification | Repeat connect/catalog/select/sync/reconnect/local disconnect in browser and embedded macOS for each advertised family | Exact provider is connectable only after every step passes; otherwise `Скоро` with no form | dedicated provider test account + sanitized runtime evidence |
