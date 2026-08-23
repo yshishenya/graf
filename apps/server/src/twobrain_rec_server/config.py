@@ -138,6 +138,10 @@ class Settings(BaseSettings):
     product_analytics_campaign_readiness_approved: bool = False
 
     assisted_auto_start_enabled: bool = False
+    # Global scope is an explicit internal-deployment attestation. An empty
+    # workspace ID never becomes a wildcard by itself.
+    assisted_auto_start_all_workspaces: bool = False
+    assisted_auto_start_all_workspaces_approved: bool = False
     assisted_auto_start_workspace_id: UUID | None = None
     assisted_auto_start_policy_version: str | None = None
     assisted_auto_start_acknowledgement_version: str | None = None
@@ -421,15 +425,27 @@ class Settings(BaseSettings):
     def validate_assisted_auto_start_safety(self) -> "Settings":
         if not self.assisted_auto_start_enabled:
             return self
+        if self.assisted_auto_start_all_workspaces:
+            if not self.assisted_auto_start_all_workspaces_approved:
+                raise ValueError(
+                    "global assisted auto-start requires explicit all-workspaces approval"
+                )
+            if self.assisted_auto_start_workspace_id is not None:
+                raise ValueError(
+                    "global assisted auto-start cannot include a workspace ID"
+                )
+        elif self.assisted_auto_start_workspace_id is None:
+            raise ValueError(
+                "assisted auto-start requires workspace or approved global scope"
+            )
         if (
-            self.assisted_auto_start_workspace_id is None
-            or self.assisted_auto_start_policy_issued_at is None
+            self.assisted_auto_start_policy_issued_at is None
             or self.assisted_auto_start_policy_expires_at is None
             or not self.assisted_auto_start_policy_version
             or not self.assisted_auto_start_acknowledgement_version
         ):
             raise ValueError(
-                "assisted auto-start requires workspace, policy, acknowledgement, and expiry"
+                "assisted auto-start requires policy, acknowledgement, and expiry"
             )
         for value in (
             self.assisted_auto_start_policy_version,

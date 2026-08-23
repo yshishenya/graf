@@ -197,9 +197,15 @@ def _assisted_auto_start_policy(
     current_time = now or datetime.now(UTC)
     issued_at = settings.assisted_auto_start_policy_issued_at
     expires_at = settings.assisted_auto_start_policy_expires_at
+    is_global = settings.assisted_auto_start_all_workspaces
     if (
         not settings.assisted_auto_start_enabled
-        or settings.assisted_auto_start_workspace_id != tenant_scope.workspace_id
+        or (
+            not is_global
+            and settings.assisted_auto_start_workspace_id != tenant_scope.workspace_id
+        )
+        or (is_global and not settings.assisted_auto_start_all_workspaces_approved)
+        or (is_global and settings.assisted_auto_start_workspace_id is not None)
         or issued_at is None
         or expires_at is None
         or issued_at > current_time
@@ -211,8 +217,8 @@ def _assisted_auto_start_policy(
     if not policy_version or not acknowledgement_version:
         return None
     policy_ref = _opaque_policy_ref(
-        "workspace",
-        tenant_scope.workspace_id,
+        "all_workspaces" if is_global else "workspace",
+        *( () if is_global else (tenant_scope.workspace_id,) ),
         policy_version,
     )
     subject_ref = _opaque_policy_ref(
@@ -228,6 +234,7 @@ def _assisted_auto_start_policy(
         policy_version,
     )
     return {
+        "scope": "all_workspaces" if is_global else "workspace",
         "policyRef": policy_ref,
         "acknowledgementSubjectRef": subject_ref,
         "deviceRef": device_ref,
