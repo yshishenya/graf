@@ -14,6 +14,7 @@ from twobrain_rec_server.calendar.sync import upsert_event_snapshot
 from twobrain_rec_server.db.models import (
     CalendarSource,
     ExternalCalendar,
+    Meeting,
     RecordingCalendarContextLink,
     RecordingCalendarMatchAttempt,
 )
@@ -60,6 +61,7 @@ def test_098_meeting_deletion_purges_or_scrubs_calendar_context_snapshot(client)
         json={"event_id": event_id, "context_reason": "manual_selection"},
     )
     before = _calendar_context_row(client, meeting_id)
+    title_before = _meeting_title_state(client, meeting_id)
 
     deletion = client.post(
         f"/api/v1/cabinet/meetings/{meeting_id}/deletion-requests",
@@ -67,12 +69,15 @@ def test_098_meeting_deletion_purges_or_scrubs_calendar_context_snapshot(client)
         json={"confirmation_boundary": BOUNDED_DELETE_COPY},
     )
     after = _calendar_context_row(client, meeting_id)
+    title_after = _meeting_title_state(client, meeting_id)
 
     assert linked.status_code == 200
     assert before is not None
     assert before.matched_title == "Synthetic Planning Sync"
     assert before.matched_roster_count == 2
+    assert title_before == ("Synthetic Planning Sync", "calendar")
     assert deletion.status_code == 202
+    assert title_after == (None, "generic")
     assert (
         "calendar_context_deletion_accounted",
         "meeting_deleted",
@@ -210,6 +215,18 @@ def _calendar_context_row(client, meeting_id: UUID) -> RecordingCalendarContextL
                     RecordingCalendarContextLink.meeting_id == meeting_id
                 )
             )
+
+    return asyncio.run(read())
+
+
+def _meeting_title_state(client, meeting_id: UUID) -> tuple[str | None, str]:
+    sessionmaker = client.app_state["sessionmaker"]
+
+    async def read() -> tuple[str | None, str]:
+        async with sessionmaker() as session:
+            meeting = await session.get(Meeting, meeting_id)
+            assert meeting is not None
+            return meeting.title, meeting.title_source
 
     return asyncio.run(read())
 
