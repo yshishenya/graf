@@ -18,9 +18,11 @@ Risk lane: high-risk Spec Kit — AI, private meeting data, accepted-result inte
 - Final Ponytail review: выполнен; сокращены duplicate history recovery UI, constant candidate-state parametrization и duplicate synthetic prompt compilation. Явные safety arguments и accessibility assertions сохранены намеренно.
 - Post-remediation security rerun `685c8960-6d7a-4aec-8c9b-a48ec272eca2`: no candidates в проверенном final state, но scan помечен partial из-за изменения worktree во время review; immutable rerun выполняется после полного freeze diff.
 - Tracker reconciliation: комментарий к `#5517` — https://github.com/yshishenya/crisp/issues/5517#issuecomment-5372156880; issue оставлен открытым.
+- Повторная проверка 2026-08-24 на commit `774727f0`: focused PostgreSQL suite — `90 passed`, 2 предупреждения, exit 0; `infra/scripts/ci-local.sh --fast` — `1132 passed`, server lint и Python compile pass, exit 0.
+- Commit `774727f0` опубликован в `origin/181-meeting-summary-experience`; production deploy не выполнялся.
 
 ## Незакрытые gates
 
 - T018/T031: нет configured LiteLLM/Langfuse, поэтому real-output quality/latency evaluation и prompt promotion не выполнены.
-- Commit, PR, Langfuse promotion, release и deploy требуют отдельного явного approval.
+- PR, Langfuse promotion, release и deploy остаются отдельными gates и требуют явного approval.
 - GitHub issues остаются открыты до commit/PR evidence и provider-level quality gate.

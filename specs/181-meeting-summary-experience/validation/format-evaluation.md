@@ -23,6 +23,8 @@ langfuse_configured=false
 
 Поэтому в этой ветке нет честных данных о реальных model outputs, latency, token/cost, rubric scores или prompt promotion. T018 и T031 остаются открытыми до version-bound private run на разрешённых встречах. В git разрешено сохранить только counts, aggregate rubric scores, bounded failure codes и hashes — без transcript/output text, raw audio или private screenshots.
 
+Повторная проверка окружения 2026-08-24 подтвердила: локальные `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_BASE_URL` и `LITELLM_BASE_URL` не заданы. Наличие одного shell-ключа без allowlisted endpoint не считается configured runtime; реальный private run поэтому не запускался.
+
 ## Обязательный следующий gate
 
 Для каждого формата нужны suitable и unsuitable cases, minimum faithfulness/owner/date/decision/actionability/type-fit scores и hard-fail=0. До этого prompt promotion, release-readiness claim и production deploy не разрешены.
