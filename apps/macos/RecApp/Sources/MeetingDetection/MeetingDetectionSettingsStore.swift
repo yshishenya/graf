@@ -16,6 +16,7 @@ public struct MeetingDetectionSettings: Codable, Equatable, Sendable {
     public var unknownIdentityUploadAllowed: Bool
     public var targetScopedAutoRecordEnabled: Bool
     public var autoRecordTargetIds: Set<String>
+    public var automaticRecordingRules: [String: AutomaticRecordingRule]
     public var assistedAutoStartAcknowledgement: AssistedAutoStartAcknowledgement?
     public var automaticRecordingDefaultsApplied: Bool
 
@@ -25,6 +26,7 @@ public struct MeetingDetectionSettings: Codable, Equatable, Sendable {
         unknownIdentityUploadAllowed: Bool = true,
         targetScopedAutoRecordEnabled: Bool = false,
         autoRecordTargetIds: Set<String> = [],
+        automaticRecordingRules: [String: AutomaticRecordingRule] = [:],
         assistedAutoStartAcknowledgement: AssistedAutoStartAcknowledgement? = nil,
         automaticRecordingDefaultsApplied: Bool = false
     ) {
@@ -33,6 +35,7 @@ public struct MeetingDetectionSettings: Codable, Equatable, Sendable {
         self.unknownIdentityUploadAllowed = unknownIdentityUploadAllowed
         self.targetScopedAutoRecordEnabled = targetScopedAutoRecordEnabled
         self.autoRecordTargetIds = autoRecordTargetIds
+        self.automaticRecordingRules = automaticRecordingRules
         self.assistedAutoStartAcknowledgement = assistedAutoStartAcknowledgement
         self.automaticRecordingDefaultsApplied = automaticRecordingDefaultsApplied
     }
@@ -43,6 +46,7 @@ public struct MeetingDetectionSettings: Codable, Equatable, Sendable {
         case unknownIdentityUploadAllowed
         case targetScopedAutoRecordEnabled
         case autoRecordTargetIds
+        case automaticRecordingRules
         case assistedAutoStartAcknowledgement
         case automaticRecordingDefaultsApplied
     }
@@ -54,6 +58,15 @@ public struct MeetingDetectionSettings: Codable, Equatable, Sendable {
         unknownIdentityUploadAllowed = try container.decode(Bool.self, forKey: .unknownIdentityUploadAllowed)
         targetScopedAutoRecordEnabled = try container.decode(Bool.self, forKey: .targetScopedAutoRecordEnabled)
         autoRecordTargetIds = try container.decode(Set<String>.self, forKey: .autoRecordTargetIds)
+        let decodedRules = try container.decodeIfPresent(
+            [String: AutomaticRecordingRule].self,
+            forKey: .automaticRecordingRules
+        ) ?? [:]
+        // Legacy target selections do not prove target-specific permanent intent.
+        // Materialize them as ask; the old fields remain only for compatibility.
+        automaticRecordingRules = decodedRules.isEmpty
+            ? Dictionary(uniqueKeysWithValues: autoRecordTargetIds.map { ($0, .ask) })
+            : decodedRules
         assistedAutoStartAcknowledgement = try container.decodeIfPresent(
             AssistedAutoStartAcknowledgement.self,
             forKey: .assistedAutoStartAcknowledgement
@@ -87,8 +100,29 @@ public struct MeetingDetectionSettings: Codable, Equatable, Sendable {
         targetID: String
     ) -> Bool {
         guard detectionMode == .detectAndAsk else { return false }
+        guard recordingRule(for: targetID) != .never else { return false }
         guard reason == .savedTargetPolicy else { return true }
+        return targetScopedAutoRecordEnabled && recordingRule(for: targetID) == .always
+    }
+
+    public func recordingRule(for targetID: String) -> AutomaticRecordingRule {
+        if let rule = automaticRecordingRules[targetID] {
+            return rule
+        }
+        guard automaticRecordingRules.isEmpty else { return .ask }
+        // Programmatic legacy callers are kept source-compatible; decoded legacy
+        // files are normalized to ask in init(from:).
         return targetScopedAutoRecordEnabled && autoRecordTargetIds.contains(targetID)
+            ? .always
+            : .ask
+    }
+
+    public mutating func setRecordingRule(_ rule: AutomaticRecordingRule, for targetID: String) {
+        automaticRecordingRules[targetID] = rule
+        targetScopedAutoRecordEnabled = automaticRecordingRules.values.contains(.always)
+        autoRecordTargetIds = Set(
+            automaticRecordingRules.compactMap { $0.value == .always ? $0.key : nil }
+        )
     }
 }
 
@@ -135,6 +169,9 @@ public final class MeetingDetectionSettingsStore: @unchecked Sendable {
             updated.detectionMode = .detectAndAsk
             updated.targetScopedAutoRecordEnabled = true
             updated.autoRecordTargetIds = targetIDs
+            updated.automaticRecordingRules = Dictionary(
+                uniqueKeysWithValues: targetIDs.map { ($0, .ask) }
+            )
             updated.automaticRecordingDefaultsApplied = true
             try saveLocked(updated)
             return updated

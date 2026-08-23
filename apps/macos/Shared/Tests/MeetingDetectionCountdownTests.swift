@@ -39,6 +39,31 @@ final class MeetingDetectionCountdownTests: XCTestCase {
         XCTAssertNil(cancelled.resolveStart(reason: .promptTimeout, at: start.addingTimeInterval(9)))
     }
 
+    func testPromptDecisionPersistsOnlyExplicitButtonChoices() {
+        XCTAssertEqual(
+            MeetingDetectionPromptDecision(action: .start, rememberChoice: false).persistedRule,
+            nil
+        )
+        XCTAssertEqual(
+            MeetingDetectionPromptDecision(action: .start, rememberChoice: true).persistedRule,
+            .always
+        )
+        XCTAssertEqual(
+            MeetingDetectionPromptDecision(action: .skip, rememberChoice: false).persistedRule,
+            nil
+        )
+        XCTAssertEqual(
+            MeetingDetectionPromptDecision(action: .skip, rememberChoice: true).persistedRule,
+            .never
+        )
+        XCTAssertNil(MeetingDetectionPromptDecision(action: .timeout, rememberChoice: false).persistedRule)
+        XCTAssertNil(MeetingDetectionPromptDecision(action: .timeout, rememberChoice: true).persistedRule)
+        XCTAssertEqual(
+            MeetingDetectionPromptDecision(action: .timeout, rememberChoice: true).startReason,
+            .promptTimeout
+        )
+    }
+
     func testDisabledButtonStillDeliversElapsedTimeoutForFreshConsumerRecheck() {
         let start = Date(timeIntervalSince1970: 1_800_000_000)
         var countdown = MeetingDetectionCountdown(startedAt: start)
