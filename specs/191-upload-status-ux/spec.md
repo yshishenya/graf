@@ -20,6 +20,8 @@
 - Q: What about calendar event filters? → A: The set of event types remains a checkbox group; display and prompt modes remain switches.
 - Q: What belongs in an information hint? → A: Secondary explanation may move behind a keyboard- and touch-accessible information button. Errors, security boundaries, legal terms, and irreversible consequences remain visible.
 - Q: How should theme selection work? → A: Light, dark, and system themes use one segmented radio group with an icon and short label per option.
+- Q: Which unavailable and empty screens must share one visual contract? → A: Full-page meeting access loss, unavailable meeting links, unavailable invitations, and full-content empty states reuse one shared state component. Small inline notices keep their domain-specific layout.
+- Q: Is release and production rollout part of this slice? → A: Yes. After the expanded full local gate passes, complete the approved PR, merge, notarized CalVer release, production deploy, and exact-SHA smoke cycle.
 
 ## User Scenarios & Testing
 
@@ -96,6 +98,19 @@ As a GRAF user, I can distinguish a single on/off preference from a multi-select
 3. **Given** secondary explanatory copy, **when** the user hovers, focuses, or taps its information button, **then** the hint is readable without moving the associated control.
 4. **Given** a multi-select list, consent, or destructive confirmation, **when** it is rendered, **then** it remains a checkbox or explicit confirmation rather than being misrepresented as a switch.
 
+### User Story 7 - Recover from unavailable pages consistently (Priority: P1)
+
+As a GRAF user, I see the same compact state layout and standard action when a meeting, invitation, or access context is no longer available.
+
+**Independent Test**: Open a server-rendered unavailable meeting, trigger runtime meeting-access loss, open an unavailable invitation, and open the empty shared-meetings page; confirm the same shared state component, typography, spacing, and standard button contract are used where applicable.
+
+**Acceptance Scenarios**:
+
+1. **Given** a meeting URL is unavailable, **when** the page renders, **then** it shows a compact shared state instead of an oversized empty card.
+2. **Given** meeting access is lost while the detail page is open, **when** the client replaces private content, **then** it clones the same server-rendered state component and preserves safe focus, title, URL, and history cleanup.
+3. **Given** an invitation is unavailable, **when** the page renders, **then** it uses the same state component and standard primary link as the meeting state.
+4. **Given** a small Settings or billing notice, **when** it renders inside an existing section, **then** it remains an inline notice rather than being expanded into a full-page state.
+
 ## Edge Cases
 
 - The server returns an accepted upload without starting processing.
@@ -112,6 +127,9 @@ As a GRAF user, I can distinguish a single on/off preference from a multi-select
 - A hint is opened with a keyboard or on a touch device rather than a mouse.
 - A switch label wraps at 375px while the control must remain aligned and reachable.
 - System theme is selected while the operating-system appearance changes.
+- A runtime authorization failure occurs after private meeting content has already rendered.
+- The shared state template is missing or cannot be cloned; the client must fail closed to the safe list route.
+- A state title or action label wraps at 375px or 200% zoom.
 
 ## Requirements
 
@@ -144,6 +162,12 @@ As a GRAF user, I can distinguish a single on/off preference from a multi-select
 - **FR-025**: Settings preference rows MUST use one shared content/action geometry with a bounded content width, stable divider rhythm, and responsive wrapping that does not move switches below their labels.
 - **FR-026**: Settings typography MUST use the existing local system font stack and central text-role tokens; the change MUST NOT introduce a remote font, frontend package, or second stylesheet.
 - **FR-027**: Native macOS upload/readiness states, meeting prompts, and recording actions MUST reuse `DesktopMeetingShellChrome.shellAccentColor`; semantic success, warning, and error colors MAY remain green, orange, and red.
+- **FR-028**: Full-page unavailable and full-content empty states MUST reuse one shared Jinja state component with central typography, spacing, icon, and action geometry.
+- **FR-029**: Server-rendered and runtime meeting-unavailable states MUST use the same component markup; runtime recovery MUST clone an inert server-rendered template instead of rebuilding a second visual component in JavaScript.
+- **FR-030**: Full-page state actions MUST use the shared primary link/button primitive and MUST NOT use the legacy `new-button` class.
+- **FR-031**: The legacy `new-button` selector and conflicting duplicate `.empty-state` rule sets MUST be removed after their remaining callers move to the shared button/state contracts.
+- **FR-032**: Runtime authorization recovery MUST continue to remove private meeting content, clear private history state, neutralize the URL, set a safe document title, and move focus to the replacement main region.
+- **FR-033**: Inline status, warning, billing, and Settings notices MUST remain inline unless they replace the complete page or content surface.
 
 ### Key Entities
 
@@ -169,6 +193,10 @@ As a GRAF user, I can distinguish a single on/off preference from a multi-select
 - **SC-013**: Light, dark, and system theme choices render as one segmented group and remain operable with pointer and keyboard in both browser and embedded surfaces.
 - **SC-014**: Focused rendered-template contracts prove the hint has an accessible name and tooltip relation, switches preserve checked state, and no critical safety copy was moved to tooltip-only presentation.
 - **SC-015**: Focused macOS source contracts and a Swift build prove the audited native product surfaces use the shared violet token and contain no system `.blue` accent.
+- **SC-016**: Server-rendered meeting-unavailable, runtime access-loss, unavailable-invitation, and shared-meetings empty states are produced by one shared state component.
+- **SC-017**: Zero rendered full-page unavailable states contain `new-button` or the legacy `empty-state cabinet-card` combination.
+- **SC-018**: The compact full-page state fits desktop and 375px viewports without oversized empty area, clipped text, horizontal overflow, or wrapped action text.
+- **SC-019**: The full repository CI gate, notarized CalVer release checks, production dry run/execute, and exact deployed-SHA smoke all pass before closeout.
 
 ## Assumptions
 
@@ -177,4 +205,4 @@ As a GRAF user, I can distinguish a single on/off preference from a multi-select
 - The scope is the whole server-rendered cabinet stylesheet and its shared primitives plus native macOS product-accent cleanup, with the main meeting upload/processing experience as the primary deliverable.
 - KRISP is an approved reference for effective density, component sizing, hierarchy, and interaction behavior; GRAF keeps its own violet palette, assets, and Russian product language.
 - Provider logos and identity badges are not recolored when their blue is part of the provider brand.
-- No production deployment or release is requested in this task.
+- The user explicitly approved the complete push, PR, merge, notarized release, and production deployment cycle after validation.

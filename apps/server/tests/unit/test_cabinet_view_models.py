@@ -704,6 +704,8 @@ def test_recording_time_labels_use_started_at_with_truthful_fallbacks() -> None:
         view_models.meeting_time_label(uploaded, time_basis="meeting")
         == "Загружено 26 июн, 21:30"
     )
+    assert view_models.date_label(uploaded) == "Загружено 26 июн, 21:30"
+    assert view_models.date_label(legacy) == "Без даты"
     assert view_models.meeting_time_label(recorded, time_basis="upload") == "Без даты"
 
 

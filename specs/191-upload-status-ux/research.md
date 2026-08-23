@@ -64,6 +64,16 @@
     readiness, upload, meeting-prompt, and recording-action accents. Keep green,
     orange, and red for success, warning, and error rather than flattening
     semantic status into one brand color.
+18. Use one compact Jinja state component for full-page unavailable and
+    full-content empty states. Runtime meeting authorization recovery clones an
+    inert instance of that component, so markup and styling cannot drift from
+    the server-rendered page.
+19. Keep small Settings, billing, validation, and recovery messages inline.
+    Promoting every message to a full-page component would erase hierarchy and
+    make ordinary recoverable states feel terminal.
+20. Remove the old `new-button` alias after the upload trigger and unavailable
+    action move to the shared button primitives. Keep the one remaining
+    `.empty-state` rule only for bounded list/transcript placeholders.
 
 ## Scope boundary
 

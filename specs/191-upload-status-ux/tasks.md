@@ -74,6 +74,19 @@
 - [X] T035 Replace remaining system-blue product accents with `DesktopMeetingShellChrome.shellAccentColor` in `apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift`, `apps/macos/RecApp/Sources/Capture/CaptureStatusItem.swift`, `apps/macos/RecApp/Sources/Capture/CaptureControlViewCore.swift`, and `apps/macos/RecApp/App/TwoBrainRecApp.swift`.
 - [X] T036 Add the native violet-token source contract in `apps/macos/Shared/Tests/AppControlAccessibilityTests.swift`, compile the package, run the focused suite, and confirm only provider identity marks retain blue.
 
+## Phase 13: User Story 7 - Shared unavailable and empty states (P1)
+
+- [X] T037 [US7] Record the full-page state, inline-notice, runtime privacy, and release boundaries in `specs/191-upload-status-ux/spec.md`, `specs/191-upload-status-ux/research.md`, `specs/191-upload-status-ux/plan.md`, `specs/191-upload-status-ux/quickstart.md`, and checklists.
+- [X] T038 [P] [US7] Add rendered and static contracts for one shared state component, standard primary actions, runtime template reuse, safe access-loss cleanup, and the absence of `new-button` in `apps/server/tests/unit/test_cabinet_template_sections.py`, `apps/server/tests/unit/test_cabinet_web_shell.py`, `apps/server/tests/contract/test_recording_share_invitation_contract.py`, and `apps/server/tests/contract/test_cabinet_static_assets_contract.py`.
+- [X] T039 [US7] Add the compact state component to `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/components/sections.html` and reuse it from meeting-unavailable, unavailable-invitation, shared-meetings empty, and the meeting-detail recovery template.
+- [X] T040 [US7] Clone the shared recovery template in `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`, centralize its layout in `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css`, migrate the upload trigger to the standard primary button, and remove legacy `new-button` and duplicate `.empty-state` rules.
+
+## Phase 14: Expanded validation and release
+
+- [X] T041 [P] Run focused rendered-template, web-shell, invitation, runtime-recovery, and static-asset tests and inspect the shared states locally at desktop, 375px, keyboard focus, and 200% zoom.
+- [ ] T042 Run `infra/scripts/ci-local.sh --full` and record the expanded validation result in `specs/191-upload-status-ux/plan.md` and `CHANGELOG.md`.
+- [ ] T043 Complete the approved push, PR, merge, issue closeout, notarized CalVer release, production dry run/execute, and exact deployed-SHA smoke using `docs/agent-guidance/release-and-validation.md` and `docs/agent-guidance/macos-notarization.md`.
+
 ## Dependencies
 
 - T003-T006 depend on T001.
@@ -83,3 +96,5 @@
 - T022-T024 depend on T013-T021.
 - T027-T031 depend on T025-T026; T028-T030 depend on T027; T032-T034 depend on T027-T031.
 - T035-T036 follow the cabinet color closeout in T032-T034; T036 depends on T035.
+- T038 can start after T037; T039 depends on T038; T040 depends on T039.
+- T041 depends on T038-T040; T042 depends on T041; T043 depends on T042.

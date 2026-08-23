@@ -12,5 +12,8 @@
 10. Confirm security, billing, storage, and irreversible-action consequences remain visible rather than tooltip-only.
 11. Repeat the main, dialog, and Settings checks at a 375px viewport and in light/dark themes with keyboard focus.
 12. Build the macOS package and confirm native readiness, upload, meeting-prompt, and recording-action accents use the shared violet token rather than system blue.
+13. Open an unavailable meeting directly and trigger meeting access loss from an open detail page; confirm both show the same compact state and standard action while private content, title, URL, focus, and history are cleaned up.
+14. Open an unavailable invitation and an empty `Поделились со мной` page; confirm they reuse the shared state component while inline Settings and billing notices remain inline.
+15. Repeat the shared-state checks at 375px and 200% zoom, then run the full CI, release, notarization, deployment, and exact-SHA smoke gates.
 
-Expected: no «Без даты» for a manual upload with a server creation time, no product-blue GRAF accent in web or native macOS product surfaces, no detached percentage, no drifting Settings labels, no clipped actions, no misaligned binary controls, no hidden critical copy, and no relevant browser console errors. Provider brand marks may keep official blue.
+Expected: no «Без даты» for a manual upload with a server creation time, no product-blue GRAF accent in web or native macOS product surfaces, no detached percentage, no drifting Settings labels, no clipped actions, no misaligned binary controls, no hidden critical copy, no oversized unavailable card, no `new-button`, and no relevant browser console errors. Provider brand marks may keep official blue.

@@ -1689,7 +1689,7 @@ def format_duration(seconds: int) -> str:
 
 def date_label(item: MeetingListItem) -> str:
     if item.started_at is None:
-        return "Без даты"
+        return meeting_time_label(item, time_basis="meeting")
     return short_date_label(
         item.started_at,
         timezone_offset_minutes=item.recording_display_timezone_offset_minutes,

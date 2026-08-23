@@ -1,3 +1,5 @@
+{% import "cabinet/components/sections.html" as sections %}
+
 <main id="cabinet-main" class="main detail-page-main" tabindex="-1" data-media-revision-id="{{ media_revision_id }}" data-local-media-revision-id="{{ local_media_revision_id }}" data-playback-poll-url="{{ playback_poll_url }}" data-playback-poll-active="{{ playback_poll_active }}">
   <p class="sr-only" id="playback-live-status" data-playback-live-status role="status" aria-live="polite" aria-atomic="true">{{ playback_live_label }}</p>
   <div class="meeting-detail-header" data-meeting-detail-header>
@@ -74,3 +76,13 @@
   </dialog>
   {% endif %}
 </main>
+<template data-meeting-detail-recovery-template>
+  {{ sections.full_page_state(
+    "Встреча больше недоступна",
+    "Запись удалена или доступ закрыт.",
+    "К списку встреч",
+    "#",
+    heading_id="meeting-detail-recovery-title",
+    live=True
+  ) }}
+</template>

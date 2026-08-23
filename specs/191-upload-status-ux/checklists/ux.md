@@ -20,3 +20,6 @@
 - [x] Critical error, security, legal, storage, and irreversible consequences remain visible.
 - [x] Theme selection preserves native radio semantics, no-JS POST, and live preview.
 - [x] Settings preference rows specify stable switch alignment and narrow reflow.
+- [x] Full-page unavailable and empty states share one compact component and standard action geometry.
+- [x] Runtime and server-rendered meeting states cannot drift into separate markup.
+- [x] Small inline notices are explicitly excluded from full-page state treatment.

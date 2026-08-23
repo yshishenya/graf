@@ -4,7 +4,7 @@
 
 ## Summary
 
-Expose the existing server receipt timestamp as `uploaded_at`, use it only as the date fallback for manual uploads, and redesign the main upload/processing experience. Consolidate the existing cabinet CSS into one canonical token and primitive layer for violet interaction color, typography, geometry, helper text, Settings navigation, switches, information hints, theme selection, and repeated controls. Reuse the existing native macOS violet token for matching SwiftUI states and actions. Keep HTMX, XHR progress, native form inputs, current Jinja primitives, and the single existing stylesheet.
+Expose the existing server receipt timestamp as `uploaded_at`, use it only as the date fallback for manual uploads, and redesign the main upload/processing experience. Consolidate the existing cabinet CSS into one canonical token and primitive layer for violet interaction color, typography, geometry, helper text, Settings navigation, switches, information hints, theme selection, repeated controls, and compact full-page state screens. Reuse one server-rendered state component for direct and runtime unavailable-meeting flows instead of rebuilding it in JavaScript. Reuse the existing native macOS violet token for matching SwiftUI states and actions. Keep HTMX, XHR progress, native form inputs, current Jinja primitives, and the single existing stylesheet.
 
 ## Technical Context
 
@@ -18,7 +18,7 @@ Expose the existing server receipt timestamp as `uploaded_at`, use it only as th
 
 **Risk / Validation Lane**: high-risk-feature; user-facing degraded/upload states and a shared backend projection are affected
 
-**Release Gate**: no deploy; local validation only, production approval remains separate
+**Release Gate**: user-approved full cycle after green validation: push, PR, merge, notarized CalVer release, production dry run/execute, and exact-SHA smoke
 
 **Target Platform**: Browser cabinet and embedded desktop cabinet
 
@@ -46,6 +46,8 @@ Expose the existing server receipt timestamp as `uploaded_at`, use it only as th
 5. Run the local cabinet flow in the in-app Browser; inspect main, upload dialog, upload/processing evidence, Settings overview/detail, desktop/375px reflow, DOM state, interaction, and console health.
 6. Compare upload, account, notifications, and calendar screens with the captured KRISP references; verify switch geometry, theme segments, divider rhythm, tooltip hover/focus, and critical-copy visibility in light and dark themes.
 7. Compile the macOS package and run the focused accessibility/style contract after replacing native system-blue product accents with the existing violet token.
+8. Render and inspect the server meeting-unavailable page, runtime access-loss replacement, unavailable invitation, and shared-meetings empty state at desktop and 375px widths.
+9. Run `infra/scripts/ci-local.sh --full`, then complete PR/merge and the repository notarization, release, deployment, and exact-SHA smoke runbooks.
 
 ## Validation record
 
@@ -72,6 +74,17 @@ Expose the existing server receipt timestamp as `uploaded_at`, use it only as th
 - Repository color scan found no remaining system `.blue` product accent in the
   audited native macOS UI. Remaining blue values in cabinet CSS are isolated to
   official calendar-provider identity marks.
+- Expanded shared-state suite passed `236` focused unit, rendered-template,
+  web-shell, invitation, runtime-recovery, and static-asset checks against an
+  isolated PostgreSQL container; the focused CSS/static contract rerun passed
+  `55` checks after restoring short actionable upload errors.
+- Current-run shared-state Browser QA covered direct unavailable meeting and
+  invitation pages, the empty shared-meetings list, runtime access loss,
+  keyboard focus, a 375px viewport, and 200% equivalent reflow. The browser
+  console remained empty. Accepted narrow screenshots include
+  `25-settings-overview-375.png`, `26-settings-account-375.png`,
+  `29-settings-account-hint-no-overlap-375.png`, and
+  `31-upload-hint-aligned-375.png`.
 
 ## Project Structure
 
@@ -82,6 +95,11 @@ apps/server/src/twobrain_rec_server/cabinet/rendering.py
 apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/components/icons.html
 apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/components/primitives.html
 apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/components/notifications.html
+apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/components/sections.html
+apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/meeting_unavailable_content.html
+apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/share_invitation_content.html
+apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/shared_with_me_list_content.html
+apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/shell.html
 apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/settings_account_content.html
 apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/fragments/calendar_settings.html
 apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/fragments/manual_upload.html
@@ -98,7 +116,7 @@ apps/macos/RecApp/Sources/Capture/CaptureStatusItem.swift
 apps/macos/Shared/Tests/AppControlAccessibilityTests.swift
 ```
 
-**Structure Decision**: Keep one `cabinet.css`, the existing Jinja primitives, and the existing `DesktopMeetingShellChrome.shellAccentColor` native token. Add no frontend framework, dependency, migration, CSS-in-JS layer, or parallel component system.
+**Structure Decision**: Keep one `cabinet.css`, the existing Jinja primitives, and the existing `DesktopMeetingShellChrome.shellAccentColor` native token. Extend the existing section catalog with one state component and clone its inert template for runtime recovery. Add no frontend framework, dependency, migration, CSS-in-JS layer, or parallel component system.
 
 ## Complexity Tracking
 

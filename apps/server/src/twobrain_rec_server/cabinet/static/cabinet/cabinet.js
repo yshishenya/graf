@@ -3326,6 +3326,11 @@
     "meeting_not_accepting_uploads",
     "idempotency_conflict"
   ].includes(code);
+  const uploadFailureMessage = (code) => ({
+    empty_media_upload: "Файл пустой",
+    upload_part_bytes_exceeded: "Файл слишком большой",
+    unsafe_meeting_title: "Измените название"
+  })[code] || "Не удалось загрузить";
 
   const formatBytes = (value) => {
     if (!Number.isFinite(value) || value <= 0) return "";
@@ -3731,7 +3736,7 @@
         activity.recoveryMode = authUploadFailure(failureCode)
           ? "auth"
           : conflictUploadFailure(failureCode) ? "conflict" : null;
-        setActivityState(activity, "failed", "Не удалось загрузить", "error");
+        setActivityState(activity, "failed", uploadFailureMessage(failureCode), "error");
       };
       xhr.onerror = () => {
         activity.xhr = null;
@@ -4004,31 +4009,35 @@
     const copy = {
       session: ["Нужно войти снова", "Сессия завершилась.", "Войти"],
       workspace: ["Нужно выбрать пространство", "Доступ к выбранному пространству больше не подтверждён.", "Войти и выбрать пространство"],
-      unavailable: ["Встреча больше недоступна", "Эта страница больше не может показывать запись.", "К списку встреч"],
-    }[kind] || ["Встреча больше недоступна", "Эта страница больше не может показывать запись.", "К списку встреч"];
-    const recovery = document.createElement("main");
-    recovery.id = "cabinet-main";
-    recovery.className = "cabinet-main";
-    recovery.tabIndex = -1;
-    const state = document.createElement("section");
-    state.className = "empty-state cabinet-card";
-    state.setAttribute("role", "status");
-    state.setAttribute("aria-live", "polite");
-    const title = document.createElement("h1");
-    title.id = "meeting-detail-recovery-title";
+      unavailable: ["Встреча больше недоступна", "Запись удалена или доступ закрыт.", "К списку встреч"],
+    }[kind] || ["Встреча больше недоступна", "Запись удалена или доступ закрыт.", "К списку встреч"];
+    const recoveryTemplate = document.querySelector("[data-meeting-detail-recovery-template]");
+    const recovery = recoveryTemplate?.content?.firstElementChild?.cloneNode(true);
+    const state = recovery?.querySelector("[data-cabinet-state]");
+    const title = recovery?.querySelector("h1");
+    const body = recovery?.querySelector(".cabinet-state__description");
+    const action = recovery?.querySelector(".cabinet-state__action a");
+    if (
+      !(recovery instanceof HTMLElement)
+      || !(state instanceof HTMLElement)
+      || !(title instanceof HTMLElement)
+      || !(body instanceof HTMLElement)
+      || !(action instanceof HTMLElement)
+    ) {
+      detail.textContent = "";
+      document.title = "GRAF";
+      clearMeetingHistoryCache();
+      location.replace(listPath);
+      return;
+    }
     title.textContent = copy[0];
-    const body = document.createElement("span");
     body.textContent = copy[1];
-    const action = document.createElement("a");
-    action.className = "new-button";
     action.textContent = copy[2];
     const requiresSignIn = kind === "session" || kind === "workspace";
     action.href = requiresSignIn
       ? `/login?next=${encodeURIComponent(listPath)}`
       : listPath;
     state.setAttribute("aria-labelledby", title.id);
-    state.append(title, body, action);
-    recovery.append(state);
     detail.replaceWith(recovery);
     document.title = `${copy[0]} - GRAF`;
     clearMeetingHistoryCache();
