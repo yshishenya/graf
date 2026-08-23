@@ -218,9 +218,9 @@ not a visual or copy clone.
   recovery; dedicated provider test-account certification; production OAuth
   verification/publication; complete automated browser accessibility and
   foreign-tenant logout/login walkthrough evidence.
-- **Latest external blocker:** Google Cloud still reports that OAuth app
-  verification is required. Audience is External/In production and the exact
-  approved scopes are configured, but branding is not shown and Calendar data
-  access is unverified. Production-wide rollout also requires rotation of the
-  previously exposed client secret, production callback inventory, dedicated
+- **Latest external blocker:** Google review requested explicit raw and
+  aggregated/anonymized data-sharing disclosures. The corrected privacy policy
+  is live, while the approved homepage FAQ is not yet published and the
+  existing review email thread has not been resumed. Production-wide rollout
+  also requires rotation of the previously exposed client secret, dedicated
   test-account certification and approved rollout/rollback receipts.

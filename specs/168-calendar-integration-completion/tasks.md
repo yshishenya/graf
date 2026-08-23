@@ -60,7 +60,12 @@ approval.
 - [X] T033 Implement paginated `calendarList.list`, selected catalog reconciliation and safe account identity in `apps/server/src/twobrain_rec_server/calendar/google.py`
 - [X] T034 Implement paginated full/incremental `events.list`, 410 full-resync, cancellation, recurrence, timezone, all-day and conference metadata normalization in `apps/server/src/twobrain_rec_server/calendar/google.py`
 - [X] T035 Add Google stub/unit/contract tests without real tokens in `apps/server/tests/unit/test_google_calendar_provider.py` and `apps/server/tests/contract/test_google_calendar_contract.py`
-- [ ] T036 Run dedicated test-account C168-15..17 only after OAuth client/consent/redirect/policy dependencies are approved; record no private event content
+- [ ] T036 Run dedicated test-account C168-15..17 only after OAuth
+  client/consent/redirect/policy dependencies are approved; prove live
+  authorize/catalog/select/sync/revoked-access/reconnect/disconnect and retain
+  no private event content. Keep deterministic 410/429 recovery classified as
+  synthetic unless a separately approved controlled Google fault/quota test is
+  available.
 
 ## Phase 8 — Cross-cutting validation and release readiness
 
@@ -134,10 +139,11 @@ approval.
 - [X] T061 Change full sync to seven days back and 365 days forward, enforce
   zero-to-20 selected calendars, reject volume overflow without silent
   truncation and add provider/selection/PostgreSQL boundary tests.
-- [ ] T062 Run the complete real connect/catalog/select/sync/reconnect/local-
-  disconnect matrix for every advertised provider in browser and embedded
-  macOS; expose `Подключить` only for providers that pass and label
-  every other provider `Скоро` without an active form.
+- [X] T062 Re-check all 12 provider families against adapter and real-E2E
+  evidence; keep every uncertified family non-interactive as `Скоро` with no
+  credential form in browser or embedded macOS. Moving any individual family
+  to `Подключить` still requires that family's complete real
+  connect/catalog/select/sync/reconnect/local-disconnect certification.
 - [X] T063 Re-run sanitized visual, accessibility, calendar PostgreSQL, macOS
   and fast-CI evidence after the T059–T061 policy implementation; keep the
   global all-users launch flag disabled while T036, T040, T062 and external
@@ -153,6 +159,31 @@ approval.
   or syncing, show a safe long-running fallback after one minute, and prove the
   real UI changes state without a manual reload in `cabinet.js` and
   `tests/unit/test_cabinet_web_shell.py`.
+
+## Phase 14 — Convergence
+
+- [X] T066 Restore a truthful Google Calendar purpose/data-use FAQ item on the
+  current public homepage, cover it in
+  `apps/server/tests/unit/test_public_landing.py`, and visually verify the
+  rendered desktop/mobile production-shaped page per FR-033 (contradicts).
+- [ ] T067 Rotate the previously exposed Google OAuth client secret, update
+  only the server-owned deployment secret, prove the old secret is unusable,
+  and retain metadata-only evidence per NFR-001 (partial).
+- [ ] T068 After T066 is publicly available, reply in the existing Google Trust
+  and Safety verification thread and resume the privacy/homepage review using
+  the exact public homepage and privacy-policy URLs per FR-033 (partial).
+- [ ] T069 After T036, T062, T067 and T068 pass, enable the all-users Google
+  Calendar rollout flag, run the real production browser and embedded macOS
+  authorization/catalog/selection/sync/upcoming/reconnect/disconnect matrix,
+  and prove global rollback per US6/AC-009 (partial).
+- [ ] T070 Complete the release closeout for the upcoming `v2026.08.23.7` with an
+  annotated exact-SHA tag, Russian GitHub Release and metadata-only release and
+  deployment receipts under `docs/releases/` and `docs/deployments/2brain-rec/`
+  per plan: validation gates (partial).
+- [ ] T071 Reconcile `spec.md`, `analysis.md`, `research.md`, checklists,
+  scenario/evidence ledgers and `docs/current-product-status.md` with the final
+  Google review, provider matrix, release and rollout truth per FR-033 and the
+  definition of done (partial).
 
 ## Dependencies and parallelism
 
@@ -170,6 +201,10 @@ the external Google launch gates.
 Owner-decision tasks `T059–T064` depend on T001 and supersede any earlier
 provider-revoke, future-only horizon or unverified-connectable behavior; they
 must pass before T040 release preparation.
+T062 closes current provider-catalog truth, not future provider certification:
+each provider can move from `Скоро` independently only after its own real
+browser/embedded matrix. Google launch does not depend on certifying unrelated
+CalDAV, EWS or Bitrix24 families.
 
 ## Independent story tests
 
@@ -183,3 +218,10 @@ must pass before T040 release preparation.
 
 Implement US1 + US2 + US3 for one provider runtime first. Google remains
 feature-flagged until T030–T036 and policy/verification gates pass.
+
+## Phase 15: Convergence
+
+- [ ] T072 Publish the T066 homepage FAQ correction through an explicitly
+  approved commit/PR, exact-SHA validation, release and production deploy;
+  verify that the live homepage contains the expanded Google Calendar FAQ and
+  privacy-policy link before T068 per FR-033/T068 (partial).

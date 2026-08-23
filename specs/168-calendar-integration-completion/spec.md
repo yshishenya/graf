@@ -1,6 +1,6 @@
 # Feature 168: Завершение календарной интеграции GRAF
 
-**Статус:** implementation in progress; provider truth, home upcoming and final browser/embedded visual validation are being closed. External OAuth rollout remains blocked by explicit launch gates.
+**Статус:** feature-gated implementation and current fail-closed provider UX are complete. External Google recovery certification, secret rotation, verification reply, FAQ publication and all-users production rollout remain open launch gates.
 **Risk lane:** high-risk product area / significant cross-module feature.
 **Depends on:** 060-calendar-context-ingestion, 063-calendar-settings-ui,
 098-calendar-auto-context-match, current RLS/deletion baseline.
@@ -402,10 +402,13 @@ disconnected -> failed_closed (terminal until reconnect)
 - Provider quota/rate-limit budget and a rollback flag.
 - Disposable Postgres test database for integration evidence.
 
-Current observed Google Cloud state on 2026-08-21: audience is External and In
-production; the exact approved scope set is configured; branding is not yet
-shown to users and Calendar data access remains unverified. This state does not
-constitute Google approval or unrestricted production readiness.
+Current observed external state on 2026-08-23: audience is External/In
+production and the exact approved scope set is configured. Google review asked
+for explicit raw and aggregated/anonymized data-sharing disclosures. Those
+disclosures are now live at `https://rec.2brain.pro/privacy`, but the approved
+homepage FAQ correction is still local-only and the required reply in the
+existing Google review thread has not been sent. This state does not constitute
+Google approval or unrestricted production readiness.
 
 ### Approved product-owner decisions
 

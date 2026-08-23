@@ -369,6 +369,93 @@ def test_incremental_page_does_not_delete_unmentioned_snapshot(client) -> None:
     assert all(snapshot.source_deleted_at is None for snapshot in snapshots)
 
 
+def test_cursor_invalidation_retries_as_full_sync_and_replaces_stale_snapshot(client) -> None:
+    source_id = _create_selected_source(client)
+    stale = normalize_calendar_event(
+        calendar_event_fixture(
+            provider_calendar_id="primary",
+            provider_event_id="event-before-cursor-reset",
+            starts_at=datetime(2026, 8, 21, 9, tzinfo=UTC),
+        )
+    )
+    current = normalize_calendar_event(
+        calendar_event_fixture(
+            provider_calendar_id="primary",
+            provider_event_id="event-after-cursor-reset",
+            starts_at=datetime(2026, 8, 22, 9, tzinfo=UTC),
+        )
+    )
+
+    async def seed() -> None:
+        async with client.app_state["sessionmaker"]() as session:
+            source = await session.get(CalendarSource, source_id)
+            calendar = await session.scalar(
+                select(ExternalCalendar).where(ExternalCalendar.calendar_source_id == source_id)
+            )
+            from twobrain_rec_server.calendar.sync import apply_calendar_sync_result
+
+            await apply_calendar_sync_result(
+                session,
+                tenant_scope=_tenant_scope(),
+                source=source,
+                calendar=calendar,
+                events=[stale],
+                sync_token="cursor-old",
+                synced_at=datetime(2026, 8, 19, tzinfo=UTC),
+            )
+            await session.commit()
+
+    asyncio.run(seed())
+    provider = FixtureProvider(
+        [
+            CalendarProviderError("cursor_invalid"),
+            CalendarEventPage(events=(current,), next_sync_token="cursor-new"),
+        ]
+    )
+    sync_started_at = datetime(2026, 8, 20, tzinfo=UTC)
+
+    async def run() -> object:
+        async with client.app_state["sessionmaker"]() as session:
+            result = await run_calendar_provider_sync(
+                session,
+                tenant_scope=_tenant_scope(),
+                source_id=source_id,
+                provider=provider,
+                credential_encryption_key=client.app.state.credential_encryption_key,
+                now=sync_started_at,
+            )
+            await session.commit()
+            return result
+
+    result = asyncio.run(run())
+    assert result.state == "synced"
+    assert [call["sync_token"] for call in provider.calls] == ["cursor-old", None]
+    assert provider.calls[0]["time_min"] is None
+    assert provider.calls[0]["time_max"] is None
+    assert provider.calls[1]["time_min"] == datetime(2026, 8, 13, tzinfo=UTC)
+    assert provider.calls[1]["time_max"] == datetime(2027, 8, 20, tzinfo=UTC)
+
+    async def read_back() -> tuple[ExternalCalendar, list[CalendarEventSnapshot]]:
+        async with client.app_state["sessionmaker"]() as session:
+            calendar = await session.scalar(
+                select(ExternalCalendar).where(ExternalCalendar.calendar_source_id == source_id)
+            )
+            snapshots = list(
+                await session.scalars(
+                    select(CalendarEventSnapshot).where(
+                        CalendarEventSnapshot.calendar_source_id == source_id
+                    )
+                )
+            )
+            return calendar, snapshots
+
+    calendar, snapshots = asyncio.run(read_back())
+    by_provider_id = {snapshot.provider_event_id: snapshot for snapshot in snapshots}
+    assert calendar.sync_token == "cursor-new"
+    assert by_provider_id["event-before-cursor-reset"].source_deleted_at == sync_started_at
+    assert by_provider_id["event-after-cursor-reset"].source_deleted_at is None
+
+
 def test_provider_sync_retries_retryable_read_with_bounded_backoff(client, monkeypatch) -> None:
     source_id = _create_selected_source(client)
     event = normalize_calendar_event(

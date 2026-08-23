@@ -108,8 +108,8 @@ and the successful local OAuth callback granted only these three scopes.
 | OAuth authorization-code flow | Server route, state/redirect validation and PRG result; local authorization and callback passed | Observed local runtime + synthetic/unit | Production launch remains gated by verification, secret rotation and production callback/brand inventory |
 | Server-owned token custody | Encrypted credential envelope; access token runtime-only | Synthetic/integration | Ready for gated test environment |
 | Calendar catalog | Paginated adapter and selected-catalog reconciliation | Synthetic/unit | Ready for gated test environment |
-| Full/incremental event sync | Pagination, cursor, 410 reset, cancelled/recurring/all-day/time-zone normalization; real incremental persistence boundary repaired | Observed local full/incremental runtime + synthetic/unit | Real 410 and revoked/rate-limit recovery still require dedicated test-account evidence |
-| Rate limit/revoked-access recovery | Safe error mapping, refresh/reconnect and bounded retry contract | Synthetic/unit | Requires live test-account evidence |
+| Full/incremental event sync | Pagination, cursor, 410 reset, cancelled/recurring/all-day/time-zone normalization; real incremental persistence boundary repaired | Observed local full/incremental runtime + synthetic/unit/integration | Deterministic 410 full-resync passes disposable PostgreSQL; dedicated account must still prove revoked access and reconnect |
+| Rate limit/revoked-access recovery | Safe error mapping, refresh/reconnect and bounded retry contract | Synthetic/unit/integration | Dedicated account must prove revoked access/reconnect; live 429 is required only with an approved controlled quota test |
 | Google end-to-end | Local account completed OAuth, catalog, explicit selection, full/incremental sync, redacted upcoming projection, local-only disconnect and reconnect | Observed local runtime | Launch blocker until verification, secret rotation, dedicated test-account certification and rollback evidence |
 | Production rollout | No OAuth verification, rollout owner or rollback receipt | Not proven | Launch blocker |
 
