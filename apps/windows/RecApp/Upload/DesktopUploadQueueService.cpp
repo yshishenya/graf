@@ -5,6 +5,7 @@
 #include <cctype>
 #include <fstream>
 #include <iterator>
+#include <limits>
 
 namespace graf::windows {
 namespace {
@@ -12,10 +13,33 @@ namespace {
 std::string jsonEscape(std::string_view value) {
     std::string result;
     for (const char c : value) {
-        if (c == '\\' || c == '"') result += '\\';
-        result += c;
+        switch (c) {
+        case '\\': result += "\\\\"; break;
+        case '"': result += "\\\""; break;
+        case '\n': result += "\\n"; break;
+        case '\r': result += "\\r"; break;
+        case '\t': result += "\\t"; break;
+        default: result += c; break;
+        }
     }
     return result;
+}
+
+std::size_t objectEnd(std::string_view json, std::size_t start) {
+    if (start >= json.size() || json[start] != '{') return std::string_view::npos;
+    std::size_t depth = 0;
+    bool quoted = false;
+    bool escaped = false;
+    for (std::size_t index = start; index < json.size(); ++index) {
+        const auto character = json[index];
+        if (escaped) { escaped = false; continue; }
+        if (quoted && character == '\\') { escaped = true; continue; }
+        if (character == '"') { quoted = !quoted; continue; }
+        if (quoted) continue;
+        if (character == '{') ++depth;
+        if (character == '}' && depth > 0 && --depth == 0) return index;
+    }
+    return std::string_view::npos;
 }
 
 std::optional<std::string> stringField(std::string_view object, std::string_view key) {
@@ -44,47 +68,62 @@ std::optional<std::uint64_t> numberField(std::string_view object, std::string_vi
     catch (...) { return std::nullopt; }
 }
 
-std::array<std::uint64_t, 3> acceptedField(std::string_view object) {
+std::optional<std::array<std::uint64_t, 3>> acceptedField(std::string_view object) {
     const auto marker = std::string("\"accepted_bytes\":[");
     const auto start = object.find(marker);
-    if (start == std::string_view::npos) return {};
+    if (start == std::string_view::npos) return std::nullopt;
     std::array<std::uint64_t, 3> result{};
     auto cursor = start + marker.size();
-    for (auto& value : result) {
+    for (std::size_t index = 0; index < result.size(); ++index) {
+        auto& value = result[index];
         const auto end = object.find_first_not_of("0123456789", cursor);
+        if (end == cursor) return std::nullopt;
         try { value = std::stoull(std::string(object.substr(cursor, end - cursor))); }
-        catch (...) { return {}; }
-        cursor = object.find_first_of(",]", end);
-        if (cursor == std::string_view::npos || object[cursor] == ']') break;
-        ++cursor;
+        catch (...) { return std::nullopt; }
+        cursor = end;
+        if (index + 1 == result.size()) {
+            if (cursor >= object.size() || object[cursor] != ']') return std::nullopt;
+        } else {
+            if (cursor >= object.size() || object[cursor] != ',') return std::nullopt;
+            ++cursor;
+        }
     }
-    return result;
+    return std::optional<std::array<std::uint64_t, 3>>(result);
 }
 
 } // namespace
 
-DesktopUploadQueueService::DesktopUploadQueueService(std::filesystem::path ledgerPath)
-    : ledgerPath_(std::move(ledgerPath)) {}
+DesktopUploadQueueService::DesktopUploadQueueService(
+    std::filesystem::path ledgerPath,
+    std::filesystem::path custodyRoot)
+    : ledgerPath_(std::move(ledgerPath)),
+      custodyRoot_(custodyRoot.empty() ? ledgerPath_.parent_path() : std::move(custodyRoot)) {}
 
 bool DesktopUploadQueueService::load() {
     items_.clear(); quarantined_ = false;
     std::ifstream input(ledgerPath_, std::ios::binary);
     if (!input) return true;
     const std::string json((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
-    if (json.find(kQueueSchemaVersion) == std::string::npos || json.find("\"items\":[") == std::string::npos) {
+    const auto quarantine = [this] {
         std::error_code error;
         std::filesystem::rename(ledgerPath_, ledgerPath_.string() + ".quarantine", error);
+        items_.clear();
         quarantined_ = true;
         return false;
-    }
-    // The durable ledger is intentionally written by this class. Unknown/foreign item syntax is quarantined.
-    std::size_t cursor = json.find("\"items\":[") + 9;
+    };
+    const auto prefix = std::string("{\"schema_version\":\"") + std::string(kQueueSchemaVersion) + "\",\"items\":[";
+    if (json.size() > 4 * 1024 * 1024 || json.rfind(prefix, 0) != 0) return quarantine();
+    std::size_t cursor = prefix.size();
     while (cursor < json.size()) {
-        const auto objectStart = json.find('{', cursor);
-        if (objectStart == std::string::npos) break;
-        const auto objectEnd = json.find('}', objectStart);
-        if (objectEnd == std::string::npos) { quarantined_ = true; return false; }
-        const auto object = std::string_view(json).substr(objectStart, objectEnd - objectStart + 1);
+        if (json[cursor] == ']') { ++cursor; break; }
+        if (json[cursor] == ',') {
+            ++cursor;
+            if (cursor >= json.size() || json[cursor] == ']' || json[cursor] != '{') return quarantine();
+        }
+        if (json[cursor] != '{') return quarantine();
+        const auto end = objectEnd(json, cursor);
+        if (end == std::string_view::npos) return quarantine();
+        const auto object = std::string_view(json).substr(cursor, end - cursor + 1);
         const auto id = stringField(object, "local_recording_id");
         const auto directoryId = stringField(object, "directory_id");
         const auto sessionId = stringField(object, "session_id");
@@ -92,22 +131,28 @@ bool DesktopUploadQueueService::load() {
         const auto status = numberField(object, "status");
         const auto attempts = numberField(object, "attempts");
         const auto safeReason = stringField(object, "safe_reason");
-        if (!id || !directoryId || !sessionId || !packageDirectory || !status || !attempts || !safeReason ||
-            !validIdentity(*id) || !validIdentity(*directoryId) || !validIdentity(*sessionId) || *status > 5) {
-            quarantined_ = true; return false;
-        }
+        const auto accepted = acceptedField(object);
+        if (!id || !directoryId || !sessionId || !packageDirectory || !status || !attempts || !safeReason || !accepted ||
+            !validIdentity(*id) || !validIdentity(*directoryId) || !validIdentity(*sessionId) || *status > 5 ||
+            *attempts > std::numeric_limits<std::uint32_t>::max() || !validSafeReason(*safeReason) ||
+            packageDirectory->size() > 4096 || packageDirectory->find_first_of("\r\n\t") != std::string::npos ||
+            !AtomicFileStore::isWithinRoot(custodyRoot_, *packageDirectory) ||
+            find(*id) != nullptr) return quarantine();
         UploadCustodyItem item;
         item.localRecordingId = *id; item.directoryId = *directoryId; item.sessionId = *sessionId;
         item.packageDirectory = *packageDirectory; item.status = static_cast<UploadQueueStatus>(*status);
-        item.acceptedBytes = acceptedField(object); item.attempts = static_cast<std::uint32_t>(*attempts); item.safeReason = *safeReason;
-        items_.push_back(std::move(item)); cursor = objectEnd + 1;
+        item.acceptedBytes = *accepted; item.attempts = static_cast<std::uint32_t>(*attempts); item.safeReason = *safeReason;
+        items_.push_back(std::move(item)); cursor = end + 1;
     }
-    return true;
+    while (cursor < json.size() && std::isspace(static_cast<unsigned char>(json[cursor]))) ++cursor;
+    if (cursor + 1 == json.size() && json[cursor] == '}') return true;
+    return quarantine();
 }
 
 bool DesktopUploadQueueService::enqueue(UploadCustodyItem item) {
     if (!validIdentity(item.localRecordingId) || !validIdentity(item.directoryId) || !validIdentity(item.sessionId) ||
-        item.packageDirectory.empty() || find(item.localRecordingId) != nullptr) return false;
+        item.packageDirectory.empty() || !AtomicFileStore::isWithinRoot(custodyRoot_, item.packageDirectory) ||
+        find(item.localRecordingId) != nullptr) return false;
     items_.push_back(std::move(item));
     return persist();
 }
@@ -122,7 +167,7 @@ bool DesktopUploadQueueService::reconcile(const UploadServerTruth& truth) {
 }
 
 bool DesktopUploadQueueService::markRetry(std::string_view id, std::string reason) {
-    auto* item = find(id); if (!item) return false;
+    auto* item = find(id); if (!item || !validSafeReason(reason) || reason.empty()) return false;
     item->status = UploadQueueStatus::retry; ++item->attempts; item->safeReason = std::move(reason); return persist();
 }
 
@@ -144,7 +189,7 @@ std::optional<UploadCustodyItem> DesktopUploadQueueService::nextPending() const 
 }
 
 bool DesktopUploadQueueService::persist() const {
-    return AtomicFileStore::write(ledgerPath_, serialize(items_), 4 * 1024 * 1024).ok();
+    return AtomicFileStore::writeWithinRoot(custodyRoot_, ledgerPath_, serialize(items_), 4 * 1024 * 1024).ok();
 }
 
 std::string DesktopUploadQueueService::serialize(const std::vector<UploadCustodyItem>& items) {
@@ -167,6 +212,14 @@ std::string DesktopUploadQueueService::serialize(const std::vector<UploadCustody
 bool DesktopUploadQueueService::validIdentity(std::string_view value) noexcept {
     if (value.empty() || value.size() > 300) return false;
     for (const unsigned char c : value) if (!(std::isalnum(c) || c == '-' || c == '_')) return false;
+    return true;
+}
+
+bool DesktopUploadQueueService::validSafeReason(std::string_view value) noexcept {
+    if (value.size() > 64) return false;
+    for (const unsigned char c : value) {
+        if (!(std::islower(c) || std::isdigit(c) || c == '-' || c == '_')) return false;
+    }
     return true;
 }
 

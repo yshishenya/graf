@@ -80,7 +80,8 @@ and hardware evidence
 - exact-origin, allowlisted, JSON-only WebView bridge with no generic host objects;
 - same v5 manifest/artifact/queue semantics as macOS;
 - metadata-only diagnostics/evidence and server-owned credentials;
-- no implementation commit, release or deploy from this planning slice.
+- implementation commits are allowed only after focused validation and explicit
+  user approval; this slice still has no deploy, public release or Store claim.
 
 **Scale/Scope**: one Windows app process, one active recording session per user,
 two source streams, multiple pending local packages, current GRAF owner/workspace

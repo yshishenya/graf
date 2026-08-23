@@ -18,7 +18,9 @@ class VerifiedTargetRegistry final {
 public:
     [[nodiscard]] bool registerTarget(VerifiedTargetIdentity identity);
     [[nodiscard]] bool removeTarget(std::string_view executableFingerprint);
-    [[nodiscard]] bool contains(std::string_view executableFingerprint, std::uint32_t version) const noexcept;
+    [[nodiscard]] bool contains(std::string_view executableFingerprint,
+                                std::string_view publisherFingerprint,
+                                std::uint32_t version) const noexcept;
     [[nodiscard]] const std::vector<VerifiedTargetIdentity>& targets() const noexcept { return targets_; }
 
 private:

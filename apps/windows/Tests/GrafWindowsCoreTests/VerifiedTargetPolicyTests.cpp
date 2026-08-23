@@ -22,5 +22,10 @@ int main() {
     assert(policy.isAlwaysRecord(target) == false);
     (void)policy.alwaysRecordThisApplication();
     assert(policy.isAlwaysRecord(target));
+    const VerifiedTargetIdentity differentPublisher{"exe-fp", "other-publisher", "Teams", 1};
+    assert(!WindowsTargetDetector::isPromptCandidate({differentPublisher, true, false}, registry));
+    const VerifiedTargetIdentity otherTarget{"other-exe", "other-publisher", "Meet", 1};
+    assert(policy.observeVerifiedTarget(otherTarget, true) == AutomaticPromptState::countdown);
+    assert(policy.disableAlwaysRecord() == AutomaticPromptState::idle);
     return 0;
 }

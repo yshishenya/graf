@@ -9,9 +9,14 @@
 
 int main() {
     using namespace graf::windows;
-    const auto directory = std::filesystem::temp_directory_path() / "graf-feature-200-custody";
+    const auto root = std::filesystem::temp_directory_path() / "graf-feature-200-custody";
+    const auto directory = root / "package";
+    std::filesystem::remove_all(root);
     std::filesystem::create_directories(directory);
-    assert(!DesktopLocalPurgeService::purge(directory, LocalPurgeProof::none));
-    assert(DesktopLocalPurgeService::purge(directory, LocalPurgeProof::tombstoneConfirmed));
+    DesktopLocalPurgeService purge(root);
+    assert(!purge.purge(directory, LocalPurgeProof::none));
+    assert(!purge.purge(std::filesystem::temp_directory_path(), LocalPurgeProof::tombstoneConfirmed));
+    assert(purge.purge(directory, LocalPurgeProof::tombstoneConfirmed));
+    std::filesystem::remove_all(root);
     return 0;
 }

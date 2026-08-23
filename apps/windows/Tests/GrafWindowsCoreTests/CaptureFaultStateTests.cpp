@@ -15,5 +15,8 @@ int main() {
     assert(mapper.observe({0, 0, 48'000}).valid);
     assert(mapper.observe({10'000'000, 48'000, 48'000}).valid);
     assert(!mapper.observe({9'000'000, 48'000, 48'000}).valid);
+    ClockMapper longRun;
+    assert(longRun.observe({1, 0, 48'000}).valid);
+    assert(longRun.observe({300'000'000'000'001ULL, 1'440'000'000'000ULL, 48'000}).valid);
     return 0;
 }

@@ -30,6 +30,9 @@
 - Native/Web boundary не принимает capture/file/token/cookie/process commands,
   требует exact origin и ephemeral nonce, а очередь сохраняет accepted ranges и
   quarantine вместо тихой замены повреждённого ledger.
+- Локальная custody-область ограничена canonical root, а atomic-файлы на Windows
+  получают ACL только для текущего пользователя; выход за root отклоняется до
+  создания файла или пакета.
 
 ### Документы
 - Зафиксированы Windows v5 wire-значения, parity source-of-truth и второй

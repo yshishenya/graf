@@ -13,7 +13,12 @@ enum class LocalPurgeProof {
 
 class DesktopLocalPurgeService final {
 public:
-    [[nodiscard]] static bool purge(const std::filesystem::path& packageDirectory, LocalPurgeProof proof);
+    explicit DesktopLocalPurgeService(std::filesystem::path custodyRoot);
+
+    [[nodiscard]] bool purge(const std::filesystem::path& packageDirectory, LocalPurgeProof proof) const;
+
+private:
+    std::filesystem::path custodyRoot_;
 };
 
 } // namespace graf::windows

@@ -13,6 +13,7 @@ LocalRecordingPackageSnapshot LocalRecordingPackage::inspect(const std::filesyst
     const auto manifest = directory / "manifest.json";
     const auto wav = directory / "meeting-transcription.wav";
     const auto playback = directory / "meeting-review.m4a";
+    result.localPurgeRegistered = std::filesystem::exists(directory / ".local-purge-registered");
     std::ifstream input(manifest, std::ios::binary);
     if (!input || !std::filesystem::exists(wav) || !std::filesystem::exists(playback)) return result;
     const std::string json((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
@@ -32,9 +33,14 @@ LocalRecordingPackageSnapshot LocalRecordingPackage::inspect(const std::filesyst
     return result;
 }
 
-bool LocalRecordingPackage::registerLocalPurge(const std::filesystem::path& directory) {
+bool LocalRecordingPackage::registerLocalPurge(
+    const std::filesystem::path& directory,
+    const std::filesystem::path& custodyRoot) {
+    if (directory.empty() || !std::filesystem::is_directory(directory)) return false;
+    const auto root = custodyRoot.empty() ? directory.parent_path() : custodyRoot;
+    if (!AtomicFileStore::isWithinRoot(root, directory)) return false;
     const auto tombstone = directory / ".local-purge-registered";
-    return AtomicFileStore::write(tombstone, "local_purge_registered", 128).ok();
+    return AtomicFileStore::writeWithinRoot(root, tombstone, "local_purge_registered", 128).ok();
 }
 
 } // namespace graf::windows

@@ -52,7 +52,6 @@ public:
 private:
     [[nodiscard]] static std::size_t jsonDepth(std::string_view payload) noexcept;
     [[nodiscard]] static bool jsonShapeValid(std::string_view payload) noexcept;
-    [[nodiscard]] static bool containsForbiddenCommand(std::string_view command) noexcept;
 
     std::string trustedOrigin_;
     std::string nonce_;

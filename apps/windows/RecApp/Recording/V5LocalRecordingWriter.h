@@ -44,6 +44,10 @@ using PlaybackEncoder = std::function<bool(
 class V5LocalRecordingWriter final {
 public:
     V5LocalRecordingWriter(std::filesystem::path packageDirectory, PlaybackEncoder encoder = {});
+    V5LocalRecordingWriter(
+        std::filesystem::path custodyRoot,
+        std::filesystem::path packageDirectory,
+        PlaybackEncoder encoder = {});
     ~V5LocalRecordingWriter();
 
     V5LocalRecordingWriter(const V5LocalRecordingWriter&) = delete;
@@ -63,6 +67,7 @@ private:
     [[nodiscard]] static std::int16_t toPcm16(float value) noexcept;
 
     std::filesystem::path packageDirectory_;
+    std::filesystem::path custodyRoot_;
     std::filesystem::path canonicalFloatPath_;
     PlaybackEncoder encoder_;
     std::ofstream* canonicalOutput_ = nullptr;

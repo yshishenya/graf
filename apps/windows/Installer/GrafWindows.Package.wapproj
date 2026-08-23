@@ -13,5 +13,5 @@
     <ProjectReference Include="..\RecApp\GrafWindowsApp.vcxproj" />
     <AppxManifest Include="Package.appxmanifest" />
   </ItemGroup>
-  <Import Project="$(MSBuildExtensionsPath)\Microsoft\VisualStudio\v$(VisualStudioVersion)\OfficeTools\Microsoft.VisualStudio.OfficeTools.targets" Condition="Exists('$(MSBuildExtensionsPath)\Microsoft\VisualStudio\v$(VisualStudioVersion)\OfficeTools\Microsoft.VisualStudio.OfficeTools.targets')" />
+  <Import Project="$(MSBuildExtensionsPath)\Microsoft\DesktopBridge\Microsoft.DesktopBridge.targets" Condition="Exists('$(MSBuildExtensionsPath)\Microsoft\DesktopBridge\Microsoft.DesktopBridge.targets')" />
 </Project>

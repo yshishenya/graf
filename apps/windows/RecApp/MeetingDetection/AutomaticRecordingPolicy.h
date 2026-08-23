@@ -25,6 +25,7 @@ public:
     [[nodiscard]] AutomaticPromptState skip() noexcept;
     [[nodiscard]] AutomaticPromptState timeout() noexcept;
     [[nodiscard]] AutomaticPromptState alwaysRecordThisApplication() noexcept;
+    [[nodiscard]] AutomaticPromptState disableAlwaysRecord() noexcept;
 
     [[nodiscard]] bool isAlwaysRecord(const VerifiedTargetIdentity& target) const noexcept;
     [[nodiscard]] AutomaticPromptState state() const noexcept { return state_; }
@@ -32,6 +33,7 @@ public:
 
 private:
     VerifiedTargetIdentity target_;
+    VerifiedTargetIdentity alwaysRecordTarget_;
     AutomaticPromptState state_ = AutomaticPromptState::idle;
     bool alwaysRecord_ = false;
     std::uint32_t elapsedSeconds_ = 0;

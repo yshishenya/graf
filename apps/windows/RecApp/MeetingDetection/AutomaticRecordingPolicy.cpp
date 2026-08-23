@@ -6,7 +6,10 @@ AutomaticPromptState AutomaticRecordingPolicy::observeVerifiedTarget(const Verif
                                                                       bool prerequisitesReady) {
     target_ = target; elapsedSeconds_ = 0;
     if (!prerequisitesReady) return state_ = AutomaticPromptState::blocked;
-    return state_ = alwaysRecord_ ? AutomaticPromptState::started : AutomaticPromptState::countdown;
+    const auto matchesAlwaysRecord = alwaysRecord_ && target.executableFingerprint == alwaysRecordTarget_.executableFingerprint &&
+        target.publisherFingerprint == alwaysRecordTarget_.publisherFingerprint &&
+        target.registryVersion == alwaysRecordTarget_.registryVersion;
+    return state_ = matchesAlwaysRecord ? AutomaticPromptState::started : AutomaticPromptState::countdown;
 }
 
 AutomaticPromptState AutomaticRecordingPolicy::tick(std::uint32_t elapsedSeconds) {
@@ -30,12 +33,23 @@ AutomaticPromptState AutomaticRecordingPolicy::timeout() noexcept {
 }
 
 AutomaticPromptState AutomaticRecordingPolicy::alwaysRecordThisApplication() noexcept {
-    alwaysRecord_ = true; state_ = AutomaticPromptState::started; return state_;
+    alwaysRecord_ = true;
+    alwaysRecordTarget_ = target_;
+    state_ = AutomaticPromptState::started;
+    return state_;
+}
+
+AutomaticPromptState AutomaticRecordingPolicy::disableAlwaysRecord() noexcept {
+    alwaysRecord_ = false;
+    alwaysRecordTarget_ = {};
+    state_ = AutomaticPromptState::idle;
+    return state_;
 }
 
 bool AutomaticRecordingPolicy::isAlwaysRecord(const VerifiedTargetIdentity& target) const noexcept {
-    return alwaysRecord_ && target.executableFingerprint == target_.executableFingerprint &&
-           target.publisherFingerprint == target_.publisherFingerprint && target.registryVersion == target_.registryVersion;
+    return alwaysRecord_ && target.executableFingerprint == alwaysRecordTarget_.executableFingerprint &&
+           target.publisherFingerprint == alwaysRecordTarget_.publisherFingerprint &&
+           target.registryVersion == alwaysRecordTarget_.registryVersion;
 }
 
 } // namespace graf::windows

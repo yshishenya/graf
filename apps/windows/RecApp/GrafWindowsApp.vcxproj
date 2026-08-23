@@ -54,6 +54,7 @@
     <ClCompile Include="Web\WebView2Host.cpp" />
     <ClCompile Include="Web\WebViewBridge.cpp" />
     <ClCompile Include="Web\WebViewRoutePolicy.cpp" />
+    <ClCompile Include="..\Native\GrafAEC3\GrafAEC3.cpp" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="$(GrafWindowsAppSdkVersion)" />
@@ -61,7 +62,7 @@
     <PackageReference Include="Microsoft.Windows.CppWinRT" Version="$(GrafCppWinRTVersion)" />
   </ItemGroup>
   <ItemDefinitionGroup>
-    <Link><AdditionalDependencies>mfplat.lib;mfreadwrite.lib;mfuuid.lib;ole32.lib;avrt.lib;%(AdditionalDependencies)</AdditionalDependencies></Link>
+    <Link><AdditionalDependencies>mfplat.lib;mfreadwrite.lib;mfuuid.lib;ole32.lib;avrt.lib;advapi32.lib;%(AdditionalDependencies)</AdditionalDependencies></Link>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

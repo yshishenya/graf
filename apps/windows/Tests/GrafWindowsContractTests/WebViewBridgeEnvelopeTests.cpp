@@ -20,5 +20,11 @@ int main() {
     assert(bridge.validate(message) == BridgeValidationError::wrongOrigin);
     message.messageId = 4; message.origin = "https://rec.2brain.pro"; message.payloadJson = std::string(65 * 1024, 'x');
     assert(bridge.validate(message) == BridgeValidationError::payloadTooLarge);
+    message.messageId = 5; message.payloadJson = "not-json";
+    assert(bridge.validate(message) == BridgeValidationError::malformedEnvelope);
+    message.messageId = 6; message.payloadJson = "{}{}";
+    assert(bridge.validate(message) == BridgeValidationError::malformedEnvelope);
+    message.messageId = 7; message.payloadJson = "{";
+    assert(bridge.validate(message) == BridgeValidationError::malformedEnvelope);
     return 0;
 }

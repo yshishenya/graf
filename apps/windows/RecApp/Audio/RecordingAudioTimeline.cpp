@@ -1,6 +1,7 @@
 #include "RecordingAudioTimeline.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace graf::windows {
 
@@ -31,9 +32,20 @@ bool RecordingAudioTimeline::normalizeAndStore(AudioBatch&& batch) {
         return false;
     }
     const auto frameCount = batch.samples.size() / batch.channels;
-    if (frameCount == 0 || frameCount * batch.channels != batch.samples.size()) {
+    if (batch.source != AudioSource::systemRender && batch.source != AudioSource::microphone) {
         fail(TimelineFault::invalidFormat);
         return false;
+    }
+    if (frameCount == 0 || frameCount > limits_.maxBufferedFrames ||
+        frameCount * batch.channels != batch.samples.size()) {
+        fail(TimelineFault::invalidFormat);
+        return false;
+    }
+    for (const auto sample : batch.samples) {
+        if (!std::isfinite(sample)) {
+            fail(TimelineFault::invalidFormat);
+            return false;
+        }
     }
 
     auto& lastPts = batch.source == AudioSource::systemRender ? lastSystemPts_ : lastMicrophonePts_;

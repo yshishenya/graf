@@ -1,9 +1,10 @@
 # Quickstart: Feature 200 Windows desktop-приложение GRAF
 
-Этот runbook предназначен для будущей реализации и validation gate Feature 200.
-Он не является доказательством готового приложения: сейчас в репозитории ещё
-нет Windows solution. Все команды ниже должны выполняться на Windows host после
-появления указанных путей.
+Этот runbook предназначен для реализации и validation gate Feature 200.
+В репозитории уже есть portable CMake contract surface и заготовка MSBuild/
+MSIX; этот runbook не превращает их в доказательство готового Windows продукта.
+Windows host обязателен для claims о WinUI/WebView2, WASAPI, Media Foundation,
+MSIX и hardware.
 
 ## 1. Host prerequisites
 
@@ -21,6 +22,11 @@ signed URLs, raw device paths или private meeting ids.
 ## 2. Build and platform-independent checks
 
 ```powershell
+Push-Location apps/windows
+cmake --preset x64-release
+cmake --build --preset x64-release
+ctest --preset x64-release --output-on-failure
+Pop-Location
 msbuild apps/windows/GrafWindows.sln /m /p:Configuration=Release /p:Platform=x64
 ctest --test-dir apps/windows/out/build/x64/Release --output-on-failure
 pwsh -File apps/windows/scripts/validate-audio-contract.ps1
@@ -30,6 +36,10 @@ pwsh -File apps/windows/scripts/validate-webview-boundary.ps1
 Ожидается: solution собирается без preview SDK, unit/contract tests проходят,
 не создаются секретные или content-bearing diagnostics, а bridge policy
 останавливает неразрешённые origin/route/command.
+
+Portable CMake/CTest на macOS подтверждает только platform-independent contracts.
+Он не заменяет MSBuild/WinUI 3, реальный WebView2 lifecycle, WASAPI capture,
+Media Foundation AAC или signed MSIX evidence.
 
 ## 3. Synthetic audio gate
 

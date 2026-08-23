@@ -4,6 +4,7 @@
 #undef NDEBUG
 #endif
 #include <cassert>
+#include <limits>
 
 namespace {
 class FakeAec final : public graf::windows::IAec3Processor {
@@ -33,5 +34,10 @@ int main() {
     AudioBatch invalid{AudioSource::microphone, 48'000, 1, 480, 1, 2, false, std::vector<float>(480, 0.0F)};
     assert(!timeline.push(std::move(invalid)));
     assert(timeline.fault() == TimelineFault::routeChanged);
+    RecordingAudioTimeline invalidSamples(aec);
+    AudioBatch nanBatch{AudioSource::systemRender, 48'000, 1, 0, 1, 1, false, std::vector<float>(480, 0.0F)};
+    nanBatch.samples[0] = std::numeric_limits<float>::quiet_NaN();
+    assert(!invalidSamples.push(std::move(nanBatch)));
+    assert(invalidSamples.fault() == TimelineFault::invalidFormat);
     return 0;
 }

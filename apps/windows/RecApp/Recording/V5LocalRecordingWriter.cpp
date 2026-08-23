@@ -100,6 +100,20 @@ bool encodeMediaFoundationAac(const std::filesystem::path& outputPath,
 
 V5LocalRecordingWriter::V5LocalRecordingWriter(std::filesystem::path packageDirectory, PlaybackEncoder encoder)
     : packageDirectory_(std::move(packageDirectory)),
+      custodyRoot_(packageDirectory_.parent_path()),
+      canonicalFloatPath_(packageDirectory_ / ".canonical-mix.f32.tmp"),
+      encoder_(std::move(encoder)) {
+#ifdef _WIN32
+    if (!encoder_) encoder_ = encodeMediaFoundationAac;
+#endif
+}
+
+V5LocalRecordingWriter::V5LocalRecordingWriter(
+    std::filesystem::path custodyRoot,
+    std::filesystem::path packageDirectory,
+    PlaybackEncoder encoder)
+    : packageDirectory_(std::move(packageDirectory)),
+      custodyRoot_(std::move(custodyRoot)),
       canonicalFloatPath_(packageDirectory_ / ".canonical-mix.f32.tmp"),
       encoder_(std::move(encoder)) {
 #ifdef _WIN32
@@ -111,6 +125,7 @@ V5LocalRecordingWriter::~V5LocalRecordingWriter() { abort(); }
 
 bool V5LocalRecordingWriter::openIfNeeded() {
     if (canonicalOutput_ != nullptr) return true;
+    if (!AtomicFileStore::isWithinRoot(custodyRoot_, packageDirectory_)) return false;
     std::error_code error;
     std::filesystem::create_directories(packageDirectory_, error);
     if (error) return false;
@@ -207,7 +222,10 @@ V5WriterResult V5LocalRecordingWriter::finalize() {
         result.error = V5WriterError::integrityFailed; return result;
     }
     const auto manifest = manifestJson(result);
-    if (!AtomicFileStore::write(result.manifestPath, manifest).ok()) { result.error = V5WriterError::storageUnavailable; return result; }
+    if (!AtomicFileStore::writeWithinRoot(custodyRoot_, result.manifestPath, manifest).ok()) {
+        result.error = V5WriterError::storageUnavailable;
+        return result;
+    }
     std::filesystem::remove(canonicalFloatPath_, error);
     finalized_ = true;
     return result;

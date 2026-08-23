@@ -41,7 +41,9 @@ struct UploadServerTruth {
 
 class DesktopUploadQueueService final {
 public:
-    explicit DesktopUploadQueueService(std::filesystem::path ledgerPath);
+    explicit DesktopUploadQueueService(
+        std::filesystem::path ledgerPath,
+        std::filesystem::path custodyRoot = {});
 
     [[nodiscard]] bool load();
     [[nodiscard]] bool enqueue(UploadCustodyItem item);
@@ -57,9 +59,11 @@ private:
     [[nodiscard]] bool persist() const;
     [[nodiscard]] static std::string serialize(const std::vector<UploadCustodyItem>& items);
     [[nodiscard]] static bool validIdentity(std::string_view value) noexcept;
+    [[nodiscard]] static bool validSafeReason(std::string_view value) noexcept;
     [[nodiscard]] UploadCustodyItem* find(std::string_view localRecordingId) noexcept;
 
     std::filesystem::path ledgerPath_;
+    std::filesystem::path custodyRoot_;
     std::vector<UploadCustodyItem> items_;
     bool quarantined_ = false;
 };

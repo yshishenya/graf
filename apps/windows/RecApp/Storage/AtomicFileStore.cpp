@@ -5,8 +5,10 @@
 #include <cstdio>
 #include <fstream>
 #include <string>
+#include <vector>
 
 #ifdef _WIN32
+#include <aclapi.h>
 #include <windows.h>
 #endif
 
@@ -32,9 +34,45 @@ bool replaceAtomically(const std::filesystem::path& temporary, const std::filesy
 #endif
 }
 
-} // namespace
+bool applyUserOnlyAcl(const std::filesystem::path& path) {
+#ifndef _WIN32
+    (void)path;
+    return true;
+#else
+    HANDLE token = nullptr;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) return false;
+    DWORD size = 0;
+    GetTokenInformation(token, TokenUser, nullptr, 0, &size);
+    if (size == 0) {
+        CloseHandle(token);
+        return false;
+    }
+    std::vector<std::byte> buffer(size);
+    const bool read = GetTokenInformation(token, TokenUser, buffer.data(), size, &size) != 0;
+    CloseHandle(token);
+    if (!read) return false;
 
-AtomicFileResult AtomicFileStore::write(
+    auto* user = reinterpret_cast<const TOKEN_USER*>(buffer.data());
+    EXPLICIT_ACCESSW access{};
+    access.grfAccessPermissions = GENERIC_ALL;
+    access.grfAccessMode = SET_ACCESS;
+    access.grfInheritance = SUB_CONTAINERS_AND_OBJECTS_INHERIT;
+    access.Trustee.TrusteeForm = TRUSTEE_IS_SID;
+    access.Trustee.TrusteeType = TRUSTEE_IS_USER;
+    access.Trustee.ptstrName = reinterpret_cast<LPWSTR>(user->User.Sid);
+
+    PACL acl = nullptr;
+    if (SetEntriesInAclW(1, &access, nullptr, &acl) != ERROR_SUCCESS) return false;
+    const auto result = SetNamedSecurityInfoW(
+        const_cast<LPWSTR>(path.c_str()), SE_FILE_OBJECT,
+        DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+        nullptr, nullptr, acl, nullptr);
+    LocalFree(acl);
+    return result == ERROR_SUCCESS;
+#endif
+}
+
+AtomicFileResult writeUnchecked(
     const std::filesystem::path& target,
     std::string_view bytes,
     std::size_t maximumBytes) {
@@ -68,11 +106,50 @@ AtomicFileResult AtomicFileStore::write(
         }
     }
 
+    if (!applyUserOnlyAcl(temporary)) {
+        std::filesystem::remove(temporary, error);
+        return {AtomicFileError::permissionFailed};
+    }
     if (!replaceAtomically(temporary, target)) {
         std::filesystem::remove(temporary, error);
         return {AtomicFileError::replaceFailed};
     }
+    if (!applyUserOnlyAcl(target)) return {AtomicFileError::permissionFailed};
     return {};
+}
+
+} // namespace
+
+bool AtomicFileStore::isWithinRoot(
+    const std::filesystem::path& root,
+    const std::filesystem::path& target) noexcept {
+    if (root.empty() || target.empty()) return false;
+    std::error_code error;
+    const auto canonicalRoot = std::filesystem::weakly_canonical(root, error);
+    if (error) return false;
+    error.clear();
+    const auto canonicalTarget = std::filesystem::weakly_canonical(target, error);
+    if (error || canonicalTarget == canonicalRoot) return false;
+    const auto relative = std::filesystem::relative(canonicalTarget, canonicalRoot, error);
+    if (error || relative.empty() || relative == ".") return false;
+    auto it = relative.begin();
+    return it == relative.end() || *it != "..";
+}
+
+AtomicFileResult AtomicFileStore::write(
+    const std::filesystem::path& target,
+    std::string_view bytes,
+    std::size_t maximumBytes) {
+    return writeUnchecked(target, bytes, maximumBytes);
+}
+
+AtomicFileResult AtomicFileStore::writeWithinRoot(
+    const std::filesystem::path& root,
+    const std::filesystem::path& target,
+    std::string_view bytes,
+    std::size_t maximumBytes) {
+    if (!isWithinRoot(root, target)) return {AtomicFileError::invalidPath};
+    return writeUnchecked(target, bytes, maximumBytes);
 }
 
 } // namespace graf::windows

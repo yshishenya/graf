@@ -32,6 +32,7 @@ private:
     std::uint64_t firstDeviceFrames_ = 0;
     std::uint64_t lastQpc_ = 0;
     std::uint64_t lastDeviceFrames_ = 0;
+    bool initialized_ = false;
     bool healthy_ = true;
 };
 

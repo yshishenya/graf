@@ -25,7 +25,9 @@ struct LocalRecordingPackageSnapshot {
 class LocalRecordingPackage final {
 public:
     [[nodiscard]] static LocalRecordingPackageSnapshot inspect(const std::filesystem::path& directory);
-    [[nodiscard]] static bool registerLocalPurge(const std::filesystem::path& directory);
+    [[nodiscard]] static bool registerLocalPurge(
+        const std::filesystem::path& directory,
+        const std::filesystem::path& custodyRoot = {});
 };
 
 } // namespace graf::windows

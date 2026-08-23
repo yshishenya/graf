@@ -4,7 +4,9 @@ namespace graf::windows {
 
 bool VerifiedTargetRegistry::registerTarget(VerifiedTargetIdentity identity) {
     if (identity.executableFingerprint.empty() || identity.publisherFingerprint.empty() ||
-        identity.displayName.empty() || identity.registryVersion == 0) return false;
+        identity.displayName.empty() || identity.registryVersion == 0 ||
+        identity.executableFingerprint.size() > 256 || identity.publisherFingerprint.size() > 256 ||
+        identity.displayName.size() > 128) return false;
     for (auto& target : targets_) {
         if (target.executableFingerprint == identity.executableFingerprint) { target = std::move(identity); return true; }
     }
@@ -19,9 +21,11 @@ bool VerifiedTargetRegistry::removeTarget(std::string_view fingerprint) {
     return false;
 }
 
-bool VerifiedTargetRegistry::contains(std::string_view fingerprint, std::uint32_t version) const noexcept {
+bool VerifiedTargetRegistry::contains(std::string_view fingerprint, std::string_view publisherFingerprint,
+                                      std::uint32_t version) const noexcept {
     for (const auto& target : targets_) {
-        if (target.executableFingerprint == fingerprint && target.registryVersion == version) return true;
+        if (target.executableFingerprint == fingerprint && target.publisherFingerprint == publisherFingerprint &&
+            target.registryVersion == version) return true;
     }
     return false;
 }
