@@ -26,6 +26,7 @@ from twobrain_rec_server.db.models import (
     MeetingOutcomeItem,
     MeetingOutcomeSet,
     MeetingSpeakerName,
+    MeetingSummarySlot,
     ProcessingResult,
     SummaryTemplate,
     TranscriptSegment,
@@ -432,18 +433,30 @@ def test_rejected_revision_baseline_is_not_reopened_by_automatic_reconcile(clien
                 select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
             )
             assert meeting is not None and result is not None
-            accepted = await service.ensure_outcomes_for_processing_result(db, result=result)
-            accepted.revision_state = "rejected"
-            accepted.accepted_at = None
-            meeting.current_outcome_set_id = None
+            rejected = await service.ensure_outcomes_for_processing_result(db, result=result)
+            rejected.revision_state = "rejected"
+            rejected.accepted_at = None
+            slot = await db.scalar(
+                select(MeetingSummarySlot).where(
+                    MeetingSummarySlot.meeting_id == meeting.id,
+                    MeetingSummarySlot.template_key == "graf-auto-v1",
+                )
+            )
+            assert slot is None or slot.current_outcome_set_id is None
             await db.commit()
 
             reconciled = await service.ensure_outcomes_for_processing_result(db, result=result)
+            slot = await db.scalar(
+                select(MeetingSummarySlot).where(
+                    MeetingSummarySlot.meeting_id == meeting.id,
+                    MeetingSummarySlot.template_key == "graf-auto-v1",
+                )
+            )
             await db.commit()
-            return accepted.id, reconciled.id, meeting.current_outcome_set_id
+            return rejected.id, reconciled.id, slot.current_outcome_set_id if slot else None
 
-    accepted_id, reconciled_id, current_id = asyncio.run(run())
-    assert reconciled_id == accepted_id
+    rejected_id, reconciled_id, current_id = asyncio.run(run())
+    assert reconciled_id != rejected_id
     assert current_id is None
 
 
@@ -563,6 +576,14 @@ def test_same_format_requires_explicit_refresh_and_refresh_is_idempotent(client)
             assert seed_meeting is not None and result is not None
             accepted = await service.ensure_outcomes_for_processing_result(seed_db, result=result)
             accepted.revision_state = "accepted"
+            accepted.template_key = "graf-auto-v1"
+            slot = MeetingSummarySlot(
+                workspace_id=seed_meeting.workspace_id,
+                meeting_id=seed_meeting.id,
+                template_key="graf-auto-v1",
+                current_outcome_set_id=accepted.id,
+            )
+            seed_db.add(slot)
             seed_meeting.current_outcome_set_id = accepted.id
             await seed_db.commit()
         async with client.app_state["sessionmaker"]() as db:
@@ -575,7 +596,7 @@ def test_same_format_requires_explicit_refresh_and_refresh_is_idempotent(client)
                 and result is not None
                 and meeting.current_outcome_set_id is not None
             )
-            with pytest.raises(OutcomeGenerationTerminalError, match="same_format_noop"):
+            with pytest.raises(OutcomeGenerationTerminalError, match="summary_same_format_noop"):
                 await create_summary_candidate(
                     db,
                     workspace_id=meeting.workspace_id,
@@ -663,7 +684,7 @@ def test_same_format_requires_explicit_refresh_and_refresh_is_idempotent(client)
                 template_key="graf-meeting-minutes-v1",
                 template_id=None,
                 template_version=1,
-                expected_current_outcome_set_id=meeting.current_outcome_set_id,
+                expected_current_outcome_set_id=None,
                 request_intent="manual_format",
             )
             format_first.status = "failed"
@@ -676,7 +697,7 @@ def test_same_format_requires_explicit_refresh_and_refresh_is_idempotent(client)
                 template_key="graf-meeting-minutes-v1",
                 template_id=None,
                 template_version=1,
-                expected_current_outcome_set_id=meeting.current_outcome_set_id,
+                expected_current_outcome_set_id=None,
                 request_intent="manual_format",
             )
             await db.commit()
@@ -723,19 +744,24 @@ def test_manual_refresh_does_not_reuse_accepted_ai_candidate(client) -> None:
             assert meeting is not None and result is not None
             accepted = await service.ensure_outcomes_for_processing_result(db, result=result)
             accepted.revision_state = "accepted"
+            accepted.template_key = "graf-auto-v1"
+            db.add(
+                MeetingSummarySlot(
+                    workspace_id=meeting.workspace_id,
+                    meeting_id=meeting.id,
+                    template_key="graf-auto-v1",
+                    current_outcome_set_id=accepted.id,
+                )
+            )
             meeting.current_outcome_set_id = accepted.id
             await db.flush()
-            prior = await create_summary_candidate(
-                db,
-                workspace_id=meeting.workspace_id,
-                meeting_id=meeting.id,
-                requested_by_user_id=meeting.created_by_user_id,
-                template_key="graf-meeting-minutes-v1",
-                template_id=None,
-                template_version=1,
-                expected_current_outcome_set_id=accepted.id,
-                request_intent="manual_format",
+            prior = await db.scalar(
+                select(MeetingOutcomeGenerationAttempt).where(
+                    MeetingOutcomeGenerationAttempt.outcome_set_id == accepted.id,
+                    MeetingOutcomeGenerationAttempt.request_intent == "automatic_baseline",
+                )
             )
+            assert prior is not None
             prior.status = "accepted"
             prior.outcome_set_id = accepted.id
             await db.flush()
@@ -744,7 +770,7 @@ def test_manual_refresh_does_not_reuse_accepted_ai_candidate(client) -> None:
                 workspace_id=meeting.workspace_id,
                 meeting_id=meeting.id,
                 requested_by_user_id=meeting.created_by_user_id,
-                template_key="graf-meeting-minutes-v1",
+                template_key="graf-auto-v1",
                 template_id=None,
                 template_version=1,
                 expected_current_outcome_set_id=accepted.id,
@@ -925,7 +951,7 @@ def test_superseded_accepted_candidate_is_not_reused_for_a_new_format_request(cl
                 template_key="graf-meeting-minutes-v1",
                 template_id=None,
                 template_version=1,
-                expected_current_outcome_set_id=meeting.current_outcome_set_id,
+                expected_current_outcome_set_id=None,
             )
             superseded_outcome = MeetingOutcomeSet(
                 workspace_id=meeting.workspace_id,
@@ -934,12 +960,22 @@ def test_superseded_accepted_candidate_is_not_reused_for_a_new_format_request(cl
                 candidate_id=first.candidate_id,
                 status="available",
                 generator_version=f"test:{uuid4()}",
+                template_key="graf-meeting-minutes-v1",
+                template_version=1,
                 revision_state="accepted",
             )
             db.add(superseded_outcome)
             await db.flush()
             first.status = "accepted"
             first.outcome_set_id = superseded_outcome.id
+            slot = await db.scalar(
+                select(MeetingSummarySlot).where(
+                    MeetingSummarySlot.meeting_id == meeting.id,
+                    MeetingSummarySlot.template_key == "graf-meeting-minutes-v1",
+                )
+            )
+            assert slot is not None
+            slot.current_outcome_set_id = superseded_outcome.id
             replacement = await create_summary_candidate(
                 db,
                 workspace_id=meeting.workspace_id,
@@ -948,8 +984,9 @@ def test_superseded_accepted_candidate_is_not_reused_for_a_new_format_request(cl
                 template_key="graf-meeting-minutes-v1",
                 template_id=None,
                 template_version=1,
-                expected_current_outcome_set_id=meeting.current_outcome_set_id,
-                request_intent="manual_format",
+                expected_current_outcome_set_id=superseded_outcome.id,
+                request_intent="manual_refresh",
+                request_intent_id=uuid4(),
             )
             await db.rollback()
             return first.candidate_id, replacement.candidate_id
@@ -973,10 +1010,33 @@ def test_superseded_accepted_format_does_not_reopen_when_selected_again(client) 
             assert meeting is not None and result is not None
             baseline = await service.ensure_outcomes_for_processing_result(db, result=result)
             baseline.revision_state = "accepted"
+            baseline.template_key = "graf-auto-v1"
+            db.add(
+                MeetingSummarySlot(
+                    workspace_id=meeting.workspace_id,
+                    meeting_id=meeting.id,
+                    template_key="graf-auto-v1",
+                    current_outcome_set_id=baseline.id,
+                )
+            )
             meeting.current_outcome_set_id = baseline.id
             await db.flush()
 
             async def accept_format(template_key: str) -> MeetingOutcomeGenerationAttempt:
+                slot = await db.scalar(
+                    select(MeetingSummarySlot).where(
+                        MeetingSummarySlot.meeting_id == meeting.id,
+                        MeetingSummarySlot.template_key == template_key,
+                    )
+                )
+                if slot is None:
+                    slot = MeetingSummarySlot(
+                        workspace_id=meeting.workspace_id,
+                        meeting_id=meeting.id,
+                        template_key=template_key,
+                    )
+                    db.add(slot)
+                    await db.flush()
                 attempt = await create_summary_candidate(
                     db,
                     workspace_id=meeting.workspace_id,
@@ -985,7 +1045,7 @@ def test_superseded_accepted_format_does_not_reopen_when_selected_again(client) 
                     template_key=template_key,
                     template_id=None,
                     template_version=1,
-                    expected_current_outcome_set_id=meeting.current_outcome_set_id,
+                    expected_current_outcome_set_id=slot.current_outcome_set_id,
                     request_intent="manual_format",
                 )
                 outcome = MeetingOutcomeSet(
@@ -996,12 +1056,15 @@ def test_superseded_accepted_format_does_not_reopen_when_selected_again(client) 
                     candidate_id=attempt.candidate_id,
                     status="available",
                     generator_version=f"test:{uuid4()}",
+                    template_key=template_key,
+                    template_version=1,
                     revision_state="accepted",
                 )
                 db.add(outcome)
                 await db.flush()
                 attempt.status = "accepted"
                 attempt.outcome_set_id = outcome.id
+                slot.current_outcome_set_id = outcome.id
                 meeting.current_outcome_set_id = outcome.id
                 await db.flush()
                 return attempt
@@ -1016,8 +1079,9 @@ def test_superseded_accepted_format_does_not_reopen_when_selected_again(client) 
                 template_key="graf-meeting-minutes-v1",
                 template_id=None,
                 template_version=1,
-                expected_current_outcome_set_id=meeting.current_outcome_set_id,
-                request_intent="manual_format",
+                expected_current_outcome_set_id=first.outcome_set_id,
+                request_intent="manual_refresh",
+                request_intent_id=uuid4(),
             )
             await db.commit()
             return first, replacement
@@ -1104,20 +1168,9 @@ def test_accept_candidate_is_atomic_and_rejects_stale_expected_revision(client) 
             await db.flush()
             attempt.outcome_set_id = candidate.id
             attempt.status = "candidate"
-            await resolve_summary_candidate(
-                db,
-                workspace_id=meeting.workspace_id,
-                meeting_id=meeting.id,
-                candidate_id=attempt.candidate_id,
-                requested_by_user_id=meeting.created_by_user_id,
-                accept=True,
-                expected_current_outcome_set_id=None,
-            )
-            await db.commit()
-            accepted_id = meeting.current_outcome_set_id
-            accepted_state = candidate.revision_state
-            accepted_actor = candidate.accepted_by_user_id
-            with pytest.raises(OutcomeGenerationTerminalError, match="conflict"):
+            with pytest.raises(
+                OutcomeGenerationTerminalError, match="verified_runtime_unavailable"
+            ):
                 await resolve_summary_candidate(
                     db,
                     workspace_id=meeting.workspace_id,
@@ -1127,13 +1180,22 @@ def test_accept_candidate_is_atomic_and_rejects_stale_expected_revision(client) 
                     accept=True,
                     expected_current_outcome_set_id=None,
                 )
+            slot = await db.scalar(
+                select(MeetingSummarySlot).where(
+                    MeetingSummarySlot.meeting_id == meeting.id,
+                    MeetingSummarySlot.template_key == "graf-auto-v1",
+                )
+            )
+            current_id = slot.current_outcome_set_id if slot else None
+            state = candidate.revision_state
+            status = attempt.status
             await db.rollback()
-            return accepted_id, accepted_state, accepted_actor
+            return current_id, state, status
 
-    accepted_id, state, actor = asyncio.run(run())
-    assert accepted_id is not None
-    assert state == "accepted"
-    assert actor is not None
+    current_id, state, status = asyncio.run(run())
+    assert current_id is None
+    assert state == "candidate"
+    assert status == "candidate"
 
 
 def test_speaker_name_change_stales_candidate_before_acceptance(client) -> None:
@@ -1386,15 +1448,18 @@ def test_resolving_an_already_accepted_candidate_cannot_reject_the_current_point
             await db.flush()
             attempt.outcome_set_id = candidate.id
             attempt.status = "candidate"
-            await resolve_summary_candidate(
-                db,
-                workspace_id=meeting.workspace_id,
-                meeting_id=meeting.id,
-                candidate_id=attempt.candidate_id,
-                requested_by_user_id=meeting.created_by_user_id,
-                accept=True,
-                expected_current_outcome_set_id=None,
-            )
+            with pytest.raises(
+                OutcomeGenerationTerminalError, match="verified_runtime_unavailable"
+            ):
+                await resolve_summary_candidate(
+                    db,
+                    workspace_id=meeting.workspace_id,
+                    meeting_id=meeting.id,
+                    candidate_id=attempt.candidate_id,
+                    requested_by_user_id=meeting.created_by_user_id,
+                    accept=True,
+                    expected_current_outcome_set_id=None,
+                )
             await db.commit()
 
             job = await db.get(MediaScribeJob, source.mediascribe_job_id)
@@ -1413,7 +1478,9 @@ def test_resolving_an_already_accepted_candidate_cannot_reject_the_current_point
                 )
             )
             await db.flush()
-            with pytest.raises(OutcomeGenerationTerminalError, match="unavailable"):
+            with pytest.raises(
+                OutcomeGenerationTerminalError, match="summary_source_revision_stale"
+            ):
                 await resolve_summary_candidate(
                     db,
                     workspace_id=meeting.workspace_id,
@@ -1421,18 +1488,24 @@ def test_resolving_an_already_accepted_candidate_cannot_reject_the_current_point
                     candidate_id=attempt.candidate_id,
                     requested_by_user_id=meeting.created_by_user_id,
                     accept=False,
-                    expected_current_outcome_set_id=candidate.id,
+                    expected_current_outcome_set_id=None,
                 )
-            accepted_id = meeting.current_outcome_set_id
+            slot = await db.scalar(
+                select(MeetingSummarySlot).where(
+                    MeetingSummarySlot.meeting_id == meeting.id,
+                    MeetingSummarySlot.template_key == "graf-auto-v1",
+                )
+            )
+            current_id = slot.current_outcome_set_id if slot else None
             revision_state = candidate.revision_state
             status = attempt.status
             await db.rollback()
-            return accepted_id, revision_state, status
+            return current_id, revision_state, status
 
-    accepted_id, revision_state, status = asyncio.run(run())
-    assert accepted_id is not None
-    assert revision_state == "accepted"
-    assert status == "accepted"
+    current_id, revision_state, status = asyncio.run(run())
+    assert current_id is None
+    assert revision_state == "stale"
+    assert status == "stale"
 
 
 def test_new_source_after_reservation_is_blocked_before_litellm_egress(

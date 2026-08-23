@@ -63,7 +63,10 @@ from twobrain_rec_server.outcomes.prompts import (
     validate_outcome_result,
     validate_prompt_snapshot,
 )
-from twobrain_rec_server.outcomes.service import load_outcome_transcript_segments
+from twobrain_rec_server.outcomes.service import (
+    ensure_summary_slot,
+    load_outcome_transcript_segments,
+)
 from twobrain_rec_server.outcomes.store import set_outcome_category_states
 from twobrain_rec_server.outcomes.templates import (
     OUTCOME_CATEGORIES,
@@ -201,6 +204,15 @@ async def create_summary_candidate(
         raise OutcomeGenerationTerminalError("meeting_not_found")
     if meeting_is_deleted_or_deleting(meeting):
         raise OutcomeGenerationTerminalError("meeting_deleting")
+    slot = await ensure_summary_slot(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        template_key=template_key,
+    )
+    if slot.current_outcome_set_id != expected_current_outcome_set_id:
+        raise OutcomeGenerationTerminalError("summary_revision_conflict")
+    current_outcome_set_id = slot.current_outcome_set_id
     latest_revision = await db.scalar(
         select(MediaRevision)
         .where(
@@ -319,7 +331,7 @@ async def create_summary_candidate(
     if exact_attempt is not None:
         superseded_accepted = request_intent == "manual_format" and (
             exact_attempt.status == "accepted"
-            and exact_attempt.outcome_set_id != meeting.current_outcome_set_id
+            and exact_attempt.outcome_set_id != current_outcome_set_id
         )
         if not superseded_accepted and (
             exact_attempt.status in ACTIVE_CANDIDATE_STATUSES | {"candidate"}
@@ -358,7 +370,7 @@ async def create_summary_candidate(
             .with_for_update()
             .execution_options(populate_existing=True)
         )
-        if accepted_automatic is not None:
+        if accepted_automatic is not None and accepted_automatic.outcome_set_id == current_outcome_set_id:
             return accepted_automatic
     if template is not None and template.status != "active":
         # Archived/deleted templates remain valid only for an exact replay of
@@ -512,14 +524,12 @@ async def create_summary_candidate(
         )
         if other_dispatch is None or other_dispatch.state != "terminal_failed":
             raise OutcomeGenerationTerminalError("summary_generation_in_progress")
-    if meeting.current_outcome_set_id != expected_current_outcome_set_id:
-        raise OutcomeGenerationTerminalError("summary_revision_conflict")
-    if request_intent == "manual_format" and meeting.current_outcome_set_id is not None:
+    if request_intent == "manual_format" and current_outcome_set_id is not None:
         current_outcome = await db.scalar(
             select(MeetingOutcomeSet).where(
                 MeetingOutcomeSet.workspace_id == workspace_id,
                 MeetingOutcomeSet.meeting_id == meeting_id,
-                MeetingOutcomeSet.id == meeting.current_outcome_set_id,
+                MeetingOutcomeSet.id == current_outcome_set_id,
             )
         )
         if (
@@ -544,7 +554,7 @@ async def create_summary_candidate(
     if request_intent != "manual_refresh":
         durable_reuse_conditions.append(
             (MeetingOutcomeGenerationAttempt.status == "accepted")
-            & (MeetingOutcomeGenerationAttempt.outcome_set_id == meeting.current_outcome_set_id)
+            & (MeetingOutcomeGenerationAttempt.outcome_set_id == current_outcome_set_id)
         )
     durable_reusable = await db.scalar(
         select(MeetingOutcomeGenerationAttempt)
@@ -571,7 +581,7 @@ async def create_summary_candidate(
     if request_intent != "manual_refresh":
         reusable_conditions.append(
             (MeetingOutcomeGenerationAttempt.status == "accepted")
-            & (MeetingOutcomeGenerationAttempt.outcome_set_id == meeting.current_outcome_set_id)
+            & (MeetingOutcomeGenerationAttempt.outcome_set_id == current_outcome_set_id)
         )
     reusable = await db.scalar(
         select(MeetingOutcomeGenerationAttempt)
@@ -632,7 +642,7 @@ async def create_summary_candidate(
                 or_(
                     MeetingOutcomeGenerationAttempt.status != "accepted",
                     MeetingOutcomeGenerationAttempt.outcome_set_id
-                    == meeting.current_outcome_set_id,
+                    == current_outcome_set_id,
                 ),
                 or_(
                     MeetingOutcomeGenerationAttempt.status != "failed",
@@ -773,6 +783,12 @@ async def ensure_automatic_summary_candidate(
     )
     if definition is None:
         return None
+    slot = await ensure_summary_slot(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        template_key=definition.key,
+    )
     try:
         attempt = await create_summary_candidate(
             db,
@@ -782,7 +798,7 @@ async def ensure_automatic_summary_candidate(
             template_key=definition.key,
             template_id=None,
             template_version=definition.version,
-            expected_current_outcome_set_id=meeting.current_outcome_set_id,
+            expected_current_outcome_set_id=slot.current_outcome_set_id,
         )
     except OutcomeGenerationTerminalError:
         return None

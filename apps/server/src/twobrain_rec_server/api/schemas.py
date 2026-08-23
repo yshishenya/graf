@@ -1480,25 +1480,11 @@ class SummaryCandidateResponse(BaseModel):
     next_action: SummaryCandidateNextAction | None = None
     format_name: Annotated[SafeClientText, Field(max_length=120)] | None = None
     expires_at: datetime | None = None
-    preview: list["SummaryCandidatePreviewItem"] = Field(default_factory=list)
     provenance: SummaryCandidateProvenance | None = None
 
 
 class SummaryCandidateListResponse(BaseModel):
     candidates: list[SummaryCandidateResponse] = Field(default_factory=list, max_length=8)
-
-
-class SummaryCandidatePreviewResponse(BaseModel):
-    candidate_id: UUID
-    outcome_set_id: UUID
-    template_key: str | None = None
-    items: list[SummaryCandidatePreviewItem] = Field(default_factory=list, max_length=200)
-
-
-class ResolveSummaryCandidateRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    expected_current_outcome_set_id: UUID | None = None
 
 
 class CreateScopedShareGrantRequest(BaseModel):

@@ -55,7 +55,6 @@
       <h2 class="sr-only">Итоги</h2>
       {% endif %}
       <div class="summary-candidate-status" data-summary-candidate-status role="status" aria-live="polite" aria-atomic="true" hidden></div>
-      <div class="summary-candidate-preview" data-summary-candidate-preview hidden></div>
       {{ outcomes }}
     </section>
     <section class="tab-panel{% if not outcomes_selected %} active{% endif %}" role="tabpanel" id="detail-panel-recording" aria-labelledby="detail-tab-recording" data-detail-panel="recording"{% if outcomes_selected %} hidden{% endif %}>

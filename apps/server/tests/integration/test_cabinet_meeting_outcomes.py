@@ -8,7 +8,6 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
-from tests.fakes.auth_contexts import USER_ID
 from tests.fixtures.cabinet import (
     FOREIGN_DEVICE_ID,
     FOREIGN_ORG_ID,
@@ -21,12 +20,11 @@ from twobrain_rec_server.cabinet.egress import current_outcome_set
 from twobrain_rec_server.db.models import (
     MediaRevision,
     Meeting,
-    MeetingOutcomeGenerationAttempt,
     MeetingOutcomeItem,
     MeetingOutcomeSet,
+    MeetingSummarySlot,
     ProcessingResult,
 )
-from twobrain_rec_server.outcomes.ai_service import resolve_summary_candidate
 from twobrain_rec_server.outcomes.store import OUTCOME_GENERATOR_VERSION
 
 
@@ -37,29 +35,31 @@ def _service_module():
         raise AssertionError("outcome service module is missing") from exc
 
 
-async def _generate_and_accept(client, meeting_id, service) -> None:
-    await service.ensure_outcomes_for_meeting(
+async def _generate_and_store(client, meeting_id, service) -> None:
+    outcome_set = await service.ensure_outcomes_for_meeting(
         client.app_state["sessionmaker"], meeting_id=meeting_id
     )
     async with client.app_state["sessionmaker"]() as db:
-        attempt = await db.scalar(
-            select(MeetingOutcomeGenerationAttempt)
-            .where(
-                MeetingOutcomeGenerationAttempt.meeting_id == meeting_id,
-                MeetingOutcomeGenerationAttempt.candidate_id.is_not(None),
-            )
-            .order_by(MeetingOutcomeGenerationAttempt.created_at.desc())
-        )
         meeting = await db.scalar(select(Meeting).where(Meeting.id == meeting_id))
-        assert attempt is not None and meeting is not None and attempt.candidate_id is not None
-        await resolve_summary_candidate(
-            db,
-            workspace_id=meeting.workspace_id,
-            meeting_id=meeting.id,
-            candidate_id=attempt.candidate_id,
-            requested_by_user_id=USER_ID,
-            accept=True,
-            expected_current_outcome_set_id=None,
+        assert meeting is not None
+        stored = await db.get(MeetingOutcomeSet, outcome_set.id)
+        assert stored is not None
+        stored.template_key = "graf-auto-v1"
+        stored.template_version = 1
+        stored.revision_state = "accepted"
+        stored.accepted_at = stored.generated_at or datetime.now(UTC)
+        db.add(
+            MeetingSummarySlot(
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                template_key="graf-auto-v1",
+                is_meeting_default=True,
+                current_outcome_set_id=stored.id,
+                current_binding_class="verified_complete",
+                default_resolution_source="explicit_meeting",
+                default_resolution_version="test-fixture-v1",
+                default_resolved_at=datetime.now(UTC),
+            )
         )
         await db.commit()
 
@@ -67,7 +67,7 @@ async def _generate_and_accept(client, meeting_id, service) -> None:
 def test_cabinet_detail_shows_stored_outcomes_instead_of_deferred_placeholders(client) -> None:
     meeting_id = create_outcome_ready_meeting(client)
     service = _service_module()
-    asyncio.run(_generate_and_accept(client, meeting_id, service))
+    asyncio.run(_generate_and_store(client, meeting_id, service))
 
     response = client.get(f"/api/v1/cabinet/meetings/{meeting_id}", headers=auth_headers())
 
@@ -87,7 +87,7 @@ def test_cabinet_detail_shows_stored_outcomes_instead_of_deferred_placeholders(c
 def test_pointerless_legacy_outcome_cannot_attach_to_new_revision_result(client) -> None:
     meeting_id = create_outcome_ready_meeting(client, "legacy-pointerless-revision-boundary")
     service = _service_module()
-    asyncio.run(_generate_and_accept(client, meeting_id, service))
+    asyncio.run(_generate_and_store(client, meeting_id, service))
 
     async def seed_new_result() -> tuple[object, object]:
         async with client.app_state["sessionmaker"]() as db:
@@ -98,7 +98,15 @@ def test_pointerless_legacy_outcome_cannot_attach_to_new_revision_result(client)
                 .order_by(ProcessingResult.result_version.desc())
             )
             assert meeting is not None and previous is not None
-            meeting.current_outcome_set_id = None
+            slot = await db.scalar(
+                select(MeetingSummarySlot).where(
+                    MeetingSummarySlot.meeting_id == meeting.id,
+                    MeetingSummarySlot.template_key == "graf-auto-v1",
+                )
+            )
+            assert slot is not None
+            slot.current_outcome_set_id = None
+            slot.current_binding_class = None
             revision = MediaRevision(
                 workspace_id=meeting.workspace_id,
                 meeting_id=meeting.id,
@@ -182,7 +190,7 @@ def test_pointerless_generating_outcome_with_items_is_not_egressable(client) -> 
 def test_legacy_current_outcome_without_hash_remains_visible_after_lineage_rollout(client) -> None:
     meeting_id = create_outcome_ready_meeting(client, "legacy-outcome-hash-bind")
     service = _service_module()
-    asyncio.run(_generate_and_accept(client, meeting_id, service))
+    asyncio.run(_generate_and_store(client, meeting_id, service))
 
     async def clear_legacy_hashes() -> None:
         async with client.app_state["sessionmaker"]() as db:
@@ -190,14 +198,17 @@ def test_legacy_current_outcome_without_hash_remains_visible_after_lineage_rollo
             result = await db.scalar(
                 select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
             )
-            assert (
-                meeting is not None
-                and result is not None
-                and meeting.current_outcome_set_id is not None
+            assert meeting is not None and result is not None
+            current_id = await db.scalar(
+                select(MeetingSummarySlot.current_outcome_set_id).where(
+                    MeetingSummarySlot.meeting_id == meeting.id,
+                    MeetingSummarySlot.template_key == "graf-auto-v1",
+                )
             )
+            assert current_id is not None
             outcome = await db.scalar(
                 select(MeetingOutcomeSet).where(
-                    MeetingOutcomeSet.id == meeting.current_outcome_set_id
+                    MeetingOutcomeSet.id == current_id
                 )
             )
             assert outcome is not None
@@ -233,7 +244,7 @@ def test_legacy_current_outcome_without_hash_remains_visible_after_lineage_rollo
 def test_cabinet_embedded_route_renders_stored_outcome_categories(client) -> None:
     meeting_id = create_outcome_ready_meeting(client)
     service = _service_module()
-    asyncio.run(_generate_and_accept(client, meeting_id, service))
+    asyncio.run(_generate_and_store(client, meeting_id, service))
 
     response = client.get(f"/desktop/meetings/{meeting_id}", headers=auth_headers())
 
@@ -377,7 +388,7 @@ def test_cabinet_web_and_embedded_routes_render_matching_outcome_truth(client) -
     ready_id = create_outcome_ready_meeting(client, "cabinet-outcome-parity-ready")
     processing_id = create_outcome_ready_meeting(client, "cabinet-outcome-parity-processing")
     service = _service_module()
-    asyncio.run(_generate_and_accept(client, ready_id, service))
+    asyncio.run(_generate_and_store(client, ready_id, service))
     asyncio.run(
         _seed_outcome_set(
             client, meeting_id=processing_id, status="generating", category_state="processing"
@@ -418,7 +429,7 @@ def test_cabinet_web_and_embedded_routes_render_matching_outcome_truth(client) -
 def test_denied_viewer_cannot_infer_outcome_content_or_existence(client) -> None:
     meeting_id = create_outcome_ready_meeting(client, "cabinet-outcome-denied")
     service = _service_module()
-    asyncio.run(_generate_and_accept(client, meeting_id, service))
+    asyncio.run(_generate_and_store(client, meeting_id, service))
     outcome_text = asyncio.run(_first_outcome_text(client, meeting_id))
     headers = {
         "X-Organization-Id": str(FOREIGN_ORG_ID),

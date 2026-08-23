@@ -122,6 +122,10 @@ async def ensure_outcomes_for_processing_result(
     result: ProcessingResult,
     publish_initial_baseline: bool = False,
 ) -> MeetingOutcomeSet:
+    # Feature 183 keeps generated output internal until the downstream
+    # receipt-backed publisher is available.  The flag remains in the
+    # signature so older workflow callers do not change their call shape.
+    del publish_initial_baseline
     meeting = await lock_meeting_fence(
         db, workspace_id=result.workspace_id, meeting_id=result.meeting_id
     )
@@ -174,7 +178,33 @@ async def ensure_outcomes_for_processing_result(
     existing = await _load_current_outcome_set(
         db, result=result, generator_config_hash=generator_config_hash
     )
-    initial_trusted_baseline = result.media_revision_id is None
+    if existing is None:
+        # A generated revision can be a candidate without being the slot
+        # current. Reuse the exact active deterministic lineage so repeated
+        # processing callbacks do not create another unpublished row.
+        existing = await db.scalar(
+            select(MeetingOutcomeSet)
+            .where(
+                MeetingOutcomeSet.workspace_id == result.workspace_id,
+                MeetingOutcomeSet.meeting_id == result.meeting_id,
+                MeetingOutcomeSet.processing_result_id == result.id,
+                MeetingOutcomeSet.template_key == template_key,
+                MeetingOutcomeSet.template_version == template_version,
+                MeetingOutcomeSet.generator_version == OUTCOME_GENERATOR_VERSION,
+                MeetingOutcomeSet.generator_config_hash == generator_config_hash,
+                MeetingOutcomeSet.candidate_id.is_not(None),
+                MeetingOutcomeSet.revision_state == "candidate",
+                MeetingOutcomeSet.status.in_(
+                    {
+                        OutcomeSetStatus.AVAILABLE.value,
+                        OutcomeSetStatus.PARTIAL.value,
+                        OutcomeSetStatus.GENERATING.value,
+                        OutcomeSetStatus.BLOCKED.value,
+                    }
+                ),
+            )
+            .with_for_update()
+        )
     transcript_is_available = canonical_speech_available(result)
     speaker_revision = await speaker_attribution_revision(
         db,
@@ -197,25 +227,13 @@ async def ensure_outcomes_for_processing_result(
     if existing is not None and should_reuse_outcome_set(
         existing, transcript_is_available=transcript_is_available
     ):
-        await _accept_initial_outcome_set(
-            db,
-            meeting=meeting,
-            outcome_set=existing,
-            publish_initial_baseline=publish_initial_baseline,
-        )
         return existing
     if existing is not None and existing.revision_state in {"accepted", "superseded"}:
         # Accepted history is immutable; a new processing result gets a new set.
         return existing
-    publishable_initial_baseline = (
-        publish_initial_baseline and meeting.current_outcome_set_id is None
-    )
-    automatic_candidate_id = (
-        None if initial_trusted_baseline or publishable_initial_baseline else uuid4()
-    )
+    automatic_candidate_id = uuid4()
     replace_blocked_revision = (
         existing is not None
-        and not initial_trusted_baseline
         and transcript_is_available
         and existing.status == OutcomeSetStatus.BLOCKED.value
     )
@@ -367,15 +385,7 @@ async def ensure_outcomes_for_processing_result(
         return outcome_set
     outcome_set.status = OutcomeSetStatus.AVAILABLE.value
     if outcome_set.revision_state is None:
-        if initial_trusted_baseline or publishable_initial_baseline:
-            # Legacy imports predate immutable media-revision provenance. Keep
-            # their historical auto-publish behavior. A newly imported,
-            # revision-scoped baseline may also publish once when no accepted
-            # outcome exists; later revisions remain candidates.
-            outcome_set.revision_state = "accepted"
-            meeting.current_outcome_set_id = outcome_set.id
-        else:
-            outcome_set.revision_state = "candidate"
+        outcome_set.revision_state = "candidate"
     outcome_set.generated_at = datetime.now(UTC)
     outcome_set.latency_ms = max(
         0, int((outcome_set.generated_at - started_at).total_seconds() * 1000)
@@ -392,11 +402,7 @@ async def ensure_outcomes_for_processing_result(
         media_revision_id=result.media_revision_id,
         processing_result_id=result.id,
         outcome_set_id=outcome_set.id,
-        status=(
-            "candidate"
-            if automatic_candidate_id is not None
-            else OutcomeGenerationAttemptStatus.STORED.value
-        ),
+        status="candidate",
         started_at=started_at,
         ended_at=outcome_set.generated_at,
         latency_ms=outcome_set.latency_ms,
@@ -419,75 +425,8 @@ async def ensure_outcomes_for_processing_result(
             "speaker_attribution_revision": speaker_revision,
         },
     )
-    await _accept_initial_outcome_set(
-        db,
-        meeting=meeting,
-        outcome_set=outcome_set,
-        publish_initial_baseline=publish_initial_baseline,
-    )
     await db.flush()
     return outcome_set
-
-
-async def _accept_initial_outcome_set(
-    db: AsyncSession,
-    *,
-    meeting: Meeting,
-    outcome_set: MeetingOutcomeSet,
-    publish_initial_baseline: bool = False,
-) -> None:
-    if outcome_set.status not in {
-        OutcomeSetStatus.AVAILABLE.value,
-        OutcomeSetStatus.PARTIAL.value,
-    }:
-        return
-    if meeting.deleted_at is not None or meeting.deletion_state not in {None, "none"}:
-        return
-    if meeting.current_outcome_set_id not in {None, outcome_set.id}:
-        return
-    if outcome_set.candidate_id is not None:
-        if not publish_initial_baseline or meeting.current_outcome_set_id is not None:
-            return
-        if (
-            outcome_set.generator_kind != "deterministic_extractive"
-            or outcome_set.requested_by_user_id is not None
-            or outcome_set.revision_state != "candidate"
-        ):
-            return
-        attempt = await db.scalar(
-            select(MeetingOutcomeGenerationAttempt)
-            .where(
-                MeetingOutcomeGenerationAttempt.workspace_id == outcome_set.workspace_id,
-                MeetingOutcomeGenerationAttempt.candidate_id == outcome_set.candidate_id,
-            )
-            .with_for_update()
-        )
-        if (
-            attempt is None
-            or attempt.provider_kind != "deterministic_extractive"
-            or attempt.request_intent != "automatic_baseline"
-            or attempt.requested_by_user_id is not None
-        ):
-            return
-        now = datetime.now(UTC)
-        outcome_set.revision_state = "accepted"
-        outcome_set.expires_at = None
-        outcome_set.accepted_at = outcome_set.accepted_at or now
-        meeting.current_outcome_set_id = outcome_set.id
-        attempt.status = "accepted"
-        attempt.ended_at = attempt.ended_at or now
-        attempt.expires_at = None
-        await db.flush()
-        return
-    if outcome_set.revision_state in {"candidate", "rejected", "stale", "expired"}:
-        return
-    outcome_set.revision_state = "accepted"
-    outcome_set.accepted_at = (
-        outcome_set.accepted_at or outcome_set.generated_at or datetime.now(UTC)
-    )
-    if meeting.current_outcome_set_id is None:
-        meeting.current_outcome_set_id = outcome_set.id
-    await db.flush()
 
 
 def _baseline_idempotency_key(result: ProcessingResult) -> str:

@@ -1341,7 +1341,6 @@
       const listbox = controls.querySelector("[data-summary-format-listbox]");
       const pendingLabel = controls.querySelector("[data-summary-pending-format-label]");
       const status = document.querySelector("[data-summary-candidate-status]");
-      const preview = document.querySelector("[data-summary-candidate-preview]");
       const dialog = document.querySelector("[data-summary-format-dialog]");
       const meetingId = controls.dataset.meetingId || "";
       const candidateStorageKey = `graf-summary-candidate-${meetingId}`;
@@ -1610,148 +1609,9 @@
         }
         return payload;
       };
-      const clearPreview = () => {
-        if (!preview) return;
-        preview.hidden = true;
-        preview.replaceChildren();
-      };
-      const loadPreview = async (candidate, generation = candidateRequestGeneration) => {
-        if (generation !== candidateRequestGeneration) return null;
-        clearPreview();
-        if (candidate.state !== "ready") return null;
-        try {
-          const response = await fetch(
-            `/api/v1/cabinet/meetings/${meetingId}/summary-candidates/${candidate.candidate_id}/preview`,
-            { credentials: "same-origin", cache: "no-store" }
-          );
-          if (!response.ok) return null;
-          const body = await response.json();
-          if (generation !== candidateRequestGeneration) return null;
-          const items = Array.isArray(body.items)
-            ? body.items.filter((item) => item && typeof item === "object").slice(0, 24)
-            : [];
-          return items.length ? items : null;
-        } catch (_error) {
-          return null;
-        }
-      };
-      const resolveCandidate = async (candidate, accept, generation = candidateRequestGeneration) => {
-        if (generation !== candidateRequestGeneration) return;
-        setBusy(true);
-        try {
-          const resolved = await mutate(
-            `/api/v1/cabinet/meetings/${meetingId}/summary-candidates/${candidate.candidate_id}/${accept ? "accept" : "reject"}`,
-            "POST",
-            { expected_current_outcome_set_id: currentOutcomeSetId }
-          );
-          if (generation !== candidateRequestGeneration) return;
-          currentOutcomeSetId = resolved.current_outcome_set_id || currentOutcomeSetId;
-          if (accept) window.location.reload();
-          else {
-            if (status) status.hidden = true;
-            clearPreview();
-          }
-        } catch (error) {
-          if (isMeetingDetailRecoveredError(error)) return;
-          if (generation !== candidateRequestGeneration) return;
-          const code = error instanceof Error ? error.message : "";
-          if (code === "summary_source_revision_stale") clearPreview();
-          showStatus(candidateErrorCopy(code), "failed", [retryCandidateAction(code)]);
-        } finally {
-          if (generation === candidateRequestGeneration) setBusy(false);
-        }
-      };
-      const candidateSections = [
-        ["summary", "Кратко"],
-        ["action_items", "Действия"],
-        ["decisions", "Решения"],
-        ["key_points", "Ключевые пункты"],
-        ["followups", "Следующие шаги"],
-        ["risks", "Риски"],
-        ["questions", "Вопросы"],
-        ["evidence", "Подтверждения"]
-      ];
-      const renderCandidateItem = (item) => {
-        const article = document.createElement("article");
-        article.className = "outcome-item";
-        const text = document.createElement("p");
-        text.className = "outcome-item-text";
-        text.textContent = item.text || "Без текста";
-        article.append(text);
-        const metadata = [
-          ["Ответственный", item.owner_text],
-          ["Срок", item.due_date_text]
-        ].filter(([, value]) => typeof value === "string" && value.trim());
-        if (metadata.length) {
-          const row = document.createElement("div");
-          row.className = "notes-item-meta-row";
-          metadata.forEach(([label, value]) => {
-            const meta = document.createElement("span");
-            meta.className = "notes-item-meta";
-            meta.textContent = `${label}: ${value.trim()}`;
-            row.append(meta);
-          });
-          article.append(row);
-        }
-        const refs = Array.isArray(item.source_refs)
-          ? item.source_refs.filter((ref) => (
-              ref?.seekable && Number.isFinite(Number.parseFloat(ref.start_seconds))
-            ))
-          : [];
-        if (refs.length && document.querySelector("[data-transcript-turn]")) {
-          const sources = document.createElement("div");
-          sources.className = "notes-item-sources";
-          const label = document.createElement("span");
-          label.className = "notes-source-label";
-          label.textContent = "Источник:";
-          sources.append(label);
-          const appendSource = (host, ref) => {
-            const seconds = Number.parseFloat(ref.start_seconds);
-            const source = document.createElement("button");
-            source.type = "button";
-            source.className = "notes-source-link";
-            source.textContent = formatTime(seconds);
-            source.dataset.seekSeconds = String(seconds);
-            source.dataset.sourceSegment = ref.transcript_segment_id || "";
-            source.setAttribute("aria-label", `Открыть источник ${formatTime(seconds)} в расшифровке`);
-            host.append(source);
-          };
-          refs.slice(0, 2).forEach((ref) => appendSource(sources, ref));
-          const overflow = refs.slice(2);
-          if (overflow.length) {
-            const more = document.createElement("details");
-            more.className = "notes-source-more";
-            const summary = document.createElement("summary");
-            summary.textContent = `Ещё ${overflow.length}`;
-            const sourceNoun = overflow.length === 1
-              ? "источник"
-              : overflow.length < 5 ? "источника" : "источников";
-            summary.setAttribute("aria-label", `Показать ещё ${overflow.length} ${sourceNoun}`);
-            more.append(summary);
-            overflow.forEach((ref) => appendSource(more, ref));
-            sources.append(more);
-          }
-          if (sources.childElementCount > 1) article.append(sources);
-        }
-        return article;
-      };
-      const appendCandidateSections = (host, entries) => {
-        entries.forEach(([key, label, items]) => {
-          const section = document.createElement("section");
-          section.className = "summary-candidate-section";
-          const heading = document.createElement("h4");
-          heading.textContent = label;
-          const list = document.createElement("div");
-          list.className = "summary-candidate-items";
-          items.forEach((item) => list.append(renderCandidateItem(item)));
-          section.append(heading, list);
-          host.append(section);
-        });
-      };
       const renderCandidate = (candidate, generation = candidateRequestGeneration) => {
         if (generation !== candidateRequestGeneration) return false;
         if (candidate.state === "generating") {
-          clearPreview();
           if (candidate.reason_code === "temporary_unavailable") {
             window.clearTimeout(pollingTimer);
             pollingTimer = null;
@@ -1784,82 +1644,15 @@
         pollingTimer = null;
         setBusy(false);
         if (pendingLabel) pendingLabel.hidden = true;
-        const renderPreview = () => {
-          if (!preview) return;
-          preview.hidden = false;
-          preview.replaceChildren();
-          preview.setAttribute("aria-label", "Предпросмотр нового варианта итогов");
-          const heading = document.createElement("h3");
-          heading.textContent = "Новый вариант";
-          const source = document.createElement("p");
-          source.className = "summary-candidate-source";
-          const sourceLabel = candidate?.provenance?.source_revision_label
-            ? `Источник: ${candidate.provenance.source_revision_label}`
-            : "Источник: текущая расшифровка";
-          source.textContent = candidate?.provenance?.source_result_id
-            ? sourceLabel
-            : "Источник: подтверждённая расшифровка недоступна";
-          const previewItems = Array.isArray(candidate.preview) ? candidate.preview.slice(0, 24) : [];
-          if (previewItems.length) {
-            const grouped = candidateSections
-              .map(([key, label]) => [
-                key,
-                label,
-                previewItems.filter((item) => item.category === key)
-              ])
-              .filter(([, , items]) => items.length);
-            const primary = grouped.filter(([key]) => ["summary", "action_items", "decisions"].includes(key));
-            const secondary = grouped.filter(([key]) => !["summary", "action_items", "decisions"].includes(key));
-            preview.append(heading, source);
-            appendCandidateSections(preview, primary);
-            if (secondary.length) {
-              const more = document.createElement("details");
-              more.className = "summary-candidate-more";
-              const summary = document.createElement("summary");
-              summary.textContent = `Ещё разделы · ${secondary.length}`;
-              more.append(summary);
-              appendCandidateSections(more, secondary);
-              preview.append(more);
-            }
-          } else {
-            const empty = document.createElement("p");
-            empty.textContent = "Предпросмотр недоступен для этого варианта.";
-            preview.append(heading, source, empty);
-          }
-        };
         if (candidate.state === "ready") {
-          const previewItems = Array.isArray(candidate.preview) ? candidate.preview.slice(0, 24) : [];
-          if (!previewItems.length) {
-            clearPreview();
-            setBusy(true);
-            showStatus(
-              `Вариант «${candidate.format_name || activeTemplate?.name || "итогов"}» готов. Загружаем предпросмотр…`,
-              "generating",
-            );
-            void loadPreview(candidate, generation).then((loadedPreview) => {
-              if (generation !== candidateRequestGeneration) return;
-              setBusy(false);
-              if (!loadedPreview?.length) {
-                showStatus(
-                  "Предпросмотр пока недоступен. Текущие итоги сохранены.",
-                  "failed",
-                  [{ text: "Обновить страницу", action: () => window.location.reload(), primary: true }],
-                );
-                return;
-              }
-              renderCandidate({ ...candidate, preview: loadedPreview }, generation);
-            });
-            return;
-          }
-          showStatus(`Вариант «${candidate.format_name || activeTemplate?.name || "итогов"}» готов. Текущие итоги сохранены.`, "ready", [
-            { text: "Оставить текущие", action: () => resolveCandidate(candidate, false, generation) },
-            { text: "Использовать", action: () => resolveCandidate(candidate, true, generation), primary: true }
-          ]);
-          renderPreview();
+          showStatus(
+            `Вариант «${candidate.format_name || activeTemplate?.name || "итогов"}» подготовлен. Текущие итоги сохранены.`,
+            "ready",
+          );
           return;
         }
         if (candidate.state === "accepted") {
-          window.location.reload();
+          showStatus("Текущие итоги сохранены.", "ready");
           return;
         }
         if (candidate.state === "expired") {
@@ -1919,8 +1712,7 @@
           if (pollAttempts >= 40 || (pollDeadline && Date.now() >= pollDeadline)) {
             setBusy(false);
             showStatus("Генерация занимает больше обычного. Текущие итоги сохранены.", "failed", [
-              { text: "Проверить снова", action: () => resumeCandidatePolling(candidate, generation), primary: true },
-              { text: "Оставить текущие", action: () => { if (status) status.hidden = true; } }
+              { text: "Проверить снова", action: () => resumeCandidatePolling(candidate, generation), primary: true }
             ]);
           }
           return;
@@ -1985,9 +1777,7 @@
               ? "Не удалось обновить новый вариант. Текущие итоги сохранены."
               : candidateErrorCopy(code),
             "failed",
-            [retry, ...(transientPollFailure
-              ? [{ text: "Оставить текущие", action: () => { if (status) status.hidden = true; } }]
-              : [])]
+            [retry]
           );
         }
       };
@@ -2315,16 +2105,10 @@
       }).then((response) => response.ok ? response.json() : null).then((payload) => {
         if (initialCandidateLoadGeneration !== candidateRequestGeneration) return;
         const candidates = Array.isArray(payload) ? payload : (Array.isArray(payload?.candidates) ? payload.candidates : []);
-        const acceptedIndex = candidates.findIndex((candidate) => (
-          candidate.state === "accepted"
-          && candidate.outcome_set_id
-          && candidate.outcome_set_id === candidate.current_outcome_set_id
-        ));
-        const current = candidates.find((candidate, index) => [
+        const current = candidates.find((candidate) => [
           "generating", "ready", "blocked"
         ].includes(candidate.state) || (
           ["failed", "stale", "expired"].includes(candidate.state)
-          && (acceptedIndex < 0 || index < acceptedIndex)
         ));
         if (current) {
           window.clearTimeout(pollingTimer);

@@ -174,7 +174,7 @@ def test_first_baseline_outcome_remains_an_unpublished_candidate(client) -> None
     assert repaired == expected
 
 
-def test_trusted_reconcile_promotes_only_the_initial_baseline(client) -> None:
+def test_trusted_reconcile_cannot_promote_the_initial_baseline(client) -> None:
     meeting_id = create_outcome_ready_meeting(client, "trusted-baseline-reconcile")
     service = _service_module()
 
@@ -190,11 +190,6 @@ def test_trusted_reconcile_promotes_only_the_initial_baseline(client) -> None:
             assert meeting.current_outcome_set_id is None
             assert candidate.revision_state == "candidate"
 
-            promoted = await service.ensure_outcomes_for_processing_result(
-                db,
-                result=result,
-                publish_initial_baseline=True,
-            )
             repeated = await service.ensure_outcomes_for_processing_result(
                 db,
                 result=result,
@@ -215,18 +210,16 @@ def test_trusted_reconcile_promotes_only_the_initial_baseline(client) -> None:
             await db.commit()
             return (
                 candidate.id,
-                promoted.id,
                 repeated.id,
                 meeting.current_outcome_set_id,
-                promoted.revision_state,
-                promoted.accepted_at is not None,
+                repeated.revision_state,
+                repeated.accepted_at is not None,
                 [attempt.status for attempt in attempts],
                 len(sets),
             )
 
     (
         candidate_id,
-        promoted_id,
         repeated_id,
         current_id,
         revision_state,
@@ -234,10 +227,11 @@ def test_trusted_reconcile_promotes_only_the_initial_baseline(client) -> None:
         attempt_statuses,
         set_count,
     ) = asyncio.run(reconcile())
-    assert candidate_id == promoted_id == repeated_id == current_id
-    assert revision_state == "accepted"
-    assert accepted is True
-    assert attempt_statuses == ["accepted"]
+    assert candidate_id == repeated_id
+    assert current_id is None
+    assert revision_state == "candidate"
+    assert accepted is False
+    assert attempt_statuses == ["candidate"]
     assert set_count == 1
 
 
@@ -318,7 +312,8 @@ def test_automatic_candidate_uses_exact_workspace_builtin_default_once(client) -
         intent_count,
         intent_state,
     ) = asyncio.run(create_twice())
-    assert baseline_id == current_before == current_after
+    assert current_before is None
+    assert current_after is None
     assert first_candidate == second_candidate
     assert (template_key, template_version) == ("graf-meeting-minutes-v1", 1)
     assert requested_by == USER_ID
@@ -327,7 +322,7 @@ def test_automatic_candidate_uses_exact_workspace_builtin_default_once(client) -
     assert intent_state == "created"
 
 
-def test_automatic_replay_stays_one_shot_after_manual_supersession(client) -> None:
+def test_automatic_replay_replaces_an_attempt_not_current_in_its_slot(client) -> None:
     meeting_id = create_outcome_ready_meeting(client, "automatic-summary-replay")
 
     async def replay_after_supersession() -> tuple:
@@ -365,7 +360,8 @@ def test_automatic_replay_stays_one_shot_after_manual_supersession(client) -> No
             await db.flush()
             first.status = "accepted"
             first.outcome_set_id = generated.id
-            meeting.current_outcome_set_id = replacement.id
+            # The legacy global pointer is deliberately not part of the
+            # replay decision; the target slot remains the source of truth.
             db.add(
                 ProcessingAuditEvent(
                     workspace_id=meeting.workspace_id,
@@ -396,8 +392,8 @@ def test_automatic_replay_stays_one_shot_after_manual_supersession(client) -> No
             return first.candidate_id, replay.candidate_id, int(attempts or 0), int(intents or 0)
 
     first_id, replay_id, attempt_count, intent_count = asyncio.run(replay_after_supersession())
-    assert replay_id == first_id
-    assert attempt_count == intent_count == 1
+    assert replay_id != first_id
+    assert attempt_count == intent_count == 2
 
 
 def test_automatic_candidate_skips_invalid_policy_and_deleting_meeting(client) -> None:
