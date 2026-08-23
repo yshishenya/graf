@@ -26,6 +26,40 @@
 ### Операции
 - _Пока нет записей._
 
+## [2026.08.23.10] - 2026-08-23
+
+
+### Добавлено
+- На чистой установке обнаружение встреч включается автоматически после первого
+  валидного реестра, а все проверенные native-приложения выбираются для
+  target-scoped автозаписи.
+- Для каждого workspace добавлена явная global-scope assisted auto-start policy
+  с отдельным операторским approval-флагом и opaque policy references.
+
+### Изменено
+- Первый prompt показывается сразу без отдельного pre-consent окна. Без
+  acknowledgement он остаётся ручным: «Записать сейчас» запускает только
+  текущую запись, а timeout и сохранённый auto-start блокируются.
+- Legacy settings без marker считаются пользовательскими и не перезаписываются;
+  явное «Всегда писать это приложение» сохраняет acknowledgement только после
+  успешной atomic-записи.
+
+### Исправлено
+- Убрана зависимость prompt от случайно выбранного workspace: глобальная policy
+  не смешивает workspace ID, а subject/device bindings остаются tenant-bound.
+
+### Безопасность
+- Global scope fail-closed без approval или при неоднозначной конфигурации;
+  production enablement и внешний notice rollout не включаются этим срезом.
+
+### Документы
+- Добавлены Spec Kit-артефакты Feature 194 и metadata-only validation evidence.
+
+### Операции
+- Full CI, production deploy, Sparkle publication и обновление установленного
+  `/Applications/GRAF.app` выполняются отдельными release-gates; их evidence
+  фиксируется в release/deployment receipt.
+
 ## [2026.08.23.9] - 2026-08-23
 
 

@@ -2,6 +2,28 @@
 
 Date: 2026-08-23
 
+## Implementation update (2026-08-23) — Feature 194 global defaults and prompt-first install
+
+- Server assisted auto-start получил явный `all_workspaces` scope. Global policy
+  публикуется только при включённых `TWOBRAIN_ASSISTED_AUTO_START_ALL_WORKSPACES`
+  и отдельном approval-флаге; workspace ID при этом запрещён. `policyRef`
+  стабилен для global scope/version, а user/workspace/device references остаются
+  opaque и tenant-bound.
+- На чистой установке после первого валидного registry detection включается в
+  `detect_and_ask`, а все verified native prompt-capable targets выбираются
+  один раз. Существующий settings file и legacy JSON без marker не изменяются.
+- Первая встреча показывает обычный prompt без отдельного pre-consent окна.
+  Пока нет актуального acknowledgement, «Записать сейчас» запускает только
+  текущую запись как явное действие; timeout и saved-target auto-start остаются
+  заблокированы. «Всегда писать это приложение» сохраняет acknowledgement только
+  после успешной atomic-записи.
+- Проверены server config (`71 passed`), PostgreSQL-backed meeting-detection
+  contracts (`6 passed`), Swift shared suite (`752 passed`), focused capture
+  (`43 passed`), policy (`34 passed`) и registry (`15 passed`), Ruff,
+  ContractValidation, Compose config и отдельная подписанная `GRAF Dev.app`.
+  Production policy, deploy, Sparkle publication и `/Applications/GRAF.app` не
+  изменялись.
+
 ## Implementation update (2026-08-23) — Feature 193 automatic recording reliability
 
 - Локальная реализация устраняет несколько независимых причин непостоянного

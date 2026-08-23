@@ -880,6 +880,24 @@ private struct ContentView: View {
             throw MeetingTargetRegistryError.noUsableRegistry
         }
         meetingDetectionRegistry = resolution.document
+        let defaultTargetIDs = Set(
+            resolution.document.targets
+                .filter(\.isVerifiedNativePromptTarget)
+                .map(\.id)
+        )
+        if let updatedSettings = try meetingDetectionSettingsStore.applyFirstInstallDefaults(
+            targetIDs: defaultTargetIDs
+        ) {
+            meetingDetectionSettings = updatedSettings
+            NotificationCenter.default.post(
+                name: .twoBrainRecMeetingDetectionSettingsDidChange,
+                object: nil
+            )
+            AppLog.writeRaw(
+                event: "meeting_detection.first_install_defaults_applied",
+                detail: "targetCount=\(defaultTargetIDs.count)"
+            )
+        }
         AppLog.writeRaw(
             event: "meeting_detection.registry_resolved",
             detail: "version=\(resolution.document.registryVersion) source=\(resolution.source.rawValue)"
@@ -1051,7 +1069,8 @@ private struct ContentView: View {
             event: event,
             registry: registry,
             settings: meetingDetectionSettings,
-            prerequisites: meetingDetectionPrerequisites()
+            prerequisites: meetingDetectionPrerequisites(),
+            assistedAutoStartAuthorized: meetingDetectionWorkspacePolicyAllowsRecording
         )
         processMeetingDetectionOutputs(outputs, registry: registry)
         await advanceMeetingDetection(reason: "mic_event")
@@ -1063,7 +1082,8 @@ private struct ContentView: View {
         let outputs = meetingDetectionDetector.advance(
             registry: registry,
             settings: meetingDetectionSettings,
-            prerequisites: meetingDetectionPrerequisites()
+            prerequisites: meetingDetectionPrerequisites(),
+            assistedAutoStartAuthorized: meetingDetectionWorkspacePolicyAllowsRecording
         )
         processMeetingDetectionOutputs(outputs, registry: registry)
     }
@@ -1102,7 +1122,8 @@ private struct ContentView: View {
                     captureMode: "Режим: аудиозапись встречи",
                     captureSources: "Источники: системный звук и микрофон",
                     workspacePolicyState: meetingDetectionPolicyStateText(for: prerequisites),
-                    detectorReason: "Сигнал: приложение использует аудио встречи"
+                    detectorReason: "Сигнал: приложение использует аудио встречи",
+                    allowsAutomaticStart: meetingDetectionWorkspacePolicyAllowsRecording
                 )
                 meetingDetectionPrompt = prompt
                 presentMeetingDetectionPrompt(prompt)
@@ -1269,7 +1290,9 @@ private struct ContentView: View {
     }
 
     @MainActor
-    private func meetingDetectionPrerequisites() -> MeetingDetectionCapturePrerequisites {
+    private func meetingDetectionPrerequisites(
+        requiresAssistedAuthorization: Bool = false
+    ) -> MeetingDetectionCapturePrerequisites {
         let currentMicrophone = microphoneCaptureService.preflight(sessionId: "meeting-detection-preflight")
         let currentSystemAudio = effectiveSystemAudioPermissionState(
             systemAudioPermissionAuthorizer.currentPermissionState()
@@ -1280,7 +1303,7 @@ private struct ContentView: View {
         )
         let prerequisite = evaluatedMeetingDetectionRecordingPrerequisite(
             permissions: permissionGate.snapshot,
-            requiresAssistedAuthorization: true
+            requiresAssistedAuthorization: requiresAssistedAuthorization
         )
         return MeetingDetectionCapturePrerequisites(
             recordingAlreadyActive: calendarPromptRecordingIsActive,
@@ -1304,16 +1327,25 @@ private struct ContentView: View {
     }
 
     @MainActor
-    private var meetingDetectionWorkspacePolicyAllowsRecording: Bool {
+    private var meetingDetectionWorkspacePolicyAvailable: Bool {
         guard !meetingDetectionRegistryRequiresRemoteRefresh,
               !meetingDetectionRegistryAuthRejected,
-              DesktopUploadClient.configuredFromEnvironment()?.hasCurrentAuthentication == true
+              DesktopUploadClient.configuredFromEnvironment()?.hasCurrentAuthentication == true,
+              let policy = meetingDetectionRegistry?.assistedAutoStartPolicy
         else {
             return false
         }
-        return meetingDetectionSettings.allowsAssistedAutoStart(
-            policy: meetingDetectionRegistry?.assistedAutoStartPolicy
-        )
+        return policy.isActive()
+    }
+
+    @MainActor
+    private var meetingDetectionWorkspacePolicyAllowsRecording: Bool {
+        guard meetingDetectionWorkspacePolicyAvailable,
+              let policy = meetingDetectionRegistry?.assistedAutoStartPolicy
+        else {
+            return false
+        }
+        return meetingDetectionSettings.allowsAssistedAutoStart(policy: policy)
     }
 
     @MainActor
@@ -1351,6 +1383,9 @@ private struct ContentView: View {
     private func meetingDetectionPolicyStateText(
         for prerequisites: MeetingDetectionCapturePrerequisites
     ) -> String {
+        guard meetingDetectionWorkspacePolicyAvailable else {
+            return "Политика: автоматический старт недоступен; кнопка записи остаётся ручной"
+        }
         guard meetingDetectionWorkspacePolicyAllowsRecording else {
             return "Политика: автоматический старт требует подтверждения"
         }
@@ -1404,8 +1439,8 @@ private struct ContentView: View {
                         reason: reason
                     )
                 },
-                onDismiss: {
-                    skipMeetingDetectionPrompt(prompt)
+                onDismiss: { reason in
+                    dismissMeetingDetectionPrompt(prompt, reason: reason)
                 }
             )
             .frame(width: promptWindowSize.width, height: promptWindowSize.height)
@@ -1446,10 +1481,13 @@ private struct ContentView: View {
     }
 
     @MainActor
-    private func skipMeetingDetectionPrompt(_ prompt: MeetingDetectionPrompt) {
+    private func dismissMeetingDetectionPrompt(
+        _ prompt: MeetingDetectionPrompt,
+        reason: MeetingDetectionPromptDismissReason = .userSkipped
+    ) {
         recordMeetingDetectionConsumerOutcome(
             bundleID: prompt.bundleID,
-            outcome: .terminal(reason: "user_skipped")
+            outcome: .terminal(reason: reason.rawValue)
         )
         dismissMeetingDetectionPrompt()
     }
@@ -1518,9 +1556,23 @@ private struct ContentView: View {
             detail: "targetId=\(prompt.targetID) bundleID=\(prompt.bundleID) autoRecordOptIn=\(autoRecordOptIn) reason=\(reason.rawValue)"
         )
         if autoRecordOptIn {
+            let previousSettings = meetingDetectionSettings
             meetingDetectionSettings.targetScopedAutoRecordEnabled = true
             meetingDetectionSettings.autoRecordTargetIds.insert(prompt.targetID)
-            saveMeetingDetectionSettings()
+            if let policy = meetingDetectionRegistry?.assistedAutoStartPolicy,
+               policy.isActive() {
+                meetingDetectionSettings.assistedAutoStartAcknowledgement = AssistedAutoStartAcknowledgement(
+                    policyRef: policy.policyRef,
+                    subjectRef: policy.acknowledgementSubjectRef,
+                    deviceRef: policy.deviceRef,
+                    acknowledgementVersion: policy.acknowledgementVersion
+                )
+            }
+            if !saveMeetingDetectionSettings() {
+                // Do not let an acknowledgement that never reached disk
+                // authorize a later automatic start in this process.
+                meetingDetectionSettings = previousSettings
+            }
         }
         dismissMeetingDetectionPrompt()
         Task {
@@ -1551,7 +1603,8 @@ private struct ContentView: View {
         displayName: String,
         reason: MeetingDetectionStartReason
     ) -> MeetingDetectionRecordingTarget? {
-        guard meetingDetectionWorkspacePolicyAllowsRecording,
+        let policyAllowsCurrentStart = reason == .promptButton || meetingDetectionWorkspacePolicyAllowsRecording
+        guard policyAllowsCurrentStart,
               meetingDetectionSettings.allowsDetectorAssistedStart(reason: reason, targetID: targetID),
               meetingDetectionDetector.isActive(bundleID: bundleID),
               let registry = meetingDetectionRegistry,
@@ -1561,12 +1614,16 @@ private struct ContentView: View {
         else {
             return nil
         }
-        guard let policy = registry.assistedAutoStartPolicy,
-              policy.isActive(),
-              let acknowledgement = meetingDetectionSettings.assistedAutoStartAcknowledgement,
-              acknowledgement.matches(policy)
-        else {
-            return nil
+        let policy = registry.assistedAutoStartPolicy
+        let acknowledgement = meetingDetectionSettings.assistedAutoStartAcknowledgement
+        if reason.isAutomatic {
+            guard let policy,
+                  policy.isActive(),
+                  let acknowledgement,
+                  acknowledgement.matches(policy)
+            else {
+                return nil
+            }
         }
         let authorization: (AssistedAutoStartPolicySnapshot?, AssistedAutoStartAcknowledgement?)
         if reason.isAutomatic {
@@ -1595,12 +1652,15 @@ private struct ContentView: View {
     }
 
     @MainActor
-    private func saveMeetingDetectionSettings() {
+    @discardableResult
+    private func saveMeetingDetectionSettings() -> Bool {
         do {
             try meetingDetectionSettingsStore.save(meetingDetectionSettings)
             NotificationCenter.default.post(name: .twoBrainRecMeetingDetectionSettingsDidChange, object: nil)
+            return true
         } catch {
             AppLog.writeRaw(event: "meeting_detection.settings_save_failed", detail: "error=settings_unavailable")
+            return false
         }
     }
 
@@ -2629,6 +2689,7 @@ private struct MeetingDetectionPrompt: Identifiable, Equatable {
     let captureSources: String
     let workspacePolicyState: String
     let detectorReason: String
+    let allowsAutomaticStart: Bool
 
     init(
         targetID: String,
@@ -2637,7 +2698,8 @@ private struct MeetingDetectionPrompt: Identifiable, Equatable {
         captureMode: String,
         captureSources: String,
         workspacePolicyState: String,
-        detectorReason: String
+        detectorReason: String,
+        allowsAutomaticStart: Bool
     ) {
         self.targetID = targetID
         self.bundleID = bundleID
@@ -2646,8 +2708,14 @@ private struct MeetingDetectionPrompt: Identifiable, Equatable {
         self.captureSources = captureSources
         self.workspacePolicyState = workspacePolicyState
         self.detectorReason = detectorReason
+        self.allowsAutomaticStart = allowsAutomaticStart
         id = "\(targetID):\(bundleID)"
     }
+}
+
+private enum MeetingDetectionPromptDismissReason: String, Sendable {
+    case userSkipped = "user_skipped"
+    case timeoutWithoutAuthorization = "timeout_without_authorization"
 }
 
 private struct MeetingDetectionPromptView: View {
@@ -2656,7 +2724,7 @@ private struct MeetingDetectionPromptView: View {
     let prompt: MeetingDetectionPrompt
     let isStartDisabled: Bool
     let onStart: (Bool, MeetingDetectionStartReason) -> Void
-    let onDismiss: () -> Void
+    let onDismiss: (MeetingDetectionPromptDismissReason) -> Void
 
     @State private var autoRecordOptIn = false
     @State private var appearedAt = Date()
@@ -2675,7 +2743,11 @@ private struct MeetingDetectionPromptView: View {
                         .font(.headline)
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
-                    Text("Началась встреча. Запись стартует автоматически.")
+                    Text(
+                        prompt.allowsAutomaticStart
+                            ? "Началась встреча. Запись стартует автоматически."
+                            : "Началась встреча. Выберите, записать её сейчас или пропустить."
+                    )
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
@@ -2705,7 +2777,7 @@ private struct MeetingDetectionPromptView: View {
                 }
 
                 Button("Пропустить") {
-                    resolveDismiss()
+                    resolveDismiss(reason: .userSkipped)
                 }
                 .buttonStyle(.plain)
                 .keyboardShortcut(.cancelAction)
@@ -2732,7 +2804,11 @@ private struct MeetingDetectionPromptView: View {
                 }
                 await MainActor.run {
                     guard !Task.isCancelled else { return }
-                    resolveStart(reason: .promptTimeout)
+                    if prompt.allowsAutomaticStart {
+                        resolveStart(reason: .promptTimeout)
+                    } else {
+                        resolveDismiss(reason: .timeoutWithoutAuthorization)
+                    }
                 }
             }
         }
@@ -2761,7 +2837,9 @@ private struct MeetingDetectionPromptView: View {
                     Text(
                         isStartDisabled
                             ? "Запись пока недоступна"
-                            : "Записать сейчас · \(remainingSeconds) с"
+                            : (prompt.allowsAutomaticStart
+                                ? "Записать сейчас · \(remainingSeconds) с"
+                                : "Записать сейчас")
                     )
                         .font(.callout)
                         .fontWeight(.semibold)
@@ -2779,8 +2857,10 @@ private struct MeetingDetectionPromptView: View {
         .accessibilityLabel("Записать сейчас")
         .accessibilityValue(
             isStartDisabled
-                ? "Автоматический старт недоступен"
-                : "Запись начнётся автоматически через \(remainingSeconds) секунд"
+                ? "Запись пока недоступна"
+                : (prompt.allowsAutomaticStart
+                    ? "Запись начнётся автоматически через \(remainingSeconds) секунд"
+                    : "Нажмите, чтобы начать запись сейчас")
         )
     }
 
@@ -2800,10 +2880,10 @@ private struct MeetingDetectionPromptView: View {
         onStart(autoRecordOptIn, resolvedReason)
     }
 
-    private func resolveDismiss() {
+    private func resolveDismiss(reason: MeetingDetectionPromptDismissReason) {
         guard countdown.cancel() else { return }
         autoStartTask?.cancel()
-        onDismiss()
+        onDismiss(reason)
     }
 }
 

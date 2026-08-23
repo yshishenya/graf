@@ -6,6 +6,59 @@ import TwoBrainRecShared
 import XCTest
 
 final class MeetingDetectionPolicyTests: XCTestCase {
+    func testFreshInstallDefaultsApplyOnlyOnceAndNeverOverwriteAnExplicitFile() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("meeting-settings-defaults-\(UUID().uuidString)", isDirectory: true)
+        let url = root.appendingPathComponent("settings.json")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = MeetingDetectionSettingsStore(settingsURL: url)
+
+        let applied = try XCTUnwrap(
+            store.applyFirstInstallDefaults(targetIDs: ["zoom", "yandex_telemost"])
+        )
+        XCTAssertEqual(applied.detectionMode, .detectAndAsk)
+        XCTAssertTrue(applied.targetScopedAutoRecordEnabled)
+        XCTAssertEqual(applied.autoRecordTargetIds, ["zoom", "yandex_telemost"])
+        XCTAssertTrue(applied.automaticRecordingDefaultsApplied)
+        XCTAssertNil(applied.assistedAutoStartAcknowledgement)
+        XCTAssertNil(try store.applyFirstInstallDefaults(targetIDs: ["teams"])
+        )
+
+        var edited = try store.load()
+        edited.detectionMode = .detectOnly
+        edited.autoRecordTargetIds = ["zoom"]
+        edited.targetScopedAutoRecordEnabled = true
+        try store.save(edited)
+        XCTAssertNil(try store.applyFirstInstallDefaults(targetIDs: ["teams"]))
+        XCTAssertEqual(try store.load().autoRecordTargetIds, ["zoom"])
+    }
+
+    func testExistingSettingsWithoutDefaultsMarkerRemainUserControlled() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("meeting-settings-legacy-\(UUID().uuidString)", isDirectory: true)
+        let url = root.appendingPathComponent("settings.json")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data(
+            """
+            {
+              "detectionMode": "detect_only",
+              "uploadMode": "automatic_candidate_upload",
+              "unknownIdentityUploadAllowed": true,
+              "targetScopedAutoRecordEnabled": false,
+              "autoRecordTargetIds": []
+            }
+            """.utf8
+        ).write(to: url)
+        let store = MeetingDetectionSettingsStore(settingsURL: url)
+
+        let loaded = try store.load()
+        XCTAssertTrue(loaded.automaticRecordingDefaultsApplied)
+        XCTAssertNil(try store.applyFirstInstallDefaults(targetIDs: ["zoom"]))
+        XCTAssertEqual(try store.load().detectionMode, .detectOnly)
+        XCTAssertTrue(try store.load().autoRecordTargetIds.isEmpty)
+    }
+
     func testLegacySettingsKeepTargetSelectionButRequireNewAcknowledgement() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("meeting-settings-\(UUID().uuidString)", isDirectory: true)
@@ -28,6 +81,7 @@ final class MeetingDetectionPolicyTests: XCTestCase {
         var loaded = try store.load()
         XCTAssertEqual(loaded.autoRecordTargetIds, ["zoom"])
         XCTAssertNil(loaded.assistedAutoStartAcknowledgement)
+        XCTAssertTrue(loaded.automaticRecordingDefaultsApplied)
 
         loaded.assistedAutoStartAcknowledgement = AssistedAutoStartAcknowledgement(
             policyRef: "sha256:" + String(repeating: "a", count: 64),
@@ -134,12 +188,32 @@ final class MeetingDetectionPolicyTests: XCTestCase {
             settings: MeetingDetectionSettingsSnapshot(
                 detectionMode: .detectAndAsk,
                 targetScopedAutoRecordEnabled: true,
-                autoRecordTargetIds: ["yandex_telemost"]
+                autoRecordTargetIds: ["yandex_telemost"],
+                assistedAutoStartAuthorized: true
             ),
             prerequisites: MeetingDetectionCapturePrerequisites()
         )
 
         XCTAssertEqual(action, .autoRecord(targetID: "yandex_telemost"))
+    }
+
+    func testSelectedTargetWithoutAcknowledgementStillProducesPrompt() {
+        let decision = MeetingDetectionCandidateDecision(
+            kind: .knownTarget(targetID: "yandex_telemost", mode: .promptEnabled),
+            candidateScore: 0
+        )
+        let action = MeetingDetectionPolicy().action(
+            for: decision,
+            settings: MeetingDetectionSettingsSnapshot(
+                detectionMode: .detectAndAsk,
+                targetScopedAutoRecordEnabled: true,
+                autoRecordTargetIds: ["yandex_telemost"],
+                assistedAutoStartAuthorized: false
+            ),
+            prerequisites: MeetingDetectionCapturePrerequisites()
+        )
+
+        XCTAssertEqual(action, .prompt(targetID: "yandex_telemost"))
     }
 
     func testTargetScopedAutoRecordStillPromptsWhenTargetIsUnchecked() {
@@ -813,7 +887,8 @@ final class MeetingDetectionPolicyTests: XCTestCase {
                 now: Date(timeIntervalSince1970: 102),
                 registry: registry,
                 settings: settings,
-                prerequisites: blocked
+                prerequisites: blocked,
+                assistedAutoStartAuthorized: true
             ),
             [.suppressed(bundleID: bundleID, reason: RecordingStartBlocker.policyDisabled.rawValue)]
         )
@@ -827,14 +902,16 @@ final class MeetingDetectionPolicyTests: XCTestCase {
             detector.advance(
                 now: Date(timeIntervalSince1970: 103),
                 registry: registry,
-                settings: settings
+                settings: settings,
+                assistedAutoStartAuthorized: true
             ).isEmpty
         )
         XCTAssertEqual(
             detector.advance(
                 now: Date(timeIntervalSince1970: 104),
                 registry: registry,
-                settings: settings
+                settings: settings,
+                assistedAutoStartAuthorized: true
             ),
             [.autoRecordEligible(targetID: "yandex_telemost", bundleID: bundleID)]
         )
@@ -891,13 +968,19 @@ final class MeetingDetectionPolicyTests: XCTestCase {
             observedAt: Date(timeIntervalSince1970: 100)
         )
 
-        _ = detector.handle(event: event, registry: registry, settings: settings)
+        _ = detector.handle(
+            event: event,
+            registry: registry,
+            settings: settings,
+            assistedAutoStartAuthorized: true
+        )
 
         XCTAssertEqual(
             detector.advance(
                 now: Date(timeIntervalSince1970: 106),
                 registry: registry,
-                settings: settings
+                settings: settings,
+                assistedAutoStartAuthorized: true
             ),
             [.autoRecordEligible(targetID: "yandex_telemost", bundleID: "ru.yandex.desktop.telemost")]
         )
@@ -905,8 +988,39 @@ final class MeetingDetectionPolicyTests: XCTestCase {
             detector.advance(
                 now: Date(timeIntervalSince1970: 107),
                 registry: registry,
-                settings: settings
+                settings: settings,
+                assistedAutoStartAuthorized: true
             ).isEmpty
+        )
+    }
+
+    func testDetectorSelectedTargetWithoutAcknowledgementEmitsPromptInsteadOfAutoRecord() throws {
+        let registry = try MeetingDetectionPolicyTests.registry()
+        let detector = MacOSMeetingActivityDetector(debounceSeconds: 1)
+        let settings = MeetingDetectionSettings(
+            detectionMode: .detectAndAsk,
+            targetScopedAutoRecordEnabled: true,
+            autoRecordTargetIds: ["yandex_telemost"]
+        )
+        _ = detector.handle(
+            event: MacOSAudioOwnershipEvent(
+                bundleID: "ru.yandex.desktop.telemost",
+                state: .active,
+                observedAt: Date(timeIntervalSince1970: 100)
+            ),
+            registry: registry,
+            settings: settings,
+            assistedAutoStartAuthorized: false
+        )
+
+        XCTAssertEqual(
+            detector.advance(
+                now: Date(timeIntervalSince1970: 102),
+                registry: registry,
+                settings: settings,
+                assistedAutoStartAuthorized: false
+            ),
+            [.promptEligible(targetID: "yandex_telemost", bundleID: "ru.yandex.desktop.telemost")]
         )
     }
 

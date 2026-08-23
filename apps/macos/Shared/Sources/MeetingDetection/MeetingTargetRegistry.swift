@@ -112,6 +112,7 @@ public enum MeetingTargetRegistryValidator {
         try document.nonTargetRules.forEach(validate(rule:))
         if let policy = document.assistedAutoStartPolicy {
             guard policy.enabled,
+                  policy.scope == .workspace || policy.scope == .allWorkspaces,
                   policy.policyRef.range(of: #"^sha256:[0-9a-f]{64}$"#, options: .regularExpression) != nil,
                   policy.acknowledgementSubjectRef.range(of: #"^sha256:[0-9a-f]{64}$"#, options: .regularExpression) != nil,
                   policy.deviceRef.range(of: #"^sha256:[0-9a-f]{64}$"#, options: .regularExpression) != nil,
