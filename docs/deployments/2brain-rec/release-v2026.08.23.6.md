@@ -61,7 +61,9 @@ Receipt содержит только агрегированные технич�
 - `/api/v1/health/live` вернул `ok`, `/api/v1/health/ready` — `ready`.
 - API, processing worker, media worker, Temporal, Postgres и MinIO находятся в
   рабочем состоянии; production synthetic smoke и его очистка прошли.
-- Runtime `master`, tag и GitHub Release указывают на один release SHA.
+- Production была развернута из `master` на release SHA; tag и GitHub Release
+  остаются на этом SHA. Последующий metadata-only closeout merge не меняет
+  production runtime.
 - Rollback не потребовался; предыдущий appcast сохранён как операторский
   rollback reference. Для клиентов, уже установивших новую версию, откат
   выполняется только новым выпуском вперёд.
