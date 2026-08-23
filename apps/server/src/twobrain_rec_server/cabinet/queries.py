@@ -784,11 +784,12 @@ def _meeting_visible_row_search_expression(*, time_basis: MeetingListTimeBasis):
             )
         ),
     )
+    upload_fallback = and_(Meeting.started_at.is_(None), manual_upload)
     timestamp_value = (
         Meeting.updated_at
         if time_basis == "updated"
         else case(
-            (and_(Meeting.started_at.is_(None), manual_upload), Meeting.created_at),
+            (upload_fallback, Meeting.created_at),
             else_=Meeting.started_at,
         )
     )
@@ -831,11 +832,15 @@ def _meeting_visible_row_search_expression(*, time_basis: MeetingListTimeBasis):
         ],
         else_=literal(""),
     )
-    date_prefix = "Обновлено " if time_basis == "updated" else ""
+    date_prefix = (
+        literal("Обновлено ")
+        if time_basis == "updated"
+        else case((upload_fallback, literal("Загружено ")), else_=literal(""))
+    )
     time_label = case(
         (timestamp_value.is_(None), literal("Без даты")),
         else_=func.concat(
-            literal(date_prefix),
+            date_prefix,
             cast(cast(func.extract("day", localized_timestamp), Integer), String),
             literal(" "),
             month_label,

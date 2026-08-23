@@ -3381,6 +3381,8 @@ def test_feature_191_centralizes_interaction_tokens_and_compact_upload_contract(
 
     for token in [
         "--accent-hover:",
+        "--accent-solid: #6347d9;",
+        "--accent-foreground: #fff;",
         "--sidebar-accent: #8c73ff;",
         "--sidebar-focus-ring: #b6aaff;",
         "--accent-soft:",
@@ -3409,7 +3411,10 @@ def test_feature_191_centralizes_interaction_tokens_and_compact_upload_contract(
     assert "accent-color: var(--accent);" in css
     assert "--accent: var(--sidebar-accent);" in css
     assert "--focus-ring: var(--sidebar-focus-ring);" in css
-    assert ".primary { background: var(--accent); border-color: var(--accent);" in css
+    assert (
+        ".primary { background: var(--accent-solid); border-color: var(--accent-solid); "
+        "color: var(--accent-foreground);"
+    ) in css
     assert "var(--blue)" not in css
     for product_blue in [
         "#2f91ff",

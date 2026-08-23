@@ -32,7 +32,7 @@ Expose the existing server receipt timestamp as `uploaded_at`, use it only as th
 
 ## Constitution Check
 
-- **UX and reference use**: PASS WITH RECORDED PRODUCT DECISION. KRISP may be used as a direct UX/UI reference for effective patterns; implementation keeps GRAF violet tokens, assets, and Russian copy. The parallel constitution rewrite is outside this branch.
+- **UX and brand distance**: PASS. Public usability principles inform behavior, while the implementation uses original GRAF layout, components, violet tokens, assets, and Russian copy. Clean-room and brand-distance review is recorded before merge.
 - **Upload and server boundary**: PASS. No endpoint, credential, object-storage, or MediaScribe boundary changes.
 - **Accessibility**: PASS. Existing live regions, progressbar semantics, focus handling, reduced-motion, and forced-colors behavior remain required.
 - **Deletion/storage truth**: PASS. The date is metadata only and does not change retention or deletion behavior.
@@ -44,7 +44,7 @@ Expose the existing server receipt timestamp as `uploaded_at`, use it only as th
 3. Run focused pytest targets for view models, cabinet list, web shell, and static assets.
 4. Run `infra/scripts/ci-local.sh --fast` if the environment supports the repository gate.
 5. Run the local cabinet flow in the in-app Browser; inspect main, upload dialog, upload/processing evidence, Settings overview/detail, desktop/375px reflow, DOM state, interaction, and console health.
-6. Compare upload, account, notifications, and calendar screens with the captured KRISP references; verify switch geometry, theme segments, divider rhythm, tooltip hover/focus, and critical-copy visibility in light and dark themes.
+6. Compare upload, account, notifications, and calendar screens with the measurable GRAF density and accessibility contract; verify switch geometry, theme segments, divider rhythm, tooltip hover/focus, and critical-copy visibility in light and dark themes.
 7. Compile the macOS package and run the focused accessibility/style contract after replacing native system-blue product accents with the existing violet token.
 8. Render and inspect the server meeting-unavailable page, runtime access-loss replacement, unavailable invitation, and shared-meetings empty state at desktop and 375px widths.
 9. Run `infra/scripts/ci-local.sh --full`, then complete PR/merge and the repository notarization, release, deployment, and exact-SHA smoke runbooks.
@@ -85,11 +85,15 @@ Expose the existing server receipt timestamp as `uploaded_at`, use it only as th
   `25-settings-overview-375.png`, `26-settings-account-375.png`,
   `29-settings-account-hint-no-overlap-375.png`, and
   `31-upload-hint-aligned-375.png`.
-- `infra/scripts/ci-local.sh --full` passed on exact implementation commit
-  `686a1b8d7ea5530ad8042ebae5056c9dccb15840`: 726 macOS tests, 3313 server
+- Historical pre-review `infra/scripts/ci-local.sh --full` passed on reviewed
+  commit `1490f64701db2f66ee5fb644e182d234c2ef7ec4`: 726 macOS tests, 3313 server
   tests plus one expected skip, 52 strict PostgreSQL/RLS tests plus one expected
   skip, server lint, Python compile, production Compose rendering, and the
-  deployment evidence scan.
+  deployment evidence scan. This is historical validation, not release-gate
+  evidence for a later candidate.
+- Clean-room and brand-distance review passed: the implementation uses original
+  GRAF components, violet tokens, assets, and Russian copy and contains no
+  external product assets, icons, copy, or distinctive screen composition.
 
 ## Project Structure
 

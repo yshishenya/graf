@@ -11,6 +11,6 @@
 - [x] Whole-cabinet color, typography, geometry, and component-centralization scope is explicit.
 - [x] Provider brand-color exception is distinguished from GRAF interaction accents.
 - [x] Settings navigation wrapping and responsive reflow are measurable.
-- [x] KRISP reference use and the GRAF adaptation boundary are recorded.
+- [x] Product-independent reference use and the original GRAF clean-room boundary are recorded.
 - [x] Full-page state reuse, runtime privacy cleanup, and inline-notice boundaries are explicit.
 - [x] The approved PR, notarized release, deployment, and exact-SHA validation boundary is recorded.

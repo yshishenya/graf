@@ -27,9 +27,9 @@
    user can tell this is an upload timestamp rather than a recording timestamp.
 5. Stack actions below the content at 375px and keep the date/status in the
    same row; this avoids a second dialog or a large empty progress panel.
-6. Use KRISP's successful density pattern as a direct reference: 12px helper
-   text, 13-14px body/label text, 36-40px controls, compact list rows, and a
-   semantic token palette. Apply those patterns through GRAF's violet palette.
+6. Use a measurable compact GRAF density: 12px helper text, 13–14px body/label
+   text, 36–40px controls, 48–56px meeting rows, and a semantic violet token
+   palette.
 7. Keep percentage next to the upload state inside the content column and let
    the progress bar use the available width. A fixed side percentage creates
    an empty middle area and weakens the state/action relationship.
@@ -43,7 +43,7 @@
     primitives are enough; a second CSS framework would increase drift.
 11. Use a 36×20 shared switch for independent binary preferences. Keep the
     native checkbox input and add `role="switch"`; this preserves POST/no-JS
-    behavior while matching the compact KRISP control geometry.
+    behavior while using the shared compact GRAF control geometry.
 12. Keep checkboxes for multi-selection, consent, and confirmation. A switch
     communicates an immediately reversible on/off state and would be misleading
     for those tasks.
@@ -57,9 +57,9 @@
 15. Keep the local system font stack. On macOS it resolves to San Francisco,
     which provides the density and legibility needed here without a font
     download, layout shift, or new dependency.
-16. Use KRISP's bounded settings column, divider rhythm, and right-aligned
-    actions, but keep GRAF's navigation, Russian language, violet accent, and
-    native form submission contracts.
+16. Use a bounded 780px settings column, 24px section rhythm, and right-aligned
+    actions with GRAF navigation, Russian language, violet accent, and native
+    form submission contracts.
 17. Reuse `DesktopMeetingShellChrome.shellAccentColor` for native macOS
     readiness, upload, meeting-prompt, and recording-action accents. Keep green,
     orange, and red for success, warning, and error rather than flattening

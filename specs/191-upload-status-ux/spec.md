@@ -13,7 +13,7 @@
 ### Session 2026-08-23
 
 - Q: Is the scope limited to the upload dialog? → A: No. The main meeting screen is primary; the dialog, Settings, and shared cabinet system are included.
-- Q: May KRISP be used as a direct UX/UI reference? → A: Yes. Reuse effective density, sizing, hierarchy, and behavior while applying GRAF branding and product language.
+- Q: How may external product references inform the interface? → A: Extract only product-independent usability principles. GRAF keeps an original layout, components, assets, copy, and visual system and must pass clean-room and brand-distance review.
 - Q: Which product accent is canonical? → A: One GRAF violet accent across controls, selection, progress, focus, checkboxes, and radios; provider-owned brand marks keep their required colors.
 - Q: How verbose should user-facing copy be? → A: Short, plain Russian; one state and one next action at a glance.
 - Q: Which controls should become switches? → A: Independent binary preferences use switches. Multi-select lists, legal consent, destructive confirmation, and bulk selection remain checkboxes.
@@ -203,6 +203,6 @@ As a GRAF user, I see the same compact state layout and standard action when a m
 - `Meeting.created_at` is the authoritative server receipt time for a manual upload and is already persisted for existing rows.
 - A recording's `started_at` remains authoritative when present; the upload timestamp is a fallback only for missing recording time.
 - The scope is the whole server-rendered cabinet stylesheet and its shared primitives plus native macOS product-accent cleanup, with the main meeting upload/processing experience as the primary deliverable.
-- KRISP is an approved reference for effective density, component sizing, hierarchy, and interaction behavior; GRAF keeps its own violet palette, assets, and Russian product language.
+- Compact density is measurable in GRAF itself: 12px helper text, 13–14px body and labels, 36–40px controls, and 48–56px meeting rows, with original GRAF composition, violet palette, assets, and Russian product language.
 - Provider logos and identity badges are not recolored when their blue is part of the provider brand.
 - The user explicitly approved the complete push, PR, merge, notarized release, and production deployment cycle after validation.

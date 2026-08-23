@@ -109,7 +109,8 @@ def test_admin_browser_pages_keep_russian_navigation_and_compact_keyboard_css(cl
     assert ":focus-visible" in css.text
     assert "@media (max-width: 720px)" in css.text
     assert "overflow-x: auto" in css.text
-    assert "background: var(--accent)" in css.text
+    assert "background: var(--accent-solid)" in css.text
+    assert "color: var(--accent-foreground)" in css.text
     assert "var(--blue)" not in css.text
 
 

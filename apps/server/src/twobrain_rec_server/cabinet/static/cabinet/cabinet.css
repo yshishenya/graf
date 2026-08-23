@@ -11,6 +11,8 @@
   --muted: #a8adb5;
   --subtle: #7c828b;
   --accent: #8c73ff;
+  --accent-solid: #6347d9;
+  --accent-foreground: #fff;
   --sidebar-accent: #8c73ff;
   --sidebar-focus-ring: #b6aaff;
   --green: #2fc9a6;
@@ -19,7 +21,7 @@
   --danger-text: #ffd6d6;
   --pink: #d96aa6;
   --meeting-tab-active: #dcd7ff;
-  --accent-hover: color-mix(in srgb, var(--accent) 86%, white);
+  --accent-hover: #7258e4;
   --accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);
   --accent-surface: color-mix(in srgb, var(--accent) 8%, var(--surface));
   --accent-border: color-mix(in srgb, var(--accent) 42%, var(--line));
@@ -29,8 +31,8 @@
   --warning-border: color-mix(in srgb, var(--amber) 46%, var(--line));
   --danger-surface: color-mix(in srgb, var(--red) 8%, transparent);
   --danger-border: color-mix(in srgb, var(--red) 46%, var(--line));
-  --font-family-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, ui-sans-serif, sans-serif;
-  --font-family-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-family-ui: -apple-system, blinkmacsystemfont, "SF Pro Text", "Segoe UI", system-ui, ui-sans-serif, sans-serif;
+  --font-family-mono: ui-monospace, sfmono-regular, menlo, consolas, monospace;
   --font-size-caption: 11px;
   --font-size-helper: 12px;
   --font-size-body: 13px;
@@ -67,6 +69,7 @@
   --settings-content-width: 780px;
   --app-sidebar-width: 240px;
   --app-rail-width: 64px;
+
   font-family: var(--font-family-ui);
 }
 html[data-theme="dark"] { color-scheme: dark; }
@@ -117,7 +120,7 @@ html[data-theme="light"] {
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 html, body { min-height: 100%; margin: 0; background: var(--bg); color: var(--text); overflow-x: hidden; }
-body { font-size: var(--font-size-body); line-height: var(--line-height-body); letter-spacing: 0; font-weight: 500; -webkit-font-smoothing: antialiased; text-rendering: geometricPrecision; }
+body { font-size: var(--font-size-body); line-height: var(--line-height-body); letter-spacing: 0; font-weight: 500; -webkit-font-smoothing: antialiased; text-rendering: geometricprecision; }
 body.auth-leaving .auth-panel {
   opacity: 0;
   transform: translateY(-4px) scale(.992);
@@ -185,7 +188,7 @@ input[type="checkbox"], input[type="radio"] {
   flex: 0 0 auto;
   accent-color: var(--accent);
 }
-.primary { background: var(--accent); border-color: var(--accent); color: white; font-weight: 700; }
+.primary { background: var(--accent-solid); border-color: var(--accent-solid); color: var(--accent-foreground); font-weight: 700; }
 .primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
 .quiet { background: transparent; }
 .skip-link {
@@ -1378,10 +1381,10 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
 .auth-form input { min-height: 44px; border-color: #555a64; background: #26292e; }
 .auth-form .primary {
   min-height: 44px;
-  background: #7057ff;
-  border-color: #7057ff;
+  background: var(--accent-solid);
+  border-color: var(--accent-solid);
 }
-.auth-form .primary:hover { background: #7c66ff; border-color: #7c66ff; }
+.auth-form .primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
 .auth-secondary {
   text-align: center;
   display: grid;
@@ -2725,9 +2728,9 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
 
 .cabinet-button--primary,
 .cabinet-link--primary {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: #fff;
+  border-color: var(--accent-solid);
+  background: var(--accent-solid);
+  color: var(--accent-foreground);
   font-weight: 700;
 }
 
