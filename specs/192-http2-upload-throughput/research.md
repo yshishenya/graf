@@ -5,6 +5,7 @@
 - **Decision**: Set the Nginx HTTP/2 body preread window to a bounded 2 МБ in the existing TLS server block.
 - **Rationale**: Nginx defaults `http2_body_preread_size` to 64 КБ. With RTT around 165 ms that window caps one request stream near 3.2 Mbit/s, matching the observed 3.33 Mbit/s. A 2 МБ window is above the measured bandwidth-delay product and produced 34–38 Mbit/s synthetic HTTP/2 and 42.29 Mbit/s for the real file transfer.
 - **Alternatives considered**: Keep 64 КБ (reproduces the incident); use an unbounded or much larger buffer (unnecessary memory exposure); force HTTP/1.1 (protocol workaround rather than fixing the active path).
+- **Known ceiling**: The 2 МБ bound is per active request stream, so aggregate preread memory scales with concurrent body-bearing streams. Existing HTTP/2 concurrency remains unchanged; add a separate cap only if production telemetry shows memory pressure, because a new site-wide stream limit can affect unrelated traffic.
 - **Reference**: [Nginx `http2_body_preread_size`](https://nginx.org/en/docs/http/ngx_http_v2_module.html#http2_body_preread_size)
 
 ## Decision 2: Preserve server-mediated upload

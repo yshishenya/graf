@@ -26,9 +26,9 @@
 
 **Project Type**: Self-hosted web service with macOS embedded client
 
-**Performance Goals**: A roughly 40 МБ real-client upload over RTT around 165 ms completes transfer in at most 15 seconds and at no less than 30 Mbit/s; HTTP/2 reaches at least 80% of the control HTTP/1.1 throughput on the same path
+**Performance Goals**: A roughly 40 МБ real-client upload over RTT around 165 ms completes transfer in at most 15 seconds and at no less than 30 Mbit/s; full request time improves at least 8× from the measured 97.6-second baseline
 
-**Constraints**: Keep server-mediated upload and current API/security limits; add at most 2 МБ preread buffer per active HTTP/2 request stream; no presigned URLs, CORS expansion, custom chunk scheduler, dependencies, schema changes or protocol redesign
+**Constraints**: Keep server-mediated upload and current API/security limits; add at most 2 МБ preread buffer per active HTTP/2 request stream. Aggregate preread memory scales with concurrent body-bearing streams; this slice intentionally leaves existing HTTP/2 concurrency unchanged to avoid a new site-wide compatibility limit. Add a concurrency cap only if production memory/concurrency evidence shows pressure. No presigned URLs, CORS expansion, custom chunk scheduler, dependencies, schema changes or protocol redesign.
 
 **Scale/Scope**: One existing Nginx site source file and one changelog entry; no application code, data model or interface contract changes
 

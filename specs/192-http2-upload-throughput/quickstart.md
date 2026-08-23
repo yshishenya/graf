@@ -10,6 +10,30 @@
 
 ```sh
 test "$(grep -c '^[[:space:]]*http2_body_preread_size 2m;' infra/nginx/rec.2brain.pro.conf)" -eq 1
+awk '
+function brace_delta(text, total, char) {
+    total = 0
+    while (match(text, /[{}]/)) {
+        char = substr(text, RSTART, 1)
+        total += (char == "{" ? 1 : -1)
+        text = substr(text, RSTART + 1)
+    }
+    return total
+}
+/^[[:space:]]*server[[:space:]]*\{/ && !inside {
+    inside = 1; depth = 1; upload = 0; preread = 0; next
+}
+inside {
+    if ($0 ~ /^[[:space:]]*listen[[:space:]]+127\.0\.0\.1:10444[[:space:]]+ssl[[:space:]]+http2;/) upload = 1
+    if ($0 ~ /^[[:space:]]*http2_body_preread_size[[:space:]]+2m;/) preread++
+    depth += brace_delta($0)
+    if (depth == 0) {
+        if (upload && preread == 1) matched++
+        inside = 0
+    }
+}
+END { exit(matched == 1 ? 0 : 1) }
+' infra/nginx/rec.2brain.pro.conf
 bash -n infra/scripts/install-billing-webhook-edge.sh
 git diff --check
 ```
@@ -26,6 +50,11 @@ TWOBRAIN_BILLING_YOOKASSA_WEBHOOK_SECRET_FILE=/operator/provided/path \
 ```
 
 Expected: `billing_webhook_edge_result=dry_run`, `secret_validation=pass`, and planned checks include backup, install, Nginx test, reload, probes and automatic rollback. The secret value must not appear in output.
+
+Validated on 2026-08-23: PASS — a repeated dry-run with a temporary non-secret
+fixture returned `billing_webhook_edge_result=dry_run`,
+`secret_validation=pass` and the complete planned-check list; no fixture value
+appeared in output.
 
 ## 3. Repository gate
 
@@ -45,6 +74,7 @@ Python compile and the overall fast lane completed with
 - After synthetic HTTP/2: 34–38 Mbit/s.
 - Real GRAF/WKWebView request `a69e664c-73f5-4bf5-ae1f-61f4637f1820`: `202 Accepted` in 8.219 s.
 - Pure transfer: 7.68 s, 42.29 Mbit/s.
+- Full real-client request improved from 97.6 s to 8.219 s, approximately 11.9×.
 - MinIO, DB and finalization: about 540 ms.
 - Nginx syntax, reload, health and readiness: passed; reload did not restart the master process.
 - Rollback backup: `/etc/nginx/sites-available/rec.2brain.pro.conf.before-http2-upload-window-20260823T021938Z`.
