@@ -59,7 +59,7 @@ infrastructure, deletion, diagnostics, and high-risk UX work.
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at specs/197-recording-indicator-polish/plan.md
+at specs/200-windows-desktop-app/plan.md
 <!-- SPECKIT END -->
 
 ## Tracking and product gates
