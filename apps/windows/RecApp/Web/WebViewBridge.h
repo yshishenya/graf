@@ -18,6 +18,7 @@ enum class BridgeValidationError {
     none,
     wrongProtocol,
     wrongVersion,
+    wrongDirection,
     wrongOrigin,
     staleNonce,
     replay,

@@ -13,6 +13,6 @@ int main() {
     RecordingIndicator indicator;
     indicator.publish(SessionState::degraded, ReasonCode::clockDiscontinuity);
     assert(indicator.snapshot().visible && indicator.snapshot().stopAvailable);
-    assert(indicator.snapshot().statusText == "degraded");
+    assert(indicator.snapshot().statusText == "Запись ограничена");
     return 0;
 }

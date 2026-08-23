@@ -63,7 +63,10 @@ Pass criteria:
   measured before final mix over the active synthetic interval, differs from
   the reference by no more than 1 dB;
 - processor/timestamp/gap/overflow error не включает raw-microphone fallback;
-- только проверенный trusted prefix может быть degraded artifact.
+- только проверенный trusted prefix может быть degraded artifact;
+- after warm-up, native process CPU time is no more than 25% of wall time on the
+  reference four-core x64 machine, resident memory growth is no more than 128
+  MiB, and neither bounded source queue grows without limit.
 
 ## 4. Hardware capture matrix
 

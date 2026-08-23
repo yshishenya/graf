@@ -99,6 +99,16 @@ EndpointEnumerationResult WasapiEndpointEnumerator::snapshot() const {
                 !containsFolded(item.friendlyName, "stereo mix") &&
                 !containsFolded(item.friendlyName, "virtual") &&
                 !containsFolded(item.friendlyName, "cable");
+            Microsoft::WRL::ComPtr<IAudioClient> audioClient;
+            WAVEFORMATEX* mixFormat = nullptr;
+            if (SUCCEEDED(device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr,
+                                           reinterpret_cast<void**>(audioClient.GetAddressOf())))) {
+                if (SUCCEEDED(audioClient->GetMixFormat(&mixFormat)) && mixFormat != nullptr) {
+                    item.sampleRate = mixFormat->nSamplesPerSec;
+                    item.channels = mixFormat->nChannels;
+                }
+            }
+            if (mixFormat != nullptr) CoTaskMemFree(mixFormat);
             item.routeGeneration = 1;
             result.endpoints.push_back(std::move(item));
         }

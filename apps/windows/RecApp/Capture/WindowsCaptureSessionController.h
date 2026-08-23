@@ -7,7 +7,9 @@
 #include "../Shell/RecordingIndicator.h"
 
 #include <functional>
+#include <atomic>
 #include <memory>
+#include <mutex>
 #include <string>
 
 namespace graf::windows {
@@ -21,9 +23,11 @@ class WindowsCaptureSessionController final {
 public:
     using BatchSink = std::function<bool(AudioBatch)>;
     using Finalizer = std::function<CaptureFinalization()>;
+    using MicrophonePauseHandler = std::function<void(bool)>;
 
     WindowsCaptureSessionController(std::string sessionId, BatchSink batchSink = {},
-                                    Finalizer finalizer = {});
+                                    Finalizer finalizer = {},
+                                    MicrophonePauseHandler microphonePauseHandler = {});
     ~WindowsCaptureSessionController();
 
     WindowsCaptureSessionController(const WindowsCaptureSessionController&) = delete;
@@ -41,15 +45,18 @@ public:
 private:
     [[nodiscard]] bool startWorkers();
     void stopWorkers() noexcept;
-    void handleBatch(AudioBatch batch);
+    [[nodiscard]] bool handleBatch(AudioBatch batch);
     void handleStop();
 
     WindowsDesktopSession session_;
     BatchSink batchSink_;
     Finalizer finalizer_;
+    MicrophonePauseHandler microphonePauseHandler_;
     RecordingIndicator indicator_;
     std::unique_ptr<WasapiCaptureWorker> renderWorker_;
     std::unique_ptr<WasapiCaptureWorker> microphoneWorker_;
+    std::atomic_bool captureFaulted_{false};
+    std::mutex captureMutex_;
 };
 
 } // namespace graf::windows

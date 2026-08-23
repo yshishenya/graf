@@ -49,7 +49,7 @@ foreach(test_source IN LISTS GRAF_WINDOWS_TESTS)
         $<$<CXX_COMPILER_ID:MSVC>:/W4;/WX>
         $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall;-Wextra;-Wpedantic;-Werror>)
     if(WIN32)
-        target_link_libraries("${test_name}" PRIVATE mfplat mfreadwrite mfuuid ole32 avrt advapi32)
+        target_link_libraries("${test_name}" PRIVATE mfplat mfreadwrite mfuuid ole32 avrt advapi32 shell32 winhttp)
     endif()
     add_test(NAME "${test_name}" COMMAND "${test_name}")
 endforeach()

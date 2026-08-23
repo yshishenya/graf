@@ -341,7 +341,10 @@ meeting-приложений с обратимой настройкой и ви�
   duration difference is at most 100 ms, and the system-audio component level
   differs by no more than 1 dB from the reference run. The level is the
   integrated RMS dBFS of the canonical 48 kHz mono system-render component over
-  the same active synthetic interval, measured before the final mix.
+  the same active synthetic interval, measured before the final mix. After
+  warm-up on the reference four-core x64 machine, native process CPU time MUST
+  stay at or below 25% relative to wall time, resident memory growth MUST stay
+  at or below 128 MiB, and neither source queue may grow without bound.
 - **SC-004**: 100% of active-capture fault injections keep a visible native
   indicator and one-action Stop, and 100% of permission, endpoint, clock,
   protected-audio and overflow failures avoid normal-status claims and raw-mic

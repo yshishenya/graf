@@ -152,7 +152,7 @@ timeout, saved policy, unknown target, media playback and missing prerequisites.
 - [X] T055 [US5] Реализовать `apps/windows/RecApp/Shell/AutomaticRecordingPrompt.h` и `.cpp` с keyboard/screen-reader accessible actions и тем же readiness/indicator/Stop path, что у manual Record.
 - [X] T056 [US5] Добавить `apps/windows/Tests/GrafWindowsPackageTests/AutomaticRecordingSmokeTests.cpp` с unknown target/media playback zero-start и explicit consent evidence.
 
-## Phase 8: Polish, accessibility, packaging and cross-cutting validation
+## Phase 8: Polish, accessibility, packaging and cross-cutting implementation
 
 - [X] T057 [P] Реализовать `apps/windows/RecApp/Shell/AccessibilityState.h` и `.cpp` для keyboard focus, accessible names/descriptions, screen-reader state, High Contrast, 200% DPI и reduced-motion semantics.
 - [X] T058 [P] Добавить `apps/windows/scripts/validate-webview-boundary.ps1` с hostile-origin, redirect, nonce, replay, oversized/deep-payload, denied-command и runtime-repair scenarios.
@@ -160,8 +160,6 @@ timeout, saved policy, unknown target, media playback and missing prerequisites.
 - [X] T060 Реализовать `apps/windows/scripts/validate-package-smoke.ps1` для install/update/interrupted-update/rollback/uninstall, WebView2 repair и preservation of local queue/recordings.
 - [X] T061 Провести `apps/windows/Tests/GrafWindowsPackageTests/AccessibilityAndBrandDistanceTests.cpp` и оформить review evidence по `specs/200-windows-desktop-app/checklists/ux.md`.
 - [X] T062 Обновить `CHANGELOG.md` на русском описанием Windows architecture/limitations/validation, не заявляя release, ARM64 или process-isolated capture без evidence.
-- [ ] T063 Выполнить полный `specs/200-windows-desktop-app/quickstart.md`, Windows x64 hardware/package evidence и `infra/scripts/ci-local.sh --fast`; зафиксировать exact SHA, skipped ARM64 lane и known limitations.
-- [ ] T064 Провести финальный review `specs/200-windows-desktop-app/checklists/requirements.md`, `audio-capture.md`, `advanced-routing.md`, `security.md`, `ux.md`, `plan.md` и `tasks.md`; не запускать deploy/release без отдельного approval.
 
 ## Dependencies & Execution Order
 
@@ -173,7 +171,8 @@ timeout, saved policy, unknown target, media playback and missing prerequisites.
 - US4 hardens US1 capture faults and must pass before release-readiness tasks.
 - US5 consumes the native session and indicator from US1 and the parity/copy map
   from US2.
-- Phase 8 follows the desired stories and is the only closeout phase.
+- Phase 8 follows the desired stories and contains implementation polish only.
+- Phase 9 convergence must complete before the Phase 10 closeout tasks T063/T064.
 
 ### Parallel opportunities
 
@@ -211,33 +210,53 @@ timeout, saved policy, unknown target, media playback and missing prerequisites.
 |---|---|
 | FR-001 | T001, T002, T059 |
 | FR-002 | T012, T032, T057, T061, T062 |
-| FR-003 | T029, T032, T034 |
-| FR-004 | T010, T023, T024, T033 |
-| FR-005 | T027, T029, T058 |
-| FR-006 | T028, T031, T058 |
+| FR-003 | T029, T032, T034, T066 |
+| FR-004 | T010, T023, T024, T033, T065 |
+| FR-005 | T027, T029, T058, T066 |
+| FR-006 | T028, T031, T058, T066 |
 | FR-007 | T018, T019, T048 |
 | FR-008 | T010, T018, T025, T048 |
 | FR-009 | T017, T019, T021, T048 |
 | FR-010 | T017, T020, T021, T043 |
 | FR-011 | T022, T037, T049 |
 | FR-012 | T008, T009, T022, T037, T044 |
-| FR-013 | T009, T035, T038 |
-| FR-014 | T011, T038, T039 |
-| FR-015 | T024, T026, T047, T057 |
+| FR-013 | T009, T035, T038, T069 |
+| FR-014 | T011, T038, T039, T069 |
+| FR-015 | T024, T026, T047, T057, T068 |
 | FR-016 | T050, T051, T052, T053, T054, T055, T056 |
 | FR-017 | T043, T046, T047, T048 |
 | FR-018 | T017, T045 |
-| FR-019 | T001, T030, T059 |
-| FR-020 | T010, T030, T033, T059, T060 |
+| FR-019 | T001, T030, T059, T065, T070 |
+| FR-020 | T010, T030, T033, T059, T060, T066, T070 |
 | FR-021 | T008, T013, T044, T049 |
 | FR-022 | T040, T041, T060 |
 | SC-001 | T010, T030, T063 |
 | SC-002 | T012, T034, T061, T064 |
 | SC-003 | T017, T021, T022, T048, T063 |
-| SC-004 | T016, T024, T043, T046, T047, T063 |
-| SC-005 | T035, T036, T038, T039, T040, T041, T042, T063 |
+| SC-004 | T016, T024, T043, T046, T047, T063, T068, T071 |
+| SC-005 | T035, T036, T038, T039, T040, T041, T042, T063, T069, T071 |
 | SC-006 | T028, T031, T044, T058 |
 | SC-007 | T050, T051, T054, T056 |
-| SC-008 | T059, T060, T063 |
+| SC-008 | T059, T060, T063, T070, T071 |
 | SC-009 | T051, T055, T057, T061 |
 | SC-010 | T002, T003, T049, T059, T063 |
+
+## Phase 9: Convergence — реальная сборка Windows shell
+
+Convergence review 2026-08-24 обнаружил, что текущий portable contract surface
+не является запускаемым Windows-приложением: entry point и часть native-моделей
+не подключены к WinUI/WebView2/capture runtime. Эти задачи продолжают Feature
+200 и не отменяют открытые Windows x64, hardware, package и release gates.
+
+- [X] T065 [US1] Подключить `apps/windows/RecApp/AppMain.cpp` к реальному WinUI 3/Windows App SDK lifecycle с одним standard-user окном и native session composition; убрать пустой Windows `wWinMain` stub (FR-004, FR-019; implementation complete, Windows host build remains T071).
+- [X] T066 [US2] Реализовать фактический WebView2 control в `apps/windows/RecApp/Web/WebView2Host.*` и `apps/windows/RecApp/Shell/CabinetWindow.*`: Evergreen readiness, approved-origin navigation events, fresh nonce/web-message bridge events, runtime unavailable/recreate и загрузка `/desktop/meetings` (FR-003, FR-005, FR-006, FR-020; implementation complete, Windows host evidence remains T071).
+- [ ] T067 [US1] Собрать native capture pipeline в `apps/windows/RecApp/Capture/WindowsCaptureSessionController.*`: endpoint enumeration, pinned GrafAEC3 adapter, `RecordingAudioTimeline`, v5 writer/finalizer и WebView-independent local custody; сохранить fail-closed и idempotent Stop (FR-009–FR-012, US1/AC1–AC4; partial, HIGH).
+- [X] T068 [US1] Подключить `apps/windows/RecApp/Shell/RecordingIndicator.*` к persistent native WinUI status strip с accessible status и one-action Stop, переживающим WebView close/minimize/network failure (FR-015, SC-004; implementation complete, Windows UI matrix remains T071).
+- [ ] T069 [US3] Подключить реальный стандартный HTTP transport существующих GRAF desktop API к `apps/windows/RecApp/Upload/DesktopApiClient.*`, `apps/windows/RecApp/Upload/DesktopHttpTransport.*` и `DesktopUploadRecoveryScheduler.*`, включая auth/network/wake recovery, accepted ranges и server-truth reconciliation без MediaScribe/MinIO egress (FR-013–FR-014, SC-005; transport core added, queue/auth/reconciliation integration remains, HIGH).
+- [ ] T070 [US2] Завершить `apps/windows/Installer/Package.appxmanifest`, `GrafWindows.Package.wapproj` и package assets/dependency declarations для собираемого signed x64 MSIX без elevation/driver/service; затем подтвердить clean-image install/update/rollback smoke (FR-019–FR-020, SC-008; partial, HIGH).
+- [ ] T071 [P] Провести Windows x64 validation из `specs/200-windows-desktop-app/quickstart.md` для T065–T070, зафиксировать exact SHA, hardware/AEC3/WebView2/Media Foundation/MSIX evidence и оставить ARM64 lane явно skipped до отдельного proof (T063, SC-001/003/004/005/008/010; missing, HIGH).
+
+## Phase 10: Closeout — evidence and final review
+
+- [ ] T063 Выполнить полный `specs/200-windows-desktop-app/quickstart.md`, Windows x64 hardware/package evidence и `infra/scripts/ci-local.sh --fast`; зафиксировать exact SHA, skipped ARM64 lane и known limitations.
+- [ ] T064 Провести финальный review `specs/200-windows-desktop-app/checklists/requirements.md`, `audio-capture.md`, `advanced-routing.md`, `security.md`, `ux.md`, `plan.md` и `tasks.md`; не запускать deploy/release без отдельного approval.

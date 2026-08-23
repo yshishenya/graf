@@ -3,8 +3,10 @@
 namespace graf::windows {
 
 WindowsCaptureSessionController::WindowsCaptureSessionController(std::string sessionId, BatchSink batchSink,
-                                                                 Finalizer finalizer)
+                                                                 Finalizer finalizer,
+                                                                 MicrophonePauseHandler microphonePauseHandler)
     : session_(std::move(sessionId)), batchSink_(std::move(batchSink)), finalizer_(std::move(finalizer)),
+      microphonePauseHandler_(std::move(microphonePauseHandler)),
       indicator_([this] { handleStop(); }) {}
 
 WindowsCaptureSessionController::~WindowsCaptureSessionController() { stopWorkers(); }
@@ -24,30 +26,50 @@ TransitionResult WindowsCaptureSessionController::record(const ReadinessInputs& 
         indicator_.publish(session_.state(), session_.reason());
         return blocked;
     }
-    if (!session_.markReady().accepted() || !session_.beginStart().accepted() || !startWorkers()) {
+    captureFaulted_.store(false);
+    if (!session_.markReady().accepted() || !session_.beginStart().accepted() || !startWorkers() ||
+        captureFaulted_.load()) {
+        stopWorkers();
         const auto failed = session_.fail(ReasonCode::endpointInvalidated);
         indicator_.publish(session_.state(), session_.reason());
         return failed;
     }
-    const auto started = session_.startRecording();
+    TransitionResult started;
+    {
+        std::lock_guard<std::mutex> lock(captureMutex_);
+        started = session_.startRecording();
+    }
     indicator_.publish(session_.state(), session_.reason());
     return started;
 }
 
 TransitionResult WindowsCaptureSessionController::pause() {
+    std::lock_guard<std::mutex> lock(captureMutex_);
     const auto result = session_.pause();
-    if (result.accepted()) indicator_.publish(session_.state(), session_.reason());
+    if (result.accepted()) {
+        if (microphonePauseHandler_) microphonePauseHandler_(true);
+        indicator_.publish(session_.state(), session_.reason());
+    }
     return result;
 }
 
 TransitionResult WindowsCaptureSessionController::resume() {
+    std::lock_guard<std::mutex> lock(captureMutex_);
     const auto result = session_.resume();
-    if (result.accepted()) indicator_.publish(session_.state(), session_.reason());
+    if (result.accepted()) {
+        if (microphonePauseHandler_) microphonePauseHandler_(false);
+        indicator_.publish(session_.state(), session_.reason());
+    }
     return result;
 }
 
 TransitionResult WindowsCaptureSessionController::stop() {
-    const auto requested = session_.stop();
+    TransitionResult requested;
+    {
+        std::lock_guard<std::mutex> lock(captureMutex_);
+        requested = session_.stop();
+        if (requested.status == TransitionStatus::accepted) captureFaulted_.store(true);
+    }
     if (requested.status == TransitionStatus::rejected) return requested;
     if (requested.status == TransitionStatus::idempotent) return requested;
     stopWorkers();
@@ -62,8 +84,12 @@ TransitionResult WindowsCaptureSessionController::stop() {
 
 bool WindowsCaptureSessionController::startWorkers() {
     if (!renderWorker_ || !microphoneWorker_) return false;
-    const auto callback = [this](AudioBatch batch) { handleBatch(std::move(batch)); };
+    const auto callback = [this](AudioBatch batch) { return handleBatch(std::move(batch)); };
     if (renderWorker_->start(callback) != CaptureWorkerError::none) return false;
+    if (captureFaulted_.load()) {
+        renderWorker_->stop();
+        return false;
+    }
     if (microphoneWorker_->start(callback) != CaptureWorkerError::none) {
         renderWorker_->stop();
         return false;
@@ -76,11 +102,17 @@ void WindowsCaptureSessionController::stopWorkers() noexcept {
     if (microphoneWorker_) microphoneWorker_->stop();
 }
 
-void WindowsCaptureSessionController::handleBatch(AudioBatch batch) {
+bool WindowsCaptureSessionController::handleBatch(AudioBatch batch) {
+    if (captureFaulted_.load()) return false;
+    std::lock_guard<std::mutex> lock(captureMutex_);
+    if (captureFaulted_.load()) return false;
     if (batchSink_ && !batchSink_(std::move(batch))) {
+        captureFaulted_.store(true);
         (void)session_.markDegraded(ReasonCode::clockDiscontinuity);
         indicator_.publish(session_.state(), session_.reason());
+        return false;
     }
+    return true;
 }
 
 void WindowsCaptureSessionController::handleStop() { (void)stop(); }

@@ -69,6 +69,10 @@ and hardware evidence
   synthetic memory/latency evidence.
 - 60-minute ±100 ppm reference run has no dropped/duplicated output and at most
   100 ms WAV/M4A/timeline duration difference.
+- The same reference run has no sustained CPU runaway: after warm-up, native
+  process CPU time is at most 25% of wall time on the reference four-core x64
+  machine, resident memory growth is at most 128 MiB, and bounded source queues
+  do not grow without limit.
 
 **Constraints**:
 
@@ -107,12 +111,23 @@ the native/web boundary, but no code claim is made until Windows hardware,
 package and fault-injection evidence is produced.
 
 **Second analysis re-check (2026-08-24)**: PASS WITH EVIDENCE GATES. The parity
-matrix now points to the actual macOS `Upload`/`Cabinet` source paths, and the
-v5 contract explicitly pins `local-recording-manifest.v5`, `canonical-mix.v1`,
-`initial_mixed_recording`, `single_wav_v1` and the wire role set
-`manifest/media/playback`. The 22 functional requirements and 10 buildable
-success criteria remain covered by 64 unique ordered tasks. This is a
-consistency result, not Windows build, hardware, package or release evidence.
+matrix points to the actual macOS `Upload`/`Cabinet` source paths, the v5
+contract pins `local-recording-manifest.v5`, `canonical-mix.v1`,
+`initial_mixed_recording`, `single_wav_v1` and `manifest/media/playback`, and
+the native bridge contract now matches the implemented numeric message-id,
+nonce and command envelope. The 22 functional requirements and 10 buildable
+success criteria remain covered by 71 ordered tasks; T065/T066/T068 have an
+implementation slice, while T067/T069/T070/T071 and the Windows host
+evidence remain open. This is a consistency result, not Windows build,
+hardware, package or release evidence.
+
+**Local implementation re-check (2026-08-24)**: PASS. The portable slice now
+propagates privacy Pause into the timeline, treats WASAPI data discontinuity and
+timeline/egress integrity failures as fail-closed, uses the macOS-compatible
+`directoryId--initial` revision and Russian native status copy. CMake/CTest
+passes 19/19 and `infra/scripts/ci-local.sh --fast` passes 1173 tests plus lint;
+Windows MSBuild, AEC3, WebView2 runtime, hardware and signed-package evidence
+remain intentionally unclaimed under T067/T069/T070/T071.
 
 ## Architecture
 

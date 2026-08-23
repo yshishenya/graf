@@ -27,7 +27,7 @@ struct CaptureWorkerConfig {
     std::uint64_t clockDomain = 1;
 };
 
-using CaptureBatchCallback = std::function<void(AudioBatch)>;
+using CaptureBatchCallback = std::function<bool(AudioBatch)>;
 
 class WasapiCaptureWorker final {
 public:

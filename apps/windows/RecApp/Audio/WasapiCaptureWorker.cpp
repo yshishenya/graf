@@ -103,6 +103,8 @@ struct WasapiCaptureWorker::Impl {
                         batch.ptsFrames = static_cast<std::int64_t>(devicePosition);
                     }
                     batch.samples.resize(static_cast<std::size_t>(count) * batch.channels);
+                    batch.discontinuity = batch.discontinuity ||
+                        (flagsRead & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY) != 0;
                     const bool silent = (flagsRead & AUDCLNT_BUFFERFLAGS_SILENT) != 0;
                     bool isFloat32 = format->wFormatTag == WAVE_FORMAT_IEEE_FLOAT;
                     bool isPcm16 = format->wFormatTag == WAVE_FORMAT_PCM;
@@ -122,9 +124,14 @@ struct WasapiCaptureWorker::Impl {
                     }
                     capture->ReleaseBuffer(count);
                     try {
-                        callback(std::move(batch));
+                        if (!callback(std::move(batch))) {
+                            error.store(CaptureWorkerError::bufferOverflow);
+                            running.store(false);
+                            break;
+                        }
                     } catch (...) {
                         error.store(CaptureWorkerError::initializationFailed);
+                        running.store(false);
                         break;
                     }
                     if (FAILED(client->GetCurrentPadding(&frames))) { error.store(CaptureWorkerError::deviceInvalidated); break; }

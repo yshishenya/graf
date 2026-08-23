@@ -31,6 +31,7 @@
     <ClCompile Include="Storage\AtomicFileStore.cpp" />
     <ClCompile Include="Storage\Sha256.cpp" />
     <ClCompile Include="Upload\DesktopApiClient.cpp" />
+    <ClCompile Include="Upload\DesktopHttpTransport.cpp" />
     <ClCompile Include="Upload\DesktopUploadQueueService.cpp" />
     <ClCompile Include="Upload\DesktopUploadRecoveryScheduler.cpp" />
     <ClCompile Include="Upload\DesktopLocalPurgeService.cpp" />
@@ -62,7 +63,7 @@
     <PackageReference Include="Microsoft.Windows.CppWinRT" Version="$(GrafCppWinRTVersion)" />
   </ItemGroup>
   <ItemDefinitionGroup>
-    <Link><AdditionalDependencies>mfplat.lib;mfreadwrite.lib;mfuuid.lib;ole32.lib;avrt.lib;advapi32.lib;%(AdditionalDependencies)</AdditionalDependencies></Link>
+    <Link><AdditionalDependencies>mfplat.lib;mfreadwrite.lib;mfuuid.lib;ole32.lib;avrt.lib;advapi32.lib;shell32.lib;winhttp.lib;%(AdditionalDependencies)</AdditionalDependencies></Link>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

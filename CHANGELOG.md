@@ -18,6 +18,15 @@
   WebView2 policy/bridge, local upload custody/recovery, fault projection и
   verified-target auto-record policy; Windows hardware, WebView2 runtime и MSIX
   остаются отдельными host-gates.
+- Native shell теперь содержит WinUI 3 lifecycle, внешний к WebView статусный
+  ряд Record/Pause/Stop, фактический WebView2 event bridge и WinHTTP upload
+  transport через существующие GRAF API; capture остаётся fail-closed до
+  подключения и проверки pinned AEC3, а resumable server-truth/package gates
+  ещё не закрыты.
+- Второй local re-check исправил privacy Pause в timeline, WASAPI
+  discontinuity/fail-closed остановку callback-потока, digest-проверку перед
+  upload и русские статусы native indicator; Windows host/package evidence по-
+  прежнему не заявляется.
 
 ### Изменено
 - Windows solution теперь содержит native `RecApp`, CMake/CTest contract surface

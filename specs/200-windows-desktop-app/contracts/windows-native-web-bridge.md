@@ -49,9 +49,10 @@ Every message uses:
   "protocol": "graf.desktop.bridge",
   "version": 1,
   "direction": "native_to_web|web_to_native",
-  "message_id": "opaque-id",
-  "session_nonce": "ephemeral-nonce",
-  "type": "capture_state|custody_summary|runtime_state|open_native_settings|ack|error",
+  "message_id": 1,
+  "nonce": "ephemeral-nonce",
+  "origin": "https://rec.2brain.pro",
+  "command": "native_ready|request_native_settings|request_diagnostics|request_runtime_repair|ack_display",
   "payload": {},
   "sent_at_monotonic_ms": 12345
 }
@@ -61,11 +62,13 @@ Limits for the first version:
 
 - maximum serialized message: 64 KiB;
 - maximum payload nesting: 8 levels;
-- maximum string length: bounded per message type;
+- `message_id` is a positive monotonically increasing unsigned integer per
+  WebView document; `nonce` is rotated at every successful document boundary;
+- command strings and bounded payload strings have explicit allowlists/limits;
 - no arrays of audio samples, file paths, cookies, tokens or transcript text;
 - one in-memory nonce per WebView session, rotated on navigation/auth boundary.
 
-Native rejects malformed JSON, unknown version/type, wrong direction, invalid
+Native rejects malformed JSON, unknown version/command, wrong direction, invalid
 nonce, duplicate/expired message id, unapproved source or oversized payload
 without a local side effect.
 
@@ -141,4 +144,3 @@ The contract is not complete until tests cover:
 - cross-frame/redirect navigation;
 - WebView close/recreate during active recording;
 - missing runtime and runtime repair failure.
-

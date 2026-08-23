@@ -155,6 +155,7 @@ BridgeValidationError WebViewBridge::validate(const WebViewBridgeEnvelope& messa
     if (!valid_) return BridgeValidationError::staleNonce;
     if (message.protocol != kBridgeProtocol) return BridgeValidationError::wrongProtocol;
     if (message.version != kBridgeProtocolVersion) return BridgeValidationError::wrongVersion;
+    if (message.direction != BridgeDirection::webToNative) return BridgeValidationError::wrongDirection;
     if (message.origin != trustedOrigin_) return BridgeValidationError::wrongOrigin;
     if (message.nonce != nonce_) return BridgeValidationError::staleNonce;
     if (message.messageId == 0 || message.messageId <= lastMessageId_) return BridgeValidationError::replay;

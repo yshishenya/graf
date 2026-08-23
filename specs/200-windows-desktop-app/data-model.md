@@ -221,9 +221,10 @@ All native↔WebView messages use one JSON shape:
   "protocol": "graf.desktop.bridge",
   "version": 1,
   "direction": "native_to_web|web_to_native",
-  "message_id": "opaque-id",
-  "session_nonce": "ephemeral-nonce",
-  "type": "capture_state|custody_summary|runtime_state|open_native_settings",
+  "message_id": 1,
+  "nonce": "ephemeral-nonce",
+  "origin": "https://rec.2brain.pro",
+  "command": "native_ready|request_native_settings|request_diagnostics|request_runtime_repair|ack_display",
   "payload": {},
   "sent_at_monotonic_ms": 12345
 }
@@ -231,13 +232,13 @@ All native↔WebView messages use one JSON shape:
 
 Rules:
 
-- `session_nonce` changes whenever the WebView document/origin/session boundary
+- `nonce` changes whenever the WebView document/origin/session boundary
   changes;
 - native validates `Source`, exact origin, route kind, version, direction,
   message id, payload size and command-specific payload before action;
 - web receives state events but never file paths, tokens, device handles or raw
   samples;
-- unknown types, stale nonce, duplicate id, oversized payload and invalid JSON
+- unknown commands, stale nonce, duplicate id, oversized payload and invalid JSON
   are rejected with a bounded error and no side effect;
 - an acknowledgement is not a claim that audio was saved or uploaded; only local
   custody/server truth can establish that.
