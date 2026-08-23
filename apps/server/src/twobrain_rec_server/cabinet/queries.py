@@ -54,6 +54,7 @@ from twobrain_rec_server.cabinet.egress import (
     current_outcome_set,
     review_playback_state,
 )
+from twobrain_rec_server.cabinet.speakers import speaker_names_for_result
 from twobrain_rec_server.cabinet.view_models import (
     AUTHORITATIVE_TITLE_SOURCES,
     PROVIDER_LINK_LABELS,
@@ -1154,17 +1155,17 @@ async def get_cabinet_meeting_review(
                 .order_by(DiarizationSegment.sequence.asc(), DiarizationSegment.start_seconds.asc())
             )
         ).all()
-    speaker_names = {
-        row.speaker_key: row.display_name
-        for row in (
+    speaker_names = speaker_names_for_result(
+        (
             await db.scalars(
                 select(MeetingSpeakerName).where(
                     MeetingSpeakerName.workspace_id == workspace_id,
                     MeetingSpeakerName.meeting_id == meeting_id,
                 )
             )
-        ).all()
-    }
+        ).all(),
+        result_imported_at=result.imported_at if result is not None else None,
+    )
     outcome_set = await _latest_outcome_set(
         db,
         workspace_id=workspace_id,

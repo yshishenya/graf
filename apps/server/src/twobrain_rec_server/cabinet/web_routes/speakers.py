@@ -18,6 +18,7 @@ from twobrain_rec_server.cabinet.web_routes.support import (
     WebTenantDependency,
     _authorized_lifecycle_meeting,
 )
+from twobrain_rec_server.domain.speaker_turns import legacy_speaker_name_key
 
 router = APIRouter(tags=["cabinet-web"])
 
@@ -62,6 +63,14 @@ async def update_speaker_name(
     )
     if review is None:
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
+    selected_speaker = next(
+        (speaker for speaker in review.speakers.speakers if speaker.speaker_key == speaker_key),
+        None,
+    )
+    selected_turn = next(
+        (turn for turn in review.transcript.speaker_turns if turn.speaker_key == speaker_key),
+        None,
+    )
     await save_speaker_name(
         db,
         workspace_id=tenant_scope.workspace_id,
@@ -69,7 +78,17 @@ async def update_speaker_name(
         speaker_key=speaker_key,
         display_name=display_name,
         actor_user_id=principal.user_id,
-        known_speaker_keys={speaker.speaker_key for speaker in review.speakers.speakers},
+        known_speaker_keys={
+            speaker.speaker_key for speaker in review.speakers.speakers if speaker.can_rename
+        },
+        processing_result_id=(
+            selected_turn.processing_result_id if selected_turn is not None else None
+        ),
+        legacy_speaker_key=(
+            legacy_speaker_name_key(selected_speaker.provider_speaker_key)
+            if selected_speaker is not None
+            else None
+        ),
     )
     await db.commit()
     base = "/desktop/meetings" if request.url.path.startswith("/desktop/") else "/meetings"

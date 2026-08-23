@@ -38,6 +38,7 @@ def test_content_export_routes_are_additive_to_legacy_download_and_package_route
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "application/json",
         "application/x-subrip",
+        "text/vtt",
     }
     assert all(
         media["schema"] == {"type": "string", "format": "binary"}

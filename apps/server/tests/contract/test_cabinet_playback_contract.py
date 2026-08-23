@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fixtures.cabinet import seed_cabinet_meetings
 from tests.fixtures.cabinet_access import add_retained_playback_m4a
@@ -102,10 +104,13 @@ def test_browser_and_embedded_keep_the_same_persistent_timeline_fixture(client) 
     embedded = client.get(f"/desktop/meetings/{seeds.ready_id}", headers=auth_headers())
 
     assert browser.status_code == embedded.status_code == 200
+    browser_speaker_keys = set(re.findall(r'data-speaker-key="([^"]+)"', browser.text))
+    embedded_speaker_keys = set(re.findall(r'data-speaker-key="([^"]+)"', embedded.text))
+    assert browser_speaker_keys == embedded_speaker_keys
+    assert len(browser_speaker_keys) == 2
     for html in (browser.text, embedded.text):
         assert html.count("data-playback-shell") == 1
         assert html.count("data-timeline-track") == 2
         assert html.count("data-transcript-turn") == 2
-        assert 'data-speaker-key="speaker_00"' in html
-        assert 'data-speaker-key="speaker_01"' in html
+        assert all(f'data-speaker-key="{key}"' in html for key in browser_speaker_keys)
         assert html.index('data-detail-panel="recording"') < html.index("data-playback-shell")

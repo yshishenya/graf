@@ -2172,8 +2172,11 @@ def test_detail_shell_renders_speaker_timeline_segments() -> None:
     )
     assert ".playback-range-thumb" in css
     assert "width: 16px" in css
+    assert "--playback-clearance: 192px" in css
     assert ".timeline-lane.is-active" in css
     assert ".segment.is-current" in css
+    assert ".speaker {" in css and "color: var(--muted)" in css
+    assert ".text { color: var(--text)" in css
     assert ".speaker-color-1 { --speaker-color: #7a65ff; }" in css
     assert "background: var(--speaker-color)" in css
     assert ".speaker-color-6 { --speaker-color: #d96aa6; }" in css
@@ -2187,6 +2190,8 @@ def test_detail_shell_renders_speaker_timeline_segments() -> None:
     assert "width:50.00%" in page
     script = _cabinet_js()
     assert "const seekTo = (seconds, { follow = true, autoplay = false } = {}) =>" in script
+    assert 'detailMain.style.setProperty("--playback-clearance"' in script
+    assert "new ResizeObserver(syncPlaybackClearance).observe(shell)" in script
     assert "const followTranscript = (seconds) =>" in script
     assert 'track.addEventListener("click"' in script
     assert 'lane.classList.toggle("is-active"' in script
@@ -2321,6 +2326,129 @@ def test_playback_timeline_keeps_full_width_lanes_and_separate_speaker_manager()
     assert "data-speaker-manager-toggle" in script
     assert "data-speaker-name-cancel" in script
     assert 'event.key !== "Escape"' in script
+
+
+def test_speaker_ui_counts_only_confirmed_people_and_labels_talk_time() -> None:
+    review = _review()
+    review.playback = PlaybackReviewState(
+        available=True,
+        can_play=True,
+        state="available",
+        duration_seconds=40,
+        speed_options=[1.0],
+        playback_path="/synthetic.wav",
+        policy_label="Аудио доступно",
+        source_mode="stored_review_m4a",
+        included_sources=["local_microphone", "incoming_system"],
+    )
+    review.speakers = SpeakerReviewState(
+        available=True,
+        assignment_state="reserved",
+        can_rename=True,
+        speakers=[
+            SpeakerLane(
+                speaker_key="speaker_00",
+                label="SPEAKER_00",
+                talk_time_percent=90,
+                segments=[SpeakerLaneSegment(start_seconds=0, end_seconds=36)],
+            ),
+            SpeakerLane(
+                speaker_key="unknown",
+                label="Спикер не определён",
+                talk_time_percent=10,
+                segments=[SpeakerLaneSegment(start_seconds=36, end_seconds=40)],
+                confirmed=False,
+                can_rename=False,
+            ),
+        ],
+    )
+
+    page = render_meeting_detail_page(review, csrf_token="synthetic-csrf")
+
+    assert "Спикеры · 1" in page
+    assert "Спикеры · 2" not in page
+    assert "Проценты: доля распознанной речи каждого спикера." in page
+    assert page.count("speaker-manager-marker ") == 1
+    assert 'timeline-lane speaker-color-1" data-speaker-lane="speaker_00"' in page
+    assert 'timeline-lane speaker-color-0" data-speaker-lane="unknown"' in page
+    assert 'data-speaker-attribution-notice' not in page
+
+
+def test_degraded_transcript_explains_that_text_is_preserved() -> None:
+    review = _review()
+    review.transcript = TranscriptReviewState(
+        available=True,
+        search_enabled=True,
+        result_state="degraded_provider_result",
+    )
+
+    page = render_meeting_detail_page(review)
+
+    assert 'data-speaker-attribution-notice' in page
+    assert "Текст записи сохранён" in page
+    assert "Надёжно разделить голоса не удалось" in page
+
+
+def test_degraded_transcript_keeps_confirmed_speakers_and_explains_only_unknown_part() -> None:
+    review = _review()
+    review.transcript = TranscriptReviewState(
+        available=True,
+        search_enabled=True,
+        result_state="degraded_provider_result",
+    )
+    review.speakers = SpeakerReviewState(
+        available=True,
+        assignment_state="reserved",
+        speakers=[
+            SpeakerLane(
+                speaker_key="confirmed",
+                label="SPEAKER_00",
+                talk_time_percent=95,
+                segments=[SpeakerLaneSegment(start_seconds=0, end_seconds=38)],
+            ),
+            SpeakerLane(
+                speaker_key="unknown",
+                label="Спикер не определён",
+                talk_time_percent=5,
+                segments=[SpeakerLaneSegment(start_seconds=38, end_seconds=40)],
+                confirmed=False,
+                can_rename=False,
+            ),
+        ],
+    )
+
+    page = render_meeting_detail_page(review)
+
+    assert "Часть речи без имени" in page
+    assert "Остальные реплики и имена не изменены." in page
+    assert "Разделение по спикерам для этой записи недоступно." not in page
+
+
+def test_degraded_provider_only_transcript_uses_neutral_current_copy() -> None:
+    review = _review()
+    review.transcript = TranscriptReviewState(
+        available=True,
+        search_enabled=True,
+        result_state="degraded_provider_result",
+    )
+    review.speakers = SpeakerReviewState(
+        available=True,
+        assignment_state="reserved",
+        speakers=[
+            SpeakerLane(
+                speaker_key="confirmed",
+                label="SPEAKER_00",
+                talk_time_percent=100,
+                segments=[SpeakerLaneSegment(start_seconds=0, end_seconds=40)],
+            )
+        ],
+    )
+
+    page = render_meeting_detail_page(review)
+
+    assert "Спикеры показаны" in page
+    assert "Реплики и имена показаны по доступным данным." in page
+    assert "старой записи" not in page
 
 
 def test_detail_shell_renders_unavailable_playback_without_audio_element() -> None:
@@ -2725,6 +2853,75 @@ def test_detail_shell_hides_source_controls_without_a_valid_destination() -> Non
     assert 'data-seek-seconds="12.5"' not in page
 
 
+def test_detail_shell_keeps_source_controls_for_provider_only_transcript_turns() -> None:
+    review = _review()
+    source_segment_id = uuid4()
+    review.transcript = TranscriptReviewState(
+        available=True,
+        search_enabled=True,
+        segments=[],
+        speaker_turns=[
+            TranscriptSpeakerTurnView(
+                turn_id="provider-only-turn",
+                sequence=0,
+                start_seconds=12.5,
+                end_seconds=20.0,
+                timestamp_label="00:12",
+                speaker_label="SPEAKER_00",
+                source_role="canonical_mixed",
+                text="Синтетический фрагмент.",
+                source_segment_ids=[str(source_segment_id)],
+                seekable=False,
+            )
+        ],
+    )
+    available = NotesActionCategoryState(
+        state="available",
+        label="Итоги готовы",
+        reason="Сохранённый результат связан с расшифровкой.",
+        readiness_impact="closes_gap",
+        copy_key="notes.summary.available",
+        items=[
+            OutcomeItemView(
+                category="summary",
+                sequence=0,
+                text="Синтетический итог.",
+                truth_label="supported",
+                source_refs=[
+                    OutcomeSourceReferenceView(
+                        sequence=0,
+                        transcript_segment_id=source_segment_id,
+                        start_seconds=12.5,
+                        end_seconds=20.0,
+                        evidence_kind="segment",
+                        seekable=True,
+                    )
+                ],
+            )
+        ],
+    )
+    unavailable = NotesActionCategoryState(
+        state="not_found",
+        label="Не найдено",
+        reason="В расшифровке нет опоры для этой категории.",
+        readiness_impact="closes_gap",
+        copy_key="notes.outcomes.not_found",
+    )
+    review.notes_action_truth = NotesActionTruthState(
+        summary=available,
+        decisions=unavailable,
+        action_items=unavailable,
+        followups=unavailable,
+        source_basis="stored_output",
+    )
+
+    page = render_meeting_detail_page(review)
+
+    assert f'data-source-segment="{source_segment_id}"' in page
+    assert 'data-seek-seconds="12.5"' in page
+    assert f'data-source-segments="{source_segment_id}"' in page
+
+
 def test_detail_shell_does_not_render_non_available_outcome_items() -> None:
     review = _review()
     blocked = NotesActionCategoryState(
@@ -2851,7 +3048,11 @@ def test_detail_shell_exposes_active_review_player_timeline_and_mobile_safe_cont
     css = _cabinet_css()
     assert "@media (max-width: 980px)" in css
     assert "@media (max-width: 540px)" in css
-    assert ".detail-page-main {\n    padding-bottom: 172px;" in css
+    assert (
+        ".detail-page-main {\n"
+        "    --playback-clearance: 172px;\n"
+        "    padding-bottom: var(--playback-clearance);"
+    ) in css
     assert ".detail-playback { --timeline-label-width: 68px; --timeline-value-width: 34px; }" in css
     assert ".speaker-timeline { gap: 4px; }" in css
 
@@ -3142,7 +3343,7 @@ def test_120_meeting_detail_renders_one_accessible_metadata_only_export_dialog()
         summary=ContentExportReadiness(state="missing", reason="stored_summary_missing"),
         combined=ContentExportReadiness(state="missing", reason="combined_components_unavailable"),
         formats={
-            "transcript": ["txt", "md", "csv", "xlsx", "json", "srt"],
+            "transcript": ["txt", "md", "csv", "xlsx", "json", "srt", "vtt"],
             "summary": ["txt", "md", "xlsx", "json"],
             "combined": ["txt", "md", "xlsx", "json"],
         },
@@ -3188,6 +3389,7 @@ def test_120_meeting_detail_renders_one_accessible_metadata_only_export_dialog()
     assert "setBusy(true)" in _cabinet_js()
     assert 'requestExport("txt")' in _cabinet_js()
     assert "navigator.clipboard.writeText" in _cabinet_js()
+    assert "subtitle_timing_unavailable" in _cabinet_js()
     assert "export_generation_failed" in _cabinet_js()
     assert "audit_unavailable" in _cabinet_js()
     assert "format.replaceChildren(...groups)" in _cabinet_js()

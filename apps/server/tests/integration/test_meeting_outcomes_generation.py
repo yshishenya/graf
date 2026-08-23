@@ -5,11 +5,12 @@ import importlib
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from tests.fakes.auth_contexts import USER_ID, WORKSPACE_ID
 from tests.fixtures.cabinet import create_outcome_ready_meeting
 from twobrain_rec_server.db.models import (
+    DiarizationSegment,
     DispatchIntent,
     MediaRevision,
     Meeting,
@@ -18,6 +19,7 @@ from twobrain_rec_server.db.models import (
     MeetingOutcomeSet,
     ProcessingAuditEvent,
     ProcessingResult,
+    TranscriptSegment,
     Workspace,
 )
 from twobrain_rec_server.domain.statuses import ProcessingAvailabilityStatus
@@ -64,6 +66,55 @@ def test_outcome_generation_is_idempotent_and_stores_source_evidence(client) -> 
     assert all(item.workspace_id for item in items)
     assert all(item.source_refs_json for item in items if item.state == "available")
     assert {item.category for item in items} >= {"summary", "key_points", "evidence"}
+
+
+def test_provider_only_legacy_result_generates_outcomes_from_canonical_turns(client) -> None:
+    meeting_id = create_outcome_ready_meeting(client, "provider-only-outcomes")
+    service = _service_module()
+
+    async def generate() -> tuple[str, set[str], set[str]]:
+        async with client.app_state["sessionmaker"]() as db:
+            result = await db.scalar(
+                select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
+            )
+            assert result is not None
+            provider_ids = {
+                str(value)
+                for value in (
+                    await db.scalars(
+                        select(DiarizationSegment.id).where(
+                            DiarizationSegment.processing_result_id == result.id
+                        )
+                    )
+                ).all()
+            }
+            await db.execute(
+                delete(TranscriptSegment).where(
+                    TranscriptSegment.processing_result_id == result.id
+                )
+            )
+            result.segment_count = 0
+            outcome_set = await service.ensure_outcomes_for_processing_result(db, result=result)
+            items = (
+                await db.scalars(
+                    select(MeetingOutcomeItem).where(
+                        MeetingOutcomeItem.outcome_set_id == outcome_set.id
+                    )
+                )
+            ).all()
+            referenced_ids = {
+                str(reference["transcript_segment_id"])
+                for item in items
+                for reference in item.source_refs_json
+            }
+            await db.commit()
+            return outcome_set.status, provider_ids, referenced_ids
+
+    status, provider_ids, referenced_ids = asyncio.run(generate())
+
+    assert status == "available"
+    assert referenced_ids
+    assert referenced_ids <= provider_ids
 
 
 def test_first_baseline_outcome_remains_an_unpublished_candidate(client) -> None:

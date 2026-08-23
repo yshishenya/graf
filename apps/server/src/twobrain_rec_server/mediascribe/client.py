@@ -82,7 +82,9 @@ class MediaScribeClient:
         if not external_job_id:
             raise _malformed_response_error()
         try:
-            status = MediaScribeJobStatus(str(data.get("status") or MediaScribeJobStatus.UPLOADED.value))
+            status = MediaScribeJobStatus(
+                str(data.get("status") or MediaScribeJobStatus.UPLOADED.value)
+            )
             return MediaScribeSubmitResponse(external_job_id=external_job_id, status=status)
         except (ValueError, ValidationError) as exc:
             raise _malformed_response_error() from exc
@@ -99,7 +101,13 @@ class MediaScribeClient:
     ) -> MediaScribeSubmitResponse:
         payload = {"diarize": str(diarize).lower(), "summarize": str(summarize).lower()}
         media_type = _safe_media_content_type(media_content_type, _read_media_probe(media_file))
-        files = {"file": (_safe_media_filename(media_type, preferred_filename=media_filename), media_file, media_type)}
+        files = {
+            "file": (
+                _safe_media_filename(media_type, preferred_filename=media_filename),
+                media_file,
+                media_type,
+            )
+        }
         data = await self._request_json(
             "POST",
             "/v1/audio/transcriptions",
@@ -111,7 +119,9 @@ class MediaScribeClient:
         if not external_job_id:
             raise _malformed_response_error()
         try:
-            status = MediaScribeJobStatus(str(data.get("status") or MediaScribeJobStatus.UPLOADED.value))
+            status = MediaScribeJobStatus(
+                str(data.get("status") or MediaScribeJobStatus.UPLOADED.value)
+            )
             return MediaScribeSubmitResponse(external_job_id=external_job_id, status=status)
         except (ValueError, ValidationError) as exc:
             raise _malformed_response_error() from exc
@@ -145,7 +155,9 @@ class MediaScribeClient:
     async def fetch_result(self, external_job_id: str) -> MediaScribeResult:
         data = await self._request_json("GET", f"/jobs/{external_job_id}/result")
         try:
-            return MediaScribeResult.model_validate(_normalize_result_payload(data, external_job_id=external_job_id))
+            return MediaScribeResult.model_validate(
+                _normalize_result_payload(data, external_job_id=external_job_id)
+            )
         except ValidationError as exc:
             raise _malformed_response_error() from exc
 
@@ -263,7 +275,9 @@ def _safe_media_content_type(content_type: str | None, media_bytes: bytes) -> st
 def _infer_media_content_type(media_bytes: bytes) -> str:
     if media_bytes.startswith(b"RIFF") and media_bytes[8:12] == b"WAVE":
         return "audio/wav"
-    if media_bytes.startswith(b"ID3") or (len(media_bytes) >= 2 and media_bytes[0] == 0xFF and media_bytes[1] & 0xE0 == 0xE0):
+    if media_bytes.startswith(b"ID3") or (
+        len(media_bytes) >= 2 and media_bytes[0] == 0xFF and media_bytes[1] & 0xE0 == 0xE0
+    ):
         return "audio/mpeg"
     if media_bytes.startswith(b"OggS"):
         return "audio/ogg"
@@ -310,25 +324,37 @@ def _normalize_result_payload(data: dict[str, Any], *, external_job_id: str) -> 
         )
     ):
         raise _malformed_response_error(egress_state="not_sent")
-    reported_job_id = data.get("external_job_id") or data.get("id") or data.get("job_id") or job.get("id")
+    reported_job_id = (
+        data.get("external_job_id") or data.get("id") or data.get("job_id") or job.get("id")
+    )
     if reported_job_id is not None and str(reported_job_id) != external_job_id:
         raise _malformed_response_error(egress_state="not_sent")
-    transcript_payload = _list_payload(data.get("transcript"), field_name="transcript")
-    diarization_payload = _list_payload(data.get("diarization"), field_name="diarization")
+    transcript_payload = _list_payload(data.get("transcript"))
+    diarization_payload = _list_payload(data.get("diarization"))
     transcript_status = data.get("transcript_status")
     if transcript_status is None:
-        if not transcript_payload or "transcript" not in data:
+        if transcript_payload:
+            transcript_status = "available"
+        elif diarization_payload:
+            transcript_status = "unavailable"
+        else:
             raise _malformed_response_error(egress_state="not_sent")
-        transcript_status = "available"
     transcript_reason = data.get("transcript_reason")
     if transcript_status == "available" and not transcript_payload:
         raise _malformed_response_error(egress_state="not_sent")
-    if transcript_status == "unavailable" and (
-        transcript_payload or transcript_reason != "no_recognizable_speech"
-    ):
-        raise _malformed_response_error(egress_state="not_sent")
+    if transcript_status == "unavailable":
+        if transcript_payload:
+            raise _malformed_response_error(egress_state="not_sent")
+        if diarization_payload:
+            if transcript_reason is not None:
+                raise _malformed_response_error(egress_state="not_sent")
+        elif transcript_reason != "no_recognizable_speech":
+            raise _malformed_response_error(egress_state="not_sent")
     normalized_transcript = (
-        [_normalize_transcript_segment(index, item) for index, item in enumerate(transcript_payload)]
+        [
+            _normalize_transcript_segment(index, item)
+            for index, item in enumerate(transcript_payload)
+        ]
         if transcript_status == "available"
         else []
     )
@@ -339,13 +365,23 @@ def _normalize_result_payload(data: dict[str, Any], *, external_job_id: str) -> 
         "transcript_reason": transcript_reason,
         "failure_reason": transcript_reason if transcript_status == "unavailable" else None,
         "transcript": normalized_transcript,
-        "diarization": [_normalize_diarization_segment(index, item) for index, item in enumerate(diarization_payload)],
-        "summary_status": data.get("summary_status") or ("available" if data.get("summary") else "not_requested"),
+        "diarization": [
+            _normalize_diarization_segment(index, item)
+            for index, item in enumerate(diarization_payload)
+        ],
+        "summary_status": data.get("summary_status")
+        or ("available" if data.get("summary") else "not_requested"),
         "result_version": data.get("result_version") or 1,
+        "provider_result_version": data.get("speaker_result_version")
+        or data.get("provider_result_version")
+        or data.get("result_version"),
+        "provider_build_version": data.get("build_version") or job.get("build_version"),
+        "provider_model_version": data.get("model_version") or job.get("model_version"),
+        "alignment_version": data.get("alignment_version") or job.get("alignment_version"),
     }
 
 
-def _list_payload(value: Any, *, field_name: str) -> list[dict[str, Any]]:
+def _list_payload(value: Any) -> list[dict[str, Any]]:
     if value is None:
         return []
     if not isinstance(value, list):
@@ -353,19 +389,17 @@ def _list_payload(value: Any, *, field_name: str) -> list[dict[str, Any]]:
     if any(not isinstance(item, dict) for item in value):
         raise _malformed_response_error(egress_state="not_sent")
     for item in value:
-        _validate_segment_payload(item, field_name=field_name)
+        _validate_segment_payload(item)
     return value
 
 
-def _validate_segment_payload(item: dict[str, Any], *, field_name: str) -> None:
+def _validate_segment_payload(item: dict[str, Any]) -> None:
     if not {"start", "start_seconds"}.intersection(item) or not {
         "end",
         "end_seconds",
     }.intersection(item):
         raise _malformed_response_error(egress_state="not_sent")
     if not isinstance(item.get("text"), str) or not item.get("text", "").strip():
-        raise _malformed_response_error(egress_state="not_sent")
-    if field_name == "diarization" and not {"speaker_label", "speaker"}.intersection(item):
         raise _malformed_response_error(egress_state="not_sent")
 
 
@@ -383,5 +417,8 @@ def _normalize_transcript_segment(sequence: int, item: dict[str, Any]) -> dict[s
 
 def _normalize_diarization_segment(sequence: int, item: dict[str, Any]) -> dict[str, Any]:
     normalized = _normalize_transcript_segment(sequence, item)
-    normalized["speaker_label"] = item.get("speaker_label") or item.get("speaker") or f"SPEAKER_{sequence:02d}"
+    speaker_label = item.get("speaker_label")
+    if speaker_label is None:
+        speaker_label = item.get("speaker")
+    normalized["speaker_label"] = "" if speaker_label is None else speaker_label
     return normalized

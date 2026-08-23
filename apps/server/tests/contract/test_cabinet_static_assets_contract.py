@@ -228,6 +228,12 @@ def test_cabinet_playback_shares_ready_state_geometry() -> None:
     assert f"{collapsed_selector}\n  --playback-inline-start: var(--app-rail-width);" in css
     assert f"{expanded_selector}\n  --playback-inline-start: var(--app-sidebar-width);" in css
     assert "left: var(--playback-inline-start);" in css
+    assert (
+        'html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell] .sidebar {\n'
+        "    z-index: 31;\n"
+        "    display: flex;\n"
+        "  }"
+    ) in css
 
 
 def test_cabinet_rail_node_harness_keeps_responsive_defaults_and_manual_state() -> None:

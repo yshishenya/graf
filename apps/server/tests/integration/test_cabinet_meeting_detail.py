@@ -202,7 +202,14 @@ def test_cabinet_processing_failed_and_partial_detail_states_are_truthful(client
     assert failed["notes_action_truth"]["decisions"]["state"] == "blocked"
     assert partial["processing"]["state"] == "partial"
     assert partial["transcript"]["available"] is True
-    assert partial["speakers"]["available"] is False
+    assert partial["transcript"]["result_state"] == "degraded_provider_result"
+    assert partial["speakers"]["available"] is True
+    assert partial["speakers"]["result_state"] == "degraded_provider_result"
+    assert partial["speakers"]["can_rename"] is False
+    assert [speaker["label"] for speaker in partial["speakers"]["speakers"]] == [
+        "Спикер не определён"
+    ]
+    assert all(not speaker["confirmed"] for speaker in partial["speakers"]["speakers"])
     assert partial["notes_action_truth"]["summary"]["state"] == "deferred"
     assert partial["notes_action_truth"]["followups"]["state"] == "deferred"
 

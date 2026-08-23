@@ -138,6 +138,7 @@ from twobrain_rec_server.db.models import (
     MeetingShareGrant,
     ProcessingResult,
     SummaryTemplate,
+    TranscriptSegment,
     UserIdentity,
     Workspace,
     WorkspaceMembership,
@@ -3447,10 +3448,34 @@ async def _summary_candidate_segments_by_id(
     )
     if result is None:
         return {}
-    return {
-        str(segment.segment_id): segment
-        for segment in await load_outcome_transcript_segments(db, result=result)
+    canonical_segments = await load_outcome_transcript_segments(db, result=result)
+    segments_by_id = {
+        str(segment.segment_id): segment for segment in canonical_segments
     }
+    # Keep old source references readable only when one ASR row maps to one
+    # canonical provider turn. Ambiguous overlap is intentionally not guessed.
+    transcript_rows = (
+        await db.scalars(
+            select(TranscriptSegment)
+            .where(
+                TranscriptSegment.workspace_id == result.workspace_id,
+                TranscriptSegment.meeting_id == result.meeting_id,
+                TranscriptSegment.processing_result_id == result.id,
+            )
+            .order_by(TranscriptSegment.sequence, TranscriptSegment.start_seconds)
+        )
+    ).all()
+    for row in transcript_rows:
+        candidates = [
+            segment
+            for segment in canonical_segments
+            if segment.source_role == row.source_role
+            and min(row.end_seconds, segment.end_seconds)
+            > max(row.start_seconds, segment.start_seconds)
+        ]
+        if len(candidates) == 1:
+            segments_by_id[str(row.id)] = candidates[0]
+    return segments_by_id
 
 
 def _summary_candidate_preview_item(
@@ -3464,9 +3489,12 @@ def _summary_candidate_preview_item(
             continue
         segment_id = str(ref.get("transcript_segment_id") or "")
         segment = segments_by_id.get(segment_id)
-        if segment is None or segment_id in seen_segment_ids:
+        if segment is None:
             continue
-        seen_segment_ids.add(segment_id)
+        canonical_segment_id = str(segment.segment_id)
+        if canonical_segment_id in seen_segment_ids:
+            continue
+        seen_segment_ids.add(canonical_segment_id)
         source_refs.append(
             {
                 "transcript_segment_id": segment.segment_id,

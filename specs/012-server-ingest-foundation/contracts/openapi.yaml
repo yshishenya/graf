@@ -8954,6 +8954,10 @@ paths:
               schema:
                 type: string
                 format: binary
+            text/vtt:
+              schema:
+                type: string
+                format: binary
         '422':
           description: Validation Error
           content:
@@ -10404,6 +10408,7 @@ components:
               - xlsx
               - json
               - srt
+              - vtt
             type: array
           propertyNames:
             enum:
@@ -10487,6 +10492,7 @@ components:
           - xlsx
           - json
           - srt
+          - vtt
           title: Format
         processing_result_id:
           type: string
@@ -14971,6 +14977,19 @@ components:
           - type: string
           - type: 'null'
           title: Confidence Label
+        provider_speaker_key:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Provider Speaker Key
+        confirmed:
+          type: boolean
+          title: Confirmed
+          default: true
+        can_rename:
+          type: boolean
+          title: Can Rename
+          default: true
       type: object
       required:
       - speaker_key
@@ -15009,6 +15028,11 @@ components:
           - type: string
           - type: 'null'
           title: Degraded Reason
+        turns:
+          items:
+            $ref: '#/components/schemas/TranscriptSpeakerTurnView'
+          type: array
+          title: Turns
         speakers:
           items:
             $ref: '#/components/schemas/SpeakerLane'
@@ -15018,6 +15042,17 @@ components:
           type: boolean
           title: Can Rename
           default: false
+        result_state:
+          type: string
+          enum:
+          - accepted
+          - degraded_provider_result
+          title: Result State
+          default: accepted
+        talk_time_label:
+          type: string
+          title: Talk Time Label
+          default: Доля распознанной речи
       type: object
       required:
       - available
@@ -15563,6 +15598,13 @@ components:
             $ref: '#/components/schemas/TranscriptSpeakerTurnView'
           type: array
           title: Speaker Turns
+        result_state:
+          type: string
+          enum:
+          - accepted
+          - degraded_provider_result
+          title: Result State
+          default: accepted
       type: object
       required:
       - available
@@ -15609,8 +15651,22 @@ components:
           - confirmed
           - unconfirmed
           - unknown
+          - mixed
+          - uncertain
           title: Attribution State
           default: unknown
+        result_state:
+          type: string
+          enum:
+          - accepted
+          - degraded_provider_result
+          title: Result State
+          default: accepted
+        provider_speaker_key:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Provider Speaker Key
         processing_result_id:
           anyOf:
           - type: string
@@ -15684,8 +15740,22 @@ components:
           - confirmed
           - unconfirmed
           - unknown
+          - mixed
+          - uncertain
           title: Attribution State
           default: unknown
+        result_state:
+          type: string
+          enum:
+          - accepted
+          - degraded_provider_result
+          title: Result State
+          default: accepted
+        provider_speaker_key:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Provider Speaker Key
         processing_result_id:
           anyOf:
           - type: string

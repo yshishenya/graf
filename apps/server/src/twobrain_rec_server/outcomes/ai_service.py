@@ -28,6 +28,7 @@ from twobrain_rec_server.db.models import (
     Workspace,
 )
 from twobrain_rec_server.db.tenant_context import TenantDatabaseContext, apply_tenant_context
+from twobrain_rec_server.domain.speaker_turns import canonical_speech_available
 from twobrain_rec_server.domain.statuses import ProcessingResultStatus
 from twobrain_rec_server.ingest.media_revisions import source_fingerprint_for_revision
 from twobrain_rec_server.observability.langfuse import (
@@ -195,7 +196,7 @@ async def create_summary_candidate(
             ProcessingResult.id.desc(),
         )
     )
-    if result is None or result.segment_count < 1 or result.transcript_status != "available":
+    if not canonical_speech_available(result):
         raise OutcomeGenerationTerminalError("summary_transcript_unavailable")
     if result.source_result_hash is None:
         raise OutcomeGenerationTerminalError("summary_source_revision_unavailable")

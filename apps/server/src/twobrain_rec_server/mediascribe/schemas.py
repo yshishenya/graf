@@ -2,6 +2,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from twobrain_rec_server.domain.speaker_turns import SpeakerTurnDiagnostics
 from twobrain_rec_server.domain.statuses import (
     MediaScribeJobStatus,
     ProcessingAvailabilityStatus,
@@ -55,6 +56,11 @@ class MediaScribeResult(BaseModel):
     diarization: list[MediaScribeDiarizationSegment] = Field(default_factory=list)
     summary_status: SummaryStatus = SummaryStatus.NOT_REQUESTED
     result_version: int = Field(default=1, ge=1)
+    provider_result_version: str | int | None = None
+    provider_build_version: str | int | None = None
+    provider_model_version: str | int | None = None
+    alignment_version: str | int | None = None
+    attribution_diagnostics: SpeakerTurnDiagnostics | None = Field(default=None, exclude=True)
 
     @field_validator("transcript_status")
     @classmethod
@@ -74,6 +80,10 @@ class MediaScribeResult(BaseModel):
     def infer_legacy_transcript_status(cls, data: Any) -> Any:
         if not isinstance(data, dict):
             return data
-        if data.get("transcript_status") is None and data.get("transcript_reason") is None and data.get("transcript"):
+        if (
+            data.get("transcript_status") is None
+            and data.get("transcript_reason") is None
+            and data.get("transcript")
+        ):
             return {**data, "transcript_status": ProcessingAvailabilityStatus.AVAILABLE}
         return data

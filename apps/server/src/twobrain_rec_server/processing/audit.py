@@ -1,17 +1,24 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from uuid import UUID
 
+from twobrain_rec_server.domain.speaker_turns import SPEAKER_REASON_CODES
 from twobrain_rec_server.observability.redaction import redact_mapping
 
 ALLOWED_AUDIT_KEYS = {
     "attempt_count",
+    "accepted_turn_count",
+    "alignment_version",
+    "attribution_result_state",
     "blocked_count",
     "dependency",
     "diagnostic_class",
+    "defect_origin",
     "diarization_segment_count",
     "duration_seconds",
+    "duplicate_text_count",
     "error_code",
     "error_origin",
     "event",
@@ -21,22 +28,32 @@ ALLOWED_AUDIT_KEYS = {
     "meeting_id",
     "mediascribe_job_id",
     "poll_attempt",
+    "provider_build_version",
+    "provider_job_id",
+    "provider_model_version",
+    "provider_result_version",
     "prompt_config_hash",
     "prompt_hash",
     "prompt_name",
     "prompt_source",
     "prompt_version",
     "reason_code",
+    "reason_codes",
     "result_version",
     "schema_version",
     "reused_count",
+    "raw_turn_count",
     "segment_count",
+    "source_result_hash",
     "started_count",
     "state",
     "status",
     "summary_status",
+    "text_conservation_status",
     "transcript_status",
     "transcript_reason",
+    "unknown_tiny_count",
+    "multi_label_conflict_count",
     "workflow_id",
     "workflow_run_id",
     "workspace_id",
@@ -79,6 +96,20 @@ SAFE_TRANSCRIPT_METADATA_VALUES = {
     "transcript_status": {"available", "unavailable"},
     "transcript_reason": {"no_recognizable_speech", None},
 }
+SAFE_ATTRIBUTION_VALUE_RE = re.compile(r"^[A-Za-z0-9_.:+-]{1,160}$")
+URI_VALUE_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
+LOCAL_PATH_VALUE_RE = re.compile(r"^(?:/|~(?:/|$)|[A-Za-z]:[/\\])")
+SAFE_ATTRIBUTION_STRING_KEYS = {
+    "alignment_version",
+    "attribution_result_state",
+    "defect_origin",
+    "provider_build_version",
+    "provider_job_id",
+    "provider_model_version",
+    "provider_result_version",
+    "source_result_hash",
+    "text_conservation_status",
+}
 
 DENIED_ACCESS_AUDIT_KEYS = {
     "request_class",
@@ -102,14 +133,29 @@ def safe_audit_metadata(values: Mapping[str, object]) -> dict[str, object]:
     for key, allowed_values in SAFE_TRANSCRIPT_METADATA_VALUES.items():
         if key in sanitized and sanitized[key] in allowed_values:
             redacted[key] = sanitized[key]
+    for key in SAFE_ATTRIBUTION_STRING_KEYS:
+        value = sanitized.get(key)
+        if (
+            isinstance(value, str)
+            and SAFE_ATTRIBUTION_VALUE_RE.fullmatch(value)
+            and URI_VALUE_RE.match(value) is None
+            and LOCAL_PATH_VALUE_RE.match(value) is None
+        ):
+            redacted[key] = value
+        elif key in sanitized:
+            redacted[key] = "[REDACTED]"
+    reason_codes = sanitized.get("reason_codes")
+    if (
+        isinstance(reason_codes, (list, tuple))
+        and all(isinstance(code, str) and code in SPEAKER_REASON_CODES for code in reason_codes)
+    ):
+        redacted["reason_codes"] = list(reason_codes)
+    else:
+        redacted.pop("reason_codes", None)
     return redacted
 
 
 def safe_denied_access_metadata(**values: object) -> dict[str, object]:
     return redact_mapping(
-        {
-            key: value
-            for key, value in values.items()
-            if key in DENIED_ACCESS_AUDIT_KEYS
-        }
+        {key: value for key, value in values.items() if key in DENIED_ACCESS_AUDIT_KEYS}
     )

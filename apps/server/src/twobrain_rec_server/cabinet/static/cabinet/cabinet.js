@@ -275,6 +275,13 @@
     target.isConnected &&
     target.closest("[hidden], [aria-hidden='true']") === null;
 
+  const restoreMeetingActionFocus = (target) => {
+    const visibleTarget = isUsableFocusTarget(target)
+      ? target
+      : document.querySelector('[data-meeting-panel-open="more"]');
+    visibleTarget?.focus({ preventScroll: true });
+  };
+
   const restoreListRefreshFocus = (recovery = null, { force = false } = {}) => {
     if (!listRefreshShouldRestoreFocus) return false;
     const active = document.activeElement;
@@ -2919,6 +2926,16 @@
     document.querySelectorAll("[data-playback-shell]").forEach((shell) => {
       if (shell.dataset.playbackReady === "true") return;
       shell.dataset.playbackReady = "true";
+      const detailMain = shell.closest(".app-shell")?.querySelector(".detail-page-main");
+      const syncPlaybackClearance = () => {
+        if (!detailMain) return;
+        const height = Math.ceil(shell.getBoundingClientRect().height);
+        detailMain.style.setProperty("--playback-clearance", `${height + 20}px`);
+      };
+      syncPlaybackClearance();
+      if (typeof ResizeObserver === "function") {
+        new ResizeObserver(syncPlaybackClearance).observe(shell);
+      }
       const player = shell.querySelector("[data-playback-player]");
       if (!player) return;
       const toggle = shell.querySelector("[data-playback-toggle]");
@@ -4422,7 +4439,7 @@
       ["Текст", [["txt", "Текст (.txt)"], ["md", "Markdown (.md)"]]],
       ["Таблицы", [["csv", "Таблица CSV (.csv)"], ["xlsx", "Excel (.xlsx)"]]],
       ["Данные", [["json", "JSON (.json)"]]],
-      ["Субтитры", [["srt", "Субтитры (.srt)"]]]
+      ["Субтитры", [["srt", "Субтитры (.srt)"], ["vtt", "WebVTT (.vtt)"]]]
     ];
     let returnFocus = null;
     let submitting = false;
@@ -4440,8 +4457,8 @@
         speakers.disabled = machineFormat;
       }
       if (timestamps) {
-        if (machineFormat || format.value === "srt") timestamps.checked = true;
-        timestamps.disabled = machineFormat || format.value === "srt";
+        if (machineFormat || format.value === "srt" || format.value === "vtt") timestamps.checked = true;
+        timestamps.disabled = machineFormat || format.value === "srt" || format.value === "vtt";
       }
       if (evidence) evidence.disabled = scope.value === "transcript";
     };
@@ -4548,6 +4565,7 @@
       meeting_not_found: "Доступ к встрече изменился. Обновите страницу.",
       export_policy_denied: "Политика доступа к этому составу изменилась.",
       export_unavailable: "Этот состав сейчас недоступен по готовности или политике.",
+      subtitle_timing_unavailable: "Не удалось подготовить субтитры: у одного из фрагментов нет корректного времени. Выберите другой формат, чтобы сохранить весь текст.",
       export_generation_failed: "Не удалось собрать файл. Повторите экспорт.",
       audit_unavailable: "Экспорт остановлен: не удалось сохранить обязательную запись аудита. Повторите позже.",
       unsupported_export_combination: "Выберите совместимый формат.",

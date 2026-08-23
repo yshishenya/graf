@@ -995,6 +995,7 @@ def _render_meeting_detail_content(
 ) -> str:
     transcript_rows = review.transcript.speaker_turns or review.transcript.segments
     speaker_palette = _speaker_palette(review)
+    attribution_notice = _speaker_attribution_notice(review)
     transcript = trusted_component_html(
         _render_transcript(transcript_rows, speaker_palette), source="meeting_detail.transcript"
     )
@@ -1125,6 +1126,8 @@ def _render_meeting_detail_content(
             ),
             source="meeting_detail.calendar_context",
         ),
+        speaker_attribution_notice_title=(attribution_notice[0] if attribution_notice else ""),
+        speaker_attribution_notice_body=(attribution_notice[1] if attribution_notice else ""),
         artifacts=trusted_component_html(
             _render_artifacts(review), source="meeting_detail.artifacts"
         ),
@@ -1274,7 +1277,7 @@ def _render_content_export_dialog(
         ("Текст", ("txt", "md")),
         ("Таблицы", ("csv", "xlsx")),
         ("Данные", ("json",)),
-        ("Субтитры", ("srt",)),
+        ("Субтитры", ("srt", "vtt")),
     )
     format_labels = {
         "txt": "Текст (.txt)",
@@ -1283,6 +1286,7 @@ def _render_content_export_dialog(
         "xlsx": "Excel (.xlsx)",
         "json": "JSON (.json)",
         "srt": "Субтитры (.srt)",
+        "vtt": "WebVTT (.vtt)",
     }
     initial_formats = set(capability.formats[initial_scope])
     format_options = "".join(
@@ -1357,9 +1361,36 @@ def _speaker_display_label(label: str) -> str:
 
 
 def _speaker_palette(review: MeetingReviewResponse) -> dict[str, int]:
-    return {
-        speaker.speaker_key: index % 6 + 1 for index, speaker in enumerate(review.speakers.speakers)
-    }
+    palette: dict[str, int] = {}
+    confirmed_index = 0
+    for speaker in review.speakers.speakers:
+        if speaker.confirmed:
+            palette[speaker.speaker_key] = confirmed_index % 6 + 1
+            confirmed_index += 1
+        else:
+            palette[speaker.speaker_key] = 0
+    return palette
+
+
+def _speaker_attribution_notice(review: MeetingReviewResponse) -> tuple[str, str] | None:
+    if review.transcript.result_state != "degraded_provider_result":
+        return None
+    confirmed = any(speaker.confirmed for speaker in review.speakers.speakers)
+    unconfirmed = any(not speaker.confirmed for speaker in review.speakers.speakers)
+    if confirmed and unconfirmed:
+        return (
+            "Часть речи без имени",
+            "Этот фрагмент сохранён как «Спикер не определён». Остальные реплики и имена не изменены.",
+        )
+    if confirmed:
+        return (
+            "Спикеры показаны",
+            "Реплики и имена показаны по доступным данным. Текст записи сохранён.",
+        )
+    return (
+        "Текст записи сохранён",
+        "Надёжно разделить голоса не удалось, поэтому реплики показаны без имён.",
+    )
 
 
 def _notes_source_label(source_basis: str) -> str:
@@ -2068,7 +2099,7 @@ def _render_playback_speaker_timeline(
         <div class="speaker-timeline-resize-row">
           <div id="speaker-timeline-resize" class="speaker-timeline-resize" data-speaker-timeline-resize role="separator" aria-orientation="horizontal" aria-controls="speaker-timeline" aria-label="Изменить высоту таймлайнов спикеров" aria-valuemin="120" aria-valuemax="120" aria-valuenow="120" aria-valuetext="Стандартная высота" tabindex="0" hidden></div>
         </div>
-        <p class="speaker-timeline-hint" data-speaker-timeline-hint>Нажмите на цветной фрагмент, чтобы перейти к этому месту записи.</p>
+        <p class="speaker-timeline-hint" data-speaker-timeline-hint>Нажмите на цветной фрагмент, чтобы перейти к этому месту записи. Проценты: {escape(review.speakers.talk_time_label.lower())} каждого спикера.</p>
         <div id="speaker-timeline" class="speaker-timeline" data-speaker-timeline data-speaker-timeline-count="{len(lanes)}" data-speaker-timeline-default-height="120">{"".join(lanes)}</div>
       </div>
     """
@@ -2083,9 +2114,10 @@ def _render_speaker_manager(
 ) -> str:
     if not review.speakers.available:
         return ""
+    confirmed_count = sum(speaker.confirmed for speaker in review.speakers.speakers)
     markers = "".join(
         f'<span class="speaker-manager-marker speaker-color-{speaker_palette.get(speaker.speaker_key, 0)}"></span>'
-        for speaker in review.speakers.speakers[:4]
+        for speaker in [item for item in review.speakers.speakers if item.confirmed][:4]
     )
     rows = []
     for speaker in review.speakers.speakers:
@@ -2093,7 +2125,7 @@ def _render_speaker_manager(
         color_class = f"speaker-color-{speaker_palette.get(speaker.speaker_key, 0)}"
         editor = ""
         action = ""
-        if review.speakers.can_rename:
+        if review.speakers.can_rename and speaker.can_rename:
             form_id = f"speaker-manager-form-{speaker.speaker_key}"
             action = f'<button class="speaker-manager-edit" type="button" data-speaker-name-open aria-expanded="false" aria-controls="{escape(form_id)}">Изменить</button>'
             editor = _render_speaker_name_form(
@@ -2110,7 +2142,7 @@ def _render_speaker_manager(
               <div class="speaker-manager-row {color_class}" data-speaker-key="{escape(speaker.speaker_key)}">
                 <span class="speaker-manager-dot" aria-hidden="true"></span>
                 <span class="speaker-manager-name" title="{escape(speaker_label)}">{escape(speaker_label)}</span>
-                <span class="speaker-manager-share">{speaker.talk_time_percent}%</span>
+                <span class="speaker-manager-share" aria-label="{escape(review.speakers.talk_time_label)}: {speaker.talk_time_percent}%">{speaker.talk_time_percent}%</span>
                 {action}
                 {editor}
               </div>
@@ -2119,7 +2151,7 @@ def _render_speaker_manager(
     return f"""
       <div class="speaker-manager" data-speaker-manager>
         <button class="speaker-manager-trigger" type="button" data-speaker-manager-toggle aria-expanded="false" aria-controls="speaker-manager-popover">
-          <span>Спикеры · {len(review.speakers.speakers)}</span><span class="speaker-manager-markers" aria-hidden="true">{markers}</span>
+          <span>Спикеры · {confirmed_count}</span><span class="speaker-manager-markers" aria-hidden="true">{markers}</span>
         </button>
         <div id="speaker-manager-popover" class="speaker-manager-popover" hidden>{"".join(rows)}</div>
       </div>
@@ -2138,7 +2170,7 @@ def _render_speaker_lanes(
     for speaker in review.speakers.speakers:
         speaker_label = _speaker_display_label(speaker.label)
         editor = ""
-        if review.speakers.can_rename and not review.playback.can_play:
+        if review.speakers.can_rename and speaker.can_rename and not review.playback.can_play:
             editor = _render_speaker_name_form(
                 review,
                 speaker,
@@ -2232,7 +2264,9 @@ def _render_notes_outcomes(review: MeetingReviewResponse) -> str:
     )
     primary = [row for row in primary if row[2].state not in aggregate_states]
     secondary = [row for row in secondary if row[2].state not in aggregate_states]
-    source_destination_available = review.playback.can_play or bool(review.transcript.segments)
+    source_destination_available = review.playback.can_play or bool(
+        review.transcript.speaker_turns or review.transcript.segments
+    )
     primary_rows = "".join(
         _render_notes_outcome_row(
             category,

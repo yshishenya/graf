@@ -1014,6 +1014,7 @@ def test_external_full_invitation_opens_recording_package_and_rechecks_revoke(
         "xlsx",
         "json",
         "srt",
+        "vtt",
     ]
     assert capability_payload["formats"]["summary"] == ["txt", "md", "xlsx", "json"]
     assert capability_payload["formats"]["combined"] == ["txt", "md", "xlsx", "json"]

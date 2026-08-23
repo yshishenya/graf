@@ -19,6 +19,7 @@ from twobrain_rec_server.api.schemas import (
 from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.db.models import Meeting as MeetingModel
 from twobrain_rec_server.db.models import ProcessingResult, ProcessingWorkflow
+from twobrain_rec_server.domain.speaker_turns import canonical_speech_available
 from twobrain_rec_server.domain.statuses import (
     CustodyMetadataSafety,
     CustodyNormalUserAction,
@@ -188,8 +189,7 @@ def _transcript_available(result: ProcessingResult | None) -> bool:
     return bool(
         result is not None
         and result.status == ProcessingResultStatus.IMPORTED.value
-        and result.transcript_status == ProcessingAvailabilityStatus.AVAILABLE.value
-        and result.segment_count > 0
+        and canonical_speech_available(result)
     )
 
 
