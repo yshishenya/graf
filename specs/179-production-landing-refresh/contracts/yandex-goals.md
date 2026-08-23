@@ -42,4 +42,3 @@ Each event is deduplicated per page/action key. Default tab, default pricing and
 5. Open query/hash/private-looking URLs and prove only safe normalized values leave.
 6. Verify no Yandex script/config on legal, auth, cabinet, admin or meeting surfaces.
 7. In the Yandex account, replace the landing goals with these exact names and verify a synthetic public session.
-

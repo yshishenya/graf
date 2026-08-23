@@ -3,7 +3,9 @@ from __future__ import annotations
 from urllib.parse import urlencode
 from uuid import UUID
 
+from twobrain_rec_server.auth.redirects import safe_first_party_path
 from twobrain_rec_server.cabinet.templates import render_template, trusted_component_html
+from twobrain_rec_server.cabinet.view_models import PROVIDER_LINK_LABELS
 
 _PLANNED_LOGIN_PROVIDER_ACTIONS: tuple[dict[str, str | bool], ...] = (
     {"provider": "tbank", "label": "T-Банк ID", "mark": "T", "active": False},
@@ -22,7 +24,7 @@ def _login_provider_actions(providers: list, *, next_path: str) -> list[dict[str
             continue
         if provider_id == "telegram":
             continue
-        label = _login_provider_label(
+        label = PROVIDER_LINK_LABELS.get(
             provider_id, str(getattr(provider, "label", "") or provider_id)
         )
         mark = _login_provider_mark(provider_id, label)
@@ -67,14 +69,6 @@ def _login_provider_actions(providers: list, *, next_path: str) -> list[dict[str
     return actions
 
 
-def _login_provider_label(provider_id: str, fallback: str) -> str:
-    labels = {
-        "yandex": "Яндекс ID",
-        "vk": "VK ID",
-    }
-    return labels.get(provider_id, fallback)
-
-
 def _login_provider_mark(provider_id: str, label: str) -> str:
     marks = {
         "yandex": "Я",
@@ -98,6 +92,13 @@ def render_login_page(
     provider_actions = _login_provider_actions(providers, next_path=safe_next)
     if recovery_mode:
         provider_actions = [action for action in provider_actions if action["active"]]
+    success_result = error in {
+        "email_connected_relogin_required",
+        "yandex_connected_relogin_required",
+        "vk_connected_relogin_required",
+        "sign_in_method_connected_relogin_required",
+    }
+    message_heading = "Подключение завершено" if success_result else "Не удалось продолжить"
     content = render_template(
         "cabinet/auth/login.html",
         workspace_configured=workspace_id is not None,
@@ -108,6 +109,8 @@ def render_login_page(
         recovery_mode=recovery_mode,
         embedded=embedded,
         error_message=_login_error_message(error),
+        message_kind="success" if success_result else "error",
+        message_heading=message_heading,
     )
     return _standalone_page("Вход", content, product_analytics_provider=product_analytics_provider)
 
@@ -165,26 +168,43 @@ def render_email_code_page(
     )
     back_path = link_base_path if link_flow else ("/sign-up" if flow == "signup" else "/login")
     invitation_flow = flow == "share_invitation"
+    can_verify = bool(state_nonce) and error not in {"email_code_invalid", "email_code_expired"}
+    message_heading = {
+        "auth_rate_limited": "Слишком много попыток",
+        "email_delivery_unavailable": "Почта временно недоступна",
+        "email_invalid": "Проверьте email",
+        "email_code_expired": "Код истёк",
+    }.get(error, "Код не принят")
     page_title = (
-        "Откройте итоги встречи"
-        if invitation_flow
+        "Запросите новый код"
+        if not can_verify
         else (
-            "Подтвердите email для подключения"
-            if link_flow
-            else ("Подтвердите почту" if flow == "signup" else "Подтвердите вход")
+            "Откройте итоги встречи"
+            if invitation_flow
+            else (
+                "Подтвердите email для подключения"
+                if link_flow
+                else ("Подтвердите почту" if flow == "signup" else "Подтвердите вход")
+            )
         )
     )
     subtitle = (
-        f"Проверьте {email}: мы отправили 6-значный код. Если аккаунта GRAF ещё нет, "
-        "он создастся автоматически."
-        if invitation_flow
+        "Исправьте email и запросите новый код."
+        if error == "email_invalid"
+        else "Запросите новый одноразовый код, чтобы продолжить."
+        if not can_verify
         else (
-            f"Проверьте {email}: мы отправили 6-значный код для создания аккаунта."
-            if flow == "signup"
+            f"Проверьте {email}: мы отправили 6-значный код. Если аккаунта GRAF ещё нет, "
+            "он создастся автоматически."
+            if invitation_flow
             else (
-                f"Проверьте {email}: мы отправили 6-значный код для подключения к текущему профилю."
-                if link_flow
-                else f"Проверьте {email}: мы отправили 6-значный код для входа."
+                f"Проверьте {email}: мы отправили 6-значный код для создания аккаунта."
+                if flow == "signup"
+                else (
+                    f"Проверьте {email}: мы отправили 6-значный код для подключения к текущему профилю."
+                    if link_flow
+                    else f"Проверьте {email}: мы отправили 6-значный код для входа."
+                )
             )
         )
     )
@@ -201,7 +221,10 @@ def render_email_code_page(
         csrf_token=csrf_token,
         dev_code=dev_code,
         error_message=_login_error_message(error, link_flow=link_flow),
+        message_heading=message_heading,
         embedded_code_panel=flow == "desktop_link",
+        can_verify=can_verify,
+        retry_requires_email=not bool(email),
     )
     return _standalone_page(
         "Код входа", content, product_analytics_provider=product_analytics_provider
@@ -226,14 +249,7 @@ def _standalone_page(
 
 
 def _safe_browser_next_path(value: str | None) -> str:
-    if value is None:
-        return "/meetings"
-    stripped = value.strip()
-    if not stripped or not stripped.startswith("/") or stripped.startswith("//"):
-        return "/meetings"
-    if any(char in stripped for char in "\r\n"):
-        return "/meetings"
-    return stripped
+    return safe_first_party_path(value) or "/meetings"
 
 
 def _login_error_message(error: str | None, *, link_flow: bool = False) -> str | None:
@@ -249,14 +265,22 @@ def _login_error_message(error: str | None, *, link_flow: bool = False) -> str |
         "auth_handoff_invalid": "Не удалось безопасно открыть тарифы. Войдите ещё раз.",
         "auth_handoff_session_invalid": "Сессия приложения истекла. Войдите снова.",
         "auth_handoff_expired": "Ссылка из приложения истекла. Войдите снова.",
-        "account_linking_other_profile_required": "Войдите способом второго профиля, чтобы устранить причину. После этого вернитесь в основной профиль и подключите email заново.",
+        "account_linking_other_profile_required": "Войдите способом второго профиля, чтобы устранить причину. После этого вернитесь в основной профиль и повторите подключение способа входа.",
         "email_connected_relogin_required": "Email подключён к текущему профилю. Войдите снова любым сохранённым способом.",
+        "yandex_connected_relogin_required": "Яндекс ID подключён к текущему профилю. Войдите снова любым сохранённым способом.",
+        "vk_connected_relogin_required": "VK ID подключён к текущему профилю. Войдите снова любым сохранённым способом.",
+        "sign_in_method_connected_relogin_required": "Способ входа подключён к текущему профилю. Войдите снова любым сохранённым способом.",
         "auth_session_invalid": "Сессия не найдена. Войдите снова.",
         "auth_session_expired": "Сессия истекла. Войдите снова.",
         "device_revoked": "Доступ этого устройства отозван. Войдите с доверенного браузера.",
         "workspace_required": "Вход пока не настроен на сервере. Обратитесь к администратору GRAF.",
         "provider_missing": "Этот способ входа не настроен.",
         "provider_disabled": "Этот способ входа выключен политикой кабинета.",
+        "callback_denied": "Провайдер не подтвердил вход. Начните вход заново или выберите другой способ.",
+        "callback_state_invalid": "Ссылка входа недействительна. Начните вход заново.",
+        "callback_state_expired": "Ссылка входа истекла. Начните вход заново.",
+        "callback_state_reused": "Эта ссылка входа уже использована. Начните вход заново.",
+        "provider_unavailable": "Провайдер временно недоступен. Попробуйте снова или выберите другой способ входа.",
         "provider_future": "Этот способ входа появится позже. Сейчас используйте вход по email.",
         "auth_dependency_unavailable": "Сервис входа временно недоступен.",
         "email_invalid": "Введите корректный email.",
@@ -266,7 +290,7 @@ def _login_error_message(error: str | None, *, link_flow: bool = False) -> str |
         "email_delivery_unavailable": "Почтовая доставка временно недоступна. Попробуйте запросить код еще раз.",
         "auth_rate_limited": "Слишком много попыток. Попробуйте снова через несколько минут.",
         "workspace_enrollment_required": "Регистрация в этом кабинете закрыта. Попросите администратора выслать приглашение.",
-        "email_code_invalid": "Код не подошел. Проверьте письмо и попробуйте еще раз.",
+        "email_code_invalid": "Код не подошёл и больше не действует. Запросите новый код.",
         "email_code_expired": "Код истек. Запросите новый код.",
         "share_invitation_email_required": "Введите email, на который пришло приглашение.",
         "share_invitation_unavailable": "Приглашение больше недоступно. Запросите новое.",

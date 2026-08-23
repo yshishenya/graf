@@ -9,11 +9,13 @@ from sqlalchemy import select
 
 from tests.fakes.auth_contexts import ORG_ID, USER_ID
 from twobrain_rec_server.auth.account_closure import finalize_account_close
+from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
 from twobrain_rec_server.auth.csrf import issue_csrf_token
 from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
-from twobrain_rec_server.auth.sessions import issue_auth_session
+from twobrain_rec_server.auth.sessions import fingerprint_identity, issue_auth_session
 from twobrain_rec_server.auth.workspace_onboarding import ensure_personal_workspace
 from twobrain_rec_server.billing.trial import require_trial_activation
+from twobrain_rec_server.cabinet.web_routes.settings import _unlink_account_provider
 from twobrain_rec_server.db.models import (
     AccountClosureRequest,
     AuthAuditEvent,
@@ -27,10 +29,16 @@ from twobrain_rec_server.db.models import (
     WorkspaceMembership,
     WorkspaceSubscription,
 )
+from twobrain_rec_server.db.tenant_context import apply_tenant_scope
 
 
 async def _issue_web_session(
-    client, *, user_id: UUID, workspace_id: UUID, device_id: UUID
+    client,
+    *,
+    user_id: UUID,
+    workspace_id: UUID,
+    device_id: UUID,
+    provider: str = "email",
 ) -> tuple[str, UUID]:
     async with client.app_state["sessionmaker"]() as db:
         issued = await issue_auth_session(
@@ -38,7 +46,7 @@ async def _issue_web_session(
             user_id=user_id,
             workspace_id=workspace_id,
             device_id=device_id,
-            provider="email",
+            provider=provider,
         )
         db.add(
             AuthSessionDeviceBinding(
@@ -274,7 +282,9 @@ def test_trial_cannot_replace_an_active_paid_subscription(client) -> None:
     async def load_subscription() -> WorkspaceSubscription:
         async with client.app_state["sessionmaker"]() as db:
             row = await db.scalar(
-                select(WorkspaceSubscription).where(WorkspaceSubscription.workspace_id == workspace_id)
+                select(WorkspaceSubscription).where(
+                    WorkspaceSubscription.workspace_id == workspace_id
+                )
             )
             assert row is not None
             return row
@@ -401,7 +411,11 @@ def test_account_close_rejects_header_session_even_when_cookie_is_absent(client)
 
     async def load_request() -> AccountClosureRequest | None:
         async with client.app_state["sessionmaker"]() as db:
-            return await db.scalar(select(AccountClosureRequest).where(AccountClosureRequest.workspace_id == workspace_id))
+            return await db.scalar(
+                select(AccountClosureRequest).where(
+                    AccountClosureRequest.workspace_id == workspace_id
+                )
+            )
 
     assert asyncio.run(load_request()) is None
 
@@ -454,8 +468,10 @@ def test_account_preferences_persist_and_provider_unlink_keeps_recovery_path(cli
         headers=headers,
         follow_redirects=False,
     )
-    assert blocked.status_code == 422
-    assert blocked.json()["code"] == "recovery_path_required"
+    assert blocked.status_code == 303
+    assert blocked.headers["location"].endswith(
+        "/settings/account?provider_unlink=recovery_path_required"
+    )
 
     async def assert_persisted() -> None:
         async with client.app_state["sessionmaker"]() as db:
@@ -468,6 +484,374 @@ def test_account_preferences_persist_and_provider_unlink_keeps_recovery_path(cli
             assert second is not None and second.is_active is True and second.is_verified is True
 
     asyncio.run(assert_persisted())
+
+
+def test_telegram_identity_never_counts_as_the_remaining_recovery_path(client) -> None:
+    workspace_id, device_id = asyncio.run(_seed_personal_workspace(client))
+    token, session_id = asyncio.run(
+        _issue_web_session(client, user_id=USER_ID, workspace_id=workspace_id, device_id=device_id)
+    )
+    headers = _bind_web_session(client, token=token, session_id=session_id)
+
+    async def seed_identities() -> tuple[UUID, UUID]:
+        async with client.app_state["sessionmaker"]() as db:
+            email = ExternalIdentity(
+                user_id=USER_ID,
+                provider="email",
+                provider_subject="recovery@example.test",
+                email="recovery@example.test",
+                is_verified=True,
+                is_active=True,
+            )
+            telegram = ExternalIdentity(
+                user_id=USER_ID,
+                provider="telegram",
+                provider_subject="telegram-only-non-login",
+                is_verified=True,
+                is_active=True,
+            )
+            db.add_all([email, telegram])
+            await db.commit()
+            return email.id, telegram.id
+
+    email_id, telegram_id = asyncio.run(seed_identities())
+    blocked = client.post(
+        f"/settings/account/providers/{email_id}/unlink",
+        headers=headers,
+        follow_redirects=False,
+    )
+    assert blocked.status_code == 303
+    assert blocked.headers["location"].endswith(
+        "/settings/account?provider_unlink=recovery_path_required"
+    )
+
+    unlinked = client.post(
+        f"/settings/account/providers/{telegram_id}/unlink",
+        headers=headers,
+        follow_redirects=False,
+    )
+    assert unlinked.status_code == 303
+    assert unlinked.headers["location"].endswith("provider_unlink=success")
+
+
+def test_account_settings_keeps_telegram_available_for_linking(client) -> None:
+    workspace_id, device_id = asyncio.run(_seed_personal_workspace(client))
+    token, session_id = asyncio.run(
+        _issue_web_session(client, user_id=USER_ID, workspace_id=workspace_id, device_id=device_id)
+    )
+    headers = _bind_web_session(client, token=token, session_id=session_id)
+
+    browser = client.get("/settings/account", headers=headers)
+    embedded = client.get("/desktop/settings/account", headers=headers)
+
+    assert browser.status_code == 200
+    assert embedded.status_code == 200
+    assert 'action="/settings/provider-links/telegram/start"' in browser.text
+    assert 'action="/desktop/settings/provider-links/telegram/start"' in embedded.text
+
+
+def test_provider_unlink_revokes_provider_sessions_and_recovers_current_login(client) -> None:
+    workspace_id, device_id = asyncio.run(_seed_personal_workspace(client))
+    current_token, current_session_id = asyncio.run(
+        _issue_web_session(
+            client,
+            user_id=USER_ID,
+            workspace_id=workspace_id,
+            device_id=device_id,
+            provider="yandex",
+        )
+    )
+    stolen_token, stolen_session_id = asyncio.run(
+        _issue_web_session(
+            client,
+            user_id=USER_ID,
+            workspace_id=workspace_id,
+            device_id=device_id,
+            provider="yandex",
+        )
+    )
+    _, same_provider_session_id = asyncio.run(
+        _issue_web_session(
+            client,
+            user_id=USER_ID,
+            workspace_id=workspace_id,
+            device_id=device_id,
+            provider="yandex",
+        )
+    )
+    other_provider_token, other_provider_session_id = asyncio.run(
+        _issue_web_session(
+            client,
+            user_id=USER_ID,
+            workspace_id=workspace_id,
+            device_id=device_id,
+            provider="email",
+        )
+    )
+    headers = _bind_web_session(
+        client,
+        token=current_token,
+        session_id=current_session_id,
+    )
+
+    async def seed_identities() -> UUID:
+        async with client.app_state["sessionmaker"]() as db:
+            target = ExternalIdentity(
+                user_id=USER_ID,
+                provider="yandex",
+                provider_subject="unlink-session-yandex",
+                is_verified=True,
+                is_active=True,
+            )
+            db.add_all(
+                [
+                    target,
+                    ExternalIdentity(
+                        user_id=USER_ID,
+                        provider="yandex",
+                        provider_subject="unlink-session-yandex-other",
+                        is_verified=True,
+                        is_active=True,
+                    ),
+                    ExternalIdentity(
+                        user_id=USER_ID,
+                        provider="email",
+                        provider_subject="unlink-session-recovery@example.test",
+                        email="unlink-session-recovery@example.test",
+                        is_verified=True,
+                        is_active=True,
+                    ),
+                ]
+            )
+            await db.commit()
+            return target.id
+
+    identity_id = asyncio.run(seed_identities())
+
+    async def bind_same_provider_session() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            same_provider = await db.get(AuthSession, same_provider_session_id)
+            assert same_provider is not None
+            same_provider.claims_fingerprint = fingerprint_identity(
+                "unlink-session-yandex-other", "yandex", workspace_id
+            )
+            await db.commit()
+
+    asyncio.run(bind_same_provider_session())
+    response = client.post(
+        f"/settings/account/providers/{identity_id}/unlink",
+        headers=headers,
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"].endswith(
+        "/login?next=/settings/account&error=auth_session_invalid"
+    )
+    assert AUTH_SESSION_COOKIE_NAME in response.headers["set-cookie"]
+    assert "Max-Age=0" in response.headers["set-cookie"]
+
+    client.cookies.clear()
+    stolen = client.get(
+        "/settings/account",
+        headers={"X-Auth-Session": stolen_token},
+        follow_redirects=False,
+    )
+    assert stolen.status_code == 303
+    assert "error=auth_session_invalid" in stolen.headers["location"]
+
+    other_provider = client.get(
+        "/settings/account",
+        headers={"X-Auth-Session": other_provider_token},
+        follow_redirects=False,
+    )
+    assert other_provider.status_code == 200
+
+    async def assert_revoked() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            sessions = {
+                session.id: session
+                for session in await db.scalars(
+                    select(AuthSession).where(
+                        AuthSession.id.in_(
+                            [
+                                current_session_id,
+                                stolen_session_id,
+                                same_provider_session_id,
+                                other_provider_session_id,
+                            ]
+                        )
+                    )
+                )
+            }
+            bindings = {
+                binding.auth_session_id: binding
+                for binding in await db.scalars(
+                    select(AuthSessionDeviceBinding).where(
+                        AuthSessionDeviceBinding.auth_session_id.in_(sessions)
+                    )
+                )
+            }
+            identity = await db.get(ExternalIdentity, identity_id)
+            audit = await db.scalar(
+                select(AuthAuditEvent)
+                .where(AuthAuditEvent.event_type == "provider_unlinked")
+                .order_by(AuthAuditEvent.created_at.desc())
+            )
+            assert sessions[current_session_id].status == "revoked"
+            assert sessions[stolen_session_id].status == "revoked"
+            assert sessions[same_provider_session_id].status == "active"
+            assert sessions[other_provider_session_id].status == "active"
+            for session_id in (current_session_id, stolen_session_id):
+                assert bindings[session_id].device_state == "blocked"
+                assert bindings[session_id].revocation_reason == "provider_unlinked"
+            assert bindings[other_provider_session_id].device_state == "trusted"
+            assert identity is not None and identity.is_active is False
+            assert audit is not None
+            assert audit.metadata_json == {"revoked_session_count": 2, "provider": "yandex"}
+
+    asyncio.run(assert_revoked())
+
+
+def test_provider_unlink_revokes_sessions_across_authorized_workspaces(client) -> None:
+    current_workspace_id, current_device_id = asyncio.run(_seed_personal_workspace(client))
+    other_workspace_id = uuid4()
+    other_device_id = uuid4()
+    identity_id = uuid4()
+
+    async def seed_other_workspace_and_identities() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            db.add_all(
+                [
+                    Workspace(
+                        id=other_workspace_id,
+                        organization_id=ORG_ID,
+                        owner_user_id=USER_ID,
+                        slug=f"unlink-cross-{other_workspace_id.hex[:12]}",
+                        name="Unlink cross-workspace",
+                        kind="linked",
+                    ),
+                    ExternalIdentity(
+                        id=identity_id,
+                        user_id=USER_ID,
+                        provider="yandex",
+                        provider_subject="unlink-cross-workspace-yandex",
+                        is_verified=True,
+                        is_active=True,
+                    ),
+                    ExternalIdentity(
+                        user_id=USER_ID,
+                        provider="email",
+                        provider_subject="unlink-cross-workspace-recovery@example.test",
+                        email="unlink-cross-workspace-recovery@example.test",
+                        is_verified=True,
+                        is_active=True,
+                    ),
+                ]
+            )
+            await db.flush()
+            db.add_all(
+                [
+                    WorkspaceMembership(
+                        workspace_id=other_workspace_id,
+                        user_id=USER_ID,
+                        role="owner",
+                        status="active",
+                    ),
+                    RegisteredDevice(
+                        id=other_device_id,
+                        workspace_id=other_workspace_id,
+                        user_id=USER_ID,
+                        device_public_id=f"unlink-cross-{other_device_id}",
+                        platform="web",
+                        client_version="test",
+                        status="active",
+                        registration_state="approved",
+                        trusted_by=USER_ID,
+                    ),
+                ]
+            )
+            await db.commit()
+
+    asyncio.run(seed_other_workspace_and_identities())
+    _, current_session_id = asyncio.run(
+        _issue_web_session(
+            client,
+            user_id=USER_ID,
+            workspace_id=current_workspace_id,
+            device_id=current_device_id,
+            provider="yandex",
+        )
+    )
+    _, other_session_id = asyncio.run(
+        _issue_web_session(
+            client,
+            user_id=USER_ID,
+            workspace_id=other_workspace_id,
+            device_id=other_device_id,
+            provider="yandex",
+        )
+    )
+    _, preserved_session_id = asyncio.run(
+        _issue_web_session(
+            client,
+            user_id=USER_ID,
+            workspace_id=other_workspace_id,
+            device_id=other_device_id,
+            provider="email",
+        )
+    )
+    principal = AuthenticatedPrincipal(
+        user_id=USER_ID,
+        organization_id=ORG_ID,
+        workspace_ids=frozenset({current_workspace_id, other_workspace_id}),
+        subject=str(USER_ID),
+        session_id=current_session_id,
+        auth_via_session=True,
+        session_workspace_id=current_workspace_id,
+        session_device_id=current_device_id,
+    )
+    tenant_scope = TenantScope(
+        organization_id=ORG_ID,
+        workspace_id=current_workspace_id,
+        user_id=USER_ID,
+        device_id=current_device_id,
+        auth_session_id=current_session_id,
+    )
+
+    async def unlink_and_assert_context_restored() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            await apply_tenant_scope(db, tenant_scope)
+            current_revoked = await _unlink_account_provider(
+                db,
+                identity_id=identity_id,
+                principal=principal,
+                tenant_scope=tenant_scope,
+                internal_workspace_id=client.app.state.settings.web_login_workspace_id,
+            )
+            assert current_revoked is True
+            assert db.info["tenant_context"]["app.context_kind"] == "request"
+            assert db.info["tenant_context"]["app.workspace_id"] == str(current_workspace_id)
+
+    asyncio.run(unlink_and_assert_context_restored())
+
+    async def assert_cross_workspace_result() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            current = await db.get(AuthSession, current_session_id)
+            other = await db.get(AuthSession, other_session_id)
+            preserved = await db.get(AuthSession, preserved_session_id)
+            other_binding = await db.scalar(
+                select(AuthSessionDeviceBinding).where(
+                    AuthSessionDeviceBinding.auth_session_id == other_session_id
+                )
+            )
+            assert current is not None and current.status == "revoked"
+            assert other is not None and other.status == "revoked"
+            assert preserved is not None and preserved.status == "active"
+            assert other_binding is not None and other_binding.device_state == "blocked"
+            assert other_binding.revocation_reason == "provider_unlinked"
+
+    asyncio.run(assert_cross_workspace_result())
 
 
 def test_provider_unlink_rejects_header_session_without_mutating_identity(client) -> None:
@@ -506,7 +890,9 @@ def test_provider_unlink_rejects_header_session_without_mutating_identity(client
     async def assert_unchanged() -> None:
         async with client.app_state["sessionmaker"]() as db:
             identity = await db.get(ExternalIdentity, identity_id)
-            assert identity is not None and identity.is_active is True and identity.is_verified is True
+            assert (
+                identity is not None and identity.is_active is True and identity.is_verified is True
+            )
 
     asyncio.run(assert_unchanged())
 

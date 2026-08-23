@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from hashlib import sha256
 from uuid import UUID
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import select
+from sqlalchemy import or_, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.auth import revoke_device
@@ -18,9 +18,17 @@ from twobrain_rec_server.auth.account_closure import (
 )
 from twobrain_rec_server.auth.audit import write_auth_audit_event
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
-from twobrain_rec_server.auth.dependencies import is_web_cookie_session
-from twobrain_rec_server.auth.provider_links import recovery_safe_unlink_allowed
+from twobrain_rec_server.auth.dependencies import (
+    auth_session_cookie_name,
+    auth_session_cookie_secure,
+    is_web_cookie_session,
+)
+from twobrain_rec_server.auth.provider_links import (
+    RECOVERY_CAPABLE_PROVIDERS,
+    recovery_safe_unlink_allowed,
+)
 from twobrain_rec_server.auth.rate_limit import enforce_auth_rate_limits
+from twobrain_rec_server.auth.sessions import fingerprint_identity
 from twobrain_rec_server.auth.workspace_onboarding import (
     list_active_workspaces,
     list_workspace_join_offers,
@@ -37,6 +45,7 @@ from twobrain_rec_server.cabinet.templates import cabinet_html_response
 from twobrain_rec_server.cabinet.web_routes.auth_email_flow import (
     EMAIL_LINK_PROVIDER,
     _create_email_login_state,
+    _finalize_email_callback,
     _issue_email_login_code,
     _normalize_email,
     _should_echo_email_code,
@@ -56,6 +65,11 @@ from twobrain_rec_server.db.models import (
     ExternalIdentity,
     RegisteredDevice,
     UserIdentity,
+)
+from twobrain_rec_server.db.tenant_context import (
+    TenantDatabaseContext,
+    apply_tenant_context,
+    apply_tenant_scope,
 )
 from twobrain_rec_server.product_analytics.browser_context import (
     build_request_browser_provider_context,
@@ -283,14 +297,17 @@ async def _start_email_link(
     tenant_scope: TenantScope,
     db: AsyncSession | None,
     embedded: bool,
-) -> HTMLResponse:
+) -> HTMLResponse | RedirectResponse:
+    prefix = "/desktop" if embedded else ""
     if db is None:
-        raise ProblemDetail(
-            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        return RedirectResponse(
+            f"{prefix}/settings/account?provider_link=provider_link_unavailable",
+            status_code=303,
         )
     if not principal.auth_via_session or principal.session_id is None:
-        raise ProblemDetail(
-            status=403, code="provider_link_session_required", title="Нужна подтверждённая сессия"
+        return RedirectResponse(
+            f"{prefix}/settings/account?provider_link=reauth_required",
+            status_code=303,
         )
     form = await request.form()
     email = _normalize_email(str(form.get("email") or ""))
@@ -348,6 +365,7 @@ async def _start_email_link(
         code=code,
         ttl_seconds=ttl_seconds,
         provider=EMAIL_LINK_PROVIDER,
+        secret=request.app.state.web_csrf_secret,
     )
     dev_code = code if _should_echo_email_code(request) else None
     if dev_code is None:
@@ -359,8 +377,13 @@ async def _start_email_link(
                 ttl_seconds=ttl_seconds,
             )
         except email_delivery.EmailLoginDeliveryError:
-            state.result = "failed"
-            state.error_code = "email_delivery_unavailable"
+            await _finalize_email_callback(
+                db,
+                state=state,
+                result="failed",
+                now=datetime.now(UTC),
+                error_code="email_delivery_unavailable",
+            )
             await db.commit()
             return HTMLResponse(
                 render_email_code_page(
@@ -393,6 +416,7 @@ async def _start_email_link(
 @router.post(
     "/settings/account/email-link/start",
     include_in_schema=False,
+    response_model=None,
     dependencies=[WebCSRFDependency],
 )
 async def start_settings_account_email_link(
@@ -400,7 +424,7 @@ async def start_settings_account_email_link(
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
-) -> HTMLResponse:
+) -> HTMLResponse | RedirectResponse:
     return await _start_email_link(
         request,
         principal=principal,
@@ -413,6 +437,7 @@ async def start_settings_account_email_link(
 @router.post(
     "/desktop/settings/account/email-link/start",
     include_in_schema=False,
+    response_model=None,
     dependencies=[WebCSRFDependency],
 )
 async def start_embedded_settings_account_email_link(
@@ -420,7 +445,7 @@ async def start_embedded_settings_account_email_link(
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
-) -> HTMLResponse:
+) -> HTMLResponse | RedirectResponse:
     return await _start_email_link(
         request,
         principal=principal,
@@ -438,9 +463,16 @@ async def _verify_email_link(
     db: AsyncSession | None,
     embedded: bool,
 ) -> HTMLResponse | RedirectResponse:
+    prefix = "/desktop" if embedded else ""
     if db is None:
-        raise ProblemDetail(
-            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        return RedirectResponse(
+            f"{prefix}/settings/account?provider_link=provider_link_unavailable",
+            status_code=303,
+        )
+    if not principal.auth_via_session or principal.session_id is None:
+        return RedirectResponse(
+            f"{prefix}/settings/account?provider_link=reauth_required",
+            status_code=303,
         )
     form = await request.form()
     csrf_token = _csrf_token_for_principal(request, principal, tenant_scope=tenant_scope)
@@ -667,7 +699,8 @@ async def _unlink_account_provider(
     identity_id: UUID,
     principal: AuthenticatedPrincipal,
     tenant_scope: TenantScope,
-) -> None:
+    internal_workspace_id: UUID,
+) -> bool:
     identity = await db.scalar(
         select(ExternalIdentity)
         .where(
@@ -691,9 +724,14 @@ async def _unlink_account_provider(
             .with_for_update()
         )
     )
-    verified_count = sum(1 for item in identities if item.is_verified)
+    verified_count = sum(
+        1 for item in identities if item.is_verified and item.provider in RECOVERY_CAPABLE_PROVIDERS
+    )
+    guarded_count = verified_count + int(
+        identity.is_verified and identity.provider not in RECOVERY_CAPABLE_PROVIDERS
+    )
     if not recovery_safe_unlink_allowed(
-        verified_identity_count=verified_count,
+        verified_identity_count=guarded_count,
         target_is_verified=identity.is_verified,
     ):
         raise ProblemDetail(
@@ -701,6 +739,71 @@ async def _unlink_account_provider(
             code="recovery_path_required",
             title="Сначала подключите другой подтверждённый способ восстановления",
         )
+    revoked_count = 0
+    current_session_revoked = False
+    workspaces = await list_active_workspaces(
+        db,
+        organization_id=principal.organization_id,
+        current_workspace_id=tenant_scope.workspace_id,
+        internal_workspace_id=internal_workspace_id,
+        user_id=principal.user_id,
+    )
+    workspace_ids = {tenant_scope.workspace_id} | {workspace.id for workspace in workspaces}
+    for workspace_id in sorted(workspace_ids, key=str):
+        await apply_tenant_context(
+            db,
+            TenantDatabaseContext(
+                organization_id=principal.organization_id,
+                workspace_id=workspace_id,
+                user_id=principal.user_id,
+            ),
+        )
+        sessions = list(
+            await db.scalars(
+                select(AuthSession)
+                .where(
+                    AuthSession.workspace_id == workspace_id,
+                    AuthSession.user_id == principal.user_id,
+                    AuthSession.provider == identity.provider,
+                    AuthSession.status == "active",
+                    or_(
+                        AuthSession.claims_fingerprint.is_(None),
+                        AuthSession.claims_fingerprint
+                        == fingerprint_identity(
+                            identity.email or identity.provider_subject,
+                            identity.provider,
+                            workspace_id,
+                        ),
+                    ),
+                )
+                .order_by(AuthSession.id)
+                .with_for_update()
+            )
+        )
+        session_ids = [session.id for session in sessions]
+        bindings = (
+            list(
+                await db.scalars(
+                    select(AuthSessionDeviceBinding)
+                    .where(AuthSessionDeviceBinding.auth_session_id.in_(session_ids))
+                    .order_by(AuthSessionDeviceBinding.id)
+                    .with_for_update()
+                )
+            )
+            if session_ids
+            else []
+        )
+        for session in sessions:
+            session.status = "revoked"
+        for binding in bindings:
+            binding.device_state = "blocked"
+            binding.revocation_reason = "provider_unlinked"
+        if sessions:
+            current_session_revoked |= principal.session_id in set(session_ids)
+            revoked_count += len(sessions)
+            await db.flush()
+
+    await apply_tenant_scope(db, tenant_scope)
     identity.is_active = False
     identity.is_verified = False
     await write_auth_audit_event(
@@ -710,9 +813,10 @@ async def _unlink_account_provider(
         user_id=principal.user_id,
         provider=identity.provider,
         event_type="provider_unlinked",
-        metadata={"identity_id_sha256": sha256(str(identity.id).encode("utf-8")).hexdigest()},
+        metadata={"revoked_session_count": revoked_count, "provider": identity.provider},
     )
     await db.commit()
+    return current_session_revoked
 
 
 async def _revoke_account_session(
@@ -941,23 +1045,54 @@ async def _unlink_provider_action(
     db: AsyncSession | None,
     embedded: bool,
 ) -> RedirectResponse:
+    result_path = f"{'/desktop' if embedded else ''}/settings/account?provider_unlink="
     if not principal.auth_via_session or not is_web_cookie_session(request):
         return RedirectResponse(
-            f"{'/desktop' if embedded else ''}/settings/account?provider_unlink=reauth_required",
+            result_path + "reauth_required",
             status_code=303,
         )
     if db is None:
-        raise ProblemDetail(
-            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        return RedirectResponse(
+            result_path + "unavailable",
+            status_code=303,
         )
-    await _unlink_account_provider(
-        db,
-        identity_id=identity_id,
-        principal=principal,
-        tenant_scope=tenant_scope,
-    )
+    try:
+        current_session_revoked = await _unlink_account_provider(
+            db,
+            identity_id=identity_id,
+            principal=principal,
+            tenant_scope=tenant_scope,
+            internal_workspace_id=request.app.state.settings.web_login_workspace_id,
+        )
+    except ProblemDetail as exc:
+        await db.rollback()
+        result = {
+            "recovery_path_required": "recovery_path_required",
+            "login_method_not_found": "not_found",
+        }.get(exc.code)
+        if result is None:
+            raise
+        return RedirectResponse(result_path + result, status_code=303)
+    except SQLAlchemyError:
+        await db.rollback()
+        return RedirectResponse(result_path + "unavailable", status_code=303)
+    if current_session_revoked:
+        response = RedirectResponse(
+            "/login?next=/desktop/settings/account&error=auth_session_invalid"
+            if embedded
+            else "/login?next=/settings/account&error=auth_session_invalid",
+            status_code=303,
+        )
+        response.delete_cookie(
+            key=auth_session_cookie_name(request),
+            path="/",
+            secure=auth_session_cookie_secure(request),
+            httponly=True,
+            samesite="lax",
+        )
+        return response
     return RedirectResponse(
-        f"{'/desktop' if embedded else ''}/settings/account?provider_unlink=success",
+        result_path + "success",
         status_code=303,
     )
 

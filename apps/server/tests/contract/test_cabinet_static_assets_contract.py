@@ -3111,12 +3111,13 @@ def test_auth_static_assets_keep_compact_panel_and_code_autosubmit() -> None:
     assert "--auth-content-width: min(100%, 448px)" in css
     assert "width: min(520px, 100%)" in css
     assert "requestSubmit" in script
-    assert "slots.every((target) => target.value.length === 1)" in script
+    assert 'input.value = input.value.replace(/\\D/g, "").slice(0, 6)' in script
+    assert "input.value.length !== 6" in script
     assert "submitted = true" in script
     assert (
         "[data-embedded-code-panel],\n"
         "[data-embedded-code-panel] .auth-form > *,\n"
-        "[data-embedded-code-panel] .code-slot {\n"
+        "[data-embedded-code-panel] .code-input {\n"
         "  animation: none;\n"
         "}"
     ) in css

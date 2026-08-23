@@ -6,23 +6,28 @@
         <div class="page-title">
           <h1>Один профиль — все способы входа</h1>
           {% if blockers %}
-          <p class="page-subtitle">Этот email уже используется в другом профиле. Выберите доступное действие ниже.</p>
+          <p class="page-subtitle">{{ provider_sentence_label }} уже связан с другим профилем. Выберите доступное действие ниже.</p>
           {% elif presentation %}
-          <p class="page-subtitle">Этот email уже используется в другом профиле. Вы подтвердили доступ к обоим профилям — проверьте результат.</p>
+          <p class="page-subtitle">{{ provider_sentence_label }} уже связан с другим профилем. Вы подтвердили доступ к обоим профилям — проверьте результат.</p>
           {% else %}
           <p class="page-subtitle">Подтверждение завершилось без изменений профилей.</p>
           {% endif %}
         </div>
       </header>
 
-      {% if error_message and presentation %}<p class="account-linking-alert account-linking-alert--error" role="alert" aria-live="assertive">{{ error_message }}</p>{% endif %}
+      {% if error_message and presentation and not blockers %}
+      <section class="account-linking-alert account-linking-alert--error" role="alert" tabindex="-1" data-outcome-focus aria-labelledby="account-linking-error-title">
+        <h2 id="account-linking-error-title">Подключение не завершено</h2>
+        <p>{{ error_message }}</p>
+      </section>
+      {% endif %}
 
       {% if presentation %}
       {% if blockers %}
-      <section class="settings-section" aria-labelledby="account-linking-blockers-title" role="alert" aria-live="assertive">
+      <section class="settings-section" aria-labelledby="account-linking-blockers-title" role="alert" tabindex="-1" data-outcome-focus>
         <div class="settings-section__heading"><div>
           <h2 id="account-linking-blockers-title">Что нужно сделать</h2>
-          <p class="muted">Email пока не подключён. Данные не изменены.</p>
+          <p class="muted">{{ provider_sentence_label }} пока не подключён. Данные не изменены.</p>
         </div></div>
         <div class="account-linking-blockers">
           {% for blocker in blockers %}
@@ -34,10 +39,10 @@
             <form action="{{ blocker.action_href }}" method="post">
               {{ sections.csrf_field(csrf_token) }}
               <input type="hidden" name="next" value="{{ blocker.action_next }}">
-              <button class="button quiet" type="submit">{{ blocker.action_label }}</button>
+              <button class="button {% if loop.first %}primary{% else %}quiet{% endif %}"{% if loop.first %} data-account-linking-primary{% endif %} type="submit">{{ blocker.action_label }}</button>
             </form>
             {% else %}
-            <a class="button quiet" href="{{ blocker.action_href }}">{{ blocker.action_label }}</a>
+            <a class="button {% if loop.first %}primary{% else %}quiet{% endif %}"{% if loop.first %} data-account-linking-primary{% endif %} href="{{ blocker.action_href }}">{{ blocker.action_label }}</a>
             {% endif %}
           </article>
           {% endfor %}
@@ -61,7 +66,7 @@
             <div class="account-linking-provider-group">
               <strong>Другой профиль</strong>
               <ul aria-label="Способы входа другого профиля">
-                {% for label in presentation.other_provider_labels %}<li>{{ label }}</li>{% else %}<li>Подтверждённый email</li>{% endfor %}
+                {% for label in presentation.other_provider_labels %}<li>{{ label }}</li>{% else %}<li>Подтверждённый способ входа</li>{% endfor %}
               </ul>
             </div>
           </article>
@@ -83,7 +88,7 @@
             <span class="settings-list-item__desc">Ничего не удаляется.</span>
           </div></li>
         </ul>
-        <p class="account-linking-alert account-linking-alert--warning" role="status"><strong>После подключения потребуется войти снова.</strong> Все активные сессии завершатся. Войти можно будет любым сохранённым способом.</p>
+        <p class="account-linking-alert account-linking-alert--warning"><strong>После подключения потребуется войти снова.</strong> Все активные сессии завершатся. Войти можно будет любым сохранённым способом.</p>
         <details class="account-linking-details">
           <summary>Настройки, устройства и сессии</summary>
           <div>
@@ -101,12 +106,25 @@
           <input type="hidden" name="next" value="{{ reauth_next }}">
           <button class="button primary" type="submit">Войти снова</button>
         </form>
+        {% elif requires_restart and not blockers %}
+          {% if restart_action %}
+          <form action="{{ restart_action }}" method="post">
+            {{ sections.csrf_field(csrf_token) }}
+            {% if restart_requires_email %}
+            <label class="field-label" for="account-linking-restart-email">Email</label>
+            <input id="account-linking-restart-email" name="email" type="email" autocomplete="email" required maxlength="240" placeholder="you@example.com">
+            {% endif %}
+            <button class="button primary" type="submit">{{ restart_label }}</button>
+          </form>
+          {% else %}
+          <a class="button primary" href="{{ settings_href }}">Начать заново</a>
+          {% endif %}
         {% elif not blockers %}
         <form action="{{ confirm_action }}" method="post">
           {{ sections.csrf_field(csrf_token) }}
           <input type="hidden" name="preview_fingerprint" value="{{ presentation.preview_fingerprint }}">
           <input type="hidden" name="idempotency_key" value="{{ intent_id }}">
-          <button class="button primary" data-account-linking-primary type="submit">Подключить email</button>
+          <button class="button primary" data-account-linking-primary type="submit">{{ connect_action_label }}</button>
         </form>
         {% endif %}
         <form action="{{ cancel_action }}" method="post">
@@ -115,10 +133,21 @@
         </form>
       </div>
       {% else %}
-      <section class="settings-section account-linking-alert account-linking-alert--error" role="status" aria-live="polite">
-        <h2>Подтверждение больше недоступно</h2>
-        <p>{{ error_message or "Данные не изменены. Подключите email заново." }}</p>
-        <a class="button quiet" href="{{ settings_href }}">Вернуться к способам входа</a>
+      <section class="settings-section account-linking-alert account-linking-alert--error" role="alert" tabindex="-1" data-outcome-focus aria-labelledby="account-linking-unavailable-title">
+        <h2 id="account-linking-unavailable-title">Подтверждение больше недоступно</h2>
+        <p>{{ error_message or "Данные не изменены. Начните подключение заново." }}</p>
+        {% if requires_restart and restart_action %}
+        <form action="{{ restart_action }}" method="post">
+          {{ sections.csrf_field(csrf_token) }}
+          {% if restart_requires_email %}
+          <label class="field-label" for="account-linking-restart-email">Email</label>
+          <input id="account-linking-restart-email" name="email" type="email" autocomplete="email" required maxlength="240" placeholder="you@example.com">
+          {% endif %}
+          <button class="button primary" type="submit">{{ restart_label }}</button>
+        </form>
+        {% else %}
+        <a class="button primary" href="{{ settings_href }}">Вернуться к способам входа</a>
+        {% endif %}
       </section>
       {% endif %}
     </div>

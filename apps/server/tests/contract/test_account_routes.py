@@ -11,7 +11,11 @@ from fastapi.routing import APIRoute
 
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.auth.account_closure import AccountCloseView
-from twobrain_rec_server.auth.account_merge import MergeEntityCounts, build_merge_preview
+from twobrain_rec_server.auth.account_merge import (
+    AccountMergeError,
+    MergeEntityCounts,
+    build_merge_preview,
+)
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
 from twobrain_rec_server.auth.workspace_onboarding import WorkspaceAccessView
 from twobrain_rec_server.cabinet.auth_rendering import (
@@ -19,13 +23,19 @@ from twobrain_rec_server.cabinet.auth_rendering import (
     render_login_page,
     render_signup_page,
 )
-from twobrain_rec_server.cabinet.rendering import render_account_merge_page, render_settings_page
+from twobrain_rec_server.cabinet.rendering import (
+    account_merge_provider_label,
+    render_account_merge_page,
+    render_settings_page,
+)
 from twobrain_rec_server.cabinet.view_models import (
     AccountProfileView,
     AccountProviderView,
     AccountSettingsSurface,
+    ProviderLinkSettingsSurface,
 )
 from twobrain_rec_server.cabinet.web_routes import account_merge as account_merge_routes
+from twobrain_rec_server.cabinet.web_routes import provider_links as provider_link_routes
 from twobrain_rec_server.cabinet.web_routes import settings as settings_routes
 from twobrain_rec_server.cabinet.web_routes.account_merge import router as account_merge_router
 from twobrain_rec_server.cabinet.web_routes.auth import router as auth_router
@@ -107,6 +117,110 @@ def test_account_merge_preview_routes_keep_browser_desktop_parity() -> None:
         "/settings/account/merge/{intent_id}",
         "/desktop/settings/account/merge/{intent_id}",
     } <= routes.keys()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("path", "expected"),
+    (
+        (
+            "/settings/account/merge/00000000-0000-0000-0000-000000000001",
+            "/settings/account?provider_link=provider_link_unavailable",
+        ),
+        (
+            "/desktop/settings/account/merge/00000000-0000-0000-0000-000000000001",
+            "/desktop/settings/account?provider_link=provider_link_unavailable",
+        ),
+    ),
+)
+async def test_merge_page_missing_store_redirects_to_first_party_recovery(
+    path: str, expected: str
+) -> None:
+    response = await account_merge_routes.account_merge_page(
+        SimpleNamespace(url=SimpleNamespace(path=path)),
+        UUID(int=1),
+        tenant_scope=SimpleNamespace(),
+        principal=SimpleNamespace(),
+        db=None,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("path", "expected"),
+    (
+        (
+            "/settings/provider-links/00000000-0000-0000-0000-000000000001",
+            "/settings/account?provider_link=provider_link_unavailable",
+        ),
+        (
+            "/desktop/settings/provider-links/00000000-0000-0000-0000-000000000001",
+            "/desktop/settings/account?provider_link=provider_link_unavailable",
+        ),
+    ),
+)
+async def test_provider_link_page_missing_store_redirects_to_first_party_recovery(
+    path: str, expected: str
+) -> None:
+    response = await provider_link_routes.provider_link_settings_page(
+        SimpleNamespace(url=SimpleNamespace(path=path)),
+        UUID(int=1),
+        tenant_scope=SimpleNamespace(),
+        principal=SimpleNamespace(),
+        db=None,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status", "expected_provider"),
+    (("initiated", None), ("confirmed", None), ("expired", "yandex")),
+)
+async def test_provider_link_route_only_allows_restart_for_terminal_recovery_states(
+    monkeypatch, status: str, expected_provider: str | None
+) -> None:
+    surface = ProviderLinkSettingsSurface(
+        link_state_id=UUID(int=1),
+        provider="yandex",
+        provider_label="Яндекс ID",
+        status=status,
+        status_label="Состояние",
+        can_confirm=False,
+    )
+    captured: dict[str, object] = {}
+
+    async def load_surface(*_args, **_kwargs):
+        return surface
+
+    def render_surface(rendered_surface, **_kwargs):
+        captured["provider"] = rendered_surface.provider
+        return "<main>ok</main>"
+
+    monkeypatch.setattr(provider_link_routes, "get_provider_link_settings_surface", load_surface)
+    monkeypatch.setattr(provider_link_routes, "render_provider_link_settings_page", render_surface)
+    monkeypatch.setattr(provider_link_routes, "_csrf_token_for_principal", lambda *_a, **_k: "csrf")
+    monkeypatch.setattr(
+        provider_link_routes,
+        "build_request_browser_provider_context",
+        lambda *_a, **_k: {},
+    )
+
+    response = await provider_link_routes.provider_link_settings_page(
+        SimpleNamespace(url=SimpleNamespace(path="/settings/provider-links/1")),
+        UUID(int=1),
+        tenant_scope=SimpleNamespace(),
+        principal=SimpleNamespace(),
+        db=SimpleNamespace(),
+    )
+
+    assert response.status_code == 200
+    assert captured["provider"] == expected_provider
 
 
 @pytest.mark.asyncio
@@ -196,6 +310,29 @@ def test_email_link_ambiguity_copy_points_to_visible_settings_action(flow: str) 
     assert "Выберите ниже" not in page
 
 
+@pytest.mark.parametrize(
+    "error", ["email_invalid", "auth_rate_limited", "email_delivery_unavailable"]
+)
+def test_email_link_start_errors_do_not_render_a_dead_code_form(error: str) -> None:
+    page = render_email_code_page(
+        email="" if error == "email_invalid" else "user@example.test",
+        state_nonce="failed-state" if error == "email_delivery_unavailable" else "",
+        next_path="/settings/account",
+        error=error,
+        flow="link",
+        csrf_token="synthetic-csrf",
+    )
+
+    verify_form = 'action="/settings/account/email-link/verify"' in page
+    assert 'action="/settings/account/email-link/start"' in page
+    assert "Получить новый код" in page
+    assert verify_form is (error == "email_delivery_unavailable")
+    if error != "email_delivery_unavailable":
+        assert "мы отправили 6-значный код" not in page
+    if error == "email_invalid":
+        assert 'name="email" type="email"' in page
+
+
 def test_email_link_callers_select_desktop_flow_for_every_local_render() -> None:
     source = "\n".join(
         (
@@ -232,6 +369,76 @@ class _EmailLinkRequest:
         }
 
 
+class _FormMustNotRunRequest:
+    async def form(self):
+        raise AssertionError("stale email-link request reached form processing")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("handler", "embedded", "expected"),
+    (
+        (
+            settings_routes._start_email_link,
+            False,
+            "/settings/account?provider_link=provider_link_unavailable",
+        ),
+        (
+            settings_routes._start_email_link,
+            True,
+            "/desktop/settings/account?provider_link=provider_link_unavailable",
+        ),
+        (
+            settings_routes._verify_email_link,
+            False,
+            "/settings/account?provider_link=provider_link_unavailable",
+        ),
+        (
+            settings_routes._verify_email_link,
+            True,
+            "/desktop/settings/account?provider_link=provider_link_unavailable",
+        ),
+    ),
+)
+async def test_email_link_missing_store_redirects_to_first_party_recovery(
+    handler, embedded: bool, expected: str
+) -> None:
+    response = await handler(
+        _FormMustNotRunRequest(),
+        principal=SimpleNamespace(),
+        tenant_scope=SimpleNamespace(),
+        db=None,
+        embedded=embedded,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("embedded", (False, True))
+async def test_email_link_stale_session_redirects_before_reusing_old_proof(
+    embedded: bool,
+) -> None:
+    expected = (
+        "/desktop/settings/account?provider_link=reauth_required"
+        if embedded
+        else "/settings/account?provider_link=reauth_required"
+    )
+    principal = SimpleNamespace(auth_via_session=False, session_id=None)
+
+    for handler in (settings_routes._start_email_link, settings_routes._verify_email_link):
+        response = await handler(
+            _FormMustNotRunRequest(),
+            principal=principal,
+            tenant_scope=SimpleNamespace(),
+            db=SimpleNamespace(),
+            embedded=embedded,
+        )
+        assert response.status_code == 303
+        assert response.headers["location"] == expected
+
+
 async def test_email_link_verify_prepares_response_then_commits_once(monkeypatch) -> None:
     events: list[str] = []
     db = _EmailLinkTransactionProbe(events)
@@ -257,7 +464,7 @@ async def test_email_link_verify_prepares_response_then_commits_once(monkeypatch
 
     response = await settings_routes._verify_email_link(
         _EmailLinkRequest(),
-        principal=SimpleNamespace(),
+        principal=SimpleNamespace(auth_via_session=True, session_id=UUID(int=1)),
         tenant_scope=SimpleNamespace(workspace_id=UUID(int=1)),
         db=db,
         embedded=True,
@@ -286,7 +493,7 @@ async def test_email_link_verify_rolls_back_when_response_preparation_fails(monk
     with pytest.raises(RuntimeError, match="synthetic response failure"):
         await settings_routes._verify_email_link(
             _EmailLinkRequest(),
-            principal=SimpleNamespace(),
+            principal=SimpleNamespace(auth_via_session=True, session_id=UUID(int=1)),
             tenant_scope=SimpleNamespace(workspace_id=UUID(int=1)),
             db=db,
             embedded=True,
@@ -351,12 +558,14 @@ def test_blocked_merge_prioritizes_recovery_without_burying_it_under_preview() -
         intent_id=UUID("00000000-0000-0000-0000-000000000001"),
         embedded=False,
         support_email=None,
+        provider_label="email",
     )
     page = render_account_merge_page(
         preview,
         intent_id=UUID("00000000-0000-0000-0000-000000000001"),
         csrf_token="safe-csrf",
         blockers=blockers,
+        provider_id="email",
     )
 
     for copy in (
@@ -370,6 +579,9 @@ def test_blocked_merge_prioritizes_recovery_without_burying_it_under_preview() -
     assert "устраните причину" not in page
     assert "Что изменится" not in page
     assert "После подключения потребуется войти снова" not in page
+    assert page.count("data-account-linking-primary") == 1
+    assert 'class="button primary"' in page
+    assert 'data-account-linking-secondary' in page
     assert str(survivor_user_id) not in page
     assert str(source_user_id) not in page
 
@@ -396,6 +608,7 @@ def test_reauth_required_replaces_confirm_with_csrf_protected_login_action() -> 
         csrf_token="safe-csrf",
         error_message="Нужно войти снова.",
         requires_reauth=True,
+        provider_id="email",
     )
 
     assert '<form action="/logout" method="post">' in page
@@ -404,28 +617,175 @@ def test_reauth_required_replaces_confirm_with_csrf_protected_login_action() -> 
     assert ">Войти снова</button>" in page
     assert f'action="/settings/account/merge/{intent_id}/confirm"' not in page
 
-    settings = render_settings_page(category="account", provider_link_result="reauth_required")
-    assert "Подключите email ещё раз" in settings
-    assert "прежнее подтверждение больше не действует" in settings
+    settings = render_settings_page(
+        category="account",
+        csrf_token="safe-csrf",
+        provider_link_result="reauth_required",
+    )
+    assert "Войдите снова, затем повторите подключение" in settings
+    assert '<form action="/logout" method="post">' in settings
+    assert 'name="next" value="/login?next=/settings/account"' in settings
+
+
+def test_provider_unlink_outcomes_are_first_party_and_actionable() -> None:
+    recovery = render_settings_page(
+        category="account",
+        provider_unlink_result="recovery_path_required",
+    )
+    reauth = render_settings_page(
+        embedded=True,
+        category="account",
+        csrf_token="safe-csrf",
+        provider_unlink_result="reauth_required",
+    )
+
+    assert "Сначала подключите другой способ входа" in recovery
+    assert "другого подтверждённого способа восстановления" in recovery
+    assert '<form action="/desktop/meetings" method="post">' in reauth
+    assert 'name="next" value="/login?next=/desktop/settings/account"' in reauth
 
 
 def test_merge_cancel_and_success_return_copy_are_outcomes_not_session_errors() -> None:
     settings = render_settings_page(category="account", provider_link_result="merge_cancelled")
     confirm_source = inspect.getsource(account_merge_routes._confirm)
 
-    assert "Профили остались раздельными. Email не подключён к текущему профилю." in settings
-    assert "error=email_connected_relogin_required" in confirm_source
+    assert "Профили остались раздельными. Способ входа не подключён к текущему профилю." in settings
+    assert "_relogin_result(provider_id)" in confirm_source
     assert "auth_session_invalid" not in confirm_source
     assert "next=/settings/account" in confirm_source
     assert "next=/desktop/settings/account" in confirm_source
 
 
 def test_expired_merge_copy_is_actionable_without_internal_preview_term() -> None:
-    copy = account_merge_routes._error_copy("merge_intent_expired")
+    copy = account_merge_routes._error_copy("merge_intent_expired", provider_label="email")
 
     assert copy == "Время подтверждения истекло. Данные не изменены; подключите email заново."
     assert "intent" not in copy.lower()
     assert "предпросмотр" not in copy.lower()
+
+
+def test_stale_provider_proof_replaces_old_confirm_with_fresh_provider_start() -> None:
+    intent_id = UUID("00000000-0000-0000-0000-000000000001")
+    preview = build_merge_preview(survivor_user_id=uuid4(), source_user_id=uuid4())
+
+    page = render_account_merge_page(
+        preview,
+        intent_id=intent_id,
+        csrf_token="safe-csrf",
+        error_message="Подтверждение больше не действует.",
+        requires_restart=True,
+        provider_id="yandex",
+    )
+
+    assert '<form action="/settings/provider-links/yandex/start" method="post">' in page
+    assert "Подключить Яндекс ID заново" in page
+    assert f'action="/settings/account/merge/{intent_id}/confirm"' not in page
+    assert 'name="csrf_token" value="safe-csrf"' in page
+
+
+def test_restart_errors_remain_actionable_before_intent_becomes_terminal() -> None:
+    assert {
+        "proof_required",
+        "merge_preview_stale",
+        "merge_intent_expired",
+        "merge_restart_required",
+    } == account_merge_routes.ACCOUNT_MERGE_RESTART_ERRORS
+
+
+@pytest.mark.asyncio
+async def test_stale_merge_get_hides_confirm_and_offers_fresh_provider_start(
+    monkeypatch,
+) -> None:
+    captured: dict[str, object] = {}
+    intent = SimpleNamespace(id=UUID(int=1))
+
+    async def owned_intent(*_args, **_kwargs):
+        return intent
+
+    async def intent_provider_id(*_args, **_kwargs):
+        return "yandex"
+
+    async def stale_preview(*_args, **_kwargs):
+        raise AccountMergeError("merge_preview_stale")
+
+    def render(preview, **kwargs):
+        captured["preview"] = preview
+        captured.update(kwargs)
+        return "<main>recovery</main>"
+
+    monkeypatch.setattr(account_merge_routes, "_owned_intent", owned_intent)
+    monkeypatch.setattr(account_merge_routes, "_intent_provider_id", intent_provider_id)
+    monkeypatch.setattr(account_merge_routes, "preview_merge_intent", stale_preview)
+    monkeypatch.setattr(account_merge_routes, "render_account_merge_page", render)
+    monkeypatch.setattr(
+        account_merge_routes, "_csrf_token_for_principal", lambda *_args, **_kwargs: "csrf"
+    )
+    monkeypatch.setattr(
+        account_merge_routes,
+        "build_request_browser_provider_context",
+        lambda *_args, **_kwargs: {},
+    )
+
+    response = await account_merge_routes.account_merge_page(
+        SimpleNamespace(
+            url=SimpleNamespace(path="/settings/account/merge/1"),
+            query_params={},
+            app=SimpleNamespace(
+                state=SimpleNamespace(
+                    settings=SimpleNamespace(billing_support_email=None)
+                )
+            ),
+        ),
+        intent.id,
+        tenant_scope=SimpleNamespace(),
+        principal=SimpleNamespace(),
+        db=SimpleNamespace(),
+    )
+
+    assert response.status_code == 200
+    assert captured["preview"] is None
+    assert captured["requires_restart"] is True
+    assert captured["provider_id"] == "yandex"
+    assert "Состояние профилей изменилось" in str(captured["error_message"])
+
+
+@pytest.mark.asyncio
+async def test_email_merge_copy_uses_email_proof_origin_without_identity_lookup() -> None:
+    class IdentityLookupMustNotRun:
+        async def get(self, *_args, **_kwargs):
+            raise AssertionError("email proof origin reached identity provider lookup")
+
+    provider = await account_merge_routes._intent_provider_id(
+        IdentityLookupMustNotRun(),
+        SimpleNamespace(
+            provider_link_state_id=None,
+            source_external_identity_id=uuid4(),
+            source_user_id=uuid4(),
+        ),
+    )
+
+    assert provider == "email_link"
+    assert account_merge_provider_label(provider) == "Email"
+
+
+def test_stale_email_proof_returns_to_visible_email_form_without_old_confirm() -> None:
+    intent_id = uuid4()
+    preview = build_merge_preview(survivor_user_id=uuid4(), source_user_id=uuid4())
+
+    page = render_account_merge_page(
+        preview,
+        intent_id=intent_id,
+        csrf_token="safe-csrf",
+        error_message="Подтверждение больше не действует.",
+        requires_restart=True,
+        provider_id="email",
+    )
+
+    assert '<form action="/settings/account/email-link/start" method="post">' in page
+    assert ">Получить новый код</button>" in page
+    assert 'name="email"' in page
+    assert 'name="csrf_token" value="safe-csrf"' in page
+    assert f'action="/settings/account/merge/{intent_id}/confirm"' not in page
 
 
 def test_account_security_renders_exact_bulk_and_per_session_actions() -> None:

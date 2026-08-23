@@ -40,14 +40,18 @@ from twobrain_rec_server.cabinet.web_routes.auth_email_flow import (
     EmailLoginCompletion,
     EmailRecoveryRequired,
     _AmbiguousEmailIdentityError,
+    _clear_email_auth_browser_cookie,
     _consume_email_login_code,
     _create_email_login_state,
+    _finalize_email_callback,
+    _issue_email_auth_browser_nonce,
     _issue_email_login_code,
     _normalize_email,
     _record_email_login_audit,
     _resolve_email_login_user,
     _resolve_email_workspace,
     _set_browser_auth_cookie,
+    _set_email_auth_browser_cookie,
     _should_echo_email_code,
 )
 from twobrain_rec_server.cabinet.web_routes.support import (
@@ -356,6 +360,7 @@ async def browser_email_login_start(
             status_code=400,
         )
     code = _issue_email_login_code(request.app.state.settings)
+    browser_nonce = _issue_email_auth_browser_nonce()
     ttl_seconds = request.app.state.settings.auth_callback_state_ttl_seconds
     state = await _create_email_login_state(
         db,
@@ -364,6 +369,8 @@ async def browser_email_login_start(
         email=normalized_email,
         code=code,
         ttl_seconds=ttl_seconds,
+        browser_nonce=browser_nonce,
+        secret=request.app.state.web_csrf_secret,
     )
     dev_code = code if _should_echo_email_code(request) else None
     if dev_code is None:
@@ -375,9 +382,16 @@ async def browser_email_login_start(
                 ttl_seconds=ttl_seconds,
             )
         except email_delivery.EmailLoginDeliveryError:
-            state.result = "failed"
-            state.used_at = datetime.now(UTC)
-            state.error_code = "email_delivery_unavailable"
+            await _finalize_email_callback(
+                db,
+                state=state,
+                result="failed",
+                now=datetime.now(UTC),
+                error_code="email_delivery_unavailable",
+            )
+            await apply_tenant_context(
+                db, WorkspaceAuthContext(workspace_id=resolved_workspace_id)
+            )
             await _record_email_login_audit(
                 db,
                 request=request,
@@ -406,7 +420,7 @@ async def browser_email_login_start(
         outcome="success",
     )
     await db.commit()
-    return HTMLResponse(
+    response = HTMLResponse(
         render_email_code_page(
             email=normalized_email,
             state_nonce=state.state_nonce,
@@ -418,6 +432,14 @@ async def browser_email_login_start(
             ),
         )
     )
+    _set_email_auth_browser_cookie(
+        request,
+        response,
+        state_nonce=state.state_nonce,
+        browser_nonce=browser_nonce,
+        max_age=ttl_seconds,
+    )
+    return response
 
 
 @router.post("/sign-up/email/start", response_class=HTMLResponse, include_in_schema=False)
@@ -501,6 +523,7 @@ async def browser_email_signup_start(
             status_code=400,
         )
     code = _issue_email_login_code(request.app.state.settings)
+    browser_nonce = _issue_email_auth_browser_nonce()
     ttl_seconds = request.app.state.settings.auth_callback_state_ttl_seconds
     state = await _create_email_login_state(
         db,
@@ -510,6 +533,8 @@ async def browser_email_signup_start(
         code=code,
         ttl_seconds=ttl_seconds,
         provider=EMAIL_SIGNUP_PROVIDER,
+        browser_nonce=browser_nonce,
+        secret=request.app.state.web_csrf_secret,
     )
     dev_code = code if _should_echo_email_code(request) else None
     if dev_code is None:
@@ -521,9 +546,16 @@ async def browser_email_signup_start(
                 ttl_seconds=ttl_seconds,
             )
         except email_delivery.EmailLoginDeliveryError:
-            state.result = "failed"
-            state.used_at = datetime.now(UTC)
-            state.error_code = "email_delivery_unavailable"
+            await _finalize_email_callback(
+                db,
+                state=state,
+                result="failed",
+                now=datetime.now(UTC),
+                error_code="email_delivery_unavailable",
+            )
+            await apply_tenant_context(
+                db, WorkspaceAuthContext(workspace_id=resolved_workspace_id)
+            )
             await _record_email_login_audit(
                 db,
                 request=request,
@@ -553,7 +585,7 @@ async def browser_email_signup_start(
         metadata={"flow": "registration"},
     )
     await db.commit()
-    return HTMLResponse(
+    response = HTMLResponse(
         render_email_code_page(
             email=normalized_email,
             state_nonce=state.state_nonce,
@@ -565,6 +597,14 @@ async def browser_email_signup_start(
             ),
         )
     )
+    _set_email_auth_browser_cookie(
+        request,
+        response,
+        state_nonce=state.state_nonce,
+        browser_nonce=browser_nonce,
+        max_age=ttl_seconds,
+    )
+    return response
 
 
 @router.post("/login/email/verify", include_in_schema=False, response_model=None)
@@ -659,6 +699,11 @@ async def browser_email_login_verify(
             invitation_flow=invitation_flow,
         )
         response = await _prepare_email_auth_response(request, db=db, result=result)
+        _clear_email_auth_browser_cookie(
+            request,
+            response,
+            state_nonce=state,
+        )
         await db.commit()
         return response
     except Exception:
@@ -817,6 +862,11 @@ async def browser_email_signup_verify(
             result=result,
             clear_referral_on_registration=True,
         )
+        _clear_email_auth_browser_cookie(
+            request,
+            response,
+            state_nonce=state,
+        )
         await db.commit()
         return response
     except Exception:
@@ -919,6 +969,30 @@ async def browser_login_provider_start(
                 ),
             ),
             status_code=503,
+        )
+    retry_after = await enforce_auth_rate_limits(
+        db,
+        workspace_id=resolved_workspace_id,
+        scopes=(
+            ("provider_start_ip", _request_ip(request)),
+        ),
+        sessionmaker=getattr(request.app.state, "db_sessionmaker", None),
+        scope_secret=request.app.state.settings.share_identity_hash_secret,
+    )
+    if retry_after is not None:
+        return HTMLResponse(
+            render_login_page(
+                workspace_id=resolved_workspace_id,
+                providers=[],
+                next_path=safe_next,
+                error="auth_rate_limited",
+                invitation_flow=invitation_flow,
+                product_analytics_provider=build_request_browser_provider_context(
+                    request, "login_signup"
+                ),
+            ),
+            status_code=429,
+            headers=_auth_rate_limit_headers(retry_after),
         )
     providers = []
     try:

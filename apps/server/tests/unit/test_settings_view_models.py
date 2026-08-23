@@ -30,7 +30,7 @@ def test_account_provider_projection_masks_identity_subject_and_translates_statu
     result = account_provider_view(identity, primary=True)
 
     assert isinstance(result, AccountProviderView)
-    assert result.label == "Яндекс"
+    assert result.label == "Яндекс ID"
     assert result.status_label == "Подключён"
     assert result.primary is True
     assert not hasattr(result, "provider_subject")
@@ -77,7 +77,7 @@ def test_account_session_projection_marks_current_and_exposes_safe_metadata_only
     result = account_session_view(session, current_session_id=session_id)
 
     assert isinstance(result, AccountSessionView)
-    assert result.provider_label == "Яндекс"
+    assert result.provider_label == "Яндекс ID"
     assert result.status_label == "Активна"
     assert result.current is True
     assert result.can_revoke is False
@@ -149,3 +149,38 @@ def test_account_query_filters_current_user_and_workspace() -> None:
     session_sql = str(db.scalars.await_args_list[2].args[0])
     assert "auth_sessions.workspace_id" in session_sql
     assert "auth_sessions.user_id" in session_sql
+
+
+def test_account_query_does_not_treat_telegram_as_email_recovery() -> None:
+    user_id = uuid4()
+    workspace_id = uuid4()
+    email = ExternalIdentity(
+        id=uuid4(),
+        user_id=user_id,
+        provider="email",
+        provider_subject="email-subject",
+        is_verified=True,
+    )
+    telegram = ExternalIdentity(
+        id=uuid4(),
+        user_id=user_id,
+        provider="telegram",
+        provider_subject="telegram-subject",
+        is_verified=True,
+    )
+    db = AsyncMock()
+    db.get = AsyncMock(return_value=None)
+    db.scalar = AsyncMock(return_value=None)
+    db.scalars = AsyncMock(side_effect=[(email, telegram), (), ()])
+    scope = TenantScope(
+        organization_id=uuid4(),
+        workspace_id=workspace_id,
+        user_id=user_id,
+        device_id=uuid4(),
+    )
+
+    surface = asyncio.run(get_account_settings_surface(db, scope))
+    by_provider = {provider.provider: provider for provider in surface.providers}
+
+    assert by_provider["email"].can_unlink is False
+    assert by_provider["telegram"].can_unlink is True

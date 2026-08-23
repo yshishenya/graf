@@ -24,7 +24,7 @@ from twobrain_rec_server.auth.context import AuthenticatedPrincipal
 from twobrain_rec_server.auth.csrf import issue_csrf_token
 from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
 from twobrain_rec_server.auth.provider_links import confirm_provider_link
-from twobrain_rec_server.auth.sessions import issue_auth_session
+from twobrain_rec_server.auth.sessions import hash_token, issue_auth_session
 from twobrain_rec_server.db.models import (
     AccountMergeIntent,
     AccountMergeJournal,
@@ -38,6 +38,7 @@ from twobrain_rec_server.db.models import (
     FairUseReviewRecord,
     Meeting,
     MeetingShareGrant,
+    Organization,
     RegisteredDevice,
     SummaryTemplate,
     UploadSession,
@@ -102,8 +103,8 @@ async def _seed_empty_source(
     user_id: UUID,
     workspace_id: UUID,
     email: str,
-    workspace_kind: str = "corporate",
-    workspace_name: str = "Source workspace",
+    workspace_kind: str = "personal",
+    workspace_name: str = "Моё пространство",
 ) -> None:
     db.add(
         UserIdentity(
@@ -150,29 +151,45 @@ async def _seed_merge_proofs(db, *, source_user_id: UUID) -> dict[str, UUID]:
     source_identity = await db.scalar(
         select(ExternalIdentity).where(
             ExternalIdentity.user_id == source_user_id,
+            ExternalIdentity.provider == "email",
             ExternalIdentity.is_active.is_(True),
             ExternalIdentity.is_verified.is_(True),
         )
     )
-    assert source_identity is not None
+    if source_identity is None:
+        existing_identity = await db.scalar(
+            select(ExternalIdentity).where(ExternalIdentity.user_id == source_user_id)
+        )
+        assert existing_identity is not None and existing_identity.email is not None
+        source_identity = ExternalIdentity(
+            user_id=source_user_id,
+            provider="email",
+            provider_subject=existing_identity.email,
+            email=existing_identity.email,
+            is_verified=True,
+            is_active=True,
+        )
+        db.add(source_identity)
+        await db.flush()
     session = AuthSession(
         id=uuid4(),
         user_id=USER_ID,
         workspace_id=WORKSPACE_ID,
-        provider="email",
+        provider="email_link",
         session_token_hash=f"merge-proof-{uuid4()}",
         status="active",
         expires_at=now + timedelta(minutes=15),
     )
     callback = AuthCallbackState(
         id=uuid4(),
-        provider="email_link",
+        provider="email",
         workspace_id=WORKSPACE_ID,
         state_nonce=f"merge-proof-{uuid4()}",
         expected_state="consumed",
         result="completed",
         used_at=now,
         expires_at=now + timedelta(minutes=15),
+        verified_external_identity_id=source_identity.id,
     )
     db.add_all([session, callback])
     await db.flush()
@@ -313,7 +330,14 @@ def test_personal_merge_preserves_custom_workspace_name(client) -> None:
 
 @pytest.mark.parametrize(
     ("slot", "broken_proof"),
-    [(90, "session"), (91, "identity"), (92, "callback"), (75, "legacy_binding")],
+    [
+        (90, "session"),
+        (91, "identity"),
+        (92, "callback"),
+        (75, "legacy_binding"),
+        (71, "callback_provider"),
+        (72, "identity_provider"),
+    ],
 )
 def test_merge_rechecks_exact_proof_records(client, slot: int, broken_proof: str) -> None:
     source = duplicate_account_fixture(slot, email=f"proof-{slot}@example.test")
@@ -345,6 +369,14 @@ def test_merge_rechecks_exact_proof_records(client, slot: int, broken_proof: str
                 ).is_active = False
             elif broken_proof == "legacy_binding":
                 intent.initiating_auth_session_id = None
+            elif broken_proof == "callback_provider":
+                (
+                    await db.get(AuthCallbackState, proofs["proof_callback_state_id"])
+                ).provider = "yandex"
+            elif broken_proof == "identity_provider":
+                (
+                    await db.get(ExternalIdentity, proofs["source_external_identity_id"])
+                ).provider = "oauth_metadata"
             else:
                 (
                     await db.get(AuthCallbackState, proofs["proof_callback_state_id"])
@@ -442,7 +474,7 @@ def test_legacy_intent_without_proof_bindings_fails_closed_without_account_mutat
             assert source_user.status == "active"
             assert source_user.merged_into_user_id is None
             assert source_workspace is not None
-            assert source_workspace.kind == "corporate"
+            assert source_workspace.kind == "personal"
             assert source_workspace.owner_user_id == source.user_id
             assert persisted_intent is not None
             assert persisted_intent.status == "preview_ready"
@@ -451,7 +483,7 @@ def test_legacy_intent_without_proof_bindings_fails_closed_without_account_mutat
     client.portal.call(exercise)
 
 
-def test_dataful_merge_preserves_meeting_id_and_workspace(client) -> None:
+def test_corporate_only_source_fails_closed_without_mutation(client) -> None:
     meeting_id = uuid4()
 
     async def exercise() -> None:
@@ -517,37 +549,104 @@ def test_dataful_merge_preserves_meeting_id_and_workspace(client) -> None:
                 actor_user_id=USER_ID,
             )
             assert preview.counts == MergeEntityCounts(meetings=1)
-            result = await confirm_merge_intent(
-                db,
-                intent_id=intent.id,
-                preview_fingerprint=preview.fingerprint,
-                idempotency_key="merge-test-1",
-            )
-            assert result.status == "completed"
+            assert preview.blocker_codes == ("workspace_ownership_conflict",)
+            with pytest.raises(AccountMergeError, match="blocked"):
+                await confirm_merge_intent(
+                    db,
+                    intent_id=intent.id,
+                    preview_fingerprint=preview.fingerprint,
+                    idempotency_key="merge-test-1",
+                )
             await db.commit()
 
             source = await db.get(UserIdentity, SOURCE_USER_ID)
             meeting = await db.get(Meeting, meeting_id)
             membership = await db.get(
                 WorkspaceMembership,
-                {"workspace_id": SOURCE_WORKSPACE_ID, "user_id": USER_ID},
+                {"workspace_id": SOURCE_WORKSPACE_ID, "user_id": SOURCE_USER_ID},
             )
             identity = await db.scalar(
                 select(ExternalIdentity).where(
                     ExternalIdentity.provider_subject == "merge-source@example.test"
                 )
             )
-            journal = await db.scalar(
-                select(AccountMergeJournal).where(AccountMergeJournal.merge_intent_id == intent.id)
-            )
-            assert source is not None and source.status == "merged"
-            assert source.merged_into_user_id == USER_ID
+            assert source is not None and source.status == "active"
+            assert source.merged_into_user_id is None
             assert meeting is not None and meeting.id == meeting_id
             assert meeting.workspace_id == SOURCE_WORKSPACE_ID
-            assert meeting.created_by_user_id == USER_ID
+            assert meeting.created_by_user_id == SOURCE_USER_ID
             assert membership is not None and membership.role == "owner"
-            assert identity is not None and identity.user_id == USER_ID
-            assert journal is not None and journal.status == "completed"
+            assert identity is not None and identity.user_id == SOURCE_USER_ID
+            assert (
+                await db.scalar(
+                    select(AccountMergeJournal).where(
+                        AccountMergeJournal.merge_intent_id == intent.id
+                    )
+                )
+                is None
+            )
+
+    client.portal.call(exercise)
+
+
+def test_cross_organization_owned_workspace_blocks_merge_without_mutation(client) -> None:
+    source = duplicate_account_fixture(176, email="cross-org-owned@example.test")
+    other_org_id = uuid4()
+    cross_org_workspace_id = uuid4()
+
+    async def exercise() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            await _seed_empty_source(
+                db,
+                user_id=source.user_id,
+                workspace_id=source.workspace_id,
+                email=source.email,
+            )
+            db.add(
+                Organization(
+                    id=other_org_id,
+                    slug=f"cross-org-{other_org_id.hex}",
+                    name="Cross organization",
+                )
+            )
+            await db.flush()
+            db.add(
+                Workspace(
+                    id=cross_org_workspace_id,
+                    organization_id=other_org_id,
+                    owner_user_id=source.user_id,
+                    slug=f"cross-org-owned-{cross_org_workspace_id.hex}",
+                    name="Cross organization workspace",
+                    kind="linked",
+                )
+            )
+            await db.flush()
+            db.add(
+                WorkspaceMembership(
+                    workspace_id=cross_org_workspace_id,
+                    user_id=source.user_id,
+                    role="owner",
+                    status="active",
+                )
+            )
+            await db.commit()
+
+            intent, preview = await _create_ready_merge(db, source_user_id=source.user_id)
+            assert preview.blocker_codes == ("workspace_ownership_conflict",)
+            with pytest.raises(AccountMergeError, match="blocked"):
+                await confirm_merge_intent(
+                    db,
+                    intent_id=intent.id,
+                    preview_fingerprint=preview.fingerprint,
+                    idempotency_key="cross-org-owned-workspace",
+                )
+            await db.rollback()
+
+            source_user = await db.get(UserIdentity, source.user_id)
+            cross_org_workspace = await db.get(Workspace, cross_org_workspace_id)
+            assert source_user is not None and source_user.status == "active"
+            assert cross_org_workspace is not None
+            assert cross_org_workspace.owner_user_id == source.user_id
 
     client.portal.call(exercise)
 
@@ -653,7 +752,7 @@ def test_merge_confirm_rejects_header_session_without_mutating_intent(client) ->
     )
 
     assert response.status_code == 303
-    assert response.headers["location"].endswith("error=reauth_required")
+    assert response.headers["location"].endswith("provider_link=reauth_required")
 
     async def assert_unchanged() -> None:
         async with client.app_state["sessionmaker"]() as db:
@@ -704,8 +803,11 @@ def test_merge_routes_reject_a_different_session_of_the_same_user(client) -> Non
         )
     }
 
-    assert client.get(f"/settings/account/merge/{intent_id}").status_code == 404
-    assert (
+    responses = (
+        client.get(
+            f"/settings/account/merge/{intent_id}",
+            follow_redirects=False,
+        ),
         client.post(
             f"/settings/account/merge/{intent_id}/confirm",
             headers=headers,
@@ -713,15 +815,18 @@ def test_merge_routes_reject_a_different_session_of_the_same_user(client) -> Non
                 "preview_fingerprint": fingerprint,
                 "idempotency_key": "wrong-session-confirm",
             },
-        ).status_code
-        == 404
-    )
-    assert (
+            follow_redirects=False,
+        ),
         client.post(
             f"/settings/account/merge/{intent_id}/cancel",
             headers=headers,
-        ).status_code
-        == 404
+            follow_redirects=False,
+        ),
+    )
+    assert all(response.status_code == 303 for response in responses)
+    assert all(
+        response.headers["location"].endswith("provider_link=provider_link_invalid")
+        for response in responses
     )
 
     async def assert_unchanged() -> None:
@@ -963,6 +1068,9 @@ def test_provider_link_email_session_requires_preview_for_empty_duplicate(client
                 workspace_id=WORKSPACE_ID,
                 provider="email",
                 session_token_hash="email-session-hash",
+                claims_fingerprint=hash_token(
+                    f"email:{email_identity.email}:{WORKSPACE_ID}"
+                ),
                 status="active",
                 expires_at=datetime.now(UTC) + timedelta(minutes=15),
             )
@@ -973,7 +1081,16 @@ def test_provider_link_email_session_requires_preview_for_empty_duplicate(client
                 state_nonce="oauth-link-state",
                 expected_state="oauth-link-state",
                 result="completed",
+                used_at=datetime.now(UTC),
                 expires_at=datetime.now(UTC) + timedelta(minutes=15),
+                verified_external_identity_id=(
+                    await db.scalar(
+                        select(ExternalIdentity.id).where(
+                            ExternalIdentity.user_id == source_user_id,
+                            ExternalIdentity.provider == "yandex",
+                        )
+                    )
+                ),
             )
             link = WorkspaceProviderLinkState(
                 id=link_id,
@@ -1027,6 +1144,17 @@ def test_provider_link_email_session_requires_preview_for_empty_duplicate(client
             assert source.merged_into_user_id is None
 
             persisted_link.target_provider_identity_id = intent.source_external_identity_id
+            persisted_link.candidate_provider = "vk"
+            await db.flush()
+            with pytest.raises(AccountMergeError, match="proof_required"):
+                await confirm_merge_intent(
+                    db,
+                    intent_id=intent.id,
+                    preview_fingerprint=intent.preview_fingerprint,
+                    idempotency_key="wrong-provider-proof",
+                )
+
+            persisted_link.candidate_provider = "yandex"
             persisted_link.workspace_id = source_workspace_id
             await db.flush()
             with pytest.raises(AccountMergeError, match="proof_required"):
@@ -1385,14 +1513,15 @@ def test_active_source_fair_use_review_blocks_merge_until_resolved(client) -> No
             assert review is not None
             review.state = "cleared"
             await db.commit()
-            with pytest.raises(AccountMergeError, match="merge_blocked"):
+            with pytest.raises(AccountMergeError, match="merge_restart_required"):
                 await preview_merge_intent(db, intent_id=blocked_intent_id)
             ready_intent, ready_preview = await _create_ready_merge(
                 db, source_user_id=source.user_id
             )
+            assert ready_intent.id != blocked_intent_id
             assert ready_intent.status == "preview_ready"
             assert "fair_use_conflict" not in ready_preview.blocker_codes
-            review.state = "confirmed"
+            assert (await db.get(AccountMergeIntent, blocked_intent_id)).status == "blocked"
             await db.commit()
             confirmed_preview = await preview_merge_intent(db, intent_id=ready_intent.id)
             assert "fair_use_conflict" not in confirmed_preview.blocker_codes
@@ -1961,6 +2090,9 @@ def test_merge_rejects_stale_fingerprint_after_domain_state_changes(client) -> N
             grant.can_download = True
             grant.can_export = True
             await db.commit()
+
+            with pytest.raises(AccountMergeError, match="merge_preview_stale"):
+                await preview_merge_intent(db, intent_id=intent.id)
 
             with pytest.raises(AccountMergeError, match="merge_preview_stale"):
                 await confirm_merge_intent(

@@ -194,6 +194,9 @@ class AuthCallbackState(Base):
     provider: Mapped[str] = mapped_column(String(64), nullable=False)
     state_nonce: Mapped[str] = mapped_column(String(128), nullable=False)
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
+    verified_external_identity_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("external_identities.id")
+    )
     requested_redirect: Mapped[str | None] = mapped_column(String(512))
     expected_state: Mapped[str] = mapped_column(String(256), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
