@@ -17,7 +17,32 @@ from twobrain_rec_server.db.base import Base
 REPO_ROOT = Path(__file__).resolve().parents[4]
 SERVER_ROOT = REPO_ROOT / "apps/server"
 RUNTIME_ROOT = SERVER_ROOT / "src/twobrain_rec_server"
+SCRIPTS_ROOT = SERVER_ROOT / "scripts"
 MEETING_ID = UUID("50000000-0000-0000-0000-000000000001")
+
+QUERY_OWNER_CLASSES = {
+    "apps/server/scripts/cleanup_smoke_artifacts.py": "test_cleanup",
+    "apps/server/scripts/prove_meeting_outcome_live.py": "legacy_proof",
+    "apps/server/scripts/reconcile_initial_outcomes.py": "legacy_reconciliation",
+    "apps/server/src/twobrain_rec_server/api/cabinet.py": "api_read_and_candidate_compatibility",
+    "apps/server/src/twobrain_rec_server/api/schemas.py": "api_contract",
+    "apps/server/src/twobrain_rec_server/cabinet/egress.py": "egress_read",
+    "apps/server/src/twobrain_rec_server/cabinet/exports.py": "export_read",
+    "apps/server/src/twobrain_rec_server/cabinet/queries.py": "cabinet_read",
+    "apps/server/src/twobrain_rec_server/cabinet/rendering.py": "render_read",
+    "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js": "ui_contract",
+    "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/meeting_detail_content.html": "ui_contract",
+    "apps/server/src/twobrain_rec_server/cabinet/view_models.py": "view_model",
+    "apps/server/src/twobrain_rec_server/cabinet/web_routes/browser.py": "browser_read",
+    "apps/server/src/twobrain_rec_server/db/models/__init__.py": "model_registration",
+    "apps/server/src/twobrain_rec_server/db/models/meeting.py": "legacy_pointer_model",
+    "apps/server/src/twobrain_rec_server/db/models/outcomes.py": "outcome_model",
+    "apps/server/src/twobrain_rec_server/db/rls_validation.py": "rls_inventory",
+    "apps/server/src/twobrain_rec_server/deletion/service.py": "deletion_owner",
+    "apps/server/src/twobrain_rec_server/outcomes/ai_service.py": "publication_owner",
+    "apps/server/src/twobrain_rec_server/outcomes/service.py": "generation_owner",
+    "apps/server/src/twobrain_rec_server/outcomes/store.py": "lineage_store",
+}
 
 
 def test_summary_slot_is_a_pointer_only_with_named_scope_contracts() -> None:
@@ -73,20 +98,30 @@ def test_summary_type_fixtures_are_two_type_and_content_free() -> None:
 def test_runtime_outcome_query_owner_inventory_has_no_unclassified_newest_row_fallback() -> None:
     """The inventory is intentionally closed: new owners must be classified first."""
 
-    forbidden = re.compile(
+    observed: set[str] = set()
+    for root in (RUNTIME_ROOT, SCRIPTS_ROOT):
+        for path in sorted(root.rglob("*")):
+            if not path.is_file() or path.suffix not in {".py", ".js", ".html"}:
+                continue
+            if "db/migrations/versions" in str(path):
+                continue
+            source = path.read_text(encoding="utf-8")
+            if "MeetingOutcomeSet" in source or "meeting_outcome_sets" in source or "current_outcome_set_id" in source:
+                observed.add(str(path.relative_to(REPO_ROOT)))
+
+    assert observed == set(QUERY_OWNER_CLASSES), sorted(observed - set(QUERY_OWNER_CLASSES))
+
+    forbidden_line = re.compile(
         r"(?:MeetingOutcomeSet|meeting_outcome_sets).*?"
         r"(?:created_at|generated_at).*?(?:desc|limit|first|max)",
-        re.IGNORECASE | re.DOTALL,
+        re.IGNORECASE,
     )
-    allowlisted_legacy = {
-        RUNTIME_ROOT / "db/migrations/versions/0009_meeting_outcomes_mvp.py",
-    }
-    findings: list[str] = []
-    for path in sorted(RUNTIME_ROOT.rglob("*.py")):
-        if path in allowlisted_legacy or "db/migrations/versions" in str(path):
-            continue
-        source = path.read_text(encoding="utf-8")
-        if forbidden.search(source):
-            findings.append(str(path.relative_to(REPO_ROOT)))
-
+    findings = [
+        f"{path}: {QUERY_OWNER_CLASSES[path]}"
+        for path in sorted(QUERY_OWNER_CLASSES)
+        if any(
+            forbidden_line.search(line)
+            for line in (REPO_ROOT / path).read_text(encoding="utf-8").splitlines()
+        )
+    ]
     assert findings == [], "unclassified newest-row query owners: " + ", ".join(findings)

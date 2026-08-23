@@ -20,6 +20,7 @@ from twobrain_rec_server.db.models import (
     MeetingOutcomeItem,
     MeetingOutcomeSet,
     MeetingSpeakerName,
+    MeetingSummarySlot,
     ProcessingResult,
     TranscriptSegment,
 )
@@ -607,9 +608,40 @@ async def _load_current_outcome_set(
     result: ProcessingResult,
     generator_config_hash: str | None = None,
 ) -> MeetingOutcomeSet | None:
+    slot = await db.scalar(
+        select(MeetingSummarySlot).where(
+            MeetingSummarySlot.workspace_id == result.workspace_id,
+            MeetingSummarySlot.meeting_id == result.meeting_id,
+            MeetingSummarySlot.template_key == BASELINE_TEMPLATE_KEY,
+        )
+    )
+    if slot is not None:
+        if slot.current_outcome_set_id is None:
+            return None
+        return await db.scalar(
+            select(MeetingOutcomeSet).where(
+                MeetingOutcomeSet.id == slot.current_outcome_set_id,
+                MeetingOutcomeSet.workspace_id == result.workspace_id,
+                MeetingOutcomeSet.meeting_id == result.meeting_id,
+                MeetingOutcomeSet.processing_result_id == result.id,
+                MeetingOutcomeSet.template_key == slot.template_key,
+            )
+        )
+
+    # Compatibility is limited to the one explicit pre-slot meeting pointer.
+    # A missing slot must never turn into a newest-row inference.
+    meeting = await db.scalar(
+        select(Meeting).where(
+            Meeting.id == result.meeting_id,
+            Meeting.workspace_id == result.workspace_id,
+        )
+    )
+    if meeting is None or meeting.current_outcome_set_id is None:
+        return None
     conditions = [
         MeetingOutcomeSet.workspace_id == result.workspace_id,
         MeetingOutcomeSet.meeting_id == result.meeting_id,
+        MeetingOutcomeSet.id == meeting.current_outcome_set_id,
         MeetingOutcomeSet.media_revision_id == result.media_revision_id,
         MeetingOutcomeSet.processing_result_id == result.id,
         MeetingOutcomeSet.generator_version == OUTCOME_GENERATOR_VERSION,
@@ -620,8 +652,65 @@ async def _load_current_outcome_set(
             | MeetingOutcomeSet.generator_config_hash.is_(None)
         )
     return await db.scalar(
-        select(MeetingOutcomeSet).where(*conditions).order_by(MeetingOutcomeSet.created_at.desc())
+        select(MeetingOutcomeSet).where(*conditions)
     )
+
+
+async def load_summary_slot(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+    template_key: str,
+    for_update: bool = False,
+) -> MeetingSummarySlot | None:
+    query = select(MeetingSummarySlot).where(
+        MeetingSummarySlot.workspace_id == workspace_id,
+        MeetingSummarySlot.meeting_id == meeting_id,
+        MeetingSummarySlot.template_key == template_key,
+    )
+    if for_update:
+        query = query.with_for_update()
+    return await db.scalar(query)
+
+
+async def ensure_summary_slot(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+    template_key: str,
+    is_meeting_default: bool = False,
+    default_resolution_source: str | None = None,
+    default_resolution_version: str | None = None,
+    default_resolved_at: datetime | None = None,
+) -> MeetingSummarySlot:
+    slot = await load_summary_slot(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        template_key=template_key,
+    )
+    if slot is not None:
+        return slot
+    if is_meeting_default and (
+        default_resolution_source is None
+        or default_resolution_version is None
+        or default_resolved_at is None
+    ):
+        raise ValueError("default slot requires complete resolver provenance")
+    slot = MeetingSummarySlot(
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        template_key=template_key,
+        is_meeting_default=is_meeting_default,
+        default_resolution_source=default_resolution_source,
+        default_resolution_version=default_resolution_version,
+        default_resolved_at=default_resolved_at,
+    )
+    db.add(slot)
+    await db.flush()
+    return slot
 
 
 async def load_outcome_transcript_segments(

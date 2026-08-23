@@ -10,7 +10,7 @@ from hashlib import sha256
 from uuid import UUID
 
 from anyio import to_thread
-from sqlalchemy import select
+from sqlalchemy import nullslast, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -56,6 +56,7 @@ from twobrain_rec_server.db.models import (
     MeetingArtifactPolicy,
     MeetingEgressAuditEvent,
     MeetingOutcomeSet,
+    MeetingSummarySlot,
     PlaybackNormalizationJob,
     ProcessingResult,
     TrackArtifact,
@@ -583,6 +584,7 @@ async def current_outcome_set(
     meeting_id: UUID,
     processing_result_id: UUID | None,
     include_non_publishable: bool = False,
+    template_key: str | None = None,
 ) -> MeetingOutcomeSet | None:
     meeting = await db.scalar(
         select(Meeting).where(
@@ -592,18 +594,32 @@ async def current_outcome_set(
     )
     if meeting is None:
         return None
-    if meeting.current_outcome_set_id is None:
+    slot_query = select(MeetingSummarySlot).where(
+        MeetingSummarySlot.workspace_id == workspace_id,
+        MeetingSummarySlot.meeting_id == meeting_id,
+    )
+    if template_key is None:
+        slot_query = slot_query.where(MeetingSummarySlot.is_meeting_default.is_(True))
+    else:
+        slot_query = slot_query.where(MeetingSummarySlot.template_key == template_key)
+    slot = await db.scalar(slot_query)
+    # Compatibility is exact and temporary: only an explicit old pointer may
+    # be read before the migration has created its slot.
+    outcome_id = slot.current_outcome_set_id if slot is not None else meeting.current_outcome_set_id
+    if outcome_id is None:
         return None
     outcome = await db.scalar(
         select(MeetingOutcomeSet)
         .where(
-            MeetingOutcomeSet.id == meeting.current_outcome_set_id,
+            MeetingOutcomeSet.id == outcome_id,
             MeetingOutcomeSet.workspace_id == workspace_id,
             MeetingOutcomeSet.meeting_id == meeting_id,
             MeetingOutcomeSet.lifecycle_state == "active",
         )
         .execution_options(populate_existing=True)
     )
+    if template_key is not None and (outcome is None or outcome.template_key != template_key):
+        return None
     if outcome is None:
         return None
     if outcome.revision_state != "accepted":

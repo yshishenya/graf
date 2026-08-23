@@ -1612,24 +1612,7 @@ async def _latest_outcome_set(
         meeting_id=meeting_id,
         processing_result_id=processing_result_id,
     )
-    if accepted is not None or processing_result_id is None:
-        return accepted
-    return await db.scalar(
-        select(MeetingOutcomeSet)
-        .where(
-            MeetingOutcomeSet.workspace_id == workspace_id,
-            MeetingOutcomeSet.meeting_id == meeting_id,
-            MeetingOutcomeSet.processing_result_id == processing_result_id,
-            MeetingOutcomeSet.lifecycle_state == "active",
-            MeetingOutcomeSet.revision_state.is_(None),
-            MeetingOutcomeSet.status.in_({"queued", "generating", "blocked", "failed", "unsafe"}),
-        )
-        .order_by(
-            MeetingOutcomeSet.created_at.desc(),
-            MeetingOutcomeSet.id.desc(),
-        )
-        .execution_options(populate_existing=True)
-    )
+    return accepted
 
 
 async def latest_processing_result(
