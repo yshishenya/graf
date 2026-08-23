@@ -1,3 +1,4 @@
+import re
 import subprocess
 from pathlib import Path
 
@@ -2783,11 +2784,19 @@ def test_cabinet_js_uses_product_facing_ellipsis_in_async_states() -> None:
         assert legacy_copy not in script
     for product_copy in [
         '"Удаляем…"',
-        '"Загружаем файл…"',
-        '"Продолжаем загрузку…"',
         '"Проверяем…"',
     ]:
         assert product_copy in script
+
+    for short_upload_copy in [
+        '"Загрузка"',
+        '"Загрузка продолжена"',
+        '"На сервере · Обрабатываем"',
+        '"На сервере · Ждёт обработки"',
+        '"Не удалось загрузить"',
+        '"Загрузка остановлена"',
+    ]:
+        assert short_upload_copy in script
 
 
 def test_cabinet_js_owns_component_dom_behavior() -> None:
@@ -2976,7 +2985,8 @@ def test_cabinet_js_owns_manual_upload_without_frontend_toolchain() -> None:
         "abort",
         "refreshMeetingList",
         "workflow_started",
-        "Обработка ещё не запущена",
+        "На сервере · Ждёт обработки",
+        "На сервере · Обрабатываем",
         "authUploadFailure",
         "conflictUploadFailure",
         "window.location.reload()",
@@ -3002,8 +3012,14 @@ def test_cabinet_js_owns_manual_upload_without_frontend_toolchain() -> None:
         ".upload-activity-progress",
         ".upload-activity-actions",
         ".upload-activity-action",
+        "color-mix(in srgb, var(--accent)",
+        "grid-template-columns: 30px minmax(0, 1fr) auto;",
     ]:
         assert marker in css
+    assert '<span class="upload-activity-state">' in script
+    assert script.index('data-upload-activity-status') < script.index('data-upload-activity-percent')
+    assert script.index('data-upload-activity-percent') < script.index('upload-activity-progress')
+    assert "Перетащите файл сюда" not in script
     assert "Длительность не прочитана" in script
     assert 'data-upload-activity-list aria-live="polite"' not in template
     assert 'data-upload-activity-announcer role="status" aria-live="polite" aria-atomic="true"' in template
@@ -3013,7 +3029,7 @@ def test_cabinet_js_owns_manual_upload_without_frontend_toolchain() -> None:
     assert ".manual-upload-duration__control" not in css
 
 
-def test_manual_upload_hides_untrusted_progress_and_preserves_list_query_state() -> None:
+def test_manual_upload_keeps_untrusted_progress_indeterminate_and_preserves_list_query_state() -> None:
     script_path = STATIC_DIR / "cabinet.js"
     harness = r"""
 const fs = require("fs");
@@ -3046,8 +3062,8 @@ const activity = {
   announcedProgressBucket: null,
 };
 setActivityProgress(activity, 36, false);
-if (!progress.hidden || activity.progressBar.style.width !== "0") {
-  throw new Error("untrusted upload progress remained visible");
+    if (progress.hidden || activity.progressBar.style.width !== "0") {
+  throw new Error("untrusted upload progress was not kept visible");
 }
 if (!activity.percentLabel.hidden || activity.percentLabel.textContent) {
   throw new Error("untrusted upload percentage remained visible");
@@ -3134,7 +3150,7 @@ def test_feature_104_css_uses_shared_density_focus_and_responsive_contracts() ->
         "--control-height: 36px;",
         "--meeting-row-height: 48px;",
         "--focus-ring: #b6aaff;",
-        "--app-sidebar-width: 176px;",
+        "--app-sidebar-width: 240px;",
         "--app-rail-width: 64px;",
         "outline: 2px solid var(--focus-ring);",
         ".meeting-row.cabinet-row:hover,\n.meeting-row.cabinet-row:focus-within",
@@ -3168,6 +3184,78 @@ def test_feature_104_css_uses_shared_density_focus_and_responsive_contracts() ->
         "  }"
     ) not in css
     assert 'aria-label="Сохраненные"' not in css
+
+
+def test_feature_191_centralizes_interaction_tokens_and_compact_upload_contract() -> None:
+    css = (STATIC_DIR / "cabinet.css").read_text()
+    script = (STATIC_DIR / "cabinet.js").read_text()
+    manual_upload = (
+        ROOT
+        / "src/twobrain_rec_server/cabinet/templates/cabinet/fragments/manual_upload.html"
+    ).read_text()
+
+    for token in [
+        "--accent-hover:",
+        "--sidebar-accent: #8c73ff;",
+        "--sidebar-focus-ring: #b6aaff;",
+        "--accent-soft:",
+        "--accent-surface:",
+        "--accent-border:",
+        "--success-surface:",
+        "--success-border:",
+        "--warning-surface:",
+        "--warning-border:",
+        "--danger-surface:",
+        "--danger-border:",
+        "--font-size-caption: 11px;",
+        "--font-size-helper: 12px;",
+        "--font-size-body: 13px;",
+        "--font-size-label: 14px;",
+        "--control-height-sm: 32px;",
+        "--control-height: 36px;",
+        "--control-height-lg: 40px;",
+        "--radius-control: 7px;",
+        "--radius-card: 10px;",
+        "--radius-panel: 12px;",
+        "--radius-dialog: 16px;",
+    ]:
+        assert token in css
+
+    assert "accent-color: var(--accent);" in css
+    assert "--accent: var(--sidebar-accent);" in css
+    assert "--focus-ring: var(--sidebar-focus-ring);" in css
+    assert ".primary { background: var(--accent); border-color: var(--accent);" in css
+    assert "var(--blue)" not in css
+    for product_blue in [
+        "#2f91ff",
+        "#2088ff",
+        "rgba(47,145,255",
+        "rgba(32,136,255",
+        "rgba(92, 155, 235",
+    ]:
+        assert product_blue not in css.lower()
+
+    assert "grid-template-columns: 30px minmax(0, 1fr) auto;" in css
+    assert ".upload-activity-state" in css
+    assert '<span class="upload-activity-state">' in script
+    assert len(re.findall(r"(?m)^\.settings-overview-card \{", css)) == 1
+    assert ".cabinet-sidebar-nav__label" in css
+    assert "text-overflow: ellipsis;" in css
+    assert "white-space: nowrap;" in css
+
+    for copy in [
+        "Загрузить файл",
+        "Аудио или видео с аудиодорожкой.",
+        "Перетащите файл",
+        "WAV, MP3, M4A, MP4 и другие",
+        ">Выбрать<",
+        ">Хранение<",
+        "Сохранить аудио",
+        "Без аудио останутся расшифровка и итоги. Минуты тарифа спишутся.",
+    ]:
+        assert copy in manual_upload
+    assert "Перетащите файл сюда" not in manual_upload
+    assert "Сохранить аудио для последующего прослушивания" not in manual_upload
 
 
 def test_meeting_list_css_binds_target_geometry_contrast_and_motion_contracts() -> None:

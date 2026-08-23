@@ -170,9 +170,9 @@
 
 .admin-button {
   min-height: 32px;
-  border: 1px solid var(--blue);
+  border: 1px solid var(--accent);
   border-radius: 7px;
-  background: var(--blue);
+  background: var(--accent);
   color: white;
   padding: 0 12px;
   display: inline-flex;

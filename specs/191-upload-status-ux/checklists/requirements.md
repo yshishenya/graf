@@ -1,0 +1,14 @@
+# Requirements Checklist: Upload Status UX
+
+**Feature**: [spec.md](../spec.md)
+
+- [x] User scenarios cover processing visibility, upload date, and active progress.
+- [x] Requirements distinguish recording time from server upload time.
+- [x] Legacy rows without either timestamp remain defined.
+- [x] Upload and processing states are separate and truthful.
+- [x] Responsive, keyboard, reduced-motion, and forced-colors requirements are defined.
+- [x] No new storage or credential boundary is introduced.
+- [x] Whole-cabinet color, typography, geometry, and component-centralization scope is explicit.
+- [x] Provider brand-color exception is distinguished from GRAF interaction accents.
+- [x] Settings navigation wrapping and responsive reflow are measurable.
+- [x] KRISP reference use and the GRAF adaptation boundary are recorded.

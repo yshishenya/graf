@@ -399,7 +399,9 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert "data-manual-upload-percent" not in page
     assert "data-manual-upload-progress" not in page
     assert "data-manual-upload-accepted" not in page
-    assert "Перетащите файл сюда" in page
+    assert "Перетащите файл" in page
+    assert "Перетащите файл сюда" not in page
+    assert "Без аудио останутся расшифровка и итоги. Минуты тарифа спишутся." in page
     assert 'name="duration_seconds"' in page
     assert 'type="hidden" name="duration_seconds"' in page
     assert 'type="number" name="duration_seconds"' not in page

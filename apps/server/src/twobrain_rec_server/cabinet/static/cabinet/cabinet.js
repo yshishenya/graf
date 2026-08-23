@@ -3235,23 +3235,6 @@
     });
   };
 
-  const uploadMessages = {
-    request_validation_error: "Проверьте файл.",
-    csrf_token_missing: "Сессия устарела. Обновите страницу и попробуйте ещё раз.",
-    csrf_token_invalid: "Сессия устарела. Обновите страницу и попробуйте ещё раз.",
-    auth_session_required_for_manual_upload: "Войдите снова, чтобы загрузить файл.",
-    auth_session_invalid: "Войдите снова, чтобы загрузить файл.",
-    auth_session_expired: "Войдите снова, чтобы загрузить файл.",
-    empty_media_upload: "Файл пустой. Выберите другой медиафайл.",
-    upload_part_bytes_exceeded: "Файл больше текущего лимита. Выберите файл меньше.",
-    unsafe_meeting_title: "Название содержит небезопасные данные. Измените его или оставьте поле пустым.",
-    media_revision_not_accepting_uploads: "Эта загрузка уже принята. Откройте встречу в списке.",
-    meeting_not_accepting_uploads: "Эта загрузка уже принята. Откройте встречу в списке.",
-    idempotency_conflict: "Эта попытка отличается от уже начатой загрузки. Выберите файл заново.",
-    media_revision_fingerprint_conflict: "Эта встреча уже приняла другой файл. Выберите файл заново."
-  };
-
-  const safeUploadMessage = (code) => uploadMessages[code] || "Не удалось загрузить файл. Попробуйте ещё раз.";
   const authUploadFailure = (code) => [
     "csrf_token_missing",
     "csrf_token_invalid",
@@ -3385,7 +3368,7 @@
       if (fileName) fileName.textContent = "Файл не выбран";
       if (fileMeta) fileMeta.textContent = "";
       if (fileDuration) fileDuration.textContent = "";
-      if (dropTitle) dropTitle.textContent = "Перетащите файл сюда";
+      if (dropTitle) dropTitle.textContent = "Перетащите файл";
       dropZone?.classList.remove("has-file");
     };
 
@@ -3454,7 +3437,7 @@
           announceUploadActivity(activity, `Загружаем ${bucket}%`);
         }
       } else {
-        if (activity.progress) activity.progress.hidden = true;
+        if (activity.progress) activity.progress.hidden = false;
         activity.progress?.removeAttribute("aria-valuenow");
         if (activity.progressBar) activity.progressBar.style.width = "0";
         if (activity.percentLabel) {
@@ -3473,7 +3456,7 @@
         activity.status.textContent = message;
         activity.status.dataset.tone = tone;
       }
-      const progressActive = state === "uploading" && activity.progressDeterminate !== false;
+      const progressActive = state === "uploading";
       if (activity.progress) {
         activity.progress.hidden = !progressActive;
         if (!progressActive) {
@@ -3527,12 +3510,14 @@
         <div class="upload-activity-copy">
           <strong data-upload-activity-title></strong>
           <span data-upload-activity-meta></span>
-          <span data-upload-activity-status></span>
+          <span class="upload-activity-state">
+            <span data-upload-activity-status></span>
+            <span class="upload-activity-percent" data-upload-activity-percent hidden></span>
+          </span>
           <span class="upload-activity-progress" role="progressbar" aria-label="Прогресс загрузки" aria-valuemin="0" aria-valuemax="100" hidden>
             <span data-upload-activity-progress-bar></span>
           </span>
         </div>
-        <span class="upload-activity-percent" data-upload-activity-percent hidden></span>
         <div class="upload-activity-actions" aria-label="Управление загрузкой">
           <button class="upload-activity-action" type="button" data-upload-activity-cancel>Отменить</button>
           <button class="upload-activity-action" type="button" data-upload-activity-retry hidden>Повторить</button>
@@ -3615,7 +3600,7 @@
       activity.accepted = false;
       activity.recoveryMode = null;
       activity.announcedProgressBucket = null;
-      setActivityState(activity, "uploading", continued ? "Продолжаем загрузку…" : "Загружаем файл…");
+      setActivityState(activity, "uploading", continued ? "Загрузка продолжена" : "Загрузка");
       setActivityProgress(activity, 0, true);
 
       xhr.upload.onprogress = (event) => {
@@ -3625,7 +3610,7 @@
         }
         const percent = Math.max(0, Math.min(99, Math.round((event.loaded / event.total) * 100)));
         setActivityProgress(activity, percent, true);
-        setActivityState(activity, "uploading", "Загружаем файл…");
+        setActivityState(activity, "uploading", "Загрузка");
       };
       xhr.onload = async () => {
         activity.xhr = null;
@@ -3647,8 +3632,8 @@
             activity,
             "accepted",
             workflowStarted
-              ? "Файл принят. Обработка началась."
-              : "Файл принят. Обработка ещё не запущена. Проверьте статус встречи.",
+              ? "На сервере · Обрабатываем"
+              : "На сервере · Ждёт обработки",
             workflowStarted ? "success" : "warning"
           );
           clearUploadActivityPayload(activity);
@@ -3668,16 +3653,16 @@
         activity.recoveryMode = authUploadFailure(failureCode)
           ? "auth"
           : conflictUploadFailure(failureCode) ? "conflict" : null;
-        setActivityState(activity, "failed", safeUploadMessage(payload.code), "error");
+        setActivityState(activity, "failed", "Не удалось загрузить", "error");
       };
       xhr.onerror = () => {
         activity.xhr = null;
-        setActivityState(activity, "failed", "Передача не подтверждена. Попробуйте ещё раз.", "error");
+        setActivityState(activity, "failed", "Не удалось загрузить", "error");
       };
       xhr.onabort = () => {
         activity.xhr = null;
         if (!activity.accepted) {
-          setActivityState(activity, "canceled", "Передача остановлена. Можно продолжить из этой вкладки.", "warning");
+          setActivityState(activity, "canceled", "Загрузка остановлена", "warning");
         }
       };
       xhr.open("POST", dialog.dataset.uploadEndpoint || "/api/v1/cabinet/media-uploads");

@@ -1915,6 +1915,7 @@ class MeetingListItem(BaseModel):
     meeting_id: UUID
     title: str
     started_at: datetime | None = None
+    uploaded_at: datetime | None = None
     ended_at: datetime | None = None
     recording_display_timezone_offset_minutes: int | None = None
     duration_seconds: int = Field(ge=0)

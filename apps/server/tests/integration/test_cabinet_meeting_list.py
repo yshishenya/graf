@@ -525,12 +525,15 @@ def test_cabinet_list_shows_manual_upload_as_normal_meeting_row(client) -> None:
     assert item["meeting_id"] == meeting_id
     assert item["title"] == "Manual list row"
     assert item["source"] == "manual_upload"
+    assert item["started_at"] is None
+    assert item["uploaded_at"] is not None
     assert item["duration_seconds"] == 90
     assert item["status"] == "submitted"
     assert item["primary_action"] == "wait"
     assert page.status_code == 200
     assert "Manual list row" in page.text
     assert 'data-media-kind="медиа"' in page.text
+    assert "Загружено" in page.text
 
 
 def test_desktop_empty_meeting_list_polls_for_new_local_uploads(client) -> None:
