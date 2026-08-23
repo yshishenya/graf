@@ -47,10 +47,50 @@ def test_checkout_uses_amount_specific_yookassa_actions_without_js() -> None:
     html = (TEMPLATE_ROOT / "billing_checkout_content.html").read_text(encoding="utf-8")
     assert 'name="cycle" value="month"' in html
     assert 'name="cycle" value="year"' in html
+    assert 'action="/billing/checkout/preview" method="post"' in html
+    assert "checkout_preview" in html
     assert "monthly_price_label|default" in html
     assert "annual_price_label|default" in html
     assert "annual_saving_label" in html
     assert "Перейти к оплате" not in html
+
+
+def test_checkout_renders_server_calculated_promo_amounts() -> None:
+    from twobrain_rec_server.billing.catalog import plan_descriptor
+    from twobrain_rec_server.cabinet.templates import render_template
+    from twobrain_rec_server.cabinet.view_models import settings_category_navigation
+
+    html = render_template(
+        "cabinet/pages/billing_checkout_content.html",
+        embedded=False,
+        settings_navigation=settings_category_navigation(active="billing"),
+        settings_active="billing",
+        csrf_token="synthetic-csrf",
+        plan=plan_descriptor("personal"),
+        billing_enabled=True,
+        catalog_ready=True,
+        checkout_idempotency_key="synthetic-key",
+        monthly_price_label="790 ₽",
+        annual_price_label="7 900 ₽",
+        checkout_result="promo_applied",
+        checkout_promo_code="SAVE10",
+        checkout_cycle="month",
+        checkout_preview={
+            "cycle_label": "месяц",
+            "list_amount_label": "790 ₽",
+            "discount_label": "−79 ₽ (10%)",
+            "payable_amount_label": "711 ₽",
+            "next_amount_label": "790 ₽",
+        },
+        promo_preview_error=None,
+    )
+    assert "Цена по каталогу" in html
+    assert "−79 ₽ (10%)" in html
+    assert "711 ₽" in html
+    assert 'Оплатить 711 ₽ в YooKassa — месяц' in html
+    assert 'Оплатить 7 900 ₽ в YooKassa — год' in html
+    assert "Следующее списание" in html
+    assert "referral" not in html.lower()
 
 
 def test_checkout_promo_error_preserves_safe_input_and_associates_error() -> None:
