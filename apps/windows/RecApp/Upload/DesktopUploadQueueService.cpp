@@ -64,7 +64,14 @@ std::optional<std::uint64_t> numberField(std::string_view object, std::string_vi
     if (start == std::string_view::npos) return std::nullopt;
     const auto valueStart = start + marker.size();
     const auto end = object.find_first_not_of("0123456789", valueStart);
-    try { return std::stoull(std::string(object.substr(valueStart, end - valueStart))); }
+    if (end == valueStart) return std::nullopt;
+    const auto valueEnd = end == std::string_view::npos ? object.size() : end;
+    try {
+        auto delimiter = valueEnd;
+        while (delimiter < object.size() && std::isspace(static_cast<unsigned char>(object[delimiter]))) ++delimiter;
+        if (delimiter < object.size() && object[delimiter] != ',' && object[delimiter] != '}') return std::nullopt;
+        return std::stoull(std::string(object.substr(valueStart, valueEnd - valueStart)));
+    }
     catch (...) { return std::nullopt; }
 }
 

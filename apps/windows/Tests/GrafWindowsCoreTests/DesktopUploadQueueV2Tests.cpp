@@ -43,6 +43,13 @@ int main() {
     DesktopUploadQueueService quarantined(path, root);
     assert(!quarantined.load() && quarantined.quarantined() && quarantined.items().empty());
     assert(std::filesystem::exists(path.string() + ".quarantine"));
+    std::filesystem::remove(path.string() + ".quarantine");
+    {
+        std::ofstream malformedNumber(path, std::ios::binary);
+        malformedNumber << "{\"schema_version\":\"desktop-upload-queue.v2\",\"items\":[{\"local_recording_id\":\"bad\",\"directory_id\":\"directory\",\"session_id\":\"session\",\"package_directory\":\"" << package.string() << "\",\"status\":1x,\"accepted_bytes\":[0,0,0],\"attempts\":0,\"safe_reason\":\"\"}]}";
+    }
+    DesktopUploadQueueService malformedNumberQueue(path, root);
+    assert(!malformedNumberQueue.load() && malformedNumberQueue.quarantined());
     std::filesystem::remove_all(root);
     std::filesystem::remove_all(outside);
     return 0;

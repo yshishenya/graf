@@ -24,7 +24,8 @@
   и x64 package metadata без driver, service, elevation или второго web UI.
 
 ### Исправлено
-- _Пока нет записей._
+- Ledger отклоняет числовые поля с лишними символами, а atomic write больше не
+  сообщает об ошибке после уже завершённой замены файла.
 
 ### Безопасность
 - Native/Web boundary не принимает capture/file/token/cookie/process commands,

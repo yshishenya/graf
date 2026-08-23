@@ -114,7 +114,8 @@ AtomicFileResult writeUnchecked(
         std::filesystem::remove(temporary, error);
         return {AtomicFileError::replaceFailed};
     }
-    if (!applyUserOnlyAcl(target)) return {AtomicFileError::permissionFailed};
+    // The temporary file carries the user-only ACL through the atomic rename.
+    // A second post-rename mutation could report failure after the durable write.
     return {};
 }
 
