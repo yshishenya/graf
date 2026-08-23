@@ -1,6 +1,23 @@
 # Текущий статус продукта
 
-Date: 2026-08-23
+Date: 2026-08-24
+
+## Implementation update (2026-08-24) — Feature 199 per-app recording policies
+
+- Политика автозаписи теперь хранится отдельно для каждого verified native
+  target в трёх состояниях: «Всегда», «Спрашивать» и «Никогда». Новые targets
+  получают «Спрашивать», общий radio-контрол применяет выбранное состояние ко
+  всем targets, а смешанное состояние показывает «Разные».
+- Prompt оставляет 8-секундный таймер: по истечении запускается текущая запись
+  при прохождении существующих capture/workspace gates. Таймер никогда не
+  сохраняет галочку; «Записать сейчас» + галочка сохраняет «Всегда», а «Не
+  записывать» + галочка — «Никогда».
+- В prompt удалены технические строки, в настройках убраны bundle ID и
+  длинные подписи под техническими переключателями; подробности доступны через
+  pointer/keyboard/VoiceOver hints. Видимый индикатор записи и однокнопочная
+  остановка сохранены.
+- Focused Swift suite и source-contract/accessibility smoke проходят. Full CI,
+  commit, push, release и production deploy для Feature 199 не выполнялись.
 
 ## Implementation update (2026-08-23) — Feature 199 billing preview and promo provisioning
 

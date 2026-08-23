@@ -509,6 +509,53 @@ public enum MeetingDetectionStartReason: String, Codable, Equatable, Sendable {
     public var isAutomatic: Bool { self != .promptButton }
 }
 
+public enum AutomaticRecordingRule: String, Codable, CaseIterable, Equatable, Sendable {
+    case always
+    case ask
+    case never
+
+    public var displayName: String {
+        switch self {
+        case .always: return "Всегда"
+        case .ask: return "Спрашивать"
+        case .never: return "Никогда"
+        }
+    }
+}
+
+public enum MeetingDetectionPromptAction: Equatable, Sendable {
+    case start
+    case skip
+    case timeout
+}
+
+public struct MeetingDetectionPromptDecision: Equatable, Sendable {
+    public let action: MeetingDetectionPromptAction
+    public let rememberChoice: Bool
+
+    public init(action: MeetingDetectionPromptAction, rememberChoice: Bool) {
+        self.action = action
+        self.rememberChoice = rememberChoice
+    }
+
+    public var startReason: MeetingDetectionStartReason? {
+        switch action {
+        case .start: return .promptButton
+        case .timeout: return .promptTimeout
+        case .skip: return nil
+        }
+    }
+
+    public var persistedRule: AutomaticRecordingRule? {
+        guard rememberChoice else { return nil }
+        switch action {
+        case .start: return .always
+        case .skip: return .never
+        case .timeout: return nil
+        }
+    }
+}
+
 public struct MeetingDetectionCountdown: Equatable, Sendable {
     public let startedAt: Date
     public let duration: TimeInterval
