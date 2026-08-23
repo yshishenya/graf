@@ -74,6 +74,50 @@ def test_cabinet_js_wires_csrf_header_for_unsafe_htmx_requests() -> None:
     assert "DELETE" in script
 
 
+def test_tooltip_does_not_enter_layout_flow() -> None:
+    css = (STATIC_DIR / "cabinet.css").read_text()
+    tooltip_body = css[css.index(".cabinet-tooltip__body {"): css.index(".cabinet-tooltip:hover")]
+
+    assert "position: absolute;" in tooltip_body
+    assert "inset-inline-start: calc(100% + var(--tooltip-offset));" in tooltip_body
+    assert "inset-block-start: 50%;" in tooltip_body
+    assert "transform: translateY(calc(-50% - 2px));" in tooltip_body
+    assert "max-width: min(var(--tooltip-max-width), 80vw);" in tooltip_body
+    assert ".manual-upload-dialog .cabinet-tooltip__body" not in css
+    assert "display: contents" not in tooltip_body
+    assert "flex: 1 0 100%" not in tooltip_body
+    assert ".settings-control-row:has(.cabinet-tooltip" not in css
+
+
+def test_all_tooltips_use_one_shared_configuration() -> None:
+    css = (STATIC_DIR / "cabinet.css").read_text()
+    tokens = css[css.index(":root {"): css.index("}", css.index(":root {"))]
+    tooltip = css[css.index(".cabinet-tooltip {"): css.index(".cabinet-loader {")]
+
+    for token in [
+        "--tooltip-trigger-size: 24px;",
+        "--tooltip-icon-size: 14px;",
+        "--tooltip-offset: 6px;",
+        "--tooltip-max-width: 280px;",
+        "--tooltip-padding: 8px 10px;",
+        "--tooltip-radius: 10px;",
+        "--tooltip-layer: 10;",
+    ]:
+        assert token in tokens
+    for use in [
+        "var(--tooltip-trigger-size)",
+        "var(--tooltip-icon-size)",
+        "var(--tooltip-offset)",
+        "var(--tooltip-max-width)",
+        "var(--tooltip-padding)",
+        "var(--tooltip-radius)",
+        "var(--tooltip-layer)",
+    ]:
+        assert use in tooltip
+    assert ".settings-control-row__title .cabinet-tooltip__body {\n    inset-inline-start: 50%;\n    transform: translate(-50%, calc(-50% - 2px));" in tooltip
+    assert ".settings-control-row__title .cabinet-tooltip:focus-within .cabinet-tooltip__body {\n    transform: translate(-50%, -50%);" in tooltip
+
+
 def test_cabinet_js_keeps_fragment_state_ephemeral() -> None:
     script = (STATIC_DIR / "cabinet.js").read_text()
 
@@ -3488,16 +3532,7 @@ def test_feature_191_shared_button_contract_keeps_actions_centered_and_on_one_li
     assert ".settings-list-item > form { flex: 0 0 auto; }" in css
     assert ".calendar-empty-state > .button { flex: 0 0 auto; }" in css
     assert "align-self: flex-start;" in css
-    assert ".settings-control-row .cabinet-tooltip," in css
-    assert ".account-email-form__heading .cabinet-tooltip {" in css
     assert ".account-email-form__heading { position: relative; display: flex; flex-wrap: wrap;" in css
-    assert "display: contents;" in css
-    assert "max-width: min(280px, 100%);" in css
-    assert "flex: 1 0 100%;" in css
-    assert ".account-email-form__heading .cabinet-tooltip:focus-within .cabinet-tooltip__body" in css
-    assert "display: block;" in css
-    assert ".settings-control-row:has(.cabinet-tooltip:focus-within)" in css
-    assert "align-items: start;" in css
     mobile_controls = css[
         css.index("@media (max-width: 620px)") : css.index("@media (max-width: 480px)")
     ]
