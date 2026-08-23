@@ -14,6 +14,7 @@ final class MacOSAudioOwnershipParserTests: XCTestCase {
         XCTAssertEqual(event.bundleID, "ru.yandex.desktop.telemost")
         XCTAssertEqual(event.displayName, "telemost")
         XCTAssertEqual(event.processID, 81445)
+        XCTAssertEqual(event.source, .audioHAL)
         XCTAssertEqual(event.state, .active)
     }
 
@@ -25,6 +26,7 @@ final class MacOSAudioOwnershipParserTests: XCTestCase {
 
         XCTAssertEqual(event.bundleID, "ru.yandex.desktop.telemost")
         XCTAssertEqual(event.processID, 81445)
+        XCTAssertEqual(event.source, .audioHAL)
         XCTAssertEqual(event.state, .inactive)
     }
 
@@ -92,6 +94,17 @@ final class MacOSAudioOwnershipParserTests: XCTestCase {
             []
         )
         XCTAssertNil(parser.parseSensorIndicatorMicrophoneBundleIDs(line: "regular app log line mic:us.zoom.xos"))
+    }
+
+    func testSensorIndicatorParserIgnoresRedactedOrTruncatedSnapshots() {
+        let parser = MacOSAudioOwnershipParser()
+        let redacted = "ControlCenter [com.apple.controlcenter:sensor-indicators] Active activity attributions changed to <private>"
+        let truncated = #"ControlCenter [com.apple.controlcenter:sensor-indicators] Active activity attributions changed to [\"mic:us.zoom.xos\""#
+
+        XCTAssertTrue(parser.isSensorIndicatorAttributionLine(redacted))
+        XCTAssertTrue(parser.isSensorIndicatorAttributionLine(truncated))
+        XCTAssertNil(parser.parseSensorIndicatorMicrophoneBundleIDs(line: redacted))
+        XCTAssertNil(parser.parseSensorIndicatorMicrophoneBundleIDs(line: truncated))
     }
 
     func testMalformedOrNonAudioHALLinesAreIgnored() {

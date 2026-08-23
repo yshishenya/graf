@@ -354,6 +354,19 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         }
     }
 
+    public var hasCurrentAuthentication: Bool {
+        let hasDedicatedHeader = headers.contains { pair in
+            (pair.key.caseInsensitiveCompare("Authorization") == .orderedSame ||
+                pair.key.caseInsensitiveCompare("X-Auth-Session") == .orderedSame) &&
+                !pair.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        if hasDedicatedHeader {
+            return true
+        }
+        return authSessionTokenProvider(baseURL)
+            .map { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? false
+    }
+
     public static func configuredFromEnvironment() -> DesktopUploadClient? {
         configured(from: ProcessInfo.processInfo.environment)
     }
@@ -425,12 +438,91 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         authSessionToken(from: HTTPCookieStorage.shared.cookies(for: url) ?? [], url)
     }
 
-    public static func authSessionToken(from cookies: [HTTPCookie], _ url: URL? = nil) -> String? {
+    public static func authSessionToken(
+        from cookies: [HTTPCookie],
+        _ url: URL? = nil,
+        now: Date = Date()
+    ) -> String? {
         let cookieName = url.map(DesktopCabinetConfiguration.authSessionCookieName(for:)) ?? ownerSessionCookieName
-        return cookies.first { cookie in
-            cookie.name == cookieName &&
-                !cookie.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }?.value
+        return cookies
+            .filter { cookie in
+                cookie.name == cookieName &&
+                    !cookie.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+                    cookie.expiresDate.map { $0 > now } != false &&
+                    (url.map { authCookieIsApplicable(cookie, to: $0, now: now) } ?? true)
+            }
+            .sorted { preferredAuthCookie($0, over: $1, for: url) }
+            .first?
+            .value
+    }
+
+    static func authCookieScopeMatches(_ cookie: HTTPCookie, url: URL) -> Bool {
+        cookie.name == DesktopCabinetConfiguration.authSessionCookieName(for: url) &&
+            cookieDomain(cookie.domain, matches: url.host)
+    }
+
+    static func authCookieIsApplicable(_ cookie: HTTPCookie, to url: URL, now: Date = Date()) -> Bool {
+        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
+              authCookieScopeMatches(cookie, url: url),
+              !cookie.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              cookie.expiresDate.map({ $0 > now }) != false,
+              cookiePath(cookie.path, matches: url.path)
+        else {
+            return false
+        }
+        if cookie.name.hasPrefix("__Host-") {
+            return scheme == "https" &&
+                cookie.isSecure &&
+                cookie.domain.lowercased() == url.host?.lowercased() &&
+                cookie.path == "/"
+        }
+        return !cookie.isSecure || scheme == "https"
+    }
+
+    private static func preferredAuthCookie(_ lhs: HTTPCookie, over rhs: HTTPCookie, for url: URL?) -> Bool {
+        let host = url?.host?.lowercased()
+        let lhsExactDomain = normalizedCookieDomain(lhs.domain) == host
+        let rhsExactDomain = normalizedCookieDomain(rhs.domain) == host
+        let lhsRank = (
+            lhs.path.count,
+            lhsExactDomain ? 1 : 0,
+            lhs.isSecure ? 1 : 0,
+            lhs.domain.count,
+            lhs.expiresDate?.timeIntervalSince1970 ?? .greatestFiniteMagnitude
+        )
+        let rhsRank = (
+            rhs.path.count,
+            rhsExactDomain ? 1 : 0,
+            rhs.isSecure ? 1 : 0,
+            rhs.domain.count,
+            rhs.expiresDate?.timeIntervalSince1970 ?? .greatestFiniteMagnitude
+        )
+        if lhsRank != rhsRank {
+            return lhsRank > rhsRank
+        }
+        return [lhs.domain, lhs.path, lhs.value].joined(separator: "\u{0}") <
+            [rhs.domain, rhs.path, rhs.value].joined(separator: "\u{0}")
+    }
+
+    private static func cookieDomain(_ rawDomain: String, matches rawHost: String?) -> Bool {
+        guard let host = rawHost?.lowercased(), !host.isEmpty else { return false }
+        let domain = normalizedCookieDomain(rawDomain)
+        return host == domain || host.hasSuffix(".\(domain)")
+    }
+
+    private static func normalizedCookieDomain(_ domain: String) -> String {
+        String(domain.lowercased().drop(while: { $0 == "." }))
+    }
+
+    private static func cookiePath(_ rawCookiePath: String, matches rawRequestPath: String) -> Bool {
+        let cookiePath = rawCookiePath.isEmpty ? "/" : rawCookiePath
+        let requestPath = rawRequestPath.isEmpty ? "/" : rawRequestPath
+        guard requestPath.hasPrefix(cookiePath) else { return false }
+        if requestPath.count == cookiePath.count || cookiePath.hasSuffix("/") {
+            return true
+        }
+        let boundary = requestPath.index(requestPath.startIndex, offsetBy: cookiePath.count)
+        return requestPath[boundary] == "/"
     }
 
     private static func configuredBaseURLCandidate(

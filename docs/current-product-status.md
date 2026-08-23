@@ -1,6 +1,35 @@
 # Текущий статус продукта
 
-Date: 2026-08-21
+Date: 2026-08-23
+
+## Implementation update (2026-08-23) — Feature 193 automatic recording reliability
+
+- Локальная реализация устраняет несколько независимых причин непостоянного
+  старта: AudioHAL и Control Center Sensor Indicator теперь ведутся как
+  отдельные источники; встреча завершается только после окончания всех
+  источников, а trigger закрывается только по результату consumer.
+- Countdown и saved-target старт требуют актуальную policy/acknowledgement уже
+  до обещания записи и повторно проверяют target, authorization, permissions,
+  storage, активную сессию, видимый indicator и Stop непосредственно перед
+  capture. Временные blockers переоцениваются, а accepted/Skip остаются
+  терминальными до реального конца текущего кандидата.
+- Один supervisor выполняет bounded итоговый sensor snapshot, затем live
+  observation; snapshot ограничен двумя часами и 3,5 секунды, не публикует
+  исторические промежуточные состояния и fail closed переходит к live при
+  timeout/redaction. Unexpected finish и wake создают новую generation без
+  второго параллельного `/usr/bin/log` child.
+- WebKit authoritative snapshot теперь заменяет или удаляет native auth cookie
+  для того же origin; native-запрос детерминированно игнорирует просроченные,
+  пустые и неприменимые domain/path/scheme cookies. Общий `Cookie` header и
+  значения сессии в diagnostics не добавлены.
+- Финальная локальная проверка прошла: focused reliability suites `131/131`,
+  fast CI `1168 passed`, full CI — macOS `742/742`, server `3307 passed, 1
+  skipped`, strict PostgreSQL/RLS `52 passed, 1 skipped`; contract validation,
+  lint, compile, Compose и evidence scan также прошли. Свежая dev-сборка
+  восстановила единственный observer child после сбоя за `2.773 s`.
+- Это состояние рабочей ветки `193-automatic-recording-reliability`, а не
+  production enablement: `/Applications/GRAF.app`, production policy, deploy,
+  signing и release в feature не менялись.
 
 ## Implementation update (2026-08-20) — Feature 177 WebRTC AEC3 recording
 
