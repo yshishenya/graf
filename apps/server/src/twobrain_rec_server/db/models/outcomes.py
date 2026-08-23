@@ -4,8 +4,10 @@ from uuid import UUID, uuid4
 from sqlalchemy import (
     JSON,
     BigInteger,
+    CheckConstraint,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     String,
@@ -85,6 +87,13 @@ class MeetingOutcomeSet(Base):
             "meeting_id",
             "source_fingerprint",
         ),
+        UniqueConstraint(
+            "id",
+            "workspace_id",
+            "meeting_id",
+            "template_key",
+            name="uq_meeting_outcome_sets_target",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -129,6 +138,89 @@ class MeetingOutcomeSet(Base):
     failure_reason: Mapped[str | None] = mapped_column(String(240))
     failure_source: Mapped[str | None] = mapped_column(String(64))
     lifecycle_state: Mapped[str] = mapped_column(String(64), default="active")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class MeetingSummarySlot(Base):
+    """Current published revision for one stable summary type.
+
+    The slot is deliberately a pointer/index only. Summary content remains in
+    ``MeetingOutcomeSet`` and its items; a null current pointer is a valid
+    pre-publication state.
+    """
+
+    __tablename__ = "meeting_summary_slots"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["meeting_id", "workspace_id"],
+            ["meetings.id", "meetings.workspace_id"],
+            name="fk_meeting_summary_slots_meeting_workspace",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["current_outcome_set_id", "workspace_id", "meeting_id", "template_key"],
+            [
+                "meeting_outcome_sets.id",
+                "meeting_outcome_sets.workspace_id",
+                "meeting_outcome_sets.meeting_id",
+                "meeting_outcome_sets.template_key",
+            ],
+            name="fk_meeting_summary_slots_current_outcome_target",
+        ),
+        UniqueConstraint(
+            "workspace_id",
+            "meeting_id",
+            "template_key",
+            name="uq_meeting_summary_slots_workspace_meeting_type",
+        ),
+        Index(
+            "uq_meeting_summary_slots_meeting_default",
+            "workspace_id",
+            "meeting_id",
+            unique=True,
+            postgresql_where=text("is_meeting_default IS TRUE"),
+        ),
+        CheckConstraint(
+            "current_binding_class IS NULL OR current_binding_class IN "
+            "('verified_complete', 'migrated_legacy_read_only')",
+            name="ck_meeting_summary_slots_binding_class",
+        ),
+        CheckConstraint(
+            "(current_outcome_set_id IS NULL AND current_binding_class IS NULL "
+            "AND legacy_migration_proof_hash IS NULL) OR "
+            "(current_outcome_set_id IS NOT NULL AND current_binding_class = 'verified_complete' "
+            "AND legacy_migration_proof_hash IS NULL) OR "
+            "(current_outcome_set_id IS NOT NULL "
+            "AND current_binding_class = 'migrated_legacy_read_only' "
+            "AND legacy_migration_proof_hash IS NOT NULL)",
+            name="ck_meeting_summary_slots_current_binding",
+        ),
+        CheckConstraint(
+            "(is_meeting_default IS FALSE AND default_resolution_source IS NULL "
+            "AND default_resolution_version IS NULL AND default_resolved_at IS NULL) OR "
+            "(is_meeting_default IS TRUE AND default_resolution_source IN "
+            "('explicit_meeting', 'owner_personal', 'workspace', 'legacy_pointer') "
+            "AND default_resolution_version IS NOT NULL AND default_resolved_at IS NOT NULL)",
+            name="ck_meeting_summary_slots_default_metadata",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(nullable=False)
+    meeting_id: Mapped[UUID] = mapped_column(nullable=False)
+    template_key: Mapped[str] = mapped_column(String(120), nullable=False)
+    current_outcome_set_id: Mapped[UUID | None] = mapped_column()
+    current_binding_class: Mapped[str | None] = mapped_column(String(40))
+    legacy_migration_proof_hash: Mapped[str | None] = mapped_column(String(64))
+    is_meeting_default: Mapped[bool] = mapped_column(nullable=False, default=False, server_default=text("false"))
+    default_resolution_source: Mapped[str | None] = mapped_column(String(32))
+    default_resolution_version: Mapped[str | None] = mapped_column(String(128))
+    default_resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

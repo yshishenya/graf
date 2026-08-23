@@ -17,6 +17,7 @@ class Meeting(Base):
             "local_recording_id",
             name="uq_meetings_workspace_user_local_recording",
         ),
+        UniqueConstraint("id", "workspace_id", name="uq_meetings_id_workspace_id"),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
