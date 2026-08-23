@@ -50,6 +50,20 @@
 </label>
 {%- endmacro %}
 
+{% macro switch(name, label, checked=False, disabled=False, value=None, description=None, hint=None, hint_id=None, data_manual_upload_archive=False) -%}
+{% set control_id = name ~ "-switch" %}
+<div class="settings-control-row" data-state="{{ 'disabled' if disabled else 'selected' if checked else 'normal' }}">
+  <span class="settings-control-row__copy">
+    <span class="settings-control-row__title"><label for="{{ control_id }}">{{ label }}</label>{% if hint and hint_id %}{{ tooltip(hint_id, hint) }}{% endif %}</span>
+    {% if description %}<span class="settings-control-row__description">{{ description }}</span>{% endif %}
+  </span>
+  <label class="cabinet-switch" for="{{ control_id }}">
+    <input id="{{ control_id }}" name="{{ name }}" type="checkbox" role="switch" aria-label="{{ label }}"{% if hint_id %} aria-describedby="{{ hint_id }}"{% endif %}{% if value is not none %} value="{{ value }}"{% endif %}{% if checked %} checked{% endif %}{% if disabled %} disabled aria-disabled="true"{% endif %}{% if data_manual_upload_archive %} data-manual-upload-archive{% endif %}>
+    <span class="cabinet-switch__track" aria-hidden="true"></span>
+  </label>
+</div>
+{%- endmacro %}
+
 {% macro chip(label, state="normal") -%}
 <span class="cabinet-chip cabinet-chip--{{ state }}" data-state="{{ state }}">{{ label }}</span>
 {%- endmacro %}
@@ -62,11 +76,25 @@
 <button class="cabinet-tab{% if selected %} is-selected{% endif %}" type="button" role="tab" aria-selected="{{ 'true' if selected else 'false' }}" aria-controls="{{ target }}" data-state="{{ 'disabled' if disabled else 'selected' if selected else 'normal' }}"{% if disabled %} disabled aria-disabled="true"{% endif %}>{{ label }}</button>
 {%- endmacro %}
 
-{% macro tooltip(label, body) -%}
+{% macro tooltip(id, body, label="Подробнее") -%}
 <span class="cabinet-tooltip" data-state="normal">
-  <span class="cabinet-tooltip__anchor" tabindex="0">{{ label }}</span>
-  <span class="cabinet-tooltip__body" role="tooltip">{{ body }}</span>
+  <button class="cabinet-tooltip__trigger" type="button" aria-label="{{ label }}" aria-describedby="{{ id }}">{{ icons.icon("info") }}</button>
+  <span class="cabinet-tooltip__body" id="{{ id }}" role="tooltip">{{ body }}</span>
 </span>
+{%- endmacro %}
+
+{% macro theme_picker(selected="system") -%}
+<fieldset class="theme-picker">
+  <legend class="field-label">Тема</legend>
+  <div class="theme-picker__options">
+    {% for value, label, icon_name in [("light", "Светлая", "sun"), ("dark", "Тёмная", "moon"), ("system", "Системная", "laptop")] %}
+    <label class="theme-picker__option">
+      <input type="radio" name="theme" value="{{ value }}"{% if selected == value %} checked{% endif %}>
+      <span>{{ icons.icon(icon_name) }}<span>{{ label }}</span></span>
+    </label>
+    {% endfor %}
+  </div>
+</fieldset>
 {%- endmacro %}
 
 {% macro loader(label="Загрузка") -%}

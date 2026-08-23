@@ -13,3 +13,10 @@
 - [x] Shared typography roles, control geometry, and helper text are specified.
 - [x] Settings label wrapping and stable row-height requirements are specified.
 - [x] Product-blue removal excludes only official provider identity colors.
+- [x] Native macOS product accents reuse the shared violet token while semantic status colors remain distinct.
+- [x] Switch use is limited to independent reversible binary preferences.
+- [x] Multi-select, consent, and destructive-confirmation checkbox boundaries are explicit.
+- [x] Information hints are keyboard/touch reachable and contain only secondary copy.
+- [x] Critical error, security, legal, storage, and irreversible consequences remain visible.
+- [x] Theme selection preserves native radio semantics, no-JS POST, and live preview.
+- [x] Settings preference rows specify stable switch alignment and narrow reflow.

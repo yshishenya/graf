@@ -3242,6 +3242,20 @@ def test_feature_191_centralizes_interaction_tokens_and_compact_upload_contract(
     assert ".cabinet-sidebar-nav__label" in css
     assert "text-overflow: ellipsis;" in css
     assert "white-space: nowrap;" in css
+    for shared_control in [
+        ".cabinet-switch",
+        ".cabinet-switch__track",
+        ".settings-control-row",
+        ".theme-picker",
+        ".theme-picker__option",
+        ".cabinet-tooltip__trigger",
+    ]:
+        assert shared_control in css
+    assert "--switch-width: 36px;" in css
+    assert "--switch-height: 20px;" in css
+    assert "--switch-thumb: 14px;" in css
+    assert ".calendar-settings__topbar h1 {\n  font-size: var(--font-size-page-title);" in css
+    assert ".calendar-provider-modal__header h2 {\n  font-size: var(--font-size-section);" in css
 
     for copy in [
         "Загрузить файл",
@@ -3249,13 +3263,60 @@ def test_feature_191_centralizes_interaction_tokens_and_compact_upload_contract(
         "Перетащите файл",
         "WAV, MP3, M4A, MP4 и другие",
         ">Выбрать<",
-        ">Хранение<",
         "Сохранить аудио",
         "Без аудио останутся расшифровка и итоги. Минуты тарифа спишутся.",
     ]:
         assert copy in manual_upload
     assert "Перетащите файл сюда" not in manual_upload
     assert "Сохранить аудио для последующего прослушивания" not in manual_upload
+    assert "manual-upload-archive-choice" not in manual_upload
+    assert "ui.switch(" in manual_upload
+    assert 'hint_id="manual-upload-archive-help"' in manual_upload
+
+
+def test_feature_191_shared_button_contract_keeps_actions_centered_and_on_one_line() -> None:
+    css = (STATIC_DIR / "cabinet.css").read_text()
+    script = (STATIC_DIR / "cabinet.js").read_text()
+    account = (
+        ROOT
+        / "src/twobrain_rec_server/cabinet/templates/cabinet/pages/settings_account_content.html"
+    ).read_text()
+    button_contract = css[css.index("button, .button {") : css.index("button[disabled]")]
+
+    for marker in [
+        "align-items: center;",
+        "justify-content: center;",
+        "line-height: var(--line-height-body);",
+        "text-align: center;",
+        "white-space: nowrap;",
+        "overflow-wrap: normal;",
+    ]:
+        assert marker in button_contract
+
+    assert script.count('class="button quiet upload-activity-action"') == 5
+    assert 'class="upload-activity-action"' not in script
+    assert ".settings-list-item > form { flex: 0 0 auto; }" in css
+    assert ".calendar-empty-state > .button { flex: 0 0 auto; }" in css
+    assert "align-self: flex-start;" in css
+    assert ".settings-control-row .cabinet-tooltip," in css
+    assert ".account-email-form__heading .cabinet-tooltip { position: static; }" in css
+    assert "max-width: min(280px, 100%);" in css
+    calendar_reflow = css[css.index("@media (max-width: 760px)") :]
+    assert ".calendar-empty-state {" in calendar_reflow
+    assert ".calendar-preference-group {" in calendar_reflow
+    assert "grid-template-columns: 1fr;" in calendar_reflow
+    assert ".calendar-section-head > .button { align-self: flex-start; }" in calendar_reflow
+    for compound_action in [
+        ".meeting-action-item {",
+        ".summary-format-grid > button {",
+        ".calendar-provider-button {",
+        ".share-recipient-results button { display: grid;",
+        ".sidebar-profile__trigger {\n  width: 100%;",
+    ]:
+        block = css[css.index(compound_action) : css.index("}", css.index(compound_action))]
+        assert "white-space: normal;" in block
+    assert ">Завершить<" in account
+    assert ">Завершить сеанс<" not in account
 
 
 def test_meeting_list_css_binds_target_geometry_contrast_and_motion_contracts() -> None:

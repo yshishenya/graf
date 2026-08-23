@@ -1,10 +1,13 @@
 {% import "cabinet/components/sections.html" as sections %}
+{% import "cabinet/components/primitives.html" as ui %}
 
 {% macro preferences_form(preferences, csrf_token, embedded=False) -%}
 <form class="settings-form" data-settings-form method="post" action="{{ "/desktop/settings/notifications" if embedded else "/settings/notifications" }}">
   {{ sections.csrf_field(csrf_token) }}
-  <label class="settings-choice-row settings-choice-row--toggle"><span><strong>Email-подсказки</strong><span class="muted">Советы по хранению и новым возможностям</span></span><input type="checkbox" name="optional_email_enabled"{% if preferences.optional_email_enabled %} checked{% endif %} /></label>
-  <label class="settings-choice-row settings-choice-row--toggle"><span><strong>Уведомления в кабинете</strong><span class="muted">Необязательные подсказки рядом с функциями</span></span><input type="checkbox" name="optional_in_app_enabled"{% if preferences.optional_in_app_enabled %} checked{% endif %} /></label>
-  <div class="settings-form-actions"><button class="button" type="submit">Сохранить настройки</button><p class="settings-form-status" data-settings-form-status role="status" aria-live="polite" hidden></p></div>
+  <div class="settings-control-list">
+    {{ ui.switch("optional_email_enabled", "Email-подсказки", checked=preferences.optional_email_enabled, description="Новости и советы о GRAF") }}
+    {{ ui.switch("optional_in_app_enabled", "Подсказки в кабинете", checked=preferences.optional_in_app_enabled, description="Советы рядом с функциями") }}
+  </div>
+  <div class="settings-form-actions"><button class="button" type="submit">Сохранить</button><p class="settings-form-status" data-settings-form-status role="status" aria-live="polite" hidden></p></div>
 </form>
 {%- endmacro %}

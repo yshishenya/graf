@@ -119,10 +119,12 @@ def test_primitive_component_catalog_covers_controls_and_states() -> None:
         {{ ui.input("email", "Email", error="Нужен email") }}
         {{ ui.select("status", "Статус", options, "ready") }}
         {{ ui.checkbox("selected", "Выбрать", checked=True) }}
+        {{ ui.switch("enabled", "Включить", checked=True) }}
         {{ ui.chip("Готово", "selected") }}
         {{ ui.badge("Ошибка", "error") }}
         {{ ui.tab("Итоги", "panel-outcomes", selected=True) }}
-        {{ ui.tooltip("Подсказка", "Только безопасная метаинформация") }}
+        {{ ui.tooltip("test-help", "Только безопасная метаинформация") }}
+        {{ ui.theme_picker("system") }}
         {{ ui.loader("Загрузка записей") }}
         {{ ui.text("Текст", "muted") }}
         {{ ui.status_label("Недоступно", "unavailable") }}
@@ -137,10 +139,12 @@ def test_primitive_component_catalog_covers_controls_and_states() -> None:
         "cabinet-link",
         "cabinet-field",
         "cabinet-checkbox",
+        "cabinet-switch",
         "cabinet-chip",
         "cabinet-badge",
         "cabinet-tab",
         "cabinet-tooltip",
+        "theme-picker",
         "cabinet-loader",
         "cabinet-text",
         "cabinet-status",
@@ -151,6 +155,16 @@ def test_primitive_component_catalog_covers_controls_and_states() -> None:
     assert 'role="tab"' in html
     assert 'aria-invalid="true"' in html
     assert 'aria-label="Удалить запись"' in html
+    assert 'role="switch"' in html
+    assert 'name="enabled"' in html
+    assert 'id="enabled-switch"' in html
+    assert 'for="enabled-switch"' in html
+    assert 'id="test-help" role="tooltip"' in html
+    assert 'aria-describedby="test-help"' in html
+    assert html.count('type="radio" name="theme"') == 3
+    assert 'value="system" checked' in html
+    for icon in ("sun", "moon", "laptop"):
+        assert f'data-icon="{icon}"' in html
 
 
 def test_primitive_components_support_long_russian_overflow_text() -> None:

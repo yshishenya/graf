@@ -4,17 +4,17 @@
 
 ## Summary
 
-Expose the existing server receipt timestamp as `uploaded_at`, use it only as the date fallback for manual uploads, and redesign the main upload/processing experience. Consolidate the existing cabinet CSS into one canonical token and primitive layer for violet interaction color, typography, geometry, helper text, Settings navigation, and repeated controls. Reuse HTMX, XHR progress, current Jinja primitives, and the single existing stylesheet.
+Expose the existing server receipt timestamp as `uploaded_at`, use it only as the date fallback for manual uploads, and redesign the main upload/processing experience. Consolidate the existing cabinet CSS into one canonical token and primitive layer for violet interaction color, typography, geometry, helper text, Settings navigation, switches, information hints, theme selection, and repeated controls. Reuse the existing native macOS violet token for matching SwiftUI states and actions. Keep HTMX, XHR progress, native form inputs, current Jinja primitives, and the single existing stylesheet.
 
 ## Technical Context
 
-**Language/Version**: Python 3.13, browser JavaScript, CSS
+**Language/Version**: Python 3.13, browser JavaScript, CSS, Swift 6
 
-**Primary Dependencies**: Existing Pydantic schemas, Jinja rendering, HTMX, native XHR, existing cabinet CSS
+**Primary Dependencies**: Existing Pydantic schemas, Jinja rendering, HTMX, native XHR, existing cabinet CSS, SwiftUI
 
 **Storage**: Existing PostgreSQL `meetings.created_at`; no migration
 
-**Testing**: Focused pytest unit/integration/contract tests, local rendered browser QA
+**Testing**: Focused pytest unit/integration/contract tests, focused Swift tests/build, local rendered browser QA
 
 **Risk / Validation Lane**: high-risk-feature; user-facing degraded/upload states and a shared backend projection are affected
 
@@ -28,7 +28,7 @@ Expose the existing server receipt timestamp as `uploaded_at`, use it only as th
 
 **Constraints**: Preserve server-mediated upload, metadata-only evidence, accessibility, keyboard focus, reduced motion, and forced colors
 
-**Scale/Scope**: Whole server-rendered cabinet style audit; implementation prioritizes the meeting list, upload activity, upload dialog, Settings navigation/overview, and shared controls.
+**Scale/Scope**: Whole server-rendered cabinet style audit plus native macOS product-accent audit; implementation prioritizes the meeting list, upload activity, upload dialog, Settings navigation/overview, and shared controls.
 
 ## Constitution Check
 
@@ -44,20 +44,34 @@ Expose the existing server receipt timestamp as `uploaded_at`, use it only as th
 3. Run focused pytest targets for view models, cabinet list, web shell, and static assets.
 4. Run `infra/scripts/ci-local.sh --fast` if the environment supports the repository gate.
 5. Run the local cabinet flow in the in-app Browser; inspect main, upload dialog, upload/processing evidence, Settings overview/detail, desktop/375px reflow, DOM state, interaction, and console health.
+6. Compare upload, account, notifications, and calendar screens with the captured KRISP references; verify switch geometry, theme segments, divider rhythm, tooltip hover/focus, and critical-copy visibility in light and dark themes.
+7. Compile the macOS package and run the focused accessibility/style contract after replacing native system-blue product accents with the existing violet token.
 
 ## Validation record
 
 - Focused unit, static-contract, and web-shell tests: `216 passed`.
 - Isolated PostgreSQL integration lane for the cabinet list: `29 passed`.
+- Modern Settings and shared-button follow-up suite: `160 passed`.
+- Isolated PostgreSQL calendar Settings contract: `20 passed`.
+- macOS `AppControlAccessibilityTests`: `22 passed`; the focused run compiled
+  the full Swift package and executable targets.
 - `infra/scripts/ci-local.sh --fast`: `1168 passed`, lint and Python compile
   passed.
 - In-app Browser on the local server: manual-upload meeting row rendered
   `Обрабатывается` and `Загружено 23 авг, 01:23`; 375px viewport had no
   horizontal overflow; upload dialog rendered with violet dropzone and primary
   action; browser error/warning log was empty.
+- Current-run 375px screenshots covered the collapsed main screen, upload hint,
+  account sessions, calendar, notifications, recording, summaries, and light
+  theme. Ordinary button labels remained centered and on one line, upload
+  actions reused the shared button contract, and the upload hint stayed inside
+  the dialog.
 - The native file chooser was unavailable to the in-app Browser harness, so the
   live transfer card itself was validated through the existing JavaScript
   contract harness and focused tests rather than an actual file transfer.
+- Repository color scan found no remaining system `.blue` product accent in the
+  audited native macOS UI. Remaining blue values in cabinet CSS are isolated to
+  official calendar-provider identity marks.
 
 ## Project Structure
 
@@ -65,15 +79,26 @@ Expose the existing server receipt timestamp as `uploaded_at`, use it only as th
 apps/server/src/twobrain_rec_server/api/schemas.py
 apps/server/src/twobrain_rec_server/cabinet/view_models.py
 apps/server/src/twobrain_rec_server/cabinet/rendering.py
+apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/components/icons.html
+apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/components/primitives.html
+apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/components/notifications.html
+apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/settings_account_content.html
+apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/fragments/calendar_settings.html
+apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/fragments/manual_upload.html
 apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css
 apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js
 apps/server/tests/unit/test_cabinet_view_models.py
 apps/server/tests/integration/test_cabinet_meeting_list.py
 apps/server/tests/unit/test_cabinet_web_shell.py
 apps/server/tests/contract/test_cabinet_static_assets_contract.py
+apps/macos/RecApp/App/TwoBrainRecApp.swift
+apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift
+apps/macos/RecApp/Sources/Capture/CaptureControlViewCore.swift
+apps/macos/RecApp/Sources/Capture/CaptureStatusItem.swift
+apps/macos/Shared/Tests/AppControlAccessibilityTests.swift
 ```
 
-**Structure Decision**: Keep one `cabinet.css` and the existing Jinja primitives. Add only semantic tokens and consolidate duplicate shared rules; do not add a frontend framework, dependency, migration, CSS-in-JS layer, or parallel component system.
+**Structure Decision**: Keep one `cabinet.css`, the existing Jinja primitives, and the existing `DesktopMeetingShellChrome.shellAccentColor` native token. Add no frontend framework, dependency, migration, CSS-in-JS layer, or parallel component system.
 
 ## Complexity Tracking
 

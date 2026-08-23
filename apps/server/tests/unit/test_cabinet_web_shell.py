@@ -402,6 +402,14 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert "Перетащите файл" in page
     assert "Перетащите файл сюда" not in page
     assert "Без аудио останутся расшифровка и итоги. Минуты тарифа спишутся." in page
+    assert 'name="archive_audio"' in page
+    assert 'id="archive_audio-switch"' in page
+    assert 'for="archive_audio-switch"' in page
+    assert 'role="switch"' in page
+    assert 'data-manual-upload-archive' in page
+    assert 'aria-describedby="manual-upload-archive-help"' in page
+    assert 'id="manual-upload-archive-help" role="tooltip"' in page
+    assert '<small class="muted">Без аудио' not in page
     assert 'name="duration_seconds"' in page
     assert 'type="hidden" name="duration_seconds"' in page
     assert 'type="number" name="duration_seconds"' not in page

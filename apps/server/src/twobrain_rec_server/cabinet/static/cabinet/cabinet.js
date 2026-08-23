@@ -3202,7 +3202,8 @@
       if (form.dataset.accountPreferencesReady === "true") return;
       form.dataset.accountPreferencesReady = "true";
       const applyTheme = (theme) => {
-        document.documentElement.dataset.theme = theme === "system" ? "" : theme;
+        if (theme === "system") document.documentElement.removeAttribute("data-theme");
+        else document.documentElement.dataset.theme = theme;
         document.documentElement.style.colorScheme = theme === "system" ? "" : theme;
       };
       const currentTheme = form.elements.namedItem("theme")?.value || "system";
@@ -3519,11 +3520,11 @@
           </span>
         </div>
         <div class="upload-activity-actions" aria-label="Управление загрузкой">
-          <button class="upload-activity-action" type="button" data-upload-activity-cancel>Отменить</button>
-          <button class="upload-activity-action" type="button" data-upload-activity-retry hidden>Повторить</button>
-          <button class="upload-activity-action" type="button" data-upload-activity-recover hidden>Восстановить</button>
-          <button class="upload-activity-action" type="button" data-upload-activity-resume hidden>Продолжить</button>
-          <a class="upload-activity-action" href="#" data-upload-activity-detail hidden>Открыть</a>
+          <button class="button quiet upload-activity-action" type="button" data-upload-activity-cancel>Отменить</button>
+          <button class="button quiet upload-activity-action" type="button" data-upload-activity-retry hidden>Повторить</button>
+          <button class="button quiet upload-activity-action" type="button" data-upload-activity-recover hidden>Восстановить</button>
+          <button class="button quiet upload-activity-action" type="button" data-upload-activity-resume hidden>Продолжить</button>
+          <a class="button quiet upload-activity-action" href="#" data-upload-activity-detail hidden>Открыть</a>
         </div>
       `;
       host.prepend(row);

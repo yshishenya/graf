@@ -6,7 +6,7 @@
 
 **Status**: Draft
 
-**Input**: User request to redesign upload and processing states on the main meeting screen, simplify the upload dialog, show the upload date, replace product blue with the GRAF violet accent, and centralize repeated cabinet styles and components.
+**Input**: User request to redesign upload and processing states on the main meeting screen, simplify the upload dialog, show the upload date, replace product blue with the GRAF violet accent, and centralize repeated cabinet and native-app styles and components.
 
 ## Clarifications
 
@@ -16,6 +16,10 @@
 - Q: May KRISP be used as a direct UX/UI reference? → A: Yes. Reuse effective density, sizing, hierarchy, and behavior while applying GRAF branding and product language.
 - Q: Which product accent is canonical? → A: One GRAF violet accent across controls, selection, progress, focus, checkboxes, and radios; provider-owned brand marks keep their required colors.
 - Q: How verbose should user-facing copy be? → A: Short, plain Russian; one state and one next action at a glance.
+- Q: Which controls should become switches? → A: Independent binary preferences use switches. Multi-select lists, legal consent, destructive confirmation, and bulk selection remain checkboxes.
+- Q: What about calendar event filters? → A: The set of event types remains a checkbox group; display and prompt modes remain switches.
+- Q: What belongs in an information hint? → A: Secondary explanation may move behind a keyboard- and touch-accessible information button. Errors, security boundaries, legal terms, and irreversible consequences remain visible.
+- Q: How should theme selection work? → A: Light, dark, and system themes use one segmented radio group with an icon and short label per option.
 
 ## User Scenarios & Testing
 
@@ -79,6 +83,19 @@ As a GRAF user, I can scan Settings navigation and content without unstable wrap
 2. **Given** a narrow viewport, **when** Settings content reflows, **then** cards become one column and actions remain readable and reachable.
 3. **Given** helper copy, **when** it wraps, **then** it wraps within its content column and does not push controls out of alignment.
 
+### User Story 6 - Change preferences with familiar controls (Priority: P1)
+
+As a GRAF user, I can distinguish a single on/off preference from a multi-select choice and can scan Settings without reading paragraphs before every action.
+
+**Independent Test**: Open upload, account, notifications, and calendar Settings; verify binary preferences use the same switch, theme uses one segmented radio group, secondary explanation is available from an information button, and required safety copy stays visible.
+
+**Acceptance Scenarios**:
+
+1. **Given** a binary preference, **when** it is rendered, **then** it uses the shared switch with a visible label, keyboard focus, and native checked semantics.
+2. **Given** a theme preference, **when** the user chooses light, dark, or system, **then** the selected segment is visibly violet and the existing preview/save behavior remains intact.
+3. **Given** secondary explanatory copy, **when** the user hovers, focuses, or taps its information button, **then** the hint is readable without moving the associated control.
+4. **Given** a multi-select list, consent, or destructive confirmation, **when** it is rendered, **then** it remains a checkbox or explicit confirmation rather than being misrepresented as a switch.
+
 ## Edge Cases
 
 - The server returns an accepted upload without starting processing.
@@ -92,6 +109,9 @@ As a GRAF user, I can scan Settings navigation and content without unstable wrap
 - A provider identity uses blue as a required third-party brand color while nearby GRAF controls use violet.
 - A long filename or upload title would otherwise push progress or actions outside the card.
 - Reduced-motion or forced-colors preferences are active.
+- A hint is opened with a keyboard or on a touch device rather than a mouse.
+- A switch label wraps at 375px while the control must remain aligned and reachable.
+- System theme is selected while the operating-system appearance changes.
 
 ## Requirements
 
@@ -107,7 +127,7 @@ As a GRAF user, I can scan Settings navigation and content without unstable wrap
 - **FR-008**: Blue used for upload, focus, selection, checkbox, and primary controls in the affected cabinet surface MUST be replaced with the existing GRAF violet accent or its accessible violet variant.
 - **FR-009**: The redesign MUST preserve keyboard focus, live announcements, reduced-motion behavior, and forced-colors behavior.
 - **FR-010**: The change MUST reuse the existing server-mediated upload endpoint and persisted timestamps; no new credential or storage boundary may be introduced.
-- **FR-011**: Product UI accent color across the cabinet MUST be sourced from the central violet accent tokens; hard-coded product-blue interaction states MUST NOT remain.
+- **FR-011**: Product UI accent color across the cabinet and native macOS product surfaces MUST be sourced from the central violet accent tokens; hard-coded product-blue interaction states MUST NOT remain.
 - **FR-012**: Third-party provider marks MAY retain their official brand colors, but those colors MUST be isolated as provider identity and MUST NOT style GRAF controls, focus, selection, status, or progress.
 - **FR-013**: Shared typography roles MUST be defined centrally for caption, helper, body, label, section title, dialog title, and page title text.
 - **FR-014**: Shared control heights, radii, spacing, surfaces, borders, focus treatment, and semantic status colors MUST be defined centrally in the existing cabinet stylesheet and reused by repeated components.
@@ -115,6 +135,15 @@ As a GRAF user, I can scan Settings navigation and content without unstable wrap
 - **FR-016**: Upload-dialog and upload-status copy MUST use short plain Russian that states the current state and next action without explanatory paragraphs in the primary scan path.
 - **FR-017**: The desktop Settings navigation MUST keep stable row geometry for long Russian labels; narrow layouts MUST reflow without clipping or horizontal scrolling.
 - **FR-018**: The implementation MUST consolidate conflicting duplicate rules for the same shared component instead of adding a second design-system layer or frontend dependency.
+- **FR-019**: Independent binary preferences in manual upload, notifications, and calendar behavior MUST use one shared switch primitive with native checkbox form semantics and `role="switch"`.
+- **FR-020**: Multi-select calendars, calendar event-filter groups, meeting selection, summary sections, billing consent, and destructive confirmation MUST remain checkboxes or explicit confirmations.
+- **FR-021**: The upload retention row MUST keep its label vertically aligned with the switch and MUST NOT reserve a second line for explanatory copy.
+- **FR-022**: Secondary retention explanation MUST be available through a shared information-button hint on hover, keyboard focus, and touch activation.
+- **FR-023**: Security, legal, error, storage, and irreversible-action consequences MUST remain visible in the primary interface and MUST NOT be available only through a tooltip.
+- **FR-024**: Theme selection MUST use one shared segmented radio group for light, dark, and system values while preserving native form submission and the existing live preview.
+- **FR-025**: Settings preference rows MUST use one shared content/action geometry with a bounded content width, stable divider rhythm, and responsive wrapping that does not move switches below their labels.
+- **FR-026**: Settings typography MUST use the existing local system font stack and central text-role tokens; the change MUST NOT introduce a remote font, frontend package, or second stylesheet.
+- **FR-027**: Native macOS upload/readiness states, meeting prompts, and recording actions MUST reuse `DesktopMeetingShellChrome.shellAccentColor`; semantic success, warning, and error colors MAY remain green, orange, and red.
 
 ### Key Entities
 
@@ -130,17 +159,22 @@ As a GRAF user, I can scan Settings navigation and content without unstable wrap
 - **SC-003**: 0 affected active-upload states display a blue progress bar, blue primary button, or false percentage.
 - **SC-004**: The upload activity remains usable at desktop width and at 375px viewport width without clipped primary actions.
 - **SC-005**: Focused backend/view-model/static contract tests pass, and the relevant local rendered flow has no framework overlay or relevant console errors.
-- **SC-006**: Across the audited cabinet stylesheet, zero GRAF interaction accents use legacy product-blue values; any remaining blue is documented provider identity or non-interactive content semantics.
+- **SC-006**: Across the audited cabinet stylesheet and native macOS product UI, zero GRAF interaction accents use legacy product-blue values; any remaining blue is documented provider identity or non-interactive content semantics.
 - **SC-007**: Main upload activity keeps progress, percent, state, and action in one compact scan path with no fixed empty gap at desktop or 375px widths.
 - **SC-008**: Shared checkbox and radio controls render with violet selection in the upload dialog and Settings on the current local browser.
 - **SC-009**: Settings navigation labels have stable 36-40px rows on desktop and no label-driven vertical drift in the audited screenshots.
 - **SC-010**: The stylesheet has one canonical rule set for Settings overview cards and one central token group for repeated typography, geometry, and interaction colors.
+- **SC-011**: 100% of audited independent binary settings in upload, notifications, and calendar behavior render through the shared switch primitive; audited multi-select and consent controls remain checkboxes.
+- **SC-012**: Upload retention label, information button, and switch remain vertically centered at desktop and 375px widths with no visible explanatory line below the control.
+- **SC-013**: Light, dark, and system theme choices render as one segmented group and remain operable with pointer and keyboard in both browser and embedded surfaces.
+- **SC-014**: Focused rendered-template contracts prove the hint has an accessible name and tooltip relation, switches preserve checked state, and no critical safety copy was moved to tooltip-only presentation.
+- **SC-015**: Focused macOS source contracts and a Swift build prove the audited native product surfaces use the shared violet token and contain no system `.blue` accent.
 
 ## Assumptions
 
 - `Meeting.created_at` is the authoritative server receipt time for a manual upload and is already persisted for existing rows.
 - A recording's `started_at` remains authoritative when present; the upload timestamp is a fallback only for missing recording time.
-- The scope is the whole server-rendered cabinet stylesheet and its shared primitives, with the main meeting upload/processing experience as the primary deliverable.
+- The scope is the whole server-rendered cabinet stylesheet and its shared primitives plus native macOS product-accent cleanup, with the main meeting upload/processing experience as the primary deliverable.
 - KRISP is an approved reference for effective density, component sizing, hierarchy, and interaction behavior; GRAF keeps its own violet palette, assets, and Russian product language.
 - Provider logos and identity badges are not recolored when their blue is part of the provider brand.
 - No production deployment or release is requested in this task.

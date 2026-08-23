@@ -41,9 +41,33 @@
    radio, or progress color.
 10. Keep a single cabinet stylesheet. Central tokens and existing Jinja
     primitives are enough; a second CSS framework would increase drift.
+11. Use a 36×20 shared switch for independent binary preferences. Keep the
+    native checkbox input and add `role="switch"`; this preserves POST/no-JS
+    behavior while matching the compact KRISP control geometry.
+12. Keep checkboxes for multi-selection, consent, and confirmation. A switch
+    communicates an immediately reversible on/off state and would be misleading
+    for those tasks.
+    Calendar event-type filters are one multi-select set and therefore remain
+    checkboxes even though nearby display and prompt modes use switches.
+13. Present light, dark, and system as a segmented native radio group with
+    locally rendered Lucide-style icons from the existing icon primitive.
+14. Move only secondary explanation behind an information button. The button is
+    focusable and the hint opens for hover and focus; errors, security, billing,
+    storage, and irreversible consequences remain visible.
+15. Keep the local system font stack. On macOS it resolves to San Francisco,
+    which provides the density and legibility needed here without a font
+    download, layout shift, or new dependency.
+16. Use KRISP's bounded settings column, divider rhythm, and right-aligned
+    actions, but keep GRAF's navigation, Russian language, violet accent, and
+    native form submission contracts.
+17. Reuse `DesktopMeetingShellChrome.shellAccentColor` for native macOS
+    readiness, upload, meeting-prompt, and recording-action accents. Keep green,
+    orange, and red for success, warning, and error rather than flattening
+    semantic status into one brand color.
 
 ## Scope boundary
 
-The full server-rendered cabinet stylesheet is audited. Provider-logo brand
-colors remain unchanged, but all GRAF interaction accents, shared typography,
-geometry, Settings navigation, upload dialog, and upload activity are in scope.
+The full server-rendered cabinet stylesheet and native macOS product accents are
+audited. Provider-logo brand colors remain unchanged, but all GRAF interaction
+accents, shared typography, geometry, Settings navigation, upload dialog, and
+upload activity are in scope.

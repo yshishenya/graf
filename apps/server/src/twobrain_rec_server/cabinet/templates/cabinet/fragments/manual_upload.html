@@ -1,4 +1,5 @@
 {% import "cabinet/components/icons.html" as icons %}
+{% import "cabinet/components/primitives.html" as ui %}
 
 <dialog class="manual-upload-dialog" data-manual-upload-dialog
   data-upload-endpoint="{{ upload_endpoint }}"
@@ -40,11 +41,7 @@
         <span>Название</span>
         <input type="text" name="title" maxlength="500" autocomplete="off" placeholder="Например, созвон по продукту" data-manual-upload-title>
       </label>
-      <label class="manual-upload-archive-choice">
-        <span>Хранение</span>
-        <span><input type="checkbox" name="archive_audio" value="true" data-manual-upload-archive checked> Сохранить аудио</span>
-        <small class="muted">Без аудио останутся расшифровка и итоги. Минуты тарифа спишутся.</small>
-      </label>
+      {{ ui.switch("archive_audio", "Сохранить аудио", checked=True, value="true", hint="Без аудио останутся расшифровка и итоги. Минуты тарифа спишутся.", hint_id="manual-upload-archive-help", data_manual_upload_archive=True) }}
     </div>
     <input type="hidden" name="duration_seconds" data-manual-upload-duration>
     <input type="hidden" name="local_recording_id" data-manual-upload-local-id>

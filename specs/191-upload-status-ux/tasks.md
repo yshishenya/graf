@@ -53,6 +53,27 @@
 - [X] T023 [P] Capture and inspect current-run desktop/375px screenshots for main, upload dialog, processing/date, and Settings; inspect console health.
 - [X] T024 Run `infra/scripts/ci-local.sh --fast` and record the expanded validation result without committing or deploying.
 
+## Phase 10: User Story 6 - Modern Settings controls (P1)
+
+- [X] T025 [US6] Record switch, hint, theme, copy, and control-semantics decisions in `specs/191-upload-status-ux/spec.md`, `specs/191-upload-status-ux/research.md`, `specs/191-upload-status-ux/plan.md`, and `specs/191-upload-status-ux/checklists/ux.md`.
+- [X] T026 [US6] Extend rendered-template and static contracts for shared switches, information hints, segmented themes, and checkbox boundaries in `apps/server/tests/unit/test_cabinet_template_components.py`, `apps/server/tests/unit/test_cabinet_web_shell.py`, `apps/server/tests/contract/test_settings_ui_contract.py`, and `apps/server/tests/contract/test_calendar_settings_contract.py`.
+- [X] T027 [US6] Add the minimal switch, information-hint, and theme-picker primitives in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/components/primitives.html` and theme icons in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/components/icons.html`.
+- [X] T028 [US6] Replace the misaligned upload retention checkbox and inline explanation with the shared switch and hint in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/fragments/manual_upload.html`.
+- [X] T029 [US6] Replace independent notification and calendar preference checkboxes with shared switches while preserving multi-select checkboxes in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/components/notifications.html` and `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/fragments/calendar_settings.html`.
+- [X] T030 [US6] Compact account Settings copy and sections and replace theme radio rows with the shared segmented theme picker in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/settings_account_content.html`.
+- [X] T031 [US6] Centralize switch, hint, theme, preference-row, typography, divider, and responsive states in `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css` without adding JavaScript or a new dependency.
+
+## Phase 11: Modern Settings validation
+
+- [X] T032 [P] Run focused template, static, web-shell, settings, and calendar contracts and update `CHANGELOG.md` with the user-visible behavior.
+- [X] T033 [P] Inspect upload, account, notifications, recording, and calendar Settings in the in-app Browser at desktop and 375px, in light/dark themes, and with hover/keyboard focus on the hint.
+- [X] T034 Run `infra/scripts/ci-local.sh --fast`, record evidence, and leave the validated follow-up uncommitted until explicit approval.
+
+## Phase 12: Native macOS accent closeout
+
+- [X] T035 Replace remaining system-blue product accents with `DesktopMeetingShellChrome.shellAccentColor` in `apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift`, `apps/macos/RecApp/Sources/Capture/CaptureStatusItem.swift`, `apps/macos/RecApp/Sources/Capture/CaptureControlViewCore.swift`, and `apps/macos/RecApp/App/TwoBrainRecApp.swift`.
+- [X] T036 Add the native violet-token source contract in `apps/macos/Shared/Tests/AppControlAccessibilityTests.swift`, compile the package, run the focused suite, and confirm only provider identity marks retain blue.
+
 ## Dependencies
 
 - T003-T006 depend on T001.
@@ -60,3 +81,5 @@
 - T010-T012 depend on implementation tasks T003-T009.
 - T013-T016 establish the shared system before T017-T021.
 - T022-T024 depend on T013-T021.
+- T027-T031 depend on T025-T026; T028-T030 depend on T027; T032-T034 depend on T027-T031.
+- T035-T036 follow the cabinet color closeout in T032-T034; T036 depends on T035.

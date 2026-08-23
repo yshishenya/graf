@@ -201,6 +201,25 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertTrue(settingsSource.contains(".tint(DesktopMeetingShellChrome.shellAccentColor)"))
     }
 
+    func testFeature191NativeProductAccentsUseSharedVioletToken() throws {
+        let root = try Self.repositoryRoot()
+        let paths = [
+            "apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift",
+            "apps/macos/RecApp/Sources/Capture/CaptureStatusItem.swift",
+            "apps/macos/RecApp/Sources/Capture/CaptureControlViewCore.swift",
+            "apps/macos/RecApp/App/TwoBrainRecApp.swift",
+        ]
+
+        for path in paths {
+            let source = try String(
+                contentsOf: root.appendingPathComponent(path),
+                encoding: .utf8
+            )
+            XCTAssertTrue(source.contains("DesktopMeetingShellChrome.shellAccentColor"), path)
+            XCTAssertFalse(source.contains(".blue"), path)
+        }
+    }
+
     func testFeature121NarrowKeyboardContrastAndMotionContract() throws {
         let root = try Self.repositoryRoot()
         let shellSource = try String(
