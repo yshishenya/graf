@@ -1155,27 +1155,104 @@
     document.querySelectorAll("[data-code-form]").forEach((form) => {
       if (form.dataset.codeReady === "true") return;
       form.dataset.codeReady = "true";
-      const input = form.querySelector("[data-code-input]");
-      if (!input) return;
+      const slots = Array.from(form.querySelectorAll("[data-code-slot]"));
+      const hidden = form.querySelector("[data-code-hidden]");
+      if (slots.length !== 6 || !hidden) return;
+      hidden.disabled = false;
       let submitted = false;
-      const sanitize = () => {
-        input.value = input.value.replace(/\D/g, "").slice(0, 6);
+      const sanitize = (value) => String(value || "").replace(/\D/g, "").slice(0, 6);
+      const sync = () => {
+        hidden.value = slots.map((slot) => slot.value).join("");
       };
-      input.addEventListener("input", () => {
-        sanitize();
-        if (submitted || input.value.length !== 6) return;
+      const isComplete = () => slots.every((slot) => /^\d$/.test(slot.value));
+      const focusSlot = (index) => slots[Math.max(0, Math.min(index, slots.length - 1))]?.focus();
+      const maybeSubmit = () => {
+        if (submitted || !isComplete()) return;
+        sync();
         submitted = true;
         if (form.requestSubmit) {
           form.requestSubmit();
         } else {
           form.submit();
         }
+      };
+      const fillFromStart = (value) => {
+        const digits = sanitize(value);
+        const commit = () => {
+          slots.forEach((slot, index) => { slot.value = digits[index] || ""; });
+          sync();
+          focusSlot(Math.min(digits.length, slots.length - 1));
+          maybeSubmit();
+        };
+        commit();
+        window.setTimeout(commit, 0);
+      };
+      slots.forEach((slot, index) => {
+        slot.addEventListener("input", () => {
+          const digits = sanitize(slot.value);
+          if (digits.length > 1) {
+            fillFromStart(digits);
+            return;
+          }
+          const commit = () => {
+            slot.value = digits;
+            sync();
+            if (digits && slots[index + 1]) focusSlot(index + 1);
+            maybeSubmit();
+          };
+          commit();
+          window.setTimeout(commit, 0);
+        });
+        slot.addEventListener("keydown", (event) => {
+          if (event.key === "Backspace") {
+            event.preventDefault();
+            if (slot.value) slot.value = "";
+            else if (slots[index - 1]) {
+              slots[index - 1].value = "";
+              focusSlot(index - 1);
+            }
+            sync();
+            return;
+          }
+          if (event.key === "Delete") {
+            event.preventDefault();
+            slot.value = "";
+            sync();
+            return;
+          }
+          if (event.key === "ArrowLeft") {
+            event.preventDefault();
+            focusSlot(index - 1);
+          } else if (event.key === "ArrowRight") {
+            event.preventDefault();
+            focusSlot(index + 1);
+          } else if (event.key === "Home") {
+            event.preventDefault();
+            focusSlot(0);
+          } else if (event.key === "End") {
+            event.preventDefault();
+            focusSlot(slots.length - 1);
+          }
+        });
+        slot.addEventListener("paste", (event) => {
+          const pasted = event.clipboardData?.getData("text") || window.clipboardData?.getData("Text") || "";
+          const digits = sanitize(pasted);
+          if (!digits) return;
+          event.preventDefault();
+          fillFromStart(digits);
+        });
       });
-      form.addEventListener("submit", () => {
+      form.addEventListener("submit", (event) => {
+        sync();
+        if (!isComplete()) {
+          event.preventDefault();
+          submitted = false;
+          focusSlot(slots.findIndex((slot) => !/^\d$/.test(slot.value)));
+          return;
+        }
         submitted = true;
-        sanitize();
       });
-      input.focus();
+      slots[0]?.focus();
     });
   };
 
