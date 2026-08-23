@@ -7,7 +7,7 @@ final class WorkspaceZoomTests: XCTestCase {
     func testDefaultBoundsAndStepAreConservative() {
         XCTAssertEqual(WorkspaceZoomPreference.defaultValue, 1.0, accuracy: 0.000_1)
         XCTAssertEqual(WorkspaceZoomPreference.minimumValue, 0.8, accuracy: 0.000_1)
-        XCTAssertEqual(WorkspaceZoomPreference.maximumValue, 1.4, accuracy: 0.000_1)
+        XCTAssertEqual(WorkspaceZoomPreference.maximumValue, 2.0, accuracy: 0.000_1)
         XCTAssertEqual(WorkspaceZoomPreference.step, 0.1, accuracy: 0.000_1)
         XCTAssertEqual(WorkspaceZoomPreference.default.value, 1.0, accuracy: 0.000_1)
     }
@@ -72,11 +72,20 @@ final class WorkspaceZoomTests: XCTestCase {
         let defaults = isolatedDefaults()
         defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
 
-        defaults.set(4.2, forKey: WorkspaceZoomStore.preferenceKey)
+        defaults.set(2.0, forKey: WorkspaceZoomStore.preferenceKey)
+        XCTAssertEqual(
+            WorkspaceZoomStore(defaults: defaults).preference.value,
+            WorkspaceZoomPreference.maximumValue,
+            accuracy: 0.000_1
+        )
 
-        let store = WorkspaceZoomStore(defaults: defaults)
+        defaults.set(2.1, forKey: WorkspaceZoomStore.preferenceKey)
 
-        XCTAssertEqual(store.preference.value, WorkspaceZoomPreference.defaultValue, accuracy: 0.000_1)
+        XCTAssertEqual(
+            WorkspaceZoomStore(defaults: defaults).preference.value,
+            WorkspaceZoomPreference.defaultValue,
+            accuracy: 0.000_1
+        )
     }
 
     private var defaultsSuiteName: String {

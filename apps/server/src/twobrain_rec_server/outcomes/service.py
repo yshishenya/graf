@@ -57,6 +57,7 @@ from twobrain_rec_server.processing.store import (
 )
 
 BASELINE_TEMPLATE_KEY = "graf-auto-v1"
+AI_DISPATCH_UNAVAILABLE = "summary_generation_unavailable"
 
 
 def _baseline_template_provenance() -> tuple[str, int, str]:
@@ -80,6 +81,7 @@ async def ensure_outcomes_for_meeting(
     *,
     meeting_id: UUID,
     publish_initial_baseline: bool = False,
+    ai_dispatch_planned: bool = False,
 ) -> MeetingOutcomeSet | None:
     async with sessionmaker() as db:
         latest_revision = await db.scalar(
@@ -105,6 +107,7 @@ async def ensure_outcomes_for_meeting(
             db,
             result=result,
             publish_initial_baseline=publish_initial_baseline,
+            ai_dispatch_planned=ai_dispatch_planned,
         )
         await db.commit()
         return outcome_set
@@ -115,6 +118,7 @@ async def ensure_outcomes_for_processing_result(
     *,
     result: ProcessingResult,
     publish_initial_baseline: bool = False,
+    ai_dispatch_planned: bool = False,
 ) -> MeetingOutcomeSet:
     meeting = await lock_meeting_fence(
         db, workspace_id=result.workspace_id, meeting_id=result.meeting_id
@@ -169,6 +173,10 @@ async def ensure_outcomes_for_processing_result(
         db, result=result, generator_config_hash=generator_config_hash
     )
     transcript_is_available = canonical_speech_available(result)
+    initial_trusted_baseline = result.media_revision_id is None
+    revision_scoped_initial_ai_only = (
+        publish_initial_baseline and result.media_revision_id is not None
+    )
     speaker_revision = await speaker_attribution_revision(
         db,
         workspace_id=result.workspace_id,
@@ -187,15 +195,29 @@ async def ensure_outcomes_for_processing_result(
         existing.template_key = existing.template_key or template_key
         existing.template_version = existing.template_version or template_version
         existing.generator_config_hash = existing.generator_config_hash or generator_config_hash
+    if (
+        revision_scoped_initial_ai_only
+        and transcript_is_available
+        and existing is not None
+        and not existing_is_immutable_history
+        and existing.revision_state not in {"rejected", "stale", "expired"}
+    ):
+        await _project_revision_scoped_ai_wait(
+            db,
+            outcome_set=existing,
+            ai_dispatch_planned=ai_dispatch_planned,
+        )
+        return existing
     if existing is not None and should_reuse_outcome_set(
         existing, transcript_is_available=transcript_is_available
     ):
-        await _accept_initial_outcome_set(
-            db,
-            meeting=meeting,
-            outcome_set=existing,
-            publish_initial_baseline=publish_initial_baseline,
-        )
+        if not revision_scoped_initial_ai_only:
+            await _accept_initial_outcome_set(
+                db,
+                meeting=meeting,
+                outcome_set=existing,
+                publish_initial_baseline=publish_initial_baseline,
+            )
         return existing
     if existing is not None and existing.revision_state in {"accepted", "superseded"}:
         # Accepted history is immutable; a new processing result gets a new set.
@@ -276,6 +298,13 @@ async def ensure_outcomes_for_processing_result(
         outcome_set.expires_at = candidate_expires_at
         outcome_set.revision_state = "candidate"
     set_outcome_category_states(outcome_set, OutcomeCategoryState.PROCESSING.value)
+    if revision_scoped_initial_ai_only and transcript_is_available:
+        await _project_revision_scoped_ai_wait(
+            db,
+            outcome_set=outcome_set,
+            ai_dispatch_planned=ai_dispatch_planned,
+        )
+        return outcome_set
     if not transcript_is_available:
         failure_reason = result.failure_reason or "outcomes_transcript_unavailable"
         failure_source = result.failure_source
@@ -417,6 +446,47 @@ async def ensure_outcomes_for_processing_result(
     )
     await db.flush()
     return outcome_set
+
+
+async def _project_revision_scoped_ai_wait(
+    db: AsyncSession,
+    *,
+    outcome_set: MeetingOutcomeSet,
+    ai_dispatch_planned: bool,
+) -> None:
+    """Persist only lifecycle truth while revision-scoped AI has no result."""
+    outcome_set.status = (
+        OutcomeSetStatus.GENERATING.value
+        if ai_dispatch_planned
+        else OutcomeSetStatus.BLOCKED.value
+    )
+    outcome_set.failure_reason = None if ai_dispatch_planned else AI_DISPATCH_UNAVAILABLE
+    outcome_set.failure_source = None
+    outcome_set.generated_at = None
+    outcome_set.latency_ms = None
+    outcome_set.content_hash = None
+    set_outcome_category_states(
+        outcome_set,
+        OutcomeCategoryState.PROCESSING.value
+        if ai_dispatch_planned
+        else OutcomeCategoryState.UNAVAILABLE.value,
+    )
+    await replace_outcome_items(db, outcome_set=outcome_set, items=[])
+    if outcome_set.candidate_id is not None:
+        attempt = await db.scalar(
+            select(MeetingOutcomeGenerationAttempt)
+            .where(
+                MeetingOutcomeGenerationAttempt.workspace_id == outcome_set.workspace_id,
+                MeetingOutcomeGenerationAttempt.candidate_id == outcome_set.candidate_id,
+            )
+            .with_for_update()
+        )
+        if attempt is not None and attempt.provider_kind == "deterministic_extractive":
+            attempt.status = "generating" if ai_dispatch_planned else "blocked_dependency"
+            attempt.failure_code = None if ai_dispatch_planned else AI_DISPATCH_UNAVAILABLE
+            attempt.failure_reason = None if ai_dispatch_planned else AI_DISPATCH_UNAVAILABLE
+            attempt.ended_at = None
+    await db.flush()
 
 
 async def _accept_initial_outcome_set(

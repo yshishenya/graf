@@ -1003,7 +1003,10 @@ class PromptOptimizationAdapter:
             variables=variables,
             snapshot=snapshot,
         )
-        max_tokens = int(snapshot.config["max_completion_tokens"])
+        max_tokens = int(
+            snapshot.config.get("max_completion_tokens")
+            or max(1, self.budget.max_tokens // self.budget.max_calls)
+        )
         reservation = self.ledger.reserve(
             call_key=call_key,
             phase=phase,
@@ -3507,8 +3510,9 @@ def _publish_optimization_observation(
             },
             model=str(value.get("actual_model") or snapshot.model),
             model_parameters={
-                "temperature": snapshot.config["temperature"],
-                "max_completion_tokens": snapshot.config["max_completion_tokens"],
+                key: snapshot.config[key]
+                for key in ("temperature", "max_completion_tokens")
+                if key in snapshot.config
             },
             prompt=linked_prompt,
             usage_details=usage_details or None,

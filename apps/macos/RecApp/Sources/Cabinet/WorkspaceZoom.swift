@@ -10,7 +10,7 @@ public enum WorkspaceZoomCommand: String, CaseIterable, Equatable, Sendable {
 public struct WorkspaceZoomPreference: Equatable, Sendable {
     public static let defaultValue = 1.0
     public static let minimumValue = 0.8
-    public static let maximumValue = 1.4
+    public static let maximumValue = 2.0
     public static let step = 0.1
     public static let `default` = WorkspaceZoomPreference(value: defaultValue)
 

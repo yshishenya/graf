@@ -35,7 +35,7 @@ from twobrain_rec_server.observability.langfuse import (
     create_langfuse_client,
     deterministic_observation_id,
     deterministic_trace_id,
-    fetch_production_prompt,
+    fetch_prompt_by_label,
     publish_completed_generation,
     shutdown_langfuse,
 )
@@ -724,24 +724,43 @@ async def ensure_automatic_summary_candidate(
         workspace is None
         or meeting is None
         or meeting_is_deleted_or_deleting(meeting)
-        or workspace.default_summary_template_id is not None
     ):
         return None
-    definition = built_in_template_for_version(
-        workspace.default_summary_template_key,
-        workspace.default_summary_template_version,
-    )
-    if definition is None:
-        return None
+    template_id = workspace.default_summary_template_id
+    if template_id is not None:
+        personal = await db.scalar(
+            select(SummaryTemplate).where(
+                SummaryTemplate.id == template_id,
+                SummaryTemplate.workspace_id == workspace_id,
+                SummaryTemplate.template_key == workspace.default_summary_template_key,
+                SummaryTemplate.version == workspace.default_summary_template_version,
+                SummaryTemplate.status == "active",
+            )
+        )
+        if personal is None:
+            return None
+        template_key = personal.template_key
+        template_version = personal.version
+        requested_by_user_id = personal.owner_user_id
+    else:
+        definition = built_in_template_for_version(
+            workspace.default_summary_template_key,
+            workspace.default_summary_template_version,
+        )
+        if definition is None:
+            return None
+        template_key = definition.key
+        template_version = definition.version
+        requested_by_user_id = meeting.created_by_user_id
     try:
         attempt = await create_summary_candidate(
             db,
             workspace_id=workspace_id,
             meeting_id=meeting_id,
-            requested_by_user_id=meeting.created_by_user_id,
-            template_key=definition.key,
-            template_id=None,
-            template_version=definition.version,
+            requested_by_user_id=requested_by_user_id,
+            template_key=template_key,
+            template_id=template_id,
+            template_version=template_version,
             expected_current_outcome_set_id=meeting.current_outcome_set_id,
         )
     except OutcomeGenerationTerminalError:
@@ -854,10 +873,11 @@ async def resolve_candidate_prompt(
     try:
         try:
             remote = await asyncio.to_thread(
-                fetch_production_prompt,
+                fetch_prompt_by_label,
                 client,
                 name=prompt_name,
                 prompt_type="chat",
+                label=settings.outcome_prompt_label,
             )
         except Exception:
             async with sessionmaker() as guard_db:
@@ -894,7 +914,11 @@ async def resolve_candidate_prompt(
                     prompt_type="chat",
                     prompt=remote.prompt,
                     config=remote.config or {},
-                    source="langfuse_production",
+                    source=(
+                        "langfuse_production"
+                        if settings.outcome_prompt_label == "production"
+                        else "langfuse_evaluation"
+                    ),
                 )
             except ValueError as exc:
                 raise OutcomeGenerationTerminalError("summary_prompt_snapshot_invalid") from exc
@@ -950,9 +974,12 @@ async def resolve_candidate_prompt(
         attempt.model_route = snapshot.model
         attempt.model_parameters = {
             "temperature": snapshot.config["temperature"],
-            "max_completion_tokens": snapshot.config["max_completion_tokens"],
             "response_format": snapshot.config["response_format"],
         }
+        if "max_completion_tokens" in snapshot.config:
+            attempt.model_parameters["max_completion_tokens"] = snapshot.config[
+                "max_completion_tokens"
+            ]
         attempt.generator_config_hash = _ai_generator_config_hash(
             template_id=attempt.template_id,
             template_key=attempt.template_key,
@@ -1009,9 +1036,6 @@ async def execute_candidate_generation(
     expected_snapshot_hash: str,
     settings: Settings,
 ) -> dict[str, Any]:
-    api_key = _read_secret(settings.litellm_api_key_file)
-    if settings.litellm_base_url is None:
-        raise OutcomeGenerationDependencyError("litellm_endpoint_unavailable")
     started_at = datetime.now(UTC)
     async with sessionmaker() as db:
         await _apply_worker_workspace(db, workspace_id)
@@ -1033,6 +1057,67 @@ async def execute_candidate_generation(
         )
         if meeting is None or meeting_is_deleted_or_deleting(meeting):
             raise OutcomeGenerationTerminalError("meeting_deleting")
+        if attempt.status == "accepted":
+            segments = await _candidate_segments(db, attempt)
+            transcript_hash = sha256(canonical_transcript(segments).encode("utf-8")).hexdigest()
+            if (
+                transcript_hash != expected_snapshot_hash
+                or transcript_hash != attempt.temporal_transcript_hash
+            ):
+                raise OutcomeGenerationTerminalError("summary_transcript_changed")
+            existing = await db.scalar(
+                select(GenerationCall)
+                .where(
+                    GenerationCall.workspace_id == workspace_id,
+                    GenerationCall.candidate_id == candidate_id,
+                    GenerationCall.call_sequence == 1,
+                )
+                .order_by(GenerationCall.provider_attempt.desc())
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            outcome_set = await db.scalar(
+                select(MeetingOutcomeSet)
+                .where(
+                    MeetingOutcomeSet.workspace_id == workspace_id,
+                    MeetingOutcomeSet.meeting_id == meeting_id,
+                    MeetingOutcomeSet.id == attempt.outcome_set_id,
+                    MeetingOutcomeSet.candidate_id == candidate_id,
+                    MeetingOutcomeSet.lifecycle_state == "active",
+                )
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            validated_hash = (
+                existing.validated_result_hash
+                if existing is not None and existing.validated_result_json is not None
+                else None
+            )
+            if (
+                existing is None
+                or existing.call_state != "completed"
+                or validated_hash is None
+                or outcome_set is None
+                or outcome_set.revision_state != "accepted"
+                or outcome_set.content_hash != validated_hash
+                or meeting.current_outcome_set_id != outcome_set.id
+            ):
+                raise OutcomeGenerationTerminalError("summary_candidate_terminal")
+            await finalize_dispatch_for_candidate(
+                db,
+                workspace_id=workspace_id,
+                candidate_id=candidate_id,
+                outcome="completed",
+            )
+            await db.commit()
+            return {
+                "candidate_id": str(candidate_id),
+                "generation_call_id": str(existing.id),
+                "outcome_set_id": str(outcome_set.id),
+                "state": "accepted",
+                "failure_code": None,
+                "reused": True,
+            }
         try:
             attempt = await _ensure_candidate_source_fence(db, attempt)
         except OutcomeGenerationTerminalError as exc:
@@ -1128,6 +1213,9 @@ async def execute_candidate_generation(
             if existing.call_state != "failed" or not _generation_call_is_retryable(existing):
                 raise OutcomeGenerationTerminalError("summary_provider_attempt_not_retryable")
             provider_attempt = existing.provider_attempt + 1
+        if settings.litellm_base_url is None:
+            raise OutcomeGenerationDependencyError("litellm_endpoint_unavailable")
+        api_key = _read_secret(settings.litellm_api_key_file)
         sections = _template_sections(attempt)
         messages = compile_prompt_messages(
             snapshot,
@@ -2489,9 +2577,12 @@ def _ai_generator_config_hash(
                 output_schema_version = str(json_schema.get("name") or "")
             model_parameters = {
                 "temperature": snapshot.config.get("temperature"),
-                "max_completion_tokens": snapshot.config.get("max_completion_tokens"),
                 "response_format": response_format,
             }
+            if "max_completion_tokens" in snapshot.config:
+                model_parameters["max_completion_tokens"] = snapshot.config[
+                    "max_completion_tokens"
+                ]
     return _content_hash(
         {
             "generator_version": AI_GENERATOR_VERSION,

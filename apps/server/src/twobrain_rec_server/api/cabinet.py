@@ -951,19 +951,32 @@ async def update_default_summary_template_route(
     if workspace is None:
         raise ProblemDetail(status=404, code="workspace_not_found", title="Workspace not found")
     if payload.template_id is not None:
-        raise ProblemDetail(
-            status=422,
-            code="summary_default_requires_builtin",
-            title="Workspace default must be a built-in format",
+        template = await db.scalar(
+            select(SummaryTemplate).where(
+                SummaryTemplate.id == payload.template_id,
+                SummaryTemplate.workspace_id == tenant_scope.workspace_id,
+                SummaryTemplate.owner_user_id == principal.user_id,
+                SummaryTemplate.template_key == payload.template_key,
+                SummaryTemplate.version == payload.template_version,
+                SummaryTemplate.status == "active",
+            )
         )
-    definition = BUILT_IN_BY_KEY.get(payload.template_key)
-    if definition is None or definition.version != payload.template_version:
-        raise ProblemDetail(
-            status=404,
-            code="summary_template_not_found",
-            title="Template not found",
-        )
-    selected = _built_in_template_view(definition)
+        if template is None:
+            raise ProblemDetail(
+                status=404,
+                code="summary_template_not_found",
+                title="Template not found",
+            )
+        selected = _personal_template_view(template)
+    else:
+        definition = BUILT_IN_BY_KEY.get(payload.template_key)
+        if definition is None or definition.version != payload.template_version:
+            raise ProblemDetail(
+                status=404,
+                code="summary_template_not_found",
+                title="Template not found",
+            )
+        selected = _built_in_template_view(definition)
     workspace.default_summary_template_key = selected.template_key
     workspace.default_summary_template_id = selected.template_id
     workspace.default_summary_template_version = selected.version

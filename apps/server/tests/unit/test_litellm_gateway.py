@@ -82,7 +82,6 @@ async def test_gateway_projects_only_pinned_config_and_does_not_retry(monkeypatc
         "model",
         "messages",
         "temperature",
-        "max_completion_tokens",
         "response_format",
     }
     assert result.actual_model == "provider-model"

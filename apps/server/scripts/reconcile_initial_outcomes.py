@@ -104,6 +104,7 @@ async def _reconcile_one(sessionmaker, meeting_id: UUID) -> dict[str, object]:
             sessionmaker,
             meeting_id=meeting_id,
             publish_initial_baseline=True,
+            ai_dispatch_planned=False,
         )
     except ProcessingLifecycleBlocked as exc:
         return {

@@ -442,11 +442,28 @@ def test_candidate_request_is_idempotent_and_does_not_replace_accepted_notes(cli
                 template_version=1,
                 expected_current_outcome_set_id=accepted_before,
             )
+            attempts = (
+                await db.scalars(
+                    select(MeetingOutcomeGenerationAttempt).where(
+                        MeetingOutcomeGenerationAttempt.meeting_id == meeting.id,
+                        MeetingOutcomeGenerationAttempt.candidate_id == first.candidate_id,
+                    )
+                )
+            ).all()
             await db.commit()
-            return first.candidate_id, second.candidate_id, meeting.current_outcome_set_id
+            return (
+                first.candidate_id,
+                second.candidate_id,
+                first.idempotency_key,
+                second.idempotency_key,
+                len(attempts),
+                meeting.current_outcome_set_id,
+            )
 
-    first, second, accepted_after = asyncio.run(run())
+    first, second, first_key, second_key, attempt_count, accepted_after = asyncio.run(run())
     assert first == second
+    assert first_key == second_key
+    assert attempt_count == 1
     assert accepted_after is None
 
 
@@ -848,10 +865,22 @@ def test_retryable_failed_candidate_with_changed_source_is_not_reactivated(clien
             failed.source_result_hash = "different-source-result"
             replacement = await create_summary_candidate(db, **kwargs)
             await db.commit()
-            return failed.candidate_id, replacement.candidate_id
+            return (
+                failed.candidate_id,
+                failed.status,
+                failed.failure_code,
+                replacement.candidate_id,
+                replacement.status,
+                replacement.source_result_hash,
+            )
 
-    failed_id, replacement_id = asyncio.run(run())
+    failed_id, failed_status, failure_code, replacement_id, replacement_status, source_hash = (
+        asyncio.run(run())
+    )
     assert failed_id != replacement_id
+    assert (failed_status, failure_code) == ("failed", "summary_generation_retries_exhausted")
+    assert replacement_status == "queued"
+    assert source_hash != "different-source-result"
 
 
 def test_expired_candidate_does_not_block_a_different_format(client) -> None:
@@ -1147,9 +1176,8 @@ def test_accept_candidate_is_atomic_and_rejects_stale_expected_revision(client) 
                 expected_current_outcome_set_id=None,
             )
             await db.commit()
-            accepted_id = meeting.current_outcome_set_id
-            accepted_state = candidate.revision_state
-            accepted_actor = candidate.accepted_by_user_id
+            candidate_set_id = candidate.id
+            attempt_candidate_id = attempt.candidate_id
             with pytest.raises(OutcomeGenerationTerminalError, match="conflict"):
                 await resolve_summary_candidate(
                     db,
@@ -1161,12 +1189,31 @@ def test_accept_candidate_is_atomic_and_rejects_stale_expected_revision(client) 
                     expected_current_outcome_set_id=None,
                 )
             await db.rollback()
-            return accepted_id, accepted_state, accepted_actor
+        async with client.app_state["sessionmaker"]() as verify_db:
+            persisted_meeting = await verify_db.get(Meeting, meeting_id)
+            persisted_candidate = await verify_db.get(MeetingOutcomeSet, candidate_set_id)
+            persisted_attempt = await verify_db.scalar(
+                select(MeetingOutcomeGenerationAttempt).where(
+                    MeetingOutcomeGenerationAttempt.candidate_id == attempt_candidate_id
+                )
+            )
+            assert (
+                persisted_meeting is not None
+                and persisted_candidate is not None
+                and persisted_attempt is not None
+            )
+            return (
+                persisted_meeting.current_outcome_set_id,
+                persisted_candidate.revision_state,
+                persisted_candidate.accepted_by_user_id,
+                persisted_attempt.status,
+            )
 
-    accepted_id, state, actor = asyncio.run(run())
+    accepted_id, state, actor, attempt_status = asyncio.run(run())
     assert accepted_id is not None
     assert state == "accepted"
     assert actor is not None
+    assert attempt_status == "accepted"
 
 
 def test_speaker_name_change_stales_candidate_before_acceptance(client) -> None:

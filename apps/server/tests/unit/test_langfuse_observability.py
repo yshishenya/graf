@@ -9,6 +9,7 @@ from uuid import UUID
 from twobrain_rec_server.observability.langfuse import (
     GenerationTraceContext,
     _GrafLangfuseIdGenerator,
+    _usage_details,
     deterministic_observation_id,
     deterministic_trace_id,
     publish_completed_generation,
@@ -192,6 +193,28 @@ def test_sole_publisher_emits_one_full_content_generation_with_exact_or_unknown_
     assert generation["metadata"]["activity_attempt"] == 2
     assert generation["metadata"]["prompt_hash"] == "a" * 64
     assert client.flush_count == 1
+
+
+def test_langfuse_usage_drops_overlapping_gateway_cache_write_aliases() -> None:
+    assert _usage_details(
+        {
+            "prompt_tokens": 3292,
+            "completion_tokens": 117,
+            "total_tokens": 3409,
+            "prompt_tokens_details": {
+                "cached_tokens": 0,
+                "cache_write_tokens": 3289,
+                "cache_creation_tokens": 3289,
+            },
+            "completion_tokens_details": {"reasoning_tokens": 44},
+        }
+    ) == {
+        "prompt_tokens": 3292,
+        "completion_tokens": 117,
+        "total_tokens": 3409,
+        "prompt_tokens_details": {"cached_tokens": 0},
+        "completion_tokens_details": {"reasoning_tokens": 44},
+    }
 
 
 def test_temporal_dispatch_reuses_trace_and_propagates_w3c_attributes() -> None:

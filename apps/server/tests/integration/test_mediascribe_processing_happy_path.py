@@ -70,7 +70,7 @@ def test_processing_happy_path_imports_transcript_and_diarization(client) -> Non
         ),
     )
 
-    async def run_pipeline() -> tuple[str, int, int]:
+    async def run_pipeline() -> tuple[str, int, int, str, str]:
         async with client.app_state["sessionmaker"]() as db:
             workflow = await store.upsert_processing_workflow(
                 db,
@@ -92,6 +92,7 @@ def test_processing_happy_path_imports_transcript_and_diarization(client) -> Non
                 workflow=workflow,
                 job=submitted.job,
                 mediascribe_client=fake_client,
+                outcome_generation_enabled=True,
             )
             persisted = await db.scalar(
                 select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
@@ -119,12 +120,31 @@ def test_processing_happy_path_imports_transcript_and_diarization(client) -> Non
                 )
             ).all()
             assert diarization[0].words_json == [{"word": "hello", "start": 0.0, "end": 1.0}]
-            return imported.status.value, len(transcripts), len(diarization)
+            outcome_set = await db.scalar(
+                select(MeetingOutcomeSet).where(MeetingOutcomeSet.meeting_id == meeting_id)
+            )
+            attempt = await db.scalar(
+                select(MeetingOutcomeGenerationAttempt).where(
+                    MeetingOutcomeGenerationAttempt.meeting_id == meeting_id
+                )
+            )
+            assert outcome_set is not None and attempt is not None
+            return (
+                imported.status.value,
+                len(transcripts),
+                len(diarization),
+                outcome_set.status,
+                attempt.status,
+            )
 
-    status, transcript_count, diarization_count = asyncio.run(run_pipeline())
+    status, transcript_count, diarization_count, outcome_status, attempt_status = asyncio.run(
+        run_pipeline()
+    )
     assert status == "processed"
     assert transcript_count == 1
     assert diarization_count == 1
+    assert outcome_status == "generating"
+    assert attempt_status == "queued"
 
 
 def test_pending_provider_status_reaches_ready_without_resubmission(client) -> None:

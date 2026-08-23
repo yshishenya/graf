@@ -355,6 +355,30 @@ def test_prompt_optimization_accepts_complete_ai_runtime_without_outcomes(tmp_pa
     assert settings.outcome_generation_enabled is False
 
 
+def test_evaluation_prompt_label_is_development_only(tmp_path) -> None:
+    lite_key = tmp_path / "litellm-key"
+    public_key = tmp_path / "langfuse-public-key"
+    secret_key = tmp_path / "langfuse-secret-key"
+    for path in (lite_key, public_key, secret_key):
+        path.write_text("test", encoding="utf-8")
+    runtime = {
+        "outcome_generation_enabled": True,
+        "temporal_address": "temporal:7233",
+        "litellm_base_url": "https://litellm.example.test",
+        "litellm_api_key_file": lite_key,
+        "langfuse_base_url": "https://langfuse.example.test",
+        "langfuse_public_key_file": public_key,
+        "langfuse_secret_key_file": secret_key,
+        "outcome_prompt_label": "feature-181-eval",
+    }
+
+    assert Settings(**runtime).outcome_prompt_label == "feature-181-eval"
+    with pytest.raises(ValidationError, match="production prompt label"):
+        Settings(env="production", **runtime)
+    with pytest.raises(ValidationError, match="explicit deployment label"):
+        Settings(**{**runtime, "outcome_prompt_label": "latest"})
+
+
 @pytest.mark.parametrize(
     "litellm_base_url",
     (

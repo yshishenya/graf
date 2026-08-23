@@ -44,50 +44,58 @@ def _built_in(
 
 
 _BUILT_IN_TEMPLATE_CATALOG_V1: Final[tuple[SummaryTemplateDefinition, ...]] = (
-    _built_in("auto", "Авто", "Краткие итоги, решения и действия", OUTCOME_CATEGORIES),
     _built_in(
-        "outline", "Структура", "Последовательная структура разговора", ("summary", "key_points", "evidence")
+        "auto",
+        "Авто",
+        "Главное после встречи: решения, действия, риски и открытые вопросы",
+        OUTCOME_CATEGORIES,
+    ),
+    _built_in(
+        "outline",
+        "По темам",
+        "Темы разговора по порядку и вывод по каждой",
+        ("summary", "key_points", "evidence"),
     ),
     _built_in(
         "meeting-minutes",
         "Протокол встречи",
-        "Решения, действия и следующие шаги",
+        "Цель, принятые решения, обязательства и следующие шаги",
         ("summary", "decisions", "action_items", "followups", "evidence"),
     ),
     _built_in(
         "project-sync",
         "Синхронизация проекта",
-        "Статус проекта, решения, действия и риски",
+        "Прогресс проекта, вехи, блокеры, зависимости и запросы",
         ("summary", "key_points", "decisions", "action_items", "risks"),
     ),
     _built_in(
         "weekly-team-meeting",
         "Еженедельная встреча команды",
-        "Главное за неделю и дальнейшие действия",
+        "Изменения за неделю, приоритеты, блокеры и командные действия",
         ("summary", "key_points", "action_items", "risks", "questions"),
     ),
     _built_in(
         "one-to-one",
         "Один на один",
-        "Темы разговора, договорённости и вопросы",
+        "Темы сотрудника, нагрузка, обратная связь и взаимные договорённости",
         ("summary", "key_points", "action_items", "followups", "questions"),
     ),
     _built_in(
         "client-status-update",
         "Статус для клиента",
-        "Понятный клиентский статус и риски",
+        "Достигнутая ценность, подтверждённый прогресс, риски и следующие шаги",
         ("summary", "key_points", "decisions", "action_items", "risks"),
     ),
     _built_in(
         "interview",
-        "Интервью",
-        "Ключевые ответы и подтверждающие фрагменты",
+        "Интервью с кандидатом",
+        "Вопросы, фактические ответы кандидата и темы для уточнения",
         ("summary", "key_points", "questions", "evidence"),
     ),
     _built_in(
         "sales-discovery",
-        "Встреча с клиентом",
-        "Потребности, вопросы, риски и следующие шаги",
+        "Выявление потребностей",
+        "Потребности клиента, влияние, ограничения и согласованный следующий шаг",
         ("summary", "key_points", "action_items", "risks", "questions", "evidence"),
     ),
 )

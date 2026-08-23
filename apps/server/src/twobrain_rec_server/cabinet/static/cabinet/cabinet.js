@@ -2661,6 +2661,8 @@
       const listbox = controls.querySelector("[data-summary-format-listbox]");
       const pendingLabel = controls.querySelector("[data-summary-pending-format-label]");
       const status = document.querySelector("[data-summary-candidate-status]");
+      const statusLive = status?.querySelector("[data-summary-candidate-live]");
+      const statusActions = status?.querySelector("[data-summary-candidate-actions]");
       const preview = document.querySelector("[data-summary-candidate-preview]");
       const dialog = document.querySelector("[data-summary-format-dialog]");
       const meetingId = controls.dataset.meetingId || "";
@@ -2695,30 +2697,25 @@
         controls.setAttribute("aria-busy", busy ? "true" : "false");
       };
       const showStatus = (message, state = "generating", actions = []) => {
-        if (!status) return;
+        if (!status || !statusLive || !statusActions) return;
         status.hidden = false;
         status.dataset.state = state;
-        status.replaceChildren();
-        const copy = document.createElement("span");
-        copy.textContent = message;
-        status.append(copy);
+        statusLive.textContent = message;
+        statusActions.replaceChildren();
         const validActions = actions.filter((item) => (
           item
           && typeof item.text === "string"
           && typeof item.action === "function"
         ));
         if (!validActions.length) return;
-        const actionRow = document.createElement("div");
-        actionRow.className = "summary-candidate-actions";
         validActions.forEach(({ text, action, primary = false }) => {
           const actionButton = document.createElement("button");
           actionButton.type = "button";
           actionButton.textContent = text;
           if (primary) actionButton.className = "button";
           actionButton.addEventListener("click", action);
-          actionRow.append(actionButton);
+          statusActions.append(actionButton);
         });
-        status.append(actionRow);
       };
       const candidateErrorCopy = (code) => ({
         summary_transcript_too_large: "Расшифровка слишком большая для этого действия.",
@@ -2869,10 +2866,16 @@
         }
         return null;
       };
+      const focusCurrentDialogFormat = () => {
+        const current = dialog?.querySelector(
+          '[data-summary-format-current], [data-summary-format-option][aria-current="true"]'
+        );
+        (current || dialog?.querySelector("[data-summary-format-option]"))?.focus({ preventScroll: true });
+      };
       const openFormatPicker = () => {
         if (dialog instanceof HTMLDialogElement) {
           dialog.showModal();
-          dialog.querySelector("[data-summary-format-option]")?.focus({ preventScroll: true });
+          focusCurrentDialogFormat();
         } else {
           open();
         }
@@ -2935,6 +2938,12 @@
         preview.hidden = true;
         preview.replaceChildren();
       };
+      const closeCandidateReview = () => {
+        setBusy(false);
+        if (status) status.hidden = true;
+        clearPreview();
+        button.focus({ preventScroll: true });
+      };
       const loadPreview = async (candidate, generation = candidateRequestGeneration) => {
         if (generation !== candidateRequestGeneration) return null;
         clearPreview();
@@ -2944,14 +2953,18 @@
             `/api/v1/cabinet/meetings/${meetingId}/summary-candidates/${candidate.candidate_id}/preview`,
             { credentials: "same-origin", cache: "no-store" }
           );
+          if (await recoverMeetingDetailFromResponse(response, { actionProblemCodes: summaryActionProblemCodes })) {
+            throw meetingDetailRecoveredError();
+          }
           if (!response.ok) return null;
           const body = await response.json();
           if (generation !== candidateRequestGeneration) return null;
           const items = Array.isArray(body.items)
             ? body.items.filter((item) => item && typeof item === "object").slice(0, 24)
             : [];
-          return items.length ? items : null;
-        } catch (_error) {
+          return items;
+        } catch (error) {
+          if (isMeetingDetailRecoveredError(error)) throw error;
           return null;
         }
       };
@@ -2966,11 +2979,11 @@
           );
           if (generation !== candidateRequestGeneration) return;
           currentOutcomeSetId = resolved.current_outcome_set_id || currentOutcomeSetId;
-          if (accept) window.location.reload();
-          else {
-            if (status) status.hidden = true;
-            clearPreview();
+          if (accept) {
+            window.sessionStorage.setItem(`graf-summary-focus-${meetingId}`, "current");
+            window.location.reload();
           }
+          else closeCandidateReview();
         } catch (error) {
           if (isMeetingDetailRecoveredError(error)) return;
           if (generation !== candidateRequestGeneration) return;
@@ -3110,6 +3123,7 @@
           preview.replaceChildren();
           preview.setAttribute("aria-label", "Предпросмотр нового варианта итогов");
           const heading = document.createElement("h3");
+          heading.id = "summary-candidate-preview-title";
           heading.textContent = "Новый вариант";
           const source = document.createElement("p");
           source.className = "summary-candidate-source";
@@ -3143,13 +3157,13 @@
             }
           } else {
             const empty = document.createElement("p");
-            empty.textContent = "Предпросмотр недоступен для этого варианта.";
+            empty.textContent = "В этом варианте нет подтверждённых пунктов.";
             preview.append(heading, source, empty);
           }
         };
         if (candidate.state === "ready") {
-          const previewItems = Array.isArray(candidate.preview) ? candidate.preview.slice(0, 24) : [];
-          if (!previewItems.length) {
+          const previewLoaded = Array.isArray(candidate.preview);
+          if (!previewLoaded) {
             clearPreview();
             setBusy(true);
             showStatus(
@@ -3159,23 +3173,42 @@
             void loadPreview(candidate, generation).then((loadedPreview) => {
               if (generation !== candidateRequestGeneration) return;
               setBusy(false);
-              if (!loadedPreview?.length) {
+              if (loadedPreview === null) {
                 showStatus(
                   "Предпросмотр пока недоступен. Текущие итоги сохранены.",
                   "failed",
-                  [{ text: "Обновить страницу", action: () => window.location.reload(), primary: true }],
+                  [{
+                    text: "Повторить предпросмотр",
+                    action: () => renderCandidate(candidate, generation),
+                    primary: true
+                  }],
                 );
                 return;
               }
               renderCandidate({ ...candidate, preview: loadedPreview }, generation);
+            }).catch((error) => {
+              if (isMeetingDetailRecoveredError(error)) return;
+              if (generation !== candidateRequestGeneration) return;
+              setBusy(false);
+              showStatus(
+                "Предпросмотр пока недоступен. Текущие итоги сохранены.",
+                "failed",
+                [{
+                  text: "Повторить предпросмотр",
+                  action: () => renderCandidate(candidate, generation),
+                  primary: true
+                }],
+              );
             });
             return;
           }
           showStatus(`Вариант «${candidate.format_name || activeTemplate?.name || "итогов"}» готов. Текущие итоги сохранены.`, "ready", [
-            { text: "Оставить текущие", action: () => resolveCandidate(candidate, false, generation) },
+            { text: "Закрыть сравнение", action: closeCandidateReview },
+            { text: "Отклонить вариант", action: () => resolveCandidate(candidate, false, generation) },
             { text: "Использовать", action: () => resolveCandidate(candidate, true, generation), primary: true }
           ]);
           renderPreview();
+          preview?.focus({ preventScroll: false });
           return;
         }
         if (candidate.state === "accepted") {
@@ -3238,9 +3271,9 @@
         if (document.hidden || pollAttempts >= 40 || (pollDeadline && Date.now() >= pollDeadline)) {
           if (pollAttempts >= 40 || (pollDeadline && Date.now() >= pollDeadline)) {
             setBusy(false);
-            showStatus("Генерация занимает больше обычного. Текущие итоги сохранены.", "failed", [
+            showStatus("Генерация занимает больше обычного. Текущие итоги сохранены.", "slow", [
               { text: "Проверить снова", action: () => resumeCandidatePolling(candidate, generation), primary: true },
-              { text: "Оставить текущие", action: () => { if (status) status.hidden = true; } }
+              { text: "Закрыть", action: closeCandidateReview }
             ]);
           }
           return;
@@ -3504,6 +3537,46 @@
         version: Number(option.dataset.templateVersion || "1"),
         name: option.dataset.templateName || option.textContent.trim()
       });
+      const candidateSectionLabels = new Map(candidateSections.map(([key, label]) => [key, label]));
+      const personalFormatOption = (template) => {
+        const option = document.createElement("button");
+        const safeName = typeof template.name === "string" && template.name.trim()
+          ? template.name.trim()
+          : "Личный формат";
+        const sections = Array.isArray(template.sections)
+          ? template.sections
+              .filter((section) => typeof section === "string" && section.trim())
+              .map((section) => candidateSectionLabels.get(section) || section)
+          : [];
+        option.type = "button";
+        option.dataset.summaryFormatOption = "";
+        option.dataset.templateId = template.template_id || "";
+        option.dataset.templateKey = template.template_key || "";
+        option.dataset.templateVersion = String(Number(template.version) || 1);
+        option.dataset.templateName = safeName;
+        const name = document.createElement("strong");
+        name.textContent = safeName;
+        const purpose = document.createElement("span");
+        purpose.textContent = typeof template.purpose === "string" && template.purpose.trim()
+          ? template.purpose.trim()
+          : "Назначение личного формата не указано.";
+        const expectedSections = document.createElement("small");
+        expectedSections.textContent = `Ожидаемые разделы: ${sections.length ? sections.join(", ") : "не указаны"}`;
+        option.append(name, purpose, expectedSections);
+        const isCurrent = option.dataset.templateKey === (controls.dataset.currentSummaryFormatKey || "")
+          && option.dataset.templateId === (controls.dataset.currentSummaryFormatTemplateId || "")
+          && Number(option.dataset.templateVersion)
+            === Number(controls.dataset.currentSummaryFormatVersion || "0");
+        option.setAttribute("aria-current", isCurrent ? "true" : "false");
+        if (isCurrent) {
+          option.dataset.summaryFormatCurrent = "";
+          const marker = document.createElement("small");
+          marker.className = "summary-format-current";
+          marker.textContent = "Текущий формат";
+          option.append(marker);
+        }
+        return option;
+      };
       const applyServerCandidate = (candidate) => {
         currentOutcomeSetId = candidate.current_outcome_set_id || currentOutcomeSetId;
         activeTemplate = templateFromCandidate(candidate);
@@ -3561,7 +3634,7 @@
         close({ restoreFocus: false });
         if (!(dialog instanceof HTMLDialogElement)) return;
         dialog.showModal();
-        dialog.querySelector("[data-summary-format-option]")?.focus({ preventScroll: true });
+        focusCurrentDialogFormat();
         const personalHost = dialog.querySelector("[data-summary-personal-options]");
         try {
           const response = await fetch("/api/v1/cabinet/summary-templates", { credentials: "same-origin", cache: "no-store" });
@@ -3569,17 +3642,8 @@
           const templates = await response.json();
           if (!personalHost || !templates.personal?.length) return;
           personalHost.hidden = false;
-          personalHost.replaceChildren(...templates.personal.map((template) => {
-            const option = document.createElement("button");
-            option.type = "button";
-            option.dataset.summaryFormatOption = "";
-            option.dataset.templateId = template.template_id;
-            option.dataset.templateKey = template.template_key;
-            option.dataset.templateVersion = String(template.version);
-            option.dataset.templateName = template.name;
-            option.textContent = template.name;
-            return option;
-          }));
+          personalHost.replaceChildren(...templates.personal.map(personalFormatOption));
+          if (dialog.open) focusCurrentDialogFormat();
         } catch (_error) {
           // Built-in formats remain usable when the optional personal list cannot refresh.
         }
@@ -3629,6 +3693,11 @@
         return true;
       };
       const initialCandidateLoadGeneration = candidateRequestGeneration;
+      const showCandidateHistoryFailure = () => showStatus(
+        "Не удалось проверить сохранённые варианты. Текущие итоги доступны.",
+        "attention",
+        [{ text: "Повторить", action: () => window.location.reload(), primary: true }]
+      );
       fetch(`/api/v1/cabinet/meetings/${meetingId}/summary-candidates`, {
         credentials: "same-origin",
         cache: "no-store"
@@ -3656,10 +3725,19 @@
           applyServerCandidate(latestFailure);
           return;
         }
-        resumeCachedCandidate();
+        if (!resumeCachedCandidate() && payload === null) {
+          showCandidateHistoryFailure();
+        }
       }).catch(() => {
-        resumeCachedCandidate();
+        if (!resumeCachedCandidate()) {
+          showCandidateHistoryFailure();
+        }
       });
+      const acceptedFocusKey = `graf-summary-focus-${meetingId}`;
+      if (window.sessionStorage.getItem(acceptedFocusKey) === "current") {
+        window.sessionStorage.removeItem(acceptedFocusKey);
+        window.requestAnimationFrame(() => document.querySelector("[data-summary-current-result]")?.focus({ preventScroll: false }));
+      }
     });
   };
 
@@ -3797,9 +3875,20 @@
       const loadTemplates = async () => {
         try {
           const payload = await request(endpoint);
-          renderTemplates(payload.personal || []);
+          const personal = payload.personal || [];
+          renderTemplates(personal);
           if (defaultSelect) {
             canManageDefault = payload.can_manage_default === true;
+            defaultSelect.querySelectorAll("option[data-personal-template]").forEach((option) => option.remove());
+            personal.forEach((template) => {
+              const option = document.createElement("option");
+              option.value = template.template_key;
+              option.textContent = `${template.name} — личный`;
+              option.dataset.personalTemplate = "";
+              option.dataset.templateId = template.template_id;
+              option.dataset.templateVersion = String(template.version);
+              defaultSelect.append(option);
+            });
             defaultSelect.value = payload.default_template_key;
             defaultSelect.disabled = !canManageDefault;
           }
@@ -4045,13 +4134,37 @@
   const initSourceNavigation = () => {
     if (document.body.dataset.sourceNavigationReady === "true") return;
     document.body.dataset.sourceNavigationReady = "true";
+    const returnButton = document.querySelector("[data-source-return]");
+    let sourceReturnTarget = null;
+    const clearSourceReturn = () => {
+      sourceReturnTarget = null;
+      if (returnButton) returnButton.hidden = true;
+    };
+    document.querySelectorAll("[data-detail-tab]").forEach((tab) => {
+      tab.addEventListener("click", clearSourceReturn);
+      tab.addEventListener("keydown", (event) => {
+        if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+          clearSourceReturn();
+        }
+      });
+    });
+    returnButton?.addEventListener("click", () => {
+      const target = sourceReturnTarget;
+      activateDetailTab("outcomes");
+      clearSourceReturn();
+      window.requestAnimationFrame(() => target?.focus({ preventScroll: true }));
+    });
     document.addEventListener("click", (event) => {
       const control = event.target.closest?.("[data-seek-seconds]");
       if (!control) return;
       const seconds = Number.parseFloat(control.dataset.seekSeconds || "0");
       if (!Number.isFinite(seconds)) return;
       const sourceJump = control.hasAttribute("data-source-segment");
-      if (sourceJump) activateDetailTab("recording");
+      if (sourceJump) {
+        sourceReturnTarget = control;
+        if (returnButton) returnButton.hidden = false;
+        activateDetailTab("recording");
+      }
       const player = document.querySelector("[data-playback-player]");
       if (player) {
         try {

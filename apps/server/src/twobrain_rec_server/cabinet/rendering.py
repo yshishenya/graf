@@ -58,7 +58,12 @@ from twobrain_rec_server.cabinet.templates import (
 )
 from twobrain_rec_server.deletion.report import BOUNDED_DELETE_COPY
 from twobrain_rec_server.domain.media_filenames import MANUAL_MEDIA_UPLOAD_ACCEPT
-from twobrain_rec_server.outcomes.templates import BUILT_IN_BY_KEY, BUILT_IN_TEMPLATES
+from twobrain_rec_server.outcomes.templates import (
+    BUILT_IN_BY_KEY,
+    BUILT_IN_TEMPLATES,
+    OUTCOME_CATEGORIES,
+    built_in_template_for_version,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1016,7 +1021,11 @@ def _render_meeting_detail_content(
             """,
             source="meeting_detail.empty_transcript",
         )
-    outcomes_selected = review.notes_action_truth.summary.state == "available"
+    outcomes_selected = review.notes_action_truth.summary.state == "available" or bool(
+        review.access is not None
+        and review.access.state == "owner"
+        and review.transcript.available
+    )
     content_export_available = review.content_exports is not None and (
         (
             review.transcript.available
@@ -2279,18 +2288,28 @@ def _render_revision_status(review: MeetingReviewResponse) -> str:
 
 
 def _render_notes_outcomes(review: MeetingReviewResponse) -> str:
-    primary = [
-        ("summary", "Summary", review.notes_action_truth.summary),
-        ("action_items", "Action Items", review.notes_action_truth.action_items),
-        ("decisions", "Decisions", review.notes_action_truth.decisions),
-    ]
-    secondary = [
-        ("key_points", "Key points", review.notes_action_truth.key_points),
-        ("followups", "Follow-ups", review.notes_action_truth.followups),
-        ("risks", "Risks", review.notes_action_truth.risks),
-        ("questions", "Questions", review.notes_action_truth.questions),
-        ("evidence", "Evidence", review.notes_action_truth.evidence),
-    ]
+    rows = {
+        "summary": ("summary", "Summary", review.notes_action_truth.summary),
+        "key_points": ("key_points", "Key points", review.notes_action_truth.key_points),
+        "decisions": ("decisions", "Decisions", review.notes_action_truth.decisions),
+        "action_items": (
+            "action_items",
+            "Action Items",
+            review.notes_action_truth.action_items,
+        ),
+        "followups": ("followups", "Follow-ups", review.notes_action_truth.followups),
+        "risks": ("risks", "Risks", review.notes_action_truth.risks),
+        "questions": ("questions", "Questions", review.notes_action_truth.questions),
+        "evidence": ("evidence", "Evidence", review.notes_action_truth.evidence),
+    }
+    definition = built_in_template_for_version(
+        review.template.reason,
+        review.template.template_version or 1,
+    )
+    # Personal and historical unknown templates use the stable canonical order.
+    section_order = definition.sections if definition is not None else OUTCOME_CATEGORIES
+    ordered = [rows[category] for category in section_order]
+    primary, secondary = ordered[:4], ordered[4:]
     aggregate_states = {"processing", "blocked", "unavailable", "deferred", "unsafe"}
     aggregate_candidates = [
         state for _, _, state in primary + secondary if state.state in aggregate_states
@@ -2301,8 +2320,17 @@ def _render_notes_outcomes(review: MeetingReviewResponse) -> str:
         key=lambda state: priority.get(state.state, len(priority)),
         default=None,
     )
+    fully_empty = aggregate is None and all(
+        state.state in {"not_found", "not_inferable"} and not any(
+            item.text for item in state.items
+        )
+        for _, _, state in primary + secondary
+    )
     primary = [row for row in primary if row[2].state not in aggregate_states]
     secondary = [row for row in secondary if row[2].state not in aggregate_states]
+    if fully_empty:
+        primary = []
+        secondary = []
     source_destination_available = review.transcript.available and (
         review.playback.can_play
         or bool(review.transcript.speaker_turns or review.transcript.segments)
@@ -2335,12 +2363,23 @@ def _render_notes_outcomes(review: MeetingReviewResponse) -> str:
     if secondary_count:
         secondary_label += f" ({secondary_count})"
     aggregate_html = ""
-    if aggregate is not None:
+    if fully_empty:
+        aggregate_html = (
+            '<div class="notes-aggregate-state" data-outcome-state="empty" role="status">'
+            "<strong>Полезных итогов не найдено</strong>"
+            "<p>В разговоре нет достаточно подтверждённых решений, действий "
+            "или других результатов для выбранного формата.</p>"
+            "</div>"
+        )
+    elif aggregate is not None:
         reason = _ui_text(aggregate.reason)
+        label = "Итоги готовятся" if aggregate.state == "processing" else _ui_text(
+            aggregate.label
+        )
         aggregate_html = (
             f'<div class="notes-aggregate-state" data-outcome-state="{escape(aggregate.state)}" '
             'role="status">'
-            f"<strong>{escape(_ui_text(aggregate.label))}</strong>"
+            f"<strong>{escape(label)}</strong>"
             + (f"<p>{escape(reason)}</p>" if reason else "")
             + "</div>"
         )
