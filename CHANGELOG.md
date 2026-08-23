@@ -33,7 +33,7 @@
 - _Пока нет записей._
 
 ### Изменено
-- Экраны ввода email-кода в web и macOS теперь используют общий набор из
+- Экраны ввода email-кода в web и встроенном macOS-кабинете теперь используют общий набор из
   шести отдельных квадратных ячеек с одинаковой клавиатурной навигацией,
   вставкой и автозаполнением (Feature 190, PR #5560).
 
@@ -7797,12 +7797,3 @@
 - Added production read-only RLS state verification output for covered-table
   counts, enabled/forced counts, failed tables, deployed commit, and Alembic
   revision (`feature:032`, `T015-T020`, `T028-T037`).
-
-## [Unreleased Template]
-
-### Added
-### Changed
-### Fixed
-### Security
-### Docs
-### Ops
