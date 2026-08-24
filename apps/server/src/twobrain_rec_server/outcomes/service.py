@@ -5,7 +5,8 @@ from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from uuid import UUID, uuid4
 
-from sqlalchemy import func, nullslast, select
+from sqlalchemy import func, nullslast, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from twobrain_rec_server.cabinet.speakers import (
@@ -54,6 +55,24 @@ from twobrain_rec_server.processing.fences import (
 from twobrain_rec_server.processing.store import ProcessingLifecycleBlocked
 
 BASELINE_TEMPLATE_KEY = "graf-auto-v1"
+
+
+class SummarySlotDefaultConflict(ValueError):
+    """The meeting already has a different persisted default summary type."""
+
+
+MAX_SUMMARY_STATE_VERSION = 2**63 - 1
+
+
+class SummaryStateVersionExhausted(RuntimeError):
+    """A summary type can no longer advance its signed client version."""
+
+
+def advance_summary_slot_state_version(slot: MeetingSummarySlot) -> int:
+    if slot.state_version >= MAX_SUMMARY_STATE_VERSION:
+        raise SummaryStateVersionExhausted("summary_state_version_exhausted")
+    slot.state_version += 1
+    return slot.state_version
 
 
 def _baseline_template_provenance() -> tuple[str, int, str]:
@@ -504,32 +523,7 @@ async def _load_current_outcome_set(
             )
         )
 
-    # Compatibility is limited to the one explicit pre-slot meeting pointer.
-    # A missing slot must never turn into a newest-row inference.
-    meeting = await db.scalar(
-        select(Meeting).where(
-            Meeting.id == result.meeting_id,
-            Meeting.workspace_id == result.workspace_id,
-        )
-    )
-    if meeting is None or meeting.current_outcome_set_id is None:
-        return None
-    conditions = [
-        MeetingOutcomeSet.workspace_id == result.workspace_id,
-        MeetingOutcomeSet.meeting_id == result.meeting_id,
-        MeetingOutcomeSet.id == meeting.current_outcome_set_id,
-        MeetingOutcomeSet.media_revision_id == result.media_revision_id,
-        MeetingOutcomeSet.processing_result_id == result.id,
-        MeetingOutcomeSet.generator_version == OUTCOME_GENERATOR_VERSION,
-    ]
-    if generator_config_hash is not None:
-        conditions.append(
-            (MeetingOutcomeSet.generator_config_hash == generator_config_hash)
-            | MeetingOutcomeSet.generator_config_hash.is_(None)
-        )
-    return await db.scalar(
-        select(MeetingOutcomeSet).where(*conditions)
-    )
+    return None
 
 
 async def load_summary_slot(
@@ -584,9 +578,145 @@ async def ensure_summary_slot(
         default_resolution_version=default_resolution_version,
         default_resolved_at=default_resolved_at,
     )
-    db.add(slot)
-    await db.flush()
+    try:
+        # The unique slot key is the linearization point for concurrent first
+        # ensure requests. Keep the outer transaction usable when another
+        # request wins the insert race.
+        async with db.begin_nested():
+            db.add(slot)
+            await db.flush()
+    except IntegrityError as exc:
+        if "uq_meeting_summary_slots_workspace_meeting_type" not in str(exc):
+            raise
+        existing = await load_summary_slot(
+            db,
+            workspace_id=workspace_id,
+            meeting_id=meeting_id,
+            template_key=template_key,
+        )
+        if existing is None:
+            raise
+        return existing
     return slot
+
+
+async def load_meeting_default_slot(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+    for_update: bool = False,
+) -> MeetingSummarySlot | None:
+    query = select(MeetingSummarySlot).where(
+        MeetingSummarySlot.workspace_id == workspace_id,
+        MeetingSummarySlot.meeting_id == meeting_id,
+        MeetingSummarySlot.is_meeting_default.is_(True),
+    )
+    if for_update:
+        query = query.with_for_update()
+    return await db.scalar(query)
+
+
+async def mark_meeting_default_slot(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+    template_key: str,
+    resolution_source: str,
+    resolution_version: str,
+    resolved_at: datetime,
+) -> MeetingSummarySlot:
+    """Persist the meeting default once; viewer preferences never participate."""
+    meeting = await db.scalar(
+        select(Meeting)
+        .where(Meeting.workspace_id == workspace_id, Meeting.id == meeting_id)
+        .with_for_update()
+    )
+    if meeting is None:
+        raise ValueError("meeting_not_found")
+
+    existing = await load_meeting_default_slot(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        for_update=True,
+    )
+    if existing is not None:
+        if existing.template_key != template_key:
+            raise SummarySlotDefaultConflict("summary_default_conflict")
+        return existing
+
+    return await ensure_summary_slot(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        template_key=template_key,
+        is_meeting_default=True,
+        default_resolution_source=resolution_source,
+        default_resolution_version=resolution_version,
+        default_resolved_at=resolved_at,
+    )
+
+
+async def load_egress_default_outcome(
+    db: AsyncSession,
+    *,
+    meeting: Meeting,
+    slot: MeetingSummarySlot | None,
+) -> MeetingOutcomeSet | None:
+    """Validate the pinned default revision without consulting viewer state."""
+
+    if slot is None or slot.current_outcome_set_id is None:
+        return None
+    return await load_pinned_egress_outcome(
+        db,
+        meeting=meeting,
+        template_key=slot.template_key,
+        outcome_set_id=slot.current_outcome_set_id,
+    )
+
+
+async def load_pinned_egress_outcome(
+    db: AsyncSession,
+    *,
+    meeting: Meeting,
+    template_key: str,
+    outcome_set_id: UUID,
+) -> MeetingOutcomeSet | None:
+    """Validate one immutable template/revision pair for outward projection."""
+
+    outcome = await db.scalar(
+        select(MeetingOutcomeSet).where(
+            MeetingOutcomeSet.id == outcome_set_id,
+            MeetingOutcomeSet.workspace_id == meeting.workspace_id,
+            MeetingOutcomeSet.meeting_id == meeting.id,
+            MeetingOutcomeSet.template_key == template_key,
+            MeetingOutcomeSet.lifecycle_state == "active",
+            MeetingOutcomeSet.status.in_((OutcomeSetStatus.AVAILABLE.value, OutcomeSetStatus.PARTIAL.value)),
+            or_(
+                MeetingOutcomeSet.revision_state.is_(None),
+                MeetingOutcomeSet.revision_state == "accepted",
+            ),
+        )
+    )
+    if outcome is None:
+        return None
+    result = await db.scalar(
+        select(ProcessingResult).where(
+            ProcessingResult.id == outcome.processing_result_id,
+            ProcessingResult.workspace_id == meeting.workspace_id,
+            ProcessingResult.meeting_id == meeting.id,
+            ProcessingResult.status == ProcessingResultStatus.IMPORTED.value,
+        )
+    )
+    if result is None or outcome.media_revision_id != result.media_revision_id:
+        return None
+    result_source_hash = result.source_result_hash or sha256(
+        f"legacy-processing-result:{result.id}".encode()
+    ).hexdigest()
+    outcome_source_hash = outcome.source_result_hash or result_source_hash
+    return outcome if outcome_source_hash == result_source_hash else None
 
 
 async def load_outcome_transcript_segments(

@@ -41,6 +41,10 @@ from twobrain_rec_server.db.models import (
 )
 from twobrain_rec_server.db.tenant_context import TenantDatabaseContext, apply_tenant_context
 from twobrain_rec_server.domain.statuses import DeletionState
+from twobrain_rec_server.outcomes.service import (
+    load_egress_default_outcome,
+    load_meeting_default_slot,
+)
 from twobrain_rec_server.processing.audit import safe_denied_access_metadata
 
 TEAM_VISIBLE_VALUES = {"team", "team_visible", "workspace", "workspace_visible"}
@@ -860,6 +864,24 @@ async def create_scoped_share_grant(
     )
     if not decision.can_share:
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
+    default_slot = await load_meeting_default_slot(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting.id,
+    )
+    default_outcome = await load_egress_default_outcome(
+        db,
+        meeting=meeting,
+        slot=default_slot,
+    )
+    summary_pin = (
+        {
+            "template_key": default_slot.template_key,
+            "outcome_set_id": str(default_outcome.id),
+        }
+        if default_slot is not None and default_outcome is not None
+        else None
+    )
     if audience_type == "user" and audience_id is not None:
         await enforce_share_rate_limit(
             db,
@@ -924,6 +946,10 @@ async def create_scoped_share_grant(
             existing.can_export = can_export
             existing.expires_at = expires_at
             existing.rotated_at = datetime.now(UTC)
+            existing.metadata_json = _with_summary_revision_pin(
+                existing.metadata_json,
+                summary_pin,
+            )
             await record_egress_audit_event(
                 db,
                 workspace_id=workspace_id,
@@ -986,6 +1012,7 @@ async def create_scoped_share_grant(
         existing.can_export = can_export
         existing.expires_at = expires_at
         existing.rotated_at = datetime.now(UTC)
+        existing.metadata_json = _with_summary_revision_pin(existing.metadata_json, summary_pin)
         await record_egress_audit_event(
             db,
             workspace_id=workspace_id,
@@ -1014,7 +1041,10 @@ async def create_scoped_share_grant(
         expires_at=expires_at,
         created_by_user_id=actor_user_id,
         status="active",
-        metadata_json={"source": "recording_share_dialog"},
+        metadata_json=_with_summary_revision_pin(
+            {"source": "recording_share_dialog"},
+            summary_pin,
+        ),
         created_at=datetime.now(UTC),
     )
     db.add(grant)
@@ -1031,6 +1061,16 @@ async def create_scoped_share_grant(
     )
     await db.flush()
     return grant, raw_token
+
+
+def _with_summary_revision_pin(
+    metadata: dict | None,
+    summary_pin: dict[str, str] | None,
+) -> dict:
+    result = dict(metadata or {})
+    if summary_pin is not None:
+        result["summary_revision"] = summary_pin
+    return result
 
 
 async def rotate_share_link(

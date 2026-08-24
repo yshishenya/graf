@@ -4,16 +4,12 @@ import asyncio
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from hashlib import sha256
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import select
 
 from tests.fixtures.cabinet import create_outcome_ready_meeting
-from twobrain_rec_server.api.cabinet import (
-    _summary_candidate_preview_item,
-    _summary_candidate_segments_by_id,
-)
 from twobrain_rec_server.cabinet.egress import current_outcome_set
 from twobrain_rec_server.cabinet.speakers import save_speaker_name
 from twobrain_rec_server.config import Settings
@@ -23,13 +19,11 @@ from twobrain_rec_server.db.models import (
     MediaScribeJob,
     Meeting,
     MeetingOutcomeGenerationAttempt,
-    MeetingOutcomeItem,
     MeetingOutcomeSet,
     MeetingSpeakerName,
     MeetingSummarySlot,
     ProcessingResult,
     SummaryTemplate,
-    TranscriptSegment,
 )
 from twobrain_rec_server.domain.speaker_turns import stable_speaker_key
 from twobrain_rec_server.ingest.desktop_sync import (
@@ -38,11 +32,14 @@ from twobrain_rec_server.ingest.desktop_sync import (
 from twobrain_rec_server.outcomes.ai_service import (
     AI_GENERATOR_VERSION,
     OutcomeGenerationTerminalError,
+    SummarySlotCASConflict,
     _candidate_segments,
     _canonical_source_refs,
+    _cas_summary_slot,
     _stored_prompt_snapshot,
     create_summary_candidate,
     execute_candidate_generation,
+    publish_model_generated_outcome,
     resolve_summary_candidate,
 )
 from twobrain_rec_server.outcomes.generator import canonical_transcript
@@ -286,78 +283,6 @@ def test_candidate_segments_preserve_overlapping_provider_turn_ids(client) -> No
     assert segment_ids == provider_ids
 
 
-def test_legacy_asr_source_ref_maps_to_one_provider_turn_without_sequence_guessing(client) -> None:
-    meeting_id = create_outcome_ready_meeting(client, "legacy-source-ref")
-
-    async def run() -> tuple[str, str, str]:
-        async with client.app_state["sessionmaker"]() as db:
-            result = await db.scalar(
-                select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
-            )
-            assert result is not None
-            transcript = await db.scalar(
-                select(TranscriptSegment)
-                .where(TranscriptSegment.processing_result_id == result.id)
-                .order_by(TranscriptSegment.sequence)
-            )
-            provider = await db.scalar(
-                select(DiarizationSegment)
-                .where(DiarizationSegment.processing_result_id == result.id)
-                .order_by(DiarizationSegment.sequence)
-            )
-            assert transcript is not None and provider is not None
-            provider.sequence = 100
-            await db.flush()
-            attempt = MeetingOutcomeGenerationAttempt(
-                workspace_id=result.workspace_id,
-                meeting_id=result.meeting_id,
-                source_result_id=result.id,
-            )
-
-            segments_by_id = await _summary_candidate_segments_by_id(db, attempt)
-
-            mapped = segments_by_id[str(transcript.id)]
-            return str(transcript.id), str(provider.id), str(mapped.segment_id)
-
-    transcript_id, provider_id, mapped_id = asyncio.run(run())
-
-    assert transcript_id != provider_id
-    assert mapped_id == provider_id
-
-
-def test_legacy_source_refs_mapping_to_one_canonical_turn_are_shown_once() -> None:
-    canonical_id = uuid4()
-    canonical = OutcomeTranscriptSegment(
-        segment_id=canonical_id,
-        sequence=7,
-        start_seconds=Decimal("12.000"),
-        end_seconds=Decimal("13.000"),
-        speaker_label="SPEAKER_00",
-        source_role="mixed",
-        text="synthetic",
-    )
-    first_legacy_id = uuid4()
-    second_legacy_id = uuid4()
-    item = MeetingOutcomeItem(
-        category="summary",
-        sequence=0,
-        source_refs_json=[
-            {"transcript_segment_id": str(first_legacy_id)},
-            {"transcript_segment_id": str(second_legacy_id)},
-        ],
-    )
-
-    preview = _summary_candidate_preview_item(
-        item,
-        {
-            str(first_legacy_id): canonical,
-            str(second_legacy_id): canonical,
-        },
-    )
-
-    assert [ref.transcript_segment_id for ref in preview.source_refs] == [canonical_id]
-
-
 def test_candidate_segments_use_unknown_without_diarization(client) -> None:
     meeting_id = create_outcome_ready_meeting(client, "unknown-candidate-speaker")
 
@@ -460,7 +385,7 @@ def test_rejected_revision_baseline_is_not_reopened_by_automatic_reconcile(clien
     assert current_id is None
 
 
-def test_review_reads_the_accepted_pointer_instead_of_the_newest_outcome(client) -> None:
+def test_review_reads_the_default_slot_instead_of_the_newest_outcome(client) -> None:
     meeting_id = create_outcome_ready_meeting(client)
 
     async def run():
@@ -478,11 +403,26 @@ def test_review_reads_the_accepted_pointer_instead_of_the_newest_outcome(client)
                 processing_result_id=result.id,
                 status="available",
                 generator_version="accepted-test-v1",
+                template_key="graf-auto-v1",
+                template_version=1,
                 revision_state="accepted",
             )
             db.add(accepted)
             await db.flush()
-            meeting.current_outcome_set_id = accepted.id
+            db.add(
+                MeetingSummarySlot(
+                    workspace_id=meeting.workspace_id,
+                    meeting_id=meeting.id,
+                    template_key="graf-auto-v1",
+                    current_outcome_set_id=accepted.id,
+                    current_binding_class="verified_complete",
+                    is_meeting_default=True,
+                    default_resolution_source="explicit_meeting",
+                    default_resolution_version="test-default-v1",
+                    default_resolved_at=datetime.now(UTC),
+                )
+            )
+            await db.flush()
             candidate = MeetingOutcomeSet(
                 workspace_id=meeting.workspace_id,
                 meeting_id=meeting.id,
@@ -490,6 +430,8 @@ def test_review_reads_the_accepted_pointer_instead_of_the_newest_outcome(client)
                 processing_result_id=result.id,
                 status="available",
                 generator_version="newer-candidate-test-v1",
+                template_key="graf-auto-v1",
+                template_version=1,
                 revision_state="candidate",
             )
             db.add(candidate)
@@ -506,6 +448,55 @@ def test_review_reads_the_accepted_pointer_instead_of_the_newest_outcome(client)
 
     assert selected_id == accepted_id
     assert selected_id != candidate_id
+
+
+def test_candidate_pins_target_slot_and_expected_current_for_workflow_submission(client) -> None:
+    meeting_id = create_outcome_ready_meeting(client, "candidate-workflow-slot-identity")
+
+    async def run() -> tuple[UUID, UUID, dict]:
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.get(Meeting, meeting_id)
+            result = await db.scalar(
+                select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
+            )
+            assert meeting is not None and result is not None
+            prior = MeetingOutcomeSet(
+                id=uuid4(),
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                processing_result_id=result.id,
+                template_key="graf-auto-v1",
+                status="available",
+                revision_state="accepted",
+                generator_version="workflow-slot-prior",
+                source_fingerprint=f"result:{result.id}",
+                deletion_epoch_at_start=meeting.deletion_epoch,
+            )
+            slot = MeetingSummarySlot(
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                template_key="graf-auto-v1",
+                current_outcome_set_id=prior.id,
+                current_binding_class="verified_complete",
+            )
+            db.add_all([prior, slot])
+            await db.flush()
+            attempt = await create_summary_candidate(
+                db,
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                requested_by_user_id=meeting.created_by_user_id,
+                template_key="graf-auto-v1",
+                template_id=None,
+                template_version=1,
+                expected_current_outcome_set_id=prior.id,
+            )
+            await db.rollback()
+            return slot.id, prior.id, attempt.metadata_json
+
+    slot_id, expected_id, metadata = asyncio.run(run())
+    assert metadata["summary_slot_id"] == str(slot_id)
+    assert metadata["expected_current_outcome_set_id"] == str(expected_id)
 
 
 def test_archived_personal_template_replays_pinned_candidate_but_cannot_start_new_one(
@@ -727,6 +718,107 @@ def test_same_format_requires_explicit_refresh_and_refresh_is_idempotent(client)
     assert first.candidate_id != second.candidate_id
     assert format_first.candidate_id == format_terminal_replay.candidate_id
     assert ":retry:" not in (format_first.idempotency_key or "")
+
+
+def test_db_only_refresh_replaces_one_slot_and_keeps_last_known_good_global_pointer(client) -> None:
+    meeting_id = create_outcome_ready_meeting(client, "db-only-slot-refresh")
+
+    async def run() -> tuple:
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.get(Meeting, meeting_id)
+            result = await db.scalar(
+                select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
+            )
+            assert meeting is not None and result is not None
+            source_fingerprint = f"result:{result.id}"
+            old = MeetingOutcomeSet(
+                id=uuid4(),
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                processing_result_id=result.id,
+                template_key="graf-auto-v1",
+                status="available",
+                revision_state="accepted",
+                generator_version="db-only-old",
+                source_fingerprint=source_fingerprint,
+                deletion_epoch_at_start=meeting.deletion_epoch,
+            )
+            slot = MeetingSummarySlot(
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                template_key="graf-auto-v1",
+                current_outcome_set_id=old.id,
+            )
+            db.add_all([old, slot])
+            await db.flush()
+            meeting.current_outcome_set_id = old.id
+            replacement = MeetingOutcomeSet(
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                processing_result_id=result.id,
+                template_key="graf-auto-v1",
+                status="available",
+                revision_state="candidate",
+                generator_version="db-only-new",
+                source_fingerprint=source_fingerprint,
+                deletion_epoch_at_start=meeting.deletion_epoch,
+            )
+            db.add(replacement)
+            await db.flush()
+
+            await _cas_summary_slot(
+                db,
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                template_key="graf-auto-v1",
+                replacement_outcome_set_id=replacement.id,
+                expected_current_outcome_set_id=old.id,
+                expected_source_fingerprint=source_fingerprint,
+                expected_deletion_epoch=meeting.deletion_epoch,
+            )
+            await db.flush()
+            assert slot.current_outcome_set_id == replacement.id
+            assert old.revision_state == "superseded"
+            assert replacement.revision_state == "accepted"
+            assert replacement.supersedes_outcome_set_id == old.id
+            assert meeting.current_outcome_set_id == old.id
+
+            await _cas_summary_slot(
+                db,
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                template_key="graf-auto-v1",
+                replacement_outcome_set_id=replacement.id,
+                expected_current_outcome_set_id=replacement.id,
+                expected_source_fingerprint=source_fingerprint,
+                expected_deletion_epoch=meeting.deletion_epoch,
+            )
+            with pytest.raises(SummarySlotCASConflict):
+                await _cas_summary_slot(
+                    db,
+                    workspace_id=meeting.workspace_id,
+                    meeting_id=meeting.id,
+                    template_key="graf-auto-v1",
+                    replacement_outcome_set_id=old.id,
+                    expected_current_outcome_set_id=old.id,
+                    expected_source_fingerprint=source_fingerprint,
+                    expected_deletion_epoch=meeting.deletion_epoch,
+                )
+            with pytest.raises(
+                OutcomeGenerationTerminalError, match="verified_runtime_unavailable"
+            ):
+                await publish_model_generated_outcome(
+                    db,
+                    workspace_id=meeting.workspace_id,
+                    meeting_id=meeting.id,
+                    candidate_id=uuid4(),
+                    expected_current_outcome_set_id=replacement.id,
+                )
+            return slot.current_outcome_set_id, meeting.current_outcome_set_id, replacement.id
+
+    current_id, global_id, replacement_id = asyncio.run(run())
+    assert current_id == replacement_id
+    assert global_id is not None and global_id != current_id
 
 
 def test_manual_refresh_does_not_reuse_accepted_ai_candidate(client) -> None:
@@ -1137,7 +1229,7 @@ def test_personal_candidate_pins_template_and_generator_provenance(client) -> No
     assert template_key == "personal-provenance"
 
 
-def test_accept_candidate_is_atomic_and_rejects_stale_expected_revision(client) -> None:
+def test_retired_candidate_resolution_is_fail_closed_without_state_change(client) -> None:
     meeting_id = create_outcome_ready_meeting(client)
 
     async def run():
@@ -1169,7 +1261,7 @@ def test_accept_candidate_is_atomic_and_rejects_stale_expected_revision(client) 
             attempt.outcome_set_id = candidate.id
             attempt.status = "candidate"
             with pytest.raises(
-                OutcomeGenerationTerminalError, match="verified_runtime_unavailable"
+                OutcomeGenerationTerminalError, match="summary_candidate_deprecated"
             ):
                 await resolve_summary_candidate(
                     db,
@@ -1198,7 +1290,7 @@ def test_accept_candidate_is_atomic_and_rejects_stale_expected_revision(client) 
     assert status == "candidate"
 
 
-def test_speaker_name_change_stales_candidate_before_acceptance(client) -> None:
+def test_retired_resolution_does_not_mutate_after_speaker_change(client) -> None:
     meeting_id = create_outcome_ready_meeting(client, "speaker-freshness-fence")
 
     async def run() -> tuple[str, str | None, str]:
@@ -1250,7 +1342,7 @@ def test_speaker_name_change_stales_candidate_before_acceptance(client) -> None:
         async with client.app_state["sessionmaker"]() as db:
             with pytest.raises(
                 OutcomeGenerationTerminalError,
-                match="summary_source_revision_stale",
+                match="summary_candidate_deprecated",
             ):
                 await resolve_summary_candidate(
                     db,
@@ -1274,9 +1366,9 @@ def test_speaker_name_change_stales_candidate_before_acceptance(client) -> None:
             return persisted.status, persisted.failure_code, outcome.revision_state
 
     status, failure_code, revision_state = asyncio.run(run())
-    assert status == "stale"
-    assert failure_code == "summary_source_revision_stale"
-    assert revision_state == "stale"
+    assert status == "candidate"
+    assert failure_code is None
+    assert revision_state == "candidate"
 
 
 def test_speaker_name_change_rekeys_generation_and_stales_active_attempt(client) -> None:
@@ -1335,7 +1427,7 @@ def test_speaker_name_change_rekeys_generation_and_stales_active_attempt(client)
     assert count == 2
 
 
-def test_reject_stale_candidate_closes_it_after_a_new_transcript_result(client) -> None:
+def test_retired_resolution_does_not_close_stale_candidate(client) -> None:
     meeting_id = create_outcome_ready_meeting(client)
 
     async def run():
@@ -1389,7 +1481,7 @@ def test_reject_stale_candidate_closes_it_after_a_new_transcript_result(client) 
             await db.flush()
 
             with pytest.raises(
-                OutcomeGenerationTerminalError, match="summary_source_revision_stale"
+                OutcomeGenerationTerminalError, match="summary_candidate_deprecated"
             ):
                 await resolve_summary_candidate(
                     db,
@@ -1404,12 +1496,12 @@ def test_reject_stale_candidate_closes_it_after_a_new_transcript_result(client) 
             return attempt.status, attempt.failure_code, candidate.revision_state
 
     status, failure_code, revision_state = asyncio.run(run())
-    assert status == "stale"
-    assert failure_code == "summary_source_revision_stale"
-    assert revision_state == "stale"
+    assert status == "candidate"
+    assert failure_code is None
+    assert revision_state == "candidate"
 
 
-def test_resolving_an_already_accepted_candidate_cannot_reject_the_current_pointer(
+def test_retired_resolution_does_not_reject_the_current_pointer(
     client,
 ) -> None:
     meeting_id = create_outcome_ready_meeting(client)
@@ -1449,7 +1541,7 @@ def test_resolving_an_already_accepted_candidate_cannot_reject_the_current_point
             attempt.outcome_set_id = candidate.id
             attempt.status = "candidate"
             with pytest.raises(
-                OutcomeGenerationTerminalError, match="verified_runtime_unavailable"
+                OutcomeGenerationTerminalError, match="summary_candidate_deprecated"
             ):
                 await resolve_summary_candidate(
                     db,
@@ -1479,7 +1571,7 @@ def test_resolving_an_already_accepted_candidate_cannot_reject_the_current_point
             )
             await db.flush()
             with pytest.raises(
-                OutcomeGenerationTerminalError, match="summary_source_revision_stale"
+                OutcomeGenerationTerminalError, match="summary_candidate_deprecated"
             ):
                 await resolve_summary_candidate(
                     db,
@@ -1504,8 +1596,8 @@ def test_resolving_an_already_accepted_candidate_cannot_reject_the_current_point
 
     current_id, revision_state, status = asyncio.run(run())
     assert current_id is None
-    assert revision_state == "stale"
-    assert status == "stale"
+    assert revision_state == "candidate"
+    assert status == "candidate"
 
 
 def test_new_source_after_reservation_is_blocked_before_litellm_egress(

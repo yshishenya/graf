@@ -3,7 +3,7 @@ import re
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from cryptography.fernet import Fernet
 from sqlalchemy import select
@@ -34,6 +34,7 @@ from twobrain_rec_server.db.models import (
     MeetingOutcomeSet,
     MeetingShareGrant,
     MeetingShareInvitation,
+    MeetingSummarySlot,
     ProcessingResult,
     RecordingCalendarContextLink,
     RegisteredDevice,
@@ -356,6 +357,112 @@ def test_public_summary_link_rotation_and_revocation_invalidate_old_tokens(clien
     finally:
         settings.share_public_links_enabled = previous
         settings.share_public_links_abuse_gate_approved = previous_abuse_gate
+
+
+def test_public_summary_link_pins_default_revision_across_refresh(client) -> None:
+    seeds = seed_cabinet_meetings(client)
+    asyncio.run(_seed_external_full_summary(client, seeds.ready_id))
+    settings = client.app.state.settings
+    previous_enabled = settings.share_public_links_enabled
+    previous_gate = settings.share_public_links_abuse_gate_approved
+    settings.share_public_links_enabled = True
+    settings.share_public_links_abuse_gate_approved = True
+    try:
+        created = client.post(
+            f"/api/v1/cabinet/meetings/{seeds.ready_id}/shares",
+            headers=auth_headers(),
+            json={
+                "audience_type": "link",
+                "content_scope": "summary_only",
+                "can_download": False,
+                "can_export": False,
+                "expires_at": (datetime.now(UTC) + timedelta(hours=1)).isoformat(),
+            },
+        )
+        assert created.status_code == 201, created.text
+        share_url = created.json()["share_url"]
+        grant_id = UUID(created.json()["grant"]["grant_id"])
+
+        async def read_pin() -> str:
+            async with client.app_state["sessionmaker"]() as db:
+                grant = await db.get(MeetingShareGrant, grant_id)
+                assert grant is not None
+                return grant.metadata_json["summary_revision"]["outcome_set_id"]
+
+        pinned_id = asyncio.run(read_pin())
+
+        async def refresh() -> UUID:
+            async with client.app_state["sessionmaker"]() as db:
+                meeting = await db.get(Meeting, seeds.ready_id)
+                result = await db.scalar(
+                    select(ProcessingResult).where(ProcessingResult.meeting_id == seeds.ready_id)
+                )
+                assert meeting is not None and result is not None
+                refreshed = MeetingOutcomeSet(
+                    workspace_id=meeting.workspace_id,
+                    meeting_id=meeting.id,
+                    media_revision_id=result.media_revision_id,
+                    processing_result_id=result.id,
+                    status="available",
+                    summary_state="available",
+                    key_points_state="not_found",
+                    decisions_state="not_found",
+                    action_items_state="not_found",
+                    followups_state="not_found",
+                    risks_state="not_found",
+                    questions_state="not_found",
+                    evidence_state="available",
+                    source_kind="extractive_generator",
+                    generator_kind="deterministic_extractive",
+                    generator_version="fixture-share-refresh-v2",
+                    template_key="graf-auto-v1",
+                    template_version=1,
+                    content_hash="fixture-share-refresh-hash-v2",
+                    lifecycle_state="active",
+                    revision_state="accepted",
+                    generated_at=datetime.now(UTC),
+                )
+                db.add(refreshed)
+                await db.flush()
+                db.add(
+                    MeetingOutcomeItem(
+                        workspace_id=meeting.workspace_id,
+                        meeting_id=meeting.id,
+                        outcome_set_id=refreshed.id,
+                        category="summary",
+                        sequence=0,
+                        state="available",
+                        text="Обновлённый итог.",
+                        truth_label="supported",
+                        source_refs_json=[],
+                    )
+                )
+                meeting.current_outcome_set_id = refreshed.id
+                await db.commit()
+                return refreshed.id
+
+        refreshed_id = asyncio.run(refresh())
+        assert pinned_id != str(refreshed_id)
+        after = client.get(share_url)
+        assert after.status_code == 200, after.text
+        assert "Сохранённый итог." in after.text
+        assert "Обновлённый итог." not in after.text
+
+        async def default_slot() -> MeetingSummarySlot | None:
+            async with client.app_state["sessionmaker"]() as db:
+                return await db.scalar(
+                    select(MeetingSummarySlot).where(
+                        MeetingSummarySlot.meeting_id == seeds.ready_id,
+                        MeetingSummarySlot.is_meeting_default.is_(True),
+                    )
+                )
+
+        slot = asyncio.run(default_slot())
+        assert slot is not None
+        assert str(slot.current_outcome_set_id) == pinned_id
+    finally:
+        settings.share_public_links_enabled = previous_enabled
+        settings.share_public_links_abuse_gate_approved = previous_gate
 
 
 def test_revoked_user_grant_can_be_recreated_and_revoked_again(client) -> None:
@@ -1165,6 +1272,8 @@ async def _seed_external_full_summary(client, meeting_id) -> None:
             source_kind="extractive_generator",
             generator_kind="deterministic_extractive",
             generator_version="fixture-share-egress-v1",
+            template_key="graf-auto-v1",
+            template_version=1,
             content_hash="fixture-share-egress-summary-hash",
             lifecycle_state="active",
             generated_at=datetime.now(UTC),
@@ -1174,6 +1283,18 @@ async def _seed_external_full_summary(client, meeting_id) -> None:
         await db.flush()
         outcome_set.accepted_at = outcome_set.generated_at
         meeting.current_outcome_set_id = outcome_set.id
+        slot = MeetingSummarySlot(
+            workspace_id=meeting.workspace_id,
+            meeting_id=meeting_id,
+            template_key="graf-auto-v1",
+            current_outcome_set_id=outcome_set.id,
+            current_binding_class="verified_complete",
+            is_meeting_default=True,
+            default_resolution_source="explicit_meeting",
+            default_resolution_version="slot-fixture-v1",
+            default_resolved_at=datetime.now(UTC),
+        )
+        db.add(slot)
         db.add(
             MeetingOutcomeItem(
                 workspace_id=meeting.workspace_id,

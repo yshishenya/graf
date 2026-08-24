@@ -94,6 +94,59 @@ def test_candidate_ui_keeps_current_notes_without_a_decision_surface() -> None:
     assert "data-summary-candidate-preview" not in MEETING_TEMPLATE.read_text(encoding="utf-8")
 
 
+def test_summary_type_response_exposes_bounded_state_not_internal_candidate_content(client) -> None:
+    meeting_id = create_outcome_ready_meeting(client, "summary-state-contract")
+    read = client.get(
+        f"/api/v1/cabinet/meetings/{meeting_id}/summaries/graf-meeting-minutes-v1",
+        headers=auth_headers(),
+    )
+
+    assert read.status_code == 200
+    initial = read.json()
+    assert initial["catalog_entry"]["result_state"] == "absent"
+    assert initial["catalog_entry"]["source_state"] == "current"
+    assert initial["catalog_entry"]["generation_state"] == "idle"
+    assert initial["copy_capability"]["authorized"] is False
+    assert set(initial["attempt"] or {}) <= {
+        "attempt_id",
+        "generation_state",
+        "reason_code",
+        "retryable",
+        "next_action",
+        "poll_after_ms",
+    }
+    assert "candidate_id" not in initial
+    assert "preview" not in initial
+    assert "raw_response" not in initial
+
+    client.app.state.settings.outcome_generation_enabled = True
+    client.app.state.outcome_temporal_client = FakeTemporalClient()
+    ensured = client.post(
+        f"/api/v1/cabinet/meetings/{meeting_id}/summaries/graf-meeting-minutes-v1/ensure",
+        headers=auth_headers(),
+        json={"schema_version": 1, "idempotency_key": "summary-state-contract-0001"},
+    )
+
+    assert ensured.status_code == 202
+    preparing = ensured.json()
+    assert preparing["catalog_entry"]["result_state"] == "absent"
+    assert preparing["catalog_entry"]["generation_state"] in {"preparing", "updating"}
+    assert preparing["current_outcome_set_id"] is None
+    assert preparing["outcome_set_id"] is None
+    assert preparing["copy_capability"]["authorized"] is False
+    assert preparing["attempt"] is not None
+    assert set(preparing["attempt"]) <= {
+        "attempt_id",
+        "generation_state",
+        "reason_code",
+        "retryable",
+        "next_action",
+        "poll_after_ms",
+    }
+    assert "candidate_id" not in preparing
+    assert "preview" not in preparing
+
+
 def test_candidate_content_is_not_rendered_in_the_meeting_shell() -> None:
     script = CABINET_JS.read_text(encoding="utf-8")
 
@@ -347,7 +400,7 @@ def test_temporal_dispatch_failure_keeps_candidate_retryable_and_current_summary
     )
 
     assert response.status_code == 503
-    assert response.json()["code"] == "summary_generation_unavailable"
+    assert response.json()["code"] == "summary_dependency_unavailable"
 
     async def load_candidate() -> MeetingOutcomeGenerationAttempt | None:
         async with client.app_state["sessionmaker"]() as db:
@@ -752,7 +805,9 @@ def test_format_selection_uses_the_slot_revision_and_starts_temporal(client) -> 
 
 def test_candidate_content_is_not_exposed_to_the_cabinet(client) -> None:
     schema = client.get("/openapi.json").json()
-    assert not any(path.endswith("/preview") for path in schema["paths"])
+    preview_paths = [path for path in schema["paths"] if path.endswith("/preview")]
+    assert len(preview_paths) == 1
+    assert schema["paths"][preview_paths[0]]["get"]["deprecated"] is True
     assert "data-summary-candidate-preview" not in MEETING_TEMPLATE.read_text(encoding="utf-8")
     assert "/summary-candidates/${candidate.candidate_id}/preview" not in CABINET_JS.read_text(
         encoding="utf-8"
@@ -935,8 +990,8 @@ def test_candidate_content_is_not_exposed_to_the_cabinet(client) -> None:
         f"/api/v1/cabinet/meetings/{meeting_id}/summary-candidates/{candidate_id}/preview",
         headers=auth_headers(),
     )
-    assert expired_preview.status_code == 409
-    assert expired_preview.json()["code"] == "summary_candidate_expired"
+    assert expired_preview.status_code == 410
+    assert expired_preview.json()["code"] == "summary_candidate_deprecated"
 
     async def reopen_expiry_window() -> None:
         async with client.app_state["sessionmaker"]() as db:
@@ -983,8 +1038,8 @@ def test_candidate_content_is_not_exposed_to_the_cabinet(client) -> None:
         f"/api/v1/cabinet/meetings/{meeting_id}/summary-candidates/{candidate_id}/preview",
         headers=auth_headers(),
     )
-    assert stale_preview.status_code == 409
-    assert stale_preview.json()["code"] == "summary_source_revision_stale"
+    assert stale_preview.status_code == 410
+    assert stale_preview.json()["code"] == "summary_candidate_deprecated"
     stale_candidate = client.get(
         f"/api/v1/cabinet/meetings/{meeting_id}/summary-candidates/{candidate_id}",
         headers=auth_headers(),

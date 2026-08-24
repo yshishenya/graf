@@ -205,6 +205,29 @@ Feature 183 adds one pointer table only. It reuses `MeetingOutcomeSet`, `Meeting
   environment's missing `langfuse.api.prompts` v4 SDK module, not an assertion
   failure in the changed behavior.
 
+## Fresh master-sync validation — 2026-08-25
+
+- `git fetch origin --prune` resolved `origin/master` to `a502b472`
+  (`v2026.08.24.8`). Feature 183 was merged with that current master in
+  `2f2afdea`; the uncommitted Feature 183 implementation was then reapplied
+  and conflict-reviewed. The migration graph now has one head:
+  `0080_merge_summary_state_processing_recovery`, merging the existing
+  summary-state `0079` line with master processing-recovery `0078`.
+- The full Feature 183 focused PostgreSQL matrix passed **138/138** after the
+  sync. The eight scenarios initially exposed by the merge conflict were
+  rerun separately and passed **8/8**. The current fast lane passed **1261/1261**
+  with Ruff, Python compile and diff checks green. The macOS embedded boundary
+  target passed **15/15**.
+- The master processing-recovery candidate-preview host was deliberately not
+  retained in Feature 183: ordinary summary UI remains fail-closed and does
+  not expose candidate content or a decision surface. Processing recovery
+  status remains available separately.
+- The current aggregate scan found 148 `current_outcome_set_id` assignment
+  matches, 340 references, 1 test-contract text match for
+  `accepted_by_user_id`, 7 latest/newest vocabulary matches, 51 outcome-owner
+  files and zero forbidden operational-script matches. These are metadata-only
+  counts; no private meeting content or provider payload was recorded.
+
 ## Current implementation blockers
 
 The current code is intentionally not represented as a completed Feature 183

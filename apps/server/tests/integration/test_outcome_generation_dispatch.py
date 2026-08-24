@@ -50,6 +50,8 @@ async def test_candidate_dispatch_uses_deterministic_id_and_plaintext_identifier
         template_key="graf-auto-v1",
         template_version=1,
         prompt_name="graf/meeting-outcome/auto",
+        summary_slot_id=UUID("55555555-5555-5555-5555-555555555555"),
+        expected_current_outcome_set_id=UUID("66666666-6666-6666-6666-666666666666"),
     )
 
     assert started.workflow_id == outcome_generation_workflow_id(candidate_id)
@@ -58,6 +60,8 @@ async def test_candidate_dispatch_uses_deterministic_id_and_plaintext_identifier
     _, payload, options = client.calls[0]
     assert payload["candidate_id"] == str(candidate_id)
     assert payload["prompt_name"] == "graf/meeting-outcome/auto"
+    assert payload["summary_slot_id"] == "55555555-5555-5555-5555-555555555555"
+    assert payload["expected_current_outcome_set_id"] == "66666666-6666-6666-6666-666666666666"
     assert options["id"] == f"outcome-generation/{candidate_id}"
     assert options["task_queue"] == "graf-processing-outcomes"
     from temporalio.common import WorkflowIDReusePolicy

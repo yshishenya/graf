@@ -64,11 +64,14 @@ from twobrain_rec_server.outcomes.prompts import (
     validate_prompt_snapshot,
 )
 from twobrain_rec_server.outcomes.service import (
+    advance_summary_slot_state_version,
     ensure_summary_slot,
     load_outcome_transcript_segments,
+    load_summary_slot,
 )
 from twobrain_rec_server.outcomes.store import set_outcome_category_states
 from twobrain_rec_server.outcomes.templates import (
+    BUILT_IN_BY_KEY,
     OUTCOME_CATEGORIES,
     built_in_template_for_version,
     prompt_name_for_template,
@@ -204,7 +207,13 @@ async def create_summary_candidate(
         raise OutcomeGenerationTerminalError("meeting_not_found")
     if meeting_is_deleted_or_deleting(meeting):
         raise OutcomeGenerationTerminalError("meeting_deleting")
-    slot = await ensure_summary_slot(
+    slot = await load_summary_slot(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        template_key=template_key,
+    )
+    slot = slot or await ensure_summary_slot(
         db,
         workspace_id=workspace_id,
         meeting_id=meeting_id,
@@ -274,7 +283,12 @@ async def create_summary_candidate(
         template_sections = tuple(str(section) for section in template.sections_json)
     else:
         definition = built_in_template_for_version(template_key, template_version)
-        if definition is None:
+        current_definition = BUILT_IN_BY_KEY.get(template_key)
+        if (
+            definition is None
+            or current_definition is None
+            or current_definition.version != template_version
+        ):
             raise OutcomeGenerationTerminalError("summary_template_unavailable")
         prompt_name = definition.prompt_name
         output_language = "ru"
@@ -370,12 +384,14 @@ async def create_summary_candidate(
             .with_for_update()
             .execution_options(populate_existing=True)
         )
-        if accepted_automatic is not None and accepted_automatic.outcome_set_id == current_outcome_set_id:
+        if (
+            accepted_automatic is not None
+            and accepted_automatic.outcome_set_id == current_outcome_set_id
+        ):
             return accepted_automatic
     if template is not None and template.status != "active":
         # Archived/deleted templates remain valid only for an exact replay of
-        # their pinned candidate; they cannot start a new intent, even when a
-        # prior attempt is still queued.
+        # their pinned candidate; they cannot start a new intent.
         raise OutcomeGenerationTerminalError("summary_template_unavailable")
     speaker_stale_attempts = (
         await db.scalars(
@@ -641,8 +657,7 @@ async def create_summary_candidate(
             and_(
                 or_(
                     MeetingOutcomeGenerationAttempt.status != "accepted",
-                    MeetingOutcomeGenerationAttempt.outcome_set_id
-                    == current_outcome_set_id,
+                    MeetingOutcomeGenerationAttempt.outcome_set_id == current_outcome_set_id,
                 ),
                 or_(
                     MeetingOutcomeGenerationAttempt.status != "failed",
@@ -749,6 +764,10 @@ async def create_summary_candidate(
         attempt_count=0,
         metadata_json={
             "template_sections": list(template_sections),
+            "summary_slot_id": str(slot.id),
+            "expected_current_outcome_set_id": (
+                str(current_outcome_set_id) if current_outcome_set_id is not None else None
+            ),
             "speaker_attribution_revision": speaker_revision,
             **(
                 {"request_intent_id": str(request_intent_id)}
@@ -758,8 +777,24 @@ async def create_summary_candidate(
         },
     )
     db.add(attempt)
+    advance_summary_slot_state_version(slot)
     await db.flush()
     return attempt
+
+
+def summary_workflow_payload(attempt: MeetingOutcomeGenerationAttempt) -> dict[str, object]:
+    """Return the immutable slot-scoped identity carried into Temporal."""
+    metadata = attempt.metadata_json or {}
+    return {
+        "candidate_id": str(attempt.candidate_id),
+        "source_result_id": str(attempt.source_result_id),
+        "template_key": attempt.template_key,
+        "template_version": attempt.template_version,
+        "summary_slot_id": metadata.get("summary_slot_id"),
+        "expected_current_outcome_set_id": metadata.get(
+            "expected_current_outcome_set_id"
+        ),
+    }
 
 
 async def ensure_automatic_summary_candidate(
@@ -811,12 +846,7 @@ async def ensure_automatic_summary_candidate(
         candidate_id=attempt.candidate_id,
         idempotency_key=attempt.idempotency_key or f"candidate:{attempt.candidate_id}",
         source_fingerprint=attempt.source_fingerprint,
-        payload={
-            "candidate_id": str(attempt.candidate_id),
-            "source_result_id": str(attempt.source_result_id),
-            "template_key": attempt.template_key,
-            "template_version": attempt.template_version,
-        },
+        payload=summary_workflow_payload(attempt),
     )
     terminal_outcome = {
         "candidate": "completed",
@@ -2141,26 +2171,70 @@ async def _cas_summary_slot(
         or replacement.lifecycle_state != "active"
         or replacement.status not in {"available", "partial"}
         or replacement.revision_state not in {"candidate", "accepted"}
+        or is_expired(replacement.expires_at)
         or replacement.source_fingerprint != expected_source_fingerprint
         or int(replacement.deletion_epoch_at_start or 0) != int(expected_deletion_epoch)
     ):
         raise SummarySlotCASConflict()
 
-    if expected_access_policy_epoch is not None:
+    source_identity = None
+    if replacement.candidate_id is not None or replacement.source_result_hash is not None:
+        source_identity = await _current_source_identity(
+            db,
+            workspace_id=workspace_id,
+            meeting_id=meeting_id,
+        )
+    if replacement.candidate_id is not None and (
+        source_identity is None
+        or replacement.media_revision_id != source_identity[0]
+        or replacement.processing_result_id != source_identity[1]
+        or replacement.source_result_hash != source_identity[2]
+        or replacement.source_fingerprint != source_identity[3]
+    ):
+        raise SummarySlotCASConflict()
+    if (
+        replacement.candidate_id is None
+        and replacement.source_result_hash is not None
+        and (
+            source_identity is None
+            or replacement.source_result_hash != source_identity[2]
+        )
+    ):
+        raise SummarySlotCASConflict()
+
+    attempt = None
+    if replacement.candidate_id is not None:
         attempt = await db.scalar(
             select(MeetingOutcomeGenerationAttempt)
             .where(
                 MeetingOutcomeGenerationAttempt.workspace_id == workspace_id,
                 MeetingOutcomeGenerationAttempt.meeting_id == meeting_id,
+                MeetingOutcomeGenerationAttempt.candidate_id == replacement.candidate_id,
                 MeetingOutcomeGenerationAttempt.outcome_set_id == replacement.id,
             )
             .with_for_update()
             .execution_options(populate_existing=True)
         )
-        if attempt is None or (attempt.metadata_json or {}).get("access_policy_epoch") != (
-            expected_access_policy_epoch
+        if (
+            attempt is None
+            or attempt.template_key != template_key
+            or attempt.processing_result_id != replacement.processing_result_id
+            or attempt.media_revision_id != replacement.media_revision_id
+            or attempt.source_result_hash != replacement.source_result_hash
+            or attempt.source_fingerprint != replacement.source_fingerprint
+            or int(attempt.deletion_epoch_at_start or 0) != int(expected_deletion_epoch)
+            or is_expired(attempt.expires_at)
+            or attempt.status not in {"candidate", "accepted"}
         ):
             raise SummarySlotCASConflict()
+        actual_access_policy_epoch = (attempt.metadata_json or {}).get("access_policy_epoch")
+        if (
+            expected_access_policy_epoch is None
+            or expected_access_policy_epoch != actual_access_policy_epoch
+        ):
+            raise SummarySlotCASConflict()
+    elif expected_access_policy_epoch is not None:
+        raise SummarySlotCASConflict()
 
     prior = None
     if slot.current_outcome_set_id is not None:
@@ -2191,6 +2265,7 @@ async def _cas_summary_slot(
     slot.current_outcome_set_id = replacement.id
     slot.current_binding_class = "verified_complete"
     slot.legacy_migration_proof_hash = None
+    advance_summary_slot_state_version(slot)
     await db.flush()
     return slot
 
@@ -2205,154 +2280,9 @@ async def resolve_summary_candidate(
     accept: bool,
     expected_current_outcome_set_id: UUID | None,
 ) -> MeetingOutcomeSet:
-    meeting = await lock_meeting_fence(db, workspace_id=workspace_id, meeting_id=meeting_id)
-    if meeting is None:
-        raise OutcomeGenerationTerminalError("summary_candidate_unavailable")
-    if meeting_is_deleted_or_deleting(meeting):
-        raise OutcomeGenerationTerminalError("meeting_deleting")
-    if meeting.current_outcome_set_id != expected_current_outcome_set_id:
-        raise OutcomeGenerationTerminalError("summary_revision_conflict")
-    attempt = await db.scalar(
-        select(MeetingOutcomeGenerationAttempt)
-        .where(
-            MeetingOutcomeGenerationAttempt.workspace_id == workspace_id,
-            MeetingOutcomeGenerationAttempt.meeting_id == meeting_id,
-            MeetingOutcomeGenerationAttempt.candidate_id == candidate_id,
-        )
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    if attempt is None or attempt.outcome_set_id is None:
-        raise OutcomeGenerationTerminalError("summary_candidate_unavailable")
-    outcome_set = await db.scalar(
-        select(MeetingOutcomeSet)
-        .where(
-            MeetingOutcomeSet.workspace_id == workspace_id,
-            MeetingOutcomeSet.id == attempt.outcome_set_id,
-        )
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    if meeting is None or outcome_set is None:
-        raise OutcomeGenerationTerminalError("summary_candidate_unavailable")
-    if outcome_set.candidate_id != candidate_id:
-        raise OutcomeGenerationTerminalError("summary_candidate_unavailable")
-    if (
-        outcome_set.lifecycle_state != "active"
-        or outcome_set.revision_state != "candidate"
-        or outcome_set.status not in {"available", "partial"}
-    ):
-        raise OutcomeGenerationTerminalError("summary_candidate_unavailable")
-    if is_expired(attempt.expires_at) or is_expired(outcome_set.expires_at):
-        _expire_candidate_attempt(attempt)
-        outcome_set.revision_state = "expired"
-        await finalize_dispatch_for_candidate(
-            db,
-            workspace_id=workspace_id,
-            candidate_id=candidate_id,
-            outcome="cancelled",
-            failure_code=attempt.failure_code,
-        )
-        await db.flush()
-        raise OutcomeGenerationTerminalError("summary_candidate_expired")
-    if attempt.status != "candidate":
-        raise OutcomeGenerationTerminalError("summary_candidate_unavailable")
-    source_result = await db.scalar(
-        select(ProcessingResult).where(
-            ProcessingResult.id == attempt.source_result_id,
-            ProcessingResult.workspace_id == workspace_id,
-            ProcessingResult.meeting_id == meeting_id,
-        )
-    )
-    latest_revision = await db.scalar(
-        select(MediaRevision)
-        .where(
-            MediaRevision.workspace_id == workspace_id,
-            MediaRevision.meeting_id == meeting_id,
-            MediaRevision.status == "accepted",
-            MediaRevision.immutable.is_(True),
-        )
-        .order_by(MediaRevision.revision_number.desc(), MediaRevision.updated_at.desc())
-    )
-    latest_result_query = select(ProcessingResult).where(
-        ProcessingResult.workspace_id == workspace_id,
-        ProcessingResult.meeting_id == meeting_id,
-        ProcessingResult.status == ProcessingResultStatus.IMPORTED.value,
-    )
-    if latest_revision is None:
-        latest_result_query = latest_result_query.where(
-            ProcessingResult.media_revision_id.is_(None)
-        )
-    else:
-        latest_result_query = latest_result_query.where(
-            ProcessingResult.media_revision_id == latest_revision.id
-        )
-    latest_result = await db.scalar(
-        latest_result_query.order_by(
-            ProcessingResult.result_version.desc(),
-            nullslast(ProcessingResult.imported_at.desc()),
-            ProcessingResult.created_at.desc(),
-            ProcessingResult.id.desc(),
-        )
-    )
-    current_source_fingerprint = f"result:{source_result.id}" if source_result is not None else None
-    if source_result is not None and source_result.media_revision_id is not None:
-        revision = await db.get(MediaRevision, source_result.media_revision_id)
-        if revision is not None:
-            try:
-                current_source_fingerprint = source_fingerprint_for_revision(revision)
-            except ValueError:
-                current_source_fingerprint = None
-    speaker_attribution_current = await candidate_speaker_attribution_is_current(db, attempt)
-    if (
-        source_result is None
-        or latest_result is None
-        or latest_result.id != source_result.id
-        or (latest_revision is None and attempt.media_revision_id is not None)
-        or (latest_revision is not None and attempt.media_revision_id != latest_revision.id)
-        or outcome_set.processing_result_id != source_result.id
-        or outcome_set.media_revision_id != source_result.media_revision_id
-        or attempt.source_result_hash is None
-        or source_result.source_result_hash is None
-        or source_result.source_result_hash != attempt.source_result_hash
-        or attempt.source_fingerprint is None
-        or current_source_fingerprint != attempt.source_fingerprint
-        or not speaker_attribution_current
-        or int(meeting.deletion_epoch or 0) != int(attempt.deletion_epoch_at_start or 0)
-    ):
-        attempt.status = "stale"
-        outcome_set.revision_state = "stale"
-        attempt.failure_code = "summary_source_revision_stale"
-        attempt.ended_at = datetime.now(UTC)
-        await finalize_dispatch_for_candidate(
-            db,
-            workspace_id=workspace_id,
-            candidate_id=candidate_id,
-            outcome="cancelled",
-            failure_code=attempt.failure_code,
-        )
-        await db.flush()
-        raise OutcomeGenerationTerminalError("summary_source_revision_stale")
-    if not accept:
-        outcome_set.revision_state = "rejected"
-        attempt.status = "rejected"
-        attempt.ended_at = datetime.now(UTC)
-        await finalize_dispatch_for_candidate(
-            db,
-            workspace_id=workspace_id,
-            candidate_id=candidate_id,
-            outcome="cancelled",
-            failure_code="summary_candidate_rejected",
-        )
-        return outcome_set
-    await publish_model_generated_outcome(
-        db,
-        workspace_id=workspace_id,
-        meeting_id=meeting_id,
-        candidate_id=candidate_id,
-        expected_current_outcome_set_id=expected_current_outcome_set_id,
-    )
-    raise AssertionError("fail-closed publication entry point must not return")
+    del db, workspace_id, meeting_id, candidate_id, requested_by_user_id
+    del accept, expected_current_outcome_set_id
+    raise OutcomeGenerationTerminalError("summary_candidate_deprecated")
 
 
 async def _candidate_attempt(
@@ -2376,6 +2306,60 @@ async def _candidate_attempt(
     if attempt is None:
         raise OutcomeGenerationTerminalError("summary_candidate_unavailable")
     return attempt
+
+
+async def _current_source_identity(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+) -> tuple[UUID | None, UUID, str | None, str] | None:
+    """Return the locked-meeting source tuple used by publication fences."""
+    latest_revision = await db.scalar(
+        select(MediaRevision)
+        .where(
+            MediaRevision.workspace_id == workspace_id,
+            MediaRevision.meeting_id == meeting_id,
+            MediaRevision.status == "accepted",
+            MediaRevision.immutable.is_(True),
+        )
+        .order_by(MediaRevision.revision_number.desc(), MediaRevision.updated_at.desc())
+    )
+    expected_revision_id = latest_revision.id if latest_revision is not None else None
+    result_query = select(ProcessingResult).where(
+        ProcessingResult.workspace_id == workspace_id,
+        ProcessingResult.meeting_id == meeting_id,
+        ProcessingResult.status == ProcessingResultStatus.IMPORTED.value,
+    )
+    if expected_revision_id is None:
+        result_query = result_query.where(ProcessingResult.media_revision_id.is_(None))
+    else:
+        result_query = result_query.where(
+            ProcessingResult.media_revision_id == expected_revision_id
+        )
+    latest_result = await db.scalar(
+        result_query.order_by(
+            ProcessingResult.result_version.desc(),
+            nullslast(ProcessingResult.imported_at.desc()),
+            ProcessingResult.created_at.desc(),
+            ProcessingResult.id.desc(),
+        )
+    )
+    if latest_result is None:
+        return None
+    if latest_revision is None:
+        fingerprint = f"result:{latest_result.id}"
+    else:
+        try:
+            fingerprint = source_fingerprint_for_revision(latest_revision)
+        except ValueError:
+            return None
+    return (
+        expected_revision_id,
+        latest_result.id,
+        latest_result.source_result_hash,
+        fingerprint,
+    )
 
 
 async def _lock_candidate_meeting_and_attempt(

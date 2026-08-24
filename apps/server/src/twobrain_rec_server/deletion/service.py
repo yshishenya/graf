@@ -44,6 +44,7 @@ from twobrain_rec_server.db.models import (
     MeetingShareGrant,
     MeetingShareInvitation,
     MeetingSpeakerName,
+    MeetingSummarySlot,
     PlaybackNormalizationAttempt,
     PlaybackNormalizationJob,
     ProcessingResult,
@@ -1662,6 +1663,39 @@ async def _purge_server_controlled_content(
     result = _ServerPurgeResult()
     now = datetime.now(UTC)
 
+    # The tombstone is committed before this function performs storage I/O, so
+    # reacquire the meeting fence in the purge transaction.  A late publisher
+    # must observe the same deleting/deletion-epoch state before it can lock a
+    # summary slot.  Keep this lock first in the deletion path.
+    locked_meeting = await db.scalar(
+        select(Meeting)
+        .where(
+            Meeting.workspace_id == meeting.workspace_id,
+            Meeting.id == meeting.id,
+        )
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if locked_meeting is None:
+        raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
+    meeting = locked_meeting
+
+    # Slots are GRAF-controlled index/projection rows.  Lock them under the
+    # meeting deletion fence, then remove them after all destructive work has
+    # succeeded.  GenerationCall is intentionally not selected here: its
+    # retained plaintext ledger is a separate observability dependency.
+    summary_slots = (
+        await db.scalars(
+            select(MeetingSummarySlot)
+            .where(MeetingSummarySlot.workspace_id == meeting.workspace_id)
+            .where(MeetingSummarySlot.meeting_id == meeting.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    ).all()
+    if summary_slots:
+        result.materialized_classes.add(DeletionArtifactClass.NOTES_SUMMARY)
+
     # Lifecycle lock order is Meeting -> normalization job -> attempt ->
     # artifact.  Normalization publication/recovery uses the same order; do
     # not move the artifact query ahead of the job locks.
@@ -2053,6 +2087,14 @@ async def _purge_server_controlled_content(
         result.purged_classes.add(DeletionArtifactClass.NOTES_SUMMARY)
     if generation_attempts:
         result.materialized_classes.add(DeletionArtifactClass.OUTCOME_ATTEMPT)
+
+    if summary_slots:
+        await db.execute(
+            delete(MeetingSummarySlot)
+            .where(MeetingSummarySlot.workspace_id == meeting.workspace_id)
+            .where(MeetingSummarySlot.meeting_id == meeting.id)
+        )
+        result.purged_classes.add(DeletionArtifactClass.NOTES_SUMMARY)
 
     export_packages = (
         await db.scalars(
@@ -2575,6 +2617,15 @@ async def _mark_outcomes_deleting(
     *,
     meeting: Meeting,
 ) -> tuple[bool, tuple[str, ...]]:
+    summary_slot_exists = (
+        await db.scalar(
+            select(MeetingSummarySlot.id)
+            .where(MeetingSummarySlot.workspace_id == meeting.workspace_id)
+            .where(MeetingSummarySlot.meeting_id == meeting.id)
+            .with_for_update()
+        )
+        is not None
+    )
     outcome_sets = (
         await db.scalars(
             select(MeetingOutcomeSet)
@@ -2695,7 +2746,7 @@ async def _mark_outcomes_deleting(
     # Outcome-attempt accounting is tracked separately in
     # ``materialized_artifact_classes``. Do not report a summary purge when a
     # queued attempt never produced an outcome set.
-    return bool(outcome_sets), tuple(dict.fromkeys(workflow_ids))
+    return bool(outcome_sets) or summary_slot_exists, tuple(dict.fromkeys(workflow_ids))
 
 
 async def _request_temporal_cancellation(

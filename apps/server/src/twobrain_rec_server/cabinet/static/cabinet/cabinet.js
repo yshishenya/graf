@@ -20,6 +20,12 @@
   const processingListProjectionRequests = new Map();
   const processingListProjectionLastFetchedAt = new Map();
   const processingListProjectionStates = new Map();
+  const resetProcessingListProjectionState = () => {
+    processingListProjectionRequests.forEach((entry) => entry.controller?.abort());
+    processingListProjectionRequests.clear();
+    processingListProjectionLastFetchedAt.clear();
+    processingListProjectionStates.clear();
+  };
   const selectedMeetingIds = new Set();
   const announcedUploadProgressBuckets = new Map();
   const announcedUploadProgressMetadata = new Map();
@@ -416,7 +422,10 @@
 
   const renderMeetingListRecovery = (kind, requestEvent = null) => {
     const authorizationLost = ["session", "workspace", "access"].includes(kind);
-    if (authorizationLost) meetingListRequestGeneration += 1;
+    if (authorizationLost) {
+      meetingListRequestGeneration += 1;
+      resetProcessingListProjectionState();
+    }
     const target = document.querySelector("#meeting-list-region");
     if (!target) return;
     const copy = {
@@ -545,6 +554,7 @@
     const request = event.detail?.xhr;
     if (!request || typeof request !== "object" || authoritativeMeetingListRequests.has(request)) return;
     meetingListRequestGeneration += 1;
+    resetProcessingListProjectionState();
     activeMeetingListRequests += 1;
     authoritativeMeetingListRequests.add(request);
     authoritativeMeetingListRequestGenerations.set(request, meetingListRequestGeneration);
@@ -973,6 +983,8 @@
         if (event.detail) event.detail.shouldSwap = false;
         return;
       }
+      meetingListRequestGeneration += 1;
+      resetProcessingListProjectionState();
       rememberMeetingListRequestFocus(event);
     });
     document.body.addEventListener("htmx:afterRequest", finishAuthoritativeMeetingListRequest);
@@ -2238,8 +2250,15 @@
     return status;
   };
 
-  const renderProcessingListProjection = (row, projection) => {
-    if (!row.isConnected) return;
+  const renderProcessingListProjection = (row, projection, generation) => {
+    const rowMeetingId = String(row?.dataset.meetingId || "");
+    if (
+      !row?.isConnected
+      || !currentList()?.contains(row)
+      || !rowMeetingId
+      || String(projection?.meeting_id || "") !== rowMeetingId
+      || generation !== meetingListRequestGeneration
+    ) return;
     const transcriptReady = processingTranscriptReady(projection);
     const summaryState = processingSummaryState(projection);
     const retryClass = String(projection?.retry_class || "none");
@@ -2269,22 +2288,35 @@
   const requestProcessingListProjection = (row) => {
     const meetingId = String(row.dataset.meetingId || "");
     if (!meetingId) return;
+    const generation = meetingListRequestGeneration;
     const now = Date.now();
-    if (processingListProjectionRequests.has(meetingId)) return;
+    const existing = processingListProjectionRequests.get(meetingId);
+    if (existing?.generation === generation) return;
+    if (existing) {
+      existing.controller?.abort();
+      processingListProjectionRequests.delete(meetingId);
+    }
     if (now - (processingListProjectionLastFetchedAt.get(meetingId) || 0) < 15000) return;
     processingListProjectionLastFetchedAt.set(meetingId, now);
+    const controller = typeof AbortController === "function" ? new AbortController() : null;
     const request = fetch(`/api/v1/meetings/${encodeURIComponent(meetingId)}/processing`, {
       credentials: "same-origin",
       cache: "no-store",
       headers: { Accept: "application/json" },
+      ...(controller ? { signal: controller.signal } : {}),
     });
-    processingListProjectionRequests.set(meetingId, request);
+    const entry = { controller, generation };
+    processingListProjectionRequests.set(meetingId, entry);
     void request.then(async (response) => {
       if (!response.ok) return;
       const projection = await response.json();
-      if (projection && typeof projection === "object") renderProcessingListProjection(row, projection);
+      if (projection && typeof projection === "object") {
+        renderProcessingListProjection(row, projection, generation);
+      }
     }).catch(() => {}).finally(() => {
-      processingListProjectionRequests.delete(meetingId);
+      if (processingListProjectionRequests.get(meetingId) === entry) {
+        processingListProjectionRequests.delete(meetingId);
+      }
     });
   };
 
@@ -2411,7 +2443,12 @@
         summary_same_format_noop: "Этот формат уже выбран. Нажмите «Обновить итоги», чтобы создать новый вариант.",
         summary_template_unavailable: "Выбранный формат больше недоступен. Выберите другой активный формат.",
         summary_refresh_intent_missing: "Не удалось подтвердить обновление. Выберите «Обновить итоги» ещё раз.",
-        summary_source_revision_stale: "Расшифровка изменилась. Текущие итоги сохранены."
+        summary_source_revision_stale: "Расшифровка изменилась. Текущие итоги сохранены.",
+        summary_current_revision_missing: "Для этого формата ещё нет сохранённых итогов.",
+        summary_source_not_ready: "Расшифровка ещё не готова. Текущие итоги сохранены.",
+        summary_source_empty: "В расшифровке пока нет содержимого для обновления.",
+        transcript_generation_failed: "Расшифровка недоступна. Текущие итоги сохранены.",
+        summary_candidate_deprecated: "Эта операция больше не поддерживается."
       }[code] || "Не удалось подготовить новый вариант. Текущие итоги сохранены.");
       const retryCandidateAction = (candidate = {}) => {
         if (typeof candidate === "string") {
@@ -2850,6 +2887,98 @@
         }
         return { id: controls.dataset.currentTemplateId || null, key, version, name };
       };
+      const pollSummaryRefresh = async (template, generation) => {
+        if (generation !== candidateRequestGeneration) return;
+        if (Date.now() > pollDeadline) {
+          pollingTimer = null;
+          candidateRequestInFlightGeneration = null;
+          setBusy(false);
+          showStatus("Не удалось дождаться обновления. Текущие итоги сохранены.", "failed", [
+            { text: "Обновить страницу", action: () => window.location.reload(), primary: true }
+          ]);
+          return;
+        }
+        try {
+          const response = await fetch(
+            `/api/v1/cabinet/meetings/${meetingId}/summaries/${encodeURIComponent(template.key)}`,
+            { credentials: "same-origin", cache: "no-store" }
+          );
+          if (await recoverMeetingDetailFromResponse(response, { actionProblemCodes: summaryActionProblemCodes })) {
+            throw meetingDetailRecoveredError();
+          }
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            const error = new Error(payload.code || "summary_poll_unavailable");
+            error.status = response.status;
+            throw error;
+          }
+          if (generation !== candidateRequestGeneration) return;
+          const previousOutcomeSetId = currentOutcomeSetId;
+          currentOutcomeSetId = payload.current_outcome_set_id || currentOutcomeSetId;
+          const state = payload.catalog_entry?.generation_state;
+          if (["preparing", "updating", "blocked", "deferred", "ambiguous"].includes(state)) {
+            showStatus("Обновляем итоги. Текущие итоги остаются на месте.");
+            pollingTimer = window.setTimeout(() => pollSummaryRefresh(template, generation), 1200);
+            return;
+          }
+          pollingTimer = null;
+          candidateRequestInFlightGeneration = null;
+          setBusy(false);
+          if (payload.current_outcome_set_id && payload.current_outcome_set_id !== previousOutcomeSetId && state === "idle") {
+            showStatus("Итоги обновлены.", "ready");
+          } else {
+            showStatus("Обновление не завершено. Текущие итоги сохранены.", "failed", [
+              { text: "Обновить страницу", action: () => window.location.reload(), primary: true }
+            ]);
+          }
+        } catch (error) {
+          if (isMeetingDetailRecoveredError(error) || generation !== candidateRequestGeneration) return;
+          pollingTimer = null;
+          candidateRequestInFlightGeneration = null;
+          setBusy(false);
+          const code = error instanceof Error ? error.message : "summary_poll_unavailable";
+          showStatus(candidateErrorCopy(code), "failed", [
+            { text: "Обновить страницу", action: () => window.location.reload(), primary: true }
+          ]);
+        }
+      };
+      const requestSummaryRefresh = async (template, requestIntentId, generation) => {
+        if (!template?.key || generation !== candidateRequestGeneration) return;
+        activeTemplate = template;
+        activeRequestIntent = "manual_refresh";
+        activeRequestIntentId = requestIntentId;
+        setBusy(true);
+        showStatus("Обновляем итоги. Текущие итоги остаются на месте.");
+        try {
+          const payload = await mutate(
+            `/api/v1/cabinet/meetings/${meetingId}/summaries/${encodeURIComponent(template.key)}/refresh`,
+            "POST",
+            {
+              schema_version: 1,
+              idempotency_key: requestIntentId,
+              expected_current_outcome_set_id: currentOutcomeSetId,
+              template_id: template.id || null,
+              template_version: template.version,
+              generation_options: {}
+            }
+          );
+          if (generation !== candidateRequestGeneration) return;
+          currentOutcomeSetId = payload.current_outcome_set_id || currentOutcomeSetId;
+          pollAttempts = 0;
+          pollDeadline = Date.now() + 5 * 60 * 1000;
+          pollDelay = 1200;
+          showStatus("Обновляем итоги. Текущие итоги остаются на месте.");
+          pollingTimer = window.setTimeout(() => pollSummaryRefresh(template, generation), pollDelay);
+        } catch (error) {
+          if (isMeetingDetailRecoveredError(error) || generation !== candidateRequestGeneration) return;
+          setBusy(false);
+          candidateRequestInFlightGeneration = null;
+          const code = error instanceof Error ? error.message : "summary_request_unavailable";
+          showStatus(candidateErrorCopy(code), "failed", [
+            { text: "Обновить страницу", action: () => window.location.reload(), primary: true }
+          ]);
+        }
+      };
       const requestCurrentRefresh = async () => {
         // Invalidate an in-flight history load before resolving the current template.
         const refreshGeneration = ++candidateRequestGeneration;
@@ -2861,10 +2990,7 @@
           openFormatPicker();
           return;
         }
-        await requestCandidate(template, {
-          requestIntent: "manual_refresh",
-          requestIntentId: newRequestIntentId()
-        });
+        await requestSummaryRefresh(template, newRequestIntentId(), refreshGeneration);
       };
       const newRequestIntentId = () => typeof window.crypto?.randomUUID === "function"
           ? window.crypto.randomUUID()

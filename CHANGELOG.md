@@ -9,7 +9,17 @@
 ## [Unreleased]
 
 ### Добавлено
-- _Пока нет записей._
+- Завершён первый slot-first срез итогов: сохранённый default типа встречи
+  фиксируется один раз, чтение не возвращается к newest-result fallback, а
+  grandfathered legacy-слот отделён от новых egress-операций.
+- Добавлены type-scoped API списка, чтения и одношагового ensure итогов с
+  версионируемым каталогом, раздельными result/generation/source состояниями и
+  read-only поведением для retired форматов.
+- Read-контракт итогов теперь содержит durable `state_version`, typed event
+  identity, exact copy capability и conditional ETag/304; state matrix сохраняет
+  текущую версию результата при updating/error/blocked/ambiguous/deferred.
+- Добавлен type-scoped `refresh` с optimistic revision и idempotency key:
+  текущая ревизия остаётся видимой до автоматической публикации новой.
 
 ### Изменено
 - Конституция обновлена до `5.0.0`: для Feature 196 разрешено буквальное
@@ -18,17 +28,25 @@
   состояния продукта и права на сторонние ассеты/фразы остаются release gates.
 - Feature 183 перевела выдачу итогов на type-slot состояние: новый результат
   остаётся candidate, текущие сохранённые итоги не заменяются, а accept/reject
-  и предпросмотр candidate удалены из обычного кабинета.
+  и предпросмотр candidate удалены из обычного кабинета; старые URL отвечают
+  стабильным `410 summary_candidate_deprecated`.
 - Для генерации итогов и judge-проверок убраны фиксированные provider-лимиты
   `4096/2048`; LiteLLM получает только разрешённые настройки модели и строгую
   JSON-схему, а бюджет оптимизации остаётся отдельным внутренним контролем.
+- Позднее завершение stale-кандидата и повторный Temporal dispatch остаются
+  привязанными к исходному Generation Call: Langfuse-доставка отделена от
+  публикации слота, повторная inference не запускается, а replacement intents
+  остаются зоной ответственности Feature 197.
+- Temporal dispatch теперь сохраняет target slot, `template_key` и
+  `expected_current_outcome_set_id` от reservation до workflow payload; retry и
+  replay policy Temporal не изменены.
 
 ### Исправлено
 - API итогов больше не читает legacy meeting-global pointer для candidate
   lifecycle; список не возвращает старые accepted-попытки без current slot.
 - После объединения Feature 183 с актуальным master добавлена merge-migration
-  для двух Alembic heads (`0076_meeting_summary_slots` и
-  `0077_provider_unlink_xworkspace`).
+  `0080_merge_summary_state_processing_recovery`, чтобы Alembic имел одну
+  head после объединения summary-state `0079` и processing-recovery `0078`.
 
 ### Безопасность
 - _Пока нет записей._
@@ -133,7 +151,12 @@
 - _Пока нет записей._
 
 ### Исправлено
-- _Пока нет записей._
+- Статус обработки в списке встреч больше не может примениться к другой записи:
+  добавлены проверки идентичности записи и поколения DOM, отмена устаревших
+  запросов и запрет кэширования processing-status.
+- В авторизации через Yandex ID запрашивается подтверждение выбора учётной
+  записи через `force_confirm=1`; параметры VK ID и callback-проверки не
+  изменены.
 
 ### Безопасность
 - _Пока нет записей._

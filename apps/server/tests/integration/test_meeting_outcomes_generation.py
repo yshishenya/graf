@@ -3,12 +3,15 @@ from __future__ import annotations
 import asyncio
 import importlib
 from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
 import pytest
+from pydantic import ValidationError
 from sqlalchemy import delete, func, select
 
 from tests.fakes.auth_contexts import USER_ID, WORKSPACE_ID
 from tests.fixtures.cabinet import create_outcome_ready_meeting
+from twobrain_rec_server.api.schemas import CreateSummaryCandidateRequest
 from twobrain_rec_server.db.models import (
     DiarizationSegment,
     DispatchIntent,
@@ -17,6 +20,7 @@ from twobrain_rec_server.db.models import (
     MeetingOutcomeGenerationAttempt,
     MeetingOutcomeItem,
     MeetingOutcomeSet,
+    MeetingSummarySlot,
     ProcessingAuditEvent,
     ProcessingResult,
     TranscriptSegment,
@@ -25,9 +29,110 @@ from twobrain_rec_server.db.models import (
 from twobrain_rec_server.domain.statuses import ProcessingAvailabilityStatus
 from twobrain_rec_server.outcomes.ai_service import (
     AI_GENERATOR_VERSION,
+    OutcomeGenerationTerminalError,
     ensure_automatic_summary_candidate,
+    publish_model_generated_outcome,
 )
 from twobrain_rec_server.processing.store import ProcessingLifecycleBlocked
+
+
+def test_feature_183_publication_prerequisite_matrix_is_fail_closed_and_non_mutating(client) -> None:
+    meeting_id = create_outcome_ready_meeting(client, "publication-prerequisite-matrix")
+
+    async def run() -> tuple[UUID | None, str, UUID | None, str | None, str | None]:
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.get(Meeting, meeting_id)
+            assert meeting is not None
+            attempt = await ensure_automatic_summary_candidate(
+                db,
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+            )
+            assert attempt is not None and attempt.candidate_id is not None
+            slot = await db.scalar(
+                select(MeetingSummarySlot).where(
+                    MeetingSummarySlot.workspace_id == meeting.workspace_id,
+                    MeetingSummarySlot.meeting_id == meeting.id,
+                    MeetingSummarySlot.template_key == attempt.template_key,
+                )
+            )
+            dispatch = await db.scalar(
+                select(DispatchIntent).where(
+                    DispatchIntent.workspace_id == meeting.workspace_id,
+                    DispatchIntent.meeting_id == meeting.id,
+                    DispatchIntent.candidate_id == attempt.candidate_id,
+                )
+            )
+            assert slot is not None and dispatch is not None
+            before = (
+                slot.current_outcome_set_id,
+                attempt.status,
+                attempt.outcome_set_id,
+                dispatch.state,
+                meeting.current_outcome_set_id,
+            )
+            proofs = (
+                None,
+                {},
+                {"canonical_artifact": "missing"},
+                {"publication_receipt": "missing"},
+                {"generation_call": "missing"},
+                {"calibration": "missing"},
+                {"source_fence": "missing"},
+                {"deletion_fence": "missing"},
+                {"authorization": "missing"},
+            )
+            for proof in proofs:
+                with pytest.raises(
+                    OutcomeGenerationTerminalError,
+                    match="verified_runtime_unavailable",
+                ):
+                    await publish_model_generated_outcome(
+                        db,
+                        workspace_id=meeting.workspace_id,
+                        meeting_id=meeting.id,
+                        candidate_id=attempt.candidate_id,
+                        expected_current_outcome_set_id=slot.current_outcome_set_id,
+                        publication_proof=proof,
+                    )
+            after = (
+                slot.current_outcome_set_id,
+                attempt.status,
+                attempt.outcome_set_id,
+                dispatch.state,
+                meeting.current_outcome_set_id,
+            )
+            assert before == after
+            await db.rollback()
+            return after
+
+    assert asyncio.run(run()) == (None, "queued", None, "created", None)
+
+
+@pytest.mark.parametrize(
+    "forbidden_field",
+    [
+        "my_actions",
+        "private_self",
+        "MeetingIntentV1",
+        "AudienceContextV1",
+        "privacy",
+        "FocusV1",
+        "DetailBudgetV1",
+    ],
+)
+def test_feature_183_rejects_subject_scoped_and_unapproved_generation_controls(
+    forbidden_field: str,
+) -> None:
+    payload = {
+        "template_key": "graf-auto-v1",
+        "template_id": None,
+        "template_version": 1,
+        forbidden_field: {},
+    }
+
+    with pytest.raises(ValidationError):
+        CreateSummaryCandidateRequest.model_validate(payload)
 
 
 def _service_module():
@@ -974,8 +1079,10 @@ def test_slow_temporal_start_is_bounded_and_retryable(client, monkeypatch) -> No
     import twobrain_rec_server.workflows.temporal_client as temporal_client
 
     monkeypatch.setattr(dispatch, "DISPATCH_START_TIMEOUT_SECONDS", 0.001)
+    submitted: dict[str, object] = {}
 
-    async def slow_start(**_kwargs):
+    async def slow_start(**kwargs):
+        submitted.update(kwargs)
         await asyncio.sleep(0.02)
         raise AssertionError("the bounded start should time out first")
 
@@ -1025,6 +1132,8 @@ def test_slow_temporal_start_is_bounded_and_retryable(client, monkeypatch) -> No
     assert state == "retryable_failed"
     assert attempt_state == "blocked_dependency"
     assert failure_code == "summary_dispatch_unavailable"
+    assert isinstance(submitted["summary_slot_id"], UUID)
+    assert submitted["expected_current_outcome_set_id"] is None
 
 
 def test_temporal_dispatch_retry_exhaustion_closes_candidate_for_manual_retry(client, monkeypatch) -> None:

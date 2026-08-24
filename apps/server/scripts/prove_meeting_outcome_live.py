@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""Run metadata-only production proof for the trusted outcome lifecycle."""
+"""Run a metadata-only read proof for the slot-backed outcome lifecycle."""
 
 from __future__ import annotations
 
 import argparse
 import json
 import sys
-import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from uuid import UUID
@@ -23,7 +22,7 @@ class OutcomeLiveProof:
     meeting_id: str
     health_live: int | str
     health_ready: int | str
-    candidate_state: str
+    summary_state: str
     slot_state: str
     share_state: str
     public_projection_state: str
@@ -79,25 +78,13 @@ def _proof(
             failure_code=live_code or ready_code,
         )
 
-    candidate_state = "blocked"
-    candidate: dict[str, object] | None = None
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        status, payload, code = _request_json(
-            origin,
-            f"/api/v1/cabinet/meetings/{meeting_id}/summary-candidates",
-            token,
-        )
-        route_status["candidates"] = status or code or "blocked"
-        candidates = (payload or {}).get("candidates", []) if payload else []
-        matching = [item for item in candidates if item.get("template_key") == "graf-auto-v1"]
-        candidate = matching[0] if matching else None
-        candidate_state = str(candidate.get("state")) if candidate else "missing"
-        if candidate_state in {"ready", "failed", "blocked", "stale", "expired", "closed"}:
-            break
-        time.sleep(3)
-
-    if candidate is None or candidate_state != "ready":
+    status, payload, code = _request_json(
+        origin,
+        f"/api/v1/cabinet/meetings/{meeting_id}/summaries/graf-auto-v1",
+        token,
+    )
+    route_status["summary_read"] = status or code or "blocked"
+    if payload is None:
         return OutcomeLiveProof(
             proof_id,
             origin,
@@ -105,16 +92,16 @@ def _proof(
             str(meeting_id),
             route_status["health_live"],
             route_status["health_ready"],
-            candidate_state,
+            "blocked",
             "blocked",
             "deferred",
             "deferred",
             route_status=route_status,
-            failure_code="candidate_not_ready",
+            failure_code=code or "summary_read_unavailable",
         )
 
-    route_status["slot_read"] = 200
-    slot_state = "current" if candidate.get("current_outcome_set_id") else "unpublished"
+    summary_state = str(payload.get("result_state") or "unknown")
+    slot_state = "current" if payload.get("outcome_set_id") else "unpublished"
     return OutcomeLiveProof(
         proof_id,
         origin,
@@ -122,7 +109,7 @@ def _proof(
         str(meeting_id),
         route_status["health_live"],
         route_status["health_ready"],
-        candidate_state,
+        summary_state,
         slot_state,
         "deferred",
         "deferred",
@@ -159,7 +146,7 @@ def main() -> None:
     output = _safe_json(asdict(proof))
     sys.stdout.write(output + "\n")
     if args.execute and not (
-        proof.candidate_state == "ready"
+        proof.summary_state in {"ready", "absent"}
         and proof.slot_state in {"unpublished", "current"}
     ):
         raise SystemExit(1)

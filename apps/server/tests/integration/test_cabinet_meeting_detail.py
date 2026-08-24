@@ -38,6 +38,10 @@ from twobrain_rec_server.db.models import (
     CalendarSource,
     ExternalCalendar,
     Meeting,
+    MeetingOutcomeItem,
+    MeetingOutcomeSet,
+    MeetingSummarySlot,
+    ProcessingResult,
     RecordingCalendarContextLink,
 )
 
@@ -332,6 +336,125 @@ def test_cabinet_summary_reported_without_stored_output_is_blocked(client) -> No
     assert truth["action_items"]["state"] == "deferred"
 
 
+def test_browser_and_embedded_review_use_default_slot_before_newer_result(client) -> None:
+    meeting_id = seed_cabinet_meetings(client).ready_id
+
+    async def seed_slot() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.get(Meeting, meeting_id)
+            result = await db.scalar(
+                select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
+            )
+            assert meeting is not None and result is not None
+            outcome = MeetingOutcomeSet(
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                media_revision_id=result.media_revision_id,
+                processing_result_id=result.id,
+                status="available",
+                summary_state="available",
+                source_kind="db_fixture",
+                generator_kind="db_fixture",
+                generator_version="test-db-only",
+                source_result_hash=result.source_result_hash,
+                source_fingerprint=f"result:{result.id}",
+                content_hash="stored-summary-hash",
+                template_key="graf-auto-v1",
+                revision_state="accepted",
+            )
+            db.add(outcome)
+            await db.flush()
+            db.add(
+                MeetingOutcomeItem(
+                    workspace_id=meeting.workspace_id,
+                    meeting_id=meeting.id,
+                    outcome_set_id=outcome.id,
+                    category="summary",
+                    sequence=0,
+                    state="available",
+                    text="Сохраненный итог из default slot",
+                    truth_label="supported",
+                )
+            )
+            db.add(
+                MeetingSummarySlot(
+                    workspace_id=meeting.workspace_id,
+                    meeting_id=meeting.id,
+                    template_key="graf-auto-v1",
+                    current_outcome_set_id=outcome.id,
+                    current_binding_class="verified_complete",
+                    is_meeting_default=True,
+                    default_resolution_source="explicit_meeting",
+                    default_resolution_version="test-fixture-v1",
+                    default_resolved_at=datetime(2026, 8, 24, tzinfo=UTC),
+                )
+            )
+            newer = ProcessingResult(
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                media_revision_id=result.media_revision_id,
+                mediascribe_job_id=result.mediascribe_job_id,
+                processing_workflow_id=result.processing_workflow_id,
+                result_version=result.result_version + 1,
+                status="imported",
+                transcript_status=result.transcript_status,
+                diarization_status=result.diarization_status,
+                summary_status=result.summary_status,
+                language=result.language,
+                segment_count=result.segment_count,
+                diarization_segment_count=result.diarization_segment_count,
+                source_result_hash="newer-result-hash",
+                imported_at=datetime(2026, 8, 24, 12, 1, tzinfo=UTC),
+            )
+            db.add(newer)
+            meeting.current_outcome_set_id = None
+            await db.commit()
+
+    asyncio.run(seed_slot())
+
+    api = client.get(f"/api/v1/cabinet/meetings/{meeting_id}", headers=auth_headers())
+    assert api.status_code == 200
+    assert api.json()["notes_action_truth"]["summary"]["state"] == "available"
+    assert "Сохраненный итог из default slot" in api.text
+
+    for path in (f"/meetings/{meeting_id}", f"/desktop/meetings/{meeting_id}"):
+        page = client.get(path, headers=auth_headers())
+        assert page.status_code == 200
+        assert "Сохраненный итог из default slot" in page.text
+        assert "Итоги отложены" not in page.text
+
+    async def remove_default_marker() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            slot = await db.scalar(
+                select(MeetingSummarySlot).where(
+                    MeetingSummarySlot.meeting_id == meeting_id,
+                    MeetingSummarySlot.template_key == "graf-auto-v1",
+                )
+            )
+            meeting = await db.get(Meeting, meeting_id)
+            assert slot is not None and meeting is not None
+            slot.is_meeting_default = False
+            slot.default_resolution_source = None
+            slot.default_resolution_version = None
+            slot.default_resolved_at = None
+            meeting.current_outcome_set_id = slot.current_outcome_set_id
+            await db.commit()
+
+    asyncio.run(remove_default_marker())
+
+    no_default_api = client.get(
+        f"/api/v1/cabinet/meetings/{meeting_id}", headers=auth_headers()
+    )
+    assert no_default_api.status_code == 200
+    assert no_default_api.json()["notes_action_truth"]["summary"]["state"] != "available"
+
+    for path in (f"/meetings/{meeting_id}", f"/desktop/meetings/{meeting_id}"):
+        page = client.get(path, headers=auth_headers())
+        assert page.status_code == 200
+        assert "Сохраненный итог из default slot" not in page.text
+        assert 'data-outcome-source-basis="' in page.text
+
+
 def test_cabinet_detail_denies_foreign_meeting_without_existence_proof(client) -> None:
     seeds = seed_cabinet_meetings(client)
 
@@ -366,6 +489,10 @@ def test_cabinet_ready_and_processing_web_detail_shells(client) -> None:
     assert SAFE_TRANSCRIPT_TEXT in ready.text
     assert "Спикеры" in ready.text
     assert "Формат:" in ready.text
+    assert 'data-summary-result-state="absent"' in ready.text
+    assert 'data-summary-generation-state="deferred"' in ready.text
+    assert 'data-summary-source-state="current"' in ready.text
+    assert 'data-summary-availability-state="available"' in ready.text
     assert "Все форматы…" in ready.text
     assert "Кратко" in ready.text
     assert "Действия" in ready.text
@@ -385,6 +512,10 @@ def test_cabinet_ready_and_processing_web_detail_shells(client) -> None:
     assert processing.status_code == 200
     assert "Транскрипт готовится" in processing.text
     assert "Итоги готовятся" in processing.text
+    assert 'data-summary-result-state="absent"' in processing.text
+    assert 'data-summary-generation-state="preparing"' in processing.text
+    assert 'data-summary-source-state="not_ready"' in processing.text
+    assert 'data-summary-reason-code="transcript_not_ready"' in processing.text
     assert SAFE_TRANSCRIPT_TEXT not in processing.text
 
 
