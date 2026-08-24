@@ -1,11 +1,17 @@
 # Production catalog status
 
-Status: PENDING CONTROLLED PROVISIONING.
+Status: PROVISIONED; PAID CHECKOUT REMAINS FAIL-CLOSED.
 
-Read-only verification on 2026-08-21 found no personal monthly or annual rows in `billing_plan_versions`. The intended immutable rows are:
+On 2026-08-24 the approved catalog was provisioned through the production
+`rec-maintenance` role on runtime SHA `65d46da918361ecba0845a67a69a2ef22f82deae`.
+The readback returned exactly these immutable `billing_plan_versions` rows:
 
-- month: 100,000 minor RUB units (1,000 RUB), unlimited processing;
-- year: 1,000,000 minor RUB units (10,000 RUB), unlimited processing;
-- both rows: the same storage entitlement and offer version.
+- `personal` v1, month: 100,000 minor RUB units (1,000 RUB), RUB;
+- `personal` v2, year: 1,000,000 minor RUB units (10,000 RUB), RUB;
+- both rows: 2,000,000,000 bytes, unlimited processing, enabled for checkout,
+  `offer_version=personal-2026-08-21`, no expiry.
 
-No production row was inserted during implementation or testing. Provisioning is a production mutation and must run against the reviewed release with the maintenance database role during the approved release window. Readback must prove the exact two active values before the landing is called tariff-ready.
+The same readback found zero invoices, billing operations and saved payment
+methods created by this action. Public `/offer` shows both approved prices;
+checkout and provider observation remain disabled. No provider payment or
+receipt mutation was performed.
