@@ -1,5 +1,6 @@
 import re
 from datetime import UTC, datetime, timedelta
+from html import escape
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -1510,6 +1511,45 @@ def test_feature_159_download_and_profile_surface_contract_is_surface_aware() ->
     assert "data-profile-menu-trigger" in web
     assert "data-profile-menu" in web
     assert 'aria-label="Открыть меню профиля"' in web
+    for page, account_href, settings_href, quit_marker in (
+        (web, "/settings/account", "/settings", False),
+        (embedded, "/desktop/settings/account", "/desktop/settings", True),
+    ):
+        menu_match = re.search(
+            r'<div class="sidebar-profile-menu"[^>]*>.*?</div>\n    </div>\n  </div>\n</aside>',
+            page,
+            flags=re.DOTALL,
+        )
+        assert menu_match is not None
+        menu = menu_match.group(0)
+        ordered_labels = (
+            "Длинное синтетическое имя пользователя", "Вид", "Настройки", "Решение проблем", "Документация",
+            "Техническая поддержка", "Обратная связь", "Присоединиться к ТГ-каналу",
+            "Выйти",
+        )
+        assert all(menu.index(label) < menu.index(ordered_labels[index + 1]) for index, label in enumerate(ordered_labels[:-1]))
+        assert ">Аккаунт</strong>" not in menu
+        assert menu.count('role="separator"') == 3
+        assert menu.count('aria-disabled="true"') == 10
+        assert f'href="{account_href}"' in menu
+        assert f'href="{settings_href}"' in menu
+        assert ('data-graf-app-quit' in menu) is quit_marker
+        assert ("Закрыть GRAF" in menu) is quit_marker
+        if quit_marker:
+            assert menu.index("Выйти") < menu.index("Закрыть GRAF")
+        for label in (
+            "Сообщить о проблеме", "Записать сетевой журнал", "Диагностика сети",
+            "Начало работы", "Что нового", "Центр помощи", "Конфиденциальность и обмен данными",
+            "Техническая поддержка", "Обратная связь", "Присоединиться к ТГ-каналу",
+        ):
+            expected_label = escape(label).replace("&#x27;", "&#39;")
+            assert re.search(
+                rf'<button[^>]+disabled[^>]+aria-disabled="true"[^>]*>.*?{re.escape(expected_label)}',
+                menu,
+                flags=re.DOTALL,
+            )
+    assert 'data-account-preferences-auto-save' in web
+    assert 'data-account-preferences-auto-save' in embedded
     assert 'aria-haspopup="menu"' not in web
     assert 'role="menu"' not in web
     assert 'role="menuitem"' not in web
@@ -1517,6 +1557,23 @@ def test_feature_159_download_and_profile_surface_contract_is_surface_aware() ->
     assert "synthetic-owner@example.test" in web
     assert "provider_subject" not in web
     assert "candidate_identity_subject" not in web
+
+
+def test_profile_menu_theme_and_disabled_action_contract_is_shared() -> None:
+    script = _cabinet_js()
+    css = _cabinet_css()
+
+    assert 'form.dataset.accountPreferencesAutoSave === "true"' in script
+    assert "form.requestSubmit()" in script
+    assert ".sidebar-profile-menu__item--disabled" in css
+    assert ".sidebar-profile-menu__theme-form .theme-picker__options" in css
+    assert ".sidebar-profile-menu__submenu" in css
+    assert "inset-inline-start: calc(100% + 8px);" in css
+    assert ".sidebar-profile-menu__disclosure.is-flipped" in css
+    assert ".is-rail-pinned .sidebar-profile-menu" in css
+    assert "left: 8px;" in css
+    assert "bottom: calc(12px + 48px);" in css
+    assert "syncDisclosurePosition" in script
 
 
 def test_saved_theme_is_applied_to_the_full_cabinet_page() -> None:
@@ -3223,7 +3280,7 @@ def test_098_ambiguity_chooser_uses_safe_native_controls_and_graf_primitives() -
     assert "panel" in chooser_classes
     assert "<fieldset" in page
     assert "<legend>Выберите встречу</legend>" in page
-    assert page.count('type="radio"') == 2
+    assert page.count('type="radio"') == 5  # chooser radios + profile appearance radios
     assert page.count('name="event_id"') == 2
     assert 'aria-describedby="calendar-context-choice-help"' in page
     assert 'id="calendar-context-chooser-heading"' in page

@@ -29,6 +29,7 @@ def test_settings_overview_exposes_supported_categories_in_primary_sidebar() -> 
         assert page.count("data-settings-primary-nav>") == 1
         assert page.count("data-settings-primary-nav-item") == 9
         assert '<span class="cabinet-sidebar-nav__section-label">Настройки</span>' in page
+        assert f'<a href="{prefix}/account">Настройки</a>' not in page
         assert 'class="settings-navigation"' not in page
         assert "provider_subject" not in page
         assert "candidate_identity_subject" not in page
@@ -208,7 +209,7 @@ def test_settings_binary_controls_use_shared_switches_and_segmented_theme() -> N
     notifications = render_settings_page(category="notifications")
 
     assert 'class="theme-picker"' in account
-    assert account.count('type="radio" name="theme"') == 3
+    assert account.count('type="radio" name="theme"') == 6  # settings page + profile menu
     assert 'value="system" checked' in account
     for icon in ("sun", "moon", "laptop"):
         assert f'data-icon="{icon}"' in account
@@ -219,6 +220,22 @@ def test_settings_binary_controls_use_shared_switches_and_segmented_theme() -> N
     assert 'name="optional_in_app_enabled"' in notifications
     assert notifications.count('class="settings-control-row"') == 2
     assert "Важные системные сообщения всегда включены." in notifications
+
+
+def test_profile_menu_uses_semantic_disabled_actions_and_native_quit_marker() -> None:
+    root = Path(__file__).resolve().parents[2]
+    template = (
+        root / "src/twobrain_rec_server/cabinet/templates/cabinet/components/sections.html"
+    ).read_text(encoding="utf-8")
+    css = (root / "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'disabled aria-disabled="true"' in template
+    assert 'data-graf-app-quit' in template
+    assert 'data-account-preferences-auto-save' in template
+    assert '.sidebar-profile-menu__item--disabled' in css
+    assert '.sidebar-profile-menu__separator' in css
 
 
 def test_recording_settings_keep_native_boundary_copy_compact() -> None:
