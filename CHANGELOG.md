@@ -25,8 +25,14 @@
 - _Пока нет записей._
 
 ### Документы
-- Для Feature 198 прошли `swift build`, 45 `DesktopCabinetWorkspaceTests`,
-  22 `AppControlAccessibilityTests`, полный macOS/server CI и evidence scan.
+- Для Feature 198 на baseline SHA `81beddec` прошёл полный локальный gate:
+  764 macOS-теста, 3383 server-теста, 52 strict RLS-теста, ContractValidation,
+  lint, Python compile, Compose config и evidence scan; один штатный тест был
+  пропущен. На актуальном PR SHA `faff8c20` повторно прошли `swift build`, 45
+  `DesktopCabinetWorkspaceTests`, 22 `AppControlAccessibilityTests` и fast
+  lane (1240 тестов).
+- Exact-SHA smoke установленного `GRAF Dev` после пересборки `faff8c20` прошёл
+  по девяти маршрутам; TCC-разрешение микрофона сохранилось.
 
 ### Операции
 - _Пока нет записей._
@@ -71,7 +77,7 @@
   history-модель и текущая граница TCC. Exact-SHA smoke установленного `GRAF Dev`
   прошёл по девяти маршрутам; разрешение микрофона сохранено.
 - Production health, Sparkle feed и OAuth redirects проверены для `v2026.08.24.6`;
-  Full CI того релиза был намеренно пропущен.
+  release CI того релиза был намеренно пропущен и не считается PASS.
 - Проверены production health, Sparkle feed и OAuth redirects; Full CI намеренно пропущен.
 - Локальный fast gate: 1240 тестов, Ruff, Python compile и isolated database
   cleanup прошли; полный local CI также прошёл server/macOS validation.
