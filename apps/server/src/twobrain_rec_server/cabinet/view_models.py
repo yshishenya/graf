@@ -97,6 +97,7 @@ from twobrain_rec_server.domain.statuses import (
 )
 from twobrain_rec_server.outcomes.templates import built_in_template_for_version
 from twobrain_rec_server.processing.fences import meeting_is_deleted_or_deleting
+from twobrain_rec_server.processing.results import result_lineage_is_current
 
 if TYPE_CHECKING:
     from twobrain_rec_server.auth.account_closure import AccountCloseView
@@ -484,6 +485,7 @@ PROCESSING_STATUSES = {
     ProcessingStatus.SUBMITTING.value,
     ProcessingStatus.SUBMITTED.value,
     ProcessingStatus.POLLING.value,
+    ProcessingStatus.WAITING_RETRY.value,
     ProcessingStatus.IMPORTING.value,
 }
 
@@ -2014,11 +2016,76 @@ def safe_title_candidate(raw: str | None) -> str | None:
     return safe_metadata_text(raw, max_length=500)
 
 
-def transcript_available(result: ProcessingResult | None) -> bool:
+def _result_lineage_matches(
+    result: ProcessingResult | None,
+    *,
+    media_revision_id: UUID | None = None,
+    processing_workflow_id: UUID | None = None,
+) -> bool:
+    """Keep public artifact flags pinned to the current revision lineage.
+
+    The effective result may belong to an older workflow attempt when a newer
+    attempt has only a partial result.  The database selector has already
+    fenced that result to the current media revision; attempt identity is not
+    a reason to hide the previously usable content.
+    """
+
+    if result is None:
+        return False
+    if media_revision_id is not None:
+        if result_lineage_is_current(result, media_revision_id=media_revision_id):
+            return True
+        # Detached unit/view-model fixtures may carry the revision but omit
+        # the workflow FK. DB selectors remain fail-closed before production
+        # data reaches this pure projection layer.
+        return (
+            processing_workflow_id is None
+            and getattr(result, "processing_workflow_id", None) is None
+            and getattr(result, "media_revision_id", None) in {None, media_revision_id}
+        )
+    if processing_workflow_id is not None:
+        return result.processing_workflow_id == processing_workflow_id
+    # Direct pure view-model callers may omit a context. Production database
+    # selectors fail closed before such a row reaches this projection.
+    return True
+
+
+def _transcript_artifact_available(
+    result: ProcessingResult | None,
+    *,
+    media_revision_id: UUID | None = None,
+    processing_workflow_id: UUID | None = None,
+) -> bool:
     return bool(
-        result is not None
+        _result_lineage_matches(
+            result,
+            media_revision_id=media_revision_id,
+            processing_workflow_id=processing_workflow_id,
+        )
         and result.status == ProcessingResultStatus.IMPORTED.value
         and canonical_speech_available(result)
+    )
+
+
+def transcript_available(
+    result: ProcessingResult | None,
+    *,
+    media_revision_id: UUID | None = None,
+    processing_workflow_id: UUID | None = None,
+) -> bool:
+    """Return the first user-usable transcript milestone, never transcript-only."""
+
+    return bool(
+        _transcript_artifact_available(
+            result,
+            media_revision_id=media_revision_id,
+            processing_workflow_id=processing_workflow_id,
+        )
+        and _diarization_artifact_available(
+            result,
+            media_revision_id=media_revision_id,
+            processing_workflow_id=processing_workflow_id,
+        )
     )
 
 
@@ -2052,12 +2119,34 @@ def previous_recurring_meeting_readiness(
     return PreviousRecurringMeetingReadiness.UNAVAILABLE
 
 
-def diarization_available(result: ProcessingResult | None) -> bool:
+def _diarization_artifact_available(
+    result: ProcessingResult | None,
+    *,
+    media_revision_id: UUID | None = None,
+    processing_workflow_id: UUID | None = None,
+) -> bool:
     return bool(
-        result is not None
+        _result_lineage_matches(
+            result,
+            media_revision_id=media_revision_id,
+            processing_workflow_id=processing_workflow_id,
+        )
         and result.status == ProcessingResultStatus.IMPORTED.value
         and result.diarization_status == ProcessingAvailabilityStatus.AVAILABLE.value
         and result.diarization_segment_count > 0
+    )
+
+
+def diarization_available(
+    result: ProcessingResult | None,
+    *,
+    media_revision_id: UUID | None = None,
+    processing_workflow_id: UUID | None = None,
+) -> bool:
+    return _diarization_artifact_available(
+        result,
+        media_revision_id=media_revision_id,
+        processing_workflow_id=processing_workflow_id,
     )
 
 
@@ -2066,11 +2155,23 @@ def review_status(
     *,
     result: ProcessingResult | None,
     workflow: ProcessingWorkflow | None,
+    media_revision_id: UUID | None = None,
 ) -> MeetingReviewStatus:
     if meeting_is_deleted_or_deleting(meeting):
         return "deleted_future"
-    has_transcript = transcript_available(result)
-    has_diarization = diarization_available(result)
+    processing_workflow_id = workflow.id if workflow is not None else None
+    # ``partial`` is an internal lifecycle state.  It must remain observable
+    # as state, but it must not promote transcript-only rows to user content.
+    has_transcript = _transcript_artifact_available(
+        result,
+        media_revision_id=media_revision_id,
+        processing_workflow_id=processing_workflow_id,
+    )
+    has_diarization = _diarization_artifact_available(
+        result,
+        media_revision_id=media_revision_id,
+        processing_workflow_id=processing_workflow_id,
+    )
     if has_transcript and has_diarization:
         return "ready"
     if has_transcript or has_diarization:
@@ -2089,6 +2190,8 @@ def review_status(
     if lifecycle_status == ProcessingStatus.NOT_SUBMITTED.value:
         return "submitted"
     if lifecycle_status == ProcessingStatus.BLOCKED.value:
+        return "blocked"
+    if lifecycle_status == ProcessingStatus.BLOCKED_UNKNOWN.value:
         return "blocked"
     if lifecycle_status in {
         ProcessingStatus.FAILED_RETRYABLE.value,
@@ -2243,7 +2346,14 @@ def build_list_item(
     previous_recurring_meeting: PreviousRecurringMeetingView | None = None,
     playback: PlaybackPreparationState | None = None,
 ) -> MeetingListItem:
-    status = review_status(meeting, result=result, workflow=workflow)
+    current_media_revision_id = media_revision.id if media_revision is not None else None
+    current_workflow_id = workflow.id if workflow is not None else None
+    status = review_status(
+        meeting,
+        result=result,
+        workflow=workflow,
+        media_revision_id=current_media_revision_id,
+    )
     source = meeting_source(media_revision)
     access_state = access or owner_access_state()
     artifact_states = artifacts or []
@@ -2267,8 +2377,16 @@ def build_list_item(
         if result is not None and status == "unavailable"
         else None,
         primary_action=primary_action_for_status(status),
-        transcript_available=transcript_available(result),
-        diarization_available=diarization_available(result),
+        transcript_available=transcript_available(
+            result,
+            media_revision_id=current_media_revision_id,
+            processing_workflow_id=current_workflow_id,
+        ),
+        diarization_available=diarization_available(
+            result,
+            media_revision_id=current_media_revision_id,
+            processing_workflow_id=current_workflow_id,
+        ),
         notes_available=notes_truth.summary.state == "available",
         notes_action_truth=notes_truth,
         updated_at=meeting.updated_at,
@@ -2370,12 +2488,32 @@ def processing_state(
     *,
     result: ProcessingResult | None,
     workflow: ProcessingWorkflow | None,
+    media_revision_id: UUID | None = None,
 ) -> ProcessingReviewState:
-    status = review_status(meeting, result=result, workflow=workflow)
-    has_transcript = transcript_available(result)
-    has_diarization = diarization_available(result)
+    processing_workflow_id = workflow.id if workflow is not None else None
+    status = review_status(
+        meeting,
+        result=result,
+        workflow=workflow,
+        media_revision_id=media_revision_id,
+    )
+    has_transcript = transcript_available(
+        result,
+        media_revision_id=media_revision_id,
+        processing_workflow_id=processing_workflow_id,
+    )
+    has_diarization = diarization_available(
+        result,
+        media_revision_id=media_revision_id,
+        processing_workflow_id=processing_workflow_id,
+    )
     summary_available = bool(
-        result is not None and result.summary_status == SummaryStatus.AVAILABLE.value
+        _result_lineage_matches(
+            result,
+            media_revision_id=media_revision_id,
+            processing_workflow_id=processing_workflow_id,
+        )
+        and result.summary_status == SummaryStatus.AVAILABLE.value
     )
     reason_code = (
         workflow.last_reason_code
@@ -2404,7 +2542,11 @@ def stage_for_status(status: str, lifecycle_status: str) -> str | None:
     if status in {"ready", "partial"}:
         return "ready"
     if status == "processing":
-        if lifecycle_status in {ProcessingStatus.SUBMITTED.value, ProcessingStatus.POLLING.value}:
+        if lifecycle_status in {
+            ProcessingStatus.SUBMITTED.value,
+            ProcessingStatus.POLLING.value,
+            ProcessingStatus.WAITING_RETRY.value,
+        }:
             return "mediascribe"
         if lifecycle_status == ProcessingStatus.IMPORTING.value:
             return "importing"
@@ -2457,12 +2599,49 @@ def reason_label(reason_code: str | None) -> str | None:
         "mediascribe_poll_limit_exceeded": "Сервис транскрипции не завершил обработку в отведённое время. Повторите позже или обратитесь к оператору.",
         "mediascribe_submission_in_progress": "Предыдущая отправка ещё выполняется. Подождите завершения и обновите страницу.",
         "mediascribe_result_not_ready": "Сервис транскрипции ещё готовит результат. Повторная проверка будет выполнена автоматически.",
+        "provider_result_not_ready": "Запись сохранена. GRAF проверит обработку автоматически; расшифровка появится после диаризации.",
+        "processing_retry_deadline_exceeded": "Автоматические попытки закончились. Проверьте обработку или обратитесь к оператору.",
+        "manual_processing_check": "GRAF проверяет текущую попытку обработки.",
         "blocked_mediascribe_submission_outcome_unknown": "Не удалось подтвердить результат отправки записи. Повторная отправка остановлена во избежание дубликата; обратитесь к оператору.",
         "blocked_missing_artifacts": "Исходный файл записи недоступен. Повторите синхронизацию или загрузите запись заново.",
         "blocked_config": "Обработка заблокирована настройкой сервера. Обратитесь к оператору.",
         "processing_temp_storage_unavailable": "На сервере временно недоступно место для обработки. Повторите позже.",
         "unknown_dependency_status": "Сервис транскрипции вернул неизвестный статус. Повторите позже.",
     }.get(reason_code, "Обработка требует проверки оператором.")
+
+
+def _same_result_transcript_rows(
+    transcript_segments: Iterable[TranscriptSegment],
+    diarization_segments: Iterable[DiarizationSegment],
+) -> bool:
+    """Require visible rows to come from one result, allowing diarization-only display rows."""
+
+    transcript_result_ids = {
+        row.processing_result_id for row in transcript_segments if row.processing_result_id is not None
+    }
+    diarization_result_ids = {
+        row.processing_result_id for row in diarization_segments if row.processing_result_id is not None
+    }
+    if not transcript_result_ids or len(transcript_result_ids) != 1:
+        return False
+    if not diarization_result_ids or len(diarization_result_ids) != 1:
+        return False
+    return transcript_result_ids == diarization_result_ids and len(transcript_result_ids) == 1
+
+
+def _hidden_transcript_state(
+    *,
+    language: str | None,
+    degraded_reason: str,
+) -> TranscriptReviewState:
+    return TranscriptReviewState(
+        available=False,
+        language=language,
+        degraded_reason=degraded_reason,
+        search_enabled=False,
+        segments=[],
+        speaker_turns=[],
+    )
 
 
 def transcript_state(
@@ -2474,20 +2653,33 @@ def transcript_state(
     playback_available: bool = False,
     playback_duration_seconds: int | None = None,
     speaker_names: dict[str, str] | None = None,
+    require_diarization: bool = False,
 ) -> TranscriptReviewState:
     transcripts = sorted(transcript_segments, key=lambda row: (row.sequence, row.start_seconds))
     diarization_rows = sorted(
         diarization_segments, key=lambda row: (row.start_seconds, row.sequence)
     )
-    if status not in {"ready", "partial"}:
-        return TranscriptReviewState(
-            available=False,
+    if status in {"processing", "submitted"}:
+        degraded_reason = "processing"
+        return _hidden_transcript_state(
             language=language,
-            degraded_reason="processing"
-            if status in {"processing", "submitted"}
-            else "unavailable",
-            search_enabled=False,
-            segments=[],
+            degraded_reason=degraded_reason,
+        )
+    if status == "partial" and not _same_result_transcript_rows(transcripts, diarization_rows):
+        degraded_reason = "partial_transcript" if transcripts else "unavailable"
+        return _hidden_transcript_state(
+            language=language,
+            degraded_reason=degraded_reason,
+        )
+    if status not in {"ready", "partial"}:
+        return _hidden_transcript_state(
+            language=language,
+            degraded_reason="diarization_pending" if transcripts else "unavailable",
+        )
+    if require_diarization and not _same_result_transcript_rows(transcripts, diarization_rows):
+        return _hidden_transcript_state(
+            language=language,
+            degraded_reason="diarization_pending" if transcripts else "unavailable",
         )
     speaker_names = speaker_names or {}
     if not transcripts and not diarization_rows:
@@ -2848,6 +3040,35 @@ def notes_action_truth_state(
         )
 
     if status in {"ready", "partial"}:
+        if result is not None and result.summary_status in {
+            SummaryStatus.FAILED.value,
+            SummaryStatus.UNAVAILABLE.value,
+        }:
+            summary = _notes_action_category(
+                state="unavailable",
+                label="Outcomes unavailable",
+                reason="Итоги не удалось подготовить. Расшифровка остаётся доступной независимо от этого сбоя.",
+                readiness_impact="non_blocking",
+                copy_key="notes.summary.unavailable",
+            )
+            deferred = _notes_action_category(
+                state="deferred",
+                label="Outcome deferred",
+                reason="Эта категория появится после отдельной подготовки итогов.",
+                readiness_impact="keeps_gap_open",
+                copy_key="notes.outcomes.deferred",
+            )
+            return NotesActionTruthState(
+                summary=summary,
+                key_points=deferred,
+                decisions=deferred,
+                action_items=deferred,
+                followups=deferred,
+                risks=deferred,
+                questions=deferred,
+                evidence=deferred,
+                source_basis="processing_status",
+            )
         if result is not None and result.summary_status == SummaryStatus.AVAILABLE.value:
             summary = _notes_action_category(
                 state="blocked",
@@ -3108,21 +3329,72 @@ def build_review_response(
     speaker_names: dict[str, str] | None = None,
     can_rename_speakers: bool = False,
 ) -> MeetingReviewResponse:
+    current_media_revision_id = media_revision.id if media_revision is not None else None
+    current_lineage = result_lineage_is_current(
+        result,
+        media_revision_id=current_media_revision_id,
+    )
+    if not current_lineage and result is not None and workflow is None:
+        # Pure view-model callers historically supplied detached ORM fixtures
+        # without the DB lineage context. Production selectors never do this:
+        # they require an accepted revision and a non-null workflow lineage.
+        current_lineage = (
+            media_revision is None
+            or result.media_revision_id is None
+            or result.media_revision_id == current_media_revision_id
+        )
+    safe_result = result if current_lineage else None
+    safe_outcome_set = (
+        outcome_set
+        if current_lineage
+        and result is not None
+        and outcome_set is not None
+        and outcome_set.processing_result_id == result.id
+        else None
+    )
+    safe_outcome_items = outcome_items if safe_outcome_set is not None else []
+    if current_lineage and result is not None:
+        # Query code already pins these rows to ``result.id``.  Keep the
+        # invariant at the projection boundary as well so stale/mixed rows
+        # cannot become transcript, search, speaker, or source-link content.
+        transcript_segments = [
+            row
+            for row in transcript_segments
+            if row.processing_result_id == result.id
+            and row.meeting_id == meeting.id
+            and row.workspace_id == meeting.workspace_id
+        ]
+        diarization_segments = [
+            row
+            for row in diarization_segments
+            if row.processing_result_id == result.id
+            and row.meeting_id == meeting.id
+            and row.workspace_id == meeting.workspace_id
+        ]
+    else:
+        transcript_segments = []
+        diarization_segments = []
     access_state = access or owner_access_state()
     artifact_states = artifacts or []
     item = build_list_item(
         meeting,
         media_revision=media_revision,
-        result=result,
+        result=safe_result,
         workflow=workflow,
         access=access_state,
         artifacts=artifact_states,
         calendar_context=calendar_context,
         playback=review_playback,
     )
+    row_visibility = _same_result_transcript_rows(transcript_segments, diarization_segments)
+    if not row_visibility:
+        item.transcript_available = False
     status = cast(MeetingReviewStatus, item.status)
     notes_truth = notes_action_truth_state(
-        status=status, result=result, outcome_set=outcome_set, outcome_items=outcome_items or []
+        status=status,
+        result=safe_result,
+        outcome_set=safe_outcome_set,
+        outcome_items=safe_outcome_items,
     )
     item.notes_available = notes_truth.summary.state == "available"
     item.notes_action_truth = notes_truth
@@ -3132,6 +3404,14 @@ def build_review_response(
         review_playback,
         media_revision=media_revision,
     )
+    processing_projection = processing_state(
+        meeting,
+        result=safe_result,
+        workflow=workflow,
+        media_revision_id=current_media_revision_id,
+    )
+    if not row_visibility:
+        processing_projection.transcript_available = False
     return MeetingReviewResponse(
         meeting=item,
         calendar_context=calendar_context_summary(
@@ -3147,19 +3427,20 @@ def build_review_response(
             diarization_segments=diarization_segments,
             dependency=dependency,
         ),
-        processing=processing_state(meeting, result=result, workflow=workflow),
+        processing=processing_projection,
         transcript=transcript_state(
-            language=result.language if result is not None else None,
+            language=safe_result.language if safe_result is not None else None,
             transcript_segments=transcript_segments,
             diarization_segments=diarization_segments,
             status=status,
             playback_available=playback.available,
             playback_duration_seconds=playback.duration_seconds,
             speaker_names=speaker_names,
+            require_diarization=True,
         ),
         speakers=speaker_state(
-            diarization_segments,
-            transcript_segments=transcript_segments,
+            diarization_segments if row_visibility else [],
+            transcript_segments=transcript_segments if row_visibility else [],
             speaker_names=speaker_names,
             can_rename=can_rename_speakers,
         ),
@@ -3181,7 +3462,7 @@ def build_review_response(
         deletion_truth_copy=DELETION_TRUTH_COPY,
         assistant=slot_state("Assistant"),
         template=summary_template_slot(
-            outcome_set,
+            safe_outcome_set,
             personal_name=outcome_template_name,
             default_template_key=default_summary_template_key,
             default_template_name=default_summary_template_name,

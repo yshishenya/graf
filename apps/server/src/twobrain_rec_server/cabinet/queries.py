@@ -127,6 +127,10 @@ from twobrain_rec_server.domain.statuses import (
 )
 from twobrain_rec_server.outcomes.service import load_outcome_items
 from twobrain_rec_server.outcomes.templates import built_in_template_for_version
+from twobrain_rec_server.processing.results import (
+    effective_processing_result_query,
+    result_lineage_is_current,
+)
 
 WEB_STATUS_FILTER_GROUPS: dict[MeetingReviewStatus, frozenset[MeetingReviewStatus]] = {
     "processing": frozenset({"local_only", "uploading", "processing", "submitted"}),
@@ -1546,22 +1550,11 @@ async def _latest_result(
     meeting_id: UUID,
     media_revision_id: UUID | None = None,
 ) -> ProcessingResult | None:
-    query = select(ProcessingResult).where(
-        ProcessingResult.workspace_id == workspace_id,
-        ProcessingResult.meeting_id == meeting_id,
-        ProcessingResult.status == ProcessingResultStatus.IMPORTED.value,
-    )
-    query = query.where(
-        ProcessingResult.media_revision_id == media_revision_id
-        if media_revision_id is not None
-        else ProcessingResult.media_revision_id.is_(None)
-    )
     return await db.scalar(
-        query.order_by(
-            ProcessingResult.result_version.desc(),
-            nullslast(ProcessingResult.imported_at.desc()),
-            ProcessingResult.created_at.desc(),
-            ProcessingResult.id.desc(),
+        effective_processing_result_query(
+            workspace_id=workspace_id,
+            meeting_id=meeting_id,
+            media_revision_id=media_revision_id,
         )
     )
 
@@ -1655,6 +1648,14 @@ async def latest_processing_result(
             Meeting.id == meeting_id,
         )
     )
+    media_revision = await _latest_media_revision(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        prefer_latest=prefer_latest,
+    )
+    if media_revision is None:
+        return None
     if not prefer_latest and meeting is not None and meeting.current_outcome_set_id is not None:
         published_outcome = await current_outcome_set(
             db,
@@ -1664,7 +1665,7 @@ async def latest_processing_result(
         )
         if published_outcome is None:
             return None
-        return await db.scalar(
+        result = await db.scalar(
             select(ProcessingResult).where(
                 ProcessingResult.id == published_outcome.processing_result_id,
                 ProcessingResult.workspace_id == workspace_id,
@@ -1672,15 +1673,14 @@ async def latest_processing_result(
                 ProcessingResult.status == ProcessingResultStatus.IMPORTED.value,
             )
         )
-    media_revision = await _latest_media_revision(
-        db,
-        workspace_id=workspace_id,
-        meeting_id=meeting_id,
-        prefer_latest=prefer_latest,
-    )
+        return (
+            result
+            if result_lineage_is_current(result, media_revision_id=media_revision.id)
+            else None
+        )
     return await _latest_result(
         db,
         workspace_id=workspace_id,
         meeting_id=meeting_id,
-        media_revision_id=media_revision.id if media_revision is not None else None,
+        media_revision_id=media_revision.id,
     )

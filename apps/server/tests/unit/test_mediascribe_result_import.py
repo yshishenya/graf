@@ -322,3 +322,39 @@ def test_attribution_audit_metadata_rejects_url_and_local_path_values() -> None:
     assert metadata["provider_result_version"] == "[REDACTED]"
     assert metadata["alignment_version"] == "[REDACTED]"
     assert metadata["provider_build_version"] == "[REDACTED]"
+
+
+def test_result_import_projects_unknown_source_role_without_dropping_raw_role_or_extensions() -> None:
+    result = MediaScribeResult(
+        external_job_id="job_future_role",
+        transcript=[
+            MediaScribeSegment(
+                sequence=0,
+                start_seconds=0,
+                end_seconds=1,
+                text="hello",
+                source_role="future_track",
+                provider_segment_extension={"kept": True},
+            )
+        ],
+        provider_result_extension={"kept": True},
+    )
+
+    normalized = normalize_result(result)
+
+    assert normalized.transcript[0].source_role == "unknown_provider_state"
+    assert normalized.transcript[0].source_role_original == "future_track"
+    assert normalized.transcript[0].model_extra["provider_segment_extension"] == {"kept": True}
+    assert normalized.model_extra["provider_result_extension"] == {"kept": True}
+
+
+def test_result_import_treats_null_diarization_as_an_empty_internal_collection() -> None:
+    result = MediaScribeResult(
+        external_job_id="job_without_diarization",
+        transcript=[MediaScribeSegment(sequence=0, start_seconds=0, end_seconds=1, text="hello")],
+        diarization=None,
+    )
+
+    normalized = normalize_result(result)
+
+    assert normalized.diarization == []

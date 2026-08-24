@@ -2580,6 +2580,7 @@ def test_detail_shell_keeps_simple_outcomes_copy_without_internal_feature_labels
 
 def test_detail_shell_renders_stored_outcomes_with_long_content_and_playback_spacing() -> None:
     review = _review()
+    review.transcript = review.transcript.model_copy(update={"available": True, "search_enabled": True})
     review.playback = PlaybackReviewState(
         available=True,
         duration_seconds=120,
@@ -2652,6 +2653,7 @@ def test_detail_shell_renders_stored_outcomes_with_long_content_and_playback_spa
 
 def test_detail_shell_renders_simple_outcomes_with_metadata_and_sources() -> None:
     review = _review()
+    review.transcript = review.transcript.model_copy(update={"available": True, "search_enabled": True})
     review.playback = PlaybackReviewState(
         available=True,
         duration_seconds=120,
@@ -3335,6 +3337,7 @@ def test_embedded_detail_preserves_playback_player_and_timestamp_seek() -> None:
 
 def test_120_meeting_detail_renders_one_accessible_metadata_only_export_dialog() -> None:
     review = _review()
+    review.transcript = review.transcript.model_copy(update={"available": True, "search_enabled": True})
     result_id = uuid4()
     review.content_exports = ContentExportCapabilityResponse(
         processing_result_id=result_id,

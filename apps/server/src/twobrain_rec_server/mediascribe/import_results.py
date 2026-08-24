@@ -31,11 +31,14 @@ def _persisted_seconds(value: float) -> Decimal:
     return Decimal(str(value)).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
 
 
-def normalize_source_role(role: str) -> str:
+def normalize_source_role(role: str | None) -> str:
+    if not isinstance(role, str) or not role.strip():
+        return "unknown_provider_state"
     normalized = ROLE_ALIASES.get(role.strip().lower())
-    if normalized is None:
-        raise MediaScribeResultValidationError("unsupported_source_role")
-    return normalized
+    # Provider source roles are intentionally opaque. Keep a bounded raw value
+    # on the segment while projecting a future role to a safe non-semantic
+    # value instead of failing an otherwise usable result.
+    return normalized or "unknown_provider_state"
 
 
 def normalize_result(result: MediaScribeResult) -> MediaScribeResult:
@@ -43,7 +46,7 @@ def normalize_result(result: MediaScribeResult) -> MediaScribeResult:
         result.transcript_status == ProcessingAvailabilityStatus.UNAVAILABLE
         and not result.diarization
     ):
-        return result.model_copy(update={"transcript": []})
+        return result.model_copy(update={"transcript": [], "diarization": []})
     transcript = []
     source_transcript = (
         []
@@ -51,13 +54,31 @@ def normalize_result(result: MediaScribeResult) -> MediaScribeResult:
         else result.transcript
     )
     for segment in source_transcript:
+        normalized_role = normalize_source_role(segment.source_role)
         transcript.append(
-            segment.model_copy(update={"source_role": normalize_source_role(segment.source_role)})
+            segment.model_copy(
+                update={
+                    "source_role": normalized_role,
+                    "source_role_original": segment.source_role_original
+                    or segment.source_role
+                    if normalized_role == "unknown_provider_state"
+                    else segment.source_role_original,
+                }
+            )
         )
     diarization = []
-    for segment in result.diarization:
+    for segment in result.diarization or []:
+        normalized_role = normalize_source_role(segment.source_role)
         diarization.append(
-            segment.model_copy(update={"source_role": normalize_source_role(segment.source_role)})
+            segment.model_copy(
+                update={
+                    "source_role": normalized_role,
+                    "source_role_original": segment.source_role_original
+                    or segment.source_role
+                    if normalized_role == "unknown_provider_state"
+                    else segment.source_role_original,
+                }
+            )
         )
     diagnostics = canonical_speaker_model(
         [
@@ -98,6 +119,4 @@ def normalize_result(result: MediaScribeResult) -> MediaScribeResult:
 
 def result_digest(result: MediaScribeResult) -> str:
     payload = result.model_dump(mode="json")
-    return hashlib.sha256(
-        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    ).hexdigest()
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()

@@ -10,21 +10,42 @@
 
 ### Добавлено
 - Опубликованы подписанные macOS ZIP/PKG и Sparkle appcast для `v2026.08.24.6`.
+- Feature 195: ранняя расшифровка становится доступна только после готовой
+  диаризации той же попытки; итог встречи остаётся независимым артефактом.
+- Feature 195: для временных ошибок добавлены серверное время следующей
+  проверки, bounded countdown, ручная проверка той же MediaScribe-задачи и
+  отдельный пользовательский запуск новой попытки после подтверждённого
+  окончательного сбоя.
 
 ### Изменено
 - Production runtime авторизации пересоздан с актуальным email/Postal bootstrap.
+- MediaScribe lifecycle-клиент переведён на расширенный `/v1` contract с
+  typed errors, safe headers, capabilities/version, cursor listing,
+  downloads и deletion receipts; credentials остаются только на сервере.
+- Processing recovery использует PostgreSQL fences, idempotency и Temporal
+  durable timers/signals/updates; неизвестный результат upload не создаёт
+  новый provider job вслепую.
 
 ### Исправлено
 - Встроенное обновление macOS проверено с `2026.08.24.5` до `2026.08.24.6`.
+- Provider-only diarization, transcript-only и mismatched revision больше не
+  попадают в transcript, speakers или transcript export.
 
 ### Безопасность
-- _Пока нет записей._
+- Новая попытка требует terminal evidence, актуального source revision,
+  deletion fence и quota admission; manual check не создаёт новую попытку.
 
 ### Документы
 - Добавлен metadata-only receipt выкладки `v2026.08.24.6`.
+- Spec Kit evidence и известные ограничения Feature 195 зафиксированы в
+  `specs/195-processing-recovery/quickstart.md`.
 
 ### Операции
 - Проверены production health, Sparkle feed и OAuth redirects; Full CI намеренно пропущен.
+- Локальный fast gate: 1240 тестов, Ruff, Python compile и isolated database
+  cleanup прошли; полный local CI также прошёл server/macOS validation.
+  Production deploy, live MediaScribe/Temporal и browser E2E в этой рабочей
+  сессии не выполнялись.
 
 ## [2026.08.24.6] - 2026-08-24
 
@@ -8157,4 +8178,3 @@
 - Added production read-only RLS state verification output for covered-table
   counts, enabled/forced counts, failed tables, deployed commit, and Alembic
   revision (`feature:032`, `T015-T020`, `T028-T037`).
-

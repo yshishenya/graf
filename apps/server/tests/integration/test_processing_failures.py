@@ -20,6 +20,7 @@ from twobrain_rec_server.mediascribe.client import MediaScribeClientError
 from twobrain_rec_server.mediascribe.import_results import MediaScribeResultValidationError
 from twobrain_rec_server.mediascribe.schemas import MediaScribePollResponse
 from twobrain_rec_server.processing import store
+from twobrain_rec_server.processing.status import get_content_safe_processing_status
 from twobrain_rec_server.processing.submit import (
     poll_and_import_mediascribe_result,
     submit_to_mediascribe,
@@ -125,10 +126,82 @@ def test_v5_timeout_retries_same_job_intent(client) -> None:
         2,
         "failed_retryable",
         "mediascribe_timeout",
-        "failed",
+        "not_submitted",
         "mediascribe_timeout",
     )
     assert mediascribe_client.idempotency_keys[0] == mediascribe_client.idempotency_keys[1]
+
+
+def test_unknown_outcome_manual_claim_release_keeps_same_job_recovery_available(client) -> None:
+    finalized = create_finalized_meeting(client, "failure-unknown-manual-dispatch")
+    meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
+    workspace_id = UUID(finalized["meeting"]["workspace_id"])
+
+    async def run() -> tuple[str, str, str]:
+        async with client.app_state["sessionmaker"]() as db:
+            workflow, job = await _submitted_job(db, workspace_id, meeting_id, media_revision_id)
+            workflow.status = ProcessingStatus.BLOCKED_UNKNOWN.value
+            workflow.retry_class = "unknown_outcome"
+            workflow.last_reason_code = "blocked_mediascribe_submission_outcome_unknown"
+            job.status = MediaScribeJobStatus.BLOCKED.value
+            job.last_error_code = "blocked_mediascribe_submission_outcome_unknown"
+            await db.commit()
+
+            claim = await store.claim_processing_manual_check(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+            )
+            assert claim.request_result == "accepted"
+            assert claim.workflow is not None
+            command_version = int(claim.workflow.manual_command_version or 0)
+            await db.commit()
+            assert await store.release_processing_manual_check_claim(
+                db,
+                workflow_id=claim.workflow.id,
+                manual_command_version=command_version,
+            )
+
+            status = await get_content_safe_processing_status(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+            )
+            assert status is not None
+            return status.state.value, status.manual_action, status.retry_class
+
+    assert asyncio.run(run()) == ("blocked_unknown", "check_now", "unknown_outcome")
+
+
+def test_temporal_dispatch_failure_allows_a_fresh_attempt_after_recovery(client) -> None:
+    finalized = create_finalized_meeting(client, "failure-temporal-dispatch")
+    meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
+    workspace_id = UUID(finalized["meeting"]["workspace_id"])
+
+    async def run() -> tuple[str, str, int | None]:
+        async with client.app_state["sessionmaker"]() as db:
+            workflow = await store.upsert_processing_workflow(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+                workflow_id=f"processing/{media_revision_id}",
+                status=ProcessingStatus.STARTING,
+            )
+            assert await store.fail_processing_attempt_dispatch(db, workflow_id=workflow.id)
+            failed = await db.scalar(select(ProcessingWorkflow).where(ProcessingWorkflow.id == workflow.id))
+            assert failed is not None
+            creation = await store.create_processing_attempt(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+            )
+            return failed.status, creation.result, creation.attempt_ordinal
+
+    assert asyncio.run(run()) == ("failed_terminal", "created", 2)
 
 
 def test_worker_activity_persists_blocked_config_when_mediascribe_is_unconfigured(client, monkeypatch) -> None:

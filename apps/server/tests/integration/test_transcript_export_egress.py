@@ -249,7 +249,7 @@ def test_authorized_transcript_formats_share_one_revision_and_safe_headers(clien
     assert all(SAFE_TRANSCRIPT_TEXT not in json.dumps(event.metadata_json) for event in events)
 
 
-def test_provider_only_legacy_result_remains_reviewable_and_exportable(client) -> None:
+def test_provider_only_legacy_result_stays_hidden_until_transcript_and_diarization_match(client) -> None:
     seeds = seed_cabinet_meetings(client)
     result_id = asyncio.run(_keep_only_provider_turns(client, seeds.ready_id))
     set_artifact_policy(client, seeds.ready_id, transcript_download="allowed")
@@ -261,11 +261,10 @@ def test_provider_only_legacy_result_remains_reviewable_and_exportable(client) -
     )
 
     assert page.status_code == 200
-    assert SAFE_TRANSCRIPT_TEXT in page.text
+    assert SAFE_TRANSCRIPT_TEXT not in page.text
     assert capability.status_code == 200
-    assert capability.json()["transcript"]["state"] == "available"
+    assert capability.json()["transcript"]["state"] == "missing"
 
-    responses = {}
     for format_name in ("txt", "md", "csv", "xlsx", "json", "srt", "vtt"):
         response = client.post(
             f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
@@ -276,16 +275,7 @@ def test_provider_only_legacy_result_remains_reviewable_and_exportable(client) -
                 "processing_result_id": str(result_id),
             },
         )
-        assert response.status_code == 200, (format_name, response.text)
-        responses[format_name] = response
-
-    payload = responses["json"].json()
-    assert payload["transcript"]["raw_segments"] == []
-    assert [turn["text"] for turn in payload["transcript"]["canonical_turns"]] == [
-        SAFE_TRANSCRIPT_TEXT,
-        "Проверили статус обработки и следующие шаги.",
-    ]
-    assert payload["transcript"]["status"] == "degraded_provider_result"
+        assert response.status_code == 409, (format_name, response.text)
 
 
 def test_summary_and_combined_use_current_stored_outcome_without_regeneration(client) -> None:
@@ -769,11 +759,19 @@ def test_export_capability_never_pairs_an_accepted_summary_with_a_newer_result(c
                     .order_by(TranscriptSegment.sequence.asc())
                 )
             ).all()
+            current_diarization = (
+                await db.scalars(
+                    select(DiarizationSegment)
+                    .where(DiarizationSegment.processing_result_id == current.id)
+                    .order_by(DiarizationSegment.sequence.asc())
+                )
+            ).all()
             newer = ProcessingResult(
                 meeting_id=current.meeting_id,
                 media_revision_id=current.media_revision_id,
                 workspace_id=current.workspace_id,
                 mediascribe_job_id=current.mediascribe_job_id,
+                processing_workflow_id=current.processing_workflow_id,
                 result_version=current.result_version + 1,
                 status="imported",
                 transcript_status="available",
@@ -801,6 +799,22 @@ def test_export_capability_never_pairs_an_accepted_summary_with_a_newer_result(c
                         source_role_original=segment.source_role_original,
                     )
                     for segment in current_segments
+                ]
+            )
+            db.add_all(
+                [
+                    DiarizationSegment(
+                        processing_result_id=newer.id,
+                        meeting_id=segment.meeting_id,
+                        workspace_id=segment.workspace_id,
+                        sequence=segment.sequence,
+                        start_seconds=segment.start_seconds,
+                        end_seconds=segment.end_seconds,
+                        text=segment.text,
+                        source_role=segment.source_role,
+                        speaker_label=segment.speaker_label,
+                    )
+                    for segment in current_diarization
                 ]
             )
             await db.commit()
@@ -886,6 +900,13 @@ def test_export_capability_uses_newest_media_revision_before_summary_acceptance(
                     .order_by(TranscriptSegment.sequence.asc())
                 )
             ).all()
+            current_diarization = (
+                await db.scalars(
+                    select(DiarizationSegment)
+                    .where(DiarizationSegment.processing_result_id == current.id)
+                    .order_by(DiarizationSegment.sequence.asc())
+                )
+            ).all()
             revision = MediaRevision(
                 workspace_id=meeting.workspace_id,
                 meeting_id=meeting.id,
@@ -934,6 +955,22 @@ def test_export_capability_uses_newest_media_revision_before_summary_acceptance(
                         source_role_original=segment.source_role_original,
                     )
                     for segment in current_segments
+                ]
+            )
+            db.add_all(
+                [
+                    DiarizationSegment(
+                        processing_result_id=newer.id,
+                        meeting_id=segment.meeting_id,
+                        workspace_id=segment.workspace_id,
+                        sequence=segment.sequence,
+                        start_seconds=segment.start_seconds,
+                        end_seconds=segment.end_seconds,
+                        text=segment.text,
+                        source_role=segment.source_role,
+                        speaker_label=segment.speaker_label,
+                    )
+                    for segment in current_diarization
                 ]
             )
             await db.commit()

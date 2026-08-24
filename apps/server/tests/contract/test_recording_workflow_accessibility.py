@@ -3,6 +3,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[4]
 CABINET_ROOT = REPO_ROOT / "apps/server/src/twobrain_rec_server/cabinet"
 MEETING_DETAIL = CABINET_ROOT / "templates/cabinet/pages/meeting_detail_content.html"
+MEETING_LIST = CABINET_ROOT / "templates/cabinet/pages/meeting_list_content.html"
 SHARE_DIALOG = CABINET_ROOT / "templates/cabinet/fragments/meeting_share.html"
 GOVERNANCE_DIALOG = CABINET_ROOT / "templates/cabinet/fragments/meeting_governance.html"
 RENDERING = CABINET_ROOT / "rendering.py"
@@ -142,6 +143,57 @@ def test_async_status_is_polite_and_normal_states_have_at_most_one_primary_actio
     assert share.count('aria-live="polite"') >= 2
     assert rendering.count("class=\"primary\"") <= 1
     assert share.count('class="primary"') <= 1
+
+
+def test_processing_recovery_projection_keeps_artifacts_independent_and_refresh_safe() -> None:
+    detail = _source(MEETING_DETAIL)
+    meeting_list = _source(MEETING_LIST)
+    script = _source(JAVASCRIPT)
+    styles = _source(STYLES)
+
+    assert "data-processing-status-url" in detail
+    assert 'data-processing-recovery aria-labelledby="processing-recovery-title"' in detail
+    assert 'data-processing-check aria-describedby="processing-recovery-copy"' in detail
+    assert 'data-processing-attempt-url=' in detail
+    assert 'data-processing-new-attempt aria-describedby="processing-recovery-copy"' in detail
+    assert "Проверить обработку" in detail
+    assert "Начать обработку заново" in detail
+    assert 'data-transcript-pending' in detail
+    assert 'data-playback-transcript{% if media_revision_id %} hidden aria-hidden="true"{% endif %}' in detail
+    assert 'data-processing-summary-status role="status" aria-live="off"' in detail
+    assert 'data-processing-list-announcer role="status" aria-live="polite"' in meeting_list
+
+    for marker in (
+        "processingArtifactVisible",
+        "processingServerSecondsRemaining",
+        "server_time",
+        "next_attempt_at",
+        "next_attempt_source",
+        "retry_class",
+        "attempt_in_flight",
+        "manual_action",
+        "processingSafeNewAttemptReasons",
+        "processingNewAttemptAllowed",
+        "runProcessingNewAttempt",
+        "unknown_outcome",
+        "Не удалось подтвердить отправку, поэтому GRAF проверяет исходную попытку и не создаёт дубликат.",
+        "Обработка временно приостановлена",
+        "Проверяем статус обработки.",
+        "processingRecoveryCountdownTimer = window.setInterval(update, 1000)",
+        "fetch(statusUrl",
+        "document.addEventListener(\"visibilitychange\"",
+    ):
+        assert marker in script
+    assert "fetch(statusUrl" in script
+    assert '"Content-Type": "application/json"' in script
+    assert "command_id: processingClientCommandId()" in script
+    assert "schedule_generation: Number.parseInt(detail.dataset.processingScheduleGeneration" in script
+    assert "processingRecoveryActionRequest !== null" in script
+    assert "transcriptReady = processingTranscriptReady(projection)" in script
+    assert "updateProcessingExportVisibility(transcriptReady)" in script
+    assert "@media (prefers-reduced-motion: reduce)" in styles
+    assert "@media (forced-colors: active)" in styles
+    assert ".processing-stage-list" in styles
 
 
 def test_workflow_surfaces_cover_responsive_theme_motion_contrast_and_visible_focus() -> None:
