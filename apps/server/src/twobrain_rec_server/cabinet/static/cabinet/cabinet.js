@@ -21,13 +21,15 @@
   const processingListProjectionLastFetchedAt = new Map();
   const processingListProjectionStates = new Map();
   let processingListProjectionPollTimer = null;
-  const resetProcessingListProjectionState = () => {
+  const resetProcessingListProjectionState = ({ preserveSnapshots = false } = {}) => {
     if (processingListProjectionPollTimer) window.clearTimeout(processingListProjectionPollTimer);
     processingListProjectionPollTimer = null;
     processingListProjectionRequests.forEach((entry) => entry.controller?.abort());
     processingListProjectionRequests.clear();
-    processingListProjectionLastFetchedAt.clear();
-    processingListProjectionStates.clear();
+    if (!preserveSnapshots) {
+      processingListProjectionLastFetchedAt.clear();
+      processingListProjectionStates.clear();
+    }
   };
   const selectedMeetingIds = new Set();
   const announcedUploadProgressBuckets = new Map();
@@ -987,7 +989,9 @@
         return;
       }
       meetingListRequestGeneration += 1;
-      resetProcessingListProjectionState();
+      resetProcessingListProjectionState({
+        preserveSnapshots: requestIsMeetingListProgressPoll(event),
+      });
       rememberMeetingListRequestFocus(event);
     });
     document.body.addEventListener("htmx:afterRequest", finishAuthoritativeMeetingListRequest);
@@ -2273,11 +2277,11 @@
     const node = processingListStatusNode(row);
     if (!node) return;
     const signature = `${row.dataset.meetingId || ""}|${text}|${retryClass}|${transcriptReady}|${summaryState}`;
-    const previous = processingListProjectionStates.get(row.dataset.meetingId || "");
+    const previous = processingListProjectionStates.get(row.dataset.meetingId || "")?.signature;
     node.textContent = text;
     node.dataset.processingRetryClass = retryClass;
     row.dataset.processingTranscriptVisible = transcriptReady ? "true" : "false";
-    processingListProjectionStates.set(row.dataset.meetingId || "", signature);
+    processingListProjectionStates.set(row.dataset.meetingId || "", { signature, projection });
     if (previous && previous !== signature) {
       const announcer = document.querySelector("[data-processing-list-announcer]");
       if (announcer) announcer.textContent = "Статусы обработки встреч обновлены.";
@@ -2327,11 +2331,21 @@
       return kind === "processing";
     });
     if (!rows.length) {
-      if (processingListProjectionPollTimer) window.clearTimeout(processingListProjectionPollTimer);
-      processingListProjectionPollTimer = null;
+      resetProcessingListProjectionState();
       return;
     }
-    rows.forEach(requestProcessingListProjection);
+    const activeMeetingIds = new Set(rows.map((row) => row.dataset.meetingId || ""));
+    processingListProjectionStates.forEach((_state, meetingId) => {
+      if (!activeMeetingIds.has(meetingId)) {
+        processingListProjectionStates.delete(meetingId);
+        processingListProjectionLastFetchedAt.delete(meetingId);
+      }
+    });
+    rows.forEach((row) => {
+      const snapshot = processingListProjectionStates.get(row.dataset.meetingId || "")?.projection;
+      if (snapshot) renderProcessingListProjection(row, snapshot, meetingListRequestGeneration);
+      requestProcessingListProjection(row);
+    });
     if (!processingListProjectionPollTimer) {
       processingListProjectionPollTimer = window.setTimeout(() => {
         processingListProjectionPollTimer = null;

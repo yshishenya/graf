@@ -4,7 +4,7 @@
 
 **Created**: 2026-08-25
 
-**Status**: Implemented and locally validated; PR and production rollout pending
+**Status**: PR #5813 merged; mixed-status follow-up is in validation before release
 
 **Input**: Пользователь сообщил, что при обработке одной записи периодически
 мигают верхняя и нижняя соседние записи и на них появляются противоречивые
@@ -64,6 +64,8 @@
   соседние строки.
 - Фильтр, сортировка, удаление и ручной refresh имеют приоритет над фоновым
   обновлением.
+- Одновременный upload/playback progress swap не должен сбрасывать последнюю
+  подтверждённую projection другой processing-строки.
 
 ## Requirements
 
@@ -88,6 +90,8 @@
   aria-live объявления MUST сохранить текущее поведение.
 - **FR-009**: Web и embedded cabinet MUST использовать один общий контракт.
 - **FR-010**: Проверки и evidence MUST быть metadata-only.
+- **FR-011**: Секундный upload/playback progress swap в смешанном списке MUST
+  сохранять последнюю подтверждённую projection каждой processing-строки.
 
 ## Success Criteria
 
@@ -99,6 +103,8 @@
   list refresh и после него не продолжает projection для terminal-строки.
 - **SC-004**: Focused server-rendering, JavaScript lifecycle, HTMX fencing и
   browser/embedded contract проверки проходят без новых зависимостей.
+- **SC-005**: В смешанном processing + uploading/playback-preparing сценарии
+  list swap не меняет видимый processing-текст и не обходит 15-секундный throttle.
 
 ## Assumptions
 
