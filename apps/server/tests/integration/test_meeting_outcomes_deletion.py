@@ -140,7 +140,7 @@ def test_model_publication_stays_fail_closed_after_deletion_path_changes(client)
             )
             with pytest.raises(
                 OutcomeGenerationTerminalError,
-                match="verified_runtime_unavailable",
+                match="summary_publication_proof_invalid",
             ):
                 await publish_model_generated_outcome(
                     db,

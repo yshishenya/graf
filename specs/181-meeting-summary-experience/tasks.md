@@ -6,26 +6,26 @@
 
 **Goal**: новая встреча показывает первый строго проверенный AI-результат или честное pending/error state, но никогда не публикует extractive mock.
 
-**Independent test**: revision-scoped import with no accepted outcome cannot expose deterministic content; a valid automatic AI result remains a ready candidate until explicit user acceptance.
+**Independent test**: revision-scoped import with no current outcome cannot expose deterministic content; a valid automatic AI result is published to the type slot only after trusted provider validation.
 
-- [x] T001 [US1] Add RED lifecycle coverage for non-published deterministic extraction and first-AI candidate-before-accept in `apps/server/tests/integration/test_meeting_outcomes_generation.py`
+- [x] T001 [US1] Add RED lifecycle coverage for non-published deterministic extraction and first-AI trusted publication in `apps/server/tests/integration/test_meeting_outcomes_generation.py`
 - [x] T002 [P] [US1] Add accepted/rendering regressions for no-result pending, blocked, empty and AI-ready states in `apps/server/tests/integration/test_cabinet_meeting_outcomes.py`
 - [x] T003 [US1] Stop publishing revision-scoped deterministic extraction as ready or accepted outcomes in `apps/server/src/twobrain_rec_server/outcomes/service.py`
-- [x] T004 [US1] Keep every generated result, including `automatic_baseline`, as a candidate until explicit user acceptance in `apps/server/src/twobrain_rec_server/outcomes/ai_service.py`
-- [x] T005 [US1] Preserve dispatch, source, deletion, expected-current and idempotency fences for user acceptance in `apps/server/tests/integration/test_outcome_generation_dispatch.py`
+- [x] T004 [US1] Publish every generated result, including `automatic_baseline`, only through the trusted provider-call and type-slot boundary in `apps/server/src/twobrain_rec_server/outcomes/ai_service.py`
+- [x] T005 [US1] Preserve dispatch, source, deletion, expected-current and idempotency fences for automatic publication in `apps/server/tests/integration/test_outcome_generation_dispatch.py`
 - [x] T006 [US1] Render one honest meeting-level preparing/empty/error result instead of heuristic content or eight duplicate empty categories in `apps/server/src/twobrain_rec_server/cabinet/rendering.py`
 
 ## Phase 2: User Story 2 — Безопасно выбрать формат и обновить итоги (P1)
 
-**Goal**: пользователь понимает side effect выбора, сравнивает полный новый вариант и отдельно закрывает, отклоняет или принимает его.
+**Goal**: пользователь понимает side effect выбора, видит ход обновления, а проверенная новая версия автоматически заменяет текущую только в своём type slot.
 
-**Independent test**: select/refresh creates one candidate, current accepted result remains stable, recovery is visible, close is not reject, and explicit accept/reject behaves atomically.
+**Independent test**: select/refresh creates one technical attempt, current result remains stable while it runs, recovery is visible, and successful publication changes only the target slot atomically.
 
-- [x] T007 [P] [US2] Define RED UI contract assertions for format purpose/current marker, named review region, separate live text/actions and close-vs-reject semantics in `apps/server/tests/contract/test_summary_template_ui_contract.py`
+- [x] T007 [P] [US2] Define RED UI contract assertions for format purpose/current marker, named generation region, separate live text/actions and automatic replacement semantics in `apps/server/tests/contract/test_summary_template_ui_contract.py`
 - [x] T008 [P] [US2] Add API lifecycle regressions for duplicate intent, history unavailable, preview unavailable, stale, expired and accepted-pointer conflict in `apps/server/tests/unit/test_summary_candidate_revisions.py`
 - [x] T009 [US2] Clarify format side effects, current selection and full-catalog purpose copy in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/meeting_detail_content.html`
-- [x] T010 [US2] Separate passive candidate status from actions and make preview a named review region in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/meeting_detail_content.html`
-- [x] T011 [US2] Implement close-without-reject, explicit reject, visible candidate-history recovery, local preview retry and neutral slow state in `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`
+- [x] T010 [US2] Separate passive generation status from actions and make the current-result transition a named region in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/meeting_detail_content.html`
+- [x] T011 [US2] Implement automatic screen refresh after trusted publication, visible generation-history recovery, retry and neutral slow state in `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`
 - [x] T012 [US2] Add current/pending/review/slow/attention styles and responsive comparison layout without new visual dependencies in `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css`
 
 ## Phase 3: User Story 3 — Получить результат под тип встречи (P1)
@@ -43,9 +43,9 @@
 
 ## Phase 4: User Story 4 — Проверить источник и вернуться к результату (P2)
 
-**Goal**: source evidence remains exact but secondary; navigation and return work in accepted and candidate review without losing player or generation state.
+**Goal**: source evidence remains exact but secondary; navigation and return work in current results and in-flight generation without losing player or generation state.
 
-**Independent test**: keyboard user opens an exact source, keeps playback/generation state and returns to the same accepted/candidate context in browser and embedded routes.
+**Independent test**: keyboard user opens an exact source, keeps playback/generation state and returns to the same current/in-flight context in browser and embedded routes.
 
 - [x] T019 [P] [US4] Add source-jump/return, tab-state, player-state and candidate-review focus regressions in `apps/server/tests/contract/test_summary_template_ui_contract.py`
 - [x] T020 [US4] Preserve accepted/candidate review context and expose a return-to-review action around source navigation in `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`
@@ -54,7 +54,7 @@
 
 **Goal**: owner can create, edit, delete and choose a personal default while historical result/template snapshots remain immutable.
 
-**Independent test**: personal default is accepted only for the same active workspace/owner, drives future automatic candidates, and edit/delete does not alter existing outcomes.
+**Independent test**: personal default is authorized only for the same active workspace/owner, drives future automatic generation, and edit/delete does not alter existing outcomes.
 
 - [x] T021 [P] [US5] Replace the legacy personal-default prohibition with positive authorization and history-preservation contract tests in `apps/server/tests/contract/test_summary_template_ui_contract.py`
 - [x] T022 [US5] Allow an active personal template to become workspace default with existing owner/RLS/CSRF gates in `apps/server/src/twobrain_rec_server/api/cabinet.py`
@@ -65,7 +65,7 @@
 
 **Goal**: complete summary workflow remains understandable and operable with keyboard/assistive technology in browser and embedded macOS at 200% zoom.
 
-**Independent test**: keyboard-only selection, generation, review, source return and acceptance preserve focus and content at desktop/mobile widths and 200% embedded zoom.
+**Independent test**: keyboard-only selection, generation, source return and automatic refresh preserve focus and content at desktop/mobile widths and 200% embedded zoom.
 
 - [x] T025 [P] [US6] Add keyboard, live-region, dialog/listbox focus-return and 200% reflow contract regressions in `apps/server/tests/contract/test_summary_template_ui_contract.py`
 - [x] T026 [US6] Keep candidate live text bounded, review focus predictable and narrow/zoom actions reachable in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/meeting_detail_content.html`, `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`, and `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css`
@@ -98,7 +98,7 @@
 ## Implementation strategy
 
 1. Ship the smallest trusted vertical slice first: US1.
-2. Clarify candidate interaction without changing accepted storage: US2.
+2. Clarify automatic trusted replacement without changing slot history: US2.
 3. Strengthen prompts in the existing one-call architecture: US3.
 4. Close source, personal-format and accessibility parity: US4–US6.
 5. Validate locally; do not commit, promote, release or deploy without the separate approval gate.

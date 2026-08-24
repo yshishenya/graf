@@ -251,20 +251,19 @@ def test_reflection_and_judges_have_separate_closed_contracts() -> None:
     retained_v1_config["config_contract_version"] = 1
     retained_v1_config["temperature"] = 0
     retained_v1_config["max_completion_tokens"] = 2048
-    retained = validate_prompt_snapshot(
-        name="graf/evaluation/meeting-outcome-faithfulness",
-        version=1,
-        prompt_type="chat",
-        prompt=[
-            {
-                "role": "user",
-                "content": "{{source_segments_json}} {{candidate_outcome_json}}",
-            }
-        ],
-        config=retained_v1_config,
-    )
-    assert retained.config["temperature"] == 0
-    assert retained.config["config_contract_version"] == 1
+    with pytest.raises(ValueError, match="prompt config does not match"):
+        validate_prompt_snapshot(
+            name="graf/evaluation/meeting-outcome-faithfulness",
+            version=1,
+            prompt_type="chat",
+            prompt=[
+                {
+                    "role": "user",
+                    "content": "{{source_segments_json}} {{candidate_outcome_json}}",
+                }
+            ],
+            config=retained_v1_config,
+        )
 
 
 def test_reflection_prompt_requires_the_complete_json_chat_contract() -> None:

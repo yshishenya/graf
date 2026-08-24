@@ -6,9 +6,9 @@
 
 ## Summary
 
-GRAF перестаёт публиковать deterministic extractive baseline как готовые итоги новой встречи. Первый строго проверенный автоматический AI-вариант становится исходным принятым результатом только когда у встречи ещё нет принятой версии; все ручные обновления и смены формата по-прежнему проходят через безопасный preview-before-replace.
+GRAF перестаёт публиковать deterministic extractive baseline как готовые итоги новой встречи. Первый строго проверенный автоматический AI-вариант становится текущим результатом, когда у встречи ещё нет сохранённой версии; все ручные обновления и смены формата проходят через безопасный verify-before-replace, после чего новая версия публикуется автоматически.
 
-Девять встроенных форматов получают разные, версионированные смысловые контракты поверх существующего Langfuse/LiteLLM/Temporal пути. Интерфейс показывает назначение формата, честное состояние первоначальной генерации и понятный lifecycle кандидата. Качество доказывается на синтетическом наборе и отдельно разрешённой локальной выборке реальных встреч без публикации содержимого.
+Девять встроенных форматов получают разные, версионированные смысловые контракты поверх существующего Langfuse/LiteLLM/Temporal пути. Интерфейс показывает назначение формата, честное состояние генерации и понятный lifecycle технической попытки. Качество доказывается на синтетическом наборе и отдельно разрешённой локальной выборке реальных встреч без публикации содержимого.
 
 ## Technical Context
 
@@ -32,7 +32,7 @@ GRAF перестаёт публиковать deterministic extractive baseline
 
 **Constraints**: без эвристического пользовательского fallback; без прямого provider call; exact source refs; no invented owners/dates/decisions; private content только в одобренных operator-controlled контурах; evidence и git metadata-only
 
-**Scale/Scope**: девять встроенных форматов, personal formats, initial generation, manual regeneration, candidate preview/accept/reject, browser/embedded parity, synthetic and authorized-private evaluation
+**Scale/Scope**: девять встроенных форматов, personal formats, initial generation, manual regeneration, per-type slot history, automatic trusted publication, browser/embedded parity, synthetic and authorized-private evaluation
 
 ## Constitution Check
 
@@ -41,16 +41,16 @@ GRAF перестаёт публиковать deterministic extractive baseline
 - Capture-first и visible-recording contracts не затрагиваются.
 - AI egress остаётся только через allowlisted LiteLLM; Langfuse остаётся единственным editable prompt/config authority.
 - Полный transcript/model content остаётся в одобренных Langfuse, Generation Call и Temporal boundaries; обычные logs, screenshots, issues и committed evidence остаются metadata-only.
-- Accepted-result truth сохраняется: автоматическое принятие разрешено только для первого строго проверенного system candidate при отсутствии принятого результата; ручная регенерация никогда не перезаписывает accepted truth молча.
+- Current-result truth сохраняется: автоматическая публикация разрешена только после строгой проверки provider call при отсутствии или наличии текущего результата; ручная регенерация никогда не заменяет slot до прохождения всех fence/hash-проверок.
 - RLS, deletion epoch, source revision, access и immutable lineage fences переиспользуются без ослабления.
 - UX проходит keyboard, focus, live-region, zoom, localization и clean-room/brand-distance gates.
 - Новых внешних зависимостей, provider routes, migrations или privileged boundaries нет.
 
 ## Validation Plan
 
-1. RED: доказать, что deterministic baseline больше не публикуется для новой revision-scoped встречи и первый automatic AI result остаётся candidate до явного принятия пользователем.
+1. RED: доказать, что deterministic baseline больше не публикуется для новой revision-scoped встречи, а первый automatic AI result становится current только после trusted provider publication.
 2. Prompt contracts: все девять форматов имеют разные required emphasis, exclusions и output guidance; strict schema/source validation сохраняется.
-3. Lifecycle/API: initial pending/error, manual format, refresh, preview, accept, reject, retry, stale/expired/deletion/source-change и idempotency.
+3. Lifecycle/API: initial pending/error, manual format, refresh, automatic slot replacement, retry, stale/expired/deletion/source-change и idempotency.
 4. UI contract: описания форматов в quick picker/full dialog, честная initial state, controls скрыты/disabled только согласно реальной доступности, status text отделён от action buttons.
 5. PostgreSQL focused suite через `bash apps/server/scripts/run_local_postgres_tests.sh`.
 6. Synthetic browser matrix: all formats, all buttons, keyboard, focus, 390px/1280px, 200% zoom, web and embedded routes.

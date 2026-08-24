@@ -85,7 +85,7 @@ def test_feature_183_publication_prerequisite_matrix_is_fail_closed_and_non_muta
             for proof in proofs:
                 with pytest.raises(
                     OutcomeGenerationTerminalError,
-                    match="verified_runtime_unavailable",
+                    match=r"summary_publication_(?:proof_missing|proof_invalid|fence_failed)",
                 ):
                     await publish_model_generated_outcome(
                         db,
@@ -299,6 +299,7 @@ def test_trusted_reconcile_cannot_promote_the_initial_baseline(client) -> None:
                 db,
                 result=result,
                 publish_initial_baseline=True,
+                ai_dispatch_planned=False,
             )
             attempts = (
                 await db.scalars(
@@ -312,6 +313,11 @@ def test_trusted_reconcile_cannot_promote_the_initial_baseline(client) -> None:
                     select(MeetingOutcomeSet).where(MeetingOutcomeSet.meeting_id == meeting_id)
                 )
             ).all()
+            item_count = await db.scalar(
+                select(func.count())
+                .select_from(MeetingOutcomeItem)
+                .where(MeetingOutcomeItem.outcome_set_id == repeated.id)
+            )
             await db.commit()
             return (
                 candidate.id,
@@ -321,6 +327,7 @@ def test_trusted_reconcile_cannot_promote_the_initial_baseline(client) -> None:
                 repeated.accepted_at is not None,
                 [attempt.status for attempt in attempts],
                 len(sets),
+                int(item_count or 0),
             )
 
     (
@@ -331,13 +338,15 @@ def test_trusted_reconcile_cannot_promote_the_initial_baseline(client) -> None:
         accepted,
         attempt_statuses,
         set_count,
+        item_count,
     ) = asyncio.run(reconcile())
     assert candidate_id == repeated_id
     assert current_id is None
     assert revision_state == "candidate"
     assert accepted is False
-    assert attempt_statuses == ["candidate"]
+    assert attempt_statuses == ["blocked_dependency"]
     assert set_count == 1
+    assert item_count == 0
 
 
 def test_automatic_candidate_uses_exact_workspace_builtin_default_once(client) -> None:

@@ -20,8 +20,8 @@ bash apps/server/scripts/run_local_postgres_tests.sh \
 Expected:
 
 - new revision-scoped meeting never accepts deterministic extractive output;
-- automatic baseline, manual format and refresh results remain candidates until explicit acceptance;
-- stale/deleted/changed-source candidates cannot replace accepted truth;
+- automatic baseline, manual format and refresh results become current only after trusted publication;
+- stale/deleted/changed-source attempts cannot replace the current slot;
 - all nine formats have distinct contracts and strict source validation.
 
 ## Browser matrix
@@ -30,7 +30,7 @@ For synthetic meeting data, verify in ordinary and `/desktop` routes:
 
 1. no accepted result: preparing, dependency unavailable, retryable and terminal states;
 2. accepted result: picker, all-formats dialog, current-format refresh;
-3. each of nine formats: select, pending, ready preview, close, reject, accept;
+3. each of nine formats: select, pending, validated publication, automatic screen refresh;
 4. duplicate click/idempotency, background/resume, reload/session recovery;
 5. slow, history unavailable, preview unavailable, stale, expired, source changed, access lost and deletion active;
 6. exact source seek and return;

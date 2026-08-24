@@ -15,6 +15,7 @@ from tests.fixtures.cabinet import (
     FOREIGN_ORG_ID,
     FOREIGN_USER_ID,
     FOREIGN_WORKSPACE_ID,
+    SAFE_TRANSCRIPT_TEXT,
     create_outcome_ready_meeting,
 )
 from twobrain_rec_server.cabinet import queries
@@ -104,6 +105,17 @@ def test_ready_summary_type_read_is_saved_and_does_not_require_ai_dependencies(c
         f'"sum-{meeting_id}-graf-auto-v1-v{payload["state_version"]}"'
     )
 
+    processing = client.get(
+        f"/api/v1/meetings/{meeting_id}/processing",
+        headers=auth_headers(),
+    )
+    assert processing.status_code == 200
+    assert processing.json()["summary_status"] == "available"
+    assert processing.json()["artifacts"]["summary"] == {
+        "state": "available",
+        "visible": True,
+    }
+
     cached = client.get(
         f"/api/v1/cabinet/meetings/{meeting_id}/summaries/graf-auto-v1",
         headers=auth_headers() | {"If-None-Match": response.headers["etag"]},
@@ -111,6 +123,31 @@ def test_ready_summary_type_read_is_saved_and_does_not_require_ai_dependencies(c
     assert cached.status_code == 304
     assert cached.text == ""
     assert cached.headers["cache-control"] == "private, no-store"
+
+
+def test_processing_status_does_not_promote_hash_mismatched_published_outcome(client) -> None:
+    meeting_id = create_outcome_ready_meeting(client, "summary-processing-hash-mismatch")
+    service = _service_module()
+    asyncio.run(_generate_and_store(client, meeting_id, service))
+
+    async def tamper_source_hash() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            outcome = await db.scalar(
+                select(MeetingOutcomeSet).where(MeetingOutcomeSet.meeting_id == meeting_id)
+            )
+            assert outcome is not None
+            outcome.source_result_hash = "tampered-source-hash"
+            await db.commit()
+
+    asyncio.run(tamper_source_hash())
+    processing = client.get(
+        f"/api/v1/meetings/{meeting_id}/processing",
+        headers=auth_headers(),
+    )
+
+    assert processing.status_code == 200
+    assert processing.json()["summary_status"] != "available"
+    assert processing.json()["artifacts"]["summary"]["visible"] is False
 
 
 def test_retired_builtin_summary_remains_readable_but_cannot_be_ensured(
@@ -833,16 +870,146 @@ def test_cabinet_web_renders_processing_and_blocked_outcomes_in_russian_without_
 
     assert processing.status_code == 200
     assert blocked.status_code == 200
-    assert 'data-outcome-source-basis="policy_deferral"' in processing.text
-    assert 'data-outcome-state="deferred"' in processing.text
-    assert 'class="notes-aggregate-state"' in processing.text
-    assert "Ключевые пункты" not in processing.text
-    assert "data-outcome-category" not in processing.text
-    assert "Источник: отложено политикой" in processing.text
-    assert 'data-outcome-source-basis="policy_deferral"' in blocked.text
-    assert 'class="notes-aggregate-state"' in blocked.text
-    assert "Источник: отложено политикой" in blocked.text
-    assert "Синтетический итог встречи готов." not in blocked.text
+    processing_notes = _notes_panel(processing.text)
+    blocked_notes = _notes_panel(blocked.text)
+    assert 'data-outcome-source-basis="policy_deferral"' in processing_notes
+    assert 'data-outcome-state="deferred"' in processing_notes
+    assert 'class="notes-aggregate-state"' in processing_notes
+    assert "Ключевые пункты" not in processing_notes
+    assert "data-outcome-category" not in processing_notes
+    assert "Источник: отложено политикой" in processing_notes
+    assert 'data-outcome-source-basis="policy_deferral"' in blocked_notes
+    assert 'class="notes-aggregate-state"' in blocked_notes
+    assert "Источник: отложено политикой" in blocked_notes
+    assert "Синтетический итог встречи готов." not in blocked_notes
+
+
+def test_no_accepted_outcome_opens_preparing_result_without_transcript_mock(client) -> None:
+    meeting_id = create_outcome_ready_meeting(client, "cabinet-no-accepted-preparing")
+    asyncio.run(
+        _seed_outcome_set(
+            client,
+            meeting_id=meeting_id,
+            status="generating",
+            category_state="processing",
+            generator_kind="litellm",
+            revision_state=None,
+        )
+    )
+
+    response = client.get(f"/meetings/{meeting_id}", headers=auth_headers())
+
+    assert response.status_code == 200
+    assert 'id="detail-tab-outcomes" aria-selected="true"' in response.text
+    outcomes = _outcomes_panel(response.text)
+    assert "Итоги отложены" in outcomes
+    assert "Формат: <strong data-summary-format-label>Авто</strong>" in outcomes
+    assert outcomes.count('class="notes-aggregate-state"') == 1
+    assert "data-outcome-category" not in outcomes
+    assert SAFE_TRANSCRIPT_TEXT not in outcomes
+
+
+def test_no_accepted_outcome_opens_blocked_error_with_one_safe_action(client) -> None:
+    meeting_id = create_outcome_ready_meeting(client, "cabinet-no-accepted-blocked")
+    asyncio.run(
+        _seed_outcome_set(
+            client,
+            meeting_id=meeting_id,
+            status="blocked",
+            category_state="blocked",
+            failure_reason="outcomes_dependency_unavailable",
+            generator_kind="litellm",
+            revision_state=None,
+        )
+    )
+
+    response = client.get(f"/meetings/{meeting_id}", headers=auth_headers())
+
+    assert response.status_code == 200
+    assert 'id="detail-tab-outcomes" aria-selected="true"' in response.text
+    outcomes = _outcomes_panel(response.text)
+    assert outcomes.count('class="notes-aggregate-state"') == 1
+    assert 'data-outcome-state="deferred"' in outcomes
+    assert outcomes.count("data-summary-refresh-button") == 1
+    assert "data-outcome-category" not in outcomes
+    assert SAFE_TRANSCRIPT_TEXT not in outcomes
+
+
+def test_fully_empty_accepted_ai_outcome_collapses_to_one_meeting_level_explanation(
+    client,
+) -> None:
+    meeting_id = create_outcome_ready_meeting(client, "cabinet-ai-accepted-empty")
+    asyncio.run(
+        _seed_outcome_set(
+            client,
+            meeting_id=meeting_id,
+            status="available",
+            category_state="not_found",
+            generator_kind="litellm",
+        )
+    )
+
+    response = client.get(f"/meetings/{meeting_id}", headers=auth_headers())
+
+    assert response.status_code == 200
+    assert 'id="detail-tab-outcomes" aria-selected="true"' in response.text
+    outcomes = _outcomes_panel(response.text)
+    assert outcomes.count('class="notes-aggregate-state"') == 1
+    assert 'data-outcome-state="empty"' in outcomes
+    assert re.search(r'class="notes-aggregate-state"[^>]*>.*?<p>[^<]+</p>', outcomes, re.DOTALL)
+    assert "data-outcome-category" not in outcomes
+
+
+def test_accepted_ai_outcome_renders_stored_result_without_deterministic_mock(client) -> None:
+    meeting_id = create_outcome_ready_meeting(client, "cabinet-ai-accepted-ready")
+    ai_summary = "Команда согласовала выпуск после завершения обязательной проверки."
+    asyncio.run(
+        _seed_outcome_set(
+            client,
+            meeting_id=meeting_id,
+            status="available",
+            states={
+                "summary": "available",
+                "key_points": "not_found",
+                "decisions": "not_found",
+                "action_items": "not_found",
+                "followups": "not_found",
+                "risks": "not_found",
+                "questions": "not_found",
+                "evidence": "available",
+            },
+            items=[
+                {
+                    "category": "summary",
+                    "text": ai_summary,
+                    "source_refs_json": [
+                        {
+                            "sequence": 0,
+                            "start_seconds": 0.0,
+                            "end_seconds": 12.5,
+                            "evidence_kind": "segment",
+                        }
+                    ],
+                }
+            ],
+            generator_kind="litellm",
+        )
+    )
+
+    api_response = client.get(
+        f"/api/v1/cabinet/meetings/{meeting_id}", headers=auth_headers()
+    )
+    page = client.get(f"/meetings/{meeting_id}", headers=auth_headers())
+
+    assert api_response.status_code == 200
+    assert page.status_code == 200
+    truth = api_response.json()["notes_action_truth"]
+    assert truth["provenance"]["generator_kind"] == "litellm"
+    assert truth["summary"]["items"][0]["text"] == ai_summary
+    assert SAFE_TRANSCRIPT_TEXT not in str(truth)
+    outcomes = _outcomes_panel(page.text)
+    assert ai_summary in outcomes
+    assert SAFE_TRANSCRIPT_TEXT not in outcomes
 
 
 def test_cabinet_web_and_embedded_routes_render_matching_outcome_truth(client) -> None:
@@ -872,11 +1039,6 @@ def test_cabinet_web_and_embedded_routes_render_matching_outcome_truth(client) -
             assert set(_outcome_states(web.text)) == {
                 "summary",
                 "key_points",
-                "decisions",
-                "action_items",
-                "followups",
-                "risks",
-                "questions",
                 "evidence",
             }
         else:
@@ -919,6 +1081,17 @@ def _outcome_states(html: str) -> dict[str, str]:
     return dict(re.findall(r'data-outcome-category="([^"]+)" data-outcome-state="([^"]+)"', html))
 
 
+def _outcomes_panel(html: str) -> str:
+    start = html.index('id="detail-panel-outcomes"')
+    end = html.index('id="detail-panel-recording"', start)
+    return html[start:end]
+
+
+def _notes_panel(html: str) -> str:
+    outcomes = _outcomes_panel(html)
+    return outcomes[outcomes.index('<section class="notes"') :]
+
+
 async def _first_outcome_text(client, meeting_id) -> str:
     async with client.app_state["sessionmaker"]() as db:
         text = await db.scalar(
@@ -940,6 +1113,8 @@ async def _seed_outcome_set(
     states: dict[str, str] | None = None,
     items: list[dict] | None = None,
     failure_reason: str | None = None,
+    generator_kind: str = "deterministic_extractive",
+    revision_state: str | None = "candidate",
 ) -> None:
     async with client.app_state["sessionmaker"]() as db:
         result = await db.scalar(
@@ -970,11 +1145,14 @@ async def _seed_outcome_set(
             risks_state=states["risks"],
             questions_state=states["questions"],
             evidence_state=states["evidence"],
+            generator_kind=generator_kind,
             generator_version=OUTCOME_GENERATOR_VERSION,
             template_key="graf-auto-v1",
             template_version=1,
             source_result_hash=result.source_result_hash,
-            revision_state="accepted" if status in {"available", "partial"} else "candidate",
+            revision_state=(
+                "accepted" if status in {"available", "partial"} else revision_state
+            ),
             generated_at=datetime.now(UTC) if status in {"available", "partial"} else None,
             failure_reason=failure_reason,
         )

@@ -805,7 +805,7 @@ def test_db_only_refresh_replaces_one_slot_and_keeps_last_known_good_global_poin
                     expected_deletion_epoch=meeting.deletion_epoch,
                 )
             with pytest.raises(
-                OutcomeGenerationTerminalError, match="verified_runtime_unavailable"
+                OutcomeGenerationTerminalError, match="summary_publication_proof_missing"
             ):
                 await publish_model_generated_outcome(
                     db,

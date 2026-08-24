@@ -17,16 +17,16 @@ from twobrain_rec_server.db.models import (
     MeetingOutcomeGenerationAttempt,
     MeetingOutcomeItem,
     MeetingOutcomeSet,
+    MeetingSummarySlot,
     ProcessingResult,
 )
 from twobrain_rec_server.outcomes.ai_service import (
     OutcomeGenerationDependencyError,
-    OutcomeGenerationTerminalError,
     _candidate_segments,
     _content_hash,
     ensure_automatic_summary_candidate,
     execute_candidate_generation,
-    resolve_summary_candidate,
+    publish_model_generated_outcome,
 )
 from twobrain_rec_server.outcomes.generator import canonical_transcript
 from twobrain_rec_server.outcomes.prompts import outcome_config, prompt_snapshot_hash
@@ -192,6 +192,8 @@ async def _ready_automatic_candidate(db, meeting_id):
         source_result_hash=first.source_result_hash,
         source_fingerprint=first.source_fingerprint,
         deletion_epoch_at_start=first.deletion_epoch_at_start,
+        template_key=first.template_key,
+        template_version=first.template_version,
         revision_state="candidate",
     )
     db.add(outcome_set)
@@ -201,88 +203,7 @@ async def _ready_automatic_candidate(db, meeting_id):
     return meeting, result, first, outcome_set
 
 
-def test_user_accept_is_idempotent_and_records_authorship(client) -> None:
-    meeting_id = create_outcome_ready_meeting(client, "user-accept-dispatch")
-    async def run() -> None:
-        async with client.app_state["sessionmaker"]() as db:
-            meeting, _result, attempt, outcome_set = await _ready_automatic_candidate(
-                db, meeting_id
-            )
-            attempt_count = await db.scalar(
-                select(func.count())
-                .select_from(MeetingOutcomeGenerationAttempt)
-                .where(MeetingOutcomeGenerationAttempt.meeting_id == meeting_id)
-            )
-
-            accepted = await resolve_summary_candidate(
-                db,
-                workspace_id=meeting.workspace_id,
-                meeting_id=meeting.id,
-                candidate_id=attempt.candidate_id,
-                requested_by_user_id=meeting.created_by_user_id,
-                accept=True,
-                expected_current_outcome_set_id=None,
-            )
-
-            assert attempt_count == 1
-            assert accepted.id == outcome_set.id == meeting.current_outcome_set_id
-            assert accepted.revision_state == attempt.status == "accepted"
-            assert accepted.accepted_by_user_id == meeting.created_by_user_id
-
-    asyncio.run(run())
-
-
-def test_user_accept_preserves_source_and_deletion_fences(client) -> None:
-    stale_id = create_outcome_ready_meeting(client, "user-accept-stale")
-    deleting_id = create_outcome_ready_meeting(client, "user-accept-deleting")
-    async def run() -> None:
-        async with client.app_state["sessionmaker"]() as db:
-            meeting, result, attempt, outcome_set = await _ready_automatic_candidate(
-                db, stale_id
-            )
-            result.source_result_hash = "changed-after-generation"
-
-            with pytest.raises(
-                OutcomeGenerationTerminalError, match="summary_source_revision_stale"
-            ):
-                await resolve_summary_candidate(
-                    db,
-                    workspace_id=meeting.workspace_id,
-                    meeting_id=meeting.id,
-                    candidate_id=attempt.candidate_id,
-                    requested_by_user_id=meeting.created_by_user_id,
-                    accept=True,
-                    expected_current_outcome_set_id=None,
-                )
-
-            assert meeting.current_outcome_set_id is None
-            assert attempt.status == outcome_set.revision_state == "stale"
-
-        async with client.app_state["sessionmaker"]() as db:
-            meeting, _result, attempt, outcome_set = await _ready_automatic_candidate(
-                db, deleting_id
-            )
-            meeting.deletion_state = "requested"
-
-            with pytest.raises(OutcomeGenerationTerminalError, match="meeting_deleting"):
-                await resolve_summary_candidate(
-                    db,
-                    workspace_id=meeting.workspace_id,
-                    meeting_id=meeting.id,
-                    candidate_id=attempt.candidate_id,
-                    requested_by_user_id=meeting.created_by_user_id,
-                    accept=True,
-                    expected_current_outcome_set_id=None,
-                )
-
-            assert meeting.current_outcome_set_id is None
-            assert attempt.status == "candidate"
-            assert outcome_set.revision_state == "candidate"
-
-    asyncio.run(run())
-
-
-def test_ai_disabled_initial_outcome_is_blocked_without_deterministic_content(client) -> None:
+def test_revision_scoped_ai_wait_replaces_blocked_lineage_without_deterministic_content(client) -> None:
     meeting_id = create_outcome_ready_meeting(client, "ai-disabled-initial-outcome")
     from twobrain_rec_server.outcomes.service import ensure_outcomes_for_processing_result
 
@@ -315,18 +236,35 @@ def test_ai_disabled_initial_outcome_is_blocked_without_deterministic_content(cl
                 repeated.id,
                 first.status,
                 first.failure_reason,
+                first.revision_state,
                 {getattr(first, f"{category}_state") for category in OUTCOME_CATEGORIES},
                 int(item_count or 0),
+                repeated.status,
+                repeated.failure_reason,
+                repeated.revision_state,
+                {getattr(repeated, f"{category}_state") for category in OUTCOME_CATEGORIES},
                 meeting.current_outcome_set_id,
             )
 
-    first_id, repeated_id, status, reason, category_states, item_count, current_id = (
-        asyncio.run(run())
-    )
+    (
+        first_id,
+        repeated_id,
+        first_status,
+        first_reason,
+        first_revision_state,
+        first_category_states,
+        item_count,
+        repeated_status,
+        repeated_reason,
+        repeated_revision_state,
+        repeated_category_states,
+        current_id,
+    ) = asyncio.run(run())
     assert first_id == repeated_id
-    assert status == "blocked"
-    assert reason == "summary_generation_unavailable"
-    assert category_states == {"unavailable"}
+    assert first_status == repeated_status == "blocked"
+    assert first_reason == repeated_reason == "summary_generation_unavailable"
+    assert first_revision_state == repeated_revision_state == "candidate"
+    assert first_category_states == repeated_category_states == {"unavailable"}
     assert item_count == 0
     assert current_id is None
 
@@ -370,7 +308,7 @@ def test_planned_ai_dispatch_keeps_initial_outcome_generating_without_content(cl
     assert item_count == 0
 
 
-def test_generation_activity_replay_returns_matching_accepted_result(client, monkeypatch) -> None:
+def test_generation_activity_replay_returns_matching_published_result(client, monkeypatch) -> None:
     meeting_id = create_outcome_ready_meeting(client, "accepted-generation-activity-replay")
 
     async def unexpected_generation(*_args, **_kwargs):
@@ -415,6 +353,8 @@ def test_generation_activity_replay_returns_matching_accepted_result(client, mon
             validated_hash = _content_hash(validated)
             outcome_set.content_hash = validated_hash
             now = datetime.now(UTC)
+            raw_response = {"choices": []}
+            request = {"messages": []}
             call = GenerationCall(
                 workspace_id=meeting.workspace_id,
                 meeting_id=meeting.id,
@@ -426,25 +366,32 @@ def test_generation_activity_replay_returns_matching_accepted_result(client, mon
                 call_state="completed",
                 started_at=now,
                 completed_at=now,
-                request_json={},
+                request_json=request,
                 transcript_text=transcript,
+                raw_response_json=raw_response,
+                request_hash=_content_hash(request),
                 transcript_hash=transcript_hash,
+                raw_response_hash=_content_hash(raw_response),
                 validated_result_json=validated,
                 validated_result_hash=validated_hash,
             )
             db.add(call)
-            await resolve_summary_candidate(
+            await db.flush()
+            await publish_model_generated_outcome(
                 db,
                 workspace_id=meeting.workspace_id,
                 meeting_id=meeting.id,
                 candidate_id=attempt.candidate_id,
-                requested_by_user_id=meeting.created_by_user_id,
-                accept=True,
                 expected_current_outcome_set_id=None,
+                publication_proof={
+                    "generation_call_id": str(call.id),
+                    "outcome_set_id": str(outcome_set.id),
+                    "validated_result_hash": validated_hash,
+                },
             )
             workspace_id = meeting.workspace_id
             candidate_id = attempt.candidate_id
-            accepted_id = outcome_set.id
+            published_id = outcome_set.id
             await db.commit()
             assert candidate_id is not None
 
@@ -463,14 +410,20 @@ def test_generation_activity_replay_returns_matching_accepted_result(client, mon
             )
             meeting = await db.get(Meeting, meeting_id)
             assert attempt is not None and meeting is not None
-            return replay, attempt.status, meeting.current_outcome_set_id, accepted_id
+            current_slot_id = await db.scalar(
+                select(MeetingSummarySlot.current_outcome_set_id).where(
+                    MeetingSummarySlot.meeting_id == meeting_id,
+                    MeetingSummarySlot.template_key == attempt.template_key,
+                )
+            )
+            return replay, attempt.status, current_slot_id, published_id
 
-    replay, attempt_status, current_id, accepted_id = asyncio.run(run())
+    replay, attempt_status, current_id, published_id = asyncio.run(run())
     assert replay["state"] == "accepted"
     assert replay["reused"] is True
-    assert replay["outcome_set_id"] == str(accepted_id)
+    assert replay["outcome_set_id"] == str(published_id)
     assert attempt_status == "accepted"
-    assert current_id == accepted_id
+    assert current_id == published_id
 
 
 def test_missing_provider_config_does_not_reserve_generation_call(client) -> None:

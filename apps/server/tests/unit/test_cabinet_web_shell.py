@@ -2759,7 +2759,7 @@ def test_detail_shell_renders_stored_outcomes_with_long_content_and_playback_spa
     assert 'data-outcome-state="available"' in page
     assert "Синтетический длинный итог встречи" in page
     assert "Источник: 00:12" in page
-    assert "Ключевое" in page
+    assert "Ключевое" not in page
     css = _cabinet_css()
     assert ".notes-more" in css
     assert ".notes-primary-outcomes" in css
@@ -2911,9 +2911,7 @@ def test_detail_shell_renders_simple_outcomes_with_metadata_and_sources() -> Non
         < page.index('data-outcome-category="action_items"')
     )
     assert 'data-outcome-category="key_points"' not in page
-    assert page.index('data-outcome-category="followups"') < page.index(
-        'class="notes-more"'
-    )
+    assert 'data-outcome-category="followups"' not in page
     assert "Алексей" in page
     assert "до пятницы" in page
     assert "Ответственный не определён" not in page
@@ -2927,7 +2925,7 @@ def test_detail_shell_renders_simple_outcomes_with_metadata_and_sources() -> Non
     assert 'aria-label="Открыть источник 00:12 в расшифровке"' in page
     assert "data-export-dialog-open" in page
     assert 'data-export-scope="summary"' not in page
-    assert 'class="notes-more"' in page
+    assert 'class="notes-more"' not in page
 
 
 def test_detail_shell_hides_source_controls_without_a_valid_destination() -> None:

@@ -72,20 +72,25 @@
             <span>Формат: <strong data-summary-format-label>{{ current_summary_format }}</strong></span>
             <span aria-hidden="true">⌄</span>
           </button>
-          <span class="summary-format-pending" data-summary-pending-format-label hidden aria-live="polite"></span>
+          <span class="summary-format-pending" data-summary-pending-format-label hidden aria-hidden="true"></span>
           <div id="summary-format-listbox" class="summary-format-listbox" data-summary-format-listbox data-recommended-limit="4" role="listbox" aria-label="Формат итогов" hidden>
             {% for format in summary_formats[:4] %}
-            <button type="button" role="option" aria-selected="{{ 'true' if format.key == current_summary_format_key else 'false' }}" data-summary-format-option data-template-key="{{ format.key }}" data-template-version="{{ format.version }}" data-template-name="{{ format.name }}">{{ format.name }}</button>
+            <button type="button" role="option" aria-selected="{{ 'true' if format.key == current_summary_format_key else 'false' }}" data-summary-format-option data-template-key="{{ format.key }}" data-template-version="{{ format.version }}" data-template-name="{{ format.name }}"><strong>{{ format.name }}</strong><span>{{ format.purpose }}</span><small>Ожидаемые разделы: {% for section in format.sections %}{{ summary_section_labels.get(section, section) }}{% if not loop.last %}, {% endif %}{% endfor %}</small>{% if format.key == current_summary_format_key %}<small class="summary-format-current">Текущий формат</small>{% endif %}</button>
             {% endfor %}
-            <button type="button" class="summary-format-all" role="option" aria-selected="false" data-summary-format-all aria-haspopup="dialog" aria-controls="summary-format-dialog">Все форматы…</button>
+            <button type="button" class="summary-format-all" data-summary-format-all aria-haspopup="dialog" aria-controls="summary-format-dialog">Все форматы…</button>
           </div>
         </div>
         <button type="button" class="button quiet" data-summary-refresh-button>Обновить итоги</button>
+        <p class="summary-format-help">Выбор другого формата создаст новую версию. Текущие итоги останутся доступны до полной проверки новой версии, после чего она заменит их автоматически.</p>
       </div>
       {% else %}
       <h2 class="sr-only">Итоги</h2>
       {% endif %}
-      <div class="summary-candidate-status" data-summary-candidate-status role="status" aria-live="polite" aria-atomic="true" hidden></div>
+      <div class="summary-candidate-status" data-summary-candidate-status hidden>
+        <p class="summary-candidate-live" data-summary-candidate-live role="status" aria-live="polite" aria-atomic="true"></p>
+        <div class="summary-candidate-actions" data-summary-candidate-actions></div>
+      </div>
+      <button type="button" class="source-return" data-source-return hidden>Вернуться к итогам</button>
       <div class="processing-summary-status" data-processing-summary-status role="status" aria-live="off" aria-atomic="true" hidden></div>
       {{ outcomes }}
     </section>
@@ -110,7 +115,7 @@
       </div>
       <div class="summary-format-grid" data-summary-all-options>
         {% for format in summary_formats %}
-        <button type="button" data-summary-format-option data-template-key="{{ format.key }}" data-template-version="{{ format.version }}" data-template-name="{{ format.name }}"><strong>{{ format.name }}</strong><span>{{ format.purpose }}</span></button>
+        <button type="button" data-summary-format-option data-template-key="{{ format.key }}" data-template-version="{{ format.version }}" data-template-name="{{ format.name }}" aria-current="{{ 'true' if format.key == current_summary_format_key else 'false' }}"{% if format.key == current_summary_format_key %} data-summary-format-current{% endif %}><strong>{{ format.name }}</strong><span>{{ format.purpose }}</span><small>Ожидаемые разделы: {% for section in format.sections %}{{ summary_section_labels.get(section, section) }}{% if not loop.last %}, {% endif %}{% endfor %}</small>{% if format.key == current_summary_format_key %}<small class="summary-format-current">Текущий формат</small>{% endif %}</button>
         {% endfor %}
       </div>
       <div class="summary-personal-formats" data-summary-personal-options hidden></div>

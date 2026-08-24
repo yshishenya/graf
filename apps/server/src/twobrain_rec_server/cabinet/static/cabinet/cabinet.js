@@ -2677,6 +2677,7 @@
       let activeRequestIntentId = null;
       let candidateRequestGeneration = 0;
       let candidateRequestInFlightGeneration = null;
+      const acceptedFocusKey = `graf-summary-focus-${meetingId}`;
       if (!button || !listbox) return;
       controls.dataset.summaryFormatReady = "true";
       const options = () => Array.from(listbox.querySelectorAll('[role="option"]'));
@@ -2695,6 +2696,10 @@
         button.disabled = busy;
         if (refreshButton) refreshButton.disabled = busy;
         controls.setAttribute("aria-busy", busy ? "true" : "false");
+      };
+      const reloadAfterSummaryChange = () => {
+        window.sessionStorage.setItem(acceptedFocusKey, "current");
+        window.location.reload();
       };
       const showStatus = (message, state = "generating", actions = []) => {
         if (!status || !statusLive || !statusActions) return;
@@ -2908,7 +2913,7 @@
         pollDeadline = Date.now() + 5 * 60 * 1000;
         pollDelay = 1500;
         setBusy(true);
-        showStatus("Проверяем новый вариант. Текущие итоги остаются на месте.");
+        showStatus("Проверяем новую версию. Текущие итоги остаются доступны.");
         schedulePoll(candidate, generation);
       };
       const mutate = async (url, method, body) => {
@@ -3109,7 +3114,7 @@
               ? `Готовим вариант: ${activeTemplate.name}`
               : "Готовим новый вариант";
           }
-          showStatus(`Готовим формат «${candidate.format_name || activeTemplate?.name || "итогов"}». Текущие итоги остаются на месте.`);
+          showStatus(`Готовим формат «${candidate.format_name || activeTemplate?.name || "итогов"}». Текущие итоги остаются доступны.`);
           return;
         }
         window.clearTimeout(pollingTimer);
@@ -3161,65 +3166,24 @@
             preview.append(heading, source, empty);
           }
         };
-        if (candidate.state === "ready") {
-          const previewLoaded = Array.isArray(candidate.preview);
-          if (!previewLoaded) {
-            clearPreview();
-            setBusy(true);
-            showStatus(
-              `Вариант «${candidate.format_name || activeTemplate?.name || "итогов"}» готов. Загружаем предпросмотр…`,
-              "generating",
-            );
-            void loadPreview(candidate, generation).then((loadedPreview) => {
-              if (generation !== candidateRequestGeneration) return;
-              setBusy(false);
-              if (loadedPreview === null) {
-                showStatus(
-                  "Предпросмотр пока недоступен. Текущие итоги сохранены.",
-                  "failed",
-                  [{
-                    text: "Повторить предпросмотр",
-                    action: () => renderCandidate(candidate, generation),
-                    primary: true
-                  }],
-                );
-                return;
-              }
-              renderCandidate({ ...candidate, preview: loadedPreview }, generation);
-            }).catch((error) => {
-              if (isMeetingDetailRecoveredError(error)) return;
-              if (generation !== candidateRequestGeneration) return;
-              setBusy(false);
-              showStatus(
-                "Предпросмотр пока недоступен. Текущие итоги сохранены.",
-                "failed",
-                [{
-                  text: "Повторить предпросмотр",
-                  action: () => renderCandidate(candidate, generation),
-                  primary: true
-                }],
-              );
-            });
-            return;
-          }
-          showStatus(`Вариант «${candidate.format_name || activeTemplate?.name || "итогов"}» готов. Текущие итоги сохранены.`, "ready", [
-            { text: "Закрыть сравнение", action: closeCandidateReview },
-            { text: "Отклонить вариант", action: () => resolveCandidate(candidate, false, generation) },
-            { text: "Использовать", action: () => resolveCandidate(candidate, true, generation), primary: true }
-          ]);
-          renderPreview();
-          preview?.focus({ preventScroll: false });
-          return;
-        }
-        if (candidate.state === "accepted") {
-          window.location.reload();
-          return;
-        }
+          if (candidate.state === "ready") {
+           showStatus(
+             `Новая версия «${candidate.format_name || activeTemplate?.name || "итогов"}» подготовлена. Обновите экран, чтобы увидеть результат.`,
+             "ready",
+             [{ text: "Обновить экран", action: reloadAfterSummaryChange, primary: true }],
+           );
+           return;
+         }
+         if (candidate.state === "accepted") {
+           showStatus("Итоги обновлены. Обновляем экран.", "ready");
+           window.setTimeout(reloadAfterSummaryChange, 0);
+           return;
+         }
         if (candidate.state === "expired") {
           const retry = retryCandidateAction(candidate) || {
             text: "Обновить страницу", action: () => window.location.reload(), primary: true
           };
-          showStatus("Вариант устарел. Текущие итоги сохранены — запустите генерацию ещё раз.", "failed", [
+          showStatus("Новая версия устарела. Текущие итоги сохранены — запустите обновление ещё раз.", "failed", [
             retry
           ]);
           return;
@@ -3228,7 +3192,7 @@
           const retry = retryCandidateAction(candidate) || {
             text: "Обновить страницу", action: () => window.location.reload(), primary: true
           };
-          showStatus("Расшифровка изменилась, поэтому вариант закрыт. Текущие итоги сохранены.", "failed", [
+          showStatus("Расшифровка изменилась, поэтому новая версия закрыта. Текущие итоги сохранены.", "failed", [
             retry
           ]);
           return;
@@ -3379,7 +3343,7 @@
           pendingLabel.hidden = false;
           pendingLabel.textContent = `Готовим вариант: ${template.name}`;
         }
-        showStatus(`Готовим формат «${template.name}». Текущие итоги остаются на месте.`);
+          showStatus(`Готовим формат «${template.name}». Текущие итоги остаются доступны.`);
         const body = {
           template_key: template.key,
           template_id: template.id || null,
@@ -3446,6 +3410,99 @@
         }
         return { id: controls.dataset.currentTemplateId || null, key, version, name };
       };
+       const pollSummaryRefresh = async (template, generation) => {
+        if (generation !== candidateRequestGeneration) return;
+        if (Date.now() > pollDeadline) {
+          pollingTimer = null;
+          candidateRequestInFlightGeneration = null;
+          setBusy(false);
+          showStatus("Не удалось дождаться обновления. Текущие итоги сохранены.", "failed", [
+            { text: "Обновить страницу", action: () => window.location.reload(), primary: true }
+          ]);
+          return;
+        }
+        try {
+          const response = await fetch(
+            `/api/v1/cabinet/meetings/${meetingId}/summaries/${encodeURIComponent(template.key)}`,
+            { credentials: "same-origin", cache: "no-store" }
+          );
+          if (await recoverMeetingDetailFromResponse(response, { actionProblemCodes: summaryActionProblemCodes })) {
+            throw meetingDetailRecoveredError();
+          }
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            const error = new Error(payload.code || "summary_poll_unavailable");
+            error.status = response.status;
+            throw error;
+          }
+          if (generation !== candidateRequestGeneration) return;
+          const previousOutcomeSetId = currentOutcomeSetId;
+          currentOutcomeSetId = payload.current_outcome_set_id || currentOutcomeSetId;
+          const state = payload.catalog_entry?.generation_state;
+          if (["preparing", "updating", "blocked", "deferred", "ambiguous"].includes(state)) {
+            showStatus("Обновляем итоги. Текущие итоги остаются доступны.");
+            pollingTimer = window.setTimeout(() => pollSummaryRefresh(template, generation), 1200);
+            return;
+          }
+          pollingTimer = null;
+          candidateRequestInFlightGeneration = null;
+          setBusy(false);
+          if (payload.current_outcome_set_id && payload.current_outcome_set_id !== previousOutcomeSetId && state === "idle") {
+            showStatus("Итоги обновлены. Обновляем экран.", "ready");
+            window.setTimeout(reloadAfterSummaryChange, 0);
+          } else {
+            showStatus("Обновление не завершено. Текущие итоги сохранены.", "failed", [
+              { text: "Обновить страницу", action: () => window.location.reload(), primary: true }
+            ]);
+          }
+        } catch (error) {
+          if (isMeetingDetailRecoveredError(error) || generation !== candidateRequestGeneration) return;
+          pollingTimer = null;
+          candidateRequestInFlightGeneration = null;
+          setBusy(false);
+          const code = error instanceof Error ? error.message : "summary_poll_unavailable";
+          showStatus(candidateErrorCopy(code), "failed", [
+            { text: "Обновить страницу", action: () => window.location.reload(), primary: true }
+          ]);
+        }
+      };
+      const requestSummaryRefresh = async (template, requestIntentId, generation) => {
+        if (!template?.key || generation !== candidateRequestGeneration) return;
+        activeTemplate = template;
+        activeRequestIntent = "manual_refresh";
+        activeRequestIntentId = requestIntentId;
+        setBusy(true);
+        showStatus("Обновляем итоги. Текущие итоги остаются доступны.");
+        try {
+          const payload = await mutate(
+            `/api/v1/cabinet/meetings/${meetingId}/summaries/${encodeURIComponent(template.key)}/refresh`,
+            "POST",
+            {
+              schema_version: 1,
+              idempotency_key: requestIntentId,
+              expected_current_outcome_set_id: currentOutcomeSetId,
+              template_id: template.id || null,
+              template_version: template.version,
+              generation_options: {}
+            }
+          );
+          if (generation !== candidateRequestGeneration) return;
+          currentOutcomeSetId = payload.current_outcome_set_id || currentOutcomeSetId;
+          pollAttempts = 0;
+          pollDeadline = Date.now() + 5 * 60 * 1000;
+          pollDelay = 1200;
+          showStatus("Обновляем итоги. Текущие итоги остаются доступны.");
+          pollingTimer = window.setTimeout(() => pollSummaryRefresh(template, generation), pollDelay);
+        } catch (error) {
+          if (isMeetingDetailRecoveredError(error) || generation !== candidateRequestGeneration) return;
+          setBusy(false);
+          candidateRequestInFlightGeneration = null;
+          const code = error instanceof Error ? error.message : "summary_request_unavailable";
+          showStatus(candidateErrorCopy(code), "failed", [
+            { text: "Обновить страницу", action: () => window.location.reload(), primary: true }
+          ]);
+        }
+       };
       const requestCurrentRefresh = async () => {
         // Invalidate an in-flight history load before resolving the current template.
         const refreshGeneration = ++candidateRequestGeneration;
@@ -3457,10 +3514,7 @@
           openFormatPicker();
           return;
         }
-        await requestCandidate(template, {
-          requestIntent: "manual_refresh",
-          requestIntentId: newRequestIntentId()
-        });
+        await requestSummaryRefresh(template, newRequestIntentId(), refreshGeneration);
       };
       const newRequestIntentId = () => typeof window.crypto?.randomUUID === "function"
           ? window.crypto.randomUUID()
@@ -3688,7 +3742,7 @@
         pollDeadline = Number(resumed.pollDeadline || (Date.now() + 5 * 60 * 1000));
         pollDelay = Number(resumed.pollDelay || 1500);
         setBusy(true);
-        showStatus("Проверяем новый вариант. Текущие итоги остаются на месте.");
+        showStatus("Проверяем новую версию. Текущие итоги остаются доступны.");
         pollCandidate({ poll_url: resumed.poll_url });
         return true;
       };
@@ -3733,7 +3787,7 @@
           showCandidateHistoryFailure();
         }
       });
-      const acceptedFocusKey = `graf-summary-focus-${meetingId}`;
+       const acceptedFocusKey = `graf-summary-focus-${meetingId}`;
       if (window.sessionStorage.getItem(acceptedFocusKey) === "current") {
         window.sessionStorage.removeItem(acceptedFocusKey);
         window.requestAnimationFrame(() => document.querySelector("[data-summary-current-result]")?.focus({ preventScroll: false }));

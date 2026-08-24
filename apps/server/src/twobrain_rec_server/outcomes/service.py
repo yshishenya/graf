@@ -141,10 +141,6 @@ async def ensure_outcomes_for_processing_result(
     result: ProcessingResult,
     publish_initial_baseline: bool = False,
 ) -> MeetingOutcomeSet:
-    # Feature 183 keeps generated output internal until the downstream
-    # receipt-backed publisher is available.  The flag remains in the
-    # signature so older workflow callers do not change their call shape.
-    del publish_initial_baseline
     meeting = await lock_meeting_fence(
         db, workspace_id=result.workspace_id, meeting_id=result.meeting_id
     )
@@ -224,6 +220,9 @@ async def ensure_outcomes_for_processing_result(
             )
             .with_for_update()
         )
+    revision_scoped_initial_ai_only = (
+        publish_initial_baseline and result.media_revision_id is not None
+    )
     transcript_is_available = canonical_speech_available(result)
     speaker_revision = await speaker_attribution_revision(
         db,
@@ -446,6 +445,52 @@ async def ensure_outcomes_for_processing_result(
     )
     await db.flush()
     return outcome_set
+
+
+async def _project_revision_scoped_ai_wait(
+    db: AsyncSession,
+    *,
+    outcome_set: MeetingOutcomeSet,
+    ai_dispatch_planned: bool,
+) -> None:
+    """Keep revision-scoped processing truthful until the AI result exists."""
+    # A revision-scoped result is a replaceable candidate until the trusted
+    # provider response publishes it into its type slot.  Set this explicitly
+    # for the first blocked projection as well as legacy rows that predate the
+    # slot lifecycle value.
+    outcome_set.revision_state = outcome_set.revision_state or "candidate"
+    outcome_set.status = (
+        OutcomeSetStatus.GENERATING.value
+        if ai_dispatch_planned
+        else OutcomeSetStatus.BLOCKED.value
+    )
+    outcome_set.failure_reason = None if ai_dispatch_planned else AI_DISPATCH_UNAVAILABLE
+    outcome_set.failure_source = None
+    outcome_set.generated_at = None
+    outcome_set.latency_ms = None
+    outcome_set.content_hash = None
+    set_outcome_category_states(
+        outcome_set,
+        OutcomeCategoryState.PROCESSING.value
+        if ai_dispatch_planned
+        else OutcomeCategoryState.UNAVAILABLE.value,
+    )
+    await replace_outcome_items(db, outcome_set=outcome_set, items=[])
+    if outcome_set.candidate_id is not None:
+        attempt = await db.scalar(
+            select(MeetingOutcomeGenerationAttempt)
+            .where(
+                MeetingOutcomeGenerationAttempt.workspace_id == outcome_set.workspace_id,
+                MeetingOutcomeGenerationAttempt.candidate_id == outcome_set.candidate_id,
+            )
+            .with_for_update()
+        )
+        if attempt is not None and attempt.provider_kind == "deterministic_extractive":
+            attempt.status = "generating" if ai_dispatch_planned else "blocked_dependency"
+            attempt.failure_code = None if ai_dispatch_planned else AI_DISPATCH_UNAVAILABLE
+            attempt.failure_reason = None if ai_dispatch_planned else AI_DISPATCH_UNAVAILABLE
+            attempt.ended_at = None
+    await db.flush()
 
 
 def _baseline_idempotency_key(result: ProcessingResult) -> str:
