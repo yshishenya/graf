@@ -27,7 +27,7 @@ using namespace Microsoft::UI::Xaml::Controls;
 
 class UnavailableAec3 final : public graf::windows::IAec3Processor {
 public:
-    bool process(const float*, const float*, float*, std::size_t) noexcept override { return false; }
+    bool process(const float*, const float*, float*) noexcept override { return false; }
 };
 
 std::filesystem::path localCustodyRoot() {

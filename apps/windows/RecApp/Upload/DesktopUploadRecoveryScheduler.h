@@ -1,5 +1,6 @@
 #pragma once
 
+#include "DesktopHttpTransport.h"
 #include "DesktopUploadQueueService.h"
 
 #include <cstdint>
@@ -18,7 +19,7 @@ enum class RecoveryTrigger {
 
 class DesktopUploadRecoveryScheduler final {
 public:
-    using RetryHandler = std::function<bool(const UploadCustodyItem&)>;
+    using RetryHandler = std::function<DesktopTransportStatus(const UploadCustodyItem&)>;
 
     DesktopUploadRecoveryScheduler(DesktopUploadQueueService& queue, RetryHandler retry,
                                    std::uint32_t maxAttempts = 8);

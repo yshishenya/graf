@@ -35,6 +35,9 @@
 ### Исправлено
 - Ledger отклоняет числовые поля с лишними символами, а atomic write больше не
   сообщает об ошибке после уже завершённой замены файла.
+- Windows upload recovery больше не помечает пакет как загруженный при ошибке
+  авторизации, отказе сервера или повреждённом пакете: статусы сохраняются как
+  `needsAuth`, retry или quarantine.
 
 ### Безопасность
 - Native/Web boundary не принимает capture/file/token/cookie/process commands,
@@ -49,7 +52,9 @@
   consistency re-check; hardware, package и release gates остаются открытыми.
 
 ### Операции
-- _Пока нет записей._
+- Добавлен `scripts/graf-mac.sh` — единая локальная команда для статуса,
+  health-check, preflight, запуска API, открытия GRAF Local и fast CI; helper
+  использует существующие скрипты и не меняет системные разрешения.
 
 ## [2026.08.25.1] - 2026-08-25
 

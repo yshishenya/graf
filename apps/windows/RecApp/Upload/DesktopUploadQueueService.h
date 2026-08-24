@@ -50,6 +50,7 @@ public:
     [[nodiscard]] bool reconcile(const UploadServerTruth& truth);
     [[nodiscard]] bool markRetry(std::string_view localRecordingId, std::string reason);
     [[nodiscard]] bool markNeedsAuth(std::string_view localRecordingId);
+    [[nodiscard]] bool markQuarantined(std::string_view localRecordingId, std::string reason);
     [[nodiscard]] bool markUploaded(std::string_view localRecordingId);
     [[nodiscard]] std::optional<UploadCustodyItem> nextPending() const;
     [[nodiscard]] const std::vector<UploadCustodyItem>& items() const noexcept { return items_; }

@@ -183,6 +183,11 @@ bool DesktopUploadQueueService::markNeedsAuth(std::string_view id) {
     item->status = UploadQueueStatus::needsAuth; item->safeReason = "auth_required"; return persist();
 }
 
+bool DesktopUploadQueueService::markQuarantined(std::string_view id, std::string reason) {
+    auto* item = find(id); if (!item || reason.empty() || !validSafeReason(reason)) return false;
+    item->status = UploadQueueStatus::quarantined; item->safeReason = std::move(reason); return persist();
+}
+
 bool DesktopUploadQueueService::markUploaded(std::string_view id) {
     auto* item = find(id); if (!item) return false;
     item->status = UploadQueueStatus::uploaded; return persist();

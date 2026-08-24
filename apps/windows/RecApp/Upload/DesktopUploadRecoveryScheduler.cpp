@@ -14,8 +14,27 @@ std::size_t DesktopUploadRecoveryScheduler::run(RecoveryTrigger) {
             break;
         }
         ++handled;
-        if (retry_ && retry_(*item)) (void)queue_.markUploaded(item->localRecordingId);
-        else (void)queue_.markRetry(item->localRecordingId, "transport_unavailable");
+        const auto status = retry_ ? retry_(*item) : DesktopTransportStatus::retryableFailure;
+        switch (status) {
+        case DesktopTransportStatus::uploaded:
+            (void)queue_.markUploaded(item->localRecordingId);
+            break;
+        case DesktopTransportStatus::authRequired:
+            (void)queue_.markNeedsAuth(item->localRecordingId);
+            break;
+        case DesktopTransportStatus::invalidPackage:
+            (void)queue_.markQuarantined(item->localRecordingId, "invalid_package");
+            break;
+        case DesktopTransportStatus::serverRejected:
+            (void)queue_.markRetry(item->localRecordingId, "server_rejected");
+            break;
+        case DesktopTransportStatus::unsupportedPlatform:
+            (void)queue_.markRetry(item->localRecordingId, "unsupported_platform");
+            break;
+        case DesktopTransportStatus::retryableFailure:
+            (void)queue_.markRetry(item->localRecordingId, "transport_unavailable");
+            break;
+        }
         if (handled >= 32) break;
     }
     return handled;
