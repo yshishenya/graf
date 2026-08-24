@@ -220,7 +220,7 @@ def test_production_share_head_upgrades_to_regeneration_merge(
             await engine.dispose()
 
     versions, tables, columns, maintenance_helper = asyncio.run(inspect_schema())
-    assert versions == ["0077_provider_unlink_xworkspace"]
+    assert versions == ["0078_processing_recovery"]
     assert {
         "dispatch_intents",
         "meeting_deletion_fences",

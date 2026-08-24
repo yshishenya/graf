@@ -115,8 +115,8 @@ def test_ready_partial_and_failed_are_artifact_independent_human_states() -> Non
     assert ready_meeting.status == MeetingStatus.INGESTED_PENDING_PROCESSING.value
     assert (partial.state, partial.content_available, partial.transcript_available) == (
         "partial",
-        True,
-        True,
+        False,
+        False,
     )
     assert (failed.state, failed.content_available, failed.transcript_available) == (
         "failed",

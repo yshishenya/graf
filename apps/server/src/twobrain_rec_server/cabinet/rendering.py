@@ -993,7 +993,11 @@ def _render_meeting_detail_content(
     poll_url: str | None = None,
     shared_workspace_id: UUID | None = None,
 ) -> str:
-    transcript_rows = review.transcript.speaker_turns or review.transcript.segments
+    transcript_rows = (
+        review.transcript.speaker_turns or review.transcript.segments
+        if review.transcript.available and review.transcript.search_enabled
+        else []
+    )
     speaker_palette = _speaker_palette(review)
     attribution_notice = _speaker_attribution_notice(review)
     transcript = trusted_component_html(
@@ -1013,9 +1017,15 @@ def _render_meeting_detail_content(
         )
     outcomes_selected = review.notes_action_truth.summary.state == "available"
     content_export_available = review.content_exports is not None and (
-        review.content_exports.transcript.state == "available"
+        (
+            review.transcript.available
+            and review.content_exports.transcript.state == "available"
+        )
         or review.content_exports.summary.state in {"available", "partial"}
-        or review.content_exports.combined.state == "available"
+        or (
+            review.transcript.available
+            and review.content_exports.combined.state == "available"
+        )
     )
     meeting_details_available = _meeting_details_available(review) and shared_workspace_id is None
     more_actions_available = (
@@ -1231,10 +1241,22 @@ def _render_content_export_dialog(
     capability = review.content_exports
     if capability is None:
         return ""
+    hidden_transcript = capability.transcript.model_copy(
+        update={
+            "state": "missing",
+            "reason": "Transcript remains hidden until same-attempt diarization is confirmed.",
+        }
+    )
+    hidden_combined = capability.combined.model_copy(
+        update={
+            "state": "missing",
+            "reason": "Combined export requires a visible transcript.",
+        }
+    )
     scope_states = {
-        "transcript": capability.transcript,
+        "transcript": capability.transcript if review.transcript.available else hidden_transcript,
         "summary": capability.summary,
-        "combined": capability.combined,
+        "combined": capability.combined if review.transcript.available else hidden_combined,
     }
     scope_labels = {
         "transcript": "Расшифровка",
@@ -2264,8 +2286,9 @@ def _render_notes_outcomes(review: MeetingReviewResponse) -> str:
     )
     primary = [row for row in primary if row[2].state not in aggregate_states]
     secondary = [row for row in secondary if row[2].state not in aggregate_states]
-    source_destination_available = review.playback.can_play or bool(
-        review.transcript.speaker_turns or review.transcript.segments
+    source_destination_available = review.transcript.available and (
+        review.playback.can_play
+        or bool(review.transcript.speaker_turns or review.transcript.segments)
     )
     primary_rows = "".join(
         _render_notes_outcome_row(
@@ -2447,6 +2470,8 @@ def _render_outcome_item(item, *, source_destination_available: bool) -> str:
 
 
 def _empty_title(review: MeetingReviewResponse) -> str:
+    if review.transcript.degraded_reason == "diarization_pending":
+        return "Спикеры ещё определяются"
     if review.processing.state in {"processing", "submitted"}:
         return "Транскрипт готовится"
     if review.processing.state == "failed":
@@ -2457,6 +2482,8 @@ def _empty_title(review: MeetingReviewResponse) -> str:
 
 
 def _empty_body(review: MeetingReviewResponse) -> str:
+    if review.transcript.degraded_reason == "diarization_pending":
+        return "Расшифровка появится после завершения диаризации. Промежуточный текст не показываем."
     if review.processing.reason_label:
         return _ui_text(review.processing.reason_label)
     if review.processing.state in {"processing", "submitted"}:
