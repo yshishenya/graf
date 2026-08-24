@@ -45,7 +45,7 @@
             {% if billing_enabled %}<div class="settings-actions">
               <button class="button" type="submit" name="cycle" value="month">Оплатить {{ monthly_checkout_label }} в YooKassa — месяц</button>
               <button class="button" type="submit" name="cycle" value="year">Оплатить {{ annual_checkout_label }} в YooKassa — год</button>
-            </div>{% else %}<p role="status">Магазин пока не включён: цена и переход к оплате появятся после merchant‑canary и утверждения launch‑gate.</p>{% endif %}
+            </div>{% else %}<p role="status">Магазин пока не включён: цена и переход к оплате появятся после включения биллинга.</p>{% endif %}
           </fieldset>
           <label><input type="checkbox" name="offer_consent" value="true" required{% if not billing_enabled %} disabled{% endif %}> Принимаю <a href="/offer" target="_blank" rel="noopener">оферту</a> версии {{ offer_version_label|default("billing-personal-v1") }}.</label>
           <label><input type="checkbox" name="recurring_consent" value="true" required{% if not billing_enabled %} disabled{% endif %}> Согласен на регулярное списание до отключения автопродления.</label>

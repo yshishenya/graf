@@ -10,9 +10,8 @@ from twobrain_rec_server.api.billing import (
 from twobrain_rec_server.api.billing import (
     router as billing_router,
 )
-from twobrain_rec_server.billing.launch_gates import provider_environment
 from twobrain_rec_server.billing.trial import require_trial_activation, trial_used_by_lineage
-from twobrain_rec_server.billing.yookassa import is_allowed_confirmation_url
+from twobrain_rec_server.billing.yookassa import is_allowed_confirmation_url, provider_environment
 
 
 def test_trial_requires_active_personal_workspace_owner_and_unused_identity() -> None:

@@ -221,6 +221,16 @@ Date: 2026-08-24
   provider delivery/canary и merchant/product/legal/finance/QA sign-offs
   остаются обязательными.
 
+## Implementation update (2026-08-25) — Feature 199 billing gate cleanup
+
+- Удалён runtime launch-gate registry: checkout и renewal больше не требуют
+  строк из `billing_launch_gates`, а сама таблица удаляется миграцией `0079`.
+- Сохранены explicit YooKassa environment/shop, checkout flag, emergency stop,
+  catalog/promo/floor validation, owner/CSRF/consent, invoice/operation ledger,
+  receipt, webhook, reconciliation и RLS оставшихся billing tables.
+- Test-shop canary и production decision остаются отдельными операционными
+  шагами; этот код не включает production checkout автоматически.
+
 ## Runtime recheck (2026-08-12) — fair-use and audit-boundary deploy
 
 - Migration `0071_fair_use_capability_prefix` deployed on `32ce03c2`; the

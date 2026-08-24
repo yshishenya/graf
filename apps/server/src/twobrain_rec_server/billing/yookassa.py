@@ -21,6 +21,14 @@ class YooKassaProviderError(RuntimeError):
         self.status_code = status_code
 
 
+def provider_environment(environment: object) -> str:
+    """Return the explicitly selected YooKassa environment."""
+    value = str(environment).strip().lower()
+    if value not in {"test", "production"}:
+        raise ValueError("provider environment is invalid")
+    return value
+
+
 def _format_minor_amount(amount_minor: int) -> str:
     return f"{amount_minor // 100}.{amount_minor % 100:02d}"
 

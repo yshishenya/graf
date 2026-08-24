@@ -36,11 +36,6 @@ from twobrain_rec_server.billing.checkout import (
 )
 from twobrain_rec_server.billing.entitlements import effective_plan_code
 from twobrain_rec_server.billing.history import mask_payment_method
-from twobrain_rec_server.billing.launch_gates import (
-    BillingLaunchBlocked,
-    provider_environment,
-    require_current_billing_launch_gates,
-)
 from twobrain_rec_server.billing.operations import (
     CHECKOUT_BLOCKING_STATES,
     BillingEmergencyStop,
@@ -84,6 +79,7 @@ from twobrain_rec_server.billing.yookassa import (
     YooKassaProviderError,
     build_receipt_payload,
     is_allowed_confirmation_url,
+    provider_environment,
 )
 from twobrain_rec_server.cabinet.rendering_shared import _page_shell
 from twobrain_rec_server.cabinet.templates import cabinet_html_response
@@ -2340,12 +2336,7 @@ async def start_billing_checkout(
             if is_allowed_confirmation_url(confirmation_url):
                 return RedirectResponse(confirmation_url, status_code=303)
             return RedirectResponse("/billing?result=pending", status_code=303)
-        await require_current_billing_launch_gates(
-            db,
-            environment=provider_environment(settings.billing_yookassa_environment),
-            shop_id=settings.billing_yookassa_shop_id,
-            deployment_sha=settings.langfuse_release,
-        )
+        provider_environment(settings.billing_yookassa_environment)
         intent = build_checkout_intent(workspace_id=tenant_scope.workspace_id, idempotency_key=key, preview=preview)
         consent_at = datetime.now(UTC).isoformat()
         operation = BillingOperation(
@@ -2504,7 +2495,6 @@ async def start_billing_checkout(
         return RedirectResponse("/billing/checkout?result=unavailable", status_code=303)
     except (
         BillingEmergencyStop,
-        BillingLaunchBlocked,
         ValueError,
         YooKassaConfigurationError,
         YooKassaProviderError,

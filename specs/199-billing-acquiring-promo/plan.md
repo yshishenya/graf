@@ -7,7 +7,7 @@
 Довести уже реализованный Feature 140 до понятного checkout preview и
 операционно выпускаемых промокодов. Используются существующие Jinja/FastAPI
 routes, `checkout_preview`, `PromotionCampaign`/`PromotionRedemption`, CSRF,
-rate-limit, maintenance RLS и YooKassa launch gates. Новых provider SDK,
+rate-limit, maintenance RLS и explicit YooKassa environment/shop validation. Новых provider SDK,
 публичного admin API, migration и оплаты из preview не добавляется.
 
 ## Technical Context
@@ -27,8 +27,8 @@ then `infra/scripts/ci-local.sh --fast`.
 secrets and RLS require existing Feature 140 gates and repository fast lane.
 
 **Release Gate**: no production deploy in this slice; `cd-remote.sh --dry-run`
-only after validation. `--execute` requires separate explicit approval and all
-Feature 140 launch evidence.
+only after validation. `--execute` requires separate explicit approval and
+test-shop/provider evidence.
 
 **Target Platform**: Linux Docker server and browser-owned cabinet.
 
@@ -49,18 +49,19 @@ operation at a time; existing campaign counters remain the concurrency authority
 - PASS: money mutation stays server-owned and provider hosted.
 - PASS: no secret/raw code is committed, logged or exposed to desktop.
 - PASS: no refund API or user-facing refund workflow is added.
-- PASS: RLS/CSRF/rate-limit and existing launch gates remain mandatory.
+- PASS: RLS/CSRF/rate-limit, explicit shop/environment and emergency stop remain mandatory.
 - PASS: change follows high-risk Spec Kit lane and keeps production default-off.
 
 ## Validation Plan
 
 1. Run Feature 140 artifact consistency check with `SPECIFY_FEATURE_DIRECTORY`
    explicitly set; record open external gates without marking them complete.
-2. Run Feature 199 quickstart and focused promo/UI/CLI tests.
-3. Run `git diff --check` and `infra/scripts/ci-local.sh --fast` before closeout.
+2. Run Feature 199 focused promo/UI/CLI tests and the billing safety/RLS contracts.
+3. Run `git diff --check`, `ruff`, compile and `infra/scripts/ci-local.sh --fast` before closeout.
 4. Run `infra/scripts/cd-remote.sh --dry-run --branch
    codex/199-billing-acquiring-promo` only after a clean validated tree; do not
-   execute production deployment or provider mutation in this turn.
+   execute production deployment or provider mutation in this turn. Full CI is
+   intentionally omitted by user instruction.
 
 ## Project Structure
 
