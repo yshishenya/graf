@@ -2327,6 +2327,7 @@ def test_provider_start_uses_public_auth_base_url_for_redirect_uri(client: TestC
     assert start.status_code == 200
     query = parse_qs(urlparse(start.json()["authorization_url"]).query)
     assert query["redirect_uri"] == ["https://rec.2brain.pro/api/v1/auth/callback/yandex"]
+    assert query["force_confirm"] == ["1"]
 
 
 def test_vk_provider_start_uses_public_auth_base_url_and_vk_client_id(client: TestClient) -> None:
