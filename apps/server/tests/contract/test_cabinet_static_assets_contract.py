@@ -135,6 +135,108 @@ def test_cabinet_js_keeps_fragment_state_ephemeral() -> None:
     assert "template: activeTemplate" in script
 
 
+def test_processing_list_projection_fences_identity_and_stale_requests() -> None:
+    script_path = STATIC_DIR / "cabinet.js"
+    harness = r"""
+const fs = require("fs");
+const vm = require("vm");
+const script = fs.readFileSync(process.argv[1], "utf8");
+const source = script.slice(
+  script.indexOf("const processingListStatusNode"),
+  script.indexOf("const initSummaryFormats"),
+);
+class FakeElement {
+  constructor(kind, meetingId = "") {
+    this.kind = kind;
+    this.dataset = meetingId ? { meetingId } : {};
+    this.isConnected = true;
+    this.textContent = "";
+    this.nodes = new Map();
+    this.classList = { add() {}, remove() {}, toggle() {} };
+  }
+  contains(target) { return this.kind === "list" && rows.includes(target); }
+  querySelector(selector) { return this.nodes.get(selector) || null; }
+}
+const list = new FakeElement("list");
+const announcer = new FakeElement("announcer");
+const rows = [];
+const deferred = [];
+const makeRow = (meetingId) => {
+  const row = new FakeElement("row", meetingId);
+  row.nodes.set("[data-processing-list-status]", new FakeElement("status"));
+  rows.push(row);
+  return row;
+};
+const response = (projection) => ({ ok: true, json: async () => projection });
+global.document = {
+  querySelector(selector) {
+    if (selector === "[data-meeting-list]") return list;
+    if (selector === "[data-processing-list-announcer]") return announcer;
+    return null;
+  },
+  createElement() { return new FakeElement("created"); },
+};
+global.fetch = (url) => new Promise((resolve) => deferred.push({ url, resolve }));
+vm.runInThisContext(`
+  let meetingListRequestGeneration = 0;
+  const currentList = () => global.list;
+  const processingListProjectionRequests = new Map();
+  const processingListProjectionLastFetchedAt = new Map();
+  const processingListProjectionStates = new Map();
+  const processingTranscriptReady = () => false;
+  const processingSummaryState = () => "processing";
+  const processingSummaryPending = () => true;
+  ${source}
+  global.requestProcessingListProjection = requestProcessingListProjection;
+  global.setMeetingListRequestGeneration = (value) => { meetingListRequestGeneration = value; };
+`);
+global.list = list;
+(async () => {
+  const rowA = makeRow("meeting-a");
+  const rowB = makeRow("meeting-b");
+  global.requestProcessingListProjection(rowA);
+  global.requestProcessingListProjection(rowB);
+  deferred.shift().resolve(response({ meeting_id: "meeting-a", retry_class: "retryable" }));
+  deferred.shift().resolve(response({ meeting_id: "meeting-a", retry_class: "retryable" }));
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+  if (rowA.querySelector("[data-processing-list-status]").textContent !== "Обработка временно приостановлена") {
+    throw new Error("matching projection did not update its own row");
+  }
+  if (rowB.querySelector("[data-processing-list-status]").textContent) {
+    throw new Error("projection for meeting-a updated meeting-b");
+  }
+  const detached = makeRow("meeting-detached");
+  global.requestProcessingListProjection(detached);
+  detached.isConnected = false;
+  deferred.shift().resolve(response({ meeting_id: "meeting-detached", retry_class: "retryable" }));
+  const stale = makeRow("meeting-stale");
+  global.requestProcessingListProjection(stale);
+  global.setMeetingListRequestGeneration(1);
+  deferred.shift().resolve(response({ meeting_id: "meeting-stale", retry_class: "retryable" }));
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+  if (detached.querySelector("[data-processing-list-status]").textContent) {
+    throw new Error("detached row accepted a late projection");
+  }
+  if (stale.querySelector("[data-processing-list-status]").textContent) {
+    throw new Error("old list generation accepted a late projection");
+  }
+})().catch((error) => {
+  process.stderr.write(`${error.stack || error}\n`);
+  process.exitCode = 1;
+});
+"""
+    completed = subprocess.run(
+        ["node", "-e", harness, str(script_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
 def test_cabinet_rail_initial_state_uses_surface_breakpoints() -> None:
     script = (STATIC_DIR / "cabinet.js").read_text()
     css = (STATIC_DIR / "cabinet.css").read_text()
