@@ -847,6 +847,26 @@ public enum EmbeddedCabinetUpdateBridge {
     }
 }
 
+public enum EmbeddedCabinetQuitBridge {
+    public static let messageHandlerName = "grafAppQuit"
+    public static let quitAction = "quit"
+
+    public static let documentScript = """
+    (() => {
+      const button = document.querySelector('[data-graf-app-quit]');
+      if (!button || button.disabled || button.dataset.grafQuitBridgeBound === 'true') return;
+      button.dataset.grafQuitBridgeBound = 'true';
+      button.addEventListener('click', () => {
+        window.webkit.messageHandlers.grafAppQuit.postMessage('quit');
+      });
+    })();
+    """
+
+    public static func isAllowedMessageBody(_ body: Any) -> Bool {
+        (body as? String) == quitAction
+    }
+}
+
 @MainActor
 public final class EmbeddedCabinetSupportIncidentBridge: DesktopSupportIncidentSubmitting {
     public static let intakePath = "/api/v1/desktop/support-incidents"
@@ -1244,9 +1264,20 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 forMainFrameOnly: true
             )
         )
+        configuration.userContentController.addUserScript(
+            WKUserScript(
+                source: EmbeddedCabinetQuitBridge.documentScript,
+                injectionTime: .atDocumentEnd,
+                forMainFrameOnly: true
+            )
+        )
         configuration.userContentController.add(
             context.coordinator,
             name: EmbeddedCabinetUpdateBridge.messageHandlerName
+        )
+        configuration.userContentController.add(
+            context.coordinator,
+            name: EmbeddedCabinetQuitBridge.messageHandlerName
         )
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.wantsLayer = true
@@ -1336,6 +1367,9 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         container.webView.configuration.userContentController.removeScriptMessageHandler(
             forName: EmbeddedCabinetUpdateBridge.messageHandlerName
         )
+        container.webView.configuration.userContentController.removeScriptMessageHandler(
+            forName: EmbeddedCabinetQuitBridge.messageHandlerName
+        )
     }
 
     public final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, WKDownloadDelegate {
@@ -1421,6 +1455,19 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             _: WKUserContentController,
             didReceive message: WKScriptMessage
         ) {
+            if message.name == EmbeddedCabinetQuitBridge.messageHandlerName {
+                guard
+                    isActive,
+                    EmbeddedCabinetQuitBridge.isAllowedMessageBody(message.body),
+                    message.frameInfo.isMainFrame,
+                    let sourceURL = message.frameInfo.request.url,
+                    routePolicy.decision(for: sourceURL).decision == .allow
+                else {
+                    return
+                }
+                NSApp.terminate(nil)
+                return
+            }
             guard
                 isActive,
                 message.name == EmbeddedCabinetUpdateBridge.messageHandlerName,
