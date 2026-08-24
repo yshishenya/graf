@@ -163,7 +163,9 @@ const rows = [];
 const deferred = [];
 const makeRow = (meetingId) => {
   const row = new FakeElement("row", meetingId);
-  row.nodes.set("[data-processing-list-status]", new FakeElement("status"));
+  const status = new FakeElement("status");
+  row.nodes.set("[data-processing-list-status]", status);
+  row.nodes.set(".meeting-content-readiness", status);
   rows.push(row);
   return row;
 };
@@ -221,6 +223,130 @@ global.list = list;
   }
   if (stale.querySelector("[data-processing-list-status]").textContent) {
     throw new Error("old list generation accepted a late projection");
+  }
+})().catch((error) => {
+  process.stderr.write(`${error.stack || error}\n`);
+  process.exitCode = 1;
+});
+"""
+    completed = subprocess.run(
+        ["node", "-e", harness, str(script_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_processing_list_projection_only_polls_active_rows_and_refreshes_terminal_once() -> None:
+    script_path = STATIC_DIR / "cabinet.js"
+    harness = r"""
+const fs = require("fs");
+const vm = require("vm");
+const script = fs.readFileSync(process.argv[1], "utf8");
+const source = script.slice(
+  script.indexOf("const processingListStatusNode"),
+  script.indexOf("const initSummaryFormats"),
+);
+let now = 100000;
+const fetches = [];
+const timers = [];
+let refreshes = 0;
+class FakeElement {
+  constructor(kind, meetingId = "", statusKind = "") {
+    this.kind = kind;
+    this.dataset = meetingId ? { meetingId } : statusKind ? { statusKind } : {};
+    this.isConnected = true;
+    this.textContent = "";
+    this.nodes = new Map();
+    this.classList = { add() {}, remove() {}, toggle() {} };
+  }
+  append(node) { this.nodes.set("[data-processing-list-status]", node); }
+  contains(target) { return this.kind === "list" ? rows.includes(target) : false; }
+  querySelector(selector) { return this.nodes.get(selector) || null; }
+}
+const list = new FakeElement("list");
+const announcer = new FakeElement("announcer");
+const rows = [];
+const makeRow = (meetingId, statusKind, withReadiness) => {
+  const row = new FakeElement("row", meetingId);
+  const status = new FakeElement("status", "", statusKind);
+  row.nodes.set(".meeting-status[data-status-kind]", status);
+  row.nodes.set(".meeting-content", new FakeElement("content"));
+  if (withReadiness) {
+    const readiness = new FakeElement("readiness");
+    readiness.textContent = "Спикеры определяются · расшифровка готовится";
+    row.nodes.set(".meeting-content-readiness", readiness);
+    row.nodes.set("[data-processing-list-status]", readiness);
+  }
+  rows.push(row);
+  return row;
+};
+const failedAbove = makeRow("failed-above", "failed", false);
+const processing = makeRow("processing", "processing", true);
+const failedBelow = makeRow("failed-below", "failed", false);
+const projections = [
+  { meeting_id: "processing", state: "polling", retry_class: "none" },
+  { meeting_id: "processing", state: "processed", retry_class: "none" },
+];
+global.document = {
+  activeElement: null,
+  querySelector(selector) {
+    if (selector === "[data-meeting-list]") return list;
+    if (selector === "[data-processing-list-announcer]") return announcer;
+    return null;
+  },
+  createElement() { return new FakeElement("created"); },
+};
+global.window = {
+  clearTimeout() {},
+  setTimeout(callback, delay) { timers.push({ callback, delay }); return timers.length; },
+};
+global.fetch = (url) => {
+  fetches.push(url);
+  const projection = projections.shift();
+  return Promise.resolve({ ok: true, json: async () => projection });
+};
+Date.now = () => now;
+vm.runInThisContext(`
+  let meetingListRequestGeneration = 0;
+  let processingListProjectionPollTimer = null;
+  const currentList = () => global.list;
+  const allRows = () => global.rows;
+  const processingListProjectionRequests = new Map();
+  const processingListProjectionLastFetchedAt = new Map();
+  const processingListProjectionStates = new Map();
+  const processingTranscriptReady = () => false;
+  const processingSummaryState = () => "processing";
+  const processingSummaryPending = () => true;
+  const requestMeetingListRefresh = () => { refreshes += 1; return true; };
+  ${source}
+  global.initProcessingListProjection = initProcessingListProjection;
+`);
+global.list = list;
+global.rows = rows;
+(async () => {
+  global.initProcessingListProjection();
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+  if (fetches.length !== 1 || !fetches[0].endsWith("/processing/processing")) {
+    throw new Error(`projection fetched non-active rows: ${fetches.join(",")}`);
+  }
+  if (timers.length !== 1 || timers[0].delay !== 15000) {
+    throw new Error("active processing projection did not schedule one 15-second tick");
+  }
+  if (failedAbove.nodes.has("[data-processing-list-status]") || failedBelow.nodes.has("[data-processing-list-status]")) {
+    throw new Error("failed neighbor received a processing status node");
+  }
+  now += 15000;
+  timers.shift().callback();
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+  if (fetches.length !== 2) throw new Error("second active projection tick did not run");
+  if (refreshes !== 1) throw new Error(`terminal transition requested ${refreshes} refreshes`);
+  if (failedAbove.nodes.has("[data-processing-list-status]") || failedBelow.nodes.has("[data-processing-list-status]")) {
+    throw new Error("terminal transition changed a failed neighbor");
   }
 })().catch((error) => {
   process.stderr.write(`${error.stack || error}\n`);

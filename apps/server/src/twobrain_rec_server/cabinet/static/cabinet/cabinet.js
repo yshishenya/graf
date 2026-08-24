@@ -20,7 +20,10 @@
   const processingListProjectionRequests = new Map();
   const processingListProjectionLastFetchedAt = new Map();
   const processingListProjectionStates = new Map();
+  let processingListProjectionPollTimer = null;
   const resetProcessingListProjectionState = () => {
+    if (processingListProjectionPollTimer) window.clearTimeout(processingListProjectionPollTimer);
+    processingListProjectionPollTimer = null;
     processingListProjectionRequests.forEach((entry) => entry.controller?.abort());
     processingListProjectionRequests.clear();
     processingListProjectionLastFetchedAt.clear();
@@ -2233,21 +2236,9 @@
   };
 
   const processingListStatusNode = (row) => {
-    const existing = row.querySelector("[data-processing-list-status]");
-    if (existing) return existing;
     const readiness = row.querySelector(".meeting-content-readiness");
-    if (readiness) {
-      readiness.dataset.processingListStatus = "true";
-      return readiness;
-    }
-    const content = row.querySelector(".meeting-content");
-    if (!content) return null;
-    const status = document.createElement("span");
-    status.className = "meeting-content-readiness";
-    status.dataset.processingListStatus = "true";
-    content.append(status);
-    row.classList.add("has-status");
-    return status;
+    if (readiness) readiness.dataset.processingListStatus = "true";
+    return readiness;
   };
 
   const renderProcessingListProjection = (row, projection, generation) => {
@@ -2259,9 +2250,17 @@
       || String(projection?.meeting_id || "") !== rowMeetingId
       || generation !== meetingListRequestGeneration
     ) return;
+    const retryClass = String(projection?.retry_class || "none");
+    const state = String(projection?.state || "").toLowerCase();
+    if (
+      retryClass === "terminal"
+      || ["processed", "blocked", "failed_terminal", "canceled"].includes(state)
+    ) {
+      const restoreFocus = row.contains(document.activeElement);
+      if (requestMeetingListRefresh({ focusMeetingIds: [rowMeetingId], restoreFocus })) return;
+    }
     const transcriptReady = processingTranscriptReady(projection);
     const summaryState = processingSummaryState(projection);
-    const retryClass = String(projection?.retry_class || "none");
     const text = retryClass === "retryable"
       ? "Обработка временно приостановлена"
       : retryClass === "unknown_outcome"
@@ -2325,11 +2324,20 @@
     if (!list) return;
     const rows = allRows().filter((row) => {
       const kind = row.querySelector(".meeting-status[data-status-kind]")?.dataset.statusKind || "";
-      const readiness = row.querySelector(".meeting-content-readiness")?.textContent || "";
-      return ["processing", "failed"].includes(kind)
-        || /расшифровка.*(готова|недоступна|готовятся)/i.test(readiness);
+      return kind === "processing";
     });
+    if (!rows.length) {
+      if (processingListProjectionPollTimer) window.clearTimeout(processingListProjectionPollTimer);
+      processingListProjectionPollTimer = null;
+      return;
+    }
     rows.forEach(requestProcessingListProjection);
+    if (!processingListProjectionPollTimer) {
+      processingListProjectionPollTimer = window.setTimeout(() => {
+        processingListProjectionPollTimer = null;
+        initProcessingListProjection();
+      }, 15000);
+    }
   };
 
   const initSummaryFormats = () => {
