@@ -79,7 +79,8 @@ workspace, account, notifications, and billing.
    accessibility identifier assertions.
 2. Run the feature quickstart against the installed GRAF app: calendar path,
    settings-to-billing path, back then forward, Home, Reload, loading state,
-   and all eight cabinet sections.
+   and all nine cabinet sections: meetings, settings, recording, summaries,
+   calendar, workspace, account, notifications, and billing.
 3. Run `swift build --package-path apps/macos` and
    `swift test --package-path apps/macos --filter DesktopCabinetWorkspaceTests`.
 4. Run `infra/scripts/ci-local.sh --fast` before PR/closeout because the

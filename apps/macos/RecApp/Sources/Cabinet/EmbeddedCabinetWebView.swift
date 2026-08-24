@@ -495,8 +495,12 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
         guard syntheticMeetingsListURL != webView.url else { return false }
         let isControllerTarget = controllerNavigationPending
             && pendingControllerNavigationTargetURL == url
-        let isBackNavigation = webView.backForwardList.backList.contains { $0.url == url }
-        let isForwardNavigation = webView.backForwardList.forwardList.contains { $0.url == url }
+        let isBackNavigation = isControllerTarget
+            ? pendingControllerNavigationKind == .back
+            : webView.backForwardList.backList.contains { $0.url == url }
+        let isForwardNavigation = isControllerTarget
+            ? pendingControllerNavigationKind == .forward
+            : webView.backForwardList.forwardList.contains { $0.url == url }
         guard isBackNavigation || isForwardNavigation || isControllerTarget else { return false }
         if isBackNavigation || (isControllerTarget && pendingControllerNavigationKind == .back) {
             guard EmbeddedCabinetNavigationPolicy.backDecision(

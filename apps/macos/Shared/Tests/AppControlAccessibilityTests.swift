@@ -386,6 +386,24 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertTrue(source.contains(".sheet(isPresented: $permissionOnboardingPresented)"))
         XCTAssertTrue(source.contains("refreshPermissionOnboarding(reason: \"app_appeared\", presentIfNeeded: false)"))
         XCTAssertTrue(source.contains("refreshPermissionOnboarding(reason: \"app_became_active\", presentIfNeeded: false)"))
+        let appAppearedStart = try XCTUnwrap(source.range(of: "        .onAppear {\n"))
+        let appAppearedEnd = try XCTUnwrap(
+            source[appAppearedStart.upperBound...].range(of: "\n        .onChange(of: protectedUpdateWork)")
+        )
+        let appAppearedBlock = source[appAppearedStart.lowerBound..<appAppearedEnd.lowerBound]
+        XCTAssertTrue(appAppearedBlock.contains("refreshPermissionOnboarding(reason: \"app_appeared\", presentIfNeeded: false)"))
+        XCTAssertTrue(appAppearedBlock.contains("Task { await refreshPermissionOnboardingWithFunctionalProbe(reason: \"app_appeared\") }"))
+        XCTAssertFalse(appAppearedBlock.contains("presentIfNeeded: true"))
+
+        let probeStart = try XCTUnwrap(source.range(of: "    private func refreshPermissionOnboardingWithFunctionalProbe("))
+        let probeEnd = try XCTUnwrap(
+            source[probeStart.upperBound...].range(of: "\n    @MainActor\n    private func requestStartupMicrophonePermission")
+        )
+        let probeBlock = source[probeStart.lowerBound..<probeEnd.lowerBound]
+        XCTAssertTrue(probeBlock.contains("guard verifiedState == .granted else {"))
+        XCTAssertTrue(probeBlock.contains("if presentIfNeeded {\n                permissionOnboardingPresented = true"))
+        XCTAssertTrue(probeBlock.contains("if permissionOnboardingStatus.isReady && !permissionRestartRequired {\n            permissionOnboardingPresented = false"))
+        XCTAssertTrue(probeBlock.contains("} else if presentIfNeeded {\n            permissionOnboardingPresented = true"))
         XCTAssertTrue(source.contains("microphoneCaptureService.preflight("))
         XCTAssertTrue(source.contains("sessionId: \"startup-permission-onboarding\""))
         XCTAssertTrue(source.contains("microphoneCaptureService.requestPermissionAndPreflight("))

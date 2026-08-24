@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - macOS 14+ and the GRAF desktop app with an authenticated cabinet session.
-- Repository checkout at `/Users/yshishenya/.codex/worktrees/e4ef/crisp`.
+- Run all commands from the repository root.
 - The installed app smoke must use the current visible app session; do not add
   credentials, cookies, private meeting text, or screenshots containing secrets
   to the repository.
