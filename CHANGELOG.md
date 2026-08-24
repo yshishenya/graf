@@ -9,22 +9,22 @@
 ## [Unreleased]
 
 ### Добавлено
-- _Пока нет записей._
+- Опубликованы подписанные macOS ZIP/PKG и Sparkle appcast для `v2026.08.24.6`.
 
 ### Изменено
-- _Пока нет записей._
+- Production runtime авторизации пересоздан с актуальным email/Postal bootstrap.
 
 ### Исправлено
-- _Пока нет записей._
+- Встроенное обновление macOS проверено с `2026.08.24.5` до `2026.08.24.6`.
 
 ### Безопасность
 - _Пока нет записей._
 
 ### Документы
-- _Пока нет записей._
+- Добавлен metadata-only receipt выкладки `v2026.08.24.6`.
 
 ### Операции
-- _Пока нет записей._
+- Проверены production health, Sparkle feed и OAuth redirects; Full CI намеренно пропущен.
 
 ## [2026.08.24.6] - 2026-08-24
 
@@ -8157,5 +8157,4 @@
 - Added production read-only RLS state verification output for covered-table
   counts, enabled/forced counts, failed tables, deployed commit, and Alembic
   revision (`feature:032`, `T015-T020`, `T028-T037`).
-
 
