@@ -120,6 +120,48 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         )
     }
 
+    func testHistorySelectionSkipsCurrentDuplicatesForBackAndForward() throws {
+        struct HistoryCandidate {
+            let id: String
+            let url: URL
+        }
+
+        let current = try XCTUnwrap(URL(string: "https://rec.2brain.dev/desktop/settings/integrations/calendar"))
+        let previous = try XCTUnwrap(URL(string: "https://rec.2brain.dev/desktop/settings/recording"))
+        let next = try XCTUnwrap(URL(string: "https://rec.2brain.dev/billing"))
+        let external = try XCTUnwrap(URL(string: "https://accounts.example/login"))
+        let candidates = [
+            HistoryCandidate(id: "current-duplicate", url: current),
+            HistoryCandidate(id: "unsafe", url: external)
+        ]
+        let allowedURLs: Set<URL> = [previous, next]
+
+        let backTarget = EmbeddedCabinetNavigationPolicy.nearestDistinctHistoryItem(
+            currentURL: current,
+            candidates: candidates + [HistoryCandidate(id: "previous", url: previous)],
+            url: { $0.url },
+            isAllowed: allowedURLs.contains
+        )
+        XCTAssertEqual(backTarget?.id, "previous")
+
+        let forwardTarget = EmbeddedCabinetNavigationPolicy.nearestDistinctHistoryItem(
+            currentURL: current,
+            candidates: candidates + [HistoryCandidate(id: "next", url: next)],
+            url: { $0.url },
+            isAllowed: allowedURLs.contains
+        )
+        XCTAssertEqual(forwardTarget?.id, "next")
+
+        XCTAssertNil(
+            EmbeddedCabinetNavigationPolicy.nearestDistinctHistoryItem(
+                currentURL: current,
+                candidates: candidates,
+                url: { $0.url },
+                isAllowed: allowedURLs.contains
+            )
+        )
+    }
+
     func testExpiredSessionBackCannotRestoreProtectedCabinetDocument() throws {
         let configuration = try XCTUnwrap(DesktopCabinetConfiguration(rawBaseURL: "https://rec.2brain.dev", headers: [:]))
         let policy = DesktopCabinetRoutePolicy(baseURL: configuration.baseURL)
@@ -225,6 +267,36 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         XCTAssertEqual(DesktopCabinetAccessibilityIdentifier.navigationForward, "desktop-cabinet-navigation-forward")
         XCTAssertEqual(DesktopCabinetAccessibilityIdentifier.navigationReload, "desktop-cabinet-navigation-reload")
         XCTAssertEqual(DesktopCabinetAccessibilityIdentifier.navigationHome, "desktop-cabinet-navigation-home")
+    }
+
+    func testSharedNavigationContractCoversEveryCabinetSection() throws {
+        let configuration = try XCTUnwrap(DesktopCabinetConfiguration(rawBaseURL: "https://rec.2brain.dev", headers: [:]))
+        let policy = DesktopCabinetRoutePolicy(baseURL: configuration.baseURL)
+        let paths = [
+            "/desktop/meetings",
+            "/desktop/settings",
+            "/desktop/settings/recording",
+            "/desktop/settings/summaries",
+            "/desktop/settings/integrations/calendar",
+            "/desktop/settings/workspace",
+            "/desktop/settings/account",
+            "/desktop/settings/notifications",
+            "/billing"
+        ]
+
+        for path in paths {
+            let url = try XCTUnwrap(URL(string: "https://rec.2brain.dev\(path)"))
+            XCTAssertTrue(EmbeddedCabinetNavigationPolicy.isSafeDocument(url, routePolicy: policy), path)
+        }
+
+        let identifiers = [
+            DesktopCabinetAccessibilityIdentifier.navigationHome,
+            DesktopCabinetAccessibilityIdentifier.navigationBack,
+            DesktopCabinetAccessibilityIdentifier.navigationForward,
+            DesktopCabinetAccessibilityIdentifier.navigationReload
+        ]
+        XCTAssertEqual(Set(identifiers).count, 4)
+        XCTAssertTrue(identifiers.allSatisfy { $0.hasPrefix("desktop-cabinet-navigation-") })
     }
 
     @MainActor

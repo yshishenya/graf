@@ -188,6 +188,15 @@ class Settings(BaseSettings):
             "TWOBRAIN_PROCESSING_MAX_IN_MEMORY_AUDIO_BYTES",
         ),
     )
+    # Recovery limits are deliberately bounded in configuration so a bad
+    # deployment value cannot turn a transient provider failure into an
+    # unbounded retry loop or a busy-polling storm.
+    processing_recovery_min_delay_seconds: PositiveInt = Field(default=5, le=900)
+    processing_recovery_default_delay_seconds: PositiveInt = Field(default=30, le=900)
+    processing_recovery_max_delay_seconds: PositiveInt = Field(default=900, le=3600)
+    processing_recovery_deadline_seconds: PositiveInt = Field(default=14_400, le=86_400)
+    processing_recovery_max_attempts: PositiveInt = Field(default=12, le=100)
+    processing_recovery_jitter_ratio: float = Field(default=0.1, ge=0, le=0.25)
     temporal_address: str | None = None
     temporal_namespace: str = "default"
     temporal_task_queue: str = "twobrain-rec-processing"
@@ -523,6 +532,20 @@ class Settings(BaseSettings):
                 raise ValueError("production playback normalization ffmpeg path must be absolute")
             if not self.playback_normalization_ffprobe_path.is_absolute():
                 raise ValueError("production playback normalization ffprobe path must be absolute")
+        return self
+
+    @model_validator(mode="after")
+    def validate_processing_recovery_safety(self) -> "Settings":
+        if self.processing_recovery_min_delay_seconds > self.processing_recovery_default_delay_seconds:
+            raise ValueError(
+                "processing recovery minimum delay must not exceed the default delay"
+            )
+        if self.processing_recovery_default_delay_seconds > self.processing_recovery_max_delay_seconds:
+            raise ValueError(
+                "processing recovery default delay must not exceed the maximum delay"
+            )
+        if self.processing_recovery_max_attempts < 1:
+            raise ValueError("processing recovery must allow at least one attempt")
         return self
 
     @model_validator(mode="after")

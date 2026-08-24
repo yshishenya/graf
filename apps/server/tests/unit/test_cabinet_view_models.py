@@ -1443,11 +1443,9 @@ def test_manual_upload_review_response_preserves_unknown_without_diarization() -
     )
 
     assert response.meeting.source == "manual_upload"
-    assert [segment.speaker_label for segment in response.transcript.segments] == [
-        "Спикер не определён"
-    ]
-    assert [segment.attribution_state for segment in response.transcript.segments] == ["uncertain"]
-    assert response.transcript.result_state == "degraded_provider_result"
+    assert response.transcript.available is False
+    assert response.transcript.segments == []
+    assert response.processing.transcript_available is False
 
 
 def test_manual_upload_review_response_uses_diarization_as_transcript_source() -> None:

@@ -10,11 +10,13 @@ from twobrain_rec_server.db.models import (
     AdminAuditEvent,
     BillingNotificationDelivery,
     BillingOperation,
+    MediaScribeJob,
     Meeting,
     ObservedProviderRefund,
     PlaybackBackfillRun,
     PlaybackNormalizationAttempt,
     PlaybackNormalizationJob,
+    ProcessingWorkflow,
     PurgeJournal,
     StorageReservation,
     WorkspaceMembership,
@@ -94,6 +96,10 @@ async def get_admin_metrics(
         db,
         workspace_id=context.workspace_id,
     )
+    processing_recovery = await _processing_recovery_metrics(
+        db,
+        workspace_id=context.workspace_id,
+    )
     billing = await _billing_metrics(db, workspace_id=context.workspace_id)
     cards = [
         _card(
@@ -149,6 +155,17 @@ async def get_admin_metrics(
             "playback normalization jobs",
             "normalization_store",
             int(playback_normalization["backlog_total"]),
+            "/admin/metrics?family=reliability",
+            date_window=usage_window,
+        ),
+        _card(
+            "processing_retryable_backlog",
+            "reliability",
+            "Ожидающие восстановления",
+            "Retryable/unknown processing states with durable recovery data",
+            "processing workflows",
+            "processing_recovery",
+            processing_recovery["retryable_backlog"],
             "/admin/metrics?family=reliability",
             date_window=usage_window,
         ),
@@ -213,7 +230,79 @@ async def get_admin_metrics(
     return {
         "metrics": cards,
         "playback_normalization": playback_normalization,
+        "processing_recovery": processing_recovery,
         "billing": billing,
+    }
+
+
+async def _processing_recovery_metrics(
+    db: AsyncSession,
+    *,
+    workspace_id,
+) -> dict[str, object]:
+    """Expose bounded operator signals, never provider payloads or identifiers."""
+
+    workflow_states = {
+        str(state): int(count)
+        for state, count in (
+            await db.execute(
+                select(ProcessingWorkflow.status, func.count())
+                .where(ProcessingWorkflow.workspace_id == workspace_id)
+                .group_by(ProcessingWorkflow.status)
+            )
+        ).all()
+    }
+    retryable_states = ("waiting_retry", "failed_retryable", "blocked_unknown")
+    retryable_backlog = sum(workflow_states.get(state, 0) for state in retryable_states)
+    stale_due = int(
+        await db.scalar(
+            select(func.count())
+            .select_from(ProcessingWorkflow)
+            .where(
+                ProcessingWorkflow.workspace_id == workspace_id,
+                ProcessingWorkflow.status == "waiting_retry",
+                ProcessingWorkflow.next_attempt_at.is_not(None),
+                ProcessingWorkflow.next_attempt_at < datetime.now(UTC),
+            )
+        )
+        or 0
+    )
+    duplicate_job_rows = int(
+        await db.scalar(
+            select(func.count())
+            .select_from(
+                select(MediaScribeJob.external_job_id)
+                .where(
+                    MediaScribeJob.workspace_id == workspace_id,
+                    MediaScribeJob.external_job_id.is_not(None),
+                )
+                .group_by(MediaScribeJob.external_job_id)
+                .having(func.count() > 1)
+                .subquery()
+            )
+        )
+        or 0
+    )
+    queue_states = {
+        str(state): int(count)
+        for state, count in (
+            await db.execute(
+                select(MediaScribeJob.provider_queue_state, func.count())
+                .where(
+                    MediaScribeJob.workspace_id == workspace_id,
+                    MediaScribeJob.provider_queue_state.is_not(None),
+                )
+                .group_by(MediaScribeJob.provider_queue_state)
+            )
+        ).all()
+    }
+    return {
+        "workflow_states": workflow_states,
+        "retryable_backlog": retryable_backlog,
+        "stale_due": stale_due,
+        "duplicate_job_groups": duplicate_job_rows,
+        "queue_state_buckets": queue_states,
+        "fairness_bucket": "workspace_scoped",
     }
 
 

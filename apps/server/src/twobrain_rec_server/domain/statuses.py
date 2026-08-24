@@ -133,6 +133,8 @@ class ProcessingStatus(StrEnum):
     SUBMITTING = "submitting"
     SUBMITTED = "submitted"
     POLLING = "polling"
+    WAITING_RETRY = "waiting_retry"
+    BLOCKED_UNKNOWN = "blocked_unknown"
     IMPORTING = "importing"
     PROCESSED = "processed"
     BLOCKED = "blocked"
@@ -151,6 +153,7 @@ class MediaScribeJobStatus(StrEnum):
     SUMMARIZING = "summarizing"
     READY = "ready"
     FAILED = "failed"
+    DELETING = "deleting"
     BLOCKED = "blocked"
 
 

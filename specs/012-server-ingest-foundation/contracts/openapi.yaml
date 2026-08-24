@@ -2435,7 +2435,7 @@ paths:
       - processing
       summary: Get Processing Status
       operationId: get_processing_status_api_v1_meetings__meeting_id__processing_get
-      parameters:
+      parameters: &processing_parameters
       - name: meeting_id
         in: path
         required: true
@@ -2490,6 +2490,55 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ProcessingStatusResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/meetings/{meeting_id}/processing/check:
+    post:
+      tags:
+      - processing
+      summary: Check Processing
+      operationId: check_processing_api_v1_meetings__meeting_id__processing_check_post
+      parameters: *processing_parameters
+      requestBody:
+        content:
+          application/json:
+            schema:
+              anyOf:
+              - $ref: '#/components/schemas/ProcessingCheckRequest'
+              - type: 'null'
+              title: Payload
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProcessingCheckResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/meetings/{meeting_id}/processing/attempt:
+    post:
+      tags:
+      - processing
+      summary: Start New Processing Attempt
+      description: Create and dispatch one fresh attempt after a confirmed terminal failure.
+      operationId: start_new_processing_attempt_api_v1_meetings__meeting_id__processing_attempt_post
+      parameters: *processing_parameters
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProcessingAttemptResponse'
         '422':
           description: Validation Error
           content:
@@ -14306,6 +14355,8 @@ components:
       - submitting
       - submitted
       - polling
+      - waiting_retry
+      - blocked_unknown
       - importing
       - processed
       - blocked
@@ -14313,8 +14364,20 @@ components:
       - failed_terminal
       - canceled
       title: ProcessingStatus
-    ProcessingStatusResponse:
+    ProcessingArtifactProjection:
       properties:
+        state:
+          type: string
+          title: State
+          default: not_requested
+        visible:
+          type: boolean
+          title: Visible
+          default: false
+      type: object
+      title: ProcessingArtifactProjection
+    ProcessingStatusResponse:
+      properties: &processing_status_properties
         meeting_id:
           type: string
           format: uuid
@@ -14355,6 +14418,11 @@ components:
           - type: string
           - type: 'null'
           title: Workflow Id
+        attempt_ordinal:
+          type: integer
+          minimum: 1.0
+          title: Attempt Ordinal
+          default: 1
         mediascribe_job_id_present:
           type: boolean
           title: Mediascribe Job Id Present
@@ -14375,6 +14443,48 @@ components:
           type: string
           title: Summary Status
           default: not_requested
+        retry_class:
+          type: string
+          enum: [none, retryable, unknown_outcome, terminal]
+          title: Retry Class
+          default: none
+        next_attempt_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Next Attempt At
+        next_attempt_source:
+          anyOf:
+          - type: string
+            enum: [provider_retry_after, provider_next_retry_at, server_fallback, manual_override]
+          - type: 'null'
+          title: Next Attempt Source
+        schedule_generation:
+          type: integer
+          minimum: 0.0
+          title: Schedule Generation
+          default: 0
+        server_time:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Server Time
+        manual_action:
+          type: string
+          enum: [none, check_now, new_attempt, contact_support]
+          title: Manual Action
+          default: none
+        attempt_in_flight:
+          type: boolean
+          title: Attempt In Flight
+          default: false
+        artifacts:
+          additionalProperties:
+            $ref: '#/components/schemas/ProcessingArtifactProjection'
+          type: object
+          title: Artifacts
         updated_at:
           anyOf:
           - type: string
@@ -14387,6 +14497,72 @@ components:
       - workspace_id
       - state
       title: ProcessingStatusResponse
+    ProcessingCheckRequest:
+      properties:
+        command_id:
+          anyOf:
+          - type: string
+            maxLength: 240
+            pattern: ^[^\x00-\x1f\x7f]+$
+          - type: 'null'
+          title: Command Id
+        schedule_generation:
+          anyOf:
+          - type: integer
+            minimum: 0.0
+          - type: 'null'
+          title: Schedule Generation
+      additionalProperties: false
+      type: object
+      title: ProcessingCheckRequest
+      description: |-
+        Optional client fence for a same-job manual processing check.
+
+        The value is never echoed or persisted as supplied.  The API derives a
+        bounded command identifier from it before sending anything to Temporal.
+    ProcessingCheckResponse:
+      properties:
+        <<: *processing_status_properties
+        request_result:
+          type: string
+          enum: [accepted, already_in_flight, stale_schedule, duplicate_suppressed, not_safe]
+          title: Request Result
+          default: accepted
+        command_id:
+          type: string
+          pattern: ^processing-check-[0-9a-f]{32}$
+          title: Command Id
+        same_job_check:
+          type: boolean
+          title: Same Job Check
+          default: false
+        dispatch:
+          anyOf:
+          - type: string
+            enum: [update, signal]
+          - type: 'null'
+          title: Dispatch
+      type: object
+      required: [meeting_id, workspace_id, state, command_id]
+      title: ProcessingCheckResponse
+      description: Content-safe projection plus the result of the manual command claim.
+    ProcessingAttemptResponse:
+      properties:
+        <<: *processing_status_properties
+        attempt_result:
+          type: string
+          enum: [created, already_in_flight]
+          title: Attempt Result
+        dispatch:
+          anyOf:
+          - type: string
+            enum: [started, reused]
+          - type: 'null'
+          title: Dispatch
+      type: object
+      required: [meeting_id, workspace_id, state, attempt_result]
+      title: ProcessingAttemptResponse
+      description: Result of an explicitly authorized new business attempt admission.
     ProductAnalyticsEventRequest:
       properties:
         event_name:

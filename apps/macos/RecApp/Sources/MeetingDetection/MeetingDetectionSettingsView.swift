@@ -119,11 +119,16 @@ public struct MeetingDetectionSettingsView: View {
                     }
 
                     Section(header: Text(Self.autoRecordSectionTitle).fontWeight(.medium)) {
-                        AutomaticRecordingRulePicker(
-                            title: Self.applyToAllTitle,
-                            selection: bulkRuleBinding,
-                            isDisabled: promptCapableTargets.isEmpty
-                        )
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(Self.applyToAllTitle)
+                                .font(.subheadline)
+                                .fontWeight(.medium)
+                            AutomaticRecordingRulePicker(
+                                title: Self.applyToAllTitle,
+                                selection: bulkRuleBinding,
+                                isDisabled: promptCapableTargets.isEmpty
+                            )
+                        }
 
                         if promptCapableTargets.isEmpty {
                             Text("Список появится после загрузки реестра.")
@@ -425,6 +430,7 @@ private struct AutomaticRecordingRulePicker: View {
     let title: String
     @Binding var selection: AutomaticRecordingRule?
     var isDisabled = false
+    @State private var hoveredRule: AutomaticRecordingRule?
 
     init(
         title: String,
@@ -456,37 +462,52 @@ private struct AutomaticRecordingRulePicker: View {
                     selection = rule
                 } label: {
                     HStack(spacing: 5) {
-                        Image(systemName: selection == rule ? "largecircle.fill.circle" : "circle")
-                            .imageScale(.small)
+                        Image(systemName: rule.symbolName)
                         Text(rule.displayName)
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
                     }
                     .font(.callout)
-                    .frame(width: 112)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 7)
+                    .frame(width: 112, height: 38)
+                    .foregroundStyle(selection == rule ? .white : .primary)
                     .background(
                         selection == rule
-                            ? Color.accentColor.opacity(0.16)
-                            : Color.clear,
-                        in: RoundedRectangle(cornerRadius: 7)
+                            ? DesktopMeetingShellChrome.shellAccentColor
+                            : hoveredRule == rule ? DesktopMeetingShellChrome.shellAccentColor.opacity(0.12) : Color.clear,
+                        in: RoundedRectangle(cornerRadius: 10)
                     )
                     .overlay(
-                        RoundedRectangle(cornerRadius: 7)
+                        RoundedRectangle(cornerRadius: 10)
                             .stroke(
-                                selection == rule ? Color.accentColor : Color.secondary.opacity(0.25),
+                                selection == rule
+                                    ? DesktopMeetingShellChrome.shellAccentColor
+                                    : hoveredRule == rule
+                                        ? DesktopMeetingShellChrome.shellAccentColor.opacity(0.55)
+                                        : Color.secondary.opacity(0.25),
                                 lineWidth: 1
                             )
                     )
                 }
                 .buttonStyle(.plain)
                 .disabled(isDisabled)
+                .onHover { isHovering in
+                    hoveredRule = isHovering ? rule : nil
+                }
                 .accessibilityAddTraits(selection == rule ? .isSelected : [])
             }
         }
         .accessibilityLabel(title)
         .accessibilityValue(selection?.displayName ?? "Разные")
         .accessibilityHint(isDisabled ? "Недоступно" : "Выберите состояние автозаписи")
+    }
+}
+
+private extension AutomaticRecordingRule {
+    var symbolName: String {
+        switch self {
+        case .always: return "record.circle"
+        case .ask: return "questionmark.circle"
+        case .never: return "nosign"
+        }
     }
 }

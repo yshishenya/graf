@@ -27,6 +27,8 @@ class FakeMediaScribeClient:
         incoming_file: BinaryIO,
         diarize: bool,
         summarize: bool,
+        num_speakers: int | None = None,
+        speaker_count_mode: str | None = None,
         idempotency_key: str | None = None,
     ) -> MediaScribeSubmitResponse:
         mic_size, mic_hash = _stream_digest(mic_file)
@@ -39,6 +41,8 @@ class FakeMediaScribeClient:
                 "incoming_sha256": incoming_hash,
                 "diarize": diarize,
                 "summarize": summarize,
+                "num_speakers": num_speakers,
+                "speaker_count_mode": speaker_count_mode,
                 "idempotency_key": idempotency_key,
             }
         )
@@ -53,6 +57,8 @@ class FakeMediaScribeClient:
         media_file: BinaryIO,
         diarize: bool,
         summarize: bool,
+        num_speakers: int | None = None,
+        speaker_count_mode: str | None = None,
         media_content_type: str | None = None,
         media_filename: str | None = None,
         idempotency_key: str | None = None,
@@ -65,6 +71,8 @@ class FakeMediaScribeClient:
             "media_content_type": media_content_type,
             "diarize": diarize,
             "summarize": summarize,
+            "num_speakers": num_speakers,
+            "speaker_count_mode": speaker_count_mode,
             "idempotency_key": idempotency_key,
         }
         if media_filename is not None:

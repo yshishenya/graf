@@ -270,6 +270,7 @@ async def _seed_processed_rows(
             meeting_id=meeting_id,
             media_revision_id=media_revision.id,
             mediascribe_job_id=job.id,
+            processing_workflow_id=workflow.id,
             result_version=1,
             status=ProcessingResultStatus.IMPORTED.value,
             transcript_status=(

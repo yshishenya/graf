@@ -9,6 +9,18 @@ public enum EmbeddedCabinetBackNavigationDecision: Equatable, Sendable {
 }
 
 public enum EmbeddedCabinetNavigationPolicy {
+    public static func nearestDistinctHistoryItem<Item>(
+        currentURL: URL?,
+        candidates: [Item],
+        url: (Item) -> URL?,
+        isAllowed: (URL) -> Bool
+    ) -> Item? {
+        candidates.first { item in
+            guard let candidateURL = url(item), candidateURL != currentURL else { return false }
+            return isAllowed(candidateURL)
+        }
+    }
+
     public static func backDecision(
         currentURL: URL?,
         backURL: URL?,
@@ -124,10 +136,13 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
     private var routePolicy: DesktopCabinetRoutePolicy?
     private var fallbackRequest: URLRequest?
     private var syntheticMeetingsListURL: URL?
+    private var syntheticForwardRequest: URLRequest?
     private var syntheticLoadInFlight = false
     private var activeNavigation: WKNavigation?
     private var activeNavigationURL: URL?
     private var pendingNavigationURL: URL?
+    private var pendingControllerNavigationTargetURL: URL?
+    private var pendingControllerNavigationKind: ControllerNavigationKind?
     private let invalidNavigations = NSHashTable<WKNavigation>.weakObjects()
     private var historyFencePending = false
     private var controllerNavigationPending = false
@@ -135,10 +150,18 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
     private var safeHistoryURLs = Set<URL>()
     private var unsafeHistoryURLs = Set<URL>()
 
+    private enum ControllerNavigationKind: Equatable {
+        case back
+        case forward
+        case reload
+        case home
+    }
+
     public init() {}
 
     public func goBack() {
         guard !isLoading, let webView, let routePolicy else { return }
+        syntheticForwardRequest = nil
         let backItem = preferredBackItem(for: webView, routePolicy: routePolicy)
         let decision = EmbeddedCabinetNavigationPolicy.backDecision(
             currentURL: webView.url,
@@ -151,51 +174,82 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
         switch decision {
         case .history:
             if let backItem {
+                prepareControllerNavigation(targetURL: backItem.url, kind: .back)
                 guard let navigation = webView.go(to: backItem) else {
+                    clearControllerNavigationTarget()
                     isLoading = false
                     syncNavigationState()
                     return
                 }
                 beginControllerNavigation(navigation, targetURL: backItem.url)
             } else {
+                clearControllerNavigationTarget()
                 isLoading = false
                 syncNavigationState()
             }
         case .meetingsList:
             guard let fallbackRequest else {
+                clearControllerNavigationTarget()
                 isLoading = false
                 return
             }
+            if let currentURL = webView.url,
+               isSafeHistoryDocument(currentURL, routePolicy: routePolicy),
+               (!sessionExpired || !isProtectedMeetingRoute(currentURL, routePolicy: routePolicy)) {
+                syntheticForwardRequest = URLRequest(url: currentURL)
+            }
             syntheticMeetingsListURL = fallbackRequest.url
             syntheticLoadInFlight = true
+            prepareControllerNavigation(targetURL: fallbackRequest.url, kind: .home)
             observeNavigationRequest(fallbackRequest, webView: webView)
             guard let navigation = webView.load(fallbackRequest) else {
                 syntheticMeetingsListURL = nil
+                syntheticForwardRequest = nil
                 syntheticLoadInFlight = false
+                clearControllerNavigationTarget()
                 isLoading = false
                 syncNavigationState()
                 return
             }
             beginControllerNavigation(navigation, targetURL: fallbackRequest.url)
         case .unavailable:
+            clearControllerNavigationTarget()
             isLoading = false
             syncNavigationState()
         }
     }
 
     public func goForward() {
-        guard !isLoading, canGoForward, let webView, let routePolicy,
-              let forwardURL = webView.backForwardList.forwardItem?.url,
-              isSafeHistoryDocument(forwardURL, routePolicy: routePolicy),
-              (!sessionExpired || !isProtectedMeetingRoute(forwardURL, routePolicy: routePolicy))
-        else { return }
+        guard !isLoading, canGoForward, let webView, let routePolicy else { return }
+        if let forwardItem = preferredForwardItem(for: webView, routePolicy: routePolicy) {
+            isLoading = true
+            prepareControllerNavigation(targetURL: forwardItem.url, kind: .forward)
+            guard let navigation = webView.go(to: forwardItem) else {
+                clearControllerNavigationTarget()
+                isLoading = false
+                syncNavigationState()
+                return
+            }
+            beginControllerNavigation(navigation, targetURL: forwardItem.url)
+            return
+        }
+
+        guard let forwardRequest = preferredSyntheticForwardRequest(for: webView, routePolicy: routePolicy) else {
+            syntheticForwardRequest = nil
+            syncNavigationState()
+            return
+        }
+        syntheticForwardRequest = nil
         isLoading = true
-        guard let navigation = webView.goForward() else {
+        prepareControllerNavigation(targetURL: forwardRequest.url, kind: .forward)
+        observeNavigationRequest(forwardRequest, webView: webView)
+        guard let navigation = webView.load(forwardRequest) else {
+            clearControllerNavigationTarget()
             isLoading = false
             syncNavigationState()
             return
         }
-        beginControllerNavigation(navigation, targetURL: forwardURL)
+        beginControllerNavigation(navigation, targetURL: forwardRequest.url)
     }
 
     public func reload() {
@@ -204,7 +258,9 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
               (!sessionExpired || !isProtectedMeetingRoute(webView.url, routePolicy: routePolicy))
         else { return }
         isLoading = true
+        prepareControllerNavigation(targetURL: webView.url, kind: .reload)
         guard let navigation = webView.reload() else {
+            clearControllerNavigationTarget()
             isLoading = false
             syncNavigationState()
             return
@@ -220,13 +276,17 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
               let homeURL = fallbackRequest.url
         else { return }
 
+        syntheticForwardRequest = nil
         syntheticMeetingsListURL = homeURL
         syntheticLoadInFlight = true
-        observeNavigationRequest(fallbackRequest, webView: webView)
         isLoading = true
+        prepareControllerNavigation(targetURL: homeURL, kind: .home)
+        observeNavigationRequest(fallbackRequest, webView: webView)
         guard let navigation = webView.load(fallbackRequest) else {
             syntheticMeetingsListURL = nil
+            syntheticForwardRequest = nil
             syntheticLoadInFlight = false
+            clearControllerNavigationTarget()
             isLoading = false
             syncNavigationState()
             return
@@ -248,10 +308,12 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
         safeHistoryURLs = []
         unsafeHistoryURLs = []
         syntheticMeetingsListURL = nil
+        syntheticForwardRequest = nil
         syntheticLoadInFlight = false
         activeNavigation = nil
         activeNavigationURL = nil
         pendingNavigationURL = nil
+        clearControllerNavigationTarget()
         invalidNavigations.removeAllObjects()
         historyFencePending = false
         controllerNavigationPending = false
@@ -288,10 +350,12 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
         self.routePolicy = nil
         self.fallbackRequest = nil
         syntheticMeetingsListURL = nil
+        syntheticForwardRequest = nil
         syntheticLoadInFlight = false
         activeNavigation = nil
         activeNavigationURL = nil
         pendingNavigationURL = nil
+        clearControllerNavigationTarget()
         invalidNavigations.removeAllObjects()
         historyFencePending = false
         controllerNavigationPending = false
@@ -325,6 +389,7 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
             activeNavigation = nil
             activeNavigationURL = nil
             pendingNavigationURL = nil
+            clearControllerNavigationTarget()
             controllerNavigationPending = false
             isLoading = false
             syncNavigationState()
@@ -340,7 +405,7 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
         activeNavigation = navigation
         activeNavigationURL = targetURL ?? pendingNavigationURL ?? activeNavigationURL
         pendingNavigationURL = nil
-        controllerNavigationPending = controllerInitiated
+        controllerNavigationPending = controllerInitiated || controllerNavigationPending
         isLoading = true
         syncNavigationState()
     }
@@ -355,6 +420,7 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
         activeNavigation = nil
         activeNavigationURL = nil
         pendingNavigationURL = nil
+        clearControllerNavigationTarget()
         controllerNavigationPending = false
         isLoading = false
         let historyWasFenced = fencePendingHistory()
@@ -395,9 +461,11 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
         activeNavigation = nil
         activeNavigationURL = nil
         pendingNavigationURL = nil
+        clearControllerNavigationTarget()
         fencePendingHistory()
         controllerNavigationPending = false
         syntheticMeetingsListURL = nil
+        syntheticForwardRequest = nil
         syntheticLoadInFlight = false
         isLoading = false
         syncNavigationState()
@@ -411,9 +479,11 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
         activeNavigation = nil
         activeNavigationURL = nil
         pendingNavigationURL = nil
+        clearControllerNavigationTarget()
         fencePendingHistory()
         controllerNavigationPending = false
         syntheticMeetingsListURL = nil
+        syntheticForwardRequest = nil
         syntheticLoadInFlight = false
         isLoading = false
         syncNavigationState()
@@ -423,10 +493,16 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
         guard self.webView === webView, let routePolicy else { return false }
         guard !isLoading || controllerNavigationPending else { return false }
         guard syntheticMeetingsListURL != webView.url else { return false }
-        let isBackNavigation = webView.backForwardList.backList.contains { $0.url == url }
-        let isForwardNavigation = webView.backForwardList.forwardList.contains { $0.url == url }
-        guard isBackNavigation || isForwardNavigation else { return false }
-        if isBackNavigation {
+        let isControllerTarget = controllerNavigationPending
+            && pendingControllerNavigationTargetURL == url
+        let isBackNavigation = isControllerTarget
+            ? pendingControllerNavigationKind == .back
+            : webView.backForwardList.backList.contains { $0.url == url }
+        let isForwardNavigation = isControllerTarget
+            ? pendingControllerNavigationKind == .forward
+            : webView.backForwardList.forwardList.contains { $0.url == url }
+        guard isBackNavigation || isForwardNavigation || isControllerTarget else { return false }
+        if isBackNavigation || (isControllerTarget && pendingControllerNavigationKind == .back) {
             guard EmbeddedCabinetNavigationPolicy.backDecision(
                 currentURL: webView.url,
                 backURL: url,
@@ -456,6 +532,9 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
         allowExternalAuthProvider: Bool = false
     ) {
         guard self.webView === webView, let url = request.url, let routePolicy else { return }
+        if registersNavigation, !controllerNavigationPending {
+            syntheticForwardRequest = nil
+        }
         let decision = routePolicy.decision(
             for: url,
             allowExternalAuthProvider: allowExternalAuthProvider
@@ -503,8 +582,10 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
         guard self.webView === webView else { return }
         invalidateActiveNavigation()
         pendingNavigationURL = nil
+        clearControllerNavigationTarget()
         historyFencePending = false
         syntheticMeetingsListURL = nil
+        syntheticForwardRequest = nil
         syntheticLoadInFlight = false
         isLoading = false
         syncNavigationState()
@@ -530,6 +611,7 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
         safeHistoryURLs = []
         unsafeHistoryURLs = []
         syntheticMeetingsListURL = nil
+        syntheticForwardRequest = nil
         syntheticLoadInFlight = false
         sessionBoundaryID = UUID()
         return true
@@ -544,7 +626,7 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
             return
         }
         let backItem = preferredBackItem(for: webView, routePolicy: routePolicy)
-        canGoBack = !(
+        canGoBack = !isLoading && !(
             syntheticMeetingsListURL == webView.url
         ) && EmbeddedCabinetNavigationPolicy.backDecision(
                 currentURL: webView.url,
@@ -553,14 +635,11 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
                 routePolicy: routePolicy,
                 sessionExpired: sessionExpired
             ) != .unavailable
-        if let forwardURL = webView.backForwardList.forwardItem?.url {
-            canGoForward = webView.canGoForward
-                && syntheticMeetingsListURL != webView.url
-                && isSafeHistoryDocument(forwardURL, routePolicy: routePolicy)
-                && (!sessionExpired || !isProtectedMeetingRoute(forwardURL, routePolicy: routePolicy))
-        } else {
-            canGoForward = false
-        }
+        let forwardItem = preferredForwardItem(for: webView, routePolicy: routePolicy)
+        let syntheticForwardRequest = preferredSyntheticForwardRequest(for: webView, routePolicy: routePolicy)
+        canGoForward = !isLoading
+            && (syntheticMeetingsListURL != webView.url || syntheticForwardRequest != nil)
+            && (forwardItem != nil || syntheticForwardRequest != nil)
         canReload = !isLoading
             && isSafeHistoryDocument(webView.url, routePolicy: routePolicy)
             && (!sessionExpired || !isProtectedMeetingRoute(webView.url, routePolicy: routePolicy))
@@ -577,6 +656,18 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
         controllerNavigationPending = true
         isLoading = true
         syncNavigationState()
+    }
+
+    private func prepareControllerNavigation(targetURL: URL?, kind: ControllerNavigationKind) {
+        // WebKit can call the policy delegate synchronously from go/load/reload.
+        controllerNavigationPending = true
+        pendingControllerNavigationTargetURL = targetURL
+        pendingControllerNavigationKind = kind
+    }
+
+    private func clearControllerNavigationTarget() {
+        pendingControllerNavigationTargetURL = nil
+        pendingControllerNavigationKind = nil
     }
 
     private func isCurrentNavigation(_ navigation: WKNavigation?, expectedURL: URL? = nil) -> Bool {
@@ -608,17 +699,50 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
         routePolicy: DesktopCabinetRoutePolicy
     ) -> WKBackForwardListItem? {
         let currentKind = webView.url.map { routePolicy.decision(for: $0).route.kind }
-        return webView.backForwardList.backList.reversed().first { item in
-            let decision = routePolicy.decision(for: item.url)
-            guard decision.decision == .allow,
-                  isSafeHistoryDocument(item.url, routePolicy: routePolicy),
-                  (!sessionExpired || !isProtectedMeetingRoute(item.url, routePolicy: routePolicy))
-            else { return false }
-            if isMeetingReviewRoute(currentKind) {
-                return isMeetingHistoryRoute(decision.route.kind)
+        return EmbeddedCabinetNavigationPolicy.nearestDistinctHistoryItem(
+            currentURL: webView.url,
+            candidates: webView.backForwardList.backList.reversed(),
+            url: { $0.url },
+            isAllowed: { url in
+                let decision = routePolicy.decision(for: url)
+                guard decision.decision == .allow,
+                      isSafeHistoryDocument(url, routePolicy: routePolicy),
+                      (!sessionExpired || !isProtectedMeetingRoute(url, routePolicy: routePolicy))
+                else { return false }
+                if isMeetingReviewRoute(currentKind) {
+                    return isMeetingHistoryRoute(decision.route.kind)
+                }
+                return true
             }
-            return true
-        }
+        )
+    }
+
+    private func preferredForwardItem(
+        for webView: WKWebView,
+        routePolicy: DesktopCabinetRoutePolicy
+    ) -> WKBackForwardListItem? {
+        EmbeddedCabinetNavigationPolicy.nearestDistinctHistoryItem(
+            currentURL: webView.url,
+            candidates: webView.backForwardList.forwardList,
+            url: { $0.url },
+            isAllowed: { url in
+                isSafeHistoryDocument(url, routePolicy: routePolicy)
+                    && (!sessionExpired || !isProtectedMeetingRoute(url, routePolicy: routePolicy))
+            }
+        )
+    }
+
+    private func preferredSyntheticForwardRequest(
+        for webView: WKWebView,
+        routePolicy: DesktopCabinetRoutePolicy
+    ) -> URLRequest? {
+        guard let request = syntheticForwardRequest,
+              let url = request.url,
+              url != webView.url,
+              isSafeHistoryDocument(url, routePolicy: routePolicy),
+              (!sessionExpired || !isProtectedMeetingRoute(url, routePolicy: routePolicy))
+        else { return nil }
+        return request
     }
 
     private func isSafeHistoryDocument(

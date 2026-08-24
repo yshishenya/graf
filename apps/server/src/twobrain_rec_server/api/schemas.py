@@ -1047,6 +1047,11 @@ class ProcessingPickupResponse(BaseModel):
     meeting_ids: list[UUID] = Field(default_factory=list)
 
 
+class ProcessingArtifactProjection(BaseModel):
+    state: str = "not_requested"
+    visible: bool = False
+
+
 class ProcessingStatusResponse(BaseModel):
     meeting_id: UUID
     media_revision_id: UUID | None = None
@@ -1057,12 +1062,59 @@ class ProcessingStatusResponse(BaseModel):
     transient_purge_due_at: datetime | None = None
     reason_code: str | None = None
     workflow_id: str | None = None
+    attempt_ordinal: int = Field(default=1, ge=1)
     mediascribe_job_id_present: bool = False
     content_available: bool = False
     transcript_available: bool = False
     diarization_available: bool = False
     summary_status: str = "not_requested"
+    retry_class: Literal["none", "retryable", "unknown_outcome", "terminal"] = "none"
+    next_attempt_at: datetime | None = None
+    next_attempt_source: Literal["provider_retry_after", "provider_next_retry_at", "server_fallback", "manual_override"] | None = None
+    schedule_generation: int = Field(default=0, ge=0)
+    server_time: datetime | None = None
+    manual_action: Literal["none", "check_now", "new_attempt", "contact_support"] = "none"
+    attempt_in_flight: bool = False
+    artifacts: dict[str, ProcessingArtifactProjection] = Field(default_factory=dict)
     updated_at: datetime | None = None
+
+
+class ProcessingCheckRequest(BaseModel):
+    """Optional client fence for a same-job manual processing check.
+
+    The value is never echoed or persisted as supplied.  The API derives a
+    bounded command identifier from it before sending anything to Temporal.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    command_id: SafeClientText | None = Field(default=None, max_length=240)
+    schedule_generation: int | None = Field(default=None, ge=0)
+
+
+class ProcessingCheckResponse(ProcessingStatusResponse):
+    """Content-safe projection plus the result of the manual command claim."""
+
+    request_result: Literal[
+        "accepted",
+        "already_in_flight",
+        "stale_schedule",
+        "duplicate_suppressed",
+        "not_safe",
+    ] = "accepted"
+    command_id: Annotated[
+        str,
+        StringConstraints(pattern=r"^processing-check-[0-9a-f]{32}$"),
+    ]
+    same_job_check: bool = False
+    dispatch: Literal["update", "signal"] | None = None
+
+
+class ProcessingAttemptResponse(ProcessingStatusResponse):
+    """Result of an explicitly authorized new business attempt admission."""
+
+    attempt_result: Literal["created", "already_in_flight"]
+    dispatch: Literal["started", "reused"] | None = None
 
 
 class CreateDeletionRequest(BaseModel):
