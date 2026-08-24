@@ -225,13 +225,9 @@ async def redeem_invoice_promo(db: AsyncSession, *, invoice_id: UUID, now: datet
     if campaign is None or campaign.redeemed_count >= campaign.max_redemptions:
         row.state = "released"
         row.released_at = _aware(now)
-        if campaign is not None:
-            campaign.reserved_count = max(0, campaign.reserved_count - 1)
         return "none"
     row.state = "redeemed"
     row.redeemed_at = _aware(now)
-    campaign.reserved_count = max(0, campaign.reserved_count - 1)
-    campaign.redeemed_count += 1
     await db.flush()
     return "redeemed"
 
@@ -243,13 +239,8 @@ async def release_invoice_promo(db: AsyncSession, *, invoice_id: UUID, now: date
     )
     if row is None or row.state != "reserved":
         return False
-    campaign = await db.scalar(
-        select(PromotionCampaign).where(PromotionCampaign.id == row.campaign_id).with_for_update()
-    )
     row.state = "released"
     row.released_at = _aware(now)
-    if campaign is not None:
-        campaign.reserved_count = max(0, campaign.reserved_count - 1)
     await db.flush()
     return True
 
@@ -293,10 +284,9 @@ async def expire_promo_reservations(db: AsyncSession, *, now: datetime) -> int:
         .with_for_update()
     )
     expired = 0
-    for row, _operation, campaign in rows:
+    for row, _operation, _campaign in rows:
         row.state = "expired"
         row.released_at = current
-        campaign.reserved_count = max(0, campaign.reserved_count - 1)
         expired += 1
     await db.flush()
     return expired

@@ -23,6 +23,10 @@ PROVIDER_LINK_MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0024_provider_link_verified_callback.py"
 )
+PROMOTION_COUNTER_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0080_promotion_reservation_counter_trigger.py"
+)
 
 
 def test_rls_migration_revision_file_exists() -> None:
@@ -77,3 +81,14 @@ def test_provider_link_migration_binds_callback_lookup_to_exact_nonce() -> None:
     assert "callback_state_id" in migration_text
     assert "initiating_auth_session_id" in migration_text
     assert "rec_auth_callback_state_nonce()" in migration_text
+
+
+def test_promotion_counter_migration_keeps_counter_updates_inside_trigger() -> None:
+    assert PROMOTION_COUNTER_MIGRATION.exists()
+    migration_text = PROMOTION_COUNTER_MIGRATION.read_text(encoding="utf-8")
+
+    assert 'revision: str = "0080_promo_counter_trigger"' in migration_text
+    assert 'down_revision: str | None = "0079_remove_billing_launch_gates"' in migration_text
+    assert "security definer" in migration_text
+    assert "promotion_redemptions_sync_campaign_counter" in migration_text
+    assert "reserved_count = reserved_count + 1" in migration_text

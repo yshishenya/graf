@@ -34,6 +34,8 @@ out of scope until Feature 140 launch evidence is complete.
 - [X] T013 [US3] Add migration `0079_remove_billing_launch_gates` and update active RLS/test contracts without rewriting historical migration `0072`.
 - [X] T014 [US3] Update active billing copy, runbook, Spec Kit artifacts and changelog so the former registry is not described as a checkout prerequisite.
 - [X] T015 [US3] Run focused billing/RLS/migration checks and record that full CI and provider payment were intentionally not run.
+- [X] T016 [US3] Fix production checkout promo reservation RLS by moving campaign counter transitions to a database trigger in `apps/server/src/twobrain_rec_server/db/migrations/versions/0080_promotion_reservation_counter_trigger.py` and removing duplicate ORM counter writes.
+- [X] T017 [US3] Re-run focused billing/migration checks and verify the test-shop checkout path without repeating an unresolved payment operation.
 
 ## Dependencies
 

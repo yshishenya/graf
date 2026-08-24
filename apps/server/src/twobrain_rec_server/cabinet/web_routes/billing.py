@@ -2403,7 +2403,6 @@ async def start_billing_checkout(
             if redemption is not None and redemption.state not in {"released", "expired"}:
                 await db.rollback()
                 return _checkout_result_redirect(request, "promo_invalid", promo_code=promo_code)
-            promo_campaign.reserved_count += 1
             if redemption is None:
                 redemption = PromotionRedemption(
                     campaign_id=promo_campaign.id,
