@@ -22,6 +22,7 @@ from twobrain_rec_server.cabinet.speakers import speaker_names_for_result
 from twobrain_rec_server.cabinet.view_models import source_role_label
 from twobrain_rec_server.db.models import (
     DiarizationSegment,
+    MediaRevision,
     Meeting,
     MeetingOutcomeItem,
     MeetingOutcomeSet,
@@ -34,7 +35,12 @@ from twobrain_rec_server.domain.speaker_turns import (
     canonical_speaker_model,
     canonical_speech_available,
 )
-from twobrain_rec_server.domain.statuses import ProcessingResultStatus
+from twobrain_rec_server.domain.statuses import (
+    MediaRevisionStatus,
+    ProcessingAvailabilityStatus,
+    ProcessingResultStatus,
+)
+from twobrain_rec_server.processing.results import effective_processing_result_query
 
 ExportScope = Literal["transcript", "summary", "combined"]
 ExportFormat = Literal["txt", "md", "csv", "xlsx", "json", "srt", "vtt"]
@@ -226,12 +232,42 @@ async def build_export_snapshot(
 ) -> ExportSnapshot:
     validate_export_selection(selection)
     selection = _effective_export_selection(selection)
+    transcript_requested = selection.content_scope in {"transcript", "combined"}
+    current_revision = await db.scalar(
+        select(MediaRevision)
+        .where(
+            MediaRevision.workspace_id == meeting.workspace_id,
+            MediaRevision.meeting_id == meeting.id,
+            MediaRevision.status == MediaRevisionStatus.ACCEPTED.value,
+            MediaRevision.immutable.is_(True),
+        )
+        .order_by(MediaRevision.revision_number.desc(), MediaRevision.updated_at.desc())
+    )
+    effective_result = await db.scalar(
+        effective_processing_result_query(
+            workspace_id=meeting.workspace_id,
+            meeting_id=meeting.id,
+            media_revision_id=current_revision.id if current_revision is not None else None,
+        )
+    )
     if (
         result.id != selection.processing_result_id
         or result.workspace_id != meeting.workspace_id
         or result.meeting_id != meeting.id
+        or effective_result is None
+        or effective_result.id != result.id
         or result.status != ProcessingResultStatus.IMPORTED.value
-        or not canonical_speech_available(result)
+        or (
+            transcript_requested
+            and (
+                not canonical_speech_available(result)
+                or
+                result.transcript_status != ProcessingAvailabilityStatus.AVAILABLE.value
+                or result.segment_count <= 0
+                or result.diarization_status != ProcessingAvailabilityStatus.AVAILABLE.value
+                or result.diarization_segment_count <= 0
+            )
+        )
     ):
         raise _stale_selection()
 
@@ -261,8 +297,30 @@ async def build_export_snapshot(
             )
         ).all()
     )
-    if not transcript_rows and not diarization_rows:
+    transcript_rows_match = _same_processing_result_rows(
+        transcript_rows, expected_result_id=result.id
+    )
+    diarization_rows_match = _same_processing_result_rows(
+        diarization_rows, expected_result_id=result.id
+    )
+    transcript_visible = bool(
+        result.transcript_status == ProcessingAvailabilityStatus.AVAILABLE.value
+        and result.segment_count > 0
+        and result.diarization_status == ProcessingAvailabilityStatus.AVAILABLE.value
+        and result.diarization_segment_count > 0
+        and transcript_rows
+        and transcript_rows_match
+        and diarization_rows
+        and diarization_rows_match
+    )
+    if transcript_requested and not transcript_visible:
         raise ProblemDetail(status=409, code="export_unavailable", title="Export unavailable")
+    # Summary is an independent value stream.  It may be exported while the
+    # transcript remains an internal transcript-only/diarization-pending result;
+    # do not manufacture transcript evidence in that case.
+    if not transcript_visible:
+        transcript_rows = []
+        diarization_rows = []
     speaker_names = speaker_names_for_result(
         (
             await db.scalars(
@@ -345,6 +403,15 @@ def _export_turns_from_model(model: CanonicalSpeakerModel) -> tuple[CanonicalExp
         )
         for turn in model.turns
     )
+
+
+def _same_processing_result_rows(
+    rows: list[TranscriptSegment] | list[DiarizationSegment],
+    *,
+    expected_result_id: UUID,
+) -> bool:
+    result_ids = {row.processing_result_id for row in rows}
+    return bool(result_ids) and result_ids == {expected_result_id}
 
 
 def canonical_raw_segments(

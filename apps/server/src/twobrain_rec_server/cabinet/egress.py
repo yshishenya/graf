@@ -10,7 +10,7 @@ from hashlib import sha256
 from uuid import UUID
 
 from anyio import to_thread
-from sqlalchemy import nullslast, or_, select
+from sqlalchemy import or_, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -49,6 +49,7 @@ from twobrain_rec_server.cabinet.view_models import (
     playback_terminal_reason,
 )
 from twobrain_rec_server.db.models import (
+    DiarizationSegment,
     ExportPackage,
     MediaRevision,
     Meeting,
@@ -60,11 +61,11 @@ from twobrain_rec_server.db.models import (
     TrackArtifact,
     TranscriptSegment,
 )
-from twobrain_rec_server.domain.speaker_turns import canonical_speech_available
 from twobrain_rec_server.domain.statuses import (
     DeletionState,
     MediaRevisionStatus,
     OutcomeSetStatus,
+    ProcessingAvailabilityStatus,
     ProcessingResultStatus,
     TrackRole,
 )
@@ -76,6 +77,10 @@ from twobrain_rec_server.normalization.statuses import (
 )
 from twobrain_rec_server.observability.redaction import redact_mapping
 from twobrain_rec_server.processing.fences import lock_meeting_fence, meeting_is_deleted_or_deleting
+from twobrain_rec_server.processing.results import (
+    effective_processing_result_query,
+    result_lineage_is_current,
+)
 
 ALLOWED_AUDIT_KEYS = {
     "artifact_class",
@@ -118,6 +123,59 @@ class PlaybackArtifact:
     body: Iterator[bytes]
     status_code: int = 200
     headers: dict[str, str] = field(default_factory=dict)
+
+
+async def _transcript_visibility_confirmed(
+    db: AsyncSession,
+    *,
+    meeting: Meeting,
+    result: ProcessingResult | None,
+) -> bool:
+    """Re-check the row-level same-attempt fence before any transcript egress."""
+
+    if (
+        result is None
+        or result.status != ProcessingResultStatus.IMPORTED.value
+        or result.transcript_status != ProcessingAvailabilityStatus.AVAILABLE.value
+        or result.segment_count <= 0
+        or result.diarization_status != ProcessingAvailabilityStatus.AVAILABLE.value
+        or result.diarization_segment_count <= 0
+    ):
+        return False
+    current_revision = await db.scalar(
+        select(MediaRevision)
+        .where(
+            MediaRevision.workspace_id == meeting.workspace_id,
+            MediaRevision.meeting_id == meeting.id,
+            MediaRevision.status == MediaRevisionStatus.ACCEPTED.value,
+            MediaRevision.immutable.is_(True),
+        )
+        .order_by(MediaRevision.revision_number.desc(), MediaRevision.updated_at.desc())
+    )
+    if current_revision is None or not result_lineage_is_current(
+        result,
+        media_revision_id=current_revision.id,
+    ):
+        return False
+    transcript_id = await db.scalar(
+        select(TranscriptSegment.id)
+        .where(
+            TranscriptSegment.workspace_id == meeting.workspace_id,
+            TranscriptSegment.meeting_id == meeting.id,
+            TranscriptSegment.processing_result_id == result.id,
+        )
+        .limit(1)
+    )
+    diarization_id = await db.scalar(
+        select(DiarizationSegment.id)
+        .where(
+            DiarizationSegment.workspace_id == meeting.workspace_id,
+            DiarizationSegment.meeting_id == meeting.id,
+            DiarizationSegment.processing_result_id == result.id,
+        )
+        .limit(1)
+    )
+    return transcript_id is not None and diarization_id is not None
 
 
 @dataclass(frozen=True, slots=True)
@@ -189,23 +247,32 @@ async def content_export_capabilities(
         "transcript", transcript_policy, access, required_action="export"
     )
     transcript = unavailable
+    transcript_visible = await _transcript_visibility_confirmed(
+        db, meeting=meeting, result=result
+    )
     if transcript_blocked is not None:
         transcript = ContentExportReadiness(state="denied", reason=transcript_blocked.reason)
-    elif (
-        result is not None
-        and result.status == ProcessingResultStatus.IMPORTED.value
-        and canonical_speech_available(result)
-    ):
+    elif transcript_visible:
         transcript = ContentExportReadiness(state="available")
-    elif result is not None and result.status in {
-        ProcessingResultStatus.IMPORTING.value,
-        ProcessingResultStatus.PARTIAL.value,
-    }:
+    elif result is not None and (
+        result.status in {
+            ProcessingResultStatus.IMPORTING.value,
+            ProcessingResultStatus.PARTIAL.value,
+        }
+        or (
+            result.status == ProcessingResultStatus.IMPORTED.value
+            and result.transcript_status == ProcessingAvailabilityStatus.AVAILABLE.value
+            and result.segment_count > 0
+        )
+    ):
         transcript = ContentExportReadiness(
-            state="partial"
-            if result.status == ProcessingResultStatus.PARTIAL.value
-            else "processing",
-            reason="transcript_not_terminal",
+            state=(
+                "partial"
+                if result.status == ProcessingResultStatus.PARTIAL.value
+                or result.transcript_status == ProcessingAvailabilityStatus.AVAILABLE.value
+                else "processing"
+            ),
+            reason="diarization_not_confirmed",
         )
 
     outcome_set = await current_outcome_set(
@@ -632,6 +699,22 @@ async def _processing_result_is_current(
     result: ProcessingResult,
     allow_latest_revision: bool = False,
 ) -> bool:
+    latest_revision = await db.scalar(
+        select(MediaRevision)
+        .where(
+            MediaRevision.workspace_id == meeting.workspace_id,
+            MediaRevision.meeting_id == meeting.id,
+            MediaRevision.status == MediaRevisionStatus.ACCEPTED.value,
+            MediaRevision.immutable.is_(True),
+        )
+        .order_by(MediaRevision.revision_number.desc(), MediaRevision.updated_at.desc())
+        .execution_options(populate_existing=True)
+    )
+    if latest_revision is None or not result_lineage_is_current(
+        result,
+        media_revision_id=latest_revision.id,
+    ):
+        return False
     if meeting.current_outcome_set_id is not None and not allow_latest_revision:
         published_outcome = await current_outcome_set(
             db,
@@ -640,53 +723,12 @@ async def _processing_result_is_current(
             processing_result_id=None,
         )
         return published_outcome is not None and published_outcome.processing_result_id == result.id
-    latest_revision = await db.scalar(
-        select(MediaRevision)
-        .where(
-            MediaRevision.workspace_id == meeting.workspace_id,
-            MediaRevision.meeting_id == meeting.id,
-            MediaRevision.status == MediaRevisionStatus.ACCEPTED.value,
-        )
-        .order_by(MediaRevision.revision_number.desc(), MediaRevision.updated_at.desc())
-        .execution_options(populate_existing=True)
-    )
-    if latest_revision is None:
-        if result.media_revision_id is not None:
-            return False
-        latest_result = await db.scalar(
-            select(ProcessingResult)
-            .where(
-                ProcessingResult.workspace_id == meeting.workspace_id,
-                ProcessingResult.meeting_id == meeting.id,
-                ProcessingResult.media_revision_id.is_(None),
-                ProcessingResult.status == ProcessingResultStatus.IMPORTED.value,
-            )
-            .order_by(
-                ProcessingResult.result_version.desc(),
-                nullslast(ProcessingResult.imported_at.desc()),
-                ProcessingResult.created_at.desc(),
-                ProcessingResult.id.desc(),
-            )
-            .execution_options(populate_existing=True)
-        )
-        return latest_result is not None and latest_result.id == result.id
-    if result.media_revision_id != latest_revision.id:
-        return False
     latest_result = await db.scalar(
-        select(ProcessingResult)
-        .where(
-            ProcessingResult.workspace_id == meeting.workspace_id,
-            ProcessingResult.meeting_id == meeting.id,
-            ProcessingResult.media_revision_id == latest_revision.id,
-            ProcessingResult.status == ProcessingResultStatus.IMPORTED.value,
-        )
-        .order_by(
-            ProcessingResult.result_version.desc(),
-            nullslast(ProcessingResult.imported_at.desc()),
-            ProcessingResult.created_at.desc(),
-            ProcessingResult.id.desc(),
-        )
-        .execution_options(populate_existing=True)
+        effective_processing_result_query(
+            workspace_id=meeting.workspace_id,
+            meeting_id=meeting.id,
+            media_revision_id=latest_revision.id,
+        ).execution_options(populate_existing=True)
     )
     return latest_result is not None and latest_result.id == result.id
 
@@ -799,6 +841,9 @@ async def artifact_egress_states(
             ),
             access,
             result,
+            transcript_visible=await _transcript_visibility_confirmed(
+                db, meeting=meeting, result=result
+            ),
         ),
         _summary_state(
             _effective_policy_value(policy.summary_download, policy_source=policy.policy_source),
@@ -1953,7 +1998,11 @@ def _audio_state(
 
 
 def _transcript_state(
-    policy_value: str, access: AccessDecision, result: ProcessingResult | None
+    policy_value: str,
+    access: AccessDecision,
+    result: ProcessingResult | None,
+    *,
+    transcript_visible: bool | None = None,
 ) -> ArtifactEgressState:
     blocked = _policy_blocked_state("transcript", policy_value, access)
     if blocked is not None:
@@ -1974,7 +2023,14 @@ def _transcript_state(
             reason="Transcript is still being processed.",
             action="disabled",
         )
-    if canonical_speech_available(result):
+    if transcript_visible is None:
+        transcript_visible = bool(
+            result.transcript_status == ProcessingAvailabilityStatus.AVAILABLE.value
+            and result.segment_count > 0
+            and result.diarization_status == ProcessingAvailabilityStatus.AVAILABLE.value
+            and result.diarization_segment_count > 0
+        )
+    if transcript_visible:
         return ArtifactEgressState(
             artifact_class="transcript",
             state="available",
@@ -1986,7 +2042,7 @@ def _transcript_state(
         artifact_class="transcript",
         state="missing",
         label="Transcript unavailable",
-        reason="Transcript content is not available.",
+        reason="Transcript remains hidden until same-attempt diarization is confirmed.",
         action="disabled",
     )
 
@@ -2000,11 +2056,7 @@ def _summary_state(
     blocked = _policy_blocked_state("summary", policy_value, access)
     if blocked is not None:
         return blocked
-    if (
-        result is not None
-        and outcome_set is not None
-        and canonical_speech_available(result)
-    ):
+    if result is not None and outcome_set is not None:
         return ArtifactEgressState(
             artifact_class="summary",
             state="available",
@@ -2105,7 +2157,7 @@ async def _transcript_text(
     meeting: Meeting,
     result: ProcessingResult | None,
 ) -> str:
-    if result is None:
+    if not await _transcript_visibility_confirmed(db, meeting=meeting, result=result):
         return ""
     segments = (
         await db.scalars(

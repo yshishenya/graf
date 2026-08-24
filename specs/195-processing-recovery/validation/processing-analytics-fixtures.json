@@ -1,0 +1,176 @@
+[
+  {
+    "schema_version": 1,
+    "event_name": "processing_attempt_started",
+    "window": "hour",
+    "window_started_at": "2026-08-23T08:00:00Z",
+    "window_ended_at": "2026-08-23T09:00:00Z",
+    "surface": "server",
+    "count": 12,
+    "dimensions": {
+      "attempt_kind": "initial",
+      "media_size_bucket": "10mb_100mb",
+      "track_mode": "single"
+    }
+  },
+  {
+    "schema_version": 1,
+    "event_name": "processing_first_usable_transcript",
+    "window": "hour",
+    "window_started_at": "2026-08-23T08:00:00Z",
+    "window_ended_at": "2026-08-23T09:00:00Z",
+    "surface": "server",
+    "count": 10,
+    "dimensions": {
+      "latency_bucket": "2m_5m",
+      "attempt_kind": "automatic_retry",
+      "media_size_bucket": "10mb_100mb",
+      "track_mode": "single",
+      "summary_state_at_ready": "running",
+      "playback_state_at_ready": "available"
+    }
+  },
+  {
+    "schema_version": 1,
+    "event_name": "processing_retry_scheduled",
+    "window": "hour",
+    "window_started_at": "2026-08-23T08:00:00Z",
+    "window_ended_at": "2026-08-23T09:00:00Z",
+    "surface": "server",
+    "count": 4,
+    "dimensions": {
+      "retry_reason": "temporary_unavailable",
+      "schedule_source": "server_fallback",
+      "delay_bucket": "2m_15m",
+      "retry_count_bucket": "first"
+    }
+  },
+  {
+    "schema_version": 1,
+    "event_name": "processing_retry_completed",
+    "window": "hour",
+    "window_started_at": "2026-08-23T08:00:00Z",
+    "window_ended_at": "2026-08-23T09:00:00Z",
+    "surface": "server",
+    "count": 4,
+    "dimensions": {
+      "retry_outcome": "first_usable_transcript",
+      "attempt_kind": "automatic_retry",
+      "latency_bucket": "2m_5m",
+      "same_key_reused": true,
+      "new_attempt_created": false
+    }
+  },
+  {
+    "schema_version": 1,
+    "event_name": "processing_reconciliation_completed",
+    "window": "hour",
+    "window_started_at": "2026-08-23T08:00:00Z",
+    "window_ended_at": "2026-08-23T09:00:00Z",
+    "surface": "server",
+    "count": 2,
+    "dimensions": {
+      "reconciliation_outcome": "same_key_job_confirmed",
+      "attempt_kind": "same_key_reconciliation",
+      "latency_bucket": "30s_2m"
+    }
+  },
+  {
+    "schema_version": 1,
+    "event_name": "processing_manual_check_requested",
+    "window": "day",
+    "window_started_at": "2026-08-23T00:00:00Z",
+    "window_ended_at": "2026-08-24T00:00:00Z",
+    "surface": "web_detail",
+    "count": 3,
+    "dimensions": {
+      "request_result": "accepted",
+      "same_job_check": true
+    }
+  },
+  {
+    "schema_version": 1,
+    "event_name": "processing_manual_check_completed",
+    "window": "day",
+    "window_started_at": "2026-08-23T00:00:00Z",
+    "window_ended_at": "2026-08-24T00:00:00Z",
+    "surface": "web_detail",
+    "count": 3,
+    "dimensions": {
+      "claim_result": "claimed_once",
+      "check_outcome": "first_usable_transcript",
+      "latency_bucket": "under_30s",
+      "timer_superseded": true
+    }
+  },
+  {
+    "schema_version": 1,
+    "event_name": "processing_terminal_outcome",
+    "window": "day",
+    "window_started_at": "2026-08-23T00:00:00Z",
+    "window_ended_at": "2026-08-24T00:00:00Z",
+    "surface": "server",
+    "count": 1,
+    "dimensions": {
+      "terminal_category": "unsupported_media",
+      "next_action": "new_attempt",
+      "artifact_preserved": false
+    }
+  },
+  {
+    "schema_version": 1,
+    "event_name": "processing_support_handoff",
+    "window": "day",
+    "window_started_at": "2026-08-23T00:00:00Z",
+    "window_ended_at": "2026-08-24T00:00:00Z",
+    "surface": "embedded_desktop_detail",
+    "count": 1,
+    "dimensions": {
+      "handoff_reason": "unknown_outcome",
+      "handoff_state": "offered",
+      "artifact_preserved": true
+    }
+  },
+  {
+    "schema_version": 1,
+    "event_name": "processing_surface_parity_observed",
+    "window": "day",
+    "window_started_at": "2026-08-23T00:00:00Z",
+    "window_ended_at": "2026-08-24T00:00:00Z",
+    "surface": "web_list",
+    "count": 6,
+    "dimensions": {
+      "fixture_class": "retryable_waiting",
+      "parity_result": "match",
+      "projection_contract_version": "processing-status-v1"
+    }
+  },
+  {
+    "schema_version": 1,
+    "event_name": "processing_surface_parity_observed",
+    "window": "day",
+    "window_started_at": "2026-08-23T00:00:00Z",
+    "window_ended_at": "2026-08-24T00:00:00Z",
+    "surface": "web_detail",
+    "count": 6,
+    "dimensions": {
+      "fixture_class": "retryable_waiting",
+      "parity_result": "match",
+      "projection_contract_version": "processing-status-v1"
+    }
+  },
+  {
+    "schema_version": 1,
+    "event_name": "processing_surface_parity_observed",
+    "window": "day",
+    "window_started_at": "2026-08-23T00:00:00Z",
+    "window_ended_at": "2026-08-24T00:00:00Z",
+    "surface": "embedded_desktop_detail",
+    "count": 6,
+    "dimensions": {
+      "fixture_class": "retryable_waiting",
+      "parity_result": "match",
+      "projection_contract_version": "processing-status-v1"
+    }
+  }
+]

@@ -12,7 +12,7 @@ from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.config import Settings
 
 WORKFLOW_ID_PATTERN = re.compile(
-    r"^processing/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    r"^processing/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:/(?:[2-9]|[1-9][0-9]+))?$"
 )
 PLAYBACK_NORMALIZATION_WORKFLOW_ID_PATTERN = re.compile(
     r"^playback-normalization/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/v1$"
@@ -41,6 +41,51 @@ class ProcessingWorkflowStart:
     workflow_id: str
     run_id: str | None = None
     reused: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class ProcessingManualCheckDispatch:
+    dispatch: str
+
+
+def _temporal_update_fallback_allowed(exc: BaseException) -> bool:
+    """Fallback only for an explicitly unsupported/unknown Update handler."""
+
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        name = current.__class__.__name__.lower()
+        message = str(current).lower()
+        if isinstance(current, NotImplementedError):
+            return True
+        if any(
+            marker in name
+            for marker in ("updateunsupported", "updatenotsupported", "updatenotfound")
+        ):
+            return True
+        if any(
+            marker in message
+            for marker in (
+                "unknown update",
+                "unknown update handler",
+                "update handler not found",
+                "update not found",
+                "unsupported update",
+                "update not supported",
+                "unimplemented update",
+            )
+        ):
+            return True
+        try:
+            from temporalio.client import RPCError, RPCStatusCode
+
+            if isinstance(current, RPCError) and current.status == RPCStatusCode.UNIMPLEMENTED:
+                return True
+        except ImportError:
+            pass
+        current = current.__cause__ or current.__context__
+    return False
 
 
 @dataclass(frozen=True, slots=True)
@@ -248,14 +293,26 @@ def processing_worker_identity(hostname: str | None = None) -> str:
     return f"{PROCESSING_WORKER_IDENTITY_PREFIX}{normalized}"
 
 
-def processing_workflow_id(media_revision_id: UUID) -> str:
-    return f"processing/{media_revision_id}"
+def processing_workflow_id(media_revision_id: UUID, attempt_ordinal: int = 1) -> str:
+    """Return the stable Temporal identity for one business attempt.
+
+    Attempt one keeps the historical ID so existing Temporal histories remain
+    addressable. Later attempts get a new ID and therefore can never reuse the
+    completed/failed execution or its provider idempotency lineage.
+    """
+
+    if isinstance(attempt_ordinal, bool) or not isinstance(attempt_ordinal, int):
+        raise ValueError("processing attempt ordinal must be an integer")
+    if attempt_ordinal < 1:
+        raise ValueError("processing attempt ordinal must be positive")
+    suffix = "" if attempt_ordinal == 1 else f"/{attempt_ordinal}"
+    return f"processing/{media_revision_id}{suffix}"
 
 
 def validate_processing_workflow_id(workflow_id: str) -> None:
     if not WORKFLOW_ID_PATTERN.fullmatch(workflow_id):
         raise ValueError(
-            "processing workflow id must contain only the fixed prefix and media revision UUID"
+            "processing workflow id must contain the fixed prefix, media revision UUID, and optional attempt ordinal"
         )
 
 
@@ -565,6 +622,33 @@ async def cancel_workflow_best_effort(temporal_client: object, workflow_id: str)
     return True
 
 
+async def request_processing_manual_check(
+    *,
+    temporal_client: object,
+    workflow_id: str,
+    command_id: str,
+) -> ProcessingManualCheckDispatch:
+    """Wake the existing processing workflow without starting another one."""
+
+    from twobrain_rec_server.workflows.processing_workflow import MediaScribeProcessingWorkflow
+
+    validate_processing_workflow_id(workflow_id)
+    handle = temporal_client.get_workflow_handle(workflow_id)
+    execute_update = getattr(handle, "execute_update", None)
+    if callable(execute_update):
+        try:
+            await execute_update(
+                MediaScribeProcessingWorkflow.request_manual_check_update,
+                id=command_id,
+            )
+            return ProcessingManualCheckDispatch(dispatch="update")
+        except Exception as exc:
+            if not _temporal_update_fallback_allowed(exc):
+                raise
+    await handle.signal(MediaScribeProcessingWorkflow.request_manual_check)
+    return ProcessingManualCheckDispatch(dispatch="signal")
+
+
 async def start_processing_workflow(
     *,
     temporal_client: object,
@@ -574,8 +658,9 @@ async def start_processing_workflow(
     workspace_id: UUID,
     tenant_scope: TenantScope | None = None,
     archive_audio: bool = True,
+    attempt_ordinal: int = 1,
 ) -> ProcessingWorkflowStart:
-    workflow_id = processing_workflow_id(media_revision_id)
+    workflow_id = processing_workflow_id(media_revision_id, attempt_ordinal)
     validate_processing_workflow_id(workflow_id)
     payload = {
         "meeting_id": str(meeting_id),

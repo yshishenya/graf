@@ -65,9 +65,11 @@ components:
         - submitting
         - submitted
         - polling
+        - waiting_retry
         - importing
         - processed
         - blocked
+        - blocked_unknown
         - failed_retryable
         - failed_terminal
         - canceled
@@ -108,6 +110,25 @@ components:
         summary_status:
           type: string
           enum: [not_requested, available, unavailable, failed]
+        retry_class:
+          type: string
+          enum: [none, retryable, unknown_outcome, terminal]
+        next_attempt_at:
+          type: string
+          format: date-time
+          nullable: true
+        next_attempt_source:
+          type: string
+          enum: [provider_retry_after, provider_next_retry_at, server_fallback, manual_override]
+          nullable: true
+        schedule_generation:
+          type: integer
+          minimum: 0
+        manual_action:
+          type: string
+          enum: [none, check_now, new_attempt, contact_support]
+        attempt_in_flight:
+          type: boolean
         updated_at:
           type: string
           format: date-time
