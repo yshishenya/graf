@@ -2142,6 +2142,17 @@ async def start_billing_checkout(
     settings = request.app.state.settings
     if db is None:
         return RedirectResponse("/billing/checkout?result=unavailable", status_code=303)
+    # Keep the narrow rate-limit transaction ahead of workspace row locks.
+    # Otherwise its FK insert can wait on this transaction's FOR UPDATE lock
+    # and deadlock the checkout request against itself.
+    limited = await _billing_rate_limited_response(
+        request,
+        tenant_scope=tenant_scope,
+        principal=principal,
+        action="billing_checkout_start",
+    )
+    if limited is not None:
+        return limited
     try:
         workspace = await db.scalar(
             select(Workspace).where(Workspace.id == tenant_scope.workspace_id).with_for_update()
@@ -2198,15 +2209,6 @@ async def start_billing_checkout(
             if is_allowed_confirmation_url(confirmation_url):
                 return RedirectResponse(confirmation_url, status_code=303)
             return RedirectResponse("/billing?result=pending", status_code=303)
-        limited = await _billing_rate_limited_response(
-            request,
-            tenant_scope=tenant_scope,
-            principal=principal,
-            action="billing_checkout_start",
-        )
-        if limited is not None:
-            return limited
-
         now = datetime.now(UTC)
         if (
             subscription is not None
