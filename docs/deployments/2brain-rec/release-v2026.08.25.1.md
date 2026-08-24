@@ -63,4 +63,3 @@ Authenticated browser smoke конкретных записей в production н
   inventory, range playback и normalization cleanup.
 - Изменений схемы данных, processing workflow, provider API и миграций для этой
   правки нет.
-

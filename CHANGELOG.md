@@ -8258,5 +8258,3 @@
 - Added production read-only RLS state verification output for covered-table
   counts, enabled/forced counts, failed tables, deployed commit, and Alembic
   revision (`feature:032`, `T015-T020`, `T028-T037`).
-
-
