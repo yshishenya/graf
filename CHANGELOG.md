@@ -9,28 +9,32 @@
 ## [Unreleased]
 
 ### Добавлено
-- _Пока нет записей._
+- Опубликованы подписанные macOS ZIP/PKG и Sparkle appcast для `v2026.08.24.6`.
 
 ### Изменено
-- _Пока нет записей._
+- Production runtime авторизации пересоздан с актуальным email/Postal bootstrap.
 
 ### Исправлено
 - Общая навигация кабинета во всех девяти разделах пропускает дубликаты
   текущего экрана и возвращает «Назад» и «Вперёд» на ближайший безопасный
   раздел; сохранены route, session и accessibility ограничения (PR #5795,
   issues #5641–#5648).
+- Встроенное обновление macOS проверено с `2026.08.24.5` до `2026.08.24.6`.
 
 ### Безопасность
 - _Пока нет записей._
 
 ### Документы
 - Для Feature 198 прошли `swift build`, 45 `DesktopCabinetWorkspaceTests`,
-  22 `AppControlAccessibilityTests` и fast lane (`1220 passed`).
+  22 `AppControlAccessibilityTests`, полный macOS/server CI и evidence scan.
+- Добавлен metadata-only receipt выкладки `v2026.08.24.6`.
 
 ### Операции
 - Совместимость и миграция не требуются: используются существующая WebKit
-  history-модель и текущая граница TCC. Известное ограничение: exact-SHA smoke
-  установленного `GRAF Dev` ожидает доступа к login Keychain.
+  history-модель и текущая граница TCC. Exact-SHA smoke установленного `GRAF Dev`
+  прошёл по девяти маршрутам; разрешение микрофона сохранено.
+- Production health, Sparkle feed и OAuth redirects проверены для `v2026.08.24.6`;
+  Full CI того релиза был намеренно пропущен.
 
 ## [2026.08.24.6] - 2026-08-24
 
@@ -8163,4 +8167,3 @@
 - Added production read-only RLS state verification output for covered-table
   counts, enabled/forced counts, failed tables, deployed commit, and Alembic
   revision (`feature:032`, `T015-T020`, `T028-T037`).
-
