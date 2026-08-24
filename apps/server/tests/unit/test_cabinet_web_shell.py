@@ -1700,7 +1700,7 @@ def test_list_shell_renders_server_upload_progress_in_recording_row() -> None:
     assert "◁" not in page
 
 
-def test_list_shell_polls_processing_recordings_until_review_ready() -> None:
+def test_list_shell_projects_processing_without_replacing_the_full_list() -> None:
     page = render_meeting_list_page(
         MeetingListResponse(
             items=[_item()],
@@ -1711,11 +1711,12 @@ def test_list_shell_polls_processing_recordings_until_review_ready() -> None:
     )
 
     assert "Проектный синк" in page
-    assert 'hx-trigger="every 1s"' in page
-    assert 'hx-get="/meetings"' in page
+    assert "Спикеры определяются · расшифровка готовится" in page
+    assert "data-upload-progress-poll" not in page
+    assert 'hx-trigger="every 1s"' not in page
 
 
-def test_list_shell_polls_submitted_recordings_until_processing_starts() -> None:
+def test_list_shell_projects_submitted_recordings_without_full_list_poll() -> None:
     item = _item()
     item.status = "submitted"
     item.status_label = "Submitted"
@@ -1729,7 +1730,9 @@ def test_list_shell_polls_submitted_recordings_until_processing_starts() -> None
     )
 
     assert "Обрабатывается" in page
-    assert 'hx-trigger="every 1s"' in page
+    assert "Спикеры определяются · расшифровка готовится" in page
+    assert "data-upload-progress-poll" not in page
+    assert 'hx-trigger="every 1s"' not in page
 
 
 def test_list_shell_stops_polling_terminal_private_failure_states() -> None:
@@ -1764,6 +1767,7 @@ def test_list_shell_stops_polling_terminal_private_failure_states() -> None:
         )
 
         assert "Не удалось обработать" in page
+        assert "Спикеры определяются · расшифровка готовится" not in page
         assert "data-upload-progress-poll" not in page
         assert 'hx-trigger="every 1s"' not in page
 

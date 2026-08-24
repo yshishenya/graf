@@ -924,7 +924,7 @@ def _meeting_list_should_poll(response: MeetingListResponse, *, poll_empty: bool
             continue
         if (
             (item.upload is not None and item.upload.is_active)
-            or presentation_status in {"uploading", "submitted", "processing"}
+            or presentation_status == "uploading"
             or item.playback.state == "preparing"
         ):
             return True

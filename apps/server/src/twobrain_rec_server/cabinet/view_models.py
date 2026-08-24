@@ -1799,7 +1799,10 @@ def meeting_list_row_presentation(
 
 
 def _meeting_list_content_readiness(item: MeetingListItem) -> str | None:
-    if item.primary_action != "open" and item.status not in {"ready", "partial"}:
+    presentation_status = meeting_list_presentation_status(item)
+    if presentation_status in {"submitted", "processing"}:
+        return "Спикеры определяются · расшифровка готовится"
+    if item.primary_action != "open" and presentation_status not in {"ready", "partial"}:
         return None
     transcript_ready = item.transcript_available
     outcomes_ready = item.notes_action_truth.source_basis == "stored_output"
