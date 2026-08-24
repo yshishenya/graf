@@ -382,7 +382,7 @@ private struct ContentView: View {
                 event: "app_opened",
                 detail: "\(currentApplicationIdentityDetail) capture=app_owned_system_audio microphone=app_owned"
             )
-            refreshPermissionOnboarding(reason: "app_appeared", presentIfNeeded: true)
+            refreshPermissionOnboarding(reason: "app_appeared", presentIfNeeded: false)
             Task { await refreshPermissionOnboardingWithFunctionalProbe(reason: "app_appeared") }
             refreshUploadQueueAndProcess(reason: "app_appeared")
             startUploadQueueNetworkMonitorIfNeeded()
@@ -564,7 +564,10 @@ private struct ContentView: View {
     }
 
     @MainActor
-    private func refreshPermissionOnboardingWithFunctionalProbe(reason: String) async {
+    private func refreshPermissionOnboardingWithFunctionalProbe(
+        reason: String,
+        presentIfNeeded: Bool = true
+    ) async {
         guard !permissionFunctionalProbeInProgress else { return }
 
         permissionFunctionalProbeInProgress = true
@@ -575,6 +578,8 @@ private struct ContentView: View {
         guard verifiedState == .granted else {
             if verifiedState == .stale || permissionRestartRequired {
                 permissionRestartRequired = true
+            }
+            if presentIfNeeded {
                 permissionOnboardingPresented = true
             }
             return
@@ -584,6 +589,8 @@ private struct ContentView: View {
         permissionOnboardingStatus.systemAudio = .granted
         if permissionOnboardingStatus.isReady && !permissionRestartRequired {
             permissionOnboardingPresented = false
+        } else if presentIfNeeded {
+            permissionOnboardingPresented = true
         }
         AppLog.writeRaw(
             event: "desktop.permission_onboarding_checked",

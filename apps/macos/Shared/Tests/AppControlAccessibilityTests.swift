@@ -384,7 +384,7 @@ final class AppControlAccessibilityTests: XCTestCase {
         )
 
         XCTAssertTrue(source.contains(".sheet(isPresented: $permissionOnboardingPresented)"))
-        XCTAssertTrue(source.contains("refreshPermissionOnboarding(reason: \"app_appeared\", presentIfNeeded: true)"))
+        XCTAssertTrue(source.contains("refreshPermissionOnboarding(reason: \"app_appeared\", presentIfNeeded: false)"))
         XCTAssertTrue(source.contains("refreshPermissionOnboarding(reason: \"app_became_active\", presentIfNeeded: false)"))
         XCTAssertTrue(source.contains("microphoneCaptureService.preflight("))
         XCTAssertTrue(source.contains("sessionId: \"startup-permission-onboarding\""))
@@ -394,6 +394,8 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertTrue(source.contains("systemAudioPermissionAuthorizer.requestPermission()"))
         XCTAssertTrue(source.contains("systemAudioPermissionAuthorizer.verifyCurrentPermission()"))
         XCTAssertTrue(source.contains("refreshPermissionOnboardingWithFunctionalProbe"))
+        XCTAssertTrue(source.contains("presentIfNeeded: Bool = true"))
+        XCTAssertTrue(source.contains("if presentIfNeeded {"))
         XCTAssertTrue(source.contains("permissionFunctionalProbeInProgress"))
         XCTAssertTrue(source.contains("lastObservedSystemAudioPermission"))
         XCTAssertTrue(source.contains("systemAudioPermissionTransitionRequiresRestart"))
