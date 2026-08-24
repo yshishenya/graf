@@ -747,6 +747,7 @@ def calendar_settings_notice_codes(
     result_map = {
         "success": "connect_success",
         "cancelled": "connect_cancelled",
+        "invalid_credentials": "connect_invalid_credentials",
         "denied": "connect_denied",
         "failed": "connect_failed",
         "no_readable_calendars": "no_readable_calendars",
@@ -804,7 +805,7 @@ def calendar_connection_result_from_problem(code: str | None) -> str:
         "unsupported_calendar_provider": "failed",
         "credential_encryption_key_unavailable": "failed",
         "calendar_credential_key_unavailable": "failed",
-        "invalid_credentials": "denied",
+        "invalid_credentials": "invalid_credentials",
         "tenant_policy_denied": "denied",
         "provider_timeout": "failed",
         "provider_unavailable": "failed",

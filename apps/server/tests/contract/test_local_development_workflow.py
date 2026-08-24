@@ -19,6 +19,7 @@ def test_local_files_and_dev_auth_contract() -> None:
     assert "127.0.0.1:54330:5432" in compose
     assert "127.0.0.1:9010:9000" in compose
     assert "TWOBRAIN_ENV=development" in start
+    assert "TWOBRAIN_CALENDAR_ALLOW_UNCERTIFIED_YANDEX" in start
     assert "TWOBRAIN_LOCAL_HTTP_AUTH_COOKIE_ENABLED=true" in start
     assert "TWOBRAIN_LOCAL_EMAIL_LOGIN_CODE=000000" in start
     assert "GRAF_CREDENTIAL_ENCRYPTION_KEY_FILE" in start

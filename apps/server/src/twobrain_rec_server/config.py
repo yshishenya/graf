@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     api_port: int = 8080
     log_level: str = "INFO"
     web_runtime_enabled: bool = True
+    calendar_allow_uncertified_yandex: bool = False
 
     database_url: str = (
         "postgresql+asyncpg://twobrain_rec:twobrain_rec@localhost:54329/twobrain_rec"

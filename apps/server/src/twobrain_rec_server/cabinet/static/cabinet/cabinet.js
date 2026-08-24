@@ -4122,7 +4122,7 @@
     const mutationCopy = {
       connect: "Проверяем доступ…",
       selection: "Сохраняем выбор…",
-      sync: "Ставим синхронизацию в очередь…",
+      sync: "Синхронизируем календарь…",
       disconnect: "Отключаем календарь…",
     };
     const initCalendarMutation = (form) => {

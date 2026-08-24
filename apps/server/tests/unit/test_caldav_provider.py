@@ -20,6 +20,17 @@ CATALOG_XML = b"""
   </d:response>
 </d:multistatus>
 """
+PRINCIPAL_XML = b"""
+<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
+  <d:response>
+    <d:href>/principals/users/synthetic-owner@example.test/</d:href>
+    <d:propstat><d:prop>
+      <d:resourcetype><d:collection/></d:resourcetype>
+      <c:calendar-home-set><d:href>/calendars/users/synthetic-owner@example.test/</d:href></c:calendar-home-set>
+    </d:prop></d:propstat>
+  </d:response>
+</d:multistatus>
+"""
 EVENTS_XML = b"""
 <d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
   <d:response>
@@ -83,6 +94,7 @@ async def test_caldav_catalog_and_events_are_read_only_and_normalized() -> None:
     assert http.requests[0]["method"] == "PROPFIND"
     assert http.requests[1]["method"] == "REPORT"
     assert "synthetic-app-password" not in str(http.requests[0]["body"])
+    assert "<d:displayname/><d:resourcetype>" in str(http.requests[0]["body"])
     assert "calendar-data" in str(http.requests[1]["body"])
 
 
@@ -206,7 +218,7 @@ def test_caldav_http_client_rejects_cross_origin_redirect_without_reusing_creden
 
 
 @pytest.mark.asyncio
-async def test_preset_caldav_connection_uses_its_documented_endpoint() -> None:
+async def test_yandex_preset_connection_uses_its_documented_principal_endpoint() -> None:
     http = FakeCalDAVHttp([(207, CATALOG_XML, {})])
     adapter = CalDAVAdapter("caldav_yandex", http=http)
 
@@ -219,4 +231,28 @@ async def test_preset_caldav_connection_uses_its_documented_endpoint() -> None:
         )
     )
 
-    assert http.requests[0]["url"] == "https://caldav.yandex.ru/"
+    assert (
+        http.requests[0]["url"]
+        == "https://caldav.yandex.ru/principals/users/synthetic-owner@example.test/"
+    )
+
+
+@pytest.mark.asyncio
+async def test_caldav_discovery_follows_calendar_home_set() -> None:
+    http = FakeCalDAVHttp([(207, PRINCIPAL_XML, {}), (207, CATALOG_XML, {})])
+    adapter = CalDAVAdapter("caldav_yandex", http=http)
+
+    validation = await adapter.validate(
+        json.dumps(
+            {
+                "username": "synthetic-owner@example.test",
+                "credential_input": "synthetic-app-password",
+            }
+        )
+    )
+
+    assert validation.calendars[0].display_label == "Synthetic Calendar"
+    assert [request["url"] for request in http.requests] == [
+        "https://caldav.yandex.ru/principals/users/synthetic-owner@example.test/",
+        "https://caldav.yandex.ru/calendars/users/synthetic-owner@example.test/",
+    ]

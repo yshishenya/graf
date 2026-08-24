@@ -154,6 +154,7 @@ def provider_preset_payloads(
     *,
     google_available: bool | None = None,
     allow_uncertified_google: bool = False,
+    allow_uncertified_yandex: bool = False,
 ) -> list[dict[str, object]]:
     payloads = []
     for preset in PROVIDER_PRESETS:
@@ -162,7 +163,10 @@ def provider_preset_payloads(
         development_google = (
             preset.provider_family == "google_calendar" and allow_uncertified_google
         )
-        connectable = configured and (certified or development_google)
+        development_yandex = (
+            preset.provider_family == "caldav_yandex" and allow_uncertified_yandex
+        )
+        connectable = configured and (certified or development_google or development_yandex)
         payload = {
             "provider_family": preset.provider_family,
             "label": preset.label,
