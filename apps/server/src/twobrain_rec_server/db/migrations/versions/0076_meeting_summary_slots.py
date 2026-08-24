@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import struct
 from collections.abc import Sequence
 from datetime import UTC, datetime
@@ -20,6 +21,7 @@ depends_on: str | Sequence[str] | None = None
 CONTENT_CONTEXT = "rec_context_kind() in ('request', 'worker')"
 SLOT_TABLE = "meeting_summary_slots"
 SLOT_POLICY = "meeting_summary_slots_tenant_isolation"
+logger = logging.getLogger(__name__)
 
 
 def _is_postgresql() -> bool:
@@ -90,30 +92,77 @@ def _drop_policy() -> None:
     op.execute(f"alter table {table} disable row level security")
 
 
-def _backfill_explicit_pointers() -> None:
+def _metadata_receipt(**counts: int) -> dict[str, int | str]:
+    receipt: dict[str, int | str] = {
+        "schema_version": "graf.summary_slot_migration_receipt.v1",
+        "migration_revision": revision,
+        "mode": "metadata_only",
+        "status": "pass",
+        **counts,
+    }
+    logger.info("summary_slot_migration_receipt=%s", json.dumps(receipt, sort_keys=True))
+    return receipt
+
+
+def _backfill_explicit_pointers() -> dict[str, int | str]:
     """Backfill only the locked, explicit meeting pointer; never choose newest."""
 
     bind = op.get_bind()
-    rows = bind.execute(
+    pointed_keyless = int(
+        bind.execute(
+            sa.text(
+                """
+                select count(*)
+                  from meetings m
+                  join meeting_outcome_sets o
+                    on o.id = m.current_outcome_set_id
+                   and o.workspace_id = m.workspace_id
+                   and o.meeting_id = m.id
+                 where m.current_outcome_set_id is not null
+                   and m.deletion_state not in ('deleting', 'deleted')
+                   and (o.template_key is null or o.template_key = '')
+                """
+            )
+        ).scalar_one()
+    )
+    # Normalize only the type metadata of a uniquely pointed legacy row before
+    # creating the composite slot FK. Content and revision identity are untouched.
+    bind.execute(
         sa.text(
             """
-            select
-                m.workspace_id,
-                m.id as meeting_id,
-                o.id as outcome_set_id,
-                coalesce(nullif(o.template_key, ''), 'legacy-default') as template_key,
-                coalesce(o.source_fingerprint, o.source_result_hash) as source_basis_hash
-            from meetings m
-            join meeting_outcome_sets o
-              on o.id = m.current_outcome_set_id
-             and o.workspace_id = m.workspace_id
-             and o.meeting_id = m.id
-            where m.current_outcome_set_id is not null
+            update meeting_outcome_sets o
+               set template_key = 'legacy-default'
+             from meetings m
+            where m.current_outcome_set_id = o.id
+              and m.workspace_id = o.workspace_id
+              and m.id = o.meeting_id
+              and (o.template_key is null or o.template_key = '')
               and m.deletion_state not in ('deleting', 'deleted')
-            for update of m, o
             """
         )
-    ).mappings()
+    )
+    rows = list(
+        bind.execute(
+            sa.text(
+                """
+                select
+                    m.workspace_id,
+                    m.id as meeting_id,
+                    o.id as outcome_set_id,
+                    coalesce(nullif(o.template_key, ''), 'legacy-default') as template_key,
+                    coalesce(o.source_fingerprint, o.source_result_hash) as source_basis_hash
+                from meetings m
+                join meeting_outcome_sets o
+                  on o.id = m.current_outcome_set_id
+                 and o.workspace_id = m.workspace_id
+                 and o.meeting_id = m.id
+                where m.current_outcome_set_id is not null
+                  and m.deletion_state not in ('deleting', 'deleted')
+                for update of m, o
+                """
+            )
+        ).mappings()
+    )
     resolved_at = datetime(2026, 1, 1, tzinfo=UTC)
     for row in rows:
         template_key = str(row["template_key"])
@@ -152,6 +201,168 @@ def _backfill_explicit_pointers() -> None:
                 "resolved_at": resolved_at,
             },
         )
+    active_pointer_count = int(
+        bind.execute(
+            sa.text(
+                """
+                select count(*)
+                  from meetings
+                 where current_outcome_set_id is not null
+                   and deletion_state not in ('deleting', 'deleted')
+                """
+            )
+        ).scalar_one()
+    )
+    deleted_pointer_count = int(
+        bind.execute(
+            sa.text(
+                """
+                select count(*)
+                  from meetings
+                 where current_outcome_set_id is not null
+                   and deletion_state in ('deleting', 'deleted')
+                """
+            )
+        ).scalar_one()
+    )
+    missing_target_count = int(
+        bind.execute(
+            sa.text(
+                """
+                select count(*)
+                  from meetings m
+                  left join meeting_outcome_sets o on o.id = m.current_outcome_set_id
+                 where m.current_outcome_set_id is not null
+                   and m.deletion_state not in ('deleting', 'deleted')
+                   and o.id is null
+                """
+            )
+        ).scalar_one()
+    )
+    cross_scope_target_count = int(
+        bind.execute(
+            sa.text(
+                """
+                select count(*)
+                  from meetings m
+                  join meeting_outcome_sets o on o.id = m.current_outcome_set_id
+                 where m.current_outcome_set_id is not null
+                   and m.deletion_state not in ('deleting', 'deleted')
+                   and (o.workspace_id <> m.workspace_id or o.meeting_id <> m.id)
+                """
+            )
+        ).scalar_one()
+    )
+    ambiguous_unpointed_count = int(
+        bind.execute(
+            sa.text(
+                """
+                select count(*)
+                  from (
+                    select m.id
+                      from meetings m
+                      join meeting_outcome_sets o
+                        on o.workspace_id = m.workspace_id
+                       and o.meeting_id = m.id
+                     where m.current_outcome_set_id is null
+                       and m.deletion_state not in ('deleting', 'deleted')
+                     group by m.id
+                    having count(o.id) > 1
+                  ) ambiguous
+                """
+            )
+        ).scalar_one()
+    )
+    return _metadata_receipt(
+        active_pointer_count=active_pointer_count,
+        ambiguous_unpointed_count=ambiguous_unpointed_count,
+        cross_scope_target_count=cross_scope_target_count,
+        deleted_pointer_count=deleted_pointer_count,
+        materialized_count=len(rows),
+        missing_target_count=missing_target_count,
+        pointed_keyless_count=pointed_keyless,
+    )
+
+
+def _verify_post_backfill(receipt: dict[str, int | str] | None = None) -> None:
+    """Fail closed if any materialized legacy slot is not exactly representable."""
+
+    bind = op.get_bind()
+    rows = bind.execute(
+        sa.text(
+            """
+            select s.id,
+                   s.workspace_id,
+                   s.meeting_id,
+                   s.template_key,
+                   s.current_outcome_set_id,
+                   s.legacy_migration_proof_hash,
+                   o.source_fingerprint,
+                   o.source_result_hash
+              from meeting_summary_slots s
+              join meetings m
+                on m.id = s.meeting_id
+               and m.workspace_id = s.workspace_id
+             left join meeting_outcome_sets o
+                on o.id = s.current_outcome_set_id
+               and o.workspace_id = s.workspace_id
+               and o.meeting_id = s.meeting_id
+               and o.template_key = s.template_key
+             where s.current_binding_class = 'migrated_legacy_read_only'
+               and (
+                    not s.is_meeting_default
+                    or s.legacy_migration_proof_hash is null
+                    or m.current_outcome_set_id is distinct from s.current_outcome_set_id
+                    or o.id is null
+               )
+            """
+        )
+    ).mappings()
+    invalid = next(iter(rows), None)
+    if invalid is not None:
+        raise RuntimeError("0076 post-backfill verifier failed: legacy slot is not representable")
+    proof_rows = list(
+        bind.execute(
+            sa.text(
+                """
+                select s.workspace_id,
+                       s.meeting_id,
+                       s.template_key,
+                       s.current_outcome_set_id,
+                       s.legacy_migration_proof_hash,
+                       o.source_fingerprint,
+                       o.source_result_hash
+                  from meeting_summary_slots s
+                  join meeting_outcome_sets o
+                    on o.id = s.current_outcome_set_id
+                   and o.workspace_id = s.workspace_id
+                   and o.meeting_id = s.meeting_id
+                   and o.template_key = s.template_key
+                 where s.current_binding_class = 'migrated_legacy_read_only'
+                """
+            )
+        ).mappings()
+    )
+    for row in proof_rows:
+        expected = _legacy_proof(
+            workspace_id=row["workspace_id"],
+            meeting_id=row["meeting_id"],
+            template_key=row["template_key"],
+            outcome_set_id=row["current_outcome_set_id"],
+            source_basis_hash=row["source_fingerprint"] or row["source_result_hash"],
+        )
+        if row["legacy_migration_proof_hash"] != expected:
+            raise RuntimeError("0076 post-backfill verifier failed: legacy proof mismatch")
+    if receipt is not None and receipt.get("status") != "pass":
+        raise RuntimeError("0076 post-backfill verifier failed: migration receipt is not passing")
+    _metadata_receipt(
+        **{
+            key: int(value)
+            for key, value in (receipt or {}).items()
+            if key.endswith("_count") and isinstance(value, int)
+        },
+        verified_legacy_count=len(proof_rows),
+    )
 
 
 def _stable_slot_id(workspace_id: object, meeting_id: object, template_key: str) -> str:
@@ -246,7 +457,8 @@ def upgrade() -> None:
             postgresql_where=sa.text("is_meeting_default is true"),
         )
     _create_policy()
-    _backfill_explicit_pointers()
+    receipt = _backfill_explicit_pointers()
+    _verify_post_backfill(receipt)
 
 
 def downgrade() -> None:

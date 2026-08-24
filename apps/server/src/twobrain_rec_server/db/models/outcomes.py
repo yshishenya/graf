@@ -58,10 +58,7 @@ class MeetingOutcomeSet(Base):
             "uq_meeting_outcome_sets_candidate_generator_config",
             "workspace_id",
             "meeting_id",
-            text(
-                "coalesce(media_revision_id, "
-                "'00000000-0000-0000-0000-000000000000'::uuid)"
-            ),
+            text("coalesce(media_revision_id, " "'00000000-0000-0000-0000-000000000000'::uuid)"),
             "processing_result_id",
             "generator_version",
             text("coalesce(generator_config_hash, '')"),
@@ -100,7 +97,9 @@ class MeetingOutcomeSet(Base):
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
     meeting_id: Mapped[UUID] = mapped_column(ForeignKey("meetings.id"), nullable=False)
     media_revision_id: Mapped[UUID | None] = mapped_column(ForeignKey("media_revisions.id"))
-    processing_result_id: Mapped[UUID] = mapped_column(ForeignKey("processing_results.id"), nullable=False)
+    processing_result_id: Mapped[UUID] = mapped_column(
+        ForeignKey("processing_results.id"), nullable=False
+    )
     candidate_id: Mapped[UUID | None] = mapped_column()
     status: Mapped[str] = mapped_column(String(64), default="queued")
     summary_state: Mapped[str] = mapped_column(String(64), default="processing")
@@ -208,16 +207,25 @@ class MeetingSummarySlot(Base):
             "AND default_resolution_version IS NOT NULL AND default_resolved_at IS NOT NULL)",
             name="ck_meeting_summary_slots_default_metadata",
         ),
+        CheckConstraint(
+            "state_version BETWEEN 1 AND 9223372036854775807",
+            name="ck_meeting_summary_slots_state_version",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     workspace_id: Mapped[UUID] = mapped_column(nullable=False)
     meeting_id: Mapped[UUID] = mapped_column(nullable=False)
     template_key: Mapped[str] = mapped_column(String(120), nullable=False)
+    state_version: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=1, server_default=text("1")
+    )
     current_outcome_set_id: Mapped[UUID | None] = mapped_column()
     current_binding_class: Mapped[str | None] = mapped_column(String(40))
     legacy_migration_proof_hash: Mapped[str | None] = mapped_column(String(64))
-    is_meeting_default: Mapped[bool] = mapped_column(nullable=False, default=False, server_default=text("false"))
+    is_meeting_default: Mapped[bool] = mapped_column(
+        nullable=False, default=False, server_default=text("false")
+    )
     default_resolution_source: Mapped[str | None] = mapped_column(String(32))
     default_resolution_version: Mapped[str | None] = mapped_column(String(128))
     default_resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -238,13 +246,20 @@ class MeetingOutcomeItem(Base):
             "sequence",
             name="uq_meeting_outcome_items_set_category_sequence",
         ),
-        Index("ix_meeting_outcome_items_set_category_sequence", "outcome_set_id", "category", "sequence"),
+        Index(
+            "ix_meeting_outcome_items_set_category_sequence",
+            "outcome_set_id",
+            "category",
+            "sequence",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
     meeting_id: Mapped[UUID] = mapped_column(ForeignKey("meetings.id"), nullable=False)
-    outcome_set_id: Mapped[UUID] = mapped_column(ForeignKey("meeting_outcome_sets.id"), nullable=False)
+    outcome_set_id: Mapped[UUID] = mapped_column(
+        ForeignKey("meeting_outcome_sets.id"), nullable=False
+    )
     category: Mapped[str] = mapped_column(String(64), nullable=False)
     sequence: Mapped[int] = mapped_column(Integer, nullable=False)
     state: Mapped[str] = mapped_column(String(64), default="available")
@@ -272,13 +287,19 @@ class MeetingOutcomeGenerationAttempt(Base):
             "idempotency_key",
             name="uq_generation_attempt_workspace_idempotency_key",
         ),
+        CheckConstraint(
+            "state_version BETWEEN 1 AND 9223372036854775807",
+            name="ck_meeting_outcome_generation_attempts_state_version",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
     meeting_id: Mapped[UUID] = mapped_column(ForeignKey("meetings.id"), nullable=False)
     media_revision_id: Mapped[UUID | None] = mapped_column(ForeignKey("media_revisions.id"))
-    processing_result_id: Mapped[UUID] = mapped_column(ForeignKey("processing_results.id"), nullable=False)
+    processing_result_id: Mapped[UUID] = mapped_column(
+        ForeignKey("processing_results.id"), nullable=False
+    )
     outcome_set_id: Mapped[UUID | None] = mapped_column(ForeignKey("meeting_outcome_sets.id"))
     status: Mapped[str] = mapped_column(String(64), default="queued")
     provider_kind: Mapped[str] = mapped_column(String(64), default="deterministic_extractive")
@@ -299,9 +320,7 @@ class MeetingOutcomeGenerationAttempt(Base):
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     display_format_name: Mapped[str | None] = mapped_column(String(120))
     source_result_id: Mapped[UUID | None] = mapped_column(ForeignKey("processing_results.id"))
-    requested_by_user_id: Mapped[UUID | None] = mapped_column(
-        ForeignKey("user_identities.id")
-    )
+    requested_by_user_id: Mapped[UUID | None] = mapped_column(ForeignKey("user_identities.id"))
     template_id: Mapped[UUID | None] = mapped_column(ForeignKey("summary_templates.id"))
     template_key: Mapped[str | None] = mapped_column(String(120))
     template_version: Mapped[int | None] = mapped_column(Integer)
@@ -322,6 +341,9 @@ class MeetingOutcomeGenerationAttempt(Base):
     temporal_transcript_hash: Mapped[str | None] = mapped_column(String(64))
     temporal_transcript_chunk_count: Mapped[int | None] = mapped_column(Integer)
     attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    state_version: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=1, server_default=text("1")
+    )
     failure_code: Mapped[str | None] = mapped_column(String(120))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -385,9 +407,7 @@ class GenerationCall(Base):
 
 class PromptOptimizationRun(Base):
     __tablename__ = "prompt_optimization_runs"
-    __table_args__ = (
-        Index("ix_prompt_optimization_runs_prompt_status", "prompt_name", "status"),
-    )
+    __table_args__ = (Index("ix_prompt_optimization_runs_prompt_status", "prompt_name", "status"),)
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     deployment_scope: Mapped[str] = mapped_column(String(32), nullable=False, default="global")
@@ -434,9 +454,7 @@ class PromptOptimizationRun(Base):
 
 class PromptOptimizationCallLedger(Base):
     __tablename__ = "prompt_optimization_call_ledger"
-    __table_args__ = (
-        Index("ix_prompt_optimization_call_ledger_run_status", "run_id", "status"),
-    )
+    __table_args__ = (Index("ix_prompt_optimization_call_ledger_run_status", "run_id", "status"),)
 
     run_id: Mapped[UUID] = mapped_column(
         ForeignKey("prompt_optimization_runs.id", ondelete="CASCADE"), primary_key=True

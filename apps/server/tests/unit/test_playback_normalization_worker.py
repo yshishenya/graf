@@ -15,7 +15,6 @@ from twobrain_rec_server.normalization.worker import (
     require_schema_head,
     require_storage_ready,
     run_normalization_reconciliation_loop,
-    validate_media_tools,
     validate_startup_work_directory,
 )
 from twobrain_rec_server.normalization.worker_readiness import (
@@ -106,20 +105,6 @@ def test_startup_work_directory_requires_private_owned_non_symlink_with_capacity
     symlink.symlink_to(work, target_is_directory=True)
     with pytest.raises(RuntimeError, match="must not be a symlink"):
         validate_startup_work_directory(symlink, minimum_free_bytes=1)
-
-
-def test_worker_startup_requires_executable_media_tools(tmp_path: Path) -> None:
-    ffmpeg = tmp_path / "ffmpeg"
-    ffprobe = tmp_path / "ffprobe"
-    ffmpeg.write_text("#!/bin/sh\n", encoding="utf-8")
-    ffprobe.write_text("#!/bin/sh\n", encoding="utf-8")
-
-    with pytest.raises(RuntimeError, match="FFmpeg executable is unavailable"):
-        validate_media_tools(ffmpeg_path=ffmpeg, ffprobe_path=ffprobe)
-
-    ffmpeg.chmod(0o700)
-    ffprobe.chmod(0o700)
-    validate_media_tools(ffmpeg_path=ffmpeg, ffprobe_path=ffprobe)
 
 
 @pytest.mark.anyio
@@ -224,7 +209,6 @@ async def test_initial_reconciliation_failure_disposes_engine_and_storage(
     monkeypatch.setattr(
         worker_module, "validate_startup_work_directory", lambda *_args, **_kwargs: tmp_path
     )
-    monkeypatch.setattr(worker_module, "validate_media_tools", lambda **_kwargs: None)
     monkeypatch.setattr(worker_module, "cleanup_startup_work_directory", lambda _path: 0)
     monkeypatch.setattr(worker_module, "get_storage", lambda _settings: storage)
     monkeypatch.setattr(worker_module, "create_engine", lambda _settings: engine)

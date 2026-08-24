@@ -58,6 +58,34 @@ def test_only_explicit_pointer_can_create_legacy_read_only_slot() -> None:
     assert models.MeetingSummarySlot.__tablename__ == "meeting_summary_slots"
 
 
+def test_slot_migration_is_fail_closed_for_ambiguity_and_downgrade() -> None:
+    migration_text = MIGRATION.read_text(encoding="utf-8")
+    backfill_text = migration_text.split("def _backfill_explicit_pointers", 1)[1].split(
+        "def _stable_slot_id", 1
+    )[0]
+    downgrade_text = migration_text.split("def downgrade", 1)[1]
+
+    assert "for update of m, o" in backfill_text.lower()
+    assert "where m.current_outcome_set_id is not null" in backfill_text.lower()
+    assert "on conflict (workspace_id, meeting_id, template_key) do nothing" in backfill_text.lower()
+    assert "having count(*) > 1" in downgrade_text.lower()
+    assert "count(*) filter (where is_meeting_default) <> 1" in downgrade_text.lower()
+    assert "slot current differs from legacy pointer" in downgrade_text
+    assert "0076 downgrade blocked" in downgrade_text
+
+
+def test_slot_migration_declares_tenant_rls_and_single_default_invariant() -> None:
+    migration_text = MIGRATION.read_text(encoding="utf-8").lower()
+
+    assert "meeting_summary_slots_tenant_isolation" in migration_text
+    assert "enable row level security" in migration_text
+    assert "force row level security" in migration_text
+    assert "rec_current_workspace_id()" in migration_text
+    assert "rec_maintenance_allowed()" in migration_text
+    assert "uq_meeting_summary_slots_meeting_default" in migration_text
+    assert "postgresql_where=sa.text(\"is_meeting_default is true\")" in migration_text
+
+
 def test_legacy_proof_hash_uses_the_normative_domain_and_is_reproducible() -> None:
     migration = _load_migration_module()
     kwargs = {

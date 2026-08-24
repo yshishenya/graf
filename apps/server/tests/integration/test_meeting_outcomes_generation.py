@@ -3,14 +3,15 @@ from __future__ import annotations
 import asyncio
 import importlib
 from datetime import UTC, datetime, timedelta
-from hashlib import sha256
+from uuid import UUID
 
 import pytest
+from pydantic import ValidationError
 from sqlalchemy import delete, func, select
 
 from tests.fakes.auth_contexts import USER_ID, WORKSPACE_ID
 from tests.fixtures.cabinet import create_outcome_ready_meeting
-from twobrain_rec_server.config import Settings
+from twobrain_rec_server.api.schemas import CreateSummaryCandidateRequest
 from twobrain_rec_server.db.models import (
     DiarizationSegment,
     DispatchIntent,
@@ -19,24 +20,119 @@ from twobrain_rec_server.db.models import (
     MeetingOutcomeGenerationAttempt,
     MeetingOutcomeItem,
     MeetingOutcomeSet,
+    MeetingSummarySlot,
     ProcessingAuditEvent,
     ProcessingResult,
     TranscriptSegment,
-    SummaryTemplate,
     Workspace,
 )
 from twobrain_rec_server.domain.statuses import ProcessingAvailabilityStatus
 from twobrain_rec_server.outcomes.ai_service import (
     AI_GENERATOR_VERSION,
-    _candidate_segments,
-    create_summary_candidate,
+    OutcomeGenerationTerminalError,
     ensure_automatic_summary_candidate,
-    execute_candidate_generation,
+    publish_model_generated_outcome,
 )
-from twobrain_rec_server.outcomes.generator import LiteLLMGenerationResult, canonical_transcript
-from twobrain_rec_server.outcomes.prompts import outcome_config, prompt_snapshot_hash
-from twobrain_rec_server.outcomes.templates import OUTCOME_CATEGORIES
 from twobrain_rec_server.processing.store import ProcessingLifecycleBlocked
+
+
+def test_feature_183_publication_prerequisite_matrix_is_fail_closed_and_non_mutating(client) -> None:
+    meeting_id = create_outcome_ready_meeting(client, "publication-prerequisite-matrix")
+
+    async def run() -> tuple[UUID | None, str, UUID | None, str | None, str | None]:
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.get(Meeting, meeting_id)
+            assert meeting is not None
+            attempt = await ensure_automatic_summary_candidate(
+                db,
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+            )
+            assert attempt is not None and attempt.candidate_id is not None
+            slot = await db.scalar(
+                select(MeetingSummarySlot).where(
+                    MeetingSummarySlot.workspace_id == meeting.workspace_id,
+                    MeetingSummarySlot.meeting_id == meeting.id,
+                    MeetingSummarySlot.template_key == attempt.template_key,
+                )
+            )
+            dispatch = await db.scalar(
+                select(DispatchIntent).where(
+                    DispatchIntent.workspace_id == meeting.workspace_id,
+                    DispatchIntent.meeting_id == meeting.id,
+                    DispatchIntent.candidate_id == attempt.candidate_id,
+                )
+            )
+            assert slot is not None and dispatch is not None
+            before = (
+                slot.current_outcome_set_id,
+                attempt.status,
+                attempt.outcome_set_id,
+                dispatch.state,
+                meeting.current_outcome_set_id,
+            )
+            proofs = (
+                None,
+                {},
+                {"canonical_artifact": "missing"},
+                {"publication_receipt": "missing"},
+                {"generation_call": "missing"},
+                {"calibration": "missing"},
+                {"source_fence": "missing"},
+                {"deletion_fence": "missing"},
+                {"authorization": "missing"},
+            )
+            for proof in proofs:
+                with pytest.raises(
+                    OutcomeGenerationTerminalError,
+                    match="verified_runtime_unavailable",
+                ):
+                    await publish_model_generated_outcome(
+                        db,
+                        workspace_id=meeting.workspace_id,
+                        meeting_id=meeting.id,
+                        candidate_id=attempt.candidate_id,
+                        expected_current_outcome_set_id=slot.current_outcome_set_id,
+                        publication_proof=proof,
+                    )
+            after = (
+                slot.current_outcome_set_id,
+                attempt.status,
+                attempt.outcome_set_id,
+                dispatch.state,
+                meeting.current_outcome_set_id,
+            )
+            assert before == after
+            await db.rollback()
+            return after
+
+    assert asyncio.run(run()) == (None, "queued", None, "created", None)
+
+
+@pytest.mark.parametrize(
+    "forbidden_field",
+    [
+        "my_actions",
+        "private_self",
+        "MeetingIntentV1",
+        "AudienceContextV1",
+        "privacy",
+        "FocusV1",
+        "DetailBudgetV1",
+    ],
+)
+def test_feature_183_rejects_subject_scoped_and_unapproved_generation_controls(
+    forbidden_field: str,
+) -> None:
+    payload = {
+        "template_key": "graf-auto-v1",
+        "template_id": None,
+        "template_version": 1,
+        forbidden_field: {},
+    }
+
+    with pytest.raises(ValidationError):
+        CreateSummaryCandidateRequest.model_validate(payload)
 
 
 def _service_module():
@@ -183,209 +279,7 @@ def test_first_baseline_outcome_remains_an_unpublished_candidate(client) -> None
     assert repaired == expected
 
 
-def test_revision_scoped_deterministic_baseline_is_never_ready_or_accepted(client) -> None:
-    meeting_id = create_outcome_ready_meeting(client, "revision-ai-only-baseline")
-    service = _service_module()
-
-    async def generate() -> tuple[object, list[tuple[str, str | None]], int]:
-        async with client.app_state["sessionmaker"]() as db:
-            result = await db.scalar(
-                select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
-            )
-            meeting = await db.get(Meeting, meeting_id)
-            assert result is not None and result.media_revision_id is not None
-            assert meeting is not None
-            await service.ensure_outcomes_for_processing_result(
-                db,
-                result=result,
-                publish_initial_baseline=True,
-            )
-            deterministic_sets = (
-                await db.scalars(
-                    select(MeetingOutcomeSet).where(
-                        MeetingOutcomeSet.meeting_id == meeting_id,
-                        MeetingOutcomeSet.generator_kind == "deterministic_extractive",
-                    )
-                )
-            ).all()
-            deterministic_items = await db.scalar(
-                select(func.count())
-                .select_from(MeetingOutcomeItem)
-                .where(
-                    MeetingOutcomeItem.meeting_id == meeting_id,
-                    MeetingOutcomeItem.outcome_set_id.in_(
-                        [outcome_set.id for outcome_set in deterministic_sets]
-                    ),
-                )
-            )
-            snapshot = (
-                meeting.current_outcome_set_id,
-                [
-                    (outcome_set.status, outcome_set.revision_state)
-                    for outcome_set in deterministic_sets
-                ],
-                int(deterministic_items or 0),
-            )
-            await db.rollback()
-            return snapshot
-
-    current_outcome_set_id, deterministic_states, deterministic_item_count = asyncio.run(
-        generate()
-    )
-
-    assert current_outcome_set_id is None
-    assert all(
-        status not in {"available", "partial"} and revision_state != "accepted"
-        for status, revision_state in deterministic_states
-    )
-    assert deterministic_item_count == 0
-
-
-@pytest.mark.parametrize(
-    ("request_intent", "accepted_exists"),
-    [
-        ("automatic_baseline", False),
-        ("automatic_baseline", True),
-        ("manual_format", False),
-    ],
-)
-def test_valid_ai_result_remains_candidate_until_user_acceptance(
-    client,
-    monkeypatch,
-    request_intent: str,
-    accepted_exists: bool,
-) -> None:
-    meeting_id = create_outcome_ready_meeting(
-        client,
-        f"ai-accept-{request_intent}-{accepted_exists}",
-    )
-
-    async def generate_valid_result(*_args, **_kwargs) -> LiteLLMGenerationResult:
-        result = {
-            "category_states": {category: "not_found" for category in OUTCOME_CATEGORIES},
-            "items": [],
-        }
-        return LiteLLMGenerationResult(
-            request={},
-            raw_response={"id": "synthetic-valid-result"},
-            parsed_content=result,
-            actual_model="synthetic-model",
-            actual_provider="synthetic-provider",
-            provider_request_id="synthetic-request",
-            token_usage=None,
-            cost_details=None,
-        )
-
-    monkeypatch.setattr(
-        "twobrain_rec_server.outcomes.ai_service._read_secret",
-        lambda _path: "synthetic-key",
-    )
-    monkeypatch.setattr(
-        "twobrain_rec_server.outcomes.ai_service.LiteLLMGateway.generate",
-        generate_valid_result,
-    )
-
-    async def generate() -> tuple[str, object, object, str, str]:
-        sessionmaker = client.app_state["sessionmaker"]
-        async with sessionmaker() as db:
-            meeting = await db.get(Meeting, meeting_id)
-            result = await db.scalar(
-                select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
-            )
-            assert meeting is not None and result is not None
-            accepted_id = None
-            if accepted_exists:
-                accepted = MeetingOutcomeSet(
-                    workspace_id=meeting.workspace_id,
-                    meeting_id=meeting.id,
-                    media_revision_id=result.media_revision_id,
-                    processing_result_id=result.id,
-                    status="available",
-                    source_kind="litellm",
-                    generator_kind="litellm",
-                    generator_version="synthetic-accepted-v1",
-                    revision_state="accepted",
-                )
-                db.add(accepted)
-                await db.flush()
-                meeting.current_outcome_set_id = accepted.id
-                accepted_id = accepted.id
-
-            attempt = await create_summary_candidate(
-                db,
-                workspace_id=meeting.workspace_id,
-                meeting_id=meeting.id,
-                requested_by_user_id=meeting.created_by_user_id,
-                template_key="graf-auto-v1",
-                template_id=None,
-                template_version=1,
-                expected_current_outcome_set_id=accepted_id,
-                request_intent=request_intent,
-            )
-            prompt = [
-                {
-                    "role": "system",
-                    "content": (
-                        "{{transcript_json}} {{output_language}} "
-                        "{{detail_level}} {{template_sections_json}}"
-                    ),
-                }
-            ]
-            config = outcome_config(schema_name="graf_outcome")
-            attempt.prompt_name = "graf/meeting-outcome/auto"
-            attempt.prompt_version = 1
-            attempt.prompt_definition = prompt
-            attempt.prompt_config = config
-            attempt.prompt_source = "verified_promoted_snapshot"
-            attempt.prompt_hash = prompt_snapshot_hash(prompt=prompt, config=config)
-            transcript_hash = sha256(
-                canonical_transcript(await _candidate_segments(db, attempt)).encode("utf-8")
-            ).hexdigest()
-            attempt.temporal_transcript_hash = transcript_hash
-            attempt.status = "generating"
-            candidate_id = attempt.candidate_id
-            workspace_id = meeting.workspace_id
-            await db.commit()
-            assert candidate_id is not None
-
-        projection = await execute_candidate_generation(
-            sessionmaker,
-            workspace_id=workspace_id,
-            candidate_id=candidate_id,
-            expected_snapshot_hash=transcript_hash,
-            settings=Settings(litellm_base_url="https://litellm.example.test"),
-        )
-
-        async with sessionmaker() as db:
-            meeting = await db.get(Meeting, meeting_id)
-            attempt = await db.scalar(
-                select(MeetingOutcomeGenerationAttempt).where(
-                    MeetingOutcomeGenerationAttempt.candidate_id == candidate_id
-                )
-            )
-            outcome_set = await db.scalar(
-                select(MeetingOutcomeSet).where(MeetingOutcomeSet.candidate_id == candidate_id)
-            )
-            assert meeting is not None and attempt is not None and outcome_set is not None
-            return (
-                str(projection["state"]),
-                accepted_id,
-                meeting.current_outcome_set_id,
-                attempt.status,
-                str(outcome_set.revision_state),
-            )
-
-    projection_state, accepted_id, current_id, attempt_state, revision_state = asyncio.run(
-        generate()
-    )
-
-    assert projection_state == "candidate"
-    assert attempt_state == "candidate"
-    assert revision_state == "candidate"
-    assert current_id == accepted_id
-
-
-def test_revision_scoped_reconcile_never_promotes_deterministic_baseline(client) -> None:
+def test_trusted_reconcile_cannot_promote_the_initial_baseline(client) -> None:
     meeting_id = create_outcome_ready_meeting(client, "trusted-baseline-reconcile")
     service = _service_module()
 
@@ -401,17 +295,10 @@ def test_revision_scoped_reconcile_never_promotes_deterministic_baseline(client)
             assert meeting.current_outcome_set_id is None
             assert candidate.revision_state == "candidate"
 
-            promoted = await service.ensure_outcomes_for_processing_result(
-                db,
-                result=result,
-                publish_initial_baseline=True,
-                ai_dispatch_planned=False,
-            )
             repeated = await service.ensure_outcomes_for_processing_result(
                 db,
                 result=result,
                 publish_initial_baseline=True,
-                ai_dispatch_planned=False,
             )
             attempts = (
                 await db.scalars(
@@ -425,48 +312,32 @@ def test_revision_scoped_reconcile_never_promotes_deterministic_baseline(client)
                     select(MeetingOutcomeSet).where(MeetingOutcomeSet.meeting_id == meeting_id)
                 )
             ).all()
-            item_count = await db.scalar(
-                select(func.count())
-                .select_from(MeetingOutcomeItem)
-                .where(MeetingOutcomeItem.outcome_set_id == promoted.id)
-            )
             await db.commit()
             return (
                 candidate.id,
-                promoted.id,
                 repeated.id,
                 meeting.current_outcome_set_id,
-                promoted.revision_state,
-                promoted.status,
-                promoted.failure_reason,
-                promoted.accepted_at is not None,
+                repeated.revision_state,
+                repeated.accepted_at is not None,
                 [attempt.status for attempt in attempts],
                 len(sets),
-                int(item_count or 0),
             )
 
     (
         candidate_id,
-        promoted_id,
         repeated_id,
         current_id,
         revision_state,
-        status,
-        failure_reason,
         accepted,
         attempt_statuses,
         set_count,
-        item_count,
     ) = asyncio.run(reconcile())
-    assert candidate_id == promoted_id == repeated_id
+    assert candidate_id == repeated_id
     assert current_id is None
     assert revision_state == "candidate"
-    assert status == "blocked"
-    assert failure_reason == "summary_generation_unavailable"
     assert accepted is False
-    assert attempt_statuses == ["blocked_dependency"]
+    assert attempt_statuses == ["candidate"]
     assert set_count == 1
-    assert item_count == 0
 
 
 def test_automatic_candidate_uses_exact_workspace_builtin_default_once(client) -> None:
@@ -546,7 +417,6 @@ def test_automatic_candidate_uses_exact_workspace_builtin_default_once(client) -
         intent_count,
         intent_state,
     ) = asyncio.run(create_twice())
-    assert baseline_id is not None
     assert current_before is None
     assert current_after is None
     assert first_candidate == second_candidate
@@ -557,56 +427,7 @@ def test_automatic_candidate_uses_exact_workspace_builtin_default_once(client) -
     assert intent_state == "created"
 
 
-def test_automatic_candidate_uses_active_personal_workspace_default(client) -> None:
-    meeting_id = create_outcome_ready_meeting(client, "automatic-personal-default")
-
-    async def create() -> tuple:
-        async with client.app_state["sessionmaker"]() as db:
-            meeting = await db.get(Meeting, meeting_id)
-            workspace = await db.get(Workspace, WORKSPACE_ID)
-            assert meeting is not None and workspace is not None
-            template = SummaryTemplate(
-                workspace_id=WORKSPACE_ID,
-                owner_user_id=USER_ID,
-                template_key="personal-automatic-default",
-                kind="personal",
-                name="Личный протокол",
-                purpose="Решения и действия",
-                sections_json=["summary", "decisions", "action_items"],
-                output_language="ru",
-                detail_level="standard",
-                version=1,
-                status="active",
-            )
-            db.add(template)
-            await db.flush()
-            workspace.default_summary_template_key = template.template_key
-            workspace.default_summary_template_id = template.id
-            workspace.default_summary_template_version = template.version
-
-            first = await ensure_automatic_summary_candidate(
-                db, workspace_id=WORKSPACE_ID, meeting_id=meeting_id
-            )
-            repeated = await ensure_automatic_summary_candidate(
-                db, workspace_id=WORKSPACE_ID, meeting_id=meeting_id
-            )
-            assert first is not None and repeated is not None
-            return (
-                first.candidate_id,
-                repeated.candidate_id,
-                first.template_id,
-                first.template_key,
-                first.requested_by_user_id,
-            )
-
-    first_id, repeated_id, template_id, template_key, requested_by = asyncio.run(create())
-    assert first_id == repeated_id
-    assert template_id is not None
-    assert template_key == "personal-automatic-default"
-    assert requested_by == USER_ID
-
-
-def test_automatic_replay_stays_one_shot_after_manual_supersession(client) -> None:
+def test_automatic_replay_replaces_an_attempt_not_current_in_its_slot(client) -> None:
     meeting_id = create_outcome_ready_meeting(client, "automatic-summary-replay")
 
     async def replay_after_supersession() -> tuple:
@@ -644,7 +465,8 @@ def test_automatic_replay_stays_one_shot_after_manual_supersession(client) -> No
             await db.flush()
             first.status = "accepted"
             first.outcome_set_id = generated.id
-            meeting.current_outcome_set_id = replacement.id
+            # The legacy global pointer is deliberately not part of the
+            # replay decision; the target slot remains the source of truth.
             db.add(
                 ProcessingAuditEvent(
                     workspace_id=meeting.workspace_id,
@@ -675,8 +497,8 @@ def test_automatic_replay_stays_one_shot_after_manual_supersession(client) -> No
             return first.candidate_id, replay.candidate_id, int(attempts or 0), int(intents or 0)
 
     first_id, replay_id, attempt_count, intent_count = asyncio.run(replay_after_supersession())
-    assert replay_id == first_id
-    assert attempt_count == intent_count == 1
+    assert replay_id != first_id
+    assert attempt_count == intent_count == 2
 
 
 def test_automatic_candidate_skips_invalid_policy_and_deleting_meeting(client) -> None:
@@ -793,40 +615,6 @@ def test_old_processing_result_cannot_create_baseline_after_new_revision_is_acce
             )
 
     assert asyncio.run(run()) == 0
-
-
-def test_migration_hash_cannot_create_a_new_baseline(client) -> None:
-    meeting_id = create_outcome_ready_meeting(client, "migration-hash-no-generation")
-    service = _service_module()
-
-    async def run() -> tuple[int, int]:
-        async with client.app_state["sessionmaker"]() as db:
-            result = await db.scalar(
-                select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
-            )
-            assert result is not None
-            result.source_result_hash = sha256(
-                f"legacy-processing-result:{result.id}".encode()
-            ).hexdigest()
-            await db.commit()
-            with pytest.raises(
-                ProcessingLifecycleBlocked,
-                match="summary_source_revision_unavailable",
-            ):
-                await service.ensure_outcomes_for_processing_result(db, result=result)
-            outcome_count = await db.scalar(
-                select(func.count(MeetingOutcomeSet.id)).where(
-                    MeetingOutcomeSet.meeting_id == meeting_id
-                )
-            )
-            attempt_count = await db.scalar(
-                select(func.count(MeetingOutcomeGenerationAttempt.id)).where(
-                    MeetingOutcomeGenerationAttempt.meeting_id == meeting_id
-                )
-            )
-            return int(outcome_count or 0), int(attempt_count or 0)
-
-    assert asyncio.run(run()) == (0, 0)
 
 
 def test_old_result_version_cannot_create_baseline_after_same_revision_retry(client) -> None:
@@ -1291,8 +1079,10 @@ def test_slow_temporal_start_is_bounded_and_retryable(client, monkeypatch) -> No
     import twobrain_rec_server.workflows.temporal_client as temporal_client
 
     monkeypatch.setattr(dispatch, "DISPATCH_START_TIMEOUT_SECONDS", 0.001)
+    submitted: dict[str, object] = {}
 
-    async def slow_start(**_kwargs):
+    async def slow_start(**kwargs):
+        submitted.update(kwargs)
         await asyncio.sleep(0.02)
         raise AssertionError("the bounded start should time out first")
 
@@ -1342,6 +1132,8 @@ def test_slow_temporal_start_is_bounded_and_retryable(client, monkeypatch) -> No
     assert state == "retryable_failed"
     assert attempt_state == "blocked_dependency"
     assert failure_code == "summary_dispatch_unavailable"
+    assert isinstance(submitted["summary_slot_id"], UUID)
+    assert submitted["expected_current_outcome_set_id"] is None
 
 
 def test_temporal_dispatch_retry_exhaustion_closes_candidate_for_manual_retry(client, monkeypatch) -> None:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import get_args
 from uuid import UUID
 
 from tests.fakes.auth_contexts import WORKSPACE_ID
@@ -11,6 +12,7 @@ from tests.fixtures.summary_type_slots import (
     empty_type_slots,
     two_type_revision_fixtures,
 )
+from twobrain_rec_server.api import schemas
 from twobrain_rec_server.db import models
 from twobrain_rec_server.db.base import Base
 
@@ -22,8 +24,7 @@ MEETING_ID = UUID("50000000-0000-0000-0000-000000000001")
 
 QUERY_OWNER_CLASSES = {
     "apps/server/scripts/cleanup_smoke_artifacts.py": "test_cleanup",
-    "apps/server/scripts/prove_meeting_outcome_live.py": "legacy_proof",
-    "apps/server/scripts/reconcile_initial_outcomes.py": "legacy_reconciliation",
+    "apps/server/src/twobrain_rec_server/cli/summary_slots.py": "operator_metadata_reconciliation",
     "apps/server/src/twobrain_rec_server/api/cabinet.py": "api_read_and_candidate_compatibility",
     "apps/server/src/twobrain_rec_server/api/schemas.py": "api_contract",
     "apps/server/src/twobrain_rec_server/cabinet/egress.py": "egress_read",
@@ -33,15 +34,16 @@ QUERY_OWNER_CLASSES = {
     "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js": "ui_contract",
     "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/meeting_detail_content.html": "ui_contract",
     "apps/server/src/twobrain_rec_server/cabinet/view_models.py": "view_model",
-    "apps/server/src/twobrain_rec_server/cabinet/web_routes/browser.py": "browser_read",
     "apps/server/src/twobrain_rec_server/db/models/__init__.py": "model_registration",
     "apps/server/src/twobrain_rec_server/db/models/meeting.py": "legacy_pointer_model",
     "apps/server/src/twobrain_rec_server/db/models/outcomes.py": "outcome_model",
     "apps/server/src/twobrain_rec_server/db/rls_validation.py": "rls_inventory",
     "apps/server/src/twobrain_rec_server/deletion/service.py": "deletion_owner",
+    "apps/server/src/twobrain_rec_server/outcomes/dispatch.py": "dispatch_owner",
     "apps/server/src/twobrain_rec_server/outcomes/ai_service.py": "publication_owner",
     "apps/server/src/twobrain_rec_server/outcomes/service.py": "generation_owner",
     "apps/server/src/twobrain_rec_server/outcomes/store.py": "lineage_store",
+    "apps/server/src/twobrain_rec_server/workflows/temporal_client.py": "workflow_submission",
 }
 
 
@@ -125,3 +127,71 @@ def test_runtime_outcome_query_owner_inventory_has_no_unclassified_newest_row_fa
         )
     ]
     assert findings == [], "unclassified newest-row query owners: " + ", ".join(findings)
+
+
+def test_summary_lifecycle_keeps_result_generation_source_and_catalog_orthogonal() -> None:
+    assert set(get_args(schemas.SummaryTypeResultState)) == {"ready", "absent"}
+    assert set(get_args(schemas.SummaryTypeGenerationState)) == {
+        "idle",
+        "preparing",
+        "updating",
+        "blocked",
+        "deferred",
+        "error",
+        "ambiguous",
+        "no_supported_content",
+    }
+    assert set(get_args(schemas.SummaryTypeSourceState)) == {
+        "not_ready",
+        "transcript_failed",
+        "empty",
+        "current",
+        "stale",
+    }
+    assert set(get_args(schemas.SummaryTypeAvailabilityState)) == {
+        "available",
+        "unavailable",
+        "retired",
+    }
+    assert schemas.SummaryTypeCatalogEntryV1.model_config["extra"] == "forbid"
+    assert schemas.SummaryTypeReadResponse.model_config["extra"] == "forbid"
+
+
+def test_summary_contract_has_no_mandatory_accept_or_reject_surface() -> None:
+    cabinet_source = (RUNTIME_ROOT / "api/cabinet.py").read_text(encoding="utf-8")
+    browser_source = (
+        RUNTIME_ROOT / "cabinet/static/cabinet/cabinet.js"
+    ).read_text(encoding="utf-8")
+    meeting_template = (
+        RUNTIME_ROOT / "cabinet/templates/cabinet/pages/meeting_detail_content.html"
+    ).read_text(encoding="utf-8")
+
+    assert 'operation_id="deprecatedAcceptSummaryCandidate"' in cabinet_source
+    assert 'operation_id="deprecatedRejectSummaryCandidate"' in cabinet_source
+    assert 'code="summary_candidate_deprecated"' in cabinet_source
+    assert '/summary-candidates/${candidate.candidate_id}/${accept ? "accept" : "reject"}' not in browser_source
+    assert "data-summary-candidate-preview" not in meeting_template
+    assert 'text: "Использовать"' not in browser_source
+    assert 'text: "Оставить текущие"' not in browser_source
+
+
+def test_retired_candidate_resolution_cannot_touch_database_or_publish() -> None:
+    source = (RUNTIME_ROOT / "outcomes/ai_service.py").read_text(encoding="utf-8")
+    retired = re.search(
+        r"async def resolve_summary_candidate\(.*?(?=\n\nasync def _candidate_attempt)",
+        source,
+        re.DOTALL,
+    )
+    assert retired is not None
+    assert 'summary_candidate_deprecated' in retired.group(0)
+    assert "lock_meeting_fence" not in retired.group(0)
+    assert "finalize_dispatch_for_candidate" not in retired.group(0)
+    assert "publish_model_generated_outcome" not in retired.group(0)
+    assert "SummaryCandidatePreviewItem" not in (
+        RUNTIME_ROOT / "api/schemas.py"
+    ).read_text(encoding="utf-8")
+
+
+def test_transcript_import_has_one_automatic_summary_trigger() -> None:
+    source = (RUNTIME_ROOT / "processing/submit.py").read_text(encoding="utf-8")
+    assert source.count("ensure_automatic_summary_candidate(") == 1

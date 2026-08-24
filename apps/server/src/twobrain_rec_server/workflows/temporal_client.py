@@ -491,6 +491,8 @@ async def start_outcome_generation_workflow(
     template_version: int,
     prompt_name: str,
     requested_by_user_id: UUID | None = None,
+    summary_slot_id: UUID | None = None,
+    expected_current_outcome_set_id: UUID | None = None,
 ) -> OutcomeGenerationWorkflowStart:
     from temporalio.common import WorkflowIDReusePolicy
 
@@ -500,7 +502,7 @@ async def start_outcome_generation_workflow(
 
     workflow_id = outcome_generation_workflow_id(candidate_id)
     validate_outcome_generation_workflow_id(workflow_id)
-    payload = {
+    payload: dict[str, Any] = {
         "candidate_id": str(candidate_id),
         "meeting_id": str(meeting_id),
         "workspace_id": str(workspace_id),
@@ -508,6 +510,12 @@ async def start_outcome_generation_workflow(
         "template_key": template_key,
         "template_version": str(template_version),
         "prompt_name": prompt_name,
+        "summary_slot_id": str(summary_slot_id) if summary_slot_id is not None else None,
+        "expected_current_outcome_set_id": (
+            str(expected_current_outcome_set_id)
+            if expected_current_outcome_set_id is not None
+            else None
+        ),
     }
     try:
         with _traced_workflow_dispatch(

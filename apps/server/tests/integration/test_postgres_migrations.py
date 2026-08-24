@@ -3,7 +3,7 @@ import importlib.util
 import re
 from pathlib import Path
 from types import SimpleNamespace
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import pytest
 from alembic import command
@@ -15,13 +15,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from tests.fakes.fake_minio import FakeMinioStorage
 from twobrain_rec_server.config import Settings, get_settings
 from twobrain_rec_server.db.models import (
-    MediaRevision,
-    MediaScribeJob,
-    Meeting,
-    MeetingOutcomeSet,
     Organization,
-    ProcessingResult,
-    ProcessingWorkflow,
     RegisteredDevice,
     UserIdentity,
     Workspace,
@@ -189,9 +183,7 @@ def test_production_share_head_upgrades_to_regeneration_merge(
     command.upgrade(alembic_config, "0037_auth_rate_limit_buckets")
     command.upgrade(alembic_config, "head")
 
-    async def inspect_schema() -> tuple[
-        list[str], set[str], set[tuple[str, str]], str, str, tuple[str, ...]
-    ]:
+    async def inspect_schema() -> tuple[list[str], set[str], set[tuple[str, str]], str]:
         engine = create_async_engine(postgres_clean_database_url)
         try:
             async with engine.connect() as connection:
@@ -223,26 +215,7 @@ def test_production_share_head_upgrades_to_regeneration_merge(
                 maintenance_helper = await connection.scalar(
                     text("select pg_get_functiondef('rec_maintenance_allowed()'::regprocedure)")
                 )
-                promotion_counter_function = await connection.scalar(
-                    text(
-                        "select pg_get_functiondef("
-                        "'rec_sync_promotion_reservation_counter()'::regprocedure)"
-                    )
-                )
-                promotion_counter_config = await connection.scalar(
-                    text(
-                        "select proconfig from pg_proc where oid = "
-                        "'rec_sync_promotion_reservation_counter()'::regprocedure"
-                    )
-                )
-                return (
-                    versions,
-                    tables,
-                    columns,
-                    str(maintenance_helper),
-                    str(promotion_counter_function),
-                    tuple(str(item) for item in promotion_counter_config or ()),
-                )
+                return versions, tables, columns, str(maintenance_helper)
         finally:
             await engine.dispose()
 
@@ -273,7 +246,6 @@ def test_production_share_head_upgrades_to_regeneration_merge(
             "submission_claim_token",
             "submission_claimed_at",
         },
-        "diarization_segments": {"words_json"},
         "meeting_outcome_sets": {
             "source_fingerprint",
             "deletion_epoch_at_start",
@@ -736,176 +708,6 @@ def test_linked_workspace_migration_handles_optional_legacy_check_and_adds_merge
         )
     )
     assert "proof_link.target_provider_identity_id = proof_identity.id" in reupgraded_helper
-
-
-def test_processing_result_workflow_lineage_backfill_is_exact(
-    postgres_clean_database_url: str,
-    monkeypatch,
-) -> None:
-    monkeypatch.setenv("TWOBRAIN_DATABASE_URL", postgres_clean_database_url)
-    get_settings.cache_clear()
-    alembic_config = Config(str(ROOT / "apps/server/alembic.ini"))
-    alembic_config.set_main_option(
-        "script_location", str(ROOT / "apps/server/src/twobrain_rec_server/db/migrations")
-    )
-    command.upgrade(alembic_config, "0082_mediascribe_words")
-
-    result_ids = {
-        name: uuid4()
-        for name in (
-            "exact",
-            "mismatched",
-            "duplicate_old",
-            "duplicate_new",
-            "existing_conflict",
-            "blocked_conflict",
-        )
-    }
-
-    async def seed() -> UUID:
-        engine = create_async_engine(postgres_clean_database_url)
-        sessionmaker = async_sessionmaker(engine, expire_on_commit=False)
-        try:
-            async with sessionmaker() as db:
-                await _seed_identity(sessionmaker)
-                meeting = Meeting(
-                    workspace_id=WORKSPACE_ID,
-                    created_by_user_id=USER_ID,
-                    device_id=DEVICE_ID,
-                    local_recording_id="lineage-backfill",
-                    duration_seconds=60,
-                    status="ready",
-                )
-                db.add(meeting)
-                await db.flush()
-                exact_revision = MediaRevision(
-                    workspace_id=WORKSPACE_ID,
-                    meeting_id=meeting.id,
-                    local_media_revision_id="lineage-backfill-exact",
-                    revision_number=1,
-                    source_kind="manual_upload",
-                    status="accepted",
-                    immutable=True,
-                )
-                other_revision = MediaRevision(
-                    workspace_id=WORKSPACE_ID,
-                    meeting_id=meeting.id,
-                    local_media_revision_id="lineage-backfill-other",
-                    revision_number=2,
-                    source_kind="manual_upload",
-                    status="accepted",
-                    immutable=True,
-                )
-                db.add_all([exact_revision, other_revision])
-                await db.flush()
-                exact_workflow = ProcessingWorkflow(
-                    workspace_id=WORKSPACE_ID,
-                    meeting_id=meeting.id,
-                    media_revision_id=exact_revision.id,
-                    workflow_id=f"processing/{exact_revision.id}",
-                    purpose="transcription",
-                    status="processed",
-                )
-                other_workflow = ProcessingWorkflow(
-                    workspace_id=WORKSPACE_ID,
-                    meeting_id=meeting.id,
-                    media_revision_id=other_revision.id,
-                    workflow_id=f"processing/{other_revision.id}",
-                    purpose="transcription",
-                    status="processed",
-                )
-                db.add_all([exact_workflow, other_workflow])
-                await db.flush()
-                exact_job = MediaScribeJob(
-                    workspace_id=WORKSPACE_ID,
-                    meeting_id=meeting.id,
-                    media_revision_id=exact_revision.id,
-                    processing_workflow_id=exact_workflow.id,
-                    external_job_id="lineage-backfill-exact-job",
-                    status="ready",
-                )
-                other_job = MediaScribeJob(
-                    workspace_id=WORKSPACE_ID,
-                    meeting_id=meeting.id,
-                    media_revision_id=other_revision.id,
-                    processing_workflow_id=other_workflow.id,
-                    external_job_id="lineage-backfill-other-job",
-                    status="ready",
-                )
-                db.add_all([exact_job, other_job])
-                await db.flush()
-                scenarios = (
-                    ("exact", exact_revision, exact_job, None, 1, "exact-source"),
-                    ("mismatched", exact_revision, other_job, None, 1, "mismatched-source"),
-                    ("duplicate_old", exact_revision, exact_job, None, 2, "duplicate-source"),
-                    ("duplicate_new", exact_revision, exact_job, None, 3, "duplicate-source"),
-                    (
-                        "existing_conflict",
-                        exact_revision,
-                        exact_job,
-                        exact_workflow.id,
-                        4,
-                        "existing-source",
-                    ),
-                    ("blocked_conflict", exact_revision, exact_job, None, 5, "existing-source"),
-                )
-                db.add_all(
-                    [
-                        ProcessingResult(
-                            id=result_ids[name],
-                            workspace_id=WORKSPACE_ID,
-                            meeting_id=meeting.id,
-                            media_revision_id=revision.id,
-                            mediascribe_job_id=job.id,
-                            processing_workflow_id=workflow_id,
-                            result_version=result_version,
-                            status="imported",
-                            source_result_hash=source_hash,
-                        )
-                        for name, revision, job, workflow_id, result_version, source_hash in scenarios
-                    ]
-                )
-                await db.flush()
-                accepted_outcome = MeetingOutcomeSet(
-                    workspace_id=WORKSPACE_ID,
-                    meeting_id=meeting.id,
-                    media_revision_id=exact_revision.id,
-                    processing_result_id=result_ids["duplicate_old"],
-                    status="available",
-                    generator_version="lineage-backfill-test",
-                    source_result_hash="duplicate-source",
-                    revision_state="accepted",
-                    lifecycle_state="active",
-                )
-                db.add(accepted_outcome)
-                await db.flush()
-                meeting.current_outcome_set_id = accepted_outcome.id
-                await db.commit()
-                return exact_workflow.id
-        finally:
-            await engine.dispose()
-
-    exact_workflow_id = asyncio.run(seed())
-    command.upgrade(alembic_config, "head")
-
-    async def read_lineage() -> dict[UUID, UUID | None]:
-        engine = create_async_engine(postgres_clean_database_url)
-        try:
-            async with engine.connect() as connection:
-                rows = await connection.execute(
-                    text("select id, processing_workflow_id from processing_results"),
-                )
-                return {row.id: row.processing_workflow_id for row in rows}
-        finally:
-            await engine.dispose()
-
-    lineage = asyncio.run(read_lineage())
-    assert lineage[result_ids["exact"]] == exact_workflow_id
-    assert lineage[result_ids["mismatched"]] is None
-    assert lineage[result_ids["duplicate_old"]] == exact_workflow_id
-    assert lineage[result_ids["duplicate_new"]] is None
-    assert lineage[result_ids["existing_conflict"]] == exact_workflow_id
-    assert lineage[result_ids["blocked_conflict"]] is None
 
 
 def test_fair_use_review_metadata_constraints_are_postgres_enforced(

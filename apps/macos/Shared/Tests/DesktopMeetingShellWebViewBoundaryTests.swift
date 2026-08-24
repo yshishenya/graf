@@ -358,6 +358,53 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
         )
     }
 
+    func testEmbeddedCabinetMeetingDetailUsesSlotBackedSummaryContract() throws {
+        let root = try repositoryRootForMeetingShellBoundaryTests()
+        let detailSource = try String(
+            contentsOf: root.appendingPathComponent(
+                "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/meeting_detail_content.html"
+            ),
+            encoding: .utf8
+        )
+        let cabinetSource = try String(
+            contentsOf: root.appendingPathComponent(
+                "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js"
+            ),
+            encoding: .utf8
+        )
+
+        for marker in [
+            "data-summary-result-state",
+            "data-summary-generation-state",
+            "data-summary-source-state",
+            "data-summary-availability-state",
+            "data-summary-reason-code",
+            "data-summary-format-controls",
+            "data-summary-format-button",
+            "data-summary-format-listbox",
+            "data-summary-refresh-button",
+            "data-summary-format-dialog",
+            "data-summary-format-all"
+        ] {
+            XCTAssertTrue(detailSource.contains(marker), marker)
+        }
+
+        XCTAssertTrue(cabinetSource.contains("currentOutcomeSetId"))
+        XCTAssertTrue(cabinetSource.contains("current_outcome_set_id"))
+        XCTAssertTrue(cabinetSource.contains("summary-candidate-status"))
+        XCTAssertTrue(cabinetSource.contains("Текущие итоги остаются на месте"))
+
+        for forbidden in [
+            "data-summary-candidate-preview",
+            "data-summary-candidate-accept",
+            "data-summary-candidate-reject",
+            "data-summary-candidate-content"
+        ] {
+            XCTAssertFalse(detailSource.contains(forbidden), forbidden)
+            XCTAssertFalse(cabinetSource.contains(forbidden), forbidden)
+        }
+    }
+
     private func makeActiveSession() -> CaptureSession {
         CaptureSession(
             id: "active-recording-boundary",

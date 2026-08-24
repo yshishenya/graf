@@ -315,7 +315,7 @@ if [[ "$OUTCOME_SMOKE_ENABLED" == "true" ]]; then
     --run-id "$RUN_ID" \
     --meeting-id "$SMOKE_MEETING_ID" \
     --execute >"$SMOKE_OUTCOME_PROOF_JSON"
-  require_json_status "$SMOKE_OUTCOME_PROOF_JSON" candidate_state ready
+  require_json_status "$SMOKE_OUTCOME_PROOF_JSON" summary_state absent
   require_json_status "$SMOKE_OUTCOME_PROOF_JSON" slot_state unpublished
   outcome_seed_result="$(cat "$SMOKE_OUTCOME_SEED_JSON")"
   outcome_proof_result="$(cat "$SMOKE_OUTCOME_PROOF_JSON")"

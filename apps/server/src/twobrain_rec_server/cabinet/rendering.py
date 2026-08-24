@@ -1038,6 +1038,8 @@ def _render_meeting_detail_content(
         )
     )
     meeting_details_available = _meeting_details_available(review) and shared_workspace_id is None
+    summary_lifecycle = _summary_render_lifecycle(review)
+    summary_source_stale = summary_lifecycle["source_state"] == "stale"
     more_actions_available = (
         content_export_available
         or review.governance.download.state == "available"
@@ -1100,6 +1102,8 @@ def _render_meeting_detail_content(
         meeting_details_available=meeting_details_available,
         more_actions_available=more_actions_available,
         meeting_id=review.meeting.meeting_id,
+        summary_lifecycle=summary_lifecycle,
+        summary_source_stale=summary_source_stale,
         summary_controls_available=bool(
             review.access is not None
             and review.access.state == "owner"
@@ -1212,6 +1216,72 @@ def _meeting_details_available(review: MeetingReviewResponse) -> bool:
         or review.calendar_context
         or review.deletion_truth_copy
     )
+
+
+def _summary_render_lifecycle(review: MeetingReviewResponse) -> dict[str, str]:
+    """Project independent summary dimensions for the server-rendered detail."""
+    summary = review.notes_action_truth.summary
+    result_state = (
+        "ready"
+        if review.notes_action_truth.source_basis == "stored_output"
+        and summary.state in {"available", "not_found", "not_inferable"}
+        else "absent"
+    )
+    export_summary = review.content_exports.summary if review.content_exports else None
+    summary_reason = export_summary.reason if export_summary is not None else None
+
+    if summary_reason == "stored_summary_revision_stale":
+        source_state = "stale"
+        reason_code = "stored_summary_revision_stale"
+    elif review.processing.state in {"failed", "blocked"} and not review.transcript.available:
+        source_state = "transcript_failed"
+        reason_code = "transcript_failed"
+    elif review.processing.state in {"processing", "submitted", "uploading"}:
+        source_state = "not_ready"
+        reason_code = "transcript_not_ready"
+    elif not review.transcript.available and review.processing.state in {"ready", "partial"}:
+        source_state = "empty"
+        reason_code = "source_empty"
+    else:
+        source_state = "current"
+        reason_code = ""
+
+    generation_state = "idle"
+    if summary.state == "processing":
+        generation_state = "updating" if result_state == "ready" else "preparing"
+    elif summary.state == "blocked":
+        generation_state = "blocked"
+    elif summary.state == "deferred":
+        generation_state = "deferred"
+    elif summary.state == "unsafe":
+        generation_state = "ambiguous"
+    elif summary.state in {"not_found", "not_inferable"}:
+        generation_state = "no_supported_content"
+
+    template_key = review.template.reason or ""
+    if review.template.state != "available":
+        availability_state = "unavailable"
+    elif template_key and template_key not in BUILT_IN_BY_KEY and review.template.template_id is None:
+        availability_state = "retired"
+    else:
+        availability_state = "available"
+    if not reason_code:
+        if availability_state == "retired":
+            reason_code = "summary_type_retired"
+        elif availability_state != "available":
+            reason_code = "summary_type_unavailable"
+        elif generation_state != "idle":
+            reason_code = f"summary_{generation_state}"
+        elif summary.state == "unavailable":
+            reason_code = "summary_unavailable"
+
+    return {
+        "result_state": result_state,
+        "generation_state": generation_state,
+        "source_state": source_state,
+        "availability_state": availability_state,
+        "reason_code": reason_code[:80],
+    }
 
 
 def _render_meeting_workspace_actions(
