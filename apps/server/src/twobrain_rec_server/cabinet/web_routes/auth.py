@@ -37,6 +37,7 @@ from twobrain_rec_server.cabinet.auth_rendering import (
 from twobrain_rec_server.cabinet.auth_return import resolve_browser_auth_return_path
 from twobrain_rec_server.cabinet.web_routes.auth_email_flow import (
     EMAIL_SIGNUP_PROVIDER,
+    EmailCodeRetryResponse,
     EmailLoginCompletion,
     EmailRecoveryRequired,
     _AmbiguousEmailIdentityError,
@@ -699,11 +700,8 @@ async def browser_email_login_verify(
             invitation_flow=invitation_flow,
         )
         response = await _prepare_email_auth_response(request, db=db, result=result)
-        _clear_email_auth_browser_cookie(
-            request,
-            response,
-            state_nonce=state,
-        )
+        if not isinstance(result, EmailCodeRetryResponse):
+            _clear_email_auth_browser_cookie(request, response, state_nonce=state)
         await db.commit()
         return response
     except Exception:
@@ -862,11 +860,8 @@ async def browser_email_signup_verify(
             result=result,
             clear_referral_on_registration=True,
         )
-        _clear_email_auth_browser_cookie(
-            request,
-            response,
-            state_nonce=state,
-        )
+        if not isinstance(result, EmailCodeRetryResponse):
+            _clear_email_auth_browser_cookie(request, response, state_nonce=state)
         await db.commit()
         return response
     except Exception:
