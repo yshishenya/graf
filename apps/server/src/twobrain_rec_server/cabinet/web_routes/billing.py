@@ -2373,6 +2373,7 @@ async def start_billing_checkout(
             },
         )
         db.add(operation)
+        await db.flush()
         invoice = BillingInvoice(
             workspace_id=tenant_scope.workspace_id,
             operation_id=intent.operation_id,

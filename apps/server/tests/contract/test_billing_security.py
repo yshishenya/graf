@@ -64,6 +64,15 @@ def test_personal_checkout_cannot_run_for_corporate_workspace() -> None:
     assert "workspace.owner_user_id != principal.user_id" in source
 
 
+def test_checkout_persists_operation_before_invoice_foreign_key() -> None:
+    source = inspect.getsource(start_billing_checkout)
+    operation_add = source.index("db.add(operation)")
+    operation_flush = source.index("await db.flush()", operation_add)
+
+    assert operation_add < operation_flush
+    assert operation_flush < source.index("invoice = BillingInvoice")
+
+
 def test_subscription_mutations_share_personal_owner_gate() -> None:
     source = inspect.getsource(_billing_owner_subscription)
 
