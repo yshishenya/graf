@@ -23,7 +23,7 @@ and VK URL isolation; manual two-account provider acceptance proves selection.
 - [X] T003 [US1] Add a failing focused assertion for Yandex `force_confirm=1` and VK parameter isolation in `apps/server/tests/integration/test_web_owner_session_context.py`
 - [X] T004 [US1] Add Yandex-only `force_confirm=1` authorization parameter in `apps/server/src/twobrain_rec_server/auth/providers/base.py`
 - [X] T005 [US1] Run the Feature 200 focused quickstart and record the automated result in `specs/200-yandex-account-selection/quickstart.md`
-- [ ] T006 [US1] Perform the two-account manual browser acceptance and record metadata-only result in `specs/200-yandex-account-selection/quickstart.md`
+- [X] T006 [US1] Perform the two-account manual browser acceptance and record metadata-only result in `specs/200-yandex-account-selection/quickstart.md`
 
 ## Phase 4: Polish & Cross-Cutting Concerns
 

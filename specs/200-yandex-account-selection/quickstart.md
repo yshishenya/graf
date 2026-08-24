@@ -17,6 +17,10 @@ passed. The paired VK redirect isolation test also passed. Repository fast
 lane passed with 1240 unit tests, lint, and Python compile. The API provider
 start contract also passed with the same Yandex parameter assertion.
 
+Production acceptance (2026-08-25): the user confirmed that the Yandex ID
+login flow works with multiple accounts. No account identifiers, OAuth
+material, cookies, or provider profile data were recorded.
+
 ## Manual provider validation
 
 1. Use a clean browser context or the installed app's browser login surface.
@@ -39,4 +43,6 @@ Before a PR for this auth slice, run:
 infra/scripts/ci-local.sh --fast
 ```
 
-This task does not authorize a commit, PR, release, or production deploy.
+Closeout result: production deployed from `master` at `dd1774b2`; the full
+local CI lane was intentionally skipped by explicit user instruction. Remote
+backup/restore, migration, runtime readiness, health, and smoke gates passed.
