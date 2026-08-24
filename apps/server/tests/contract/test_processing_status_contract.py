@@ -93,7 +93,10 @@ def test_processing_status_endpoint_returns_no_content_or_secret_fields(client) 
     assert pickup.status_code == 202
     status = client.get(f"/api/v1/meetings/{meeting_id}/processing", headers=auth_headers())
     assert status.status_code == 200
+    assert status.headers["cache-control"] == "private, no-store"
+    assert status.headers["pragma"] == "no-cache"
     payload = status.json()
+    assert payload["meeting_id"] == str(meeting_id)
     assert payload["workflow_id"] == f"processing/{media_revision_id}"
     assert payload["mediascribe_job_id_present"] is False
     forbidden = {"transcript_text", "audio_download_url", "mediascribe_job_id", "api_key", "signed_url"}

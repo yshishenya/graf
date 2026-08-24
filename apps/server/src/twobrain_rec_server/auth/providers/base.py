@@ -219,6 +219,28 @@ class YandexAdapter(ProviderAdapter):
     token_url = "https://oauth.yandex.ru/token"
     user_info_url = "https://login.yandex.ru/info"
 
+    def build_authorization_url(
+        self,
+        *,
+        client_id: str,
+        client_secret: str | None = None,
+        redirect_uri: str,
+        state: str,
+        return_url: str | None,
+        workspace_id: str,
+        auth_provider: str | None = None,
+    ) -> str:
+        authorization_url = super().build_authorization_url(
+            client_id=client_id,
+            client_secret=client_secret,
+            redirect_uri=redirect_uri,
+            state=state,
+            return_url=return_url,
+            workspace_id=workspace_id,
+            auth_provider=auth_provider,
+        )
+        return f"{authorization_url}&force_confirm=1"
+
     def verify_callback(
         self,
         query: dict[str, str],

@@ -20,6 +20,12 @@
   const processingListProjectionRequests = new Map();
   const processingListProjectionLastFetchedAt = new Map();
   const processingListProjectionStates = new Map();
+  const resetProcessingListProjectionState = () => {
+    processingListProjectionRequests.forEach((entry) => entry.controller?.abort());
+    processingListProjectionRequests.clear();
+    processingListProjectionLastFetchedAt.clear();
+    processingListProjectionStates.clear();
+  };
   const selectedMeetingIds = new Set();
   const announcedUploadProgressBuckets = new Map();
   const announcedUploadProgressMetadata = new Map();
@@ -416,7 +422,10 @@
 
   const renderMeetingListRecovery = (kind, requestEvent = null) => {
     const authorizationLost = ["session", "workspace", "access"].includes(kind);
-    if (authorizationLost) meetingListRequestGeneration += 1;
+    if (authorizationLost) {
+      meetingListRequestGeneration += 1;
+      resetProcessingListProjectionState();
+    }
     const target = document.querySelector("#meeting-list-region");
     if (!target) return;
     const copy = {
@@ -545,6 +554,7 @@
     const request = event.detail?.xhr;
     if (!request || typeof request !== "object" || authoritativeMeetingListRequests.has(request)) return;
     meetingListRequestGeneration += 1;
+    resetProcessingListProjectionState();
     activeMeetingListRequests += 1;
     authoritativeMeetingListRequests.add(request);
     authoritativeMeetingListRequestGenerations.set(request, meetingListRequestGeneration);
@@ -973,6 +983,8 @@
         if (event.detail) event.detail.shouldSwap = false;
         return;
       }
+      meetingListRequestGeneration += 1;
+      resetProcessingListProjectionState();
       rememberMeetingListRequestFocus(event);
     });
     document.body.addEventListener("htmx:afterRequest", finishAuthoritativeMeetingListRequest);
@@ -2238,8 +2250,15 @@
     return status;
   };
 
-  const renderProcessingListProjection = (row, projection) => {
-    if (!row.isConnected) return;
+  const renderProcessingListProjection = (row, projection, generation) => {
+    const rowMeetingId = String(row?.dataset.meetingId || "");
+    if (
+      !row?.isConnected
+      || !currentList()?.contains(row)
+      || !rowMeetingId
+      || String(projection?.meeting_id || "") !== rowMeetingId
+      || generation !== meetingListRequestGeneration
+    ) return;
     const transcriptReady = processingTranscriptReady(projection);
     const summaryState = processingSummaryState(projection);
     const retryClass = String(projection?.retry_class || "none");
@@ -2269,22 +2288,35 @@
   const requestProcessingListProjection = (row) => {
     const meetingId = String(row.dataset.meetingId || "");
     if (!meetingId) return;
+    const generation = meetingListRequestGeneration;
     const now = Date.now();
-    if (processingListProjectionRequests.has(meetingId)) return;
+    const existing = processingListProjectionRequests.get(meetingId);
+    if (existing?.generation === generation) return;
+    if (existing) {
+      existing.controller?.abort();
+      processingListProjectionRequests.delete(meetingId);
+    }
     if (now - (processingListProjectionLastFetchedAt.get(meetingId) || 0) < 15000) return;
     processingListProjectionLastFetchedAt.set(meetingId, now);
+    const controller = typeof AbortController === "function" ? new AbortController() : null;
     const request = fetch(`/api/v1/meetings/${encodeURIComponent(meetingId)}/processing`, {
       credentials: "same-origin",
       cache: "no-store",
       headers: { Accept: "application/json" },
+      ...(controller ? { signal: controller.signal } : {}),
     });
-    processingListProjectionRequests.set(meetingId, request);
+    const entry = { controller, generation };
+    processingListProjectionRequests.set(meetingId, entry);
     void request.then(async (response) => {
       if (!response.ok) return;
       const projection = await response.json();
-      if (projection && typeof projection === "object") renderProcessingListProjection(row, projection);
+      if (projection && typeof projection === "object") {
+        renderProcessingListProjection(row, projection, generation);
+      }
     }).catch(() => {}).finally(() => {
-      processingListProjectionRequests.delete(meetingId);
+      if (processingListProjectionRequests.get(meetingId) === entry) {
+        processingListProjectionRequests.delete(meetingId);
+      }
     });
   };
 

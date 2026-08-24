@@ -23,6 +23,7 @@ from twobrain_rec_server.auth.dependencies import (
     auth_session_cookie_name,
     auth_session_cookie_secure,
 )
+from twobrain_rec_server.auth.rate_limit import auth_rate_limit_attempt_count
 from twobrain_rec_server.auth.sessions import (
     callback_expiry,
     fingerprint_identity,
@@ -62,6 +63,10 @@ _EMAIL_AUTH_COOKIE_DOMAIN = "graf.email-auth-browser-cookie.v1"
 
 class _AmbiguousEmailIdentityError(RuntimeError):
     pass
+
+
+class EmailCodeRetryResponse(HTMLResponse):
+    """Recoverable code error that must retain the browser binding cookie."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -257,6 +262,19 @@ async def _create_email_login_state(
         code=code,
         browser_nonce=browser_nonce or "",
     )
+    if provider != EMAIL_LINK_PROVIDER:
+        expected_state = ".".join(
+            (
+                expected_state,
+                _email_auth_browser_binding_state(
+                    secret=secret,
+                    provider=provider,
+                    state_nonce=state_nonce,
+                    email=email,
+                    browser_nonce=browser_nonce or "",
+                ),
+            )
+        )
     state = AuthCallbackState(
         provider=provider,
         state_nonce=state_nonce,
@@ -377,7 +395,22 @@ async def _consume_email_login_code(
         code=code,
         browser_nonce=browser_nonce or "",
     )
-    if not hmac.compare_digest(state.expected_state, supplied_digest):
+    expected_code_digest, separator, expected_browser_digest = state.expected_state.partition(".")
+    browser_binding_valid = (
+        not separator
+        or bool(browser_nonce)
+        and hmac.compare_digest(
+            expected_browser_digest,
+            _email_auth_browser_binding_state(
+                secret=request.app.state.web_csrf_secret,
+                provider=provider,
+                state_nonce=state_nonce,
+                email=email,
+                browser_nonce=browser_nonce or "",
+            ),
+        )
+    )
+    if not browser_binding_valid or not hmac.compare_digest(expected_code_digest, supplied_digest):
         await apply_tenant_context(db, WorkspaceAuthContext(workspace_id=workspace_id))
         await _record_email_login_audit(
             db,
@@ -386,19 +419,38 @@ async def _consume_email_login_code(
             outcome="failure",
             error_code="email_code_invalid",
         )
-        await _finalize_email_callback(
+        if not browser_binding_valid or separator == "":
+            await _finalize_email_callback(
+                db,
+                state=state,
+                result="failed",
+                now=now,
+                error_code="email_code_invalid",
+            )
+            return _email_code_error_response(
+                request=request,
+                email=email,
+                state_nonce=state_nonce,
+                next_path=next_path,
+                error="email_code_invalid",
+                flow=flow,
+            )
+        attempt_count = await auth_rate_limit_attempt_count(
             db,
-            state=state,
-            result="failed",
-            now=now,
-            error_code="email_code_invalid",
+            workspace_id=workspace_id,
+            action_key="email_code_verify_state",
+            raw_scope=state_nonce,
+            scope_secret=request.app.state.settings.share_identity_hash_secret,
         )
+        # Keep the state pending for the first two typos. On the third, show the
+        # same recovery state as the next rate-limited request.
+        error = "auth_rate_limited" if attempt_count >= 3 else "email_code_wrong"
         return _email_code_error_response(
             request=request,
             email=email,
             state_nonce=state_nonce,
             next_path=next_path,
-            error="email_code_invalid",
+            error=error,
             flow=flow,
         )
     internal_workspace_id = request.app.state.settings.web_login_workspace_id
@@ -1128,7 +1180,8 @@ def _email_code_error_response(
     flow: str = "login",
     csrf_token: str | None = None,
 ) -> HTMLResponse:
-    return HTMLResponse(
+    response_type = EmailCodeRetryResponse if error == "email_code_wrong" else HTMLResponse
+    return response_type(
         render_email_code_page(
             email=email,
             state_nonce=state_nonce,
@@ -1261,6 +1314,24 @@ def _email_auth_expected_state(
         for encoded in (part.encode("utf-8") for part in parts)
     )
     return hmac.new(secret.encode("utf-8"), payload, hashlib.sha256).hexdigest()
+
+
+def _email_auth_browser_binding_state(
+    *,
+    secret: str,
+    provider: str,
+    state_nonce: str,
+    email: str,
+    browser_nonce: str,
+) -> str:
+    return _email_auth_expected_state(
+        secret=secret,
+        provider=f"{provider}.browser-binding",
+        state_nonce=state_nonce,
+        email=email,
+        code="",
+        browser_nonce=browser_nonce,
+    )
 
 
 def _should_echo_email_code(request: Request) -> bool:

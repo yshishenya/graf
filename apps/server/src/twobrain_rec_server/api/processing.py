@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.admin.queries import load_admin_workspace_context
@@ -84,19 +84,28 @@ async def trigger_processing_pickup(
 )
 async def get_processing_status(
     meeting_id: UUID,
+    http_response: Response,
     tenant_scope: TenantScope = TenantDependency,
     db: AsyncSession | None = DbDependency,
 ) -> ProcessingStatusResponse:
+    http_response.headers["Cache-Control"] = "private, no-store"
+    http_response.headers["Pragma"] = "no-cache"
     if db is None:
         raise ProblemDetail(status=503, code="processing_store_unavailable", title="Processing store unavailable")
-    response = await get_content_safe_processing_status(
+    status = await get_content_safe_processing_status(
         db,
         workspace_id=tenant_scope.workspace_id,
         meeting_id=meeting_id,
     )
-    if response is None:
+    if status is None:
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
-    return response
+    if status.meeting_id != meeting_id:
+        raise ProblemDetail(
+            status=500,
+            code="processing_status_identity_mismatch",
+            title="Processing status unavailable",
+        )
+    return status
 
 
 @router.post(
