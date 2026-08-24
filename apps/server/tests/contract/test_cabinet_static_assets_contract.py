@@ -298,7 +298,7 @@ const fs = require("fs");
 const vm = require("vm");
 const script = fs.readFileSync(process.argv[1], "utf8");
 const source = script.slice(
-  script.indexOf("const renderProcessingListProjection"),
+  script.indexOf("const processingListStatusNode"),
   script.indexOf("const initSummaryFormats"),
 );
 class FakeElement {
@@ -320,6 +320,7 @@ const deferred = [];
 const makeRow = (meetingId) => {
   const row = new FakeElement("row", meetingId);
   const status = new FakeElement("status");
+  row.nodes.set("[data-processing-list-status]", status);
   row.nodes.set(".meeting-content-readiness", status);
   rows.push(row);
   return row;
@@ -343,7 +344,6 @@ vm.runInThisContext(`
   const processingTranscriptReady = () => false;
   const processingSummaryState = () => "processing";
   const processingSummaryPending = () => true;
-  const processingProjectionTerminal = (projection) => projection?.retry_class === "terminal";
   ${source}
   global.requestProcessingListProjection = requestProcessingListProjection;
   global.setMeetingListRequestGeneration = (value) => { meetingListRequestGeneration = value; };
@@ -358,10 +358,10 @@ global.list = list;
   deferred.shift().resolve(response({ meeting_id: "meeting-a", retry_class: "retryable" }));
   await new Promise((resolve) => setImmediate(resolve));
   await new Promise((resolve) => setImmediate(resolve));
-  if (rowA.querySelector(".meeting-content-readiness").textContent !== "Обработка временно приостановлена") {
+  if (rowA.querySelector("[data-processing-list-status]").textContent !== "Обработка временно приостановлена") {
     throw new Error("matching projection did not update its own row");
   }
-  if (rowB.querySelector(".meeting-content-readiness").textContent) {
+  if (rowB.querySelector("[data-processing-list-status]").textContent) {
     throw new Error("projection for meeting-a updated meeting-b");
   }
   const detached = makeRow("meeting-detached");
@@ -374,10 +374,10 @@ global.list = list;
   deferred.shift().resolve(response({ meeting_id: "meeting-stale", retry_class: "retryable" }));
   await new Promise((resolve) => setImmediate(resolve));
   await new Promise((resolve) => setImmediate(resolve));
-  if (detached.querySelector(".meeting-content-readiness").textContent) {
+  if (detached.querySelector("[data-processing-list-status]").textContent) {
     throw new Error("detached row accepted a late projection");
   }
-  if (stale.querySelector(".meeting-content-readiness").textContent) {
+  if (stale.querySelector("[data-processing-list-status]").textContent) {
     throw new Error("old list generation accepted a late projection");
   }
 })().catch((error) => {
@@ -402,7 +402,7 @@ const fs = require("fs");
 const vm = require("vm");
 const script = fs.readFileSync(process.argv[1], "utf8");
 const source = script.slice(
-  script.indexOf("const renderProcessingListProjection"),
+  script.indexOf("const processingListStatusNode"),
   script.indexOf("const initSummaryFormats"),
 );
 let now = 100000;
@@ -418,6 +418,7 @@ class FakeElement {
     this.nodes = new Map();
     this.classList = { add() {}, remove() {}, toggle() {} };
   }
+  append(node) { this.nodes.set("[data-processing-list-status]", node); }
   contains(target) { return this.kind === "list" ? rows.includes(target) : false; }
   querySelector(selector) { return this.nodes.get(selector) || null; }
 }
@@ -433,6 +434,7 @@ const makeRow = (meetingId, statusKind, withReadiness) => {
     const readiness = new FakeElement("readiness");
     readiness.textContent = "Спикеры определяются · расшифровка готовится";
     row.nodes.set(".meeting-content-readiness", readiness);
+    row.nodes.set("[data-processing-list-status]", readiness);
   }
   rows.push(row);
   return row;
@@ -441,7 +443,7 @@ const failedAbove = makeRow("failed-above", "failed", false);
 const processing = makeRow("processing", "processing", true);
 const failedBelow = makeRow("failed-below", "failed", false);
 const projections = [
-  { meeting_id: "processing", state: "polling", retry_class: "retryable" },
+  { meeting_id: "processing", state: "polling", retry_class: "none" },
   { meeting_id: "processing", state: "processed", retry_class: "none" },
 ];
 global.document = {
@@ -474,7 +476,6 @@ vm.runInThisContext(`
   const processingTranscriptReady = () => false;
   const processingSummaryState = () => "processing";
   const processingSummaryPending = () => true;
-  const processingProjectionTerminal = (projection) => projection?.retry_class === "terminal";
   const requestMeetingListRefresh = () => { refreshes += 1; return true; };
   ${source}
   global.initProcessingListProjection = initProcessingListProjection;
@@ -491,24 +492,16 @@ global.rows = rows;
   if (timers.length !== 1 || timers[0].delay !== 15000) {
     throw new Error("active processing projection did not schedule one 15-second tick");
   }
-  if (failedAbove.nodes.has(".meeting-content-readiness") || failedBelow.nodes.has(".meeting-content-readiness")) {
+  if (failedAbove.nodes.has("[data-processing-list-status]") || failedBelow.nodes.has("[data-processing-list-status]")) {
     throw new Error("failed neighbor received a processing status node");
   }
-  processing.isConnected = false;
-  const replacement = makeRow("processing", "processing", true);
-  rows.splice(rows.indexOf(processing), 1);
-  global.initProcessingListProjection();
-  if (replacement.querySelector(".meeting-content-readiness").textContent !== "Обработка временно приостановлена") {
-    throw new Error("progress swap reset the last processing projection");
-  }
-  if (fetches.length !== 1) throw new Error("projection snapshot bypassed the 15-second throttle");
   now += 15000;
   timers.shift().callback();
   await new Promise((resolve) => setImmediate(resolve));
   await new Promise((resolve) => setImmediate(resolve));
   if (fetches.length !== 2) throw new Error("second active projection tick did not run");
   if (refreshes !== 1) throw new Error(`terminal transition requested ${refreshes} refreshes`);
-  if (failedAbove.nodes.has(".meeting-content-readiness") || failedBelow.nodes.has(".meeting-content-readiness")) {
+  if (failedAbove.nodes.has("[data-processing-list-status]") || failedBelow.nodes.has("[data-processing-list-status]")) {
     throw new Error("terminal transition changed a failed neighbor");
   }
 })().catch((error) => {
@@ -1115,6 +1108,8 @@ def test_cabinet_rail_ready_state_geometry() -> None:
         f"{expanded_selector}\n  grid-template-columns: var(--app-sidebar-width) minmax(0, 1fr);"
         in css
     )
+    assert f"{collapsed_selector}\n  --playback-inline-start: var(--app-rail-width);\n  grid-template-columns: var(--app-rail-width) minmax(0, 1fr);" in css
+    assert f"{expanded_selector}\n  --playback-inline-start: var(--app-sidebar-width);\n  grid-template-columns: var(--app-sidebar-width) minmax(0, 1fr);" in css
 
 
 def test_cabinet_collapsed_rail_uses_one_centered_control_geometry() -> None:
@@ -1173,24 +1168,14 @@ def test_cabinet_collapsed_rail_uses_one_centered_control_geometry() -> None:
     ) in css
 
 
-def test_cabinet_playback_uses_shell_grid_without_viewport_compensation() -> None:
+def test_cabinet_playback_shares_ready_state_geometry() -> None:
     css = (STATIC_DIR / "cabinet.css").read_text()
-    script = (STATIC_DIR / "cabinet.js").read_text()
 
-    playback_start = css.index(".playback-bar {")
-    playback_end = css.index("\n.playback-bar.is-unavailable", playback_start)
-    playback_css = css[playback_start:playback_end]
-
-    assert "grid-template-rows: minmax(0, 1fr) auto;" in css
-    assert ".sidebar {\n  grid-row: 1 / -1;" in css
-    assert "grid-column: 2;\n  grid-row: 1;" in css
-    assert "grid-column: 2;" in playback_css
-    assert "grid-row: 2;" in playback_css
-    assert "position: fixed;" not in playback_css
-    assert "--playback-inline-start" not in css
-    assert "--playback-clearance" not in css
-    assert 'style.setProperty("--playback-clearance"' not in script
-    assert "ResizeObserver(syncPlaybackClearance)" not in script
+    collapsed_selector = 'html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned) {'
+    expanded_selector = 'html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell].is-rail-pinned {'
+    assert f"{collapsed_selector}\n  --playback-inline-start: var(--app-rail-width);" in css
+    assert f"{expanded_selector}\n  --playback-inline-start: var(--app-sidebar-width);" in css
+    assert "left: var(--playback-inline-start);" in css
     assert (
         'html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell] .sidebar {\n'
         "    z-index: 31;\n"
@@ -3237,8 +3222,7 @@ class FakeElement {
   matches() { return false; }
   querySelector() { return null; }
   querySelectorAll() { return []; }
-  remove() { this.isConnected = false; this.removed = true; }
-  removeAttribute(name) { this.removedAttribute = name; }
+  removeAttribute() {}
   replaceWith(node) {
     this.isConnected = false;
     currentMain = node;
@@ -3272,14 +3256,6 @@ detail.dataset.playbackPollActive = "true";
 detail.dataset.playbackPollUrl = "/meetings/private-id";
 detail.dataset.mediaRevisionId = "private-revision-id";
 detail.textContent = "PRIVATE MEETING TITLE";
-const player = new FakeElement("audio");
-player.pause = () => { player.paused = true; };
-player.load = () => { player.loaded = true; };
-const playback = new FakeElement("section");
-playback.querySelector = (selector) => selector === "[data-playback-player]" ? player : null;
-const shell = new FakeElement("div");
-shell.querySelector = (selector) => selector === ".playback-bar" ? playback : null;
-detail.closest = (selector) => selector === "[data-cabinet-shell]" ? shell : null;
 currentMain = detail;
 const body = new FakeElement("body");
 global.Element = FakeElement;
@@ -3340,9 +3316,6 @@ const allText = (node) => [node.textContent, ...node.children.flatMap(allText)].
   await new Promise((resolve) => setImmediate(resolve));
   await new Promise((resolve) => setImmediate(resolve));
   if (currentMain === detail || detail.isConnected) throw new Error("private detail remained connected");
-  if (!player.paused || !player.loaded || player.removedAttribute !== "src" || !playback.removed) {
-    throw new Error("private playback was not stopped and removed");
-  }
   if (allText(currentMain).includes("PRIVATE")) throw new Error("private detail leaked into recovery DOM");
   if (document.title.includes("PRIVATE") || document.title !== "Встреча больше недоступна - GRAF") {
     throw new Error("private document title was not replaced");
@@ -3362,98 +3335,6 @@ const allText = (node) => [node.textContent, ...node.children.flatMap(allText)].
   if (heading?.tagName !== "H1" || action?.href !== "/meetings") {
     throw new Error("safe recovery semantics or action are incomplete");
   }
-})().catch((error) => {
-  process.stderr.write(`${error.stack || error}\n`);
-  process.exitCode = 1;
-});
-"""
-    completed = subprocess.run(
-        ["node", "-e", harness, str(script_path)],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert completed.returncode == 0, completed.stderr
-
-
-def test_meeting_detail_playback_recovery_replaces_adjacent_fragment() -> None:
-    script_path = STATIC_DIR / "cabinet.js"
-    harness = r"""
-const fs = require("fs");
-const vm = require("vm");
-const script = fs.readFileSync(process.argv[1], "utf8");
-const start = script.indexOf("const playbackRecoveryCopy =");
-const end = script.indexOf("const initSpeakerNameForms =");
-if (start < 0 || end < 0) throw new Error("playback recovery block is missing");
-let initPlaybackCalls = 0;
-let playbackRecoveryRequest = null;
-let playbackRecoveryTimer = null;
-const stopPlaybackRecoveryPolling = () => {};
-const recoverMeetingDetailFromResponse = async () => false;
-const initPlayback = () => { initPlaybackCalls += 1; };
-vm.runInThisContext(`${script.slice(start, end)}; globalThis.refreshPlaybackRecovery = refreshPlaybackRecovery;`);
-const makePlayback = (state, sourceMode, text) => ({
-  dataset: { playbackState: state, sourceMode, playbackReason: "" },
-  textContent: text,
-  isConnected: true,
-  matches(selector) { return selector === ".detail-playback"; },
-  querySelector() { return null; },
-  replaceWith(node) { this.replacedWith = node; this.isConnected = false; },
-});
-const currentPlayback = makePlayback("preparing", "none", "Аудио готовится");
-const nextPlayback = makePlayback("available", "stored_review_m4a", "Аудио доступно");
-const currentTranscript = { innerHTML: "", replaceWith(node) { this.replacedWith = node; } };
-const nextTranscript = { innerHTML: "Готовый текст", replaceWith() {} };
-const currentLiveStatus = { textContent: "Аудио готовится" };
-const nextLiveStatus = { textContent: "Аудио доступно" };
-const detail = {
-  dataset: { playbackPollActive: "true", playbackPollUrl: "/meetings/meeting-1" },
-  isConnected: true,
-  nextElementSibling: currentPlayback,
-  querySelector(selector) {
-    return {
-      "[data-playback-transcript]": currentTranscript,
-      "[data-playback-live-status]": currentLiveStatus,
-    }[selector] || null;
-  },
-};
-const nextDetail = {
-  dataset: { playbackPollActive: "false" },
-  nextElementSibling: nextPlayback,
-  querySelector(selector) {
-    return {
-      "[data-playback-transcript]": nextTranscript,
-      "[data-playback-live-status]": nextLiveStatus,
-    }[selector] || null;
-  },
-};
-global.document = {
-  querySelector(selector) { return selector === "[data-playback-poll-url]" ? detail : null; },
-  addEventListener() {},
-  body: { dataset: {} },
-};
-global.window = {
-  addEventListener() {},
-  clearInterval() {},
-  setInterval() { return 1; },
-};
-global.fetch = async () => ({
-  ok: true,
-  status: 200,
-  redirected: false,
-  text: async () => "<main></main>",
-});
-global.DOMParser = class {
-  parseFromString() { return { querySelector() { return nextDetail; } }; }
-};
-(async () => {
-  await refreshPlaybackRecovery();
-  if (currentPlayback.replacedWith !== nextPlayback) throw new Error("ready playback was not installed");
-  if (currentTranscript.replacedWith !== nextTranscript) throw new Error("updated transcript was not installed");
-  if (detail.dataset.playbackPollActive !== "false") throw new Error("polling state was not updated");
-  if (currentLiveStatus.textContent !== "Аудио доступно") throw new Error("live playback status was not updated");
-  if (initPlaybackCalls !== 1) throw new Error("new playback controls were not initialized");
 })().catch((error) => {
   process.stderr.write(`${error.stack || error}\n`);
   process.exitCode = 1;

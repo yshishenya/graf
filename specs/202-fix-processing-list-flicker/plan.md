@@ -51,14 +51,11 @@ metadata-only evidence и upload/playback polling
    текущие identity/generation/AbortController fences.
 5. При `processed`, `blocked`, `failed_terminal` или `canceled` не рисовать
    client terminal copy, а один раз вызвать существующий authoritative list refresh.
-6. При upload/playback progress swap сохранить bounded projection state и
-   синхронно восстановить его только на совпавшей processing-строке.
 
 ## Validation Plan
 
 1. Сначала добавить failing regression на server poll contract и JS sequence:
-   active processing + две failed строки + progress swap + повторные ticks +
-   terminal transition.
+   active processing + две failed строки + повторные ticks + terminal transition.
 2. Запустить focused rendering/list/static-asset tests.
 3. Запустить cabinet fragment/list integration tests и JS syntax/Ruff checks.
 4. Проверить browser и embedded-width rendering на локальном metadata-only fixture.

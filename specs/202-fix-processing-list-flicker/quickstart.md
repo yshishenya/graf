@@ -27,8 +27,6 @@ ruff check \
 
 - failed / processing / failed rows сохраняют порядок, текст и высоту;
 - повторные projection ticks меняют только central readiness node;
-- смешанный processing + uploading/playback progress swap сохраняет видимый
-  processing-текст без дополнительного запроса projection;
 - terminal transition выполняет один list refresh;
 - keyboard focus и selected row сохраняются.
 
