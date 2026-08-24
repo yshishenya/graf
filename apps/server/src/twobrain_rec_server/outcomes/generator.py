@@ -175,15 +175,19 @@ class LiteLLMGateway:
 def canonical_transcript(segments: Sequence[OutcomeTranscriptSegment]) -> str:
     rows = [
         {
+            "attribution_state": segment.attribution_state,
             "end_seconds": str(segment.end_seconds),
+            "provider_speaker_key": segment.provider_speaker_key,
+            "result_state": segment.result_state,
             "sequence": segment.sequence,
             "source_role": segment.source_role,
+            "speaker_key": segment.speaker_key,
             "speaker_label": segment.speaker_label,
             "start_seconds": str(segment.start_seconds),
             "text": segment.text,
             "transcript_segment_id": str(segment.segment_id),
         }
-        for segment in sorted(segments, key=lambda item: (item.sequence, item.start_seconds))
+        for segment in segments
     ]
     return canonical_json(rows)
 
@@ -252,7 +256,7 @@ def _error_response_payload(response: object) -> dict[str, object]:
 
 
 def generate_outcomes(segments: Sequence[OutcomeTranscriptSegment]) -> GeneratedOutcomePayload:
-    ordered = [segment for segment in sorted(segments, key=lambda item: (item.sequence, item.start_seconds)) if segment_text(segment)]
+    ordered = [segment for segment in segments if segment_text(segment)]
     items_by_category: dict[str, list[GeneratedOutcomeItem]] = {category: [] for category in CATEGORIES}
     states = {category: "not_found" for category in CATEGORIES}
     if not ordered:

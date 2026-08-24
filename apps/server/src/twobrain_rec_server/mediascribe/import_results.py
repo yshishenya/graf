@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+from decimal import ROUND_HALF_UP, Decimal
+from uuid import UUID
 
+from twobrain_rec_server.domain.speaker_turns import canonical_speaker_model
 from twobrain_rec_server.domain.statuses import ProcessingAvailabilityStatus
 from twobrain_rec_server.mediascribe.schemas import MediaScribeResult
 
@@ -24,27 +27,94 @@ class MediaScribeResultValidationError(ValueError):
     pass
 
 
-def normalize_source_role(role: str) -> str:
+def _persisted_seconds(value: float) -> Decimal:
+    return Decimal(str(value)).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
+
+
+def normalize_source_role(role: str | None) -> str:
+    if not isinstance(role, str) or not role.strip():
+        return "unknown_provider_state"
     normalized = ROLE_ALIASES.get(role.strip().lower())
-    if normalized is None:
-        raise MediaScribeResultValidationError("unsupported_source_role")
-    return normalized
+    # Provider source roles are intentionally opaque. Keep a bounded raw value
+    # on the segment while projecting a future role to a safe non-semantic
+    # value instead of failing an otherwise usable result.
+    return normalized or "unknown_provider_state"
 
 
 def normalize_result(result: MediaScribeResult) -> MediaScribeResult:
-    if result.transcript_status == ProcessingAvailabilityStatus.UNAVAILABLE:
+    if (
+        result.transcript_status == ProcessingAvailabilityStatus.UNAVAILABLE
+        and not result.diarization
+    ):
         return result.model_copy(update={"transcript": [], "diarization": []})
     transcript = []
-    for segment in result.transcript:
-        if segment.end_seconds < segment.start_seconds:
-            raise MediaScribeResultValidationError("invalid_transcript_timing")
-        transcript.append(segment.model_copy(update={"source_role": normalize_source_role(segment.source_role)}))
+    source_transcript = (
+        []
+        if result.transcript_status == ProcessingAvailabilityStatus.UNAVAILABLE
+        else result.transcript
+    )
+    for segment in source_transcript:
+        normalized_role = normalize_source_role(segment.source_role)
+        transcript.append(
+            segment.model_copy(
+                update={
+                    "source_role": normalized_role,
+                    "source_role_original": segment.source_role_original
+                    or segment.source_role
+                    if normalized_role == "unknown_provider_state"
+                    else segment.source_role_original,
+                }
+            )
+        )
     diarization = []
-    for segment in result.diarization:
-        if segment.end_seconds < segment.start_seconds:
-            raise MediaScribeResultValidationError("invalid_diarization_timing")
-        diarization.append(segment.model_copy(update={"source_role": normalize_source_role(segment.source_role)}))
-    return result.model_copy(update={"transcript": transcript, "diarization": diarization})
+    for segment in result.diarization or []:
+        normalized_role = normalize_source_role(segment.source_role)
+        diarization.append(
+            segment.model_copy(
+                update={
+                    "source_role": normalized_role,
+                    "source_role_original": segment.source_role_original
+                    or segment.source_role
+                    if normalized_role == "unknown_provider_state"
+                    else segment.source_role_original,
+                }
+            )
+        )
+    diagnostics = canonical_speaker_model(
+        [
+            segment.model_copy(
+                update={
+                    "start_seconds": _persisted_seconds(segment.start_seconds),
+                    "end_seconds": _persisted_seconds(segment.end_seconds),
+                }
+            )
+            for segment in transcript
+        ],
+        [
+            segment.model_copy(
+                update={
+                    "start_seconds": _persisted_seconds(segment.start_seconds),
+                    "end_seconds": _persisted_seconds(segment.end_seconds),
+                }
+            )
+            for segment in diarization
+        ],
+        processing_result_id=UUID(int=0),
+        provider_job_id=result.external_job_id,
+        provider_versions={
+            "result_version": result.provider_result_version or result.result_version,
+            "build_version": result.provider_build_version,
+            "model_version": result.provider_model_version,
+            "alignment_version": result.alignment_version,
+        },
+    ).diagnostics
+    return result.model_copy(
+        update={
+            "transcript": transcript,
+            "diarization": diarization,
+            "attribution_diagnostics": diagnostics,
+        }
+    )
 
 
 def result_digest(result: MediaScribeResult) -> str:

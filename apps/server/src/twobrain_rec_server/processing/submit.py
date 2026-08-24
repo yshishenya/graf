@@ -3,6 +3,7 @@ from __future__ import annotations
 import shutil
 import tempfile
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
 
@@ -44,15 +45,11 @@ from twobrain_rec_server.processing.reasons import (
     FAILURE_SOURCE_MEDIASCRIBE,
     INVALID_AUDIO_PAYLOAD,
     MEDIASCRIBE_MALFORMED_RESPONSE,
-    MEDIASCRIBE_RATE_LIMITED,
-    MEDIASCRIBE_RESULT_NOT_READY,
-    MEDIASCRIBE_SERVER_ERROR,
     MEDIASCRIBE_SUBMISSION_IN_PROGRESS,
-    MEDIASCRIBE_TIMEOUT,
     NO_RECOGNIZABLE_SPEECH,
     PROCESSING_TEMP_STORAGE_UNAVAILABLE,
-    UNKNOWN_DEPENDENCY_STATUS,
 )
+from twobrain_rec_server.processing.recovery import schedule_retry, schedule_retry_with_settings
 from twobrain_rec_server.processing.store import ProcessingLifecycleBlocked
 
 DOWNLOAD_CHUNK_BYTES = 4 * 1024 * 1024
@@ -76,6 +73,43 @@ class ArtifactStagingError(RuntimeError):
 
 class TempStorageUnavailableError(RuntimeError):
     pass
+
+
+def _provider_retry_at(value: str | None) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed.astimezone(UTC) if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
+def _schedule_processing_retry(
+    workflow: ProcessingWorkflow,
+    *,
+    retry_after_seconds: int | None,
+    settings: object | None = None,
+) -> None:
+    scheduler = schedule_retry_with_settings if settings is not None else schedule_retry
+    schedule = scheduler(
+        now=datetime.now(UTC),
+        retry_count=int(workflow.retry_count or 0),
+        generation=int(workflow.schedule_generation or 0),
+        retry_after=(
+            timedelta(seconds=max(0, int(retry_after_seconds)))
+            if retry_after_seconds is not None
+            else None
+        ),
+        deadline_at=workflow.deadline_at,
+        source="provider_retry_after" if retry_after_seconds is not None else None,
+        **({"settings": settings} if settings is not None else {}),
+    )
+    workflow.retry_class = "retryable"
+    workflow.retry_count = schedule.retry_count
+    workflow.schedule_generation = schedule.generation
+    workflow.next_attempt_at = schedule.next_attempt_at
+    workflow.next_attempt_source = schedule.source
 
 
 async def _cancel_stale_processing(
@@ -184,16 +218,30 @@ async def submit_to_mediascribe(
         and existing_job.status == MediaScribeJobStatus.BLOCKED.value
         and existing_job.last_error_code == BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN
     ):
+        # The provider may already have accepted the multipart body.  Keep the
+        # durable key and source fingerprint fenced to this workflow, then
+        # replay the same request for reconciliation.  A new key is never
+        # generated on this path.
+        if (
+            not existing_job.idempotency_key
+            or not existing_job.source_fingerprint
+            or existing_job.source_fingerprint != workflow.source_fingerprint
+        ):
+            await store.set_workflow_status(
+                db,
+                workflow,
+                ProcessingStatus.BLOCKED_UNKNOWN,
+                reason_code=BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN,
+            )
+            raise MediaScribeClientError(
+                BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN,
+                retryable=False,
+            )
         await store.set_workflow_status(
             db,
             workflow,
-            ProcessingStatus.BLOCKED,
+            ProcessingStatus.BLOCKED_UNKNOWN,
             reason_code=BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN,
-            terminal=True,
-        )
-        raise MediaScribeClientError(
-            BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN,
-            retryable=False,
         )
     if legacy_lineage:
         # A legacy row may finish polling an already-submitted provider job,
@@ -235,6 +283,8 @@ async def submit_to_mediascribe(
         source_artifact=source.source_artifact,
         request_mode=source.request_mode,
         source_fingerprint=workflow.source_fingerprint,
+        diarize=settings.mediascribe_diarize,
+        summarize=settings.mediascribe_summarize,
     )
     claim_token = await store.claim_mediascribe_submission(db, job=job)
     if claim_token is None:
@@ -247,13 +297,9 @@ async def submit_to_mediascribe(
                 MEDIASCRIBE_SUBMISSION_IN_PROGRESS,
                 retryable=True,
             )
-    transitioned = await store.set_workflow_status(
-        db, workflow, ProcessingStatus.SUBMITTING
-    )
+    transitioned = await store.set_workflow_status(db, workflow, ProcessingStatus.SUBMITTING)
     if transitioned.status != ProcessingStatus.SUBMITTING.value:
-        await store.release_mediascribe_submission_claim(
-            db, job=job, claim_token=claim_token
-        )
+        await store.release_mediascribe_submission_claim(db, job=job, claim_token=claim_token)
         raise MediaScribeClientError("processing_workflow_terminal", retryable=False)
     # upsert/claim/status each commit the durable idempotency handoff. Keep an
     # explicit transaction boundary here so staging never inherits a lifecycle
@@ -268,7 +314,9 @@ async def submit_to_mediascribe(
                 if media_artifact is None:
                     raise ArtifactStagingError("source_artifact_missing")
                 media_path = temp_path / (
-                    "meeting-transcription.wav" if source.is_v5_mixed_recording else "source-media.bin"
+                    "meeting-transcription.wav"
+                    if source.is_v5_mixed_recording
+                    else "source-media.bin"
                 )
                 await _stage_artifact(
                     storage,
@@ -287,10 +335,16 @@ async def submit_to_mediascribe(
                 with media_path.open("rb") as media_file:
                     response = await mediascribe_client.submit_single_track(
                         media_file=media_file,
-                        media_content_type="audio/wav" if source.is_v5_mixed_recording else media_artifact.codec,
-                        media_filename="meeting-transcription.wav" if source.is_v5_mixed_recording else None,
-                        diarize=settings.mediascribe_diarize,
-                        summarize=settings.mediascribe_summarize,
+                        media_content_type="audio/wav"
+                        if source.is_v5_mixed_recording
+                        else media_artifact.codec,
+                        media_filename="meeting-transcription.wav"
+                        if source.is_v5_mixed_recording
+                        else None,
+                        diarize=bool(job.diarize),
+                        summarize=bool(job.summarize),
+                        num_speakers=job.num_speakers,
+                        speaker_count_mode=job.speaker_count_mode,
                         idempotency_key=job.idempotency_key,
                     )
             else:
@@ -320,20 +374,18 @@ async def submit_to_mediascribe(
                     response = await mediascribe_client.submit_dual_track(
                         mic_file=mic_file,
                         incoming_file=incoming_file,
-                        diarize=settings.mediascribe_diarize,
-                        summarize=settings.mediascribe_summarize,
+                        diarize=bool(job.diarize),
+                        summarize=bool(job.summarize),
+                        num_speakers=job.num_speakers,
+                        speaker_count_mode=job.speaker_count_mode,
                         idempotency_key=job.idempotency_key,
                     )
     except ProcessingLifecycleBlocked as exc:
-        await store.release_mediascribe_submission_claim(
-            db, job=job, claim_token=claim_token
-        )
+        await store.release_mediascribe_submission_claim(db, job=job, claim_token=claim_token)
         await _cancel_stale_processing(db, workflow=workflow, reason=exc)
         raise
     except ArtifactStagingError as exc:
-        await store.release_mediascribe_submission_claim(
-            db, job=job, claim_token=claim_token
-        )
+        await store.release_mediascribe_submission_claim(db, job=job, claim_token=claim_token)
         await store.set_workflow_status(
             db,
             workflow,
@@ -343,9 +395,7 @@ async def submit_to_mediascribe(
         )
         raise RuntimeError(BLOCKED_MISSING_ARTIFACTS) from exc
     except TempStorageUnavailableError as exc:
-        await store.release_mediascribe_submission_claim(
-            db, job=job, claim_token=claim_token
-        )
+        await store.release_mediascribe_submission_claim(db, job=job, claim_token=claim_token)
         await store.set_workflow_status(
             db,
             workflow,
@@ -354,9 +404,7 @@ async def submit_to_mediascribe(
         )
         raise RuntimeError(PROCESSING_TEMP_STORAGE_UNAVAILABLE) from exc
     except OSError as exc:
-        await store.release_mediascribe_submission_claim(
-            db, job=job, claim_token=claim_token
-        )
+        await store.release_mediascribe_submission_claim(db, job=job, claim_token=claim_token)
         await store.set_workflow_status(
             db,
             workflow,
@@ -366,14 +414,7 @@ async def submit_to_mediascribe(
         raise RuntimeError(PROCESSING_TEMP_STORAGE_UNAVAILABLE) from exc
     except MediaScribeClientError as exc:
         malformed = exc.reason_code == MEDIASCRIBE_MALFORMED_RESPONSE
-        retryable_after_unknown_egress = exc.reason_code in {
-            MEDIASCRIBE_RATE_LIMITED,
-            MEDIASCRIBE_RESULT_NOT_READY,
-            MEDIASCRIBE_SERVER_ERROR,
-            MEDIASCRIBE_TIMEOUT,
-            UNKNOWN_DEPENDENCY_STATUS,
-        }
-        if exc.egress_state == "unknown" and not malformed and not retryable_after_unknown_egress:
+        if exc.egress_state == "unknown":
             await store.mark_mediascribe_submission_unknown(
                 db,
                 job=job,
@@ -382,9 +423,8 @@ async def submit_to_mediascribe(
             await store.set_workflow_status(
                 db,
                 workflow,
-                ProcessingStatus.BLOCKED,
+                ProcessingStatus.BLOCKED_UNKNOWN,
                 reason_code=BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN,
-                terminal=True,
             )
             raise MediaScribeClientError(
                 BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN,
@@ -395,16 +435,23 @@ async def submit_to_mediascribe(
             if malformed or not exc.retryable
             else ProcessingStatus.FAILED_RETRYABLE
         )
-        await store.release_mediascribe_submission_claim(
-            db, job=job, claim_token=claim_token
-        )
+        await store.release_mediascribe_submission_claim(db, job=job, claim_token=claim_token)
         await store.update_mediascribe_job_status(
             db,
             job=job,
             status=MediaScribeJobStatus.FAILED,
             reason_code=exc.reason_code,
             error_message=exc.reason_code,
+            retryable=exc.retryable,
+            retry_after_seconds=exc.retry_after_seconds,
+            request_id=exc.request_id,
         )
+        if status == ProcessingStatus.FAILED_RETRYABLE:
+            _schedule_processing_retry(
+                workflow,
+                retry_after_seconds=exc.retry_after_seconds,
+                settings=settings,
+            )
         await store.set_workflow_status(
             db,
             workflow,
@@ -461,7 +508,9 @@ async def _stage_artifact(
     download_to_path = getattr(storage, "download_to_path", None)
     try:
         if download_to_path_async is not None:
-            downloaded = await download_to_path_async(object_key, target_path, chunk_size=DOWNLOAD_CHUNK_BYTES)
+            downloaded = await download_to_path_async(
+                object_key, target_path, chunk_size=DOWNLOAD_CHUNK_BYTES
+            )
         elif download_to_path is not None:
             downloaded = await to_thread.run_sync(
                 lambda: download_to_path(object_key, target_path, chunk_size=DOWNLOAD_CHUNK_BYTES)
@@ -561,7 +610,13 @@ async def poll_and_import_mediascribe_result(
     outcome_generation_enabled: bool = False,
 ) -> ImportProcessingResult:
     if job.external_job_id is None:
-        await store.set_workflow_status(db, workflow, ProcessingStatus.FAILED_TERMINAL, reason_code="missing_external_job_id", terminal=True)
+        await store.set_workflow_status(
+            db,
+            workflow,
+            ProcessingStatus.FAILED_TERMINAL,
+            reason_code="missing_external_job_id",
+            terminal=True,
+        )
         return ImportProcessingResult(imported=False, status=ProcessingStatus.FAILED_TERMINAL)
     try:
         await _ensure_processing_fence(db, workflow)
@@ -584,7 +639,12 @@ async def poll_and_import_mediascribe_result(
             status=MediaScribeJobStatus.FAILED,
             reason_code=exc.reason_code,
             error_message=exc.reason_code,
+            retryable=exc.retryable,
+            retry_after_seconds=exc.retry_after_seconds,
+            request_id=exc.request_id,
         )
+        if status == ProcessingStatus.FAILED_RETRYABLE:
+            _schedule_processing_retry(workflow, retry_after_seconds=exc.retry_after_seconds)
         await store.set_workflow_status(
             db,
             workflow,
@@ -607,9 +667,19 @@ async def poll_and_import_mediascribe_result(
                 status=poll.status,
                 reason_code=poll.reason_code,
                 error_message=poll.error_origin,
+                retryable=False,
+                provider_status=poll.status_raw,
+                provider_queue_state=poll.queue_state_raw,
+                provider_attempt=poll.attempt,
+                provider_max_attempts=poll.max_attempts,
+                retry_after_seconds=poll.retry_after_seconds,
+                provider_next_retry_at=_provider_retry_at(poll.next_retry_at),
+                request_id=poll.request_id,
             )
             if _is_input_audio_failure(poll):
-                return await _persist_input_audio_failure_result(db=db, workflow=workflow, job=job, poll=poll)
+                return await _persist_input_audio_failure_result(
+                    db=db, workflow=workflow, job=job, poll=poll
+                )
             await store.set_workflow_status(
                 db,
                 workflow,
@@ -629,10 +699,32 @@ async def poll_and_import_mediascribe_result(
                 failure_source=FAILURE_SOURCE_MEDIASCRIBE,
             )
             return ImportProcessingResult(imported=False, status=ProcessingStatus.FAILED_TERMINAL)
-        await store.update_mediascribe_job_status(db, job=job, status=poll.status, reason_code=poll.reason_code)
+        await store.update_mediascribe_job_status(
+            db,
+            job=job,
+            status=poll.status,
+            reason_code=poll.reason_code,
+            provider_status=poll.status_raw,
+            provider_queue_state=poll.queue_state_raw,
+            provider_attempt=poll.attempt,
+            provider_max_attempts=poll.max_attempts,
+            retry_after_seconds=poll.retry_after_seconds,
+            provider_next_retry_at=_provider_retry_at(poll.next_retry_at),
+            request_id=poll.request_id,
+        )
         return ImportProcessingResult(imported=False, status=ProcessingStatus.POLLING)
 
-    await store.update_mediascribe_job_status(db, job=job, status=poll.status, reason_code=poll.reason_code)
+    await store.update_mediascribe_job_status(
+        db,
+        job=job,
+        status=poll.status,
+        reason_code=poll.reason_code,
+        provider_status=poll.status_raw,
+        provider_queue_state=poll.queue_state_raw,
+        provider_attempt=poll.attempt,
+        provider_max_attempts=poll.max_attempts,
+        request_id=poll.request_id,
+    )
     await store.set_workflow_status(db, workflow, ProcessingStatus.IMPORTING)
     try:
         await _ensure_processing_fence(db, workflow)
@@ -640,7 +732,9 @@ async def poll_and_import_mediascribe_result(
         await _cancel_stale_processing(db, workflow=workflow, reason=exc)
         return ImportProcessingResult(imported=False, status=ProcessingStatus.CANCELED)
     try:
-        result = _classify_ready_result(normalize_result(await mediascribe_client.fetch_result(job.external_job_id)))
+        result = _classify_ready_result(
+            normalize_result(await mediascribe_client.fetch_result(job.external_job_id))
+        )
     except MediaScribeClientError as exc:
         malformed = exc.reason_code == MEDIASCRIBE_MALFORMED_RESPONSE
         status = (
@@ -654,7 +748,12 @@ async def poll_and_import_mediascribe_result(
             status=MediaScribeJobStatus.FAILED,
             reason_code=exc.reason_code,
             error_message=exc.reason_code,
+            retryable=exc.retryable,
+            retry_after_seconds=exc.retry_after_seconds,
+            request_id=exc.request_id,
         )
+        if status == ProcessingStatus.FAILED_RETRYABLE:
+            _schedule_processing_retry(workflow, retry_after_seconds=exc.retry_after_seconds)
         await store.set_workflow_status(
             db,
             workflow,
@@ -670,6 +769,7 @@ async def poll_and_import_mediascribe_result(
             status=MediaScribeJobStatus.FAILED,
             reason_code=MEDIASCRIBE_MALFORMED_RESPONSE,
             error_message=MEDIASCRIBE_MALFORMED_RESPONSE,
+            retryable=False,
         )
         await store.set_workflow_status(
             db,
@@ -711,13 +811,17 @@ async def poll_and_import_mediascribe_result(
             workspace_id=result_row.workspace_id,
             meeting_id=result_row.meeting_id,
         )
-    await store.set_workflow_status(db, workflow, ProcessingStatus.PROCESSED, reason_code=result.failure_reason, terminal=True)
+    await store.set_workflow_status(
+        db, workflow, ProcessingStatus.PROCESSED, reason_code=result.failure_reason, terminal=True
+    )
     await _record_import_diagnostic(db, workflow=workflow, job=job, result=result)
     return ImportProcessingResult(imported=True, status=ProcessingStatus.PROCESSED)
 
 
 def _is_input_audio_failure(poll: MediaScribePollResponse) -> bool:
-    return poll.error_code == INVALID_AUDIO_PAYLOAD and poll.error_origin == FAILURE_SOURCE_INPUT_AUDIO
+    return (
+        poll.error_code == INVALID_AUDIO_PAYLOAD and poll.error_origin == FAILURE_SOURCE_INPUT_AUDIO
+    )
 
 
 def _classify_ready_result(result: MediaScribeResult) -> MediaScribeResult:
@@ -793,7 +897,10 @@ async def _record_import_diagnostic(
     job: MediaScribeJob,
     result: MediaScribeResult,
 ) -> None:
-    if result.failure_source == FAILURE_SOURCE_INPUT_AUDIO and result.transcript_status == ProcessingAvailabilityStatus.UNAVAILABLE:
+    if (
+        result.failure_source == FAILURE_SOURCE_INPUT_AUDIO
+        and result.transcript_status == ProcessingAvailabilityStatus.UNAVAILABLE
+    ):
         await _record_processing_diagnostic(
             db,
             workflow=workflow,
@@ -807,6 +914,11 @@ async def _record_import_diagnostic(
             segment_count=len(result.transcript),
         )
         return
+    attribution_metadata = (
+        result.attribution_diagnostics.as_audit_metadata()
+        if result.attribution_diagnostics is not None
+        else {}
+    )
     await store.record_processing_audit_event(
         db,
         workspace_id=workflow.workspace_id,
@@ -821,6 +933,8 @@ async def _record_import_diagnostic(
             "summary_status": result.summary_status.value,
             "transcript_status": result.transcript_status.value,
             "transcript_reason": result.transcript_reason,
+            "source_result_hash": result_digest(result),
+            **attribution_metadata,
         },
     )
 

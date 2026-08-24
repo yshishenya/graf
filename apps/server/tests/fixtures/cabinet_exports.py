@@ -64,8 +64,9 @@ def synthetic_export_fixture() -> SyntheticExportFixture:
             text=transcripts[index].text,
             source_role=transcripts[index].source_role,
         )
-        for index in (0, 1, 2, 4, 5, 6)
+        for index in range(7)
     )
+    diarization[3].speaker_label = "UNKNOWN"
     return SyntheticExportFixture(
         result_id=RESULT_ID,
         transcript_rows=transcripts,

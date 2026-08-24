@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import re
 from collections import defaultdict
 from collections.abc import Callable, Iterable
@@ -83,6 +82,11 @@ from twobrain_rec_server.domain.media_filenames import (
     media_filename_leaf,
 )
 from twobrain_rec_server.domain.metadata_text import safe_metadata_text
+from twobrain_rec_server.domain.speaker_turns import (
+    CanonicalSpeakerTurn,
+    canonical_speaker_model,
+    canonical_speech_available,
+)
 from twobrain_rec_server.domain.statuses import (
     MediaRevisionSourceKind,
     MeetingStatus,
@@ -93,6 +97,7 @@ from twobrain_rec_server.domain.statuses import (
 )
 from twobrain_rec_server.outcomes.templates import built_in_template_for_version
 from twobrain_rec_server.processing.fences import meeting_is_deleted_or_deleting
+from twobrain_rec_server.processing.results import result_lineage_is_current
 
 if TYPE_CHECKING:
     from twobrain_rec_server.auth.account_closure import AccountCloseView
@@ -308,8 +313,6 @@ STATUS_LABELS: dict[str, str] = {
     "deleted_future": "Удаляется",
 }
 
-MEDIASCRIBE_SPEAKER_LABEL_RE = re.compile(r"^SPEAKER_\d{2,}$")
-
 SORT_LABELS: dict[str, str] = {
     "updated_desc": "Недавно обновлённые",
     "updated_asc": "Давно обновлённые",
@@ -482,6 +485,7 @@ PROCESSING_STATUSES = {
     ProcessingStatus.SUBMITTING.value,
     ProcessingStatus.SUBMITTED.value,
     ProcessingStatus.POLLING.value,
+    ProcessingStatus.WAITING_RETRY.value,
     ProcessingStatus.IMPORTING.value,
 }
 
@@ -1709,11 +1713,7 @@ def meeting_list_time_label(
         timezone_offset_minutes=timezone_offset_minutes,
     )
     prefix = (
-        "Обновлено "
-        if time_basis == "updated"
-        else "Загружено "
-        if time_basis == "upload"
-        else ""
+        "Обновлено " if time_basis == "updated" else "Загружено " if time_basis == "upload" else ""
     )
     return f"{prefix}{localized.day} {SHORT_MONTH_LABELS[localized.month]}, {localized:%H:%M}"
 
@@ -2016,12 +2016,76 @@ def safe_title_candidate(raw: str | None) -> str | None:
     return safe_metadata_text(raw, max_length=500)
 
 
-def transcript_available(result: ProcessingResult | None) -> bool:
+def _result_lineage_matches(
+    result: ProcessingResult | None,
+    *,
+    media_revision_id: UUID | None = None,
+    processing_workflow_id: UUID | None = None,
+) -> bool:
+    """Keep public artifact flags pinned to the current revision lineage.
+
+    The effective result may belong to an older workflow attempt when a newer
+    attempt has only a partial result.  The database selector has already
+    fenced that result to the current media revision; attempt identity is not
+    a reason to hide the previously usable content.
+    """
+
+    if result is None:
+        return False
+    if media_revision_id is not None:
+        if result_lineage_is_current(result, media_revision_id=media_revision_id):
+            return True
+        # Detached unit/view-model fixtures may carry the revision but omit
+        # the workflow FK. DB selectors remain fail-closed before production
+        # data reaches this pure projection layer.
+        return (
+            processing_workflow_id is None
+            and getattr(result, "processing_workflow_id", None) is None
+            and getattr(result, "media_revision_id", None) in {None, media_revision_id}
+        )
+    if processing_workflow_id is not None:
+        return result.processing_workflow_id == processing_workflow_id
+    # Direct pure view-model callers may omit a context. Production database
+    # selectors fail closed before such a row reaches this projection.
+    return True
+
+
+def _transcript_artifact_available(
+    result: ProcessingResult | None,
+    *,
+    media_revision_id: UUID | None = None,
+    processing_workflow_id: UUID | None = None,
+) -> bool:
     return bool(
-        result is not None
+        _result_lineage_matches(
+            result,
+            media_revision_id=media_revision_id,
+            processing_workflow_id=processing_workflow_id,
+        )
         and result.status == ProcessingResultStatus.IMPORTED.value
-        and result.transcript_status == ProcessingAvailabilityStatus.AVAILABLE.value
-        and result.segment_count > 0
+        and canonical_speech_available(result)
+    )
+
+
+def transcript_available(
+    result: ProcessingResult | None,
+    *,
+    media_revision_id: UUID | None = None,
+    processing_workflow_id: UUID | None = None,
+) -> bool:
+    """Return the first user-usable transcript milestone, never transcript-only."""
+
+    return bool(
+        _transcript_artifact_available(
+            result,
+            media_revision_id=media_revision_id,
+            processing_workflow_id=processing_workflow_id,
+        )
+        and _diarization_artifact_available(
+            result,
+            media_revision_id=media_revision_id,
+            processing_workflow_id=processing_workflow_id,
+        )
     )
 
 
@@ -2055,12 +2119,34 @@ def previous_recurring_meeting_readiness(
     return PreviousRecurringMeetingReadiness.UNAVAILABLE
 
 
-def diarization_available(result: ProcessingResult | None) -> bool:
+def _diarization_artifact_available(
+    result: ProcessingResult | None,
+    *,
+    media_revision_id: UUID | None = None,
+    processing_workflow_id: UUID | None = None,
+) -> bool:
     return bool(
-        result is not None
+        _result_lineage_matches(
+            result,
+            media_revision_id=media_revision_id,
+            processing_workflow_id=processing_workflow_id,
+        )
         and result.status == ProcessingResultStatus.IMPORTED.value
         and result.diarization_status == ProcessingAvailabilityStatus.AVAILABLE.value
         and result.diarization_segment_count > 0
+    )
+
+
+def diarization_available(
+    result: ProcessingResult | None,
+    *,
+    media_revision_id: UUID | None = None,
+    processing_workflow_id: UUID | None = None,
+) -> bool:
+    return _diarization_artifact_available(
+        result,
+        media_revision_id=media_revision_id,
+        processing_workflow_id=processing_workflow_id,
     )
 
 
@@ -2069,11 +2155,23 @@ def review_status(
     *,
     result: ProcessingResult | None,
     workflow: ProcessingWorkflow | None,
+    media_revision_id: UUID | None = None,
 ) -> MeetingReviewStatus:
     if meeting_is_deleted_or_deleting(meeting):
         return "deleted_future"
-    has_transcript = transcript_available(result)
-    has_diarization = diarization_available(result)
+    processing_workflow_id = workflow.id if workflow is not None else None
+    # ``partial`` is an internal lifecycle state.  It must remain observable
+    # as state, but it must not promote transcript-only rows to user content.
+    has_transcript = _transcript_artifact_available(
+        result,
+        media_revision_id=media_revision_id,
+        processing_workflow_id=processing_workflow_id,
+    )
+    has_diarization = _diarization_artifact_available(
+        result,
+        media_revision_id=media_revision_id,
+        processing_workflow_id=processing_workflow_id,
+    )
     if has_transcript and has_diarization:
         return "ready"
     if has_transcript or has_diarization:
@@ -2092,6 +2190,8 @@ def review_status(
     if lifecycle_status == ProcessingStatus.NOT_SUBMITTED.value:
         return "submitted"
     if lifecycle_status == ProcessingStatus.BLOCKED.value:
+        return "blocked"
+    if lifecycle_status == ProcessingStatus.BLOCKED_UNKNOWN.value:
         return "blocked"
     if lifecycle_status in {
         ProcessingStatus.FAILED_RETRYABLE.value,
@@ -2246,7 +2346,14 @@ def build_list_item(
     previous_recurring_meeting: PreviousRecurringMeetingView | None = None,
     playback: PlaybackPreparationState | None = None,
 ) -> MeetingListItem:
-    status = review_status(meeting, result=result, workflow=workflow)
+    current_media_revision_id = media_revision.id if media_revision is not None else None
+    current_workflow_id = workflow.id if workflow is not None else None
+    status = review_status(
+        meeting,
+        result=result,
+        workflow=workflow,
+        media_revision_id=current_media_revision_id,
+    )
     source = meeting_source(media_revision)
     access_state = access or owner_access_state()
     artifact_states = artifacts or []
@@ -2270,8 +2377,16 @@ def build_list_item(
         if result is not None and status == "unavailable"
         else None,
         primary_action=primary_action_for_status(status),
-        transcript_available=transcript_available(result),
-        diarization_available=diarization_available(result),
+        transcript_available=transcript_available(
+            result,
+            media_revision_id=current_media_revision_id,
+            processing_workflow_id=current_workflow_id,
+        ),
+        diarization_available=diarization_available(
+            result,
+            media_revision_id=current_media_revision_id,
+            processing_workflow_id=current_workflow_id,
+        ),
         notes_available=notes_truth.summary.state == "available",
         notes_action_truth=notes_truth,
         updated_at=meeting.updated_at,
@@ -2373,12 +2488,32 @@ def processing_state(
     *,
     result: ProcessingResult | None,
     workflow: ProcessingWorkflow | None,
+    media_revision_id: UUID | None = None,
 ) -> ProcessingReviewState:
-    status = review_status(meeting, result=result, workflow=workflow)
-    has_transcript = transcript_available(result)
-    has_diarization = diarization_available(result)
+    processing_workflow_id = workflow.id if workflow is not None else None
+    status = review_status(
+        meeting,
+        result=result,
+        workflow=workflow,
+        media_revision_id=media_revision_id,
+    )
+    has_transcript = transcript_available(
+        result,
+        media_revision_id=media_revision_id,
+        processing_workflow_id=processing_workflow_id,
+    )
+    has_diarization = diarization_available(
+        result,
+        media_revision_id=media_revision_id,
+        processing_workflow_id=processing_workflow_id,
+    )
     summary_available = bool(
-        result is not None and result.summary_status == SummaryStatus.AVAILABLE.value
+        _result_lineage_matches(
+            result,
+            media_revision_id=media_revision_id,
+            processing_workflow_id=processing_workflow_id,
+        )
+        and result.summary_status == SummaryStatus.AVAILABLE.value
     )
     reason_code = (
         workflow.last_reason_code
@@ -2407,7 +2542,11 @@ def stage_for_status(status: str, lifecycle_status: str) -> str | None:
     if status in {"ready", "partial"}:
         return "ready"
     if status == "processing":
-        if lifecycle_status in {ProcessingStatus.SUBMITTED.value, ProcessingStatus.POLLING.value}:
+        if lifecycle_status in {
+            ProcessingStatus.SUBMITTED.value,
+            ProcessingStatus.POLLING.value,
+            ProcessingStatus.WAITING_RETRY.value,
+        }:
             return "mediascribe"
         if lifecycle_status == ProcessingStatus.IMPORTING.value:
             return "importing"
@@ -2460,12 +2599,49 @@ def reason_label(reason_code: str | None) -> str | None:
         "mediascribe_poll_limit_exceeded": "Сервис транскрипции не завершил обработку в отведённое время. Повторите позже или обратитесь к оператору.",
         "mediascribe_submission_in_progress": "Предыдущая отправка ещё выполняется. Подождите завершения и обновите страницу.",
         "mediascribe_result_not_ready": "Сервис транскрипции ещё готовит результат. Повторная проверка будет выполнена автоматически.",
+        "provider_result_not_ready": "Запись сохранена. GRAF проверит обработку автоматически; расшифровка появится после диаризации.",
+        "processing_retry_deadline_exceeded": "Автоматические попытки закончились. Проверьте обработку или обратитесь к оператору.",
+        "manual_processing_check": "GRAF проверяет текущую попытку обработки.",
         "blocked_mediascribe_submission_outcome_unknown": "Не удалось подтвердить результат отправки записи. Повторная отправка остановлена во избежание дубликата; обратитесь к оператору.",
         "blocked_missing_artifacts": "Исходный файл записи недоступен. Повторите синхронизацию или загрузите запись заново.",
         "blocked_config": "Обработка заблокирована настройкой сервера. Обратитесь к оператору.",
         "processing_temp_storage_unavailable": "На сервере временно недоступно место для обработки. Повторите позже.",
         "unknown_dependency_status": "Сервис транскрипции вернул неизвестный статус. Повторите позже.",
     }.get(reason_code, "Обработка требует проверки оператором.")
+
+
+def _same_result_transcript_rows(
+    transcript_segments: Iterable[TranscriptSegment],
+    diarization_segments: Iterable[DiarizationSegment],
+) -> bool:
+    """Require visible rows to come from one result, allowing diarization-only display rows."""
+
+    transcript_result_ids = {
+        row.processing_result_id for row in transcript_segments if row.processing_result_id is not None
+    }
+    diarization_result_ids = {
+        row.processing_result_id for row in diarization_segments if row.processing_result_id is not None
+    }
+    if not transcript_result_ids or len(transcript_result_ids) != 1:
+        return False
+    if not diarization_result_ids or len(diarization_result_ids) != 1:
+        return False
+    return transcript_result_ids == diarization_result_ids and len(transcript_result_ids) == 1
+
+
+def _hidden_transcript_state(
+    *,
+    language: str | None,
+    degraded_reason: str,
+) -> TranscriptReviewState:
+    return TranscriptReviewState(
+        available=False,
+        language=language,
+        degraded_reason=degraded_reason,
+        search_enabled=False,
+        segments=[],
+        speaker_turns=[],
+    )
 
 
 def transcript_state(
@@ -2476,37 +2652,37 @@ def transcript_state(
     status: MeetingReviewStatus,
     playback_available: bool = False,
     playback_duration_seconds: int | None = None,
-    force_speaker_labels: bool = False,
     speaker_names: dict[str, str] | None = None,
+    require_diarization: bool = False,
 ) -> TranscriptReviewState:
     transcripts = sorted(transcript_segments, key=lambda row: (row.sequence, row.start_seconds))
     diarization_rows = sorted(
         diarization_segments, key=lambda row: (row.start_seconds, row.sequence)
     )
-    diarization_display_rows = [row for row in diarization_rows if row.text.strip()]
+    if status in {"processing", "submitted"}:
+        degraded_reason = "processing"
+        return _hidden_transcript_state(
+            language=language,
+            degraded_reason=degraded_reason,
+        )
+    if status == "partial" and not _same_result_transcript_rows(transcripts, diarization_rows):
+        degraded_reason = "partial_transcript" if transcripts else "unavailable"
+        return _hidden_transcript_state(
+            language=language,
+            degraded_reason=degraded_reason,
+        )
     if status not in {"ready", "partial"}:
-        return TranscriptReviewState(
-            available=False,
+        return _hidden_transcript_state(
             language=language,
-            degraded_reason="processing"
-            if status in {"processing", "submitted"}
-            else "unavailable",
-            search_enabled=False,
-            segments=[],
+            degraded_reason="diarization_pending" if transcripts else "unavailable",
         )
-    speaker_labels_by_key = canonical_speaker_labels(diarization_rows)
+    if require_diarization and not _same_result_transcript_rows(transcripts, diarization_rows):
+        return _hidden_transcript_state(
+            language=language,
+            degraded_reason="diarization_pending" if transcripts else "unavailable",
+        )
     speaker_names = speaker_names or {}
-    if force_speaker_labels and diarization_display_rows:
-        return diarization_transcript_state(
-            language=language,
-            diarization_rows=diarization_display_rows,
-            speaker_rows=mediascribe_speaker_rows(diarization_rows),
-            status=status,
-            playback_available=playback_available,
-            playback_duration_seconds=playback_duration_seconds,
-            speaker_names=speaker_names,
-        )
-    if not transcripts:
+    if not transcripts and not diarization_rows:
         return TranscriptReviewState(
             available=False,
             language=language,
@@ -2514,94 +2690,19 @@ def transcript_state(
             search_enabled=False,
             segments=[],
         )
-    segments = []
-    mapped_rows: list[tuple[TranscriptSegmentView, bool]] = []
-    for segment in transcripts:
-        seek_seconds = _seek_seconds(
-            segment.start_seconds,
-            playback_available=playback_available,
-            playback_duration_seconds=playback_duration_seconds,
-        )
-        matching_diarization = matching_diarization_segment(segment, diarization_rows)
-        confirmed = matching_diarization is not None and bool(
-            matching_diarization.speaker_label.strip()
-        )
-        attribution_state = (
-            "confirmed"
-            if confirmed
-            else ("unconfirmed" if matching_diarization is not None else "unknown")
-        )
-        canonical_label = (
-            speaker_label_for_segment(
-                segment,
-                matching_diarization,
-                speaker_labels_by_key=speaker_labels_by_key,
-            )
-            if confirmed
-            else "UNKNOWN"
-        )
-        speaker_key = (
-            canonical_label.lower()
-            if confirmed
-            else (
-                f"unconfirmed:{matching_diarization.id}"
-                if matching_diarization is not None
-                else f"unknown:{segment.id}"
-            )
-        )
-        view = TranscriptSegmentView(
-            segment_id=str(segment.id),
-            sequence=segment.sequence,
-            start_seconds=float(segment.start_seconds),
-            end_seconds=float(segment.end_seconds),
-            timestamp_label=format_timestamp(segment.start_seconds),
-            speaker_label=speaker_names.get(speaker_key, canonical_label),
-            speaker_key=speaker_key,
-            attribution_state=attribution_state,
-            processing_result_id=segment.processing_result_id,
-            source_role=source_role_label(segment.source_role),
-            source_role_original=segment.source_role_original,
-            text=segment.text,
-            confidence_label="unknown",
-            seekable=seek_seconds is not None,
-            seek_seconds=seek_seconds,
-        )
-        segments.append(view)
-        mapped_rows.append(
-            (
-                view,
-                confirmed,
-            )
-        )
-    return TranscriptReviewState(
-        available=True,
-        language=language,
-        degraded_reason=None if status == "ready" else "partial_transcript",
-        search_enabled=True,
-        segments=segments,
-        speaker_turns=derive_speaker_turns(mapped_rows) if status == "ready" else [],
+    processing_result_id = (
+        transcripts[0].processing_result_id
+        if transcripts
+        else diarization_rows[0].processing_result_id
     )
-
-
-def diarization_transcript_state(
-    *,
-    language: str | None,
-    diarization_rows: list[DiarizationSegment],
-    speaker_rows: list[DiarizationSegment],
-    status: MeetingReviewStatus,
-    playback_available: bool,
-    playback_duration_seconds: int | None,
-    speaker_names: dict[str, str] | None = None,
-) -> TranscriptReviewState:
-    speaker_labels = mediascribe_speaker_labels_by_time(
+    model = canonical_speaker_model(
+        transcripts,
         diarization_rows,
-        speaker_rows,
+        processing_result_id=processing_result_id,
+        speaker_names=speaker_names,
     )
-    speaker_names = speaker_names or {}
-    segments = []
-    for row, canonical_label in zip(diarization_rows, speaker_labels, strict=True):
-        confirmed = canonical_label != "UNKNOWN"
-        speaker_key = canonical_label.lower() if confirmed else f"unconfirmed:{row.id}"
+    segments: list[TranscriptSegmentView] = []
+    for row in transcripts:
         seek_seconds = _seek_seconds(
             row.start_seconds,
             playback_available=playback_available,
@@ -2614,127 +2715,44 @@ def diarization_transcript_state(
                 start_seconds=float(row.start_seconds),
                 end_seconds=float(row.end_seconds),
                 timestamp_label=format_timestamp(row.start_seconds),
-                speaker_label=speaker_names.get(speaker_key, canonical_label),
-                speaker_key=speaker_key,
-                attribution_state="confirmed" if confirmed else "unconfirmed",
-                processing_result_id=row.processing_result_id,
+                speaker_label="Спикер не определён",
+                speaker_key=f"evidence:{processing_result_id.hex}",
+                provider_speaker_key=None,
+                attribution_state="uncertain",
+                result_state=model.result_state,
+                processing_result_id=processing_result_id,
                 source_role=source_role_label(row.source_role),
-                source_role_original=row.source_role,
+                source_role_original=row.source_role_original,
                 text=row.text,
                 confidence_label="unknown",
                 seekable=seek_seconds is not None,
                 seek_seconds=seek_seconds,
             )
         )
+    turns = [
+        _speaker_turn_view(
+            turn,
+            processing_result_id=processing_result_id,
+            playback_available=playback_available,
+            playback_duration_seconds=playback_duration_seconds,
+        )
+        for turn in model.turns
+    ]
     return TranscriptReviewState(
         available=True,
         language=language,
-        degraded_reason=None if status == "ready" else "partial_transcript",
+        degraded_reason=(
+            "degraded_provider_result"
+            if model.result_state == "degraded_provider_result"
+            else None
+            if status == "ready"
+            else "partial_transcript"
+        ),
         search_enabled=True,
         segments=segments,
-        speaker_turns=(
-            derive_speaker_turns(
-                [(view, view.attribution_state == "confirmed") for view in segments]
-            )
-            if status == "ready"
-            else []
-        ),
+        speaker_turns=turns,
+        result_state=model.result_state,
     )
-
-
-def canonical_turn_id(processing_result_id: UUID | None, segment_ids: Iterable[str]) -> str:
-    source_ids = tuple(segment_ids)
-    if processing_result_id is None:
-        return source_ids[0]
-    digest = hashlib.sha256(f"{processing_result_id}:{','.join(source_ids)}".encode()).hexdigest()[
-        :24
-    ]
-    return f"turn_{digest}"
-
-
-def derive_speaker_turns(
-    rows: list[tuple[TranscriptSegmentView, bool]],
-) -> list[TranscriptSpeakerTurnView]:
-    turns: list[TranscriptSpeakerTurnView] = []
-    current: list[TranscriptSegmentView] = []
-    valid_rows = [
-        row for row, _ in rows if row.start_seconds >= 0 and row.end_seconds >= row.start_seconds
-    ]
-    overlap_ids: set[str] = set()
-    timeline_rows = sorted(
-        valid_rows,
-        key=lambda row: (row.start_seconds, row.end_seconds, row.sequence, row.segment_id),
-    )
-    longest: TranscriptSegmentView | None = None
-    for row in timeline_rows:
-        if (
-            longest is not None
-            and row.start_seconds < longest.end_seconds
-            and longest.start_seconds < row.end_seconds
-        ):
-            overlap_ids.update((longest.segment_id, row.segment_id))
-        if longest is None or row.end_seconds > longest.end_seconds:
-            longest = row
-
-    def flush() -> None:
-        if not current or not any(row.text.strip() for row in current):
-            current.clear()
-            return
-        first = current[0]
-        last = current[-1]
-        turns.append(
-            TranscriptSpeakerTurnView(
-                turn_id=canonical_turn_id(
-                    first.processing_result_id,
-                    (row.segment_id for row in current),
-                ),
-                sequence=first.sequence,
-                start_seconds=first.start_seconds,
-                end_seconds=last.end_seconds,
-                timestamp_label=first.timestamp_label,
-                speaker_label=first.speaker_label,
-                speaker_key=first.speaker_key,
-                attribution_state=first.attribution_state,
-                processing_result_id=first.processing_result_id,
-                source_role=first.source_role,
-                text=" ".join(row.text.strip() for row in current if row.text.strip()),
-                source_segment_ids=[row.segment_id for row in current],
-                overlap=any(row.segment_id in overlap_ids for row in current),
-                confidence_label=first.confidence_label,
-                seekable=first.seekable,
-                seek_seconds=first.seek_seconds,
-            )
-        )
-        current.clear()
-
-    for row, confirmed in rows:
-        if row.start_seconds < 0 or row.end_seconds < row.start_seconds:
-            flush()
-            continue
-        if confirmed and row.attribution_state == "unknown":
-            row = row.model_copy(update={"attribution_state": "confirmed"})
-        if not current:
-            current.append(row)
-            continue
-        previous = current[-1]
-        gap = Decimal(str(row.start_seconds)) - Decimal(str(previous.end_seconds))
-        if (
-            row.speaker_key == previous.speaker_key
-            and row.attribution_state == "confirmed"
-            and previous.attribution_state == "confirmed"
-            and (row.source_role_original or row.source_role)
-            == (previous.source_role_original or previous.source_role)
-            and row.processing_result_id == previous.processing_result_id
-            and row.segment_id not in overlap_ids
-            and previous.segment_id not in overlap_ids
-            and Decimal("0") <= gap <= Decimal("1")
-        ):
-            current.append(row)
-            continue
-        flush()
-        current.append(row)
-    flush()
-    return turns
 
 
 def _seek_seconds(
@@ -2753,170 +2771,51 @@ def _seek_seconds(
     return seconds
 
 
-def speaker_label_for_segment(
-    segment: TranscriptSegment,
-    diarization: DiarizationSegment | None,
+def _speaker_turn_view(
+    turn: CanonicalSpeakerTurn,
     *,
-    speaker_labels_by_key: dict[str, str] | None = None,
-) -> str:
-    if diarization is None:
-        return "SPEAKER_00"
-    labels = speaker_labels_by_key or canonical_speaker_labels([diarization])
-    return labels[_speaker_identity_key(diarization)]
-
-
-def matching_diarization_segment(
-    segment: TranscriptSegment,
-    diarization_rows: Iterable[DiarizationSegment],
-) -> DiarizationSegment | None:
-    segment_source = source_role_label(segment.source_role)
-    best: DiarizationSegment | None = None
-    best_overlap = Decimal("0")
-    best_source_match = False
-    for row in diarization_rows:
-        if row.start_seconds >= segment.end_seconds:
-            break
-        overlap = min(segment.end_seconds, row.end_seconds) - max(
-            segment.start_seconds, row.start_seconds
-        )
-        if overlap <= 0:
-            continue
-        source_match = source_role_label(row.source_role) == segment_source
-        if (source_match and not best_source_match) or (
-            source_match == best_source_match and overlap > best_overlap
-        ):
-            best = row
-            best_overlap = overlap
-            best_source_match = source_match
-    return best
-
-
-def canonical_speaker_labels(diarization_segments: Iterable[DiarizationSegment]) -> dict[str, str]:
-    labels: dict[str, str] = {}
-    for row in sorted(diarization_segments, key=lambda item: (item.start_seconds, item.sequence)):
-        key = _speaker_identity_key(row)
-        if key not in labels:
-            labels[key] = f"SPEAKER_{len(labels):02d}"
-    return labels
-
-
-def _speaker_identity_key(row: DiarizationSegment) -> str:
-    raw_label = (row.speaker_label or "").strip()
-    if raw_label:
-        return raw_label
-    return f"{source_role_label(row.source_role)}:{row.sequence}"
-
-
-def is_mediascribe_speaker_label(label: str | None) -> bool:
-    return mediascribe_speaker_label(label) is not None
-
-
-def mediascribe_speaker_label(label: str | None) -> str | None:
-    if label is None:
-        return None
-    normalized = label.strip()
-    if MEDIASCRIBE_SPEAKER_LABEL_RE.fullmatch(normalized):
-        return normalized
-    return None
-
-
-def transcript_speaker_labels(
-    transcripts: list[TranscriptSegment],
-    *,
-    diarization_rows: list[DiarizationSegment],
-    diarization_by_segment_key: dict[tuple[int, SourceRoleView], DiarizationSegment],
-    force_speaker_labels: bool,
-) -> list[str]:
-    if force_speaker_labels:
-        return mediascribe_speaker_labels_by_time(
-            transcripts,
-            mediascribe_speaker_rows(diarization_rows),
-        )
-    return [
-        speaker_label_for_segment(
-            segment,
-            diarization_by_segment_key.get(
-                (segment.sequence, source_role_label(segment.source_role))
-            ),
-        )
-        for segment in transcripts
-    ]
-
-
-def mediascribe_speaker_labels_by_time(
-    segments: list[TranscriptSegment] | list[DiarizationSegment],
-    speaker_rows: list[DiarizationSegment],
-) -> list[str]:
-    if not speaker_rows:
-        return ["UNKNOWN"] * len(segments)
-    labels = ["UNKNOWN"] * len(segments)
-    cursor = 0
-    for index, segment in sorted(enumerate(segments), key=lambda item: segment_time_key(item[1])):
-        own_label = mediascribe_speaker_label(getattr(segment, "speaker_label", None))
-        if own_label is not None:
-            labels[index] = own_label
-            continue
-        midpoint = segment_midpoint(segment)
-        while cursor + 1 < len(speaker_rows) and segment_end(speaker_rows[cursor]) < midpoint:
-            cursor += 1
-        labels[index] = nearest_speaker_label_at_midpoint(midpoint, speaker_rows, cursor)
-    return labels
-
-
-def mediascribe_speaker_rows(rows: list[DiarizationSegment]) -> list[DiarizationSegment]:
-    return [row for row in rows if is_mediascribe_speaker_label(row.speaker_label)]
-
-
-def nearest_speaker_label_at_midpoint(
-    midpoint: float,
-    speaker_rows: list[DiarizationSegment],
-    cursor: int,
-) -> str:
-    last_index = len(speaker_rows) - 1
-    candidate_indexes = {max(0, cursor - 1), cursor, min(last_index, cursor + 1)}
-
-    def rank(index: int) -> tuple[float, float, int, int]:
-        row = speaker_rows[index]
-        start = segment_start(row)
-        end = segment_end(row)
-        if start <= midpoint <= end:
-            gap = 0.0
-        elif midpoint < start:
-            gap = start - midpoint
-        else:
-            gap = midpoint - end
-        return (gap, abs(segment_midpoint(row) - midpoint), row.sequence, index)
-
-    label = mediascribe_speaker_label(speaker_rows[min(candidate_indexes, key=rank)].speaker_label)
-    return label or "UNKNOWN"
-
-
-def segment_time_key(segment: TranscriptSegment | DiarizationSegment) -> tuple[float, float, int]:
-    return (segment_start(segment), segment_end(segment), segment.sequence)
-
-
-def segment_start(segment: TranscriptSegment | DiarizationSegment) -> float:
-    return float(segment.start_seconds)
-
-
-def segment_end(segment: TranscriptSegment | DiarizationSegment) -> float:
-    return float(segment.end_seconds)
-
-
-def segment_midpoint(segment: TranscriptSegment | DiarizationSegment) -> float:
-    return (segment_start(segment) + segment_end(segment)) / 2
+    processing_result_id: UUID,
+    playback_available: bool = False,
+    playback_duration_seconds: int | None = None,
+) -> TranscriptSpeakerTurnView:
+    seek_seconds = _seek_seconds(
+        turn.start_seconds,
+        playback_available=playback_available,
+        playback_duration_seconds=playback_duration_seconds,
+    )
+    return TranscriptSpeakerTurnView(
+        turn_id=turn.turn_id,
+        sequence=turn.sequence,
+        start_seconds=float(turn.start_seconds),
+        end_seconds=float(turn.end_seconds),
+        timestamp_label=format_timestamp(turn.start_seconds),
+        speaker_label=turn.speaker_label,
+        speaker_key=turn.speaker_key,
+        provider_speaker_key=turn.provider_speaker_key,
+        attribution_state=turn.attribution_state,
+        result_state=turn.result_state,
+        processing_result_id=processing_result_id,
+        source_role=source_role_label(turn.source_role),
+        text=turn.text,
+        source_segment_ids=[turn.source_segment_id],
+        overlap=turn.overlap,
+        confidence_label="unknown",
+        seekable=seek_seconds is not None,
+        seek_seconds=seek_seconds,
+    )
 
 
 def speaker_state(
     diarization_segments: Iterable[DiarizationSegment],
     *,
-    force_speaker_labels: bool = False,
+    transcript_segments: Iterable[TranscriptSegment] = (),
     speaker_names: dict[str, str] | None = None,
     can_rename: bool = False,
 ) -> SpeakerReviewState:
     speaker_names = speaker_names or {}
     rows = sorted(diarization_segments, key=lambda row: (row.start_seconds, row.sequence))
-    if not rows:
+    transcripts = sorted(transcript_segments, key=lambda row: (row.sequence, row.start_seconds))
+    if not rows and not transcripts:
         return SpeakerReviewState(
             available=False,
             assignment_state="reserved",
@@ -2925,35 +2824,36 @@ def speaker_state(
             can_rename=False,
         )
 
-    grouped: dict[str, list[DiarizationSegment]] = defaultdict(list)
-    labels_by_key: dict[str, str] = {}
-    if force_speaker_labels:
-        speaker_labels = mediascribe_speaker_labels_by_time(rows, mediascribe_speaker_rows(rows))
-        for row, speaker_label in zip(rows, speaker_labels, strict=True):
-            speaker_key = speaker_label.lower()
-            labels_by_key[speaker_key] = speaker_label
-            grouped[speaker_key].append(row)
-    else:
-        speaker_labels_by_key = canonical_speaker_labels(rows)
-        for row in rows:
-            speaker_label = speaker_labels_by_key[_speaker_identity_key(row)]
-            speaker_key = speaker_label.lower()
-            labels_by_key[speaker_key] = speaker_label
-            grouped[speaker_key].append(row)
-    total = sum(max(0.0, float(row.end_seconds) - float(row.start_seconds)) for row in rows) or 1.0
+    result_id = rows[0].processing_result_id if rows else transcripts[0].processing_result_id
+    model = canonical_speaker_model(
+        transcripts,
+        rows,
+        processing_result_id=result_id,
+        speaker_names=speaker_names,
+    )
+    grouped = defaultdict(list)
+    for turn in model.turns:
+        grouped[turn.speaker_key].append(turn)
+    total = model.talk_time_denominator_seconds or Decimal("1")
     speakers: list[SpeakerLane] = []
     for speaker_key, speaker_rows in grouped.items():
-        speaker_label = labels_by_key[speaker_key]
+        first = speaker_rows[0]
         duration = sum(
-            max(0.0, float(row.end_seconds) - float(row.start_seconds)) for row in speaker_rows
+            (max(Decimal("0"), row.end_seconds - row.start_seconds) for row in speaker_rows),
+            start=Decimal("0"),
         )
         source_roles = _unique(source_role_label(row.source_role) for row in speaker_rows)
+        confirmed = first.attribution_state == "confirmed"
         speakers.append(
             SpeakerLane(
                 speaker_key=speaker_key,
-                label=speaker_names.get(speaker_key, speaker_label),
-                display_name=speaker_names.get(speaker_key),
-                talk_time_percent=round(duration / total * 100),
+                label=first.speaker_label,
+                display_name=(
+                    first.speaker_label
+                    if confirmed and first.speaker_label != first.canonical_label
+                    else None
+                ),
+                talk_time_percent=round(float(duration / total * 100)),
                 source_roles=source_roles,
                 segments=[
                     SpeakerLaneSegment(
@@ -2962,14 +2862,22 @@ def speaker_state(
                     for row in speaker_rows
                 ],
                 confidence_label="unknown",
+                provider_speaker_key=first.provider_speaker_key,
+                confirmed=confirmed,
+                can_rename=can_rename and confirmed,
             )
         )
     return SpeakerReviewState(
         available=True,
         assignment_state="reserved",
-        degraded_reason=None,
+        degraded_reason=(
+            "degraded_provider_result" if model.result_state == "degraded_provider_result" else None
+        ),
+        turns=[_speaker_turn_view(turn, processing_result_id=result_id) for turn in model.turns],
         speakers=speakers,
-        can_rename=can_rename,
+        can_rename=can_rename and bool(model.confirmed_speaker_keys),
+        result_state=model.result_state,
+        talk_time_label=model.talk_time_label,
     )
 
 
@@ -3132,6 +3040,35 @@ def notes_action_truth_state(
         )
 
     if status in {"ready", "partial"}:
+        if result is not None and result.summary_status in {
+            SummaryStatus.FAILED.value,
+            SummaryStatus.UNAVAILABLE.value,
+        }:
+            summary = _notes_action_category(
+                state="unavailable",
+                label="Outcomes unavailable",
+                reason="Итоги не удалось подготовить. Расшифровка остаётся доступной независимо от этого сбоя.",
+                readiness_impact="non_blocking",
+                copy_key="notes.summary.unavailable",
+            )
+            deferred = _notes_action_category(
+                state="deferred",
+                label="Outcome deferred",
+                reason="Эта категория появится после отдельной подготовки итогов.",
+                readiness_impact="keeps_gap_open",
+                copy_key="notes.outcomes.deferred",
+            )
+            return NotesActionTruthState(
+                summary=summary,
+                key_points=deferred,
+                decisions=deferred,
+                action_items=deferred,
+                followups=deferred,
+                risks=deferred,
+                questions=deferred,
+                evidence=deferred,
+                source_basis="processing_status",
+            )
         if result is not None and result.summary_status == SummaryStatus.AVAILABLE.value:
             summary = _notes_action_category(
                 state="blocked",
@@ -3392,21 +3329,72 @@ def build_review_response(
     speaker_names: dict[str, str] | None = None,
     can_rename_speakers: bool = False,
 ) -> MeetingReviewResponse:
+    current_media_revision_id = media_revision.id if media_revision is not None else None
+    current_lineage = result_lineage_is_current(
+        result,
+        media_revision_id=current_media_revision_id,
+    )
+    if not current_lineage and result is not None and workflow is None:
+        # Pure view-model callers historically supplied detached ORM fixtures
+        # without the DB lineage context. Production selectors never do this:
+        # they require an accepted revision and a non-null workflow lineage.
+        current_lineage = (
+            media_revision is None
+            or result.media_revision_id is None
+            or result.media_revision_id == current_media_revision_id
+        )
+    safe_result = result if current_lineage else None
+    safe_outcome_set = (
+        outcome_set
+        if current_lineage
+        and result is not None
+        and outcome_set is not None
+        and outcome_set.processing_result_id == result.id
+        else None
+    )
+    safe_outcome_items = outcome_items if safe_outcome_set is not None else []
+    if current_lineage and result is not None:
+        # Query code already pins these rows to ``result.id``.  Keep the
+        # invariant at the projection boundary as well so stale/mixed rows
+        # cannot become transcript, search, speaker, or source-link content.
+        transcript_segments = [
+            row
+            for row in transcript_segments
+            if row.processing_result_id == result.id
+            and row.meeting_id == meeting.id
+            and row.workspace_id == meeting.workspace_id
+        ]
+        diarization_segments = [
+            row
+            for row in diarization_segments
+            if row.processing_result_id == result.id
+            and row.meeting_id == meeting.id
+            and row.workspace_id == meeting.workspace_id
+        ]
+    else:
+        transcript_segments = []
+        diarization_segments = []
     access_state = access or owner_access_state()
     artifact_states = artifacts or []
     item = build_list_item(
         meeting,
         media_revision=media_revision,
-        result=result,
+        result=safe_result,
         workflow=workflow,
         access=access_state,
         artifacts=artifact_states,
         calendar_context=calendar_context,
         playback=review_playback,
     )
+    row_visibility = _same_result_transcript_rows(transcript_segments, diarization_segments)
+    if not row_visibility:
+        item.transcript_available = False
     status = cast(MeetingReviewStatus, item.status)
     notes_truth = notes_action_truth_state(
-        status=status, result=result, outcome_set=outcome_set, outcome_items=outcome_items or []
+        status=status,
+        result=safe_result,
+        outcome_set=safe_outcome_set,
+        outcome_items=safe_outcome_items,
     )
     item.notes_available = notes_truth.summary.state == "available"
     item.notes_action_truth = notes_truth
@@ -3416,10 +3404,14 @@ def build_review_response(
         review_playback,
         media_revision=media_revision,
     )
-    force_speaker_labels = (
-        media_revision is not None
-        and media_revision.source_kind == MediaRevisionSourceKind.MANUAL_UPLOAD.value
+    processing_projection = processing_state(
+        meeting,
+        result=safe_result,
+        workflow=workflow,
+        media_revision_id=current_media_revision_id,
     )
+    if not row_visibility:
+        processing_projection.transcript_available = False
     return MeetingReviewResponse(
         meeting=item,
         calendar_context=calendar_context_summary(
@@ -3435,20 +3427,20 @@ def build_review_response(
             diarization_segments=diarization_segments,
             dependency=dependency,
         ),
-        processing=processing_state(meeting, result=result, workflow=workflow),
+        processing=processing_projection,
         transcript=transcript_state(
-            language=result.language if result is not None else None,
+            language=safe_result.language if safe_result is not None else None,
             transcript_segments=transcript_segments,
             diarization_segments=diarization_segments,
             status=status,
             playback_available=playback.available,
             playback_duration_seconds=playback.duration_seconds,
-            force_speaker_labels=force_speaker_labels,
             speaker_names=speaker_names,
+            require_diarization=True,
         ),
         speakers=speaker_state(
-            diarization_segments,
-            force_speaker_labels=force_speaker_labels,
+            diarization_segments if row_visibility else [],
+            transcript_segments=transcript_segments if row_visibility else [],
             speaker_names=speaker_names,
             can_rename=can_rename_speakers,
         ),
@@ -3470,7 +3462,7 @@ def build_review_response(
         deletion_truth_copy=DELETION_TRUTH_COPY,
         assistant=slot_state("Assistant"),
         template=summary_template_slot(
-            outcome_set,
+            safe_outcome_set,
             personal_name=outcome_template_name,
             default_template_key=default_summary_template_key,
             default_template_name=default_summary_template_name,

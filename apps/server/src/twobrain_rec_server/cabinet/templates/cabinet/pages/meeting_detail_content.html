@@ -1,6 +1,6 @@
 {% import "cabinet/components/sections.html" as sections %}
 
-<main id="cabinet-main" class="main detail-page-main" tabindex="-1" data-media-revision-id="{{ media_revision_id }}" data-local-media-revision-id="{{ local_media_revision_id }}" data-playback-poll-url="{{ playback_poll_url }}" data-playback-poll-active="{{ playback_poll_active }}">
+<main id="cabinet-main" class="main detail-page-main" tabindex="-1" data-meeting-id="{{ meeting_id }}" data-media-revision-id="{{ media_revision_id }}" data-local-media-revision-id="{{ local_media_revision_id }}" data-processing-status-url="{% if media_revision_id %}/api/v1/meetings/{{ meeting_id }}/processing{% endif %}" data-processing-check-url="{% if media_revision_id %}/api/v1/meetings/{{ meeting_id }}/processing/check{% endif %}" data-processing-attempt-url="{% if media_revision_id %}/api/v1/meetings/{{ meeting_id }}/processing/attempt{% endif %}" data-playback-poll-url="{{ playback_poll_url }}" data-playback-poll-active="{{ playback_poll_active }}">
   <p class="sr-only" id="playback-live-status" data-playback-live-status role="status" aria-live="polite" aria-atomic="true">{{ playback_live_label }}</p>
   <div class="meeting-detail-header" data-meeting-detail-header>
     <div class="topline">
@@ -26,6 +26,37 @@
   </div>
   <section class="detail-main">
     {{ calendar_context_chooser }}
+    {% if media_revision_id %}
+    <section class="processing-recovery" data-processing-recovery aria-labelledby="processing-recovery-title" aria-busy="true">
+      <div class="processing-recovery-header">
+        <div>
+          <p class="processing-recovery-kicker">Обработка записи</p>
+          <h2 id="processing-recovery-title" data-processing-recovery-title tabindex="-1">Проверяем статус обработки…</h2>
+          <p class="processing-recovery-copy" id="processing-recovery-copy" data-processing-recovery-copy>Спикеры ещё определяются. Расшифровка появится после завершения диаризации.</p>
+        </div>
+        <p class="processing-recovery-countdown" data-processing-countdown aria-live="off" hidden></p>
+      </div>
+      <ol class="processing-stage-list" aria-label="Этапы обработки записи" data-processing-stage-list>
+        <li data-processing-stage-item="source"><span>Запись</span><span data-processing-stage-status>Проверяем…</span></li>
+        <li data-processing-stage-item="transcript"><span>Расшифровка</span><span data-processing-stage-status>Проверяем…</span></li>
+        <li data-processing-stage-item="diarization"><span>Спикеры</span><span data-processing-stage-status>Проверяем…</span></li>
+        <li data-processing-stage-item="summary"><span>Итоги</span><span data-processing-stage-status>Проверяем…</span></li>
+      </ol>
+      <div class="processing-recovery-actions">
+        <button type="button" class="button primary" data-processing-check aria-describedby="processing-recovery-copy" aria-busy="true" disabled>Проверить обработку</button>
+        <button type="button" class="button primary" data-processing-new-attempt aria-describedby="processing-recovery-copy" aria-busy="false" hidden>Начать обработку заново</button>
+        <button type="button" class="button quiet" data-processing-refresh hidden>Обновить страницу</button>
+        <a class="button quiet" href="{{ base_path }}">К списку встреч</a>
+      </div>
+    </section>
+    <p class="sr-only" data-processing-live role="status" aria-live="polite" aria-atomic="true"></p>
+    {% endif %}
+    {% if speaker_attribution_notice_title %}
+    <section class="cabinet-banner" role="status" data-speaker-attribution-notice>
+      <h2>{{ speaker_attribution_notice_title }}</h2>
+      <p>{{ speaker_attribution_notice_body }}</p>
+    </section>
+    {% endif %}
     <section class="tab-panel{% if outcomes_selected %} active{% endif %}" role="tabpanel" id="detail-panel-outcomes" aria-labelledby="detail-tab-outcomes" data-detail-panel="outcomes"{% if not outcomes_selected %} hidden{% endif %}>
       {% if summary_controls_available %}
       <div class="summary-format-toolbar" data-summary-format-controls data-meeting-id="{{ meeting_id }}" data-current-outcome-set-id="{{ current_outcome_set_id }}" data-current-summary-format-key="{{ current_summary_format_key }}" data-current-summary-format-template-id="{{ current_summary_format_template_id }}" data-current-summary-format-version="{{ current_summary_format_version }}" data-current-template-id="{{ current_summary_format_id }}" data-current-template-key="{{ current_summary_format_key }}" data-current-template-version="{{ current_summary_format_version }}" data-current-template-name="{{ current_summary_format }}">
@@ -49,11 +80,18 @@
       <h2 class="sr-only">Итоги</h2>
       {% endif %}
       <div class="summary-candidate-status" data-summary-candidate-status role="status" aria-live="polite" aria-atomic="true" hidden></div>
+      <div class="processing-summary-status" data-processing-summary-status role="status" aria-live="off" aria-atomic="true" hidden></div>
       <div class="summary-candidate-preview" data-summary-candidate-preview hidden></div>
       {{ outcomes }}
     </section>
     <section class="tab-panel{% if not outcomes_selected %} active{% endif %}" role="tabpanel" id="detail-panel-recording" aria-labelledby="detail-tab-recording" data-detail-panel="recording"{% if outcomes_selected %} hidden{% endif %}>
-      <div class="transcript" data-playback-transcript>{{ transcript }}</div>
+      {% if media_revision_id %}
+      <div class="transcript-processing-placeholder" data-transcript-pending>
+        <strong>Спикеры ещё определяются</strong>
+        <span>Расшифровка появится после завершения диаризации.</span>
+      </div>
+      {% endif %}
+      <div class="transcript" data-playback-transcript{% if media_revision_id %} hidden aria-hidden="true"{% endif %}>{{ transcript }}</div>
     </section>
   </section>
   {{ playback }}

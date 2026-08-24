@@ -29,7 +29,11 @@ from twobrain_rec_server.billing.catalog import (
     plan_descriptor,
     validate_plan_version,
 )
-from twobrain_rec_server.billing.checkout import build_checkout_intent, checkout_preview
+from twobrain_rec_server.billing.checkout import (
+    CheckoutPreview,
+    build_checkout_intent,
+    checkout_preview,
+)
 from twobrain_rec_server.billing.entitlements import effective_plan_code
 from twobrain_rec_server.billing.history import mask_payment_method
 from twobrain_rec_server.billing.launch_gates import (
@@ -218,6 +222,7 @@ def _checkout_result_redirect(
     result: str,
     *,
     promo_code: str | None = None,
+    cycle: str | None = None,
 ) -> RedirectResponse:
     """Keep only the recoverable checkout field across a result redirect.
 
@@ -227,7 +232,10 @@ def _checkout_result_redirect(
     them.
     """
 
-    response = RedirectResponse(f"/billing/checkout?result={result}", status_code=303)
+    query = {"result": result}
+    if cycle in {"month", "year"}:
+        query["cycle"] = cycle
+    response = RedirectResponse(f"/billing/checkout?{urlencode(query)}", status_code=303)
     try:
         value = normalize_promo(promo_code) if promo_code else ""
     except PromoError:
@@ -246,6 +254,8 @@ def _checkout_result_redirect(
             secure=request.url.scheme == "https",
             path="/billing/checkout",
         )
+    else:
+        response.delete_cookie(_CHECKOUT_PROMO_COOKIE, path="/billing/checkout")
     return response
 
 MOSCOW = ZoneInfo("Europe/Moscow")
@@ -336,6 +346,54 @@ def _billing_price_label(amount_minor: int | None) -> str | None:
     if amount_minor % 100 == 0:
         return f"{amount_minor // 100:,} ₽".replace(",", " ")
     return f"{amount_minor / 100:,.2f} ₽".replace(",", " ")
+
+
+def checkout_preview_labels(
+    preview: CheckoutPreview,
+    *,
+    discount_percent: int | None = None,
+    discount_source: str | None = None,
+) -> dict[str, str]:
+    """Build safe Russian labels for the server-calculated checkout summary."""
+    discount_minor = preview.list_amount_minor - preview.payable_amount_minor
+    discount_label = "Без скидки"
+    if discount_minor > 0 and discount_percent is not None:
+        source_label = "реферальная скидка, " if discount_source == "referral" else ""
+        discount_label = f"−{_billing_price_label(discount_minor)} ({source_label}{discount_percent}%)"
+    return {
+        "cycle_label": "месяц" if preview.cycle == "month" else "год",
+        "list_amount_label": _billing_price_label(preview.list_amount_minor) or "—",
+        "discount_label": discount_label,
+        "payable_amount_label": _billing_price_label(preview.payable_amount_minor) or "—",
+        "next_amount_label": _billing_price_label(preview.list_amount_minor) or "—",
+    }
+
+
+def _choose_checkout_discount(
+    *,
+    amount_minor: int,
+    cycle: str,
+    provider_floor_minor: int,
+    promo: PromoCode | None,
+    referral_candidate: PromoCode | None,
+) -> tuple[PromoCode | None, str | None]:
+    candidates = tuple(candidate for candidate in (promo, referral_candidate) if candidate is not None)
+    chosen, _ = choose_best_discount(
+        amount_minor=amount_minor,
+        plan_code="personal",
+        cycle=cycle,
+        provider_floor_minor=provider_floor_minor,
+        candidates=candidates,
+        strict_first=promo is not None,
+    )
+    discount_source = (
+        "referral"
+        if chosen is referral_candidate and referral_candidate is not None
+        else "promo"
+        if chosen is not None
+        else None
+    )
+    return chosen, discount_source
 
 
 def _annual_saving_label(monthly_amount_minor: int | None, annual_amount_minor: int | None) -> str | None:
@@ -481,6 +539,55 @@ async def _approved_personal_catalog(
     return approved
 
 
+async def _load_checkout_promo(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    raw_code: str,
+    cycle: str,
+    now: datetime,
+    lock: bool = False,
+) -> tuple[PromoCode, PromotionCampaign]:
+    """Load and validate one campaign for preview or the final invoice."""
+    normalized = normalize_promo(raw_code)
+    query = select(PromotionCampaign).where(
+        PromotionCampaign.code_hash == promo_code_hash(normalized),
+        PromotionCampaign.enabled.is_(True),
+    )
+    if lock:
+        query = query.with_for_update()
+    campaign = await db.scalar(query)
+    if campaign is None:
+        raise PromoError("Промокод не распознан")
+    used = await db.scalar(
+        select(func.count(PromotionRedemption.id)).where(
+            PromotionRedemption.workspace_id == workspace_id,
+            PromotionRedemption.campaign_id == campaign.id,
+            PromotionRedemption.state == "redeemed",
+        )
+    )
+    promo = PromoCode(
+        code=normalized,
+        discount_percent=campaign.discount_percent,
+        plan_code=campaign.plan_code,
+        max_redemptions=campaign.max_redemptions,
+        redeemed=campaign.redeemed_count,
+        cycle=campaign.cycle,
+        campaign_version=campaign.campaign_version,
+        starts_at=campaign.starts_at,
+        ends_at=campaign.ends_at,
+    )
+    check_eligibility(
+        promo=promo,
+        plan_code="personal",
+        cycle=cycle,
+        now=now,
+        workspace_redemptions=int(used or 0),
+        active_reservations=campaign.reserved_count,
+    )
+    return promo, campaign
+
+
 async def _billing_role(
     db: AsyncSession | None,
     *,
@@ -607,6 +714,50 @@ async def _referral_attribution_for_lineage(
         if attribution is not None:
             return attribution
     return None
+
+
+async def _checkout_referral_candidate(
+    db: AsyncSession,
+    *,
+    request: Request,
+    tenant_scope: TenantScope,
+    principal: AuthenticatedPrincipal,
+) -> tuple[PromoCode | None, ReferralAttribution | None, set[UUID]]:
+    """Read the same optional referral discount used by final checkout."""
+    lineage = merged_user_lineage(principal.user_id)
+    lineage_ids = set(await db.scalars(select(lineage.c.user_id)))
+    lineage_ids.add(principal.user_id)
+    lineage_user_ids = (
+        principal.user_id,
+        *sorted(lineage_ids - {principal.user_id}, key=str),
+    )
+    referred = None
+    try:
+        referral_cookie = request.cookies.get("graf_referral_token")
+        if referral_cookie:
+            token_hash = referral_token_hash(validate_referral_token(referral_cookie))
+            referred = await _referral_attribution_for_lineage(
+                db,
+                workspace_id=tenant_scope.workspace_id,
+                lineage_user_ids=lineage_user_ids,
+                token_hash=token_hash,
+            )
+        if referred is None:
+            referred = await _referral_attribution_for_lineage(
+                db,
+                workspace_id=tenant_scope.workspace_id,
+                lineage_user_ids=lineage_user_ids,
+            )
+    except ValueError:
+        referred = None
+    finally:
+        await apply_tenant_scope(db, tenant_scope)
+    referral_candidate = (
+        PromoCode("REFERRAL_INTRO", 10, "personal", 1, campaign_version="referral-v1")
+        if referred is not None and referred.inviter_user_id not in lineage_ids
+        else None
+    )
+    return referral_candidate, referred, lineage_ids
 
 
 @router.get("/settings/billing", include_in_schema=False)
@@ -1797,7 +1948,11 @@ async def billing_checkout_page(
 ) -> HTMLResponse:
     if await _billing_role(db, tenant_scope=tenant_scope, principal=principal) != "owner":
         return RedirectResponse("/billing?result=owner_only", status_code=303)
+    settings = request.app.state.settings
     checkout_promo_code = request.cookies.get(_CHECKOUT_PROMO_COOKIE, "")
+    checkout_cycle = request.query_params.get("cycle", "month")
+    if checkout_cycle not in {"month", "year"}:
+        checkout_cycle = "month"
     descriptor = plan_descriptor("personal")
     receipt_contact = await db.scalar(
         select(ExternalIdentity.email)
@@ -1817,6 +1972,48 @@ async def billing_checkout_page(
     annual_amount = annual_catalog.amount_minor if annual_catalog is not None else None
     catalog_storage = monthly_catalog.storage_bytes if monthly_catalog is not None else descriptor.storage_bytes
     offer_version = monthly_catalog.offer_version if monthly_catalog is not None else _BILLING_OFFER_VERSION
+    checkout_preview_data: dict[str, str] | None = None
+    promo_preview_error: str | None = None
+    selected_catalog = catalog.get(checkout_cycle)
+    if bool(settings.billing_checkout_enabled) and selected_catalog is not None:
+        try:
+            promo = None
+            if checkout_promo_code:
+                promo, _ = await _load_checkout_promo(
+                    db,
+                    workspace_id=tenant_scope.workspace_id,
+                    raw_code=checkout_promo_code,
+                    cycle=checkout_cycle,
+                    now=datetime.now(UTC),
+                )
+            referral_candidate, _, _ = await _checkout_referral_candidate(
+                db,
+                request=request,
+                tenant_scope=tenant_scope,
+                principal=principal,
+            )
+            chosen, discount_source = _choose_checkout_discount(
+                amount_minor=selected_catalog.amount_minor or 0,
+                cycle=checkout_cycle,
+                provider_floor_minor=settings.billing_provider_floor_minor,
+                promo=promo,
+                referral_candidate=referral_candidate,
+            )
+            checkout_preview_data = checkout_preview_labels(
+                checkout_preview(
+                    plan_code="personal",
+                    cycle=checkout_cycle,
+                    promo=chosen,
+                    provider_floor_minor=settings.billing_provider_floor_minor,
+                    catalog_snapshot=selected_catalog,
+                ),
+                discount_percent=chosen.discount_percent if chosen is not None else None,
+                discount_source=discount_source,
+            )
+        except PromoError as exc:
+            promo_preview_error = str(exc)
+        except ValueError:
+            promo_preview_error = "Промокод временно недоступен. Проверьте код позже."
     content = _page_shell(
         "Выбор тарифа",
         embedded=_is_embedded_request(request),
@@ -1830,7 +2027,7 @@ async def billing_checkout_page(
             tenant_scope=tenant_scope,
         ),
         content_template="cabinet/pages/billing_checkout_content.html",
-        billing_enabled=bool(request.app.state.settings.billing_checkout_enabled),
+        billing_enabled=bool(settings.billing_checkout_enabled),
         plan=descriptor,
         monthly_price_label=_billing_price_label(monthly_amount),
         annual_price_label=_billing_price_label(annual_amount),
@@ -1843,12 +2040,90 @@ async def billing_checkout_page(
         checkout_idempotency_key=f"web-{principal.user_id}-{uuid4().hex}",
         checkout_result=request.query_params.get("result"),
         checkout_promo_code=checkout_promo_code,
+        checkout_cycle=checkout_cycle,
+        checkout_preview=checkout_preview_data,
+        promo_preview_error=promo_preview_error,
         receipt_contact_label=_masked_receipt_contact(receipt_contact),
     )
     response = cabinet_html_response(content)
     if checkout_promo_code:
         response.delete_cookie(_CHECKOUT_PROMO_COOKIE, path="/billing/checkout")
     return response
+
+
+@router.post("/billing/checkout/preview", response_class=HTMLResponse, include_in_schema=False)
+async def preview_billing_checkout(
+    request: Request,
+    _csrf: None = WebCSRFDependency,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+    cycle: str = Form(default="month", max_length=16),
+    promo_code: str | None = Form(default=None, max_length=48),
+) -> RedirectResponse:
+    """Validate a promo and show its price without reserving or charging."""
+    settings = request.app.state.settings
+    if db is None or not settings.billing_checkout_enabled or settings.billing_emergency_stop:
+        return RedirectResponse("/billing/checkout?result=unavailable", status_code=303)
+    if await _billing_role(db, tenant_scope=tenant_scope, principal=principal) != "owner":
+        return RedirectResponse("/billing?result=owner_only", status_code=303)
+    limited = await _billing_rate_limited_response(
+        request,
+        tenant_scope=tenant_scope,
+        principal=principal,
+        action="billing_checkout_preview",
+    )
+    if limited is not None:
+        return limited
+    if cycle not in {"month", "year"}:
+        return _checkout_result_redirect(request, "promo_invalid", promo_code=promo_code)
+    try:
+        catalog = await _approved_personal_catalog(db, now=datetime.now(UTC))
+        catalog_snapshot = catalog.get(cycle)
+        if catalog_snapshot is None:
+            return _checkout_result_redirect(request, "catalog_not_approved", cycle=cycle)
+        if not (promo_code or "").strip():
+            return _checkout_result_redirect(request, "promo_applied", cycle=cycle)
+        entered_promo, _ = await _load_checkout_promo(
+            db,
+            workspace_id=tenant_scope.workspace_id,
+            raw_code=promo_code or "",
+            cycle=cycle,
+            now=datetime.now(UTC),
+        )
+        referral_candidate, _, _ = await _checkout_referral_candidate(
+            db,
+            request=request,
+            tenant_scope=tenant_scope,
+            principal=principal,
+        )
+        promo, _ = _choose_checkout_discount(
+            amount_minor=catalog_snapshot.amount_minor or 0,
+            cycle=cycle,
+            provider_floor_minor=settings.billing_provider_floor_minor,
+            promo=entered_promo,
+            referral_candidate=referral_candidate,
+        )
+        checkout_preview(
+            plan_code="personal",
+            cycle=cycle,
+            promo=promo,
+            provider_floor_minor=settings.billing_provider_floor_minor,
+            catalog_snapshot=catalog_snapshot,
+        )
+    except (PromoError, ValueError):
+        return _checkout_result_redirect(
+            request,
+            "promo_invalid",
+            promo_code=promo_code,
+            cycle=cycle,
+        )
+    return _checkout_result_redirect(
+        request,
+        "promo_applied",
+        promo_code=entered_promo.code,
+        cycle=cycle,
+    )
 
 
 @router.post("/billing/checkout/start", response_class=HTMLResponse, include_in_schema=False)
@@ -1967,90 +2242,49 @@ async def start_billing_checkout(
         promo_campaign: PromotionCampaign | None = None
         if promo_code and promo_code.strip():
             try:
-                promo_campaign = await db.scalar(
-                    select(PromotionCampaign).where(
-                        PromotionCampaign.code_hash == promo_code_hash(promo_code),
-                        PromotionCampaign.enabled.is_(True),
-                    ).with_for_update()
-                )
-                if promo_campaign is None:
-                    raise PromoError("Промокод не распознан")
-                used = await db.scalar(
-                    select(func.count(PromotionRedemption.id)).where(
-                        PromotionRedemption.workspace_id == tenant_scope.workspace_id,
-                        PromotionRedemption.campaign_id == promo_campaign.id,
-                        PromotionRedemption.state == "redeemed",
-                    )
-                )
-                promo = PromoCode(
-                    code=promo_code,
-                    discount_percent=promo_campaign.discount_percent,
-                    plan_code=promo_campaign.plan_code,
-                    max_redemptions=promo_campaign.max_redemptions,
-                    redeemed=promo_campaign.redeemed_count,
-                    cycle=promo_campaign.cycle,
-                    campaign_version=promo_campaign.campaign_version,
-                    starts_at=promo_campaign.starts_at,
-                    ends_at=promo_campaign.ends_at,
-                )
-                check_eligibility(
-                    promo=promo,
-                    plan_code="personal",
+                promo, promo_campaign = await _load_checkout_promo(
+                    db,
+                    workspace_id=tenant_scope.workspace_id,
+                    raw_code=promo_code,
                     cycle=cycle,
                     now=datetime.now(UTC),
-                    workspace_redemptions=int(used or 0),
-                    active_reservations=promo_campaign.reserved_count,
+                    lock=True,
                 )
             except (PromoError, ValueError):
-                return _checkout_result_redirect(request, "promo_invalid", promo_code=promo_code)
+                return _checkout_result_redirect(
+                    request,
+                    "promo_invalid",
+                    promo_code=promo_code,
+                    cycle=cycle,
+                )
         # Referral attribution belongs to the inviter's workspace, while the
-        # invitee is now paying from a different personal workspace. Use the
-        # narrowly-scoped auth-public RLS lookup for this one read, then restore
-        # the request tenant context before any billing mutation.
-        referred = None
-        try:
-            lineage = merged_user_lineage(principal.user_id)
-            lineage_ids = set(await db.scalars(select(lineage.c.user_id)))
-            lineage_ids.add(principal.user_id)
-            lineage_user_ids = (
-                principal.user_id,
-                *sorted(lineage_ids - {principal.user_id}, key=str),
-            )
-            referral_cookie = request.cookies.get("graf_referral_token")
-            if referral_cookie:
-                token_hash = referral_token_hash(validate_referral_token(referral_cookie))
-                referred = await _referral_attribution_for_lineage(
-                    db,
-                    workspace_id=tenant_scope.workspace_id,
-                    lineage_user_ids=lineage_user_ids,
-                    token_hash=token_hash,
-                )
-            if referred is None:
-                referred = await _referral_attribution_for_lineage(
-                    db,
-                    workspace_id=tenant_scope.workspace_id,
-                    lineage_user_ids=lineage_user_ids,
-                )
-        except ValueError:
-            referred = None
-        finally:
-            await apply_tenant_scope(db, tenant_scope)
-        referral_candidate = (
-            PromoCode("REFERRAL_INTRO", 10, "personal", 1, campaign_version="referral-v1")
-            if referred is not None and referred.inviter_user_id not in lineage_ids
-            else None
+        # invitee is now paying from a different personal workspace. The
+        # helper restores the request tenant context before any mutation.
+        referral_candidate, referred, lineage_ids = await _checkout_referral_candidate(
+            db,
+            request=request,
+            tenant_scope=tenant_scope,
+            principal=principal,
         )
         # Exactly one discount may reach the immutable invoice.  Prefer the
         # lower payable amount and keep configured-promo first for deterministic
         # tie handling; the DB reservation is created only for the winner.
-        candidates = tuple(candidate for candidate in (promo, referral_candidate) if candidate is not None)
-        chosen, _ = choose_best_discount(
-            amount_minor=catalog_snapshot.amount_minor or 0,
-            plan_code="personal",
-            cycle=cycle,
-            provider_floor_minor=settings.billing_provider_floor_minor,
-            candidates=candidates,
-        )
+        try:
+            chosen, _ = _choose_checkout_discount(
+                amount_minor=catalog_snapshot.amount_minor or 0,
+                cycle=cycle,
+                provider_floor_minor=settings.billing_provider_floor_minor,
+                promo=promo,
+                referral_candidate=referral_candidate,
+            )
+        except PromoError:
+            await db.rollback()
+            return _checkout_result_redirect(
+                request,
+                "promo_invalid",
+                promo_code=promo_code,
+                cycle=cycle,
+            )
         configured_promo = promo
         promo = chosen
         if configured_promo is not promo:

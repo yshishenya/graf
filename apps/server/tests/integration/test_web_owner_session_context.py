@@ -533,7 +533,9 @@ def test_browser_yandex_login_start_redirects_to_provider(client) -> None:
     assert response.status_code == 303
     assert response.headers["location"].startswith("https://oauth.yandex.ru/authorize?")
     assert "state=" in response.headers["location"]
-    assert parse_qs(urlsplit(response.headers["location"]).query)["workspace_id"] == ["public"]
+    query = parse_qs(urlsplit(response.headers["location"]).query)
+    assert query["workspace_id"] == ["public"]
+    assert query["force_confirm"] == ["1"]
     assert str(AUTH_BOOTSTRAP_WORKSPACE_ID) not in response.headers["location"]
     assert (
         "redirect_uri=http%3A%2F%2Ftestserver%2Fapi%2Fv1%2Fauth%2Fcallback%2Fyandex"
@@ -667,6 +669,7 @@ def test_browser_vk_login_start_redirects_to_provider(client) -> None:
     assert "client_id=twobrain-vk-client-id" in response.headers["location"]
     assert "state=" in response.headers["location"]
     assert parse_qs(urlsplit(response.headers["location"]).query)["workspace_id"] == ["public"]
+    assert "force_confirm" not in parse_qs(urlsplit(response.headers["location"]).query)
     assert str(AUTH_BOOTSTRAP_WORKSPACE_ID) not in response.headers["location"]
     assert "scope=email+phone" in response.headers["location"]
     assert "code_challenge_method=S256" in response.headers["location"]

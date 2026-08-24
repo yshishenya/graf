@@ -14,6 +14,10 @@ class OutcomeTranscriptSegment:
     speaker_label: str
     source_role: str
     text: str
+    speaker_key: str = ""
+    provider_speaker_key: str | None = None
+    attribution_state: str = "unknown"
+    result_state: str = "accepted"
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,7 +32,9 @@ class OutcomeSourceReference:
 
     def as_json(self) -> dict[str, object]:
         return {
-            "transcript_segment_id": str(self.transcript_segment_id) if self.transcript_segment_id is not None else None,
+            "transcript_segment_id": str(self.transcript_segment_id)
+            if self.transcript_segment_id is not None
+            else None,
             "sequence": self.sequence,
             "start_seconds": self.start_seconds,
             "end_seconds": self.end_seconds,

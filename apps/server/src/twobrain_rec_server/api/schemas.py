@@ -1047,6 +1047,11 @@ class ProcessingPickupResponse(BaseModel):
     meeting_ids: list[UUID] = Field(default_factory=list)
 
 
+class ProcessingArtifactProjection(BaseModel):
+    state: str = "not_requested"
+    visible: bool = False
+
+
 class ProcessingStatusResponse(BaseModel):
     meeting_id: UUID
     media_revision_id: UUID | None = None
@@ -1057,12 +1062,59 @@ class ProcessingStatusResponse(BaseModel):
     transient_purge_due_at: datetime | None = None
     reason_code: str | None = None
     workflow_id: str | None = None
+    attempt_ordinal: int = Field(default=1, ge=1)
     mediascribe_job_id_present: bool = False
     content_available: bool = False
     transcript_available: bool = False
     diarization_available: bool = False
     summary_status: str = "not_requested"
+    retry_class: Literal["none", "retryable", "unknown_outcome", "terminal"] = "none"
+    next_attempt_at: datetime | None = None
+    next_attempt_source: Literal["provider_retry_after", "provider_next_retry_at", "server_fallback", "manual_override"] | None = None
+    schedule_generation: int = Field(default=0, ge=0)
+    server_time: datetime | None = None
+    manual_action: Literal["none", "check_now", "new_attempt", "contact_support"] = "none"
+    attempt_in_flight: bool = False
+    artifacts: dict[str, ProcessingArtifactProjection] = Field(default_factory=dict)
     updated_at: datetime | None = None
+
+
+class ProcessingCheckRequest(BaseModel):
+    """Optional client fence for a same-job manual processing check.
+
+    The value is never echoed or persisted as supplied.  The API derives a
+    bounded command identifier from it before sending anything to Temporal.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    command_id: SafeClientText | None = Field(default=None, max_length=240)
+    schedule_generation: int | None = Field(default=None, ge=0)
+
+
+class ProcessingCheckResponse(ProcessingStatusResponse):
+    """Content-safe projection plus the result of the manual command claim."""
+
+    request_result: Literal[
+        "accepted",
+        "already_in_flight",
+        "stale_schedule",
+        "duplicate_suppressed",
+        "not_safe",
+    ] = "accepted"
+    command_id: Annotated[
+        str,
+        StringConstraints(pattern=r"^processing-check-[0-9a-f]{32}$"),
+    ]
+    same_job_check: bool = False
+    dispatch: Literal["update", "signal"] | None = None
+
+
+class ProcessingAttemptResponse(ProcessingStatusResponse):
+    """Result of an explicitly authorized new business attempt admission."""
+
+    attempt_result: Literal["created", "already_in_flight"]
+    dispatch: Literal["started", "reused"] | None = None
 
 
 class CreateDeletionRequest(BaseModel):
@@ -1250,9 +1302,9 @@ ArtifactEgressStateValue = Literal[
 ]
 ArtifactAction = Literal["download", "export", "disabled"]
 ContentExportScope = Literal["transcript", "summary", "combined"]
-ContentExportFormat = Literal["txt", "md", "csv", "xlsx", "json", "srt"]
+ContentExportFormat = Literal["txt", "md", "csv", "xlsx", "json", "srt", "vtt"]
 CONTENT_EXPORT_FORMATS_BY_SCOPE: dict[ContentExportScope, tuple[ContentExportFormat, ...]] = {
-    "transcript": ("txt", "md", "csv", "xlsx", "json", "srt"),
+    "transcript": ("txt", "md", "csv", "xlsx", "json", "srt", "vtt"),
     "summary": ("txt", "md", "xlsx", "json"),
     "combined": ("txt", "md", "xlsx", "json"),
 }
@@ -1980,7 +2032,11 @@ class TranscriptSegmentView(BaseModel):
     source_role: SourceRoleView
     text: str
     speaker_key: str = ""
-    attribution_state: Literal["confirmed", "unconfirmed", "unknown"] = "unknown"
+    attribution_state: Literal["confirmed", "unconfirmed", "unknown", "mixed", "uncertain"] = (
+        "unknown"
+    )
+    result_state: Literal["accepted", "degraded_provider_result"] = "accepted"
+    provider_speaker_key: str | None = None
     processing_result_id: UUID | None = None
     source_role_original: str | None = Field(default=None, exclude=True)
     confidence_label: str | None = None
@@ -1998,7 +2054,11 @@ class TranscriptSpeakerTurnView(BaseModel):
     source_role: SourceRoleView
     text: str
     speaker_key: str = ""
-    attribution_state: Literal["confirmed", "unconfirmed", "unknown"] = "unknown"
+    attribution_state: Literal["confirmed", "unconfirmed", "unknown", "mixed", "uncertain"] = (
+        "unknown"
+    )
+    result_state: Literal["accepted", "degraded_provider_result"] = "accepted"
+    provider_speaker_key: str | None = None
     processing_result_id: UUID | None = None
     source_segment_ids: list[str] = Field(default_factory=list)
     overlap: bool = False
@@ -2014,6 +2074,7 @@ class TranscriptReviewState(BaseModel):
     search_enabled: bool = False
     segments: list[TranscriptSegmentView] = Field(default_factory=list)
     speaker_turns: list[TranscriptSpeakerTurnView] = Field(default_factory=list)
+    result_state: Literal["accepted", "degraded_provider_result"] = "accepted"
 
 
 class SpeakerLaneSegment(BaseModel):
@@ -2029,14 +2090,20 @@ class SpeakerLane(BaseModel):
     source_roles: list[SourceRoleView] = Field(default_factory=list)
     segments: list[SpeakerLaneSegment] = Field(default_factory=list)
     confidence_label: str | None = None
+    provider_speaker_key: str | None = None
+    confirmed: bool = True
+    can_rename: bool = True
 
 
 class SpeakerReviewState(BaseModel):
     available: bool
     assignment_state: Literal["available", "reserved", "disabled", "conflict_future", "unavailable"]
     degraded_reason: str | None = None
+    turns: list[TranscriptSpeakerTurnView] = Field(default_factory=list)
     speakers: list[SpeakerLane] = Field(default_factory=list)
     can_rename: bool = False
+    result_state: Literal["accepted", "degraded_provider_result"] = "accepted"
+    talk_time_label: str = "Доля распознанной речи"
 
 
 class CalendarRosterParticipantView(CalendarRosterSnapshotItem):

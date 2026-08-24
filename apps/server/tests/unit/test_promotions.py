@@ -87,6 +87,18 @@ def test_one_discount_chooses_the_lowest_payable_amount_without_stacking() -> No
     assert payable == 71_100
 
 
+def test_explicit_below_floor_discount_is_not_silently_dropped() -> None:
+    with pytest.raises(PromoError, match="минимальной"):
+        choose_best_discount(
+            amount_minor=100,
+            plan_code="personal",
+            cycle="month",
+            provider_floor_minor=2,
+            candidates=(PromoCode("SAVE99", 99, "personal", 1), PromoCode("REFERRAL_INTRO", 10, "personal", 1)),
+            strict_first=True,
+        )
+
+
 def test_cycle_scoped_promo_cannot_be_reused_for_another_period() -> None:
     promo = PromoCode("YEARONLY", 10, "personal", 1, cycle="year")
     with pytest.raises(PromoError, match="тарифа"):

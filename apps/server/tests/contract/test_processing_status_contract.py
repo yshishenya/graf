@@ -17,8 +17,52 @@ from twobrain_rec_server.domain.statuses import (
     SummaryStatus,
 )
 from twobrain_rec_server.processing import store
+from twobrain_rec_server.processing.audit import safe_audit_metadata
 
 ROOT = Path(__file__).parents[4]
+
+
+def test_attribution_diagnostics_allow_only_bounded_metadata() -> None:
+    metadata = safe_audit_metadata(
+        {
+            "provider_job_id": "job_safe_42",
+            "raw_turn_count": 3,
+            "accepted_turn_count": 0,
+            "multi_label_conflict_count": 1,
+            "unknown_tiny_count": 1,
+            "duplicate_text_count": 3,
+            "text_conservation_status": "mismatched",
+            "source_result_hash": "a" * 64,
+            "transcript_text": "must not persist",
+            "provider_payload": {"private": True},
+            "signed_url": "https://example.test/private",
+        }
+    )
+
+    assert metadata == {
+        "provider_job_id": "job_safe_42",
+        "raw_turn_count": 3,
+        "accepted_turn_count": 0,
+        "multi_label_conflict_count": 1,
+        "unknown_tiny_count": 1,
+        "duplicate_text_count": 3,
+        "text_conservation_status": "mismatched",
+        "source_result_hash": "a" * 64,
+    }
+
+
+def test_attribution_reason_codes_require_the_fixed_allowlist() -> None:
+    allowed = safe_audit_metadata(
+        {"reason_codes": ["invalid_provider_timing", "text_conservation_mismatch"]}
+    )
+    rejected = safe_audit_metadata(
+        {"reason_codes": ["invalid_provider_timing", "private meeting content"]}
+    )
+
+    assert allowed == {
+        "reason_codes": ["invalid_provider_timing", "text_conservation_mismatch"]
+    }
+    assert rejected == {}
 
 
 def test_processing_status_openapi_contract_has_content_safe_fields() -> None:
@@ -49,7 +93,10 @@ def test_processing_status_endpoint_returns_no_content_or_secret_fields(client) 
     assert pickup.status_code == 202
     status = client.get(f"/api/v1/meetings/{meeting_id}/processing", headers=auth_headers())
     assert status.status_code == 200
+    assert status.headers["cache-control"] == "private, no-store"
+    assert status.headers["pragma"] == "no-cache"
     payload = status.json()
+    assert payload["meeting_id"] == str(meeting_id)
     assert payload["workflow_id"] == f"processing/{media_revision_id}"
     assert payload["mediascribe_job_id_present"] is False
     forbidden = {"transcript_text", "audio_download_url", "mediascribe_job_id", "api_key", "signed_url"}

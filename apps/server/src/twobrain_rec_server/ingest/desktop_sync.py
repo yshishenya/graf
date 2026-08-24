@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import desc, nullslast, select
+from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.problems import ProblemDetail
@@ -48,6 +48,7 @@ from twobrain_rec_server.ingest.store import (
     restore_meeting_after_upload_session_lifecycle,
 )
 from twobrain_rec_server.processing.fences import lock_meeting_fence, meeting_is_deleted_or_deleting
+from twobrain_rec_server.processing.results import effective_processing_result_query
 
 
 def _utc_aware(value: datetime) -> datetime:
@@ -184,12 +185,19 @@ def _status_value(status: object) -> str:
     return str(getattr(status, "value", status))
 
 
-def _transcript_available(result: ProcessingResult | None) -> bool:
+def _transcript_artifact_available(result: ProcessingResult | None) -> bool:
     return bool(
         result is not None
         and result.status == ProcessingResultStatus.IMPORTED.value
         and result.transcript_status == ProcessingAvailabilityStatus.AVAILABLE.value
         and result.segment_count > 0
+    )
+
+
+def _transcript_available(result: ProcessingResult | None) -> bool:
+    return bool(
+        _transcript_artifact_available(result)
+        and _diarization_available(result)
     )
 
 
@@ -208,7 +216,7 @@ def _desktop_review_status(
     result: ProcessingResult | None,
     workflow: ProcessingWorkflow | None,
 ) -> str:
-    has_transcript = _transcript_available(result)
+    has_transcript = _transcript_artifact_available(result)
     has_diarization = _diarization_available(result)
     if has_transcript and has_diarization:
         return "ready"
@@ -276,18 +284,10 @@ async def _latest_processing_result(
     if db is None or media_revision_id is None:
         return None
     return await db.scalar(
-        select(ProcessingResult)
-        .where(
-            ProcessingResult.workspace_id == workspace_id,
-            ProcessingResult.meeting_id == meeting_id,
-            ProcessingResult.media_revision_id == media_revision_id,
-            ProcessingResult.status == ProcessingResultStatus.IMPORTED.value,
-        )
-        .order_by(
-            ProcessingResult.result_version.desc(),
-            nullslast(ProcessingResult.imported_at.desc()),
-            ProcessingResult.created_at.desc(),
-            ProcessingResult.id.desc(),
+        effective_processing_result_query(
+            workspace_id=workspace_id,
+            meeting_id=meeting_id,
+            media_revision_id=media_revision_id,
         )
     )
 
@@ -795,7 +795,7 @@ async def get_desktop_recording_sync_state(
             media_revision_id=meeting.media_revision_id,
             transcript_available=transcript_ready,
             diarization_available=diarization_ready,
-            content_available=transcript_ready or diarization_ready,
+            content_available=transcript_ready,
             web_url=f"/meetings/{meeting.id}" if review_available else None,
             desktop_url=review_desktop_url,
         ),

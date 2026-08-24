@@ -11,6 +11,21 @@
   let listRefreshFocusOrigin = null;
   let playbackRecoveryTimer = null;
   let playbackRecoveryRequest = null;
+  let processingRecoveryCountdownTimer = null;
+  let processingRecoveryPollTimer = null;
+  let processingRecoveryRequest = null;
+  let processingRecoveryStatusController = null;
+  let processingRecoveryActionRequest = null;
+  let processingRecoveryGeneration = 0;
+  const processingListProjectionRequests = new Map();
+  const processingListProjectionLastFetchedAt = new Map();
+  const processingListProjectionStates = new Map();
+  const resetProcessingListProjectionState = () => {
+    processingListProjectionRequests.forEach((entry) => entry.controller?.abort());
+    processingListProjectionRequests.clear();
+    processingListProjectionLastFetchedAt.clear();
+    processingListProjectionStates.clear();
+  };
   const selectedMeetingIds = new Set();
   const announcedUploadProgressBuckets = new Map();
   const announcedUploadProgressMetadata = new Map();
@@ -275,6 +290,13 @@
     target.isConnected &&
     target.closest("[hidden], [aria-hidden='true']") === null;
 
+  const restoreMeetingActionFocus = (target) => {
+    const visibleTarget = isUsableFocusTarget(target)
+      ? target
+      : document.querySelector('[data-meeting-panel-open="more"]');
+    visibleTarget?.focus({ preventScroll: true });
+  };
+
   const restoreListRefreshFocus = (recovery = null, { force = false } = {}) => {
     if (!listRefreshShouldRestoreFocus) return false;
     const active = document.activeElement;
@@ -400,7 +422,10 @@
 
   const renderMeetingListRecovery = (kind, requestEvent = null) => {
     const authorizationLost = ["session", "workspace", "access"].includes(kind);
-    if (authorizationLost) meetingListRequestGeneration += 1;
+    if (authorizationLost) {
+      meetingListRequestGeneration += 1;
+      resetProcessingListProjectionState();
+    }
     const target = document.querySelector("#meeting-list-region");
     if (!target) return;
     const copy = {
@@ -529,6 +554,7 @@
     const request = event.detail?.xhr;
     if (!request || typeof request !== "object" || authoritativeMeetingListRequests.has(request)) return;
     meetingListRequestGeneration += 1;
+    resetProcessingListProjectionState();
     activeMeetingListRequests += 1;
     authoritativeMeetingListRequests.add(request);
     authoritativeMeetingListRequestGenerations.set(request, meetingListRequestGeneration);
@@ -957,6 +983,8 @@
         if (event.detail) event.detail.shouldSwap = false;
         return;
       }
+      meetingListRequestGeneration += 1;
+      resetProcessingListProjectionState();
       rememberMeetingListRequestFocus(event);
     });
     document.body.addEventListener("htmx:afterRequest", finishAuthoritativeMeetingListRequest);
@@ -1324,6 +1352,984 @@
     });
     if (window.location.hash === "#outcomes") activateDetailTab("outcomes", { updateUrl: false });
     if (window.location.hash === "#recording") activateDetailTab("recording", { updateUrl: false });
+  };
+
+  const processingOwnsField = (object, field) => (
+    object !== null
+    && typeof object === "object"
+    && Object.prototype.hasOwnProperty.call(object, field)
+  );
+
+  // The server remains authoritative.  This allowlist only decides whether a
+  // terminal state is safe to offer as an explicit, user-confirmed attempt;
+  // unknown reasons deliberately fall back to support/refresh guidance.
+  const processingSafeNewAttemptReasons = new Set([
+    "invalid_audio_payload",
+    "mediascribe_payload_too_large",
+    "mediascribe_validation_failed",
+    ["mediascribe", "job_failed"].join("_"),
+    "blocked_temporal_unavailable",
+    "mediascribe_malformed_response",
+    "mediascribe_retries_exhausted",
+    "processing_retry_deadline_exceeded",
+    "result_import_failed",
+    "no_recognizable_speech",
+    "processed_no_transcript",
+    "provider_terminal",
+    "provider_request_rejected",
+  ]);
+
+  const processingNewAttemptAllowed = (projection) => (
+    projection?.retry_class === "terminal"
+    && projection?.manual_action === "new_attempt"
+    && processingSafeNewAttemptReasons.has(String(projection?.reason_code || "").toLowerCase())
+    && projection?.attempt_in_flight !== true
+  );
+
+  const processingClientCommandId = () => {
+    const randomId = typeof window.crypto?.randomUUID === "function"
+      ? window.crypto.randomUUID()
+      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    return `processing-check-${randomId}`;
+  };
+
+  const processingArtifactVisible = (projection, name) => {
+    const artifacts = projection?.artifacts;
+    if (processingOwnsField(artifacts, name)) return artifacts[name]?.visible === true;
+    return projection?.[`${name}_available`] === true;
+  };
+
+  const processingArtifactState = (projection, name, fallback = "processing") => {
+    const artifacts = projection?.artifacts;
+    if (processingOwnsField(artifacts, name)) return String(artifacts[name]?.state || fallback);
+    if (name === "summary") return String(projection?.summary_status || fallback);
+    return processingArtifactVisible(projection, name) ? "available" : fallback;
+  };
+
+  const processingTimestamp = (value) => {
+    if (typeof value !== "string" && !(value instanceof Date)) return null;
+    const timestamp = new Date(value).getTime();
+    return Number.isFinite(timestamp) ? timestamp : null;
+  };
+
+  const processingServerSecondsRemaining = (projection, now = Date.now(), clientServerOffset = 0) => {
+    const deadline = processingTimestamp(projection?.next_attempt_at);
+    const serverTime = processingTimestamp(projection?.server_time);
+    if (deadline === null || serverTime === null) return null;
+    const offset = Number.isFinite(clientServerOffset) ? clientServerOffset : 0;
+    return Math.max(0, Math.ceil((deadline - (now + offset)) / 1000));
+  };
+
+  const processingCountdownCopy = (seconds, source) => {
+    const prefix = source === "server_fallback" ? "Примерно через" : "Следующая проверка через";
+    if (!Number.isFinite(seconds) || seconds <= 0) return "Следующая проверка доступна сейчас.";
+    if (seconds >= 3600) {
+      const hours = Math.floor(seconds / 3600);
+      const minutes = Math.floor((seconds % 3600) / 60);
+      return `${prefix} ${hours} ч${minutes ? ` ${minutes} мин` : ""}.`;
+    }
+    if (seconds >= 60) return `${prefix} ${Math.floor(seconds / 60)} мин.`;
+    return `${prefix} ${seconds} сек.`;
+  };
+
+  const processingSummaryState = (projection) => {
+    const artifacts = projection?.artifacts;
+    if (processingOwnsField(artifacts, "summary")) {
+      return String(artifacts.summary?.state || projection?.summary_status || "");
+    }
+    return String(projection?.summary_status || "");
+  };
+
+  const processingSummaryPending = (state) => [
+    "queued",
+    "pending",
+    "processing",
+    "running",
+    "generating",
+    "submitted",
+  ].includes(String(state || "").toLowerCase());
+
+  const processingTranscriptReady = (projection) => (
+    processingArtifactVisible(projection, "transcript")
+    && processingArtifactVisible(projection, "diarization")
+  );
+
+  const processingProjectionMatchesDetail = (detail, projection) => {
+    const meetingId = String(detail.dataset.meetingId || "");
+    const responseMeetingId = String(projection?.meeting_id || "");
+    if (meetingId && responseMeetingId && meetingId !== responseMeetingId) return false;
+    const mediaRevisionId = String(detail.dataset.mediaRevisionId || "");
+    const responseRevisionId = String(projection?.media_revision_id || "");
+    return !mediaRevisionId || !responseRevisionId || mediaRevisionId === responseRevisionId;
+  };
+
+  const processingProjectionIsStale = (detail, projection) => {
+    const current = processingTimestamp(detail.dataset.processingProjectionUpdatedAt);
+    const incoming = processingTimestamp(projection?.updated_at);
+    return current !== null && incoming !== null && incoming < current;
+  };
+
+  const updateProcessingExportVisibility = (transcriptVisible) => {
+    document.querySelectorAll("[data-content-export-form]").forEach((form) => {
+      const scope = form.querySelector("[data-export-scope]");
+      if (!scope) return;
+      ["transcript", "combined"].forEach((scopeName) => {
+        const option = scope.querySelector(`option[value="${scopeName}"]`);
+        if (!option) return;
+        if (!option.dataset.processingServerDisabled) {
+          option.dataset.processingServerDisabled = option.disabled ? "true" : "false";
+        }
+        option.disabled = option.dataset.processingServerDisabled === "true" || !transcriptVisible;
+      });
+      if (scope.selectedOptions?.[0]?.disabled) {
+        const available = Array.from(scope.options).find((option) => !option.disabled);
+        if (available) {
+          scope.value = available.value;
+          scope.dispatchEvent(new Event("change"));
+        }
+      }
+      const submit = form.querySelector("[data-export-submit]");
+      const hasAvailableScope = Array.from(scope.options).some((option) => !option.disabled);
+      if (!hasAvailableScope) {
+        if (submit) submit.disabled = true;
+        form.dataset.processingNoAvailableScope = "true";
+      } else if (form.dataset.processingNoAvailableScope === "true") {
+        if (submit) submit.disabled = false;
+        delete form.dataset.processingNoAvailableScope;
+      }
+      form.dataset.processingTranscriptVisible = transcriptVisible ? "true" : "false";
+    });
+  };
+
+  const stopProcessingRecoveryCountdown = () => {
+    if (processingRecoveryCountdownTimer !== null) {
+      globalThis.clearInterval(processingRecoveryCountdownTimer);
+      processingRecoveryCountdownTimer = null;
+    }
+  };
+
+  const resetProcessingRecoveryCountdown = (detail) => {
+    stopProcessingRecoveryCountdown();
+    const countdown = detail.querySelector("[data-processing-countdown]");
+    if (!countdown) return;
+    countdown.hidden = true;
+    countdown.textContent = "";
+    delete countdown.dataset.seconds;
+  };
+
+  const processingServerClockOffset = (detail) => {
+    const offset = Number(detail.dataset.processingServerClockOffsetMs);
+    return Number.isFinite(offset) ? offset : 0;
+  };
+
+  const stopProcessingRecoveryPolling = () => {
+    if (processingRecoveryPollTimer !== null) {
+      globalThis.clearTimeout(processingRecoveryPollTimer);
+      processingRecoveryPollTimer = null;
+    }
+  };
+
+  const announceProcessingChange = (detail, message, signature = message) => {
+    const live = detail.querySelector("[data-processing-live]");
+    if (!live || !message || detail.dataset.processingAnnouncement === signature) return;
+    detail.dataset.processingAnnouncement = signature;
+    live.textContent = "";
+    window.requestAnimationFrame(() => {
+      if (live.isConnected && detail.dataset.processingAnnouncement === signature) {
+        live.textContent = message;
+      }
+    });
+  };
+
+  const updateProcessingStage = (detail, name, state, label) => {
+    const item = detail.querySelector(`[data-processing-stage-item="${name}"]`);
+    if (!item) return;
+    item.dataset.stageState = state;
+    item.classList.toggle("is-ready", state === "ready");
+    item.classList.toggle("is-active", state === "active");
+    item.classList.toggle("is-unavailable", state === "unavailable");
+    const status = item.querySelector("[data-processing-stage-status]");
+    if (status) status.textContent = label;
+  };
+
+  const processingSummaryCopy = (state) => ({
+    available: ["Итоги готовы.", "success"],
+    partial: ["Итоги доступны частично. Расшифровка остаётся доступной.", "warning"],
+    queued: ["Итоги готовятся отдельно. Расшифровка может быть доступна раньше.", "pending"],
+    pending: ["Итоги готовятся отдельно. Расшифровка может быть доступна раньше.", "pending"],
+    processing: ["Итоги готовятся отдельно. Расшифровка может быть доступна раньше.", "pending"],
+    running: ["Итоги готовятся отдельно. Расшифровка может быть доступна раньше.", "pending"],
+    generating: ["Итоги готовятся отдельно. Расшифровка может быть доступна раньше.", "pending"],
+    submitted: ["Итоги готовятся отдельно. Расшифровка может быть доступна раньше.", "pending"],
+    failed: ["Не удалось подготовить итоги. Расшифровка сохранена.", "failed"],
+    unavailable: ["Итоги пока недоступны. Расшифровка сохранена.", "warning"],
+    not_requested: ["Итоги ещё не запрошены. Расшифровка остаётся доступной.", "warning"],
+  }[String(state || "").toLowerCase()] || null);
+
+  const processingRecoveryCopy = (projection, transcriptReady) => {
+    const retryClass = String(projection?.retry_class || "none");
+    const reason = String(projection?.reason_code || "").toLowerCase();
+    const inFlight = projection?.attempt_in_flight === true;
+    if (retryClass === "unknown_outcome") {
+      return {
+        state: "unknown",
+        title: "Проверяем исходную попытку",
+        copy: "Не удалось подтвердить отправку, поэтому GRAF проверяет исходную попытку и не создаёт дубликат.",
+        canCheck: projection?.manual_action === "check_now" && !inFlight,
+        showRefresh: projection?.manual_action !== "check_now",
+        showCountdown: projection?.next_attempt_at != null,
+      };
+    }
+    if (retryClass === "terminal") {
+      if (reason === "no_recognizable_speech") {
+        return {
+          state: "terminal",
+          title: "Речь не распознана",
+          copy: "В записи не найдено распознаваемой речи. Доступные результаты сохранены; при необходимости можно начать обработку заново.",
+          canCheck: false,
+          canStartNewAttempt: processingNewAttemptAllowed(projection),
+          showRefresh: true,
+        };
+      }
+      const canStartNewAttempt = processingNewAttemptAllowed(projection);
+      return {
+        state: "terminal",
+        title: "Обработка завершилась без результата",
+        copy: canStartNewAttempt
+          ? "Доступные результаты сохранены. Если нужно, начните обработку заново кнопкой ниже."
+          : "Автоматический перезапуск недоступен. Обновите страницу позже; если проблема повторится, обратитесь в поддержку.",
+        canCheck: false,
+        canStartNewAttempt,
+        showRefresh: true,
+      };
+    }
+    if (retryClass === "retryable") {
+      if (inFlight) {
+        return {
+          state: "active",
+          title: "Обработка продолжается",
+          copy: "GRAF уже проверяет запись. Дождитесь результата или обновите страницу позже.",
+          canCheck: false,
+          canStartNewAttempt: false,
+          showRefresh: false,
+          showCountdown: false,
+        };
+      }
+      const canCheck = projection?.manual_action === "check_now" && !inFlight;
+      if (!canCheck) {
+        return {
+          state: "terminal",
+          title: "Обработка требует внимания",
+          copy: "GRAF не может безопасно повторить эту операцию автоматически. Обновите страницу позже; если проблема повторится, обратитесь в поддержку.",
+          canCheck: false,
+          canStartNewAttempt: false,
+          showRefresh: true,
+          showCountdown: false,
+        };
+      }
+      return {
+        state: "retryable",
+        title: "Обработка временно приостановлена",
+        copy: "Запись сохранена. GRAF попробует проверить её автоматически.",
+        canCheck,
+        canStartNewAttempt: false,
+        showRefresh: projection?.manual_action !== "check_now",
+        showCountdown: true,
+      };
+    }
+    if (inFlight) {
+      return {
+        state: "active",
+        title: "Обработка продолжается",
+        copy: "GRAF проверяет запись. Спикеры и итог могут появиться по отдельности.",
+        canCheck: false,
+        showRefresh: false,
+      };
+    }
+    if (transcriptReady) return null;
+    if (reason === "no_recognizable_speech") {
+      return {
+          state: "terminal",
+          title: "Речь не распознана",
+          copy: "В записи не найдено распознаваемой речи. Доступные результаты сохранены.",
+          canCheck: false,
+          canStartNewAttempt: processingNewAttemptAllowed(projection),
+          showRefresh: true,
+        };
+    }
+    return {
+      state: "active",
+      title: "Обработка записи",
+      copy: "Спикеры ещё определяются. Расшифровка появится после завершения диаризации.",
+      canCheck: false,
+      canStartNewAttempt: false,
+      showRefresh: false,
+    };
+  };
+
+  const renderProcessingCountdown = (detail, projection) => {
+    stopProcessingRecoveryCountdown();
+    const countdown = detail.querySelector("[data-processing-countdown]");
+    if (!countdown || !["retryable", "unknown_outcome"].includes(projection?.retry_class)) {
+      if (countdown) {
+        countdown.hidden = true;
+        countdown.textContent = "";
+        delete countdown.dataset.seconds;
+      }
+      return null;
+    }
+    const update = () => {
+      const seconds = processingServerSecondsRemaining(
+        projection,
+        Date.now(),
+        processingServerClockOffset(detail),
+      );
+      if (seconds === null) {
+        countdown.hidden = true;
+        countdown.textContent = "";
+        delete countdown.dataset.seconds;
+        return null;
+      }
+      countdown.hidden = false;
+      countdown.textContent = processingCountdownCopy(seconds, projection?.next_attempt_source);
+      countdown.dataset.seconds = String(seconds);
+      return seconds;
+    };
+    const seconds = update();
+    if (seconds !== null) {
+      processingRecoveryCountdownTimer = window.setInterval(update, 1000);
+    }
+    return seconds;
+  };
+
+  const scheduleProcessingRecoveryPolling = (detail, projection) => {
+    stopProcessingRecoveryPolling();
+    if (processingRecoveryActionRequest !== null) return;
+    const transcriptReady = processingTranscriptReady(projection);
+    const summaryState = processingSummaryState(projection);
+    const shouldPoll = !transcriptReady
+      || processingSummaryPending(summaryState)
+      || projection?.retry_class === "retryable"
+      || projection?.retry_class === "unknown_outcome"
+      || projection?.attempt_in_flight === true;
+    if (!shouldPoll || !detail.dataset.processingStatusUrl) return;
+    const remaining = processingServerSecondsRemaining(
+      projection,
+      Date.now(),
+      processingServerClockOffset(detail),
+    );
+    const delay = remaining === null
+      ? 15000
+      : Math.min(15000, Math.max(1000, remaining * 1000));
+    processingRecoveryPollTimer = window.setTimeout(() => {
+      if (!document.hidden) void refreshProcessingStatus();
+    }, delay);
+  };
+
+  const renderProcessingProjection = (detail, projection) => {
+    if (!processingProjectionMatchesDetail(detail, projection) || processingProjectionIsStale(detail, projection)) return false;
+    const updatedAt = processingTimestamp(projection?.updated_at);
+    if (updatedAt !== null) detail.dataset.processingProjectionUpdatedAt = projection.updated_at;
+    const scheduleGeneration = Number(projection?.schedule_generation);
+    detail.dataset.processingScheduleGeneration = Number.isSafeInteger(scheduleGeneration) && scheduleGeneration >= 0
+      ? String(scheduleGeneration)
+      : "0";
+    detail.dataset.processingReasonCode = String(projection?.reason_code || "").toLowerCase();
+    detail.dataset.processingManualAction = String(projection?.manual_action || "none");
+    const serverTime = processingTimestamp(projection?.server_time);
+    if (serverTime !== null) {
+      detail.dataset.processingServerClockOffsetMs = String(serverTime - Date.now());
+    } else {
+      delete detail.dataset.processingServerClockOffsetMs;
+    }
+    delete detail.dataset.processingRecoveryError;
+    const transcriptReady = processingTranscriptReady(projection);
+    const transcript = detail.querySelector("[data-playback-transcript]");
+    const pending = detail.querySelector("[data-transcript-pending]");
+    if (transcript) {
+      transcript.hidden = !transcriptReady;
+      transcript.setAttribute("aria-hidden", transcriptReady ? "false" : "true");
+    }
+    if (pending) pending.hidden = transcriptReady;
+    updateProcessingExportVisibility(transcriptReady);
+    detail.dataset.processingTranscriptVisible = transcriptReady ? "true" : "false";
+    detail.dataset.processingRetryClass = String(projection?.retry_class || "none");
+    detail.dataset.processingSummaryStatus = processingSummaryState(projection);
+
+    const sourceState = String(projection?.state || "").toLowerCase() === "not_submitted"
+      ? "active"
+      : "ready";
+    updateProcessingStage(detail, "source", sourceState, sourceState === "ready" ? "Сохранено" : "Ожидаем отправку");
+    const transcriptState = processingArtifactState(projection, "transcript");
+    updateProcessingStage(
+      detail,
+      "transcript",
+      transcriptReady ? "ready" : ["failed", "unavailable"].includes(transcriptState) ? "unavailable" : "active",
+      transcriptReady ? "Готово" : ["failed", "unavailable"].includes(transcriptState) ? "Недоступно" : "Готовится",
+    );
+    const diarizationState = processingArtifactState(projection, "diarization");
+    updateProcessingStage(
+      detail,
+      "diarization",
+      processingArtifactVisible(projection, "diarization")
+        ? "ready"
+        : ["failed", "unavailable"].includes(diarizationState) ? "unavailable" : "active",
+      processingArtifactVisible(projection, "diarization")
+        ? "Готово"
+        : ["failed", "unavailable"].includes(diarizationState) ? "Недоступно" : "Определяются",
+    );
+    const summaryState = processingSummaryState(projection);
+    const summaryCopy = processingSummaryCopy(summaryState);
+    const summaryStatus = detail.querySelector("[data-processing-summary-status]");
+    if (summaryStatus) {
+      summaryStatus.hidden = !summaryCopy;
+      summaryStatus.textContent = summaryCopy?.[0] || "";
+      summaryStatus.dataset.state = summaryCopy?.[1] || "";
+    }
+    updateProcessingStage(
+      detail,
+      "summary",
+      summaryState === "available" ? "ready"
+        : ["failed", "unavailable"].includes(summaryState) ? "unavailable"
+        : processingSummaryPending(summaryState) ? "active" : "active",
+      summaryState === "available" ? "Готово"
+        : ["failed", "unavailable"].includes(summaryState) ? "Недоступно"
+        : summaryState === "not_requested" ? "Не запрошены" : "Готовятся",
+    );
+
+    const recovery = detail.querySelector("[data-processing-recovery]");
+    if (!recovery) return true;
+    const copy = processingRecoveryCopy(projection, transcriptReady);
+    const showSurface = copy !== null;
+    recovery.hidden = !showSurface;
+    recovery.dataset.state = copy?.state || "ready";
+    const title = recovery.querySelector("[data-processing-recovery-title]");
+    const message = recovery.querySelector("[data-processing-recovery-copy]");
+    if (title) title.textContent = copy?.title || "Обработка завершена";
+    if (message) message.textContent = copy?.copy || "";
+    const countdownSeconds = processingRecoveryActionRequest !== null || copy?.showCountdown !== true
+      ? null
+      : renderProcessingCountdown(detail, projection);
+    if (countdownSeconds === null || copy?.showCountdown !== true) {
+      const countdown = recovery.querySelector("[data-processing-countdown]");
+      if (countdown) {
+        countdown.hidden = true;
+        countdown.textContent = "";
+        delete countdown.dataset.seconds;
+      }
+    }
+    const check = recovery.querySelector("[data-processing-check]");
+    const newAttempt = recovery.querySelector("[data-processing-new-attempt]");
+    const refresh = recovery.querySelector("[data-processing-refresh]");
+    const busyAction = recovery.dataset.processingBusyAction || "";
+    const busy = processingRecoveryRequest !== null
+      || processingRecoveryActionRequest !== null
+      || projection?.attempt_in_flight === true;
+    recovery.setAttribute("aria-busy", busy ? "true" : "false");
+    if (check) {
+      check.hidden = !copy?.canCheck && !(busy && busyAction === "check");
+      check.disabled = busy || !copy?.canCheck;
+      check.setAttribute("aria-busy", busy && busyAction === "check" ? "true" : "false");
+      check.textContent = busy && busyAction === "check" ? "Проверяем…" : "Проверить обработку";
+    }
+    if (newAttempt) {
+      newAttempt.hidden = !copy?.canStartNewAttempt && !(busy && busyAction === "new_attempt");
+      newAttempt.disabled = busy || !copy?.canStartNewAttempt;
+      newAttempt.setAttribute("aria-busy", busy && busyAction === "new_attempt" ? "true" : "false");
+      newAttempt.textContent = busy && busyAction === "new_attempt" ? "Запускаем…" : "Начать обработку заново";
+    }
+    if (refresh) refresh.hidden = !copy?.showRefresh;
+    const summaryAnnouncement = summaryCopy?.[0] || "";
+    const announcement = transcriptReady
+      ? `Расшифровка и спикеры готовы.${summaryAnnouncement ? ` ${summaryAnnouncement}` : ""}`
+      : `${copy?.title || "Обработка записи"}. ${copy?.copy || ""}`;
+    const signature = [
+      projection?.state,
+      projection?.retry_class,
+      projection?.attempt_in_flight,
+      transcriptReady,
+      processingArtifactVisible(projection, "diarization"),
+      summaryState,
+    ].join("|");
+    announceProcessingChange(detail, announcement, signature);
+    scheduleProcessingRecoveryPolling(detail, projection);
+    return true;
+  };
+
+  const focusProcessingRecovery = (detail) => {
+    const focus = () => {
+      if (!detail.isConnected) return;
+      const check = detail.querySelector("[data-processing-check]");
+      const newAttempt = detail.querySelector("[data-processing-new-attempt]");
+      const title = detail.querySelector("[data-processing-recovery-title]");
+      const titleVisible = title && !title.hidden && !title.closest("[hidden]");
+      const target = check && !check.hidden && !check.disabled
+        ? check
+        : newAttempt && !newAttempt.hidden && !newAttempt.disabled
+        ? newAttempt
+        : titleVisible
+        ? title
+        : detail;
+      try {
+        target.focus({ preventScroll: true });
+      } catch {
+        target.focus();
+      }
+    };
+    if (typeof window.requestAnimationFrame === "function") window.requestAnimationFrame(focus);
+    else focus();
+  };
+
+  const setProcessingRecoveryBusy = (detail, busy, action = "check") => {
+    const recovery = detail.querySelector("[data-processing-recovery]");
+    if (!recovery) return;
+    recovery.setAttribute("aria-busy", busy ? "true" : "false");
+    if (busy) recovery.dataset.processingBusyAction = action;
+    else delete recovery.dataset.processingBusyAction;
+    const check = recovery.querySelector("[data-processing-check]");
+    const newAttempt = recovery.querySelector("[data-processing-new-attempt]");
+    if (check) {
+      if (busy && action === "check") check.hidden = false;
+      check.disabled = busy;
+      check.setAttribute("aria-busy", busy && action === "check" ? "true" : "false");
+      check.textContent = busy && action === "check" ? "Проверяем…" : "Проверить обработку";
+    }
+    if (newAttempt) {
+      if (busy && action === "new_attempt") newAttempt.hidden = false;
+      newAttempt.disabled = busy;
+      newAttempt.setAttribute("aria-busy", busy && action === "new_attempt" ? "true" : "false");
+      newAttempt.textContent = busy && action === "new_attempt" ? "Запускаем…" : "Начать обработку заново";
+    }
+  };
+
+  const processingRecoveryActionFailureCopy = (status) => {
+    if (status === 401 || status === 403) {
+      return ["Не удалось проверить обработку", "Сессия больше не подтверждена. Обновите страницу и войдите снова."];
+    }
+    if (status >= 500) {
+      return ["Сервис обработки временно недоступен", "Проверка не запущена. Попробуйте ещё раз позже или обновите страницу."];
+    }
+    return ["Не удалось проверить обработку", "Проверка не завершилась. Нажмите «Проверить обработку» ещё раз или обновите страницу."];
+  };
+
+  const renderProcessingRecoveryFailure = (
+    detail,
+    {
+      title = "Не удалось обновить статус обработки",
+      message = "Обновите страницу или нажмите «Проверить обработку» ещё раз. Расшифровка останется скрытой, пока готовность спикеров не подтверждена.",
+      preserveProjection = false,
+      signature = "status-fetch-failed",
+      failedAction = "check",
+    } = {},
+  ) => {
+    resetProcessingRecoveryCountdown(detail);
+    stopProcessingRecoveryPolling();
+    const recovery = detail.querySelector("[data-processing-recovery]");
+    if (!recovery) return;
+    delete recovery.dataset.processingBusyAction;
+    if (!preserveProjection) {
+      const transcript = detail.querySelector("[data-playback-transcript]");
+      const pending = detail.querySelector("[data-transcript-pending]");
+      if (transcript) {
+        transcript.hidden = true;
+        transcript.setAttribute("aria-hidden", "true");
+      }
+      if (pending) pending.hidden = false;
+      updateProcessingExportVisibility(false);
+    }
+    detail.dataset.processingRecoveryError = "true";
+    recovery.hidden = false;
+    recovery.dataset.state = "unknown";
+    recovery.setAttribute("aria-busy", "false");
+    const titleNode = recovery.querySelector("[data-processing-recovery-title]");
+    const messageNode = recovery.querySelector("[data-processing-recovery-copy]");
+    if (titleNode) titleNode.textContent = title;
+    if (messageNode) messageNode.textContent = message;
+    const check = recovery.querySelector("[data-processing-check]");
+    if (check) {
+      check.hidden = failedAction !== "check";
+      check.disabled = failedAction !== "check";
+      check.setAttribute("aria-busy", "false");
+      check.textContent = "Проверить обработку";
+    }
+    const newAttempt = recovery.querySelector("[data-processing-new-attempt]");
+    if (newAttempt) {
+      const canStartNewAttempt = failedAction === "new_attempt"
+        && processingNewAttemptAllowed({
+          retry_class: detail.dataset.processingRetryClass,
+          manual_action: detail.dataset.processingManualAction,
+          reason_code: detail.dataset.processingReasonCode,
+          attempt_in_flight: false,
+        });
+      newAttempt.hidden = !canStartNewAttempt;
+      newAttempt.disabled = false;
+      newAttempt.setAttribute("aria-busy", "false");
+      newAttempt.textContent = "Начать обработку заново";
+    }
+    const refresh = recovery.querySelector("[data-processing-refresh]");
+    if (refresh) refresh.hidden = false;
+    announceProcessingChange(detail, `${title}. ${message}`, signature);
+  };
+
+  const abortProcessingRecoveryStatusRequest = () => {
+    const request = processingRecoveryRequest;
+    if (!request) return;
+    processingRecoveryStatusController?.abort();
+    if (processingRecoveryRequest === request) processingRecoveryRequest = null;
+    processingRecoveryStatusController = null;
+  };
+
+  const refreshProcessingStatus = async ({ force = false, generation = processingRecoveryGeneration } = {}) => {
+    const recovery = document.querySelector("[data-processing-recovery]");
+    const detail = recovery?.closest("[data-processing-status-url]");
+    const statusUrl = detail?.dataset.processingStatusUrl;
+    if (!detail || !statusUrl || processingRecoveryActionRequest !== null) return false;
+    if (generation !== processingRecoveryGeneration) return false;
+    if (processingRecoveryRequest) {
+      if (!force) return false;
+      abortProcessingRecoveryStatusRequest();
+    }
+    stopProcessingRecoveryPolling();
+    const requestGeneration = generation;
+    const controller = typeof AbortController === "function" ? new AbortController() : null;
+    const requestOptions = {
+      method: "GET",
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: { Accept: "application/json" },
+    };
+    if (controller) requestOptions.signal = controller.signal;
+    const request = fetch(statusUrl, requestOptions);
+    processingRecoveryRequest = request;
+    processingRecoveryStatusController = controller;
+    try {
+      const statusResponse = await request;
+      if (requestGeneration !== processingRecoveryGeneration || processingRecoveryRequest !== request) return false;
+      if (processingRecoveryRequest === request) processingRecoveryRequest = null;
+      if (!detail.isConnected) return false;
+      if (await recoverMeetingDetailFromResponse(statusResponse)) return false;
+      if (
+        requestGeneration !== processingRecoveryGeneration
+        || (processingRecoveryRequest !== null && processingRecoveryRequest !== request)
+      ) return false;
+      if (!statusResponse.ok) throw new Error(`processing_status_${statusResponse.status}`);
+      const projection = await statusResponse.json();
+      if (!projection || typeof projection !== "object" || !processingProjectionMatchesDetail(detail, projection)) {
+        throw new Error("processing_status_invalid");
+      }
+      const rendered = renderProcessingProjection(detail, projection);
+      if (!rendered && requestGeneration === processingRecoveryGeneration) {
+        processingRecoveryPollTimer = window.setTimeout(() => {
+          if (!document.hidden) void refreshProcessingStatus({ force: true });
+        }, 1000);
+      }
+      return rendered;
+    } catch (error) {
+      if (error?.name === "AbortError" || requestGeneration !== processingRecoveryGeneration) return false;
+      if (processingRecoveryRequest !== null && processingRecoveryRequest !== request) return false;
+      if (processingRecoveryRequest === request) processingRecoveryRequest = null;
+      if (detail.isConnected) renderProcessingRecoveryFailure(detail);
+      return false;
+    } finally {
+      if (processingRecoveryRequest === request) processingRecoveryRequest = null;
+      if (processingRecoveryStatusController === controller) processingRecoveryStatusController = null;
+    }
+  };
+
+  const processingProjectionFromActionPayload = (detail, payload) => {
+    const candidates = [payload?.projection, payload?.processing, payload];
+    return candidates.find((candidate) => (
+      candidate
+      && typeof candidate === "object"
+      && (processingOwnsField(candidate, "state")
+        || processingOwnsField(candidate, "retry_class")
+        || processingOwnsField(candidate, "artifacts"))
+      && processingProjectionMatchesDetail(detail, candidate)
+    )) || null;
+  };
+
+  const runProcessingManualCheck = async (detail, recovery) => {
+    if (processingRecoveryActionRequest !== null) return;
+    const generation = ++processingRecoveryGeneration;
+    resetProcessingRecoveryCountdown(detail);
+    stopProcessingRecoveryPolling();
+    abortProcessingRecoveryStatusRequest();
+    const countdown = recovery.querySelector("[data-processing-countdown]");
+    if (countdown) countdown.hidden = true;
+    setProcessingRecoveryBusy(detail, true);
+    announceProcessingChange(detail, "Проверяем статус обработки.", `manual-check-${generation}`);
+    const checkUrl = detail.dataset.processingCheckUrl
+      || `/api/v1/meetings/${encodeURIComponent(detail.dataset.meetingId || "")}/processing/check`;
+    if (!csrfToken || !detail.dataset.meetingId || !checkUrl) {
+      const [title] = processingRecoveryActionFailureCopy(403);
+      renderProcessingRecoveryFailure(detail, {
+        title,
+        message: "Сессия не подтверждена. Обновите страницу и войдите снова.",
+        preserveProjection: true,
+        signature: `manual-check-failed-${generation}`,
+      });
+      focusProcessingRecovery(detail);
+      return;
+    }
+    const request = fetch(checkUrl, {
+      method: "POST",
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        "X-CSRF-Token": csrfToken,
+      },
+      body: JSON.stringify({
+        command_id: processingClientCommandId(),
+        schedule_generation: Number.parseInt(detail.dataset.processingScheduleGeneration || "0", 10) || 0,
+      }),
+    });
+    processingRecoveryActionRequest = request;
+    let recoveryHandled = false;
+    try {
+      const response = await request;
+      if (generation !== processingRecoveryGeneration || processingRecoveryActionRequest !== request) return;
+      if (await recoverMeetingDetailFromResponse(response, { actionProblemCodes: detailActionProblemCodes })) {
+        recoveryHandled = true;
+        return;
+      }
+      const payload = response.status === 204 ? null : await response.json().catch(() => null);
+      if (!response.ok) {
+        if (response.status === 409) {
+          processingRecoveryActionRequest = null;
+          await refreshProcessingStatus({ force: true, generation });
+          return;
+        }
+        const error = new Error(`processing_check_${response.status}`);
+        error.status = response.status;
+        throw error;
+      }
+      const projection = processingProjectionFromActionPayload(detail, payload);
+      if (projection) renderProcessingProjection(detail, projection);
+      processingRecoveryActionRequest = null;
+      await refreshProcessingStatus({ force: true, generation });
+    } catch (error) {
+      if (generation !== processingRecoveryGeneration || processingRecoveryActionRequest !== request) return;
+      processingRecoveryActionRequest = null;
+      const [title, message] = processingRecoveryActionFailureCopy(Number(error?.status || 0));
+      renderProcessingRecoveryFailure(detail, {
+        title,
+        message,
+        preserveProjection: true,
+        signature: `manual-check-failed-${generation}`,
+      });
+    } finally {
+      if (processingRecoveryActionRequest === request) processingRecoveryActionRequest = null;
+      if (generation === processingRecoveryGeneration && !recoveryHandled && detail.isConnected) {
+        focusProcessingRecovery(detail);
+      }
+    }
+  };
+
+  const runProcessingNewAttempt = async (detail, recovery) => {
+    if (processingRecoveryActionRequest !== null) return;
+    const generation = ++processingRecoveryGeneration;
+    resetProcessingRecoveryCountdown(detail);
+    stopProcessingRecoveryPolling();
+    abortProcessingRecoveryStatusRequest();
+    setProcessingRecoveryBusy(detail, true, "new_attempt");
+    announceProcessingChange(detail, "Запускаем новую обработку записи.", `new-attempt-${generation}`);
+    const attemptUrl = detail.dataset.processingAttemptUrl
+      || `/api/v1/meetings/${encodeURIComponent(detail.dataset.meetingId || "")}/processing/attempt`;
+    if (!csrfToken || !detail.dataset.meetingId || !attemptUrl) {
+      renderProcessingRecoveryFailure(detail, {
+        title: "Не удалось начать обработку заново",
+        message: "Сессия не подтверждена. Обновите страницу и войдите снова.",
+        preserveProjection: true,
+        signature: `new-attempt-failed-${generation}`,
+        failedAction: "new_attempt",
+      });
+      focusProcessingRecovery(detail);
+      return;
+    }
+    const request = fetch(attemptUrl, {
+      method: "POST",
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: {
+        Accept: "application/json",
+        "X-CSRF-Token": csrfToken,
+      },
+    });
+    processingRecoveryActionRequest = request;
+    let recoveryHandled = false;
+    try {
+      const response = await request;
+      if (generation !== processingRecoveryGeneration || processingRecoveryActionRequest !== request) return;
+      if (await recoverMeetingDetailFromResponse(response, { actionProblemCodes: detailActionProblemCodes })) {
+        recoveryHandled = true;
+        return;
+      }
+      const payload = response.status === 204 ? null : await response.json().catch(() => null);
+      if (!response.ok) {
+        if (response.status === 409) {
+          processingRecoveryActionRequest = null;
+          await refreshProcessingStatus({ force: true, generation });
+          return;
+        }
+        const error = new Error(`processing_attempt_${response.status}`);
+        error.status = response.status;
+        throw error;
+      }
+      const projection = processingProjectionFromActionPayload(detail, payload);
+      if (projection) renderProcessingProjection(detail, projection);
+      processingRecoveryActionRequest = null;
+      await refreshProcessingStatus({ force: true, generation });
+    } catch (error) {
+      if (generation !== processingRecoveryGeneration || processingRecoveryActionRequest !== request) return;
+      processingRecoveryActionRequest = null;
+      renderProcessingRecoveryFailure(detail, {
+        title: "Не удалось начать обработку заново",
+        message: Number(error?.status || 0) === 409
+          ? "Новая попытка сейчас недоступна. Обновите страницу, чтобы увидеть актуальный статус."
+          : "Новая попытка не запущена. Обновите страницу и попробуйте ещё раз позже.",
+        preserveProjection: true,
+        signature: `new-attempt-failed-${generation}`,
+        failedAction: "new_attempt",
+      });
+    } finally {
+      if (processingRecoveryActionRequest === request) processingRecoveryActionRequest = null;
+      if (generation === processingRecoveryGeneration && !recoveryHandled && detail.isConnected) {
+        focusProcessingRecovery(detail);
+      }
+    }
+  };
+
+  const initProcessingRecovery = () => {
+    const recovery = document.querySelector("[data-processing-recovery]");
+    const detail = recovery?.closest("[data-processing-status-url]");
+    if (!recovery || !detail?.dataset.processingStatusUrl) {
+      stopProcessingRecoveryCountdown();
+      stopProcessingRecoveryPolling();
+      return;
+    }
+    if (recovery.dataset.processingRecoveryReady === "true") return;
+    recovery.dataset.processingRecoveryReady = "true";
+    updateProcessingExportVisibility(false);
+    recovery.querySelector("[data-processing-recovery-copy]")?.setAttribute("id", "processing-recovery-copy");
+    recovery.querySelector("[data-processing-check]")?.addEventListener("click", () => {
+      void runProcessingManualCheck(detail, recovery);
+    });
+    recovery.querySelector("[data-processing-new-attempt]")?.addEventListener("click", () => {
+      void runProcessingNewAttempt(detail, recovery);
+    });
+    recovery.querySelector("[data-processing-refresh]")?.addEventListener("click", () => window.location.reload());
+    if (document.body.dataset.processingRecoveryListeners !== "true") {
+      document.body.dataset.processingRecoveryListeners = "true";
+      window.addEventListener("online", () => {
+        if (processingRecoveryActionRequest === null) void refreshProcessingStatus();
+      });
+      document.addEventListener("visibilitychange", () => {
+        if (!document.hidden && processingRecoveryActionRequest === null) void refreshProcessingStatus();
+      });
+    }
+    void refreshProcessingStatus();
+  };
+
+  const processingListStatusNode = (row) => {
+    const existing = row.querySelector("[data-processing-list-status]");
+    if (existing) return existing;
+    const readiness = row.querySelector(".meeting-content-readiness");
+    if (readiness) {
+      readiness.dataset.processingListStatus = "true";
+      return readiness;
+    }
+    const content = row.querySelector(".meeting-content");
+    if (!content) return null;
+    const status = document.createElement("span");
+    status.className = "meeting-content-readiness";
+    status.dataset.processingListStatus = "true";
+    content.append(status);
+    row.classList.add("has-status");
+    return status;
+  };
+
+  const renderProcessingListProjection = (row, projection, generation) => {
+    const rowMeetingId = String(row?.dataset.meetingId || "");
+    if (
+      !row?.isConnected
+      || !currentList()?.contains(row)
+      || !rowMeetingId
+      || String(projection?.meeting_id || "") !== rowMeetingId
+      || generation !== meetingListRequestGeneration
+    ) return;
+    const transcriptReady = processingTranscriptReady(projection);
+    const summaryState = processingSummaryState(projection);
+    const retryClass = String(projection?.retry_class || "none");
+    const text = retryClass === "retryable"
+      ? "Обработка временно приостановлена"
+      : retryClass === "unknown_outcome"
+      ? "Проверяем исходную попытку"
+      : retryClass === "terminal"
+      ? "Требует внимания"
+      : transcriptReady
+      ? `Расшифровка готова · ${summaryState === "available" ? "итоги готовы" : processingSummaryPending(summaryState) ? "итоги готовятся" : "итоги недоступны"}`
+      : "Спикеры определяются · расшифровка готовится";
+    const node = processingListStatusNode(row);
+    if (!node) return;
+    const signature = `${row.dataset.meetingId || ""}|${text}|${retryClass}|${transcriptReady}|${summaryState}`;
+    const previous = processingListProjectionStates.get(row.dataset.meetingId || "");
+    node.textContent = text;
+    node.dataset.processingRetryClass = retryClass;
+    row.dataset.processingTranscriptVisible = transcriptReady ? "true" : "false";
+    processingListProjectionStates.set(row.dataset.meetingId || "", signature);
+    if (previous && previous !== signature) {
+      const announcer = document.querySelector("[data-processing-list-announcer]");
+      if (announcer) announcer.textContent = "Статусы обработки встреч обновлены.";
+    }
+  };
+
+  const requestProcessingListProjection = (row) => {
+    const meetingId = String(row.dataset.meetingId || "");
+    if (!meetingId) return;
+    const generation = meetingListRequestGeneration;
+    const now = Date.now();
+    const existing = processingListProjectionRequests.get(meetingId);
+    if (existing?.generation === generation) return;
+    if (existing) {
+      existing.controller?.abort();
+      processingListProjectionRequests.delete(meetingId);
+    }
+    if (now - (processingListProjectionLastFetchedAt.get(meetingId) || 0) < 15000) return;
+    processingListProjectionLastFetchedAt.set(meetingId, now);
+    const controller = typeof AbortController === "function" ? new AbortController() : null;
+    const request = fetch(`/api/v1/meetings/${encodeURIComponent(meetingId)}/processing`, {
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: { Accept: "application/json" },
+      ...(controller ? { signal: controller.signal } : {}),
+    });
+    const entry = { controller, generation };
+    processingListProjectionRequests.set(meetingId, entry);
+    void request.then(async (response) => {
+      if (!response.ok) return;
+      const projection = await response.json();
+      if (projection && typeof projection === "object") {
+        renderProcessingListProjection(row, projection, generation);
+      }
+    }).catch(() => {}).finally(() => {
+      if (processingListProjectionRequests.get(meetingId) === entry) {
+        processingListProjectionRequests.delete(meetingId);
+      }
+    });
+  };
+
+  const initProcessingListProjection = () => {
+    const list = currentList();
+    if (!list) return;
+    const rows = allRows().filter((row) => {
+      const kind = row.querySelector(".meeting-status[data-status-kind]")?.dataset.statusKind || "";
+      const readiness = row.querySelector(".meeting-content-readiness")?.textContent || "";
+      return ["processing", "failed"].includes(kind)
+        || /расшифровка.*(готова|недоступна|готовятся)/i.test(readiness);
+    });
+    rows.forEach(requestProcessingListProjection);
   };
 
   const initSummaryFormats = () => {
@@ -2919,6 +3925,16 @@
     document.querySelectorAll("[data-playback-shell]").forEach((shell) => {
       if (shell.dataset.playbackReady === "true") return;
       shell.dataset.playbackReady = "true";
+      const detailMain = shell.closest(".app-shell")?.querySelector(".detail-page-main");
+      const syncPlaybackClearance = () => {
+        if (!detailMain) return;
+        const height = Math.ceil(shell.getBoundingClientRect().height);
+        detailMain.style.setProperty("--playback-clearance", `${height + 20}px`);
+      };
+      syncPlaybackClearance();
+      if (typeof ResizeObserver === "function") {
+        new ResizeObserver(syncPlaybackClearance).observe(shell);
+      }
       const player = shell.querySelector("[data-playback-player]");
       if (!player) return;
       const toggle = shell.querySelector("[data-playback-toggle]");
@@ -4422,7 +5438,7 @@
       ["Текст", [["txt", "Текст (.txt)"], ["md", "Markdown (.md)"]]],
       ["Таблицы", [["csv", "Таблица CSV (.csv)"], ["xlsx", "Excel (.xlsx)"]]],
       ["Данные", [["json", "JSON (.json)"]]],
-      ["Субтитры", [["srt", "Субтитры (.srt)"]]]
+      ["Субтитры", [["srt", "Субтитры (.srt)"], ["vtt", "WebVTT (.vtt)"]]]
     ];
     let returnFocus = null;
     let submitting = false;
@@ -4440,8 +5456,8 @@
         speakers.disabled = machineFormat;
       }
       if (timestamps) {
-        if (machineFormat || format.value === "srt") timestamps.checked = true;
-        timestamps.disabled = machineFormat || format.value === "srt";
+        if (machineFormat || format.value === "srt" || format.value === "vtt") timestamps.checked = true;
+        timestamps.disabled = machineFormat || format.value === "srt" || format.value === "vtt";
       }
       if (evidence) evidence.disabled = scope.value === "transcript";
     };
@@ -4548,6 +5564,7 @@
       meeting_not_found: "Доступ к встрече изменился. Обновите страницу.",
       export_policy_denied: "Политика доступа к этому составу изменилась.",
       export_unavailable: "Этот состав сейчас недоступен по готовности или политике.",
+      subtitle_timing_unavailable: "Не удалось подготовить субтитры: у одного из фрагментов нет корректного времени. Выберите другой формат, чтобы сохранить весь текст.",
       export_generation_failed: "Не удалось собрать файл. Повторите экспорт.",
       audit_unavailable: "Экспорт остановлен: не удалось сохранить обязательную запись аудита. Повторите позже.",
       unsupported_export_combination: "Выберите совместимый формат.",
@@ -5186,6 +6203,8 @@
     announceUploadProgress();
     initManualUpload();
     initDetailTabs();
+    initProcessingRecovery();
+    initProcessingListProjection();
     initSummaryFormats();
     initSummaryTemplateSettings();
     initMeetingContextPanels();

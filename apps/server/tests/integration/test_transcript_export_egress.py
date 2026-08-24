@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from openpyxl import load_workbook
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fakes.fake_temporal import FakeTemporalClient
@@ -26,6 +26,7 @@ from tests.fixtures.cabinet_access import (
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.cabinet import egress as egress_module
 from twobrain_rec_server.db.models import (
+    DiarizationSegment,
     MediaRevision,
     Meeting,
     MeetingArtifactPolicy,
@@ -86,7 +87,15 @@ def test_capability_is_metadata_only_and_separates_transcript_summary_combined(c
     assert payload["transcript"] == {"state": "available", "reason": None}
     assert payload["summary"]["state"] == "missing"
     assert payload["combined"]["state"] == "missing"
-    assert payload["formats"]["transcript"] == ["txt", "md", "csv", "xlsx", "json", "srt"]
+    assert payload["formats"]["transcript"] == [
+        "txt",
+        "md",
+        "csv",
+        "xlsx",
+        "json",
+        "srt",
+        "vtt",
+    ]
     assert SAFE_TRANSCRIPT_TEXT not in response.text
     assert "storage_object_key" not in response.text
     assert "mediascribe_job_id" not in response.text
@@ -200,7 +209,7 @@ def test_authorized_transcript_formats_share_one_revision_and_safe_headers(clien
     result_id = capability["processing_result_id"]
 
     responses = {}
-    for format_name in ("txt", "md", "csv", "xlsx", "json", "srt"):
+    for format_name in ("txt", "md", "csv", "xlsx", "json", "srt", "vtt"):
         response = client.post(
             f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
             headers=auth_headers(),
@@ -225,6 +234,7 @@ def test_authorized_transcript_formats_share_one_revision_and_safe_headers(clien
     assert SAFE_TRANSCRIPT_TEXT.replace(".", "\\.") in responses["md"].text
     assert SAFE_TRANSCRIPT_TEXT in responses["csv"].content.decode("utf-8-sig")
     assert SAFE_TRANSCRIPT_TEXT in responses["srt"].text
+    assert SAFE_TRANSCRIPT_TEXT in responses["vtt"].text
     payload = responses["json"].json()
     assert payload["revisions"]["processing_result_id"] == result_id
     assert payload["provenance"]["provider_neutral"] is True
@@ -233,10 +243,39 @@ def test_authorized_transcript_formats_share_one_revision_and_safe_headers(clien
     events = audit_events(client, seeds.ready_id)
     assert [event.event_type for event in events] == [
         event
-        for _ in range(6)
+        for _ in range(7)
         for event in ("content_export_requested", "content_export_completed")
     ]
     assert all(SAFE_TRANSCRIPT_TEXT not in json.dumps(event.metadata_json) for event in events)
+
+
+def test_provider_only_legacy_result_stays_hidden_until_transcript_and_diarization_match(client) -> None:
+    seeds = seed_cabinet_meetings(client)
+    result_id = asyncio.run(_keep_only_provider_turns(client, seeds.ready_id))
+    set_artifact_policy(client, seeds.ready_id, transcript_download="allowed")
+
+    page = client.get(f"/meetings/{seeds.ready_id}", headers=auth_headers())
+    capability = client.get(
+        f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+        headers=auth_headers(),
+    )
+
+    assert page.status_code == 200
+    assert SAFE_TRANSCRIPT_TEXT not in page.text
+    assert capability.status_code == 200
+    assert capability.json()["transcript"]["state"] == "missing"
+
+    for format_name in ("txt", "md", "csv", "xlsx", "json", "srt", "vtt"):
+        response = client.post(
+            f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+            headers=auth_headers(),
+            json={
+                "content_scope": "transcript",
+                "format": format_name,
+                "processing_result_id": str(result_id),
+            },
+        )
+        assert response.status_code == 409, (format_name, response.text)
 
 
 def test_summary_and_combined_use_current_stored_outcome_without_regeneration(client) -> None:
@@ -720,11 +759,19 @@ def test_export_capability_never_pairs_an_accepted_summary_with_a_newer_result(c
                     .order_by(TranscriptSegment.sequence.asc())
                 )
             ).all()
+            current_diarization = (
+                await db.scalars(
+                    select(DiarizationSegment)
+                    .where(DiarizationSegment.processing_result_id == current.id)
+                    .order_by(DiarizationSegment.sequence.asc())
+                )
+            ).all()
             newer = ProcessingResult(
                 meeting_id=current.meeting_id,
                 media_revision_id=current.media_revision_id,
                 workspace_id=current.workspace_id,
                 mediascribe_job_id=current.mediascribe_job_id,
+                processing_workflow_id=current.processing_workflow_id,
                 result_version=current.result_version + 1,
                 status="imported",
                 transcript_status="available",
@@ -752,6 +799,22 @@ def test_export_capability_never_pairs_an_accepted_summary_with_a_newer_result(c
                         source_role_original=segment.source_role_original,
                     )
                     for segment in current_segments
+                ]
+            )
+            db.add_all(
+                [
+                    DiarizationSegment(
+                        processing_result_id=newer.id,
+                        meeting_id=segment.meeting_id,
+                        workspace_id=segment.workspace_id,
+                        sequence=segment.sequence,
+                        start_seconds=segment.start_seconds,
+                        end_seconds=segment.end_seconds,
+                        text=segment.text,
+                        source_role=segment.source_role,
+                        speaker_label=segment.speaker_label,
+                    )
+                    for segment in current_diarization
                 ]
             )
             await db.commit()
@@ -837,6 +900,13 @@ def test_export_capability_uses_newest_media_revision_before_summary_acceptance(
                     .order_by(TranscriptSegment.sequence.asc())
                 )
             ).all()
+            current_diarization = (
+                await db.scalars(
+                    select(DiarizationSegment)
+                    .where(DiarizationSegment.processing_result_id == current.id)
+                    .order_by(DiarizationSegment.sequence.asc())
+                )
+            ).all()
             revision = MediaRevision(
                 workspace_id=meeting.workspace_id,
                 meeting_id=meeting.id,
@@ -885,6 +955,22 @@ def test_export_capability_uses_newest_media_revision_before_summary_acceptance(
                         source_role_original=segment.source_role_original,
                     )
                     for segment in current_segments
+                ]
+            )
+            db.add_all(
+                [
+                    DiarizationSegment(
+                        processing_result_id=newer.id,
+                        meeting_id=segment.meeting_id,
+                        workspace_id=segment.workspace_id,
+                        sequence=segment.sequence,
+                        start_seconds=segment.start_seconds,
+                        end_seconds=segment.end_seconds,
+                        text=segment.text,
+                        source_role=segment.source_role,
+                        speaker_label=segment.speaker_label,
+                    )
+                    for segment in current_diarization
                 ]
             )
             await db.commit()
@@ -1212,6 +1298,27 @@ async def _seed_stored_summary(
         )
         await db.commit()
         return outcome_set.id
+
+
+async def _keep_only_provider_turns(client, meeting_id: UUID) -> UUID:
+    async with client.app_state["sessionmaker"]() as db:
+        result = await db.scalar(
+            select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
+        )
+        assert result is not None
+        assert await db.scalar(
+            select(DiarizationSegment.id).where(
+                DiarizationSegment.processing_result_id == result.id
+            )
+        )
+        await db.execute(
+            delete(TranscriptSegment).where(
+                TranscriptSegment.processing_result_id == result.id
+            )
+        )
+        result.segment_count = 0
+        await db.commit()
+        return result.id
 
 
 async def _update_transcript_policy(client, meeting_id: UUID, value: str) -> None:

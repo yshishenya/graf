@@ -29,6 +29,7 @@ def test_billing_keeps_legacy_account_alias_on_canonical_surface() -> None:
     paths = {route.path for route in billing_router.routes}
     assert "/settings/billing" in paths
     assert "/account/billing" in paths
+    assert "/billing/checkout/preview" in paths
 
 
 def test_billing_hub_uses_exact_free_copy_and_external_refund_boundary() -> None:
@@ -184,6 +185,10 @@ def test_checkout_result_redirect_keeps_promo_out_of_url_and_uses_short_lived_co
     malformed = _checkout_result_redirect(request, "promo_invalid", promo_code="bad\ncode")
     assert 'graf_checkout_promo=""' in malformed.headers["set-cookie"]
     assert "Max-Age=0" in malformed.headers["set-cookie"]
+
+    empty = _checkout_result_redirect(request, "promo_applied")
+    assert 'graf_checkout_promo=""' in empty.headers["set-cookie"]
+    assert "Max-Age=0" in empty.headers["set-cookie"]
 
 
 def test_payment_method_and_storage_surfaces_keep_safe_boundaries() -> None:

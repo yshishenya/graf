@@ -8,9 +8,14 @@ The plan descriptor, landing, structured data, checkout snapshot tests and payme
 
 ## Production state to verify before sale
 
-- A read-only production query on 2026-08-21 returned zero `billing_plan_versions` rows and zero `billing_launch_gates` rows. The current runtime therefore cannot show or sell the approved tariff yet.
+- The approved catalog rows are now provisioned and read back on the production
+  runtime. No launch-gate rows match the current runtime SHA, so the runtime
+  still cannot sell the tariff.
 - YooKassa test-shop and controlled production canary evidence is not recorded for this SHA.
 - Product, unit economics, finance/accounting, security/privacy, QA/accessibility, infrastructure, provider canary and global rollout gates require current independent approval rows.
 - Checkout runtime enablement and emergency-stop rehearsal require the documented dry-run and explicit production execute approval.
 
-The approved tariff can be published after its two immutable catalog rows are provisioned. Legal approval alone does not prove that a real payment, receipt, cancellation, renewal failure and rollback work, so payment remains fail-closed until those operational facts exist.
+The approved tariff is published from the two immutable catalog rows. Legal
+approval alone does not prove that a real payment, receipt, cancellation,
+renewal failure and rollback work, so payment remains fail-closed until those
+operational facts and matching launch gates exist.

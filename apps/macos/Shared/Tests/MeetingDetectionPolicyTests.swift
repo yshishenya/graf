@@ -6,6 +6,81 @@ import TwoBrainRecShared
 import XCTest
 
 final class MeetingDetectionPolicyTests: XCTestCase {
+    func testAutomaticRecordingRuleLabelsAndDefaultResolution() {
+        XCTAssertEqual(AutomaticRecordingRule.always.displayName, "Всегда")
+        XCTAssertEqual(AutomaticRecordingRule.ask.displayName, "Спрашивать")
+        XCTAssertEqual(AutomaticRecordingRule.never.displayName, "Никогда")
+        XCTAssertEqual(MeetingDetectionSettings().recordingRule(for: "zoom"), .ask)
+    }
+
+    func testExplicitTargetRulesRoundTripAndRemainIndependent() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("meeting-settings-rules-\(UUID().uuidString)", isDirectory: true)
+        let url = root.appendingPathComponent("settings.json")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = MeetingDetectionSettingsStore(settingsURL: url)
+
+        var settings = MeetingDetectionSettings()
+        settings.setRecordingRule(.always, for: "zoom")
+        settings.setRecordingRule(.never, for: "yandex_telemost")
+        try store.save(settings)
+
+        let loaded = try store.load()
+        XCTAssertEqual(loaded.recordingRule(for: "zoom"), .always)
+        XCTAssertEqual(loaded.recordingRule(for: "yandex_telemost"), .never)
+        XCTAssertEqual(loaded.recordingRule(for: "teams"), .ask)
+        XCTAssertEqual(loaded.autoRecordTargetIds, ["zoom"])
+    }
+
+    func testPartialExplicitRuleMapDoesNotFallBackToLegacyTargetSet() {
+        let settings = MeetingDetectionSettings(
+            detectionMode: .detectAndAsk,
+            targetScopedAutoRecordEnabled: true,
+            autoRecordTargetIds: ["legacy_target"],
+            automaticRecordingRules: ["zoom": .always]
+        )
+
+        XCTAssertEqual(settings.recordingRule(for: "zoom"), .always)
+        XCTAssertEqual(settings.recordingRule(for: "legacy_target"), .ask)
+    }
+
+    func testBulkRuleAssignmentIsAtomicAndIndividualOverrideStaysIndependent() {
+        var settings = MeetingDetectionSettings()
+        let targets = ["zoom", "teams", "yandex_telemost"]
+        for target in targets {
+            settings.setRecordingRule(.never, for: target)
+        }
+        XCTAssertEqual(targets.map { settings.recordingRule(for: $0) }, [.never, .never, .never])
+
+        settings.setRecordingRule(.always, for: "teams")
+        XCTAssertEqual(settings.recordingRule(for: "zoom"), .never)
+        XCTAssertEqual(settings.recordingRule(for: "teams"), .always)
+        XCTAssertEqual(settings.recordingRule(for: "yandex_telemost"), .never)
+    }
+
+    func testLegacyTargetSelectionMigratesToAskWithoutGlobalPermission() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("meeting-settings-rule-migration-\(UUID().uuidString)", isDirectory: true)
+        let url = root.appendingPathComponent("settings.json")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data(
+            """
+            {
+              "detectionMode": "detect_and_ask",
+              "uploadMode": "automatic_candidate_upload",
+              "unknownIdentityUploadAllowed": true,
+              "targetScopedAutoRecordEnabled": true,
+              "autoRecordTargetIds": ["zoom"]
+            }
+            """.utf8
+        ).write(to: url)
+
+        let loaded = try MeetingDetectionSettingsStore(settingsURL: url).load()
+        XCTAssertEqual(loaded.recordingRule(for: "zoom"), .ask)
+        XCTAssertEqual(loaded.recordingRule(for: "teams"), .ask)
+    }
+
     func testFreshInstallDefaultsApplyOnlyOnceAndNeverOverwriteAnExplicitFile() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("meeting-settings-defaults-\(UUID().uuidString)", isDirectory: true)
@@ -19,6 +94,8 @@ final class MeetingDetectionPolicyTests: XCTestCase {
         XCTAssertEqual(applied.detectionMode, .detectAndAsk)
         XCTAssertTrue(applied.targetScopedAutoRecordEnabled)
         XCTAssertEqual(applied.autoRecordTargetIds, ["zoom", "yandex_telemost"])
+        XCTAssertEqual(applied.recordingRule(for: "zoom"), .ask)
+        XCTAssertEqual(applied.recordingRule(for: "yandex_telemost"), .ask)
         XCTAssertTrue(applied.automaticRecordingDefaultsApplied)
         XCTAssertNil(applied.assistedAutoStartAcknowledgement)
         XCTAssertNil(try store.applyFirstInstallDefaults(targetIDs: ["teams"])
@@ -206,14 +283,90 @@ final class MeetingDetectionPolicyTests: XCTestCase {
             for: decision,
             settings: MeetingDetectionSettingsSnapshot(
                 detectionMode: .detectAndAsk,
-                targetScopedAutoRecordEnabled: true,
-                autoRecordTargetIds: ["yandex_telemost"],
+                automaticRecordingRules: ["yandex_telemost": .ask],
                 assistedAutoStartAuthorized: false
             ),
             prerequisites: MeetingDetectionCapturePrerequisites()
         )
 
         XCTAssertEqual(action, .prompt(targetID: "yandex_telemost"))
+    }
+
+    func testNeverRuleSuppressesWithoutPrompt() {
+        let action = MeetingDetectionPolicy().action(
+            for: MeetingDetectionCandidateDecision(
+                kind: .knownTarget(targetID: "yandex_telemost", mode: .promptEnabled),
+                candidateScore: 0
+            ),
+            settings: MeetingDetectionSettingsSnapshot(
+                detectionMode: .detectAndAsk,
+                automaticRecordingRules: ["yandex_telemost": .never]
+            ),
+            prerequisites: MeetingDetectionCapturePrerequisites()
+        )
+
+        XCTAssertEqual(action, .suppress(reason: "target_policy_never"))
+    }
+
+    func testAlwaysRuleRequiresCurrentWorkspaceAuthorization() {
+        let decision = MeetingDetectionCandidateDecision(
+            kind: .knownTarget(targetID: "yandex_telemost", mode: .promptEnabled),
+            candidateScore: 0
+        )
+        let policy = MeetingDetectionPolicy()
+        let settings = MeetingDetectionSettingsSnapshot(
+            detectionMode: .detectAndAsk,
+            automaticRecordingRules: ["yandex_telemost": .always]
+        )
+
+        XCTAssertEqual(
+            policy.action(for: decision, settings: settings, prerequisites: MeetingDetectionCapturePrerequisites()),
+            .suppress(reason: "assisted_auto_start_unauthorized")
+        )
+        XCTAssertEqual(
+            policy.action(
+                for: decision,
+                settings: MeetingDetectionSettingsSnapshot(
+                    detectionMode: .detectAndAsk,
+                    automaticRecordingRules: ["yandex_telemost": .always],
+                    assistedAutoStartAuthorized: true
+                ),
+                prerequisites: MeetingDetectionCapturePrerequisites()
+            ),
+            .autoRecord(targetID: "yandex_telemost")
+        )
+    }
+
+    func testAskRulePromptsAndNeverRuleSuppressesEvenWhenCaptureGateIsBlocked() {
+        let blocked = MeetingDetectionCapturePrerequisites(oneActionStopAvailable: false)
+        let decision = MeetingDetectionCandidateDecision(
+            kind: .knownTarget(targetID: "yandex_telemost", mode: .promptEnabled),
+            candidateScore: 0
+        )
+        let policy = MeetingDetectionPolicy()
+
+        XCTAssertEqual(
+            policy.action(
+                for: decision,
+                settings: MeetingDetectionSettingsSnapshot(
+                    detectionMode: .detectAndAsk,
+                    automaticRecordingRules: ["yandex_telemost": .ask]
+                ),
+                prerequisites: blocked
+            ),
+            .suppress(reason: "one_action_stop_unavailable")
+        )
+        XCTAssertEqual(
+            policy.action(
+                for: decision,
+                settings: MeetingDetectionSettingsSnapshot(
+                    detectionMode: .detectAndAsk,
+                    automaticRecordingRules: ["yandex_telemost": .never]
+                ),
+                prerequisites: blocked
+            ),
+            .suppress(reason: "target_policy_never")
+        )
     }
 
     func testTargetScopedAutoRecordStillPromptsWhenTargetIsUnchecked() {
@@ -999,8 +1152,7 @@ final class MeetingDetectionPolicyTests: XCTestCase {
         let detector = MacOSMeetingActivityDetector(debounceSeconds: 1)
         let settings = MeetingDetectionSettings(
             detectionMode: .detectAndAsk,
-            targetScopedAutoRecordEnabled: true,
-            autoRecordTargetIds: ["yandex_telemost"]
+            automaticRecordingRules: ["yandex_telemost": .ask]
         )
         _ = detector.handle(
             event: MacOSAudioOwnershipEvent(

@@ -73,6 +73,18 @@ CIDR allowlist и server-side overwrite `X-Billing-Webhook-Secret`, не мен�
 `nginx -t`, reload, negative probe и automatic rollback. До успешного
 controlled provider delivery checkout остаётся fail-closed.
 
+### Промокоды до canary
+
+Кампании выпускаются только через внутренний maintenance helper:
+`apps/server/scripts/manage_promo_campaign.py`. Команда по умолчанию делает
+dry-run, получает код через скрытый prompt/stdin, сохраняет только hash и
+требует отдельный `--execute` для записи; код нельзя передавать аргументом,
+класть в shell history или evidence. После создания Owner проверяет код через
+server-side checkout preview: preview не создаёт invoice, reservation или
+provider request, а финальный checkout повторно проверяет campaign/catalog/floor
+и launch gates. Отключение кампании блокирует новые preview/checkout и не
+пересчитывает уже созданные immutable invoices.
+
 ## 1. Перед canary: checklist
 
 ### Окружение и release

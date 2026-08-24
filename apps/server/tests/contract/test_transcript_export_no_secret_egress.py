@@ -34,6 +34,6 @@ def test_content_export_audit_allowlist_excludes_content_provider_and_storage_fi
 
 
 def test_content_export_public_contract_has_only_allowlisted_formats_and_version() -> None:
-    assert set(MEDIA_TYPES) == {"txt", "md", "csv", "xlsx", "json", "srt"}
-    assert SCHEMA_VERSION == "graf.transcript-export.v1"
+    assert set(MEDIA_TYPES) == {"txt", "md", "csv", "xlsx", "json", "srt", "vtt"}
+    assert SCHEMA_VERSION == "graf.transcript-export.v2"
     assert all("zip" not in media_type for media_type in MEDIA_TYPES.values())

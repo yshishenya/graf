@@ -11,14 +11,10 @@ public struct MeetingDetectionSettingsView: View {
         "Если выключено, запросы не показываются и запись не запускается. Определение встреч продолжает работать."
     public static let assistedAutoStartTitle = "Разрешить запуск записи после таймера"
     public static let assistedAutoStartDetail =
-        "Для найденной встречи GRAF покажет обычный prompt на 8 секунд. Автоматический старт по таймеру работает только после вашего явного разрешения."
+        "Разрешает автоматический запуск после 8-секундного таймера, если действуют политика и разрешения workspace."
     public static let autoRecordSectionTitle = "Приложения"
-    public static let autoRecordSectionDetail =
-        "После вашего разрешения отмеченные приложения пишутся автоматически. Остальные будут спрашивать перед записью."
-    public static let autoRecordDisabledSectionDetail =
-        "Автоматическая запись выключена. Выбранные приложения остаются в списке для определения встреч."
-    public static let selectAllTitle = "Выбрать все"
-    public static let clearAllTitle = "Снять все"
+    public static let applyToAllTitle = "Для всех приложений"
+    public static let technicalHintIcon = "info.circle"
     private let store: MeetingDetectionSettingsStore
     private let registryStore: MeetingTargetRegistryStore
     private let notificationCenter: NotificationCenter
@@ -105,50 +101,34 @@ public struct MeetingDetectionSettingsView: View {
 
                 Form {
                     Section {
-                        Toggle(isOn: assistedAutoStartBinding) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(Self.assistedAutoStartTitle)
-                                    .fontWeight(.medium)
-                                Text(Self.assistedAutoStartDetail)
-                                    .font(.callout)
-                                    .foregroundStyle(.secondary)
-                                Text(assistedAutoStartPolicyStatus)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
+                        technicalToggle(
+                            title: Self.assistedAutoStartTitle,
+                            detail: "\(Self.assistedAutoStartDetail)\n\n\(assistedAutoStartPolicyStatus)",
+                            binding: assistedAutoStartBinding,
+                            isDisabled: currentPolicy?.isActive() != true
+                        )
                         .toggleStyle(.switch)
-                        .disabled(currentPolicy?.isActive() != true)
-                        .accessibilityLabel(Self.assistedAutoStartTitle)
 
-                        Toggle(isOn: recordingPromptBinding) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(Self.promptToggleTitle)
-                                    .fontWeight(.medium)
-                                Text(Self.promptToggleDetail)
-                                    .font(.callout)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
+                        technicalToggle(
+                            title: Self.promptToggleTitle,
+                            detail: Self.promptToggleDetail,
+                            binding: recordingPromptBinding
+                        )
                         .toggleStyle(.switch)
-                        .accessibilityLabel(Self.promptToggleTitle)
                         .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.meetingDetectionRecordingToggle)
                     }
 
                     Section(header: Text(Self.autoRecordSectionTitle).fontWeight(.medium)) {
-                        Text(settings.detectionMode == .detectAndAsk ? Self.autoRecordSectionDetail : Self.autoRecordDisabledSectionDetail)
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                            .padding(.bottom, 4)
-
-                        HStack {
-                            Spacer()
-                            Button(Self.selectAllTitle, action: selectAllAutoRecordTargets)
-                                .disabled(promptCapableTargets.isEmpty)
-                            Button(Self.clearAllTitle, action: clearAutoRecordTargets)
-                                .disabled(settings.autoRecordTargetIds.isEmpty)
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(Self.applyToAllTitle)
+                                .font(.subheadline)
+                                .fontWeight(.medium)
+                            AutomaticRecordingRulePicker(
+                                title: Self.applyToAllTitle,
+                                selection: bulkRuleBinding,
+                                isDisabled: promptCapableTargets.isEmpty
+                            )
                         }
-                        .buttonStyle(DesktopWebButtonStyle(.secondary))
 
                         if promptCapableTargets.isEmpty {
                             Text("Список появится после загрузки реестра.")
@@ -156,17 +136,18 @@ public struct MeetingDetectionSettingsView: View {
                                 .foregroundStyle(.secondary)
                         } else {
                             ForEach(promptCapableTargets, id: \.id) { target in
-                                Toggle(isOn: autoRecordBinding(for: target.id)) {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(target.displayName)
-                                        if let bundleID = target.nativeBundleIds.first {
-                                            Text(bundleID)
-                                                .font(.caption)
-                                                .foregroundStyle(.secondary)
-                                        }
-                                    }
+                                HStack(spacing: 12) {
+                                    Image(systemName: "app.dashed")
+                                        .foregroundStyle(.secondary)
+                                        .frame(width: 20)
+                                    Text(target.displayName)
+                                        .fontWeight(.medium)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                    AutomaticRecordingRulePicker(
+                                        title: target.displayName,
+                                        selection: ruleBinding(for: target.id)
+                                    )
                                 }
-                                .toggleStyle(.checkbox)
                             }
                         }
                     }
@@ -200,6 +181,24 @@ public struct MeetingDetectionSettingsView: View {
         )
     }
 
+    private func technicalToggle(
+        title: String,
+        detail: String,
+        binding: Binding<Bool>,
+        isDisabled: Bool = false
+    ) -> some View {
+        HStack(spacing: 8) {
+            Toggle(title, isOn: binding)
+                .fontWeight(.medium)
+                .disabled(isDisabled)
+                .accessibilityLabel(title)
+            TechnicalHintView(detail: detail)
+                .frame(width: 20, height: 20)
+                .accessibilityLabel("Подробнее о настройке")
+                .accessibilityHint(detail)
+        }
+    }
+
     private var assistedAutoStartBinding: Binding<Bool> {
         Binding(
             get: { settings.allowsAssistedAutoStart(policy: currentPolicy) },
@@ -230,34 +229,33 @@ public struct MeetingDetectionSettingsView: View {
         return "Нужно ваше явное разрешение для правил \(policy.policyVersion)."
     }
 
-    private func autoRecordBinding(for targetID: String) -> Binding<Bool> {
+    private var bulkRuleBinding: Binding<AutomaticRecordingRule?> {
         Binding(
-            get: { settings.autoRecordTargetIds.contains(targetID) },
-            set: { enabled in
+            get: {
+                let rules = promptCapableTargets.map { settings.recordingRule(for: $0.id) }
+                guard let first = rules.first, rules.allSatisfy({ $0 == first }) else { return nil }
+                return first
+            },
+            set: { rule in
+                guard let rule else { return }
                 updateSettings { draft in
-                    if enabled {
-                        draft.autoRecordTargetIds.insert(targetID)
-                    } else {
-                        draft.autoRecordTargetIds.remove(targetID)
+                    for target in promptCapableTargets {
+                        draft.setRecordingRule(rule, for: target.id)
                     }
-                    draft.targetScopedAutoRecordEnabled = !draft.autoRecordTargetIds.isEmpty
                 }
             }
         )
     }
 
-    private func selectAllAutoRecordTargets() {
-        updateSettings { draft in
-            draft.autoRecordTargetIds = Set(promptCapableTargets.map(\.id))
-            draft.targetScopedAutoRecordEnabled = !draft.autoRecordTargetIds.isEmpty
-        }
-    }
-
-    private func clearAutoRecordTargets() {
-        updateSettings { draft in
-            draft.autoRecordTargetIds.removeAll()
-            draft.targetScopedAutoRecordEnabled = false
-        }
+    private func ruleBinding(for targetID: String) -> Binding<AutomaticRecordingRule> {
+        Binding(
+            get: { settings.recordingRule(for: targetID) },
+            set: { rule in
+                updateSettings { draft in
+                    draft.setRecordingRule(rule, for: targetID)
+                }
+            }
+        )
     }
 
     private func updateSettings(_ transform: (inout MeetingDetectionSettings) -> Void) {
@@ -307,5 +305,209 @@ public struct MeetingDetectionSettingsView: View {
         return registry.targets
             .filter(\.isVerifiedNativePromptTarget)
             .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+    }
+}
+
+private struct TechnicalHintView: NSViewRepresentable {
+    let detail: String
+
+    func makeNSView(context: Context) -> TechnicalHintNSView {
+        let view = TechnicalHintNSView(detail: detail)
+        return view
+    }
+
+    func updateNSView(_ nsView: TechnicalHintNSView, context: Context) {
+        nsView.detail = detail
+    }
+}
+
+@MainActor
+private final class TechnicalHintNSView: NSImageView {
+    var detail: String {
+        didSet { updatePopoverContent() }
+    }
+
+    private var hintPopover: NSPopover?
+    private var showHintWorkItem: DispatchWorkItem?
+
+    init(detail: String) {
+        self.detail = detail
+        super.init(frame: .zero)
+        image = NSImage(
+            systemSymbolName: MeetingDetectionSettingsView.technicalHintIcon,
+            accessibilityDescription: "Подробнее о настройке"
+        )
+        imageScaling = .scaleProportionallyUpOrDown
+        contentTintColor = .secondaryLabelColor
+        setAccessibilityLabel("Подробнее о настройке")
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func updateTrackingAreas() {
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(
+            NSTrackingArea(
+                rect: bounds,
+                options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                owner: self,
+                userInfo: nil
+            )
+        )
+        super.updateTrackingAreas()
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        showHintWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.presentHintPopover()
+        }
+        showHintWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: workItem)
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        bounds.contains(point) ? self : nil
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        showHintWorkItem?.cancel()
+        hintPopover?.performClose(nil)
+        hintPopover = nil
+    }
+
+    private func presentHintPopover() {
+        guard window != nil, hintPopover == nil else { return }
+
+        let font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+        let textBounds = (detail as NSString).boundingRect(
+            with: NSSize(width: 280, height: CGFloat.greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: font]
+        )
+        let contentSize = NSSize(
+            width: 304,
+            height: max(44, ceil(textBounds.height) + 24)
+        )
+
+        let label = NSTextField(wrappingLabelWithString: detail)
+        label.font = font
+        label.textColor = .labelColor
+        label.translatesAutoresizingMaskIntoConstraints = false
+
+        let container = NSView()
+        container.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
+            label.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
+            label.topAnchor.constraint(equalTo: container.topAnchor, constant: 12),
+            label.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -12)
+        ])
+
+        let controller = NSViewController()
+        controller.view = container
+        controller.preferredContentSize = contentSize
+
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.animates = false
+        popover.contentViewController = controller
+        hintPopover = popover
+        popover.show(relativeTo: bounds, of: self, preferredEdge: .minX)
+    }
+
+    private func updatePopoverContent() {
+        hintPopover?.performClose(nil)
+        hintPopover = nil
+    }
+}
+
+private struct AutomaticRecordingRulePicker: View {
+    let title: String
+    @Binding var selection: AutomaticRecordingRule?
+    var isDisabled = false
+    @State private var hoveredRule: AutomaticRecordingRule?
+
+    init(
+        title: String,
+        selection: Binding<AutomaticRecordingRule>,
+        isDisabled: Bool = false
+    ) {
+        self.title = title
+        _selection = Binding(
+            get: { selection.wrappedValue },
+            set: { selection.wrappedValue = $0 ?? .ask }
+        )
+        self.isDisabled = isDisabled
+    }
+
+    init(
+        title: String,
+        selection: Binding<AutomaticRecordingRule?>,
+        isDisabled: Bool = false
+    ) {
+        self.title = title
+        _selection = selection
+        self.isDisabled = isDisabled
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(AutomaticRecordingRule.allCases, id: \.self) { rule in
+                Button {
+                    selection = rule
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: rule.symbolName)
+                        Text(rule.displayName)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                    }
+                    .font(.callout)
+                    .frame(width: 112, height: 38)
+                    .foregroundStyle(selection == rule ? .white : .primary)
+                    .background(
+                        selection == rule
+                            ? DesktopMeetingShellChrome.shellAccentColor
+                            : hoveredRule == rule ? DesktopMeetingShellChrome.shellAccentColor.opacity(0.12) : Color.clear,
+                        in: RoundedRectangle(cornerRadius: 10)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(
+                                selection == rule
+                                    ? DesktopMeetingShellChrome.shellAccentColor
+                                    : hoveredRule == rule
+                                        ? DesktopMeetingShellChrome.shellAccentColor.opacity(0.55)
+                                        : Color.secondary.opacity(0.25),
+                                lineWidth: 1
+                            )
+                    )
+                }
+                .buttonStyle(.plain)
+                .disabled(isDisabled)
+                .onHover { isHovering in
+                    hoveredRule = isHovering ? rule : nil
+                }
+                .accessibilityAddTraits(selection == rule ? .isSelected : [])
+            }
+        }
+        .accessibilityLabel(title)
+        .accessibilityValue(selection?.displayName ?? "Разные")
+        .accessibilityHint(isDisabled ? "Недоступно" : "Выберите состояние автозаписи")
+    }
+}
+
+private extension AutomaticRecordingRule {
+    var symbolName: String {
+        switch self {
+        case .always: return "record.circle"
+        case .ask: return "questionmark.circle"
+        case .never: return "nosign"
+        }
     }
 }

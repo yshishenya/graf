@@ -1,0 +1,404 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://graf.local/contracts/processing-recovery-analytics.schema.json",
+  "title": "GRAF Processing Recovery Analytics Rollup",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event_name",
+    "window",
+    "window_started_at",
+    "window_ended_at",
+    "surface",
+    "count",
+    "dimensions"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "event_name": {
+      "type": "string",
+      "enum": [
+        "processing_attempt_started",
+        "processing_first_usable_transcript",
+        "processing_retry_scheduled",
+        "processing_retry_completed",
+        "processing_reconciliation_completed",
+        "processing_manual_check_requested",
+        "processing_manual_check_completed",
+        "processing_terminal_outcome",
+        "processing_support_handoff",
+        "processing_surface_parity_observed"
+      ]
+    },
+    "window": {
+      "type": "string",
+      "enum": [
+        "hour",
+        "day"
+      ]
+    },
+    "window_started_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "window_ended_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "surface": {
+      "type": "string",
+      "enum": [
+        "server",
+        "web_list",
+        "web_detail",
+        "embedded_desktop_detail",
+        "contract_test"
+      ]
+    },
+    "count": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "dimensions": {
+      "type": "object"
+    }
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "event_name": {"const": "processing_attempt_started"},
+        "surface": {"const": "server"},
+        "dimensions": {"$ref": "#/$defs/attemptStartedDimensions"}
+      }
+    },
+    {
+      "properties": {
+        "event_name": {"const": "processing_first_usable_transcript"},
+        "surface": {"const": "server"},
+        "dimensions": {"$ref": "#/$defs/firstUsableDimensions"}
+      }
+    },
+    {
+      "properties": {
+        "event_name": {"const": "processing_retry_scheduled"},
+        "surface": {"const": "server"},
+        "dimensions": {"$ref": "#/$defs/retryScheduledDimensions"}
+      }
+    },
+    {
+      "properties": {
+        "event_name": {"const": "processing_retry_completed"},
+        "surface": {"const": "server"},
+        "dimensions": {"$ref": "#/$defs/retryCompletedDimensions"}
+      }
+    },
+    {
+      "properties": {
+        "event_name": {"const": "processing_reconciliation_completed"},
+        "surface": {"const": "server"},
+        "dimensions": {"$ref": "#/$defs/reconciliationDimensions"}
+      }
+    },
+    {
+      "properties": {
+        "event_name": {"const": "processing_manual_check_requested"},
+        "surface": {
+          "enum": ["web_detail", "embedded_desktop_detail"]
+        },
+        "dimensions": {"$ref": "#/$defs/manualRequestedDimensions"}
+      }
+    },
+    {
+      "properties": {
+        "event_name": {"const": "processing_manual_check_completed"},
+        "surface": {
+          "enum": ["web_detail", "embedded_desktop_detail"]
+        },
+        "dimensions": {"$ref": "#/$defs/manualCompletedDimensions"}
+      }
+    },
+    {
+      "properties": {
+        "event_name": {"const": "processing_terminal_outcome"},
+        "surface": {"const": "server"},
+        "dimensions": {"$ref": "#/$defs/terminalDimensions"}
+      }
+    },
+    {
+      "properties": {
+        "event_name": {"const": "processing_support_handoff"},
+        "surface": {
+          "enum": ["server", "web_detail", "embedded_desktop_detail"]
+        },
+        "dimensions": {"$ref": "#/$defs/supportHandoffDimensions"}
+      }
+    },
+    {
+      "properties": {
+        "event_name": {"const": "processing_surface_parity_observed"},
+        "surface": {
+          "enum": ["web_list", "web_detail", "embedded_desktop_detail"]
+        },
+        "dimensions": {"$ref": "#/$defs/surfaceParityDimensions"}
+      }
+    }
+  ],
+  "$defs": {
+    "attemptKind": {
+      "type": "string",
+      "enum": [
+        "initial",
+        "automatic_retry",
+        "manual_check",
+        "same_key_reconciliation",
+        "worker_resume"
+      ]
+    },
+    "mediaSizeBucket": {
+      "type": "string",
+      "enum": [
+        "under_10mb",
+        "10mb_100mb",
+        "100mb_1gb",
+        "over_1gb",
+        "unknown"
+      ]
+    },
+    "trackMode": {
+      "type": "string",
+      "enum": ["single", "dual", "unknown"]
+    },
+    "latencyBucket": {
+      "type": "string",
+      "enum": [
+        "under_30s",
+        "30s_2m",
+        "2m_5m",
+        "5m_15m",
+        "15m_30m",
+        "30m_2h",
+        "over_2h",
+        "unknown"
+      ]
+    },
+    "artifactState": {
+      "type": "string",
+      "enum": [
+        "not_requested",
+        "queued",
+        "running",
+        "available",
+        "failed",
+        "unavailable",
+        "unknown"
+      ]
+    },
+    "attemptStartedDimensions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["attempt_kind", "media_size_bucket", "track_mode"],
+      "properties": {
+        "attempt_kind": {"$ref": "#/$defs/attemptKind"},
+        "media_size_bucket": {"$ref": "#/$defs/mediaSizeBucket"},
+        "track_mode": {"$ref": "#/$defs/trackMode"}
+      }
+    },
+    "firstUsableDimensions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "latency_bucket",
+        "attempt_kind",
+        "media_size_bucket",
+        "track_mode",
+        "summary_state_at_ready",
+        "playback_state_at_ready"
+      ],
+      "properties": {
+        "latency_bucket": {"$ref": "#/$defs/latencyBucket"},
+        "attempt_kind": {"$ref": "#/$defs/attemptKind"},
+        "media_size_bucket": {"$ref": "#/$defs/mediaSizeBucket"},
+        "track_mode": {"$ref": "#/$defs/trackMode"},
+        "summary_state_at_ready": {"$ref": "#/$defs/artifactState"},
+        "playback_state_at_ready": {"$ref": "#/$defs/artifactState"}
+      }
+    },
+    "retryScheduledDimensions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "retry_reason",
+        "schedule_source",
+        "delay_bucket",
+        "retry_count_bucket"
+      ],
+      "properties": {
+        "retry_reason": {
+          "type": "string",
+          "enum": [
+            "result_not_ready",
+            "temporary_unavailable",
+            "transport",
+            "bounded_fallback",
+            "deadline_window",
+            "unknown"
+          ]
+        },
+        "schedule_source": {
+          "type": "string",
+          "enum": ["external_hint", "server_fallback", "manual_override", "unknown"]
+        },
+        "delay_bucket": {
+          "type": "string",
+          "enum": ["under_30s", "30s_2m", "2m_15m", "15m_1h", "over_1h", "unknown"]
+        },
+        "retry_count_bucket": {
+          "type": "string",
+          "enum": ["first", "second", "third_plus", "unknown"]
+        }
+      }
+    },
+    "retryCompletedDimensions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["retry_outcome", "attempt_kind", "latency_bucket", "same_key_reused", "new_attempt_created"],
+      "properties": {
+        "retry_outcome": {
+          "type": "string",
+          "enum": ["first_usable_transcript", "artifact_progress", "still_retryable", "terminal", "support_handoff", "unknown"]
+        },
+        "attempt_kind": {"$ref": "#/$defs/attemptKind"},
+        "latency_bucket": {"$ref": "#/$defs/latencyBucket"},
+        "same_key_reused": {"type": "boolean"},
+        "new_attempt_created": {"type": "boolean"}
+      }
+    },
+    "reconciliationDimensions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reconciliation_outcome", "attempt_kind", "latency_bucket"],
+      "properties": {
+        "reconciliation_outcome": {
+          "type": "string",
+          "enum": ["same_key_job_confirmed", "same_key_conflict_blocked", "no_safe_linkage", "support_handoff"]
+        },
+        "attempt_kind": {"$ref": "#/$defs/attemptKind"},
+        "latency_bucket": {"$ref": "#/$defs/latencyBucket"}
+      }
+    },
+    "manualRequestedDimensions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_result", "same_job_check"],
+      "properties": {
+        "request_result": {
+          "type": "string",
+          "enum": ["accepted", "already_in_flight", "stale_schedule", "duplicate_suppressed", "not_safe"]
+        },
+        "same_job_check": {"type": "boolean"}
+      }
+    },
+    "manualCompletedDimensions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["claim_result", "check_outcome", "latency_bucket", "timer_superseded"],
+      "properties": {
+        "claim_result": {
+          "type": "string",
+          "enum": ["claimed_once", "already_in_flight", "stale_noop", "duplicate_suppressed"]
+        },
+        "check_outcome": {
+          "type": "string",
+          "enum": ["first_usable_transcript", "artifact_progress", "still_retryable", "terminal", "support_handoff", "unknown"]
+        },
+        "latency_bucket": {"$ref": "#/$defs/latencyBucket"},
+        "timer_superseded": {"type": "boolean"}
+      }
+    },
+    "terminalDimensions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["terminal_category", "next_action", "artifact_preserved"],
+      "properties": {
+        "terminal_category": {
+          "type": "string",
+          "enum": ["invalid_input", "unsupported_media", "processing_failure", "deadline_exhausted", "configuration", "deletion_closed", "unknown"]
+        },
+        "next_action": {
+          "type": "string",
+          "enum": ["new_attempt", "contact_support", "operator_action", "none"]
+        },
+        "artifact_preserved": {"type": "boolean"}
+      }
+    },
+    "supportHandoffDimensions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["handoff_reason", "handoff_state", "artifact_preserved"],
+      "properties": {
+        "handoff_reason": {
+          "type": "string",
+          "enum": ["terminal_processing", "unknown_outcome", "deletion_pending", "configuration", "no_safe_retry"]
+        },
+        "handoff_state": {
+          "type": "string",
+          "enum": ["offered", "accepted", "submitted", "unavailable"]
+        },
+        "artifact_preserved": {"type": "boolean"}
+      }
+    },
+    "surfaceParityDimensions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fixture_class", "parity_result", "projection_contract_version"],
+      "properties": {
+        "fixture_class": {
+          "type": "string",
+          "enum": ["transcript_pending_diarization", "transcript_ready_summary_running", "retryable_waiting", "manual_in_flight", "terminal_support", "deletion_pending"]
+        },
+        "parity_result": {
+          "type": "string",
+          "enum": ["match", "mismatch"]
+        },
+        "projection_contract_version": {
+          "type": "string",
+          "pattern": "^processing-status-v[0-9]+$"
+        },
+        "mismatch_reason": {
+          "type": "string",
+          "enum": ["missing_field", "stale_timestamp", "different_action", "visibility_mismatch", "independent_retry", "unknown"]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "parity_result": {"const": "mismatch"}
+            },
+            "required": ["parity_result"]
+          },
+          "then": {
+            "required": ["mismatch_reason"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "parity_result": {"const": "match"}
+            },
+            "required": ["parity_result"]
+          },
+          "then": {
+            "not": {
+              "required": ["mismatch_reason"]
+            }
+          }
+        }
+      ]
+    }
+  }
+}

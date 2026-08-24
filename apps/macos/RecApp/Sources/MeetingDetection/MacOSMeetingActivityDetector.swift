@@ -314,6 +314,7 @@ public extension MeetingDetectionSettings {
             detectionMode: detectionMode,
             targetScopedAutoRecordEnabled: targetScopedAutoRecordEnabled,
             autoRecordTargetIds: autoRecordTargetIds,
+            automaticRecordingRules: automaticRecordingRules,
             assistedAutoStartAuthorized: assistedAutoStartAuthorized
         )
     }

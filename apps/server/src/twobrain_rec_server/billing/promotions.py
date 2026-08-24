@@ -154,6 +154,7 @@ def choose_best_discount(
     cycle: str,
     provider_floor_minor: int,
     candidates: Sequence[PromoCode],
+    strict_first: bool = False,
 ) -> tuple[PromoCode | None, int]:
     """Choose one eligible discount without allowing promo stacking.
 
@@ -162,12 +163,14 @@ def choose_best_discount(
     candidate producing the lowest payable amount wins, ties preserve the
     caller's order (configured promo before the system referral candidate).
     Candidates that do not apply to the selected cycle or fall below the
-    provider floor are ignored; an empty result means list price.
+    provider floor are ignored; an empty result means list price. When the
+    first candidate is an explicitly entered code, ``strict_first`` keeps an
+    invalid code from silently turning into a full-price checkout.
     """
     if amount_minor <= 0:
         raise PromoError("Сумма платежа недоступна", code="promo_invalid")
     best: tuple[PromoCode, int] | None = None
-    for candidate in candidates:
+    for index, candidate in enumerate(candidates):
         try:
             payable = apply_promo(
                 amount_minor=amount_minor,
@@ -177,6 +180,8 @@ def choose_best_discount(
                 cycle=cycle,
             )
         except PromoError:
+            if strict_first and index == 0:
+                raise
             continue
         if best is None or payable < best[1]:
             best = (candidate, payable)

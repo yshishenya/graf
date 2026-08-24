@@ -1,6 +1,38 @@
 # Текущий статус продукта
 
-Date: 2026-08-23
+Date: 2026-08-24
+
+## Implementation update (2026-08-24) — Feature 199 per-app recording policies
+
+- Политика автозаписи теперь хранится отдельно для каждого verified native
+  target в трёх состояниях: «Всегда», «Спрашивать» и «Никогда». Новые targets
+  получают «Спрашивать», общий radio-контрол применяет выбранное состояние ко
+  всем targets, а смешанное состояние показывает «Разные».
+- Prompt оставляет 8-секундный таймер: по истечении запускается текущая запись
+  при прохождении существующих capture/workspace gates. Таймер никогда не
+  сохраняет галочку; «Записать сейчас» + галочка сохраняет «Всегда», а «Не
+  записывать» + галочка — «Никогда».
+- В prompt удалены технические строки, в настройках убраны bundle ID и
+  длинные подписи под техническими переключателями; подробности доступны через
+  pointer/keyboard/VoiceOver hints. Видимый индикатор записи и однокнопочная
+  остановка сохранены.
+- Focused Swift suite и source-contract/accessibility smoke проходят. Full CI,
+  commit, push, release и production deploy для Feature 199 не выполнялись.
+
+## Implementation update (2026-08-23) — Feature 199 billing preview and promo provisioning
+
+- Feature 140 billing получил server-side checkout preview: Owner видит
+  server-calculated цену списка, скидку, сумму сегодня и следующий платёж до
+  hosted YooKassa перехода. Preview не создаёт invoice/reservation/provider
+  mutation; финальный checkout использует повторную eligibility-проверку,
+  fail-closed provider floor и то же правило выбора одной promo/referral
+  скидки.
+- Добавлен internal-only `apps/server/scripts/manage_promo_campaign.py` с
+  dry-run по умолчанию и явным `--execute` для создания/отключения кампаний.
+  Raw code читается скрыто/stdin и хранится только как hash.
+- Это implementation evidence, а не разрешение на launch: `checkout` остаётся
+  default-off, а T078-T080/T083-T085/T087 Feature 140 требуют canary и
+  merchant/finance/legal/security/QA evidence.
 
 ## Implementation update (2026-08-23) — Feature 194 global defaults and prompt-first install
 
