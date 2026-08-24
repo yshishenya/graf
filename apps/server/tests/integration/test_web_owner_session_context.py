@@ -975,8 +975,9 @@ def test_email_login_digest_requires_server_secret_and_browser_nonce(client) -> 
             return callback_state.expected_state
 
     digest = client.portal.call(stored_digest)
-    assert digest != hash_token(f"{BROWSER_OWNER_EMAIL}\0{code}")
-    assert digest == auth_email_flow_module._email_auth_expected_state(
+    code_digest, browser_digest = digest.split(".")
+    assert code_digest != hash_token(f"{BROWSER_OWNER_EMAIL}\0{code}")
+    assert code_digest == auth_email_flow_module._email_auth_expected_state(
         secret=client.app.state.web_csrf_secret,
         provider="email",
         state_nonce=state_nonce,
@@ -984,7 +985,7 @@ def test_email_login_digest_requires_server_secret_and_browser_nonce(client) -> 
         code=code,
         browser_nonce=browser_nonce,
     )
-    assert digest != auth_email_flow_module._email_auth_expected_state(
+    assert code_digest != auth_email_flow_module._email_auth_expected_state(
         secret="wrong-offline-secret",
         provider="email",
         state_nonce=state_nonce,
@@ -992,13 +993,20 @@ def test_email_login_digest_requires_server_secret_and_browser_nonce(client) -> 
         code=code,
         browser_nonce=browser_nonce,
     )
-    assert digest != auth_email_flow_module._email_auth_expected_state(
+    assert code_digest != auth_email_flow_module._email_auth_expected_state(
         secret=client.app.state.web_csrf_secret,
         provider="email",
         state_nonce=state_nonce,
         email=BROWSER_OWNER_EMAIL,
         code=code,
         browser_nonce="nonce-from-another-browser",
+    )
+    assert browser_digest == auth_email_flow_module._email_auth_browser_binding_state(
+        secret=client.app.state.web_csrf_secret,
+        provider="email",
+        state_nonce=state_nonce,
+        email=BROWSER_OWNER_EMAIL,
+        browser_nonce=browser_nonce,
     )
 
 
@@ -1861,7 +1869,7 @@ def test_browser_email_signup_verification_uses_state_bound_return_path(client) 
     assert callback.headers["location"] == "/meetings"
 
 
-def test_browser_email_login_wrong_code_consumes_state(client) -> None:
+def test_browser_email_login_wrong_code_keeps_state_for_retry(client) -> None:
     client.portal.call(_link_owner_email_identity, client)
 
     start = client.post(
@@ -1875,27 +1883,34 @@ def test_browser_email_login_wrong_code_consumes_state(client) -> None:
     assert code_match is not None
     state = state_match.group(1)
     code = code_match.group(1)
+    _bind_email_auth_attempt_cookie(client, start, state_nonce=state)
     wrong_code = "000000" if code != "000000" else "999999"
 
-    wrong = client.post(
-        "/login/email/verify",
-        data={
-            "email": BROWSER_OWNER_EMAIL,
-            "code": wrong_code,
-            "state": state,
-            "next": "/meetings",
-        },
-        follow_redirects=False,
-    )
+    wrong_attempts = [
+        client.post(
+            "/login/email/verify",
+            data={
+                "email": BROWSER_OWNER_EMAIL,
+                "code": wrong_code,
+                "state": state,
+                "next": "/meetings",
+            },
+            follow_redirects=False,
+        )
+        for _ in range(2)
+    ]
     replay = client.post(
         "/login/email/verify",
         data={"email": BROWSER_OWNER_EMAIL, "code": code, "state": state, "next": "/meetings"},
         follow_redirects=False,
     )
 
-    assert wrong.status_code == 400
-    assert replay.status_code == 400
-    assert replay.cookies.get(AUTH_SESSION_COOKIE_NAME) is None
+    assert all(response.status_code == 400 for response in wrong_attempts)
+    assert all('action="/login/email/verify"' in response.text for response in wrong_attempts)
+    assert all("Код введён неверно" in response.text for response in wrong_attempts)
+    assert replay.status_code == 303, replay.text
+    assert replay.headers["location"] == "/meetings"
+    assert replay.cookies.get(AUTH_SESSION_COOKIE_NAME)
 
     async def state_result() -> tuple[str, str | None]:
         async with client.app_state["sessionmaker"]() as db:
@@ -1905,7 +1920,54 @@ def test_browser_email_login_wrong_code_consumes_state(client) -> None:
             assert state_row is not None
             return state_row.result, state_row.error_code
 
-    assert client.portal.call(state_result) == ("failed", "email_code_invalid")
+    assert client.portal.call(state_result) == ("completed", None)
+
+
+def test_browser_email_login_blocks_code_after_three_wrong_attempts(client) -> None:
+    client.portal.call(_link_owner_email_identity, client)
+
+    start = client.post(
+        "/login/email/start",
+        data={"email": BROWSER_OWNER_EMAIL, "next": "/meetings"},
+    )
+    assert start.status_code == 200
+    state_match = re.search(r'name="state" value="([^"]+)"', start.text)
+    code_match = re.search(r"Код для локальной проверки: <strong>(\d{6})</strong>", start.text)
+    assert state_match is not None
+    assert code_match is not None
+    state = state_match.group(1)
+    code = code_match.group(1)
+    _bind_email_auth_attempt_cookie(client, start, state_nonce=state)
+    wrong_code = "000000" if code != "000000" else "999999"
+
+    wrong_responses = [
+        client.post(
+            "/login/email/verify",
+            data={
+                "email": BROWSER_OWNER_EMAIL,
+                "code": wrong_code,
+                "state": state,
+                "next": "/meetings",
+            },
+            follow_redirects=False,
+        )
+        for _ in range(3)
+    ]
+    assert all(response.status_code == 400 for response in wrong_responses)
+    assert all('action="/login/email/verify"' in response.text for response in wrong_responses[:2])
+    assert 'action="/login/email/verify"' not in wrong_responses[2].text
+    assert "Слишком много попыток" in wrong_responses[2].text
+
+    blocked = client.post(
+        "/login/email/verify",
+        data={"email": BROWSER_OWNER_EMAIL, "code": code, "state": state, "next": "/meetings"},
+        follow_redirects=False,
+    )
+
+    assert blocked.status_code == 429
+    assert "Слишком много попыток" in blocked.text
+    assert 'action="/login/email/verify"' not in blocked.text
+    assert blocked.cookies.get(AUTH_SESSION_COOKIE_NAME) is None
 
 
 def test_browser_email_signup_flow_creates_user_and_opens_meetings(client) -> None:

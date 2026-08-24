@@ -21,7 +21,7 @@ AUTH_RATE_LIMITS: dict[str, tuple[int, int]] = {
     "email_code_start_invitation": (5, 15 * 60),
     "email_code_verify_address": (10, 15 * 60),
     "email_code_verify_ip": (40, 15 * 60),
-    "email_code_verify_state": (10, 15 * 60),
+    "email_code_verify_state": (3, 15 * 60),
     "provider_start_ip": (20, 15 * 60),
     "provider_callback_ip": (60, 15 * 60),
     "provider_callback_state": (5, 15 * 60),
@@ -30,6 +30,42 @@ AUTH_RATE_LIMITS: dict[str, tuple[int, int]] = {
     "billing_promo_action": (20, 15 * 60),
     "billing_referral_issue": (5, 60 * 60),
 }
+
+
+def _auth_rate_limit_scope_hash(
+    action_key: str,
+    raw_scope: str,
+    scope_secret: str | None,
+) -> str:
+    scope_material = f"{action_key}:{raw_scope}".encode()
+    return (
+        hmac.new(scope_secret.encode("utf-8"), scope_material, hashlib.sha256).hexdigest()
+        if scope_secret
+        else hash_token(scope_material.decode("utf-8"))
+    )
+
+
+async def auth_rate_limit_attempt_count(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    action_key: str,
+    raw_scope: str,
+    scope_secret: str | None = None,
+) -> int:
+    """Read an existing bucket count after a request has consumed an attempt."""
+    if not raw_scope:
+        return 0
+    await apply_tenant_context(db, WorkspaceAuthContext(workspace_id=workspace_id))
+    count = await db.scalar(
+        select(AuthRateLimitBucket.attempt_count).where(
+            AuthRateLimitBucket.workspace_id == workspace_id,
+            AuthRateLimitBucket.scope_hash
+            == _auth_rate_limit_scope_hash(action_key, raw_scope, scope_secret),
+            AuthRateLimitBucket.action_key == action_key,
+        )
+    )
+    return int(count or 0)
 
 
 async def enforce_auth_rate_limits(
@@ -82,12 +118,7 @@ async def _enforce_auth_rate_limits_in_session(
         if not raw_scope or action_key not in AUTH_RATE_LIMITS:
             continue
         limit, window_seconds = AUTH_RATE_LIMITS[action_key]
-        scope_material = f"{action_key}:{raw_scope}".encode()
-        scope_hash = (
-            hmac.new(scope_secret.encode("utf-8"), scope_material, hashlib.sha256).hexdigest()
-            if scope_secret
-            else hash_token(scope_material.decode("utf-8"))
-        )
+        scope_hash = _auth_rate_limit_scope_hash(action_key, raw_scope, scope_secret)
         await db.execute(
             pg_insert(AuthRateLimitBucket)
             .values(

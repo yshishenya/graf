@@ -2320,14 +2320,15 @@ async def test_email_auth_completion_crosses_workspace_under_forced_rls(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("submitted_code", "expected_callback_error"),
-    (("000000", "email_code_invalid"), ("381204", "email_identity_not_found")),
+    ("submitted_code", "expected_callback_result", "expected_callback_error"),
+    (("000000", "pending", None), ("381204", "failed", "email_identity_not_found")),
 )
-async def test_email_auth_failures_write_public_audit_then_finish_exact_callback(
+async def test_email_auth_failures_write_public_audit_and_preserve_retryable_state(
     app_rls_engine: AsyncEngine,
     migrated_postgres_urls: MigratedPostgresUrls,
     rls_engine: AsyncEngine,
     submitted_code: str,
+    expected_callback_result: str,
     expected_callback_error: str,
 ) -> None:
     ids = await _seed_probe_rows(rls_engine)
@@ -2395,7 +2396,7 @@ async def test_email_auth_failures_write_public_audit_then_finish_exact_callback
             {"workspace_id": ids["workspace_a"]},
         )
 
-    assert callback_result == "failed"
+    assert callback_result == expected_callback_result
     assert callback_error == expected_callback_error
     assert audit_count == 1
 

@@ -334,6 +334,28 @@ def test_email_link_start_errors_do_not_render_a_dead_code_form(error: str) -> N
         assert 'name="email" type="email"' in page
 
 
+def test_wrong_email_code_keeps_retry_form_but_rate_limit_hides_it() -> None:
+    wrong_page = render_email_code_page(
+        email="user@example.test",
+        state_nonce="active-state",
+        next_path="/meetings",
+        error="email_code_wrong",
+    )
+    blocked_page = render_email_code_page(
+        email="user@example.test",
+        state_nonce="active-state",
+        next_path="/meetings",
+        error="auth_rate_limited",
+    )
+
+    assert 'action="/login/email/verify"' in wrong_page
+    assert "Код введён неверно" in wrong_page
+    assert "После трёх неверных попыток код блокируется" in wrong_page
+    assert 'action="/login/email/verify"' not in blocked_page
+    assert "Слишком много попыток" in blocked_page
+    assert 'action="/login/email/start"' in blocked_page
+
+
 def test_email_link_callers_select_desktop_flow_for_every_local_render() -> None:
     source = "\n".join(
         (

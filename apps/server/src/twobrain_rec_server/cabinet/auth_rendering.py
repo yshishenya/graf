@@ -168,11 +168,16 @@ def render_email_code_page(
     )
     back_path = link_base_path if link_flow else ("/sign-up" if flow == "signup" else "/login")
     invitation_flow = flow == "share_invitation"
-    can_verify = bool(state_nonce) and error not in {"email_code_invalid", "email_code_expired"}
+    can_verify = bool(state_nonce) and error not in {
+        "auth_rate_limited",
+        "email_code_invalid",
+        "email_code_expired",
+    }
     message_heading = {
         "auth_rate_limited": "Слишком много попыток",
         "email_delivery_unavailable": "Почта временно недоступна",
         "email_invalid": "Проверьте email",
+        "email_code_wrong": "Код введён неверно",
         "email_code_expired": "Код истёк",
     }.get(error, "Код не принят")
     page_title = (
@@ -289,6 +294,7 @@ def _login_error_message(error: str | None, *, link_flow: bool = False) -> str |
         "email_start_unavailable": "Не удалось отправить код. Проверьте email и попробуйте снова.",
         "email_delivery_unavailable": "Почтовая доставка временно недоступна. Попробуйте запросить код еще раз.",
         "auth_rate_limited": "Слишком много попыток. Попробуйте снова через несколько минут.",
+        "email_code_wrong": "Проверьте цифры и попробуйте ещё раз. После трёх неверных попыток код блокируется.",
         "workspace_enrollment_required": "Регистрация в этом кабинете закрыта. Попросите администратора выслать приглашение.",
         "email_code_invalid": "Код не подошёл и больше не действует. Запросите новый код.",
         "email_code_expired": "Код истек. Запросите новый код.",
