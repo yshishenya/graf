@@ -16,7 +16,6 @@ from twobrain_rec_server.billing.entitlements import (
     grant_confirmed_renewal,
 )
 from twobrain_rec_server.billing.events import enqueue_billing_notification
-from twobrain_rec_server.billing.launch_gates import provider_environment
 from twobrain_rec_server.billing.notifications import BillingNotification
 from twobrain_rec_server.billing.payment_methods import (
     extract_payment_method_label,
@@ -41,6 +40,7 @@ from twobrain_rec_server.billing.yookassa import (
     YooKassaClient,
     YooKassaConfigurationError,
     YooKassaProviderError,
+    provider_environment,
 )
 from twobrain_rec_server.db.models import (
     BillingInvoice,

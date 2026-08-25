@@ -38,6 +38,13 @@ if [[ -z "$BRANCH" ]]; then
   exit 2
 fi
 
+if [[ "$MODE" == "execute" && "$BRANCH" != "master" ]]; then
+  echo "deploy_result=blocked"
+  echo "reason=production_deploy_requires_master"
+  echo "requested_branch=$BRANCH"
+  exit 1
+fi
+
 if [[ "$MODE" == "dry-run" ]]; then
   cat <<EOF
 deploy_result=dry_run

@@ -212,7 +212,6 @@ def test_rls_validation_inventory_matches_031_migration_policy_maps() -> None:
         | {"workspace_join_offers"}
         | {
             "billing_plan_versions",
-            "billing_launch_gates",
             "promotion_campaigns",
             "promotion_redemptions",
             "workspace_subscriptions",

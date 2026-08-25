@@ -27,11 +27,6 @@ from twobrain_rec_server.billing.catalog import (
     PlanCatalogSnapshot,
     validate_plan_version,
 )
-from twobrain_rec_server.billing.launch_gates import (
-    BillingLaunchBlocked,
-    provider_environment,
-    require_current_billing_launch_gates,
-)
 from twobrain_rec_server.billing.operations import BillingEmergencyStop, require_billing_enabled
 from twobrain_rec_server.billing.payment_methods import (
     open_provider_reference,
@@ -43,6 +38,7 @@ from twobrain_rec_server.billing.yookassa import (
     YooKassaConfigurationError,
     YooKassaProviderError,
     build_receipt_payload,
+    provider_environment,
 )
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.models import (
@@ -631,12 +627,7 @@ async def charge_renewal_operation(
         )
         if invoice.amount_minor <= 0 or invoice.currency != "RUB":
             raise ValueError("renewal invoice is invalid")
-        await require_current_billing_launch_gates(
-            db,
-            environment=provider_environment(settings.billing_yookassa_environment),
-            shop_id=settings.billing_yookassa_shop_id,
-            deployment_sha=settings.langfuse_release,
-        )
+        provider_environment(settings.billing_yookassa_environment)
         operation.state = "processing"
         await db.flush()
         async with YooKassaClient(settings) as provider:
@@ -679,7 +670,7 @@ async def charge_renewal_operation(
         )
         await db.commit()
         return RenewalChargeResult(operation_id, "sent", provider_id)
-    except (BillingEmergencyStop, BillingLaunchBlocked):
+    except BillingEmergencyStop:
         await db.rollback()
         return RenewalChargeResult(operation_id, "blocked")
     except BillingAuthorizationError:

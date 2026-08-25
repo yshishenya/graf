@@ -4,7 +4,7 @@
 
 **Created**: 2026-08-23
 
-**Status**: Implementation in progress; production checkout remains blocked by Feature 140 launch evidence.
+**Status**: Implementation in progress; production checkout remains controlled by explicit billing settings and provider safety checks.
 
 **Input**: Пользователь просит повторно проверить реализованный Feature 140, довести денежный контур до запуска эквайринга и завершить поддержку промокодов.
 
@@ -15,7 +15,21 @@ Feature 140 уже содержит server-owned каталог, hosted YooKassa
 модель `PromotionCampaign`/`PromotionRedemption`. Этот срез закрывает только
 расхождения, мешающие пользователю понять сумму до оплаты и оператору безопасно
 создать кампанию. Реальный provider canary, merchant/legal/finance/security/QA
-подписи и production enablement остаются внешними launch-gates Feature 140.
+review и production enablement остаются внешними операционными решениями Feature
+140; они больше не хранятся в обязательном runtime-реестре.
+
+## Clarifications
+
+### Session 2026-08-25
+
+- Удаляем `billing_launch_gates` из active runtime path, ORM и схемы следующей
+  миграцией. Историческая миграция `0072` остаётся в цепочке Alembic.
+- Checkout и renewal сохраняют server-owned catalog validation, explicit
+  YooKassa environment/shop, checkout flag, emergency stop, owner/CSRF/consent,
+  idempotency, invoice/operation ledger, receipt, webhook and reconciliation
+  checks.
+- Provider canary and independent review remain operational evidence, but
+  отсутствие записи в бывшем internal registry больше не блокирует оплату.
 
 ## User Scenarios & Testing
 
@@ -74,20 +88,22 @@ maintenance boundary. Raw code принимается только интера�
 
 Оператор видит в quickstart и runbook один последовательный путь: test-shop
 canary, receipt/VAT mapping, webhook delivery, renewal/unknown/refund
-observation, four-eyes approval, затем отдельный production gate. До этого
-checkout остаётся default-off.
+observation, затем отдельное production decision. До этого checkout остаётся
+default-off.
 
 **Why this priority**: Provider mutation без evidence создаёт риск двойного
 списания, неверного чека и невозможного rollback.
 
-**Independent Test**: Прочитать quickstart/runbook и проверить, что каждый gate
-имеет owner, evidence reference, stop condition и explicit no-go state.
+**Independent Test**: Прочитать quickstart/runbook и проверить, что каждый
+provider capability имеет owner, evidence reference, stop condition и explicit
+no-go state.
 
 **Acceptance Scenarios**:
 
-1. **Given** отсутствует хотя бы один required approval или canary evidence,
-   **When** оператор пытается открыть checkout, **Then** launch gate blocks it.
-2. **Given** test canary passed and signatures are attached to exact SHA, **When**
+1. **Given** checkout disabled, emergency stop или невалидны catalog/shop/
+   provider settings, **When** оператор пытается открыть checkout, **Then**
+   billing safety checks block it.
+2. **Given** test canary passed and operational review is recorded, **When**
    release owner proceeds, **Then** production enablement remains a separate
    explicit approval and dry-run precedes execute.
 
@@ -101,8 +117,9 @@ checkout остаётся default-off.
   final invoice snapshot is authoritative.
 - A malformed or expired short-lived browser cookie is ignored without exposing
   its contents in URL, analytics or logs.
-- A missing catalog, disabled billing flag, emergency stop or missing launch
-  gate keeps amounts/provider actions unavailable rather than inventing a price.
+- A missing catalog, disabled billing flag, emergency stop or invalid provider
+  environment/shop keeps amounts/provider actions unavailable rather than
+  inventing a price.
 
 ## Requirements
 
@@ -114,7 +131,8 @@ checkout остаётся default-off.
   amount and next-period amount without creating an invoice, reservation or
   provider request.
 - **FR-003**: Checkout POST MUST remain the only path that creates a money
-  operation and MUST revalidate promo, catalog, consent, floor and launch gates.
+  operation and MUST revalidate promo, catalog, consent, floor and provider
+  environment/shop settings.
 - **FR-004**: Campaign provisioning MUST accept raw code only through stdin or an
   interactive hidden prompt, persist only its normalized SHA-256 hash, and never
   print the raw value.
@@ -125,7 +143,7 @@ checkout остаётся default-off.
 - **FR-007**: No public admin UI, refund workflow, stacking rule or zero-total
   checkout may be introduced by this feature.
 - **FR-008**: Launch documentation MUST preserve test/prod separation, provider
-  observation, four-eyes approvals, emergency stop and exact-SHA evidence.
+  observation, operational review, emergency stop and exact-SHA evidence.
 
 ### Key Entities
 
@@ -144,14 +162,15 @@ checkout остаётся default-off.
   contain no raw promo code.
 - **SC-003**: Duplicate, expired, ineligible, exhausted, confusable and
   below-floor cases fail closed in automated tests.
-- **SC-004**: Checkout remains blocked in the repository/runtime evidence until
-  Feature 140 canary and approval gates are present; no code change silently
-  enables production money mutations.
+- **SC-004**: Checkout remains controlled by explicit settings, provider/shop
+  separation and emergency stop; no code change silently enables production
+  money mutations.
 
 ## Assumptions
 
 - Feature 140's existing YooKassa client, catalog, RLS, CSRF, rate limits and
-  promotion tables are reused; no new dependency or migration is required.
+  promotion tables are reused; the obsolete launch-gate registry is removed by
+  a cleanup migration.
 - Campaign creation is an operations action, not an end-user or workspace-admin
   action.
 - Production provider credentials and merchant decisions are supplied outside

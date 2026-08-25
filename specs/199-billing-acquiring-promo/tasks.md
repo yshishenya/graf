@@ -28,10 +28,20 @@ out of scope until Feature 140 launch evidence is complete.
 - [X] T010 [US2] Run `infra/scripts/ci-local.sh --fast` and record exact result in the feature evidence.
 - [X] T011 [US3] Re-run cross-artifact analysis, update `CHANGELOG.md`, and record that Feature 140 canary/approval gates remain open.
 
+## Phase 5: Remove obsolete runtime approval registry
+
+- [X] T012 [US3] Remove active launch-gate calls, model and readiness helper while preserving provider/shop, emergency-stop, ledger, receipt, webhook and reconciliation safeguards.
+- [X] T013 [US3] Add migration `0079_remove_billing_launch_gates` and update active RLS/test contracts without rewriting historical migration `0072`.
+- [X] T014 [US3] Update active billing copy, runbook, Spec Kit artifacts and changelog so the former registry is not described as a checkout prerequisite.
+- [X] T015 [US3] Run focused billing/RLS/migration checks and record that full CI and provider payment were intentionally not run.
+- [X] T016 [US3] Fix production checkout promo reservation RLS by moving campaign counter transitions to a database trigger in `apps/server/src/twobrain_rec_server/db/migrations/versions/0080_promotion_reservation_counter_trigger.py` and removing duplicate ORM counter writes.
+- [X] T017 [US3] Re-run focused billing/migration checks and verify the test-shop checkout path without repeating an unresolved payment operation.
+
 ## Dependencies
 
 - T003 precedes T004-T005 for the preview path.
 - T006 precedes T007 for provisioning.
 - T009 follows T003-T008; T010 follows T009; T011 follows all implementation and validation.
+- T012-T014 follow the current audit; T015 follows T012-T014.
 - T078-T080, T083-T085 and T087 from Feature 140 remain external gates and are
   not closed by this slice.

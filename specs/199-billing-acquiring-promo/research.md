@@ -6,8 +6,8 @@
   raw-code hashing, Unicode normalization, expiry/scope/cap/floor checks, one
   winner between promo/referral, invoice snapshot and authoritative release.
 - `POST /billing/checkout/start` reads the approved catalog, locks a campaign,
-  creates one reservation and only then calls YooKassa. Existing provider and
-  launch-gate errors leave the operation recoverable/blocked.
+  creates one reservation and only then calls YooKassa. Provider/configuration
+  errors leave the operation recoverable/blocked.
 - `/billing/checkout` currently renders the promo field and generic recoverable
   error, but not the calculated discount or payable total. This is the functional
   gap addressed here.
@@ -15,8 +15,8 @@
   maintenance context and `billing_reconciliation` operation are reused for
   controlled provisioning; no public operator route is appropriate.
 - Current runbook keeps `TWOBRAIN_BILLING_CHECKOUT_ENABLED=false` until test-shop
-  canary, receipt/VAT mapping, webhook delivery and four-eyes approvals. This
-  slice does not weaken that boundary.
+  canary, receipt/VAT mapping and webhook delivery. This slice removes only the
+  obsolete runtime approval registry; it does not weaken the setting or stop.
 
 ## Decisions
 
@@ -28,6 +28,9 @@
    prompt/stdin. Output contains only the code hash and metadata.
 4. Existing invoice/checkout revalidation remains authoritative if a campaign or
    catalog changes after preview.
+5. The internal launch-gate registry duplicated operational approval and blocked
+   the exact deployed SHA when no rows existed. It is removed; provider and
+   operational evidence remains outside the checkout trust boundary.
 
 ## Deferred external evidence
 
