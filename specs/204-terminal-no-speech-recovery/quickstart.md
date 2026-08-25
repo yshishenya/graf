@@ -33,6 +33,9 @@ provider JSON, audio, title или credentials.
 
 - Feature 204 focused PostgreSQL matrix: `19 passed`.
 - Expanded MediaScribe/Temporal/recovery matrix: `104 passed`.
+- Production-found lazy Temporal recovery regression: focused matrix `26
+  passed`, including no-speech new-attempt API dispatch without a preloaded
+  `app.state.temporal_client`.
 - `git diff --check` и touched-file Ruff: pass.
 - `infra/scripts/ci-local.sh --fast`: `1229 passed`, lint/compile/macOS guard pass.
 - `infra/scripts/ci-local.sh --full`: macOS `766 passed`, server `3415 passed,
