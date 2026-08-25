@@ -24,7 +24,10 @@
   const resetProcessingListProjectionState = ({ preserveSnapshots = false } = {}) => {
     if (processingListProjectionPollTimer) window.clearTimeout(processingListProjectionPollTimer);
     processingListProjectionPollTimer = null;
-    processingListProjectionRequests.forEach((entry) => entry.controller?.abort());
+    processingListProjectionRequests.forEach((entry, meetingId) => {
+      entry.controller?.abort();
+      if (preserveSnapshots) processingListProjectionLastFetchedAt.delete(meetingId);
+    });
     processingListProjectionRequests.clear();
     if (!preserveSnapshots) {
       processingListProjectionLastFetchedAt.clear();

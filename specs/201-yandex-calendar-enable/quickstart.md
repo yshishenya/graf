@@ -63,19 +63,24 @@ PYTHONPATH=src uv run --extra dev pytest -q \
 
 1. Open calendar settings in browser and embedded macOS.
 2. Connect the dedicated Yandex account using username and app password.
-3. Confirm the catalog appears only after provider validation.
-4. Save one calendar; reload and confirm the selection.
-5. Confirm the first sync starts as part of the successful Yandex connection;
+3. Submit an invalid app password; confirm a safe error, no source is created,
+   and neither the password nor raw provider details appear in the UI.
+4. Confirm the catalog appears only after provider validation.
+5. Save one calendar; reload and confirm the selection.
+6. Confirm the first sync starts as part of the successful Yandex connection;
    then select one calendar and verify selection triggers an immediate sync.
-6. Run the settings sync button; verify the request waits for the provider read
+7. Run the settings sync button; verify the request waits for the provider read
    and returns a completed or safe failure state rather than only `queued`.
-7. Verify an active selected Yandex source is eligible again five minutes after
+8. Verify an active selected Yandex source is eligible again five minutes after
    its last run; Google and disabled providers remain outside this scheduler.
-8. Save zero calendars; confirm no upcoming/context rows are produced by that
+9. Save zero calendars; confirm no upcoming/context rows are produced by that
   source.
-9. Reconnect and verify no duplicate active source.
-10. Disconnect, reload, repeat sync, and confirm fail-closed cleanup.
-11. Confirm Record/Stop and upload remain available in every calendar state.
+10. Reconnect and verify no duplicate active source.
+11. Disconnect, reload, repeat sync, and confirm fail-closed cleanup.
+12. Refresh the session and repeat the relevant connection/error and sync
+    checks; confirm stale success, raw provider errors and credentials are not
+    retained in the UI.
+13. Confirm Record/Stop and upload remain available in every calendar state.
 
 Record only the metadata required by
 [yandex-certification.md](contracts/yandex-certification.md).
