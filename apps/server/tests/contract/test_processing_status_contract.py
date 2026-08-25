@@ -156,6 +156,62 @@ def test_processing_status_endpoint_requires_rows_for_content_availability(clien
     assert payload["content_available"] is False
 
 
+def test_processing_status_projects_imported_no_speech_as_terminal_even_with_stale_workflow(client) -> None:
+    finalized = create_finalized_meeting(client, "processing-status-no-speech")
+    meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
+    workspace_id = UUID(finalized["meeting"]["workspace_id"])
+
+    async def seed_no_speech_result() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            workflow = await store.upsert_processing_workflow(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+                workflow_id=f"processing/{media_revision_id}",
+                status=ProcessingStatus.POLLING,
+            )
+            job = MediaScribeJob(
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+                processing_workflow_id=workflow.id,
+                external_job_id="job_no_speech",
+                status=MediaScribeJobStatus.READY.value,
+            )
+            db.add(job)
+            await db.flush()
+            db.add(
+                ProcessingResult(
+                    workspace_id=workspace_id,
+                    meeting_id=meeting_id,
+                    media_revision_id=media_revision_id,
+                    mediascribe_job_id=job.id,
+                    processing_workflow_id=workflow.id,
+                    result_version=1,
+                    status=ProcessingResultStatus.IMPORTED.value,
+                    transcript_status=ProcessingAvailabilityStatus.UNAVAILABLE.value,
+                    diarization_status=ProcessingAvailabilityStatus.UNAVAILABLE.value,
+                    summary_status=SummaryStatus.NOT_REQUESTED.value,
+                    segment_count=0,
+                    diarization_segment_count=0,
+                    failure_reason="no_recognizable_speech",
+                )
+            )
+            await db.commit()
+
+    asyncio.run(seed_no_speech_result())
+
+    status = client.get(f"/api/v1/meetings/{meeting_id}/processing", headers=auth_headers())
+    assert status.status_code == 200
+    payload = status.json()
+    assert payload["state"] == ProcessingStatus.FAILED_TERMINAL.value
+    assert payload["retry_class"] == "terminal"
+    assert payload["reason_code"] == "no_recognizable_speech"
+    assert payload["manual_action"] == "new_attempt"
+
+
 def test_finalize_autostart_audit_metadata_is_content_safe(client) -> None:
     enable_processing_autostart(client, FakeTemporalClient())
     finalized = create_finalized_meeting(client, "processing-autostart-audit")

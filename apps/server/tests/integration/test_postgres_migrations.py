@@ -220,7 +220,7 @@ def test_production_share_head_upgrades_to_regeneration_merge(
             await engine.dispose()
 
     versions, tables, columns, maintenance_helper = asyncio.run(inspect_schema())
-    assert versions == ["0080_promo_counter_trigger"]
+    assert versions == ["0081_mediascribe_words"]
     assert {
         "dispatch_intents",
         "meeting_deletion_fences",
@@ -237,6 +237,7 @@ def test_production_share_head_upgrades_to_regeneration_merge(
             "submission_claim_token",
             "submission_claimed_at",
         },
+        "diarization_segments": {"words_json"},
         "meeting_outcome_sets": {
             "source_fingerprint",
             "deletion_epoch_at_start",

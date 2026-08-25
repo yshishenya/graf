@@ -165,9 +165,8 @@ def test_v5_mixed_review_keeps_one_canonical_source_and_transcript_when_playback
 
     assert available_playback.included_sources == ["canonical_mixed"]
     assert unavailable_playback.available is False
-    assert transcript_state.available is True
-    assert transcript_state.segments[0].source_role == "canonical_mixed"
-    assert transcript_state.segments[0].seekable is False
+    assert transcript_state.available is False
+    assert transcript_state.degraded_reason == "diarization_pending"
 
 
 def test_playback_preparing_state_never_creates_a_dead_player_path() -> None:
@@ -987,6 +986,32 @@ def test_processing_state_uses_no_speech_and_invalid_audio_copy_from_result() ->
     assert invalid_audio_state.transcript_available is False
 
 
+def test_no_speech_result_is_terminal_for_list_and_detail_projections() -> None:
+    result = ProcessingResult(
+        id=uuid4(),
+        meeting_id=uuid4(),
+        workspace_id=uuid4(),
+        mediascribe_job_id=uuid4(),
+        status=ProcessingResultStatus.IMPORTED.value,
+        transcript_status=ProcessingAvailabilityStatus.UNAVAILABLE.value,
+        diarization_status=ProcessingAvailabilityStatus.UNAVAILABLE.value,
+        segment_count=0,
+        diarization_segment_count=0,
+        failure_reason="no_recognizable_speech",
+    )
+    meeting = _meeting(ProcessingStatus.POLLING)
+    meeting_id = meeting.id
+    result.meeting_id = meeting_id
+    result.workspace_id = meeting.workspace_id
+
+    assert view_models.review_status(meeting, result=result, workflow=None) == "failed"
+    item = view_models.build_list_item(meeting, result=result, workflow=None)
+    assert item.status == "failed"
+    assert view_models.meeting_list_row_presentation(item, time_basis="meeting").status_label == (
+        "Не удалось обработать"
+    )
+
+
 def test_transcript_mapping_uses_timestamp_speaker_and_source_role_truth() -> None:
     meeting = _meeting()
     result_id = uuid4()
@@ -1382,16 +1407,9 @@ def test_manual_upload_transcript_keeps_unknown_when_diarization_is_missing() ->
         status="ready",
     )
 
-    assert [segment.speaker_label for segment in state.segments] == [
-        "Спикер не определён",
-        "Спикер не определён",
-    ]
-    assert [segment.attribution_state for segment in state.segments] == [
-        "uncertain",
-        "uncertain",
-    ]
-    assert len({segment.speaker_key for segment in state.segments}) == 1
-    assert state.result_state == "degraded_provider_result"
+    assert state.available is False
+    assert state.degraded_reason == "diarization_pending"
+    assert state.segments == []
 
 
 def test_manual_upload_review_response_preserves_unknown_without_diarization() -> None:
@@ -1849,10 +1867,9 @@ def test_transcript_mapping_marks_valid_segments_seekable_when_playback_availabl
         playback_duration_seconds=30,
     )
 
-    assert [(segment.seekable, segment.seek_seconds) for segment in state.segments] == [
-        (True, 0.0),
-        (True, 12.5),
-    ]
+    assert state.available is False
+    assert state.degraded_reason == "diarization_pending"
+    assert state.segments == []
 
 
 def test_speaker_mapping_calculates_talk_time_percentages() -> None:
@@ -2636,15 +2653,14 @@ def test_transcript_turns_do_not_merge_unconfirmed_mapping_or_incomplete_state()
         status="partial",
     )
 
-    assert [turn.attribution_state for turn in state.speaker_turns] == [
-        "uncertain",
-        "uncertain",
-    ]
-    assert [turn.text for turn in state.speaker_turns] == ["unmapped 0", "unmapped 1"]
-    assert len(state.segments) == 2
+    assert state.speaker_turns == []
+    assert state.segments == []
+    assert state.degraded_reason == "diarization_pending"
     assert processing_state.speaker_turns == []
     assert processing_state.available is False
-    assert [turn.text for turn in partial_state.speaker_turns] == ["unmapped 0", "unmapped 1"]
+    assert partial_state.speaker_turns == []
+    assert partial_state.segments == []
+    assert partial_state.available is False
     assert partial_state.degraded_reason == "partial_transcript"
 
 
@@ -2673,14 +2689,16 @@ def test_transcript_and_timeline_share_degraded_asr_fallback_without_provider_tu
     )
     speaker_state = view_models.speaker_state([], transcript_segments=transcript)
 
-    assert transcript_state.result_state == "degraded_provider_result"
+    assert transcript_state.result_state == "accepted"
+    assert transcript_state.available is False
+    assert transcript_state.degraded_reason == "diarization_pending"
     assert speaker_state.result_state == "degraded_provider_result"
     assert speaker_state.available is True
     assert speaker_state.can_rename is False
     assert len(speaker_state.speakers) == 1
     assert speaker_state.speakers[0].label == "Спикер не определён"
     assert speaker_state.speakers[0].confirmed is False
-    assert speaker_state.turns == transcript_state.speaker_turns
+    assert speaker_state.turns != transcript_state.speaker_turns
     assert [
         (segment.start_seconds, segment.end_seconds)
         for segment in speaker_state.speakers[0].segments

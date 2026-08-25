@@ -30,6 +30,7 @@ from twobrain_rec_server.mediascribe.schemas import (
     MediaScribeDiarizationSegment,
     MediaScribeResult,
     MediaScribeSegment,
+    MediaScribeWordItem,
 )
 from twobrain_rec_server.processing import store
 from twobrain_rec_server.processing.submit import (
@@ -62,6 +63,7 @@ def test_processing_happy_path_imports_transcript_and_diarization(client) -> Non
                     text="hello",
                     source_role="incoming",
                     speaker_label="REMOTE_00",
+                    words=[MediaScribeWordItem(word="hello", start=0, end=1)],
                 )
             ],
         ),
@@ -115,6 +117,7 @@ def test_processing_happy_path_imports_transcript_and_diarization(client) -> Non
                     select(DiarizationSegment).where(DiarizationSegment.meeting_id == meeting_id)
                 )
             ).all()
+            assert diarization[0].words_json == [{"word": "hello", "start": 0.0, "end": 1.0}]
             return imported.status.value, len(transcripts), len(diarization)
 
     status, transcript_count, diarization_count = asyncio.run(run_pipeline())

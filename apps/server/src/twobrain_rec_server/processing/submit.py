@@ -89,6 +89,7 @@ def _schedule_processing_retry(
     workflow: ProcessingWorkflow,
     *,
     retry_after_seconds: int | None,
+    provider_next_attempt_at: datetime | None = None,
     settings: object | None = None,
 ) -> None:
     scheduler = schedule_retry_with_settings if settings is not None else schedule_retry
@@ -101,8 +102,15 @@ def _schedule_processing_retry(
             if retry_after_seconds is not None
             else None
         ),
+        provider_next_attempt_at=provider_next_attempt_at,
         deadline_at=workflow.deadline_at,
-        source="provider_retry_after" if retry_after_seconds is not None else None,
+        source=(
+            "provider_next_retry_at"
+            if provider_next_attempt_at is not None
+            else "provider_retry_after"
+            if retry_after_seconds is not None
+            else None
+        ),
         **({"settings": settings} if settings is not None else {}),
     )
     workflow.retry_class = "retryable"
@@ -429,6 +437,12 @@ async def submit_to_mediascribe(
             raise MediaScribeClientError(
                 BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN,
                 retryable=False,
+                status_code=exc.status_code,
+                egress_state="unknown",
+                headers=exc.headers,
+                retry_after_seconds=exc.retry_after_seconds,
+                request_id=exc.request_id,
+                job_id=exc.job_id,
             ) from exc
         status = (
             ProcessingStatus.FAILED_TERMINAL
@@ -482,8 +496,38 @@ async def submit_to_mediascribe(
         external_job_id=response.external_job_id,
         status=response.status,
         submission_claim_token=claim_token,
+        provider_status=response.status_raw,
+        provider_queue_state=response.queue_state_raw,
+        provider_attempt=response.attempt,
+        provider_max_attempts=response.max_attempts,
+        retry_after_seconds=response.retry_after_seconds,
+        provider_next_retry_at=_provider_retry_at(response.next_retry_at),
+        request_id=response.request_id,
     )
-    await store.set_workflow_status(db, workflow, ProcessingStatus.SUBMITTED)
+    if response.retry_after_seconds is not None or response.next_retry_at is not None:
+        _schedule_processing_retry(
+            workflow,
+            retry_after_seconds=response.retry_after_seconds,
+            provider_next_attempt_at=_provider_retry_at(response.next_retry_at),
+            settings=settings,
+        )
+        if workflow.next_attempt_at is None:
+            await store.set_workflow_status(
+                db,
+                workflow,
+                ProcessingStatus.FAILED_TERMINAL,
+                reason_code="processing_retry_deadline_exceeded",
+                terminal=True,
+            )
+        else:
+            await store.set_workflow_status(
+                db,
+                workflow,
+                ProcessingStatus.WAITING_RETRY,
+                reason_code="provider_result_not_ready",
+            )
+    else:
+        await store.set_workflow_status(db, workflow, ProcessingStatus.SUBMITTED)
     return SubmitProcessingResult(job=job, submitted=True)
 
 

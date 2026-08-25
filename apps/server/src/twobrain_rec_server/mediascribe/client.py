@@ -720,6 +720,9 @@ def _normalize_result_payload(data: dict[str, Any], *, external_job_id: str) -> 
     normalized_job.setdefault("status", raw_status or MediaScribeProviderStatus.UPLOADED.value)
     if raw_queue_state is not None:
         normalized_job["queue_state"] = raw_queue_state
+    default_source_role = (
+        "unknown_provider_state" if normalized_job.get("source_mode") == "dual" else "mixed"
+    )
 
     transcript_payload = _list_payload(data.get("transcript"), field_name="transcript")
     transcript_status = data.get("transcript_status")
@@ -754,7 +757,11 @@ def _normalize_result_payload(data: dict[str, Any], *, external_job_id: str) -> 
         None
         if diarization_payload is None
         else [
-            _normalize_diarization_segment(index, item)
+            _normalize_diarization_segment(
+                index,
+                item,
+                default_source_role=default_source_role,
+            )
             for index, item in enumerate(diarization_payload)
         ]
     )
@@ -772,7 +779,14 @@ def _normalize_result_payload(data: dict[str, Any], *, external_job_id: str) -> 
             "transcript_reason": transcript_reason,
             "failure_reason": transcript_reason if transcript_status == "unavailable" else None,
             "transcript": (
-                [_normalize_transcript_segment(index, item) for index, item in enumerate(transcript_payload)]
+                [
+                    _normalize_transcript_segment(
+                        index,
+                        item,
+                        default_source_role=default_source_role,
+                    )
+                    for index, item in enumerate(transcript_payload)
+                ]
                 if transcript_status == ProcessingAvailabilityStatus.AVAILABLE.value
                 else []
             ),
@@ -845,7 +859,12 @@ def _validate_chronological_order(items: list[dict[str, Any]]) -> None:
         previous_start = current_start
 
 
-def _normalize_transcript_segment(sequence: int, item: dict[str, Any]) -> dict[str, Any]:
+def _normalize_transcript_segment(
+    sequence: int,
+    item: dict[str, Any],
+    *,
+    default_source_role: str = "mixed",
+) -> dict[str, Any]:
     source_role = item.get("source_role")
     normalized = dict(item)
     normalized.update(
@@ -854,21 +873,31 @@ def _normalize_transcript_segment(sequence: int, item: dict[str, Any]) -> dict[s
             "start_seconds": item.get("start_seconds", item.get("start", 0)),
             "end_seconds": item.get("end_seconds", item.get("end", 0)),
             "text": item.get("text") or "",
-            # The direct v1 single-track result contract predates the optional
-            # role field. Preserve its legacy incoming projection when the
-            # provider omits both role spellings.
-            "source_role": _safe_provider_token(source_role or item.get("role") or "incoming"),
+            "source_role": _safe_provider_token(
+                source_role or item.get("role") or default_source_role
+            ),
             "source_role_original": item.get("source_role_original") or source_role,
         }
     )
     return normalized
 
 
-def _normalize_diarization_segment(sequence: int, item: dict[str, Any]) -> dict[str, Any]:
-    normalized = _normalize_transcript_segment(sequence, item)
+def _normalize_diarization_segment(
+    sequence: int,
+    item: dict[str, Any],
+    *,
+    default_source_role: str = "mixed",
+) -> dict[str, Any]:
+    normalized = _normalize_transcript_segment(
+        sequence,
+        item,
+        default_source_role=default_source_role,
+    )
     normalized["speaker_label"] = _safe_provider_token(
         item.get("speaker_label") or item.get("speaker")
     ) or ""
+    if "words" in item:
+        normalized["words"] = item["words"]
     return normalized
 
 

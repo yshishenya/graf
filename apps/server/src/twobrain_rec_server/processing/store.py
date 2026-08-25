@@ -81,7 +81,11 @@ from twobrain_rec_server.processing.reasons import (
     BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN,
     BLOCKED_TEMPORAL_UNAVAILABLE,
 )
-from twobrain_rec_server.processing.recovery import DEFAULT_DEADLINE
+from twobrain_rec_server.processing.recovery import (
+    DEFAULT_DEADLINE,
+    schedule_retry,
+    schedule_retry_with_settings,
+)
 from twobrain_rec_server.processing.results import effective_processing_result_query
 
 
@@ -91,6 +95,7 @@ class ProcessingLifecycleBlocked(RuntimeError):
 
 MEDIASCRIBE_SUBMISSION_WAIT_SECONDS = 35.0
 MEDIASCRIBE_SUBMISSION_CLAIM_STALE_AFTER = timedelta(minutes=2)
+PROCESSING_MANUAL_CHECK_CLAIM_LEASE = timedelta(minutes=2)
 _PROVENANCE_TOKEN_RE = re.compile(r"^[A-Za-z0-9_.:+/-]{1,160}$")
 _PROVENANCE_TOKEN_FIELDS = (
     "asr_model_version",
@@ -376,11 +381,39 @@ async def claim_processing_manual_check(
     status_value = getattr(workflow.status, "value", workflow.status)
 
     if status_value in _PROCESSING_MANUAL_CHECK_ACTIVE_STATES:
-        return ProcessingManualCheckClaim(
-            request_result="already_in_flight",
-            command_id=command_id,
-            same_job_check=True,
-            workflow=workflow,
+        claimed_at = workflow.manual_claimed_at
+        now = datetime.now(UTC)
+        if (
+            claimed_at is None
+            or claimed_at.tzinfo is None
+            or now - claimed_at < PROCESSING_MANUAL_CHECK_CLAIM_LEASE
+        ):
+            return ProcessingManualCheckClaim(
+                request_result="already_in_flight",
+                command_id=command_id,
+                same_job_check=True,
+                workflow=workflow,
+            )
+        # The API may have died after the DB claim and before Temporal accepted
+        # the update. Reopen the same business attempt; the provider job/key
+        # remains fenced and no new multipart upload can be created.
+        workflow.manual_claimed_at = None
+        workflow.manual_claimed_by = None
+        workflow.manual_command_version = command_version + 1
+        workflow.schedule_generation = int(workflow.schedule_generation or 0) + 1
+        workflow.next_attempt_at = None
+        workflow.next_attempt_source = None
+        workflow.retry_class = "unknown_outcome" if status_value == ProcessingStatus.BLOCKED_UNKNOWN.value else "retryable"
+        workflow.status = ProcessingStatus.WAITING_RETRY.value
+        workflow.last_reason_code = "manual_check_claim_expired"
+        status_value = ProcessingStatus.WAITING_RETRY.value
+        command_id = _processing_manual_command_id(
+            workspace_id=workspace_id,
+            meeting_id=meeting_id,
+            media_revision_id=media_revision_id,
+            workflow_id=workflow.workflow_id,
+            command_key=command_key,
+            command_version=int(workflow.manual_command_version),
         )
     if status_value in _PROCESSING_MANUAL_CHECK_TERMINAL_STATES:
         return ProcessingManualCheckClaim(
@@ -489,6 +522,7 @@ async def release_processing_manual_check_claim(
     workflow_id: UUID,
     manual_command_version: int,
     reason_code: str = "processing_manual_check_dispatch_unavailable",
+    settings: object | None = None,
 ) -> bool:
     """Return a claimed check to a safe recoverable projection if dispatch fails."""
 
@@ -506,11 +540,46 @@ async def release_processing_manual_check_claim(
         return False
     workflow.manual_claimed_at = None
     workflow.manual_claimed_by = None
-    workflow.next_attempt_source = None
     unknown_reconciliation = (
         workflow.retry_class == "unknown_outcome"
     )
     workflow.retry_class = "unknown_outcome" if unknown_reconciliation else "retryable"
+    scheduler = schedule_retry_with_settings if settings is not None else schedule_retry
+    schedule_kwargs = {
+        "now": datetime.now(UTC),
+        "retry_count": int(workflow.retry_count or 0),
+        "generation": int(workflow.schedule_generation or 0),
+        "deadline_at": workflow.deadline_at,
+        "source": "manual_dispatch_failure",
+    }
+    schedule = (
+        scheduler(settings, **schedule_kwargs)
+        if settings is not None
+        else scheduler(**schedule_kwargs)
+    )
+    workflow.next_attempt_at = schedule.next_attempt_at
+    workflow.next_attempt_source = schedule.source
+    workflow.schedule_generation = schedule.generation
+    workflow.retry_count = schedule.retry_count
+    if schedule.next_attempt_at is None:
+        if unknown_reconciliation:
+            workflow.retry_class = "unknown_outcome"
+            await set_workflow_status(
+                db,
+                workflow,
+                ProcessingStatus.BLOCKED_UNKNOWN,
+                reason_code="processing_recovery_attempt_limit_exceeded",
+            )
+            return True
+        workflow.retry_class = "terminal"
+        await set_workflow_status(
+            db,
+            workflow,
+            ProcessingStatus.FAILED_TERMINAL,
+            reason_code="processing_recovery_attempt_limit_exceeded",
+            terminal=True,
+        )
+        return True
     await set_workflow_status(
         db,
         workflow,
@@ -1987,6 +2056,13 @@ async def persist_mediascribe_submission(
     external_job_id: str,
     status: MediaScribeJobStatus,
     submission_claim_token: str | None = None,
+    provider_status: str | None = None,
+    provider_queue_state: str | None = None,
+    provider_attempt: int | None = None,
+    provider_max_attempts: int | None = None,
+    retry_after_seconds: int | None = None,
+    provider_next_retry_at: datetime | None = None,
+    request_id: str | None = None,
 ) -> MediaScribeJob:
     meeting = await lock_meeting_fence(db, workspace_id=job.workspace_id, meeting_id=job.meeting_id)
     if meeting is None or meeting_is_deleted_or_deleting(meeting):
@@ -2044,6 +2120,15 @@ async def persist_mediascribe_submission(
     current.last_error_message = None
     current.submission_claim_token = None
     current.submission_claimed_at = None
+    current.provider_status = provider_status
+    current.provider_queue_state = provider_queue_state
+    current.provider_attempt = provider_attempt
+    current.provider_max_attempts = provider_max_attempts
+    current.retry_after_seconds = (
+        max(0, int(retry_after_seconds)) if retry_after_seconds is not None else None
+    )
+    current.provider_next_retry_at = provider_next_retry_at
+    current.last_request_id = request_id
     await db.commit()
     return current
 
@@ -2182,10 +2267,10 @@ async def update_mediascribe_job_status(
         current.provider_max_attempts = provider_max_attempts
     if request_id is not None:
         current.last_request_id = request_id
-    if retry_after_seconds is not None:
-        current.retry_after_seconds = max(0, int(retry_after_seconds))
-    if provider_next_retry_at is not None:
-        current.provider_next_retry_at = provider_next_retry_at
+    current.retry_after_seconds = (
+        max(0, int(retry_after_seconds)) if retry_after_seconds is not None else None
+    )
+    current.provider_next_retry_at = provider_next_retry_at
     if effective_status == MediaScribeJobStatus.READY:
         current.ready_at = now
         current.retry_after_seconds = None
@@ -2396,6 +2481,11 @@ async def persist_processing_result(
                 speaker_label=segment.speaker_label,
                 text=segment.text,
                 source_role=segment.source_role,
+                words_json=(
+                    [word.model_dump(mode="json", exclude_none=True) for word in segment.words]
+                    if segment.words is not None
+                    else None
+                ),
             )
         )
     await _commit_processing_usage(

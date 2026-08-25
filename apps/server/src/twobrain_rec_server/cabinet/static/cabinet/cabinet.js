@@ -1559,7 +1559,7 @@
     if (status) status.textContent = label;
   };
 
-  const processingSummaryCopy = (state) => ({
+  const processingSummaryCopy = (state, hasStoredOutput = false) => ({
     available: ["Итоги готовы.", "success"],
     partial: ["Итоги доступны частично. Расшифровка остаётся доступной.", "warning"],
     queued: ["Итоги готовятся отдельно. Расшифровка может быть доступна раньше.", "pending"],
@@ -1570,7 +1570,12 @@
     submitted: ["Итоги готовятся отдельно. Расшифровка может быть доступна раньше.", "pending"],
     failed: ["Не удалось подготовить итоги. Расшифровка сохранена.", "failed"],
     unavailable: ["Итоги пока недоступны. Расшифровка сохранена.", "warning"],
-    not_requested: ["Итоги ещё не запрошены. Расшифровка остаётся доступной.", "warning"],
+    not_requested: [
+      hasStoredOutput
+        ? "Сохраненные итоги доступны. Новые итоги ещё не запрошены."
+        : "Итоги ещё не запрошены. Расшифровка остаётся доступной.",
+      "warning",
+    ],
   }[String(state || "").toLowerCase()] || null);
 
   const processingRecoveryCopy = (projection, transcriptReady) => {
@@ -1751,15 +1756,18 @@
     }
     delete detail.dataset.processingRecoveryError;
     const transcriptReady = processingTranscriptReady(projection);
+    const transcriptState = processingArtifactState(projection, "transcript");
+    const transcriptVisible = transcriptReady;
+    const terminalTranscript = ["failed", "unavailable"].includes(transcriptState);
     const transcript = detail.querySelector("[data-playback-transcript]");
     const pending = detail.querySelector("[data-transcript-pending]");
     if (transcript) {
-      transcript.hidden = !transcriptReady;
-      transcript.setAttribute("aria-hidden", transcriptReady ? "false" : "true");
+      transcript.hidden = !transcriptVisible;
+      transcript.setAttribute("aria-hidden", transcriptVisible ? "false" : "true");
     }
-    if (pending) pending.hidden = transcriptReady;
+    if (pending) pending.hidden = transcriptVisible || terminalTranscript;
     updateProcessingExportVisibility(transcriptReady);
-    detail.dataset.processingTranscriptVisible = transcriptReady ? "true" : "false";
+    detail.dataset.processingTranscriptVisible = transcriptVisible ? "true" : "false";
     detail.dataset.processingRetryClass = String(projection?.retry_class || "none");
     detail.dataset.processingSummaryStatus = processingSummaryState(projection);
 
@@ -1767,7 +1775,6 @@
       ? "active"
       : "ready";
     updateProcessingStage(detail, "source", sourceState, sourceState === "ready" ? "Сохранено" : "Ожидаем отправку");
-    const transcriptState = processingArtifactState(projection, "transcript");
     updateProcessingStage(
       detail,
       "transcript",
@@ -1786,7 +1793,10 @@
         : ["failed", "unavailable"].includes(diarizationState) ? "Недоступно" : "Определяются",
     );
     const summaryState = processingSummaryState(projection);
-    const summaryCopy = processingSummaryCopy(summaryState);
+    const summaryCopy = processingSummaryCopy(
+      summaryState,
+      detail.dataset.storedOutcomesAvailable === "true",
+    );
     const summaryStatus = detail.querySelector("[data-processing-summary-status]");
     if (summaryStatus) {
       summaryStatus.hidden = !summaryCopy;
@@ -1941,7 +1951,7 @@
         transcript.hidden = true;
         transcript.setAttribute("aria-hidden", "true");
       }
-      if (pending) pending.hidden = false;
+      if (pending) pending.hidden = detail.dataset.processingTranscriptVisible === "true";
       updateProcessingExportVisibility(false);
     }
     detail.dataset.processingRecoveryError = "true";
@@ -2035,7 +2045,9 @@
       if (error?.name === "AbortError" || requestGeneration !== processingRecoveryGeneration) return false;
       if (processingRecoveryRequest !== null && processingRecoveryRequest !== request) return false;
       if (processingRecoveryRequest === request) processingRecoveryRequest = null;
-      if (detail.isConnected) renderProcessingRecoveryFailure(detail);
+      if (detail.isConnected) {
+        renderProcessingRecoveryFailure(detail, { preserveProjection: true });
+      }
       return false;
     } finally {
       if (processingRecoveryRequest === request) processingRecoveryRequest = null;

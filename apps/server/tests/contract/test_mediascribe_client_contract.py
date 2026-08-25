@@ -108,11 +108,11 @@ async def test_mediascribe_client_maps_auth_failure_without_response_secret() ->
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("status_code", "reason_code"),
-    [(429, "mediascribe_rate_limited"), (500, "mediascribe_server_error")],
+    ("status_code", "reason_code", "retryable"),
+    [(429, "mediascribe_rate_limited", True), (500, "mediascribe_server_error", False)],
 )
 async def test_mediascribe_client_marks_retryable_http_responses_as_received(
-    status_code: int, reason_code: str
+    status_code: int, reason_code: str, retryable: bool
 ) -> None:
     async def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(status_code, json={"detail": "temporary"})
@@ -126,7 +126,7 @@ async def test_mediascribe_client_marks_retryable_http_responses_as_received(
         await client.poll_job("job_retryable")
 
     assert exc.value.reason_code == reason_code
-    assert exc.value.retryable
+    assert exc.value.retryable is retryable
     assert exc.value.egress_state == "response_received"
 
 
@@ -282,8 +282,100 @@ async def test_mediascribe_client_accepts_contract_segments_without_optional_rol
     )
     result = await client.fetch_result("job_minimal")
 
-    assert result.transcript[0].source_role == "incoming"
-    assert result.diarization[0].source_role == "incoming"
+    assert result.transcript[0].source_role == "mixed"
+    assert result.diarization[0].source_role == "mixed"
+
+
+@pytest.mark.asyncio
+async def test_mediascribe_client_keeps_v053_words_and_full_text_with_partial_timestamps() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/audio/transcriptions/job_words/result"
+        return httpx.Response(
+            200,
+            json={
+                "job": {"id": "job_words", "source_mode": "single"},
+                "transcript": [{"start": 0, "end": 1, "text": "hello world"}],
+                "diarization": [
+                    {
+                        "start": 0,
+                        "end": 1,
+                        "speaker": "SPEAKER_00",
+                        "text": "hello world",
+                        "words": [
+                            {"word": "hello", "start": 0, "end": 0.4, "probability": 0.98},
+                            {"word": "world", "start": None, "end": None, "future": "ignored"},
+                        ],
+                    }
+                ],
+            },
+        )
+
+    client = MediaScribeClient(
+        base_url="https://mediascribe.test",
+        api_key="server-side-key",
+        transport=httpx.MockTransport(handler),
+    )
+    result = await client.fetch_result("job_words")
+
+    assert result.diarization[0].text == "hello world"
+    assert [word.word for word in result.diarization[0].words or []] == ["hello", "world"]
+    assert result.diarization[0].words[0].probability == 0.98
+    assert not hasattr(result.diarization[0].words[1], "future")
+
+
+@pytest.mark.asyncio
+async def test_mediascribe_client_does_not_guess_missing_dual_track_roles() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "job": {"id": "job_dual", "source_mode": "dual"},
+                "transcript": [{"start": 0, "end": 1, "text": "hello"}],
+                "diarization": [{"start": 0, "end": 1, "speaker": "REMOTE_00", "text": "hello"}],
+            },
+        )
+
+    client = MediaScribeClient(
+        base_url="https://mediascribe.test",
+        api_key="server-side-key",
+        transport=httpx.MockTransport(handler),
+    )
+    result = await client.fetch_result("job_dual")
+
+    assert result.transcript[0].source_role == "unknown_provider_state"
+    assert result.diarization[0].source_role == "unknown_provider_state"
+
+
+@pytest.mark.asyncio
+async def test_mediascribe_client_rejects_word_item_without_required_word() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "job": {"id": "job_bad_words", "source_mode": "single"},
+                "transcript": [{"start": 0, "end": 1, "text": "hello"}],
+                "diarization": [
+                    {
+                        "start": 0,
+                        "end": 1,
+                        "speaker": "SPEAKER_00",
+                        "text": "hello",
+                        "words": [{"start": 0, "end": 1}],
+                    }
+                ],
+            },
+        )
+
+    client = MediaScribeClient(
+        base_url="https://mediascribe.test",
+        api_key="server-side-key",
+        transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(MediaScribeClientError) as exc:
+        await client.fetch_result("job_bad_words")
+
+    assert exc.value.reason_code == "mediascribe_malformed_response"
 
 
 @pytest.mark.asyncio

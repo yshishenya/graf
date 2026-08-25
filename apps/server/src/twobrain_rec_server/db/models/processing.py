@@ -281,6 +281,7 @@ class DiarizationSegment(Base):
     speaker_label: Mapped[str] = mapped_column(String(120), nullable=False)
     text: Mapped[str] = mapped_column(String, nullable=False)
     source_role: Mapped[str] = mapped_column(String(32), nullable=False)
+    words_json: Mapped[list[dict] | None] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

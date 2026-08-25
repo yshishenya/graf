@@ -2180,6 +2180,22 @@ def review_status(
     if has_transcript or has_diarization:
         return "partial"
 
+    # An imported provider result with an explicit terminal no-speech outcome
+    # is authoritative even if a stale workflow row still says "processing".
+    # This keeps list, detail, and the content-safe status endpoint on the
+    # same user-visible terminal state.
+    if (
+        result is not None
+        and _result_lineage_matches(
+            result,
+            media_revision_id=media_revision_id,
+            processing_workflow_id=processing_workflow_id,
+        )
+        and result.status == ProcessingResultStatus.IMPORTED.value
+        and result.failure_reason == "no_recognizable_speech"
+    ):
+        return "failed"
+
     if meeting.status == MeetingStatus.DRAFT.value:
         return "local_only"
     if meeting.status == MeetingStatus.UPLOADING.value:
@@ -2656,7 +2672,7 @@ def transcript_state(
     playback_available: bool = False,
     playback_duration_seconds: int | None = None,
     speaker_names: dict[str, str] | None = None,
-    require_diarization: bool = False,
+    require_diarization: bool = True,
 ) -> TranscriptReviewState:
     transcripts = sorted(transcript_segments, key=lambda row: (row.sequence, row.start_seconds))
     diarization_rows = sorted(
@@ -2668,7 +2684,7 @@ def transcript_state(
             language=language,
             degraded_reason=degraded_reason,
         )
-    if status == "partial" and not _same_result_transcript_rows(transcripts, diarization_rows):
+    if status == "partial":
         degraded_reason = "partial_transcript" if transcripts else "unavailable"
         return _hidden_transcript_state(
             language=language,

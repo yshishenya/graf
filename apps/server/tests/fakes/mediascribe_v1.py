@@ -14,6 +14,11 @@ class MediaScribeV1Fixture:
 
     job_id: str = "job_fixture_v1"
     status: str = "ready"
+    queue_state: str = "completed"
+    provider_attempt: int | None = None
+    provider_max_attempts: int | None = None
+    provider_next_retry_at: str | None = None
+    error_code: str | None = None
     retry_after: str | None = None
     replayed: bool = False
     deletion_status: str = "completed"
@@ -59,14 +64,22 @@ class MediaScribeV1Fixture:
                     "queue_dispatch_max_backoff_seconds": 60,
                     "cancellation_grace_seconds": 60,
                     "summary_available": True,
-                    "speaker_count_modes": ["automatic", "explicit"],
+                    "speaker_count_modes": ["exact", "max"],
                 },
             )
         if request.method == "GET" and request.url.path == f"/v1/audio/transcriptions/{self.job_id}":
             return httpx.Response(
                 200,
                 headers=headers,
-                json={"id": self.job_id, "status": self.status, "queue_state": "completed"},
+                json={
+                    "id": self.job_id,
+                    "status": self.status,
+                    "queue_state": self.queue_state,
+                    "provider_attempt": self.provider_attempt,
+                    "provider_max_attempts": self.provider_max_attempts,
+                    "next_retry_at": self.provider_next_retry_at,
+                    "error": {"code": self.error_code} if self.error_code else None,
+                },
             )
         if request.method == "GET" and request.url.path == f"/v1/audio/transcriptions/{self.job_id}/result":
             return httpx.Response(
@@ -75,7 +88,13 @@ class MediaScribeV1Fixture:
                 json={
                     "job": {"id": self.job_id, "status": "ready"},
                     "transcript": [{"start": 0, "end": 1, "text": "fixture", "source_role": "mic"}],
-                    "diarization": [{"start": 0, "end": 1, "text": "fixture", "speaker": "SPEAKER_00"}],
+                    "diarization": [{
+                        "start": 0,
+                        "end": 1,
+                        "text": "fixture",
+                        "speaker": "SPEAKER_00",
+                        "words": [{"word": "fixture", "start": 0, "end": 1, "probability": 0.99}],
+                    }],
                     "summary": {"status": "running"},
                 },
             )
@@ -112,6 +131,12 @@ def opaque_result_payload(job_id: str = "job_fixture_v1") -> dict[str, Any]:
     return {
         "job": {"id": job_id, "status": "ready"},
         "transcript": [{"start": 0, "end": 1, "text": "fixture", "source_role": "mic"}],
-        "diarization": [{"start": 0, "end": 1, "text": "fixture", "speaker": "SPEAKER_00"}],
+        "diarization": [{
+            "start": 0,
+            "end": 1,
+            "text": "fixture",
+            "speaker": "SPEAKER_00",
+            "words": [{"word": "fixture", "start": 0, "end": 1, "probability": 0.99}],
+        }],
         "summary": {"status": "running"},
     }

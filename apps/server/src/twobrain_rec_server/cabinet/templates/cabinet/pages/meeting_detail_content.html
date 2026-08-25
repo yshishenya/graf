@@ -1,6 +1,6 @@
 {% import "cabinet/components/sections.html" as sections %}
 
-<main id="cabinet-main" class="main detail-page-main" tabindex="-1" data-meeting-id="{{ meeting_id }}" data-media-revision-id="{{ media_revision_id }}" data-local-media-revision-id="{{ local_media_revision_id }}" data-processing-status-url="{% if media_revision_id %}/api/v1/meetings/{{ meeting_id }}/processing{% endif %}" data-processing-check-url="{% if media_revision_id %}/api/v1/meetings/{{ meeting_id }}/processing/check{% endif %}" data-processing-attempt-url="{% if media_revision_id %}/api/v1/meetings/{{ meeting_id }}/processing/attempt{% endif %}" data-playback-poll-url="{{ playback_poll_url }}" data-playback-poll-active="{{ playback_poll_active }}">
+<main id="cabinet-main" class="main detail-page-main" tabindex="-1" data-meeting-id="{{ meeting_id }}" data-media-revision-id="{{ media_revision_id }}" data-local-media-revision-id="{{ local_media_revision_id }}" data-processing-status-url="{% if media_revision_id %}/api/v1/meetings/{{ meeting_id }}/processing{% endif %}" data-processing-check-url="{% if media_revision_id %}/api/v1/meetings/{{ meeting_id }}/processing/check{% endif %}" data-processing-attempt-url="{% if media_revision_id %}/api/v1/meetings/{{ meeting_id }}/processing/attempt{% endif %}" data-playback-poll-url="{{ playback_poll_url }}" data-playback-poll-active="{{ playback_poll_active }}" data-processing-state="{{ processing_state }}" data-processing-reason-code="{{ processing_reason_code }}" data-stored-outcomes-available="{{ 'true' if stored_outcomes_available else 'false' }}">
   <p class="sr-only" id="playback-live-status" data-playback-live-status role="status" aria-live="polite" aria-atomic="true">{{ playback_live_label }}</p>
   <div class="meeting-detail-header" data-meeting-detail-header>
     <div class="topline">
@@ -85,13 +85,13 @@
       {{ outcomes }}
     </section>
     <section class="tab-panel{% if not outcomes_selected %} active{% endif %}" role="tabpanel" id="detail-panel-recording" aria-labelledby="detail-tab-recording" data-detail-panel="recording"{% if outcomes_selected %} hidden{% endif %}>
-      {% if media_revision_id %}
+      {% if media_revision_id and not transcript_available and processing_state in ["processing", "submitted"] and processing_reason_code != "no_recognizable_speech" and transcript_degraded_reason in ["diarization_pending", "processing"] %}
       <div class="transcript-processing-placeholder" data-transcript-pending>
         <strong>Спикеры ещё определяются</strong>
         <span>Расшифровка появится после завершения диаризации.</span>
       </div>
       {% endif %}
-      <div class="transcript" data-playback-transcript{% if media_revision_id %} hidden aria-hidden="true"{% endif %}>{{ transcript }}</div>
+      <div class="transcript" data-playback-transcript{% if media_revision_id and not transcript_available %} hidden aria-hidden="true"{% endif %}>{{ transcript }}</div>
     </section>
   </section>
   {{ playback }}

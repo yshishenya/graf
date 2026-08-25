@@ -1072,6 +1072,9 @@ def _render_meeting_detail_content(
         ),
         playback_poll_url=poll_url or "",
         playback_poll_active="true" if review.playback.state == "preparing" else "false",
+        processing_state=review.processing.state,
+        processing_reason_code=review.processing.reason_code or "",
+        stored_outcomes_available=review.notes_action_truth.source_basis == "stored_output",
         playback_live_label=review.playback.label,
         top_actions=trusted_component_html(
             _render_meeting_workspace_actions(
@@ -1116,6 +1119,8 @@ def _render_meeting_detail_content(
             _render_notes_outcomes(review), source="meeting_detail.outcomes"
         ),
         transcript=transcript,
+        transcript_available=review.transcript.available,
+        transcript_degraded_reason=review.transcript.degraded_reason,
         calendar_context_chooser=trusted_component_html(
             _render_calendar_context_chooser(
                 review,

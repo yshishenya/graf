@@ -82,6 +82,8 @@ def classify_provider_outcome(
         return RetryDecision(ProcessingStatus.WAITING_RETRY, normalized or "provider_retryable", True)
     if retryable is False:
         return RetryDecision(ProcessingStatus.FAILED_TERMINAL, normalized or "provider_terminal", False)
+    if status_code == 500:
+        return RetryDecision(ProcessingStatus.FAILED_TERMINAL, normalized or "provider_terminal", False)
     if normalized in {"result_not_ready", "summary_not_ready", "provider_unavailable", "rate_limited"}:
         return RetryDecision(ProcessingStatus.WAITING_RETRY, normalized, True)
     if status_code in {408, 425, 429, 502, 503, 504}:
@@ -108,10 +110,13 @@ def schedule_retry(
     default_delay: timedelta = DEFAULT_RETRY_DELAY,
     max_delay: timedelta = MAX_RETRY_DELAY,
     default_deadline: timedelta = DEFAULT_DEADLINE,
+    max_attempts: int | None = None,
 ) -> RetrySchedule:
     """Return a bounded absolute schedule; injectable RNG keeps tests stable."""
 
     now = now.astimezone(UTC) if now.tzinfo else now.replace(tzinfo=UTC)
+    if max_attempts is not None and retry_count >= max_attempts:
+        return RetrySchedule(None, None, retry_count, generation + 1)
     deadline = deadline_at or now + default_deadline
     hinted_delay = retry_after
     if provider_next_attempt_at is not None:
@@ -125,7 +130,7 @@ def schedule_retry(
     base = max(min_delay, min(hinted_delay, max_delay))
     jitter = max(0.0, min(jitter_ratio, 0.25))
     if jitter:
-        rng = random_source or Random(0)
+        rng = random_source or Random()
         base += timedelta(seconds=base.total_seconds() * rng.uniform(0, jitter))
     target = min(now + base, deadline)
     if target <= now or target >= deadline:
@@ -146,5 +151,6 @@ def schedule_retry_with_settings(settings: Settings, **kwargs: object) -> RetryS
         default_delay=timedelta(seconds=settings.processing_recovery_default_delay_seconds),
         max_delay=timedelta(seconds=settings.processing_recovery_max_delay_seconds),
         default_deadline=timedelta(seconds=settings.processing_recovery_deadline_seconds),
+        max_attempts=settings.processing_recovery_max_attempts,
         jitter_ratio=settings.processing_recovery_jitter_ratio,
     )
