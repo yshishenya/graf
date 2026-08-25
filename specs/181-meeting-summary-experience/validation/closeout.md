@@ -121,3 +121,16 @@ Risk lane: high-risk Spec Kit — AI, private meeting data, accepted-result inte
   `2` ожидаемых предупреждения. Добавлена локальная очистка только этих
   synthetic slots перед проверкой unrelated downgrade operation; full CI нужно
   повторить на следующем SHA.
+
+## Authoritative full gate after corrections
+
+Дата: 2026-08-25
+
+- Exact SHA: `baf3d8fd`.
+- `infra/scripts/ci-local.sh --full`: PASS. macOS build и `767` Swift-тестов
+  прошли; ContractValidation — PASS; parallel PostgreSQL phase — `3529 passed`,
+  `1 skipped`; strict RLS phase — `52 passed`, `1 skipped`; server lint,
+  Python compile, compose config и deployment evidence scan — PASS.
+- Единственный оставшийся результат `blocked` внутри full gate — ожидаемая
+  локальная RLS hardening boundary без production database; live production
+  probe не выполнялся.
