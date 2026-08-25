@@ -189,3 +189,16 @@ Risk lane: high-risk Spec Kit — AI, private meeting data, accepted-result inte
 - Prompt promotion, включение outcome generation, release, deploy и push
   остаются отдельными gates. Попытка `git push` из этой среды снова не получила
   ответа от SSH remote; локальные коммиты сохранены.
+
+## Exact current-SHA full gate after continuation
+
+Дата: 2026-08-25
+
+- Exact SHA: `15edb414`.
+- `infra/scripts/ci-local.sh --full`: PASS. macOS build и `767` Swift-тестов
+  прошли; ContractValidation — PASS; parallel PostgreSQL phase — `3529 passed`,
+  `1 skipped`; strict RLS phase — `52 passed`, `1 skipped`; server lint,
+  Python compile, compose config и deployment evidence scan — PASS.
+- Full gate produced 11 expected warnings. The only non-pass result remains the
+  documented local RLS hardening boundary: live production enforcement was not
+  inspected because no production database was provided.
