@@ -1,6 +1,20 @@
 # Текущий статус продукта
 
-Date: 2026-08-24
+Date: 2026-08-25
+
+## Release update (2026-08-25) — `v2026.08.25.4`
+
+- Изменения меню профиля GRAF, стабилизации списка встреч и billing/promo
+  выкачены в production на exact SHA
+  `82b7389e9a6dffc77828ba561ad4e8507a11d9b5`.
+- Production checkout подтверждён на `master` с чистым remote worktree;
+  `/api/v1/health/live` и `/api/v1/health/ready` вернули HTTP 200.
+- Backup/restore rehearsal, migration/RLS verification, readiness и
+  synthetic smoke прошли; guarded rollback не потребовался.
+- Подробный metadata-only receipt: [release-v2026.08.25.4](deployments/2brain-rec/release-v2026.08.25.4.md).
+- Полный локальный CI в этом release-пути явно не считается PASS: он был
+  пропущен по согласованному исключению; focused-проверки финального SHA
+  прошли, а промежуточные performance failures зафиксированы в receipt.
 
 ## Implementation update (2026-08-24) — Feature 199 per-app recording policies
 
