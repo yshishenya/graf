@@ -16,7 +16,14 @@ MEDIA_REVISION_DELETION_SAFE_REASON = "Media revision identity retained as lifec
 
 ALLOWED_PROCESSING_TRANSITIONS = {
     ProcessingStatus.NOT_SUBMITTED: {ProcessingStatus.STARTING, ProcessingStatus.BLOCKED},
-    ProcessingStatus.STARTING: {ProcessingStatus.WORKFLOW_STARTED, ProcessingStatus.BLOCKED},
+    # A freshly admitted user retry can reach the Temporal activity before
+    # the optional workflow-start projection is persisted. The activity's
+    # durable first step is submission, so this transition must be valid.
+    ProcessingStatus.STARTING: {
+        ProcessingStatus.WORKFLOW_STARTED,
+        ProcessingStatus.SUBMITTING,
+        ProcessingStatus.BLOCKED,
+    },
     ProcessingStatus.WORKFLOW_STARTED: {ProcessingStatus.SUBMITTING, ProcessingStatus.BLOCKED, ProcessingStatus.FAILED_RETRYABLE, ProcessingStatus.BLOCKED_UNKNOWN},
     ProcessingStatus.SUBMITTING: {ProcessingStatus.SUBMITTED, ProcessingStatus.BLOCKED, ProcessingStatus.FAILED_RETRYABLE, ProcessingStatus.FAILED_TERMINAL, ProcessingStatus.BLOCKED_UNKNOWN, ProcessingStatus.WAITING_RETRY},
     ProcessingStatus.SUBMITTED: {ProcessingStatus.POLLING, ProcessingStatus.BLOCKED, ProcessingStatus.FAILED_RETRYABLE, ProcessingStatus.FAILED_TERMINAL, ProcessingStatus.WAITING_RETRY},
