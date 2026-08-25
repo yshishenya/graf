@@ -354,3 +354,42 @@ Risk lane: high-risk Spec Kit — AI, private meeting data, accepted-result inte
 T031 remains open: human-labelled usefulness/pairwise evidence and a
 version-bound private Temporal real-record run are still absent. Prompt/root
 promotion, enabling generation, release, deploy and push remain separate gates.
+
+## Latest continuation: master sync and Langfuse v4 migration gate
+
+Дата: 2026-08-25
+
+- Ветка синхронизирована с актуальным `origin/master` (`104bd2dd`), merge
+  commit `6835d3b8` опубликован в `origin/181-meeting-summary-experience`;
+  рабочее дерево чистое.
+- После merge выполнен `infra/scripts/ci-local.sh --fast`: `1274 passed`,
+  server lint и Python compile PASS; fast lane не заменяет full release gate.
+- Langfuse v4 code gate: `langfuse==4.14.5`, Python SDK актуален и выше
+  минимального v4 `4.7.0`; instrumentation использует v4 observation APIs,
+  deprecated v3 runtime aliases не обнаружены. CLI schema discovery прошёл.
+- Langfuse project read-back: API вернул `0` evaluators и `0` evaluation
+  rules; UI Rules также показывает `No evaluation rules found`, без скрытых
+  Legacy rows. Datasets и Experiments пусты. Exports пусты; PostHog, Mixpanel,
+  Slack и Web Callouts не настроены, Blob Storage Configure disabled.
+- Migration Assistant для проекта GRAF: `Action needed`, SDK `Latest`,
+  affected evals `0`, experiments `Up to date`, affected APIs `2`, exports
+  `0`. Project-side write actions не выполнялись.
+- Внешний LiteLLM smoke на `https://litellm.pro-4.ru/chat/completions` с
+  `gpt-5.6-luna` вернул HTTP 200 и реальные LiteLLM metadata headers, но не
+  вернул обязательный `X-GRAF-Route-Binding-Hash`; JSON также не содержит
+  `actual_provider`. Поэтому текущий GRAF gateway корректно останавливает
+  вызов на `litellm_route_binding_unconfirmed`/allowlist fence. Это не
+  исправляется ослаблением fail-closed проверки.
+- На `2brain.dev` LiteLLM-конфигурации нет; production остаётся на старом
+  SHA `104bd2dd` с `TWOBRAIN_OUTCOME_GENERATION_ENABLED=false`, public live и
+  ready отвечают `200`. `cd-remote.sh --dry-run` прошёл, execute не запускался.
+
+### Exact blocker for the next gate
+
+Нужен владелец gateway, который добавит pre-egress проверку ожидаемого
+route-binding hash, echo того же hash в ответе и machine-readable
+actual-provider/model provenance для route `gpt-5.6-luna`, после чего нужен
+read-back на том же endpoint. До этого нельзя создавать/продвигать production
+root-bundle, включать generation или запускать private real-record E2E: это
+оставило бы непроверенную модельную маршрутизацию и нарушило trusted-publication
+контракт.
