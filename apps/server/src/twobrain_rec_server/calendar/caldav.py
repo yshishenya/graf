@@ -161,6 +161,14 @@ class CalDAVAdapter:
         page_token: str | None = None,
         sync_token: str | None = None,
     ) -> CalendarEventPage:
+        """Read the complete CalDAV calendar-query REPORT response.
+
+        CalDAV calendar-query REPORT has no provider pagination-token contract;
+        a continuation cursor from the shared sync seam therefore requests a
+        safe full resync instead of being silently ignored.
+        """
+        if page_token or sync_token:
+            raise CalendarProviderError("cursor_invalid")
         config = _credential_config(credential, provider_family=self.provider_family)
         _require_same_origin(config["caldav_url"], calendar_id)
         body = _calendar_query_body(time_min, time_max)

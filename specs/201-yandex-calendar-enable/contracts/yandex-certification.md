@@ -14,7 +14,7 @@
 | Y201-05 | Browser | Run sync and inspect upcoming projection | queued → syncing → synced; only selected safe rows appear |
 | Y201-06 | Browser | Reconnect same account | No duplicate active source; committed selection policy is preserved |
 | Y201-07 | Browser | Disconnect and reload | Exact GRAF disconnect copy; source/cache/credential are closed locally |
-| Y201-08 | Embedded macOS | Repeat Y201-03 through Y201-07 | Same server truth; native Record/Stop remains usable |
+| Y201-08 | Embedded macOS | Repeat Y201-01 through Y201-07, including invalid-password and missing-source states | Same server truth; no secret echo; native Record/Stop remains usable |
 | Y201-09 | Both | Repeat after session refresh | No stale success, raw provider error or credential in DOM/AX/runtime evidence |
 
 ## Evidence rules

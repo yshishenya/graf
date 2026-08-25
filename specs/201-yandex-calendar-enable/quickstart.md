@@ -11,6 +11,7 @@ For automated database scenarios, start the repository disposable PostgreSQL
 runner. Keep its URL in process environment only.
 
 ```sh
+cd "$(git rev-parse --show-toplevel)"
 bash apps/server/scripts/run_local_postgres_tests.sh
 ```
 
@@ -21,6 +22,7 @@ command, chat message, fixture, log or evidence file.
 The local form is enabled by the canonical launcher:
 
 ```sh
+cd "$(git rev-parse --show-toplevel)"
 sh infra/scripts/start-local.sh
 ```
 
@@ -32,7 +34,7 @@ not production availability or real E2E certification.
 ## Focused automated checks
 
 ```sh
-cd apps/server
+cd "$(git rev-parse --show-toplevel)/apps/server"
 PYTHONPATH=src uv run --extra dev pytest -q \
   tests/unit/test_caldav_provider.py \
   tests/unit/test_calendar_worker.py \
@@ -47,6 +49,7 @@ PYTHONPATH=src uv run --extra dev pytest -q \
 With PostgreSQL available, also run:
 
 ```sh
+cd "$(git rev-parse --show-toplevel)/apps/server"
 PYTHONPATH=src uv run --extra dev pytest -q \
   tests/integration/test_calendar_provider_runtime.py \
   tests/integration/test_calendar_provider_failures.py \
@@ -79,6 +82,11 @@ Record only the metadata required by
 
 ## Closeout
 
-Run `infra/scripts/ci-local.sh` before PR/closeout. Do not run production
+```sh
+cd "$(git rev-parse --show-toplevel)"
+infra/scripts/ci-local.sh
+```
+
+Do not run production
 execute/deploy from this worktree without explicit release approval. If any
 real E2E scenario fails, leave Yandex labeled `Скоро` and record the blocker.

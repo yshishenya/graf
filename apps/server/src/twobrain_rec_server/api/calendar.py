@@ -290,6 +290,10 @@ async def list_calendar_providers(request: Request) -> CalendarProviderListRespo
             google_available=google_oauth_config_from_settings(request.app.state.settings)
             is not None,
             allow_uncertified_google=request.app.state.settings.env.lower() == "development",
+            allow_uncertified_yandex=(
+                request.app.state.settings.env.lower() == "development"
+                and request.app.state.settings.calendar_allow_uncertified_yandex
+            ),
         )
     )
 

@@ -131,6 +131,11 @@ def test_production_config_accepts_non_local_runtime_credentials() -> None:
     assert settings.env == "production"
 
 
+def test_production_rejects_uncertified_yandex_calendar() -> None:
+    with pytest.raises(ValidationError, match="uncertified Yandex Calendar"):
+        _production_settings(calendar_allow_uncertified_yandex=True)
+
+
 def test_non_web_production_runtime_does_not_require_web_csrf_secret() -> None:
     settings = _production_settings(
         web_runtime_enabled=False,

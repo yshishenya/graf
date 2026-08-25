@@ -19,7 +19,7 @@ sync синхронно до ответа.
 
 ## Technical Context
 
-**Language/Version**: Python 3.14 runtime in current workspace, Swift/macOS
+**Language/Version**: Python 3.13 runtime in the server image, Swift/macOS
 surface reused without provider-specific code.
 
 **Primary Dependencies**: FastAPI, SQLAlchemy async, existing stdlib CalDAV
@@ -110,9 +110,9 @@ the certification receipt is kept separate from implementation tests.
    credentials in chat or artifacts:
    connect, catalog, zero/one selection, sync, upcoming projection, reconnect,
    disconnect, reload and the same flow in embedded macOS.
-4. If the matrix passes, make the smallest provider-gate change needed to mark
+5. If the matrix passes, make the smallest provider-gate change needed to mark
    only `caldav_yandex` certified and update the focused expectations.
-5. If any matrix step fails, leave the provider `Скоро`, fix only the root cause,
+6. If any matrix step fails, leave the provider `Скоро`, fix only the root cause,
    and do not claim launch.
 
 ## Rollout and rollback

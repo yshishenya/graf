@@ -100,6 +100,24 @@ def test_calendar_provider_endpoint_lists_supported_presets(client) -> None:
     } <= families
 
 
+def test_calendar_provider_endpoint_exposes_local_yandex_gate(client) -> None:
+    settings = client.app.state.settings
+    original = settings.calendar_allow_uncertified_yandex
+    settings.calendar_allow_uncertified_yandex = True
+    try:
+        response = client.get("/api/v1/calendar/providers", headers=auth_headers())
+    finally:
+        settings.calendar_allow_uncertified_yandex = original
+
+    yandex = next(
+        provider
+        for provider in response.json()["providers"]
+        if provider["provider_family"] == "caldav_yandex"
+    )
+    assert response.status_code == 200
+    assert yandex["runtime_available"] is True
+
+
 def test_calendar_source_lifecycle_contract_never_returns_credentials(client) -> None:
     created = client.post(
         "/api/v1/calendar/sources",

@@ -715,6 +715,8 @@ class Settings(BaseSettings):
     def validate_production_safety(self) -> "Settings":
         if self.env.lower() != "production":
             return self
+        if self.calendar_allow_uncertified_yandex:
+            raise ValueError("production cannot enable uncertified Yandex Calendar")
         if self.public_analytics_enabled and self.public_analytics_yandex_metrica_id is None:
             raise ValueError(
                 "production public analytics requires public_analytics_yandex_metrica_id"

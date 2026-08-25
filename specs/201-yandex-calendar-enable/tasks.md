@@ -71,11 +71,14 @@ release gate and is not part of the first implementation step.
    here, leave Yandex as `Скоро`, and fix the reported root cause.
 3. T010–T012 require a successful connection and prove sync/reconnect.
 4. T013–T015 prove disconnect and deletion truth.
-5. T016–T021 are closeout/release gates; T021 is never automatic.
+5. T022 depends on T010–T015 and covers immediate, scheduled and manual-sync
+   behavior; T023 implements the shared runner, T024 wires connect and
+   selection, and T025 wires the blocking manual action.
+6. T016–T021 are closeout/release gates; T021 is never automatic.
 
 Parallel opportunities: T001/T002, T004/T005, T006/T007, T010/T011 and
 T013/T014 can run in parallel when their evidence files are coordinated.
 
-**MVP**: T001–T009 plus a passing Y201-01–Y201-03 matrix, but no availability
-change. Public rollout is not complete until T010–T021 and explicit release
-approval are complete.
+**MVP**: T001–T009 plus T022–T025 and a passing Y201-01–Y201-03 matrix, but no
+availability change. Public rollout is not complete until T010–T021 and
+explicit release approval are complete.

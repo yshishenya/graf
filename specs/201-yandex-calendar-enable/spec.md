@@ -138,7 +138,10 @@ GRAF перестал читать новые события без потери
   хранилище не добавляются.
 - **FR-007**: Sync MUST читать только выбранные календари в окне от 7 дней до
   текущего момента до 12 месяцев вперёд и корректно обрабатывать pagination,
-  отмены/удаления и повторный запуск.
+  отмены/удаления и повторный запуск. Провайдеры с полным одиночным CalDAV
+  `calendar-query REPORT` MUST отклонять общие pagination- или delta-курсоры с
+  `cursor_invalid`, чтобы существующий sync runner выполнял безопасный полный
+  resync, а не молча терял события.
 - **FR-008**: Ошибки timeout, invalid credentials, provider unavailable, rate
   limit и malformed payload MUST переводиться в существующие safe states; они
   MUST NOT блокировать ручной Record/Stop, upload или создание встречи.
