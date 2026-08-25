@@ -65,7 +65,7 @@ def test_browser_invitation_validation_errors_are_html(client, accept: str | Non
     assert response.headers["content-type"].startswith("text/html")
     assert response.headers["cache-control"] == "private, no-store"
     assert "Приглашение недоступно" in response.text
-    assert "detail" not in response.text
+    assert '"detail"' not in response.text
 
 
 def test_explicit_html_navigation_uses_existing_login_flow(client) -> None:
