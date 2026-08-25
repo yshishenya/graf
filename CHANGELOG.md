@@ -9,6 +9,27 @@
 ## [Unreleased]
 
 ### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- _Пока нет записей._
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.08.25.11] - 2026-08-25
+
+
+### Добавлено
 - Яндекс Календарь включён в production в режиме read-only через CalDAV.
 
 ### Изменено
@@ -8501,3 +8522,5 @@
 - Added production read-only RLS state verification output for covered-table
   counts, enabled/forced counts, failed tables, deployed commit, and Alembic
   revision (`feature:032`, `T015-T020`, `T028-T037`).
+
+
