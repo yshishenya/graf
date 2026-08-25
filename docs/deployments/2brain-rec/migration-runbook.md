@@ -4,16 +4,17 @@ Target host: `2brain.dev`
 Deploy path: `/opt/projects/2brain-rec`
 Compose project: `twobrain-rec`
 
-This runbook is remote-first. Local execution is limited to tests, compile,
-compose rendering, and static scans.
+This runbook is release-first. Local execution is limited to tests, compile,
+compose rendering, static scans and the CD dry-run. Production migration
+verification is owned by the canonical release command.
 
 ## Required Order
 
 1. Record backup evidence using `docs/deployments/2brain-rec/backup-evidence-template.md`.
-2. Run `infra/scripts/backup-rec-stack.sh --remote` from a checked-out deploy artifact or from the remote deploy path. The helper must create a Postgres logical dump and MinIO API mirror, not a live raw volume archive.
-3. Verify migration state with `infra/scripts/verify-rec-migration.sh --remote`.
-4. Run restore/rollback rehearsal with `infra/scripts/rehearse-rec-restore.sh --remote`. The rehearsal restores the Postgres dump into a temporary database and mirrors MinIO objects into a temporary bucket, then removes both temporary targets.
-5. Continue only if backup, migration verification, and rehearsal pass.
+2. Start the canonical release flow with `infra/scripts/cd-remote.sh --dry-run --branch master`.
+3. After explicit release approval, run `infra/scripts/cd-remote.sh --execute --branch master`. It creates the backup, runs restore rehearsal and migration verification, and keeps the production lock for the entire sequence.
+4. Do not invoke `verify-rec-migration.sh --remote`, `cd-remote-runtime.sh` or production smoke `--execute` directly: those entrypoints fail closed outside the release gate.
+5. Continue only if the canonical release command reports backup, migration verification, rehearsal, health and smoke as passed.
 
 ## Halt Criteria
 

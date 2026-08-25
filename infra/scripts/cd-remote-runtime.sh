@@ -4,6 +4,44 @@ set -euo pipefail
 branch="${1:?branch is required}"
 expected_sha="${2:?expected sha is required}"
 previous_sha="${3:?previous sha is required}"
+
+if [[ "$branch" != "master" ]]; then
+  echo "deploy_result=blocked"
+  echo "reason=production_runtime_requires_master"
+  echo "requested_branch=$branch"
+  exit 1
+fi
+if [[ "${TWOBRAIN_PRODUCTION_RELEASE_GATE:-}" != "1" ]]; then
+  echo "deploy_result=blocked"
+  echo "reason=production_runtime_requires_release_gate"
+  exit 1
+fi
+current_branch="$(git branch --show-current)"
+if [[ "$current_branch" != "$branch" ]]; then
+  echo "deploy_result=blocked"
+  echo "reason=production_runtime_branch_mismatch"
+  echo "current_branch=$current_branch"
+  echo "requested_branch=$branch"
+  exit 1
+fi
+if [[ "$(git rev-parse HEAD)" != "$expected_sha" ]]; then
+  echo "deploy_result=blocked"
+  echo "reason=production_runtime_sha_mismatch"
+  echo "current_sha=$(git rev-parse HEAD)"
+  echo "expected_sha=$expected_sha"
+  exit 1
+fi
+export TWOBRAIN_PRODUCTION_RELEASE_GATE=1
+runtime_release_lock=""
+if [[ "${TWOBRAIN_PRODUCTION_RELEASE_LOCK_HELD:-0}" != "1" ]]; then
+  runtime_release_lock="$(git rev-parse --git-path twobrain-rec-deploy.lock)"
+  exec 8>"$runtime_release_lock"
+  if ! /usr/bin/flock -n 8; then
+    echo "deploy_result=blocked"
+    echo "reason=deploy_already_running"
+    exit 1
+  fi
+fi
 compose=(docker compose --profile operations -f infra/docker-compose.yml)
 runtime_mutated=0
 deployment_complete=0
@@ -1180,7 +1218,9 @@ verify_media_worker_boundary false
 verify_media_worker_control
 echo "media_worker_pre_dispatch_result=pass"
 
-infra/scripts/run-production-smoke.sh --execute
+TWOBRAIN_PRODUCTION_RELEASE_GATE=1 \
+TWOBRAIN_PRODUCTION_RELEASE_LOCK_HELD=1 \
+  infra/scripts/run-production-smoke.sh --execute
 
 dispatch_opened=1
 TWOBRAIN_PLAYBACK_NORMALIZATION_AUTOMATIC_DISPATCH_ENABLED=true \

@@ -112,6 +112,45 @@ def test_remote_deploy_script_declares_and_executes_all_normalization_gates() ->
     assert runtime.count('export TWOBRAIN_LANGFUSE_RELEASE="$previous_sha"') == 2
 
 
+def test_production_runtime_cannot_be_called_without_master_release_gate() -> None:
+    wrapper = (Path(__file__).parents[4] / "infra/scripts/cd-remote.sh").read_text()
+    runtime = (Path(__file__).parents[4] / "infra/scripts/cd-remote-runtime.sh").read_text()
+
+    assert 'if [[ "$MODE" == "execute" && "$BRANCH" != "master" ]]' in wrapper
+    assert 'remote_branch="$(git branch --show-current)"' in wrapper
+    assert "TWOBRAIN_PRODUCTION_RELEASE_GATE=1" in wrapper
+    assert 'if [[ "$branch" != "master" ]]' in runtime
+    assert 'TWOBRAIN_PRODUCTION_RELEASE_GATE:-' in runtime
+    assert 'TWOBRAIN_PRODUCTION_RELEASE_LOCK_HELD:-0' in runtime
+    assert 'reason=production_runtime_requires_release_gate' in runtime
+    assert 'reason=production_runtime_sha_mismatch' in runtime
+
+
+def test_production_migration_entrypoint_requires_release_gate() -> None:
+    repo_root = Path(__file__).parents[4]
+    script = repo_root / "apps/server/scripts/run_production_migration.sh"
+    blocked = subprocess.run(
+        ["sh", str(script), "true"],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "TWOBRAIN_ENV": "production"},
+    )
+    allowed = subprocess.run(
+        ["sh", str(script), "true"],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "TWOBRAIN_ENV": "production", "TWOBRAIN_PRODUCTION_RELEASE_GATE": "1"},
+    )
+
+    assert blocked.returncode == 1
+    assert "reason=production_migration_requires_release_gate" in blocked.stdout
+    assert allowed.returncode == 0
+    compose = (repo_root / "infra/docker-compose.yml").read_text()
+    assert 'entrypoint: ["sh", "/app/scripts/run_production_migration.sh"]' in compose
+
+
 def test_remote_deploy_secures_runtime_secrets_for_private_runtime_group(
     tmp_path: Path,
 ) -> None:

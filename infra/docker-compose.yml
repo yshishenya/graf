@@ -599,6 +599,7 @@ services:
       - ./env/rec.production.env.example
     environment:
       TWOBRAIN_ENV: production
+      TWOBRAIN_PRODUCTION_RELEASE_GATE: ${TWOBRAIN_PRODUCTION_RELEASE_GATE:-0}
       TWOBRAIN_WEB_RUNTIME_ENABLED: "false"
       TWOBRAIN_DATABASE_URL: postgresql+asyncpg://twobrain_rec:__POSTGRES_PASSWORD__@rec-postgres:5432/twobrain_rec
       TWOBRAIN_POSTGRES_PASSWORD_FILE: /run/secrets/twobrain_postgres_password
@@ -618,6 +619,7 @@ services:
         target: twobrain_minio_api_secret_key
       - source: twobrain_smoke_credential
         target: twobrain_smoke_credential
+    entrypoint: ["sh", "/app/scripts/run_production_migration.sh"]
     command: ["alembic", "upgrade", "head"]
     depends_on:
       rec-postgres:

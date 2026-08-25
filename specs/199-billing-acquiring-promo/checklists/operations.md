@@ -6,3 +6,6 @@
 - [x] Provider canary, receipt/VAT, webhook, renewal and refund observation
   remain required before production launch.
 - [x] Rollback/stop procedure remains in `docs/runbooks/billing-launch.md`.
+- [x] Pre-`provider_id` recovery reuses the existing operation/key and stops at
+  provider-key expiry without creating a second charge identity.
+- [x] Status refresh distinguishes a real provider poll from `processed=0`.

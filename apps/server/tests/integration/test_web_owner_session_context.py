@@ -29,12 +29,15 @@ from twobrain_rec_server.auth.sessions import hash_token
 from twobrain_rec_server.auth.workspace_onboarding import ensure_personal_workspace
 from twobrain_rec_server.cabinet.web_routes import auth as auth_routes
 from twobrain_rec_server.cabinet.web_routes import auth_email_flow as auth_email_flow_module
+from twobrain_rec_server.cabinet.web_routes import billing as billing_routes
 from twobrain_rec_server.db.models import (
     AccountMergeIntent,
     AuthAuditEvent,
     AuthCallbackState,
     AuthSession,
     AuthSessionDeviceBinding,
+    BillingInvoice,
+    BillingOperation,
     ExternalIdentity,
     RegisteredDevice,
     UserIdentity,
@@ -2508,6 +2511,150 @@ def test_personal_owner_with_other_billing_owner_can_read_plan_catalog(client) -
     assert response.status_code == 200
     assert "Тарифы" in response.text
     assert 'href="/billing/checkout"' not in response.text
+
+
+def test_personal_owner_continues_existing_checkout_without_second_operation(
+    monkeypatch,
+    client,
+) -> None:
+    token = "personal-checkout-recovery-token"
+    device_id = UUID("70000000-0000-4000-8000-000000000009")
+    operation_id = UUID("71000000-0000-4000-8000-000000000009")
+    calls: list[dict[str, object]] = []
+
+    async def seed() -> AuthSession:
+        async with client.app_state["sessionmaker"]() as db:
+            db.add(
+                RegisteredDevice(
+                    id=device_id,
+                    workspace_id=PERSONAL_WORKSPACE_ID,
+                    user_id=USER_ID,
+                    device_public_id="personal-checkout-recovery",
+                    status="active",
+                    registration_state="approved",
+                )
+            )
+            await db.flush()
+            session = AuthSession(
+                id=uuid4(),
+                user_id=USER_ID,
+                workspace_id=PERSONAL_WORKSPACE_ID,
+                device_id=device_id,
+                provider="billing-recovery-test",
+                session_token_hash=hash_token(token),
+                status="active",
+                issued_at=datetime.now(UTC) - timedelta(minutes=1),
+                expires_at=datetime.now(UTC) + timedelta(minutes=15),
+                claims_fingerprint="billing-recovery-test",
+            )
+            db.add(session)
+            await db.flush()
+            db.add(
+                AuthSessionDeviceBinding(
+                    auth_session_id=session.id,
+                    registered_device_id=device_id,
+                    device_state="trusted",
+                )
+            )
+            operation = BillingOperation(
+                id=operation_id,
+                workspace_id=PERSONAL_WORKSPACE_ID,
+                kind="initial_checkout",
+                idempotency_key="existing-provider-key",
+                state="manual_resolution",
+                provider_key_expires_at=datetime.now(UTC) + timedelta(hours=1),
+                request_snapshot={
+                    "plan_code": "personal",
+                    "cycle": "month",
+                    "payable_amount_minor": 1_000,
+                    "offer_consent": True,
+                    "recurring_consent": True,
+                    "receipt_config": {
+                        "tax_system_code": 2,
+                        "vat_code": 1,
+                        "payment_subject": "service",
+                        "payment_mode": "full_payment",
+                    },
+                },
+            )
+            db.add(operation)
+            await db.flush()
+            db.add(
+                BillingInvoice(
+                    workspace_id=PERSONAL_WORKSPACE_ID,
+                    operation_id=operation_id,
+                    safe_number="INV-RECOVERY9",
+                    amount_minor=1_000,
+                    currency="RUB",
+                    status="manual_resolution",
+                    receipt_contact_snapshot="owner@example.test",
+                )
+            )
+            await db.commit()
+            return session
+
+    class Provider:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def create_payment(self, **kwargs):
+            calls.append(kwargs)
+            return {
+                "id": "payment-recovery-9",
+                "confirmation": {
+                    "confirmation_url": "https://yookassa.test/checkout/recovery-9"
+                },
+            }
+
+    session = client.portal.call(seed)
+    monkeypatch.setattr(billing_routes, "YooKassaClient", lambda _settings: Provider())
+    client.app.state.settings.billing_checkout_enabled = True
+    client.app.state.settings.billing_emergency_stop = False
+    client.app.state.settings.public_base_url = "https://rec.example.test"
+    client.cookies.set(AUTH_SESSION_COOKIE_NAME, token)
+    csrf_token = issue_csrf_token(
+        session_id=session.id,
+        secret=str(client.app.state.web_csrf_secret),
+    )
+
+    response = client.post(
+        "/billing/checkout/status/INV-RECOVERY9/continue",
+        data={"csrf_token": csrf_token},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "https://yookassa.test/checkout/recovery-9"
+    assert len(calls) == 1
+    assert calls[0]["idempotence_key"] == "existing-provider-key"
+
+    async def read_result() -> tuple[int, int, str, str | None]:
+        async with client.app_state["sessionmaker"]() as db:
+            operations = tuple(
+                await db.scalars(
+                    select(BillingOperation).where(
+                        BillingOperation.workspace_id == PERSONAL_WORKSPACE_ID
+                    )
+                )
+            )
+            invoices = tuple(
+                await db.scalars(
+                    select(BillingInvoice).where(
+                        BillingInvoice.workspace_id == PERSONAL_WORKSPACE_ID
+                    )
+                )
+            )
+            return (
+                len(operations),
+                len(invoices),
+                operations[0].state,
+                operations[0].provider_id,
+            )
+
+    assert client.portal.call(read_result) == (1, 1, "provider_pending", "payment-recovery-9")
 
 
 def test_desktop_billing_handoff_sets_browser_session_once(client, tmp_path) -> None:

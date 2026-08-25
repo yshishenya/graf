@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 from urllib.parse import quote, urlencode, urlsplit
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
@@ -39,6 +41,7 @@ from twobrain_rec_server.billing.history import mask_payment_method
 from twobrain_rec_server.billing.operations import (
     CHECKOUT_BLOCKING_STATES,
     BillingEmergencyStop,
+    provider_key_is_expired,
     require_billing_enabled,
 )
 from twobrain_rec_server.billing.promotions import (
@@ -124,6 +127,9 @@ from twobrain_rec_server.db.tenant_context import (
 from twobrain_rec_server.product_analytics.browser_context import (
     build_request_browser_provider_context,
 )
+
+if TYPE_CHECKING:
+    from twobrain_rec_server.config import Settings
 
 router = APIRouter(tags=["cabinet-web"])
 
@@ -276,6 +282,178 @@ def billing_checkout_return_url(request: Request, *, safe_invoice_number: str | 
     return f"{str(configured).rstrip('/')}{path}"
 
 
+def _checkout_status_location(safe_number: str, *, result: str | None = None) -> str:
+    location = f"/billing/checkout/status/{quote(safe_number, safe='-')}"
+    return f"{location}?{urlencode({'result': result})}" if result else location
+
+
+def _initial_checkout_can_continue(
+    operation: BillingOperation,
+    *,
+    now: datetime | None = None,
+) -> bool:
+    return (
+        operation.kind == "initial_checkout"
+        and operation.provider_id is None
+        and operation.state in {"scheduled", "manual_resolution"}
+        and operation.provider_key_expires_at is not None
+        and not provider_key_is_expired(
+            expires_at=operation.provider_key_expires_at,
+            now=now,
+        )
+    )
+
+
+def _initial_checkout_failure_metadata(
+    exc: BaseException,
+    *,
+    now: datetime | None = None,
+) -> dict[str, object]:
+    if isinstance(exc, YooKassaProviderError):
+        failure_class = (
+            "provider_rejected"
+            if exc.status_code is not None and 400 <= exc.status_code < 500
+            else "provider_unavailable"
+        )
+    elif isinstance(exc, YooKassaConfigurationError):
+        failure_class = "configuration"
+    elif isinstance(exc, httpx.TimeoutException):
+        failure_class = "transport_timeout"
+    elif isinstance(exc, httpx.HTTPError):
+        failure_class = "transport_error"
+    elif isinstance(exc, BillingEmergencyStop):
+        failure_class = "checkout_disabled"
+    elif isinstance(exc, ValueError):
+        failure_class = "invalid_checkout_snapshot"
+    else:
+        failure_class = "unexpected"
+    metadata: dict[str, object] = {
+        "class": failure_class,
+        "observed_at": (now or datetime.now(UTC)).astimezone(UTC).isoformat(),
+    }
+    if (
+        isinstance(exc, YooKassaProviderError)
+        and exc.status_code is not None
+        and 400 <= exc.status_code <= 599
+    ):
+        metadata["http_status"] = exc.status_code
+    return metadata
+
+
+def _record_initial_checkout_failure(
+    operation: BillingOperation,
+    invoice: BillingInvoice,
+    exc: BaseException,
+    *,
+    now: datetime | None = None,
+) -> None:
+    current = now or datetime.now(UTC)
+    snapshot = dict(operation.request_snapshot) if isinstance(operation.request_snapshot, dict) else {}
+    snapshot["provider_failure"] = _initial_checkout_failure_metadata(exc, now=current)
+    operation.request_snapshot = snapshot
+    if operation.provider_id is not None:
+        operation.state = "unknown"
+        invoice.status = "unknown"
+    elif provider_key_is_expired(expires_at=operation.provider_key_expires_at, now=current):
+        operation.state = "provider_key_expired"
+        invoice.status = "manual_resolution"
+    else:
+        operation.state = "manual_resolution"
+        invoice.status = "manual_resolution"
+
+
+async def _create_initial_checkout_payment(
+    *,
+    settings: Settings,
+    operation: BillingOperation,
+    invoice: BillingInvoice,
+    return_url: str,
+) -> dict[str, object]:
+    snapshot = operation.request_snapshot
+    if (
+        operation.kind != "initial_checkout"
+        or invoice.operation_id != operation.id
+        or invoice.workspace_id != operation.workspace_id
+        or not isinstance(snapshot, Mapping)
+        or snapshot.get("plan_code") != "personal"
+        or snapshot.get("cycle") not in {"month", "year"}
+        or snapshot.get("offer_consent") is not True
+        or snapshot.get("recurring_consent") is not True
+        or isinstance(snapshot.get("payable_amount_minor"), bool)
+        or snapshot.get("payable_amount_minor") != invoice.amount_minor
+        or invoice.currency != "RUB"
+    ):
+        raise ValueError("initial checkout snapshot is invalid")
+    receipt_config = snapshot.get("receipt_config")
+    if not isinstance(receipt_config, Mapping):
+        receipt_config = {}
+    cycle = str(snapshot["cycle"])
+    description = f"GRAF Личный, {cycle}"
+    receipt = build_receipt_payload(
+        receipt_contact=invoice.receipt_contact_snapshot,
+        amount_minor=invoice.amount_minor,
+        currency=invoice.currency,
+        description=description,
+        tax_system_code=receipt_config.get(
+            "tax_system_code", settings.billing_receipt_tax_system_code
+        ),
+        vat_code=receipt_config.get("vat_code", settings.billing_receipt_vat_code),
+        payment_subject=str(
+            receipt_config.get("payment_subject", settings.billing_receipt_payment_subject)
+        ),
+        payment_mode=str(
+            receipt_config.get("payment_mode", settings.billing_receipt_payment_mode)
+        ),
+    )
+    async with YooKassaClient(settings) as provider:
+        return await provider.create_payment(
+            amount_minor=invoice.amount_minor,
+            currency=invoice.currency,
+            description=description,
+            idempotence_key=operation.idempotency_key,
+            metadata={
+                "workspace_id": str(operation.workspace_id),
+                "operation_id": str(operation.id),
+                "invoice_number": invoice.safe_number,
+                "return_url": return_url,
+            },
+            save_payment_method=True,
+            receipt=receipt,
+        )
+
+
+def _bind_initial_checkout_payment(
+    operation: BillingOperation,
+    invoice: BillingInvoice,
+    payment: Mapping[str, object],
+) -> str | None:
+    provider_id = validate_provider_identifier(payment.get("id"))
+    confirmation = payment.get("confirmation")
+    confirmation_url = (
+        confirmation.get("confirmation_url") if isinstance(confirmation, Mapping) else None
+    )
+    operation.provider_id = provider_id
+    snapshot = dict(operation.request_snapshot)
+    if is_allowed_confirmation_url(confirmation_url):
+        operation.state = "provider_pending"
+        invoice.status = "pending"
+        snapshot["confirmation_url"] = confirmation_url
+    else:
+        operation.state = "unknown"
+        invoice.status = "unknown"
+        confirmation_url = None
+    operation.request_snapshot = snapshot
+    return confirmation_url
+
+
+def _status_refresh_result(counters: Mapping[str, int]) -> str:
+    if counters.get("processed", 0) == 0:
+        return "unchanged"
+    if counters.get("failed", 0) > 0:
+        return "unavailable"
+    return "refreshed"
+
+
 def trial_surface(
     *,
     raw_plan_code: str,
@@ -410,6 +588,7 @@ def _operation_state_label(state: str | None) -> str:
         "pending_reconciliation": "Ожидаем сверку с ЮKassa",
         "reconciliation_gap": "Нужна ручная сверка платежа",
         "manual_resolution": "Нужна ручная сверка платежа",
+        "provider_key_expired": "Срок безопасного продолжения оплаты истёк",
         "method_required": "Нужен способ оплаты",
         "succeeded": "Платёж подтверждён",
         "canceled": "Платёж отменён",
@@ -1273,6 +1452,18 @@ async def billing_checkout_status_page(
     if invoice is None:
         return RedirectResponse("/billing/history?result=not_found", status_code=303)
     operation_state = operation.state if operation is not None else None
+    settings = request.app.state.settings
+    can_continue_payment = bool(
+        operation is not None
+        and settings.billing_checkout_enabled
+        and not settings.billing_emergency_stop
+        and _initial_checkout_can_continue(operation)
+    )
+    can_refresh_payment = bool(
+        operation is not None
+        and operation.provider_id is not None
+        and operation.state in {"provider_pending", "unknown"}
+    )
     content = _page_shell(
         "Статус платежа",
         embedded=_is_embedded_request(request),
@@ -1290,7 +1481,9 @@ async def billing_checkout_status_page(
         amount_label=_billing_amount_label(invoice.amount_minor, invoice.currency) or "Сумма недоступна",
         operation_state=operation_state,
         operation_state_label=_operation_state_label(operation_state),
-        billing_enabled=bool(request.app.state.settings.billing_checkout_enabled),
+        billing_enabled=bool(settings.billing_checkout_enabled),
+        can_continue_payment=can_continue_payment,
+        can_refresh_payment=can_refresh_payment,
         updated_at_label=_billing_datetime_label(operation.updated_at if operation is not None else None),
         status_result=request.query_params.get("result"),
     )
@@ -1332,7 +1525,7 @@ async def refresh_billing_checkout_status(
         principal=principal,
     ) or invoice is None:
         return RedirectResponse("/billing?result=owner_only", status_code=303)
-    await reconcile_pending_initial_checkout_operations(
+    counters = await reconcile_pending_initial_checkout_operations(
         db,
         request.app.state.settings,
         limit=1,
@@ -1340,7 +1533,154 @@ async def refresh_billing_checkout_status(
         defer_referral_reward=True,
     )
     await db.commit()
-    return RedirectResponse(f"/billing/checkout/status/{quote(safe_number, safe='-')}?result=refreshed", status_code=303)
+    return RedirectResponse(
+        _checkout_status_location(safe_number, result=_status_refresh_result(counters)),
+        status_code=303,
+    )
+
+
+@router.post(
+    "/billing/checkout/status/{safe_number}/continue",
+    response_class=HTMLResponse,
+    include_in_schema=False,
+)
+async def continue_billing_checkout(
+    safe_number: str,
+    request: Request,
+    _csrf: None = WebCSRFDependency,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> RedirectResponse:
+    """Continue the existing provider request identity; never create a second invoice."""
+    if db is None:
+        return RedirectResponse(
+            _checkout_status_location(safe_number, result="unavailable"),
+            status_code=303,
+        )
+    limited = await _billing_rate_limited_response(
+        request,
+        tenant_scope=tenant_scope,
+        principal=principal,
+        action="billing_checkout_continue",
+    )
+    if limited is not None:
+        return limited
+    invoice = await db.scalar(
+        select(BillingInvoice)
+        .where(
+            BillingInvoice.workspace_id == tenant_scope.workspace_id,
+            BillingInvoice.safe_number == safe_number,
+        )
+        .with_for_update()
+    )
+    subscription = await db.scalar(
+        select(WorkspaceSubscription)
+        .where(WorkspaceSubscription.workspace_id == tenant_scope.workspace_id)
+        .with_for_update()
+    )
+    if not _can_manage_billing(
+        role=await _billing_role(db, tenant_scope=tenant_scope, principal=principal),
+        subscription=subscription,
+        principal=principal,
+    ) or invoice is None:
+        return RedirectResponse("/billing?result=owner_only", status_code=303)
+    operation = await db.scalar(
+        select(BillingOperation)
+        .where(
+            BillingOperation.workspace_id == tenant_scope.workspace_id,
+            BillingOperation.id == invoice.operation_id,
+        )
+        .with_for_update()
+    )
+    if operation is None or operation.kind != "initial_checkout":
+        return RedirectResponse(
+            _checkout_status_location(safe_number, result="unavailable"),
+            status_code=303,
+        )
+    settings = request.app.state.settings
+    try:
+        require_billing_enabled(
+            checkout_enabled=bool(settings.billing_checkout_enabled),
+            emergency_stop=bool(settings.billing_emergency_stop),
+        )
+    except BillingEmergencyStop:
+        return RedirectResponse(
+            _checkout_status_location(safe_number, result="unavailable"),
+            status_code=303,
+        )
+    if operation.provider_id is not None:
+        confirmation_url = operation.request_snapshot.get("confirmation_url")
+        return RedirectResponse(
+            confirmation_url
+            if is_allowed_confirmation_url(confirmation_url)
+            else _checkout_status_location(safe_number, result="unchanged"),
+            status_code=303,
+        )
+    if provider_key_is_expired(expires_at=operation.provider_key_expires_at):
+        operation.state = "provider_key_expired"
+        invoice.status = "manual_resolution"
+        await db.commit()
+        return RedirectResponse(
+            _checkout_status_location(safe_number, result="continuation_expired"),
+            status_code=303,
+        )
+    if not _initial_checkout_can_continue(operation):
+        return RedirectResponse(
+            _checkout_status_location(safe_number, result="unchanged"),
+            status_code=303,
+        )
+    operation.state = "scheduled"
+    invoice.status = "pending"
+    await db.commit()
+    try:
+        return_url = billing_checkout_return_url(request, safe_invoice_number=invoice.safe_number)
+        payment = await _create_initial_checkout_payment(
+            settings=settings,
+            operation=operation,
+            invoice=invoice,
+            return_url=return_url,
+        )
+        confirmation_url = _bind_initial_checkout_payment(operation, invoice, payment)
+        if subscription is not None and subscription.billing_owner_id != principal.user_id:
+            subscription.billing_owner_id = principal.user_id
+        await db.commit()
+        return RedirectResponse(
+            confirmation_url
+            if confirmation_url is not None
+            else _checkout_status_location(safe_number, result="provider_unavailable"),
+            status_code=303,
+        )
+    except (
+        ValueError,
+        YooKassaConfigurationError,
+        YooKassaProviderError,
+        httpx.HTTPError,
+    ) as exc:
+        await db.rollback()
+        operation = await db.scalar(
+            select(BillingOperation)
+            .where(
+                BillingOperation.workspace_id == tenant_scope.workspace_id,
+                BillingOperation.id == invoice.operation_id,
+            )
+            .with_for_update()
+        )
+        invoice = await db.scalar(
+            select(BillingInvoice)
+            .where(
+                BillingInvoice.workspace_id == tenant_scope.workspace_id,
+                BillingInvoice.safe_number == safe_number,
+            )
+            .with_for_update()
+        )
+        if operation is not None and invoice is not None:
+            _record_initial_checkout_failure(operation, invoice, exc)
+            await db.commit()
+        return RedirectResponse(
+            _checkout_status_location(safe_number, result="provider_unavailable"),
+            status_code=303,
+        )
 
 
 @router.post("/billing/trial/activate", response_class=HTMLResponse, include_in_schema=False)
@@ -2204,6 +2544,14 @@ async def start_billing_checkout(
             confirmation_url = existing.request_snapshot.get("confirmation_url")
             if is_allowed_confirmation_url(confirmation_url):
                 return RedirectResponse(confirmation_url, status_code=303)
+            existing_invoice = await db.scalar(
+                select(BillingInvoice).where(BillingInvoice.operation_id == existing.id)
+            )
+            if existing_invoice is not None:
+                return RedirectResponse(
+                    _checkout_status_location(existing_invoice.safe_number),
+                    status_code=303,
+                )
             return RedirectResponse("/billing?result=pending", status_code=303)
         now = datetime.now(UTC)
         if (
@@ -2335,6 +2683,16 @@ async def start_billing_checkout(
             confirmation_url = unresolved_checkout.request_snapshot.get("confirmation_url")
             if is_allowed_confirmation_url(confirmation_url):
                 return RedirectResponse(confirmation_url, status_code=303)
+            unresolved_invoice = await db.scalar(
+                select(BillingInvoice).where(
+                    BillingInvoice.operation_id == unresolved_checkout.id
+                )
+            )
+            if unresolved_invoice is not None:
+                return RedirectResponse(
+                    _checkout_status_location(unresolved_invoice.safe_number),
+                    status_code=303,
+                )
             return RedirectResponse("/billing?result=pending", status_code=303)
         provider_environment(settings.billing_yookassa_environment)
         intent = build_checkout_intent(workspace_id=tenant_scope.workspace_id, idempotency_key=key, preview=preview)
@@ -2361,6 +2719,12 @@ async def start_billing_checkout(
                 "consent_at": consent_at,
                 "billing_actor_user_id": str(principal.user_id),
                 "offer_version": catalog_snapshot.offer_version,
+                "receipt_config": {
+                    "tax_system_code": settings.billing_receipt_tax_system_code,
+                    "vat_code": settings.billing_receipt_vat_code,
+                    "payment_subject": settings.billing_receipt_payment_subject,
+                    "payment_mode": settings.billing_receipt_payment_mode,
+                },
             },
         )
         db.add(operation)
@@ -2430,49 +2794,24 @@ async def start_billing_checkout(
                 redemption.redeemed_at = None
         await db.commit()
         return_url = billing_checkout_return_url(request, safe_invoice_number=intent.invoice_number)
-        async with YooKassaClient(settings) as provider:
-            receipt = build_receipt_payload(
-                receipt_contact=invoice.receipt_contact_snapshot,
-                amount_minor=preview.payable_amount_minor,
-                currency=invoice.currency,
-                description=f"GRAF Личный, {preview.cycle}",
-                tax_system_code=settings.billing_receipt_tax_system_code,
-                vat_code=settings.billing_receipt_vat_code,
-                payment_subject=settings.billing_receipt_payment_subject,
-                payment_mode=settings.billing_receipt_payment_mode,
-            )
-            payment = await provider.create_payment(
-                amount_minor=preview.payable_amount_minor,
-                currency="RUB",
-                description=f"GRAF Личный, {cycle}",
-                idempotence_key=key,
-                metadata={
-                    "workspace_id": str(tenant_scope.workspace_id),
-                    "operation_id": str(intent.operation_id),
-                    "invoice_number": intent.invoice_number,
-                    "return_url": return_url,
-                },
-                save_payment_method=True,
-                receipt=receipt,
-            )
-        confirmation = payment.get("confirmation")
-        confirmation_url = confirmation.get("confirmation_url") if isinstance(confirmation, dict) else None
-        provider_id = validate_provider_identifier(payment.get("id"))
-        operation.provider_id = provider_id
-        operation.state = "provider_pending"
-        if not is_allowed_confirmation_url(confirmation_url):
-            # Preserve the provider reference before returning an error: the
-            # payment may already exist and must be recovered by GET/list.
-            operation.state = "unknown"
-            await db.commit()
-            return RedirectResponse("/billing/checkout?result=unavailable", status_code=303)
+        payment = await _create_initial_checkout_payment(
+            settings=settings,
+            operation=operation,
+            invoice=invoice,
+            return_url=return_url,
+        )
+        confirmation_url = _bind_initial_checkout_payment(operation, invoice, payment)
         if subscription is not None and subscription.billing_owner_id != principal.user_id:
             # An owner who replaced the designated billing owner must make a
             # fresh hosted payment before future renewals can use this account.
             subscription.billing_owner_id = principal.user_id
-        operation.request_snapshot = {**operation.request_snapshot, "confirmation_url": confirmation_url}
         await db.commit()
-        return RedirectResponse(confirmation_url, status_code=303)
+        return RedirectResponse(
+            confirmation_url
+            if confirmation_url is not None
+            else _checkout_status_location(intent.invoice_number, result="provider_unavailable"),
+            status_code=303,
+        )
     except IntegrityError:
         # A concurrent request may have won the unique workspace/key race.
         # Recover that operation by its logical idempotency key instead of
@@ -2490,6 +2829,14 @@ async def start_billing_checkout(
             winner_url = winner.request_snapshot.get("confirmation_url")
             if is_allowed_confirmation_url(winner_url):
                 return RedirectResponse(winner_url, status_code=303)
+            winner_invoice = await db.scalar(
+                select(BillingInvoice).where(BillingInvoice.operation_id == winner.id)
+            )
+            if winner_invoice is not None:
+                return RedirectResponse(
+                    _checkout_status_location(winner_invoice.safe_number),
+                    status_code=303,
+                )
             return RedirectResponse("/billing?result=pending", status_code=303)
         return RedirectResponse("/billing/checkout?result=unavailable", status_code=303)
     except (
@@ -2498,7 +2845,7 @@ async def start_billing_checkout(
         YooKassaConfigurationError,
         YooKassaProviderError,
         httpx.HTTPError,
-    ):
+    ) as exc:
         await db.rollback()
         if "intent" in locals():
             unresolved = await db.scalar(
@@ -2508,20 +2855,21 @@ async def start_billing_checkout(
                 ).with_for_update()
             )
             if unresolved is not None:
-                if unresolved.state == "scheduled":
-                    # A transport failure before provider_id persistence cannot
-                    # be safely retried automatically; keep it in the same
-                    # blocked, operator-owned state as other unresolved money
-                    # mutations instead of pretending provider truth is known.
-                    unresolved.state = "manual_resolution"
-                    invoice = await db.scalar(
-                        select(BillingInvoice)
-                        .where(BillingInvoice.operation_id == unresolved.id)
-                        .with_for_update()
+                invoice = await db.scalar(
+                    select(BillingInvoice)
+                    .where(BillingInvoice.operation_id == unresolved.id)
+                    .with_for_update()
+                )
+                if invoice is not None:
+                    _record_initial_checkout_failure(unresolved, invoice, exc)
+                    await db.commit()
+                    return RedirectResponse(
+                        _checkout_status_location(
+                            invoice.safe_number,
+                            result="provider_unavailable",
+                        ),
+                        status_code=303,
                     )
-                    if invoice is not None:
-                        invoice.status = "manual_resolution"
-                await db.commit()
         return RedirectResponse("/billing/checkout?result=unavailable", status_code=303)
 
 

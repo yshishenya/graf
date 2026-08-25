@@ -121,9 +121,19 @@ if [ "$origin_sha" != "$expected_sha" ]; then
   echo "origin_sha=$origin_sha"
   exit 1
 fi
+remote_branch="$(git branch --show-current)"
+if [ "$remote_branch" != "$branch" ]; then
+  echo "deploy_result=blocked"
+  echo "reason=remote_branch_mismatch"
+  echo "current_branch=$remote_branch"
+  echo "deploy_branch=$branch"
+  exit 1
+fi
 git cat-file -e "$expected_sha^{commit}"
 git reset --hard "$expected_sha"
-bash infra/scripts/cd-remote-runtime.sh "$branch" "$expected_sha" "$previous_sha"
+TWOBRAIN_PRODUCTION_RELEASE_GATE=1 \
+TWOBRAIN_PRODUCTION_RELEASE_LOCK_HELD=1 \
+  bash infra/scripts/cd-remote-runtime.sh "$branch" "$expected_sha" "$previous_sha"
 SH
 )
 

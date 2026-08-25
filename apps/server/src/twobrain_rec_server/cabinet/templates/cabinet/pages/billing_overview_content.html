@@ -46,7 +46,7 @@
           {% if latest_invoice %}<div><dt>Последний платёж</dt><dd><a href="{{ '/billing/invoices/' ~ latest_invoice.safe_number }}">{{ latest_invoice.safe_number }}</a> · {{ latest_invoice_status_label|default("Статус уточняется") }}</dd></div>{% endif %}
           <div><dt>Состояние операции</dt><dd>{{ latest_operation_label or "Статус уточняется" }}</dd></div>
         </dl>
-        {% if latest_operation_state in ["scheduled", "provider_pending", "unknown"] and latest_invoice %}<a class="button quiet" href="{{ '/billing/checkout/status/' ~ latest_invoice.safe_number }}">Проверить статус платежа</a>{% endif %}
+        {% if latest_operation_state in ["scheduled", "provider_pending", "unknown", "pending_reconciliation", "reconciliation_gap", "manual_resolution", "provider_key_expired"] and latest_invoice %}<a class="button quiet" href="{{ '/billing/checkout/status/' ~ latest_invoice.safe_number }}">Открыть статус платежа</a>{% endif %}
       </section>
       {% endif %}
       {% if billing_owner %}<p class="billing-help"><a class="button quiet" href="/billing/history">Нужна помощь с оплатой?</a></p>{% endif %}
