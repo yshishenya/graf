@@ -75,3 +75,41 @@ Risk lane: high-risk Spec Kit — AI, private meeting data, accepted-result inte
 - T031 по-прежнему не закрыта: не выполнены version-bound Temporal/private
   real-meeting run и human-labelled usefulness/pairwise gate. Production
   prompt promotion, commit/PR, release и deploy остаются отдельными gates.
+
+## Current-master refresh
+
+Дата: 2026-08-25
+
+- Ветка обновлена относительно `origin/master` `8f22aa9718ee2618b87dd98fae382b2aef471354`;
+  перед merge сохранена локальная точка `codex/181-before-current-master-refresh-20260825`.
+- После merge в миграционном графе обнаружены две heads: summary lifecycle и
+  `0082_mediascribe_words`. Добавлена no-op merge-migration
+  `0083_merge_summary_mediascribe`; `alembic heads` теперь возвращает
+  только эту head.
+- Актуальный Feature 181 focused matrix после merge: `173 passed`, 2
+  ожидаемых предупреждения; сюда входят generation, dispatch, workflow, slots,
+  prompts, UI, source contracts и trusted publication.
+- Актуальный `infra/scripts/ci-local.sh --fast`: `1263 passed`, server lint и
+  Python compile pass; контейнер PostgreSQL удалён wrapper-скриптом.
+- Read-only Langfuse v4 UI (v4.17.0): 9 built-in outcome prompts доступны как
+  candidate snapshots версии 23; текущий `production` label для них не
+  перемещён. Evaluation Rules, Datasets и Experiments не содержат активных
+  записей. Это подтверждает готовность к controlled promotion, но не заменяет
+  project-side evaluator migration и production E2E.
+
+## Current validation correction
+
+Дата: 2026-08-25
+
+- Full CI на исходном merge-коммите выявил контрактную ошибку длины Alembic
+  revision ID в merge-миграции: `0083_merge_summary_and_mediascribe_heads`
+  превышал лимит 32 символа. Revision сокращён до
+  `0083_merge_summary_mediascribe`; имя файла и граф `down_revision` сохранены.
+- После исправления focused migration/schema checks: `2 passed`, `2` ожидаемых
+  предупреждения; `alembic heads` возвращает единственную head
+  `0083_merge_summary_mediascribe`.
+- `infra/scripts/ci-local.sh --fast`: `1263 passed`, server lint и Python
+  compile pass, `2` ожидаемых предупреждения; контейнер PostgreSQL удалён.
+- Предыдущий full CI больше не считается актуальным для release gate, потому
+  что после него изменился commit. Full CI должен быть повторён на новом
+  точном SHA.
