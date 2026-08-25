@@ -62,11 +62,11 @@ provider JSON, audio, title или credentials.
   `WAITING_RETRY` без нового submit.
 - `git diff --check` и touched-file Ruff: pass.
 - `infra/scripts/ci-local.sh --fast`: `1229 passed`, lint/compile/macOS guard pass.
-- `infra/scripts/ci-local.sh --full`: macOS `766 passed`, server `3415 passed,
-  1 skipped`, strict RLS `52 passed, 1 skipped`, lint/compile, compose
-  validation и evidence scan pass.
-- Full run был выполнен на текущем незакоммиченном worktree; после commit
-  release metadata exact-SHA full gate должен быть повторён.
+- `infra/scripts/ci-local.sh --full` на exact release tree: macOS `766 passed`,
+  server `3439 passed, 1 skipped`, strict RLS `52 passed, 1 skipped`,
+  lint/compile, compose validation и evidence scan pass.
+- Production execute повторил обязательный full gate на pinned master SHA перед
+  remote backup, migration, deploy и smoke.
 - RLS hardening sub-step внутри локального runner сообщил `blocked`, потому что
   production probe не выполняется против disposable PostgreSQL; это не является
   доказательством production RLS и требует отдельного production evidence.
