@@ -142,9 +142,6 @@
   checkout блокировался для нового SHA без записей. Сохранены каталог, явное
   разделение test/production shop, emergency stop, CSRF, идемпотентность,
   ledger, receipts, webhook и reconciliation.
-- Обработка использует durable Temporal recovery с provider hints, idempotent
-  same-job manual check и server-derived countdown; transcript появляется после
-  готовой diarization независимо от итогов (Feature 203).
 
 ### Исправлено
 - Список встреч больше не перерисовывается каждую секунду во время обработки
@@ -159,19 +156,16 @@
   workspace; запрос теперь корректно доходит до hosted YooKassa.
 - Checkout сначала фиксирует billing operation, затем invoice; устранён отказ
   по внешнему ключу до вызова YooKassa.
-- Terminal no-speech больше не выглядит как продолжающаяся diarization;
-  list/detail/status используют одну terminal projection, а сохраненные итоги
-  не маскируются сообщением «ещё не запрошены» (Feature 203).
 
 ### Безопасность
 - Функция триггера промокодов теперь обращается к таблице по точной схеме и не
   допускает её подмену временной таблицей при выполнении с повышенными правами.
 
 ### Документы
-- _Пока нет записей._
+- Обновлены active Spec Kit и runbook биллинга: provider canary и операционный
+  review остаются внешней процедурой, а не скрытой runtime-зависимостью.
 
 ### Операции
-
 - Тестовый платёж Feature 199 повторяется после проверки фикса; production-shop
   не используется.
 
@@ -8457,5 +8451,4 @@
 - Added production read-only RLS state verification output for covered-table
   counts, enabled/forced counts, failed tables, deployed commit, and Alembic
   revision (`feature:032`, `T015-T020`, `T028-T037`).
-
 
