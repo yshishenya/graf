@@ -23,6 +23,8 @@
   что и экран настроек; production-конфигурация не принимает uncertified
   Yandex Calendar, а CalDAV безопасно выполняет полный resync при неожиданном
   shared cursor в многоэлементном `calendar-query REPORT`.
+- Recovery новой попытки больше не зависает в `starting`: Temporal может
+  безопасно начать submit до сохранения промежуточной проекции workflow.
 
 ### Безопасность
 - _Пока нет записей._

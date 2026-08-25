@@ -19,6 +19,7 @@ from twobrain_rec_server.workflows.temporal_client import (
 def test_processing_state_machine_allows_happy_path_and_blocks_terminal_reopen() -> None:
     assert can_transition(ProcessingStatus.NOT_SUBMITTED, ProcessingStatus.STARTING)
     assert can_transition(ProcessingStatus.STARTING, ProcessingStatus.WORKFLOW_STARTED)
+    assert can_transition(ProcessingStatus.STARTING, ProcessingStatus.SUBMITTING)
     assert can_transition(ProcessingStatus.WORKFLOW_STARTED, ProcessingStatus.SUBMITTING)
     assert can_transition(ProcessingStatus.SUBMITTING, ProcessingStatus.SUBMITTED)
     assert can_transition(ProcessingStatus.SUBMITTED, ProcessingStatus.POLLING)

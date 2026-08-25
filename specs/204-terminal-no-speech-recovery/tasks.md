@@ -22,3 +22,6 @@
   `app.state.temporal_client` в
   `apps/server/src/twobrain_rec_server/api/processing.py` и
   `apps/server/tests/contract/test_processing_status_contract.py`.
+- [X] T008 [US3] Разрешить переход свежей Temporal-попытки `starting → submitting`
+  и добавить regression на реальный submit-путь, чтобы activity не завершалась
+  ошибочно при ещё не сохранённой промежуточной проекции.

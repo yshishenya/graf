@@ -105,6 +105,54 @@ def test_submit_persists_external_job_id_before_retry_continues(client) -> None:
     assert second_submitted is False
 
 
+def test_submit_accepts_fresh_temporal_attempt_in_starting_state(client) -> None:
+    """A newly admitted attempt may submit before the start projection lands."""
+    finalized = create_finalized_meeting(client, "mediascribe-submit-starting")
+    meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
+    workspace_id = UUID(finalized["meeting"]["workspace_id"])
+    fake_client = FakeMediaScribeClient(external_job_id="job_starting")
+
+    async def submit_from_starting() -> tuple[str, str, str, int]:
+        async with client.app_state["sessionmaker"]() as db:
+            workflow = await store.upsert_processing_workflow(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+                workflow_id=f"processing/{media_revision_id}",
+                status=ProcessingStatus.STARTING,
+            )
+            result = await submit_to_mediascribe(
+                db=db,
+                settings=client.app.state.settings,
+                storage=StagingOnlyStorage(client.app_state["storage"]),
+                mediascribe_client=fake_client,
+                workflow=workflow,
+            )
+            persisted_workflow = await db.scalar(
+                select(ProcessingWorkflow).where(ProcessingWorkflow.id == workflow.id)
+            )
+            persisted_job = await db.scalar(
+                select(MediaScribeJob).where(MediaScribeJob.processing_workflow_id == workflow.id)
+            )
+            assert persisted_workflow is not None
+            assert persisted_job is not None
+            return (
+                result.job.external_job_id or "",
+                persisted_workflow.status,
+                persisted_job.status,
+                len(fake_client.submissions),
+            )
+
+    assert asyncio.run(submit_from_starting()) == (
+        "job_starting",
+        ProcessingStatus.SUBMITTED.value,
+        MediaScribeJobStatus.UPLOADED.value,
+        1,
+    )
+
+
 def test_submission_claim_loss_persists_provider_id_with_blocked_projection(client) -> None:
     finalized = create_finalized_meeting(client, "mediascribe-submit-claim-loss")
     meeting_id = UUID(finalized["meeting"]["meeting_id"])
