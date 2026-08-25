@@ -130,7 +130,7 @@ def test_cabinet_js_keeps_fragment_state_ephemeral() -> None:
     assert "htmx:afterSwap" in script
     assert "meeting-list-region" in script
     assert "localStorage" not in script
-    assert script.count("sessionStorage") == 13
+    assert script.count("sessionStorage") == 16
     assert script.count('sessionStorage.removeItem("htmx-history-cache")') == 1
     assert script.count('sessionStorage.removeItem("htmx-current-path-for-history")') == 2
     assert "graf-summary-candidate-" in script
@@ -3672,7 +3672,7 @@ def test_detail_fetch_actions_share_fail_closed_authorization_recovery() -> None
         script.count(
             "recoverMeetingDetailFromResponse(response, { actionProblemCodes: summaryActionProblemCodes })"
         )
-        == 2
+        == 4
     )
     assert (
         script.count(
@@ -4535,7 +4535,7 @@ def test_feature_191_shared_button_contract_keeps_actions_centered_and_on_one_li
     assert ".calendar-section-head > .button { align-self: flex-start; }" in calendar_reflow
     for compound_action in [
         ".meeting-action-item {",
-        ".summary-format-grid > button {",
+        ".summary-format-grid > button,\n.summary-personal-formats > button {",
         ".calendar-provider-button {",
         ".share-recipient-results button { display: grid;",
         ".sidebar-profile__trigger {\n  width: 100%;",
