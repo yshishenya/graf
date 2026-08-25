@@ -287,3 +287,38 @@ Risk lane: high-risk Spec Kit — AI, private meeting data, accepted-result inte
 - Полный gate на предыдущем SHA также показал один отдельный flaky calendar
   failure; тот же тест в изолированном focused прогоне после исправления
   прошёл. Full gate будет повторён на новом точном SHA.
+
+## Current continuation: exact full gate and production read-only audit
+
+Дата: 2026-08-25
+
+- Exact implementation SHA: `cd3666d8`; ветка опубликована в
+  `origin/181-meeting-summary-experience`.
+- `infra/scripts/ci-local.sh --full`: PASS — macOS build и `767` Swift-тестов,
+  ContractValidation PASS, parallel PostgreSQL `3536 passed, 1 skipped`, strict
+  RLS `52 passed, 1 skipped`, server lint, Python compile, compose config и
+  deployment evidence scan PASS. Полный gate оставил только ожидаемый
+  `blocked` результат локальной RLS boundary без production database.
+- `infra/scripts/cd-remote.sh --dry-run --branch
+  181-meeting-summary-experience`: PASS; execute не запускался.
+- В авторизованном production browser read-only проверены две реальные записи:
+  текущий format selector `Авто`, сохранённые итоги, status, переключение
+  `Итоги`/`Расшифровка`, source-jump и возврат. На одной записи сохранённый
+  результат явно содержит старый extractive/mock-like текст и нерелевантные
+  action fragments; это подтверждает необходимость выкатки новой версии, но
+  приватный текст в evidence не сохраняется.
+- В том же UI проверены preparing/paused/error-like processing states на других
+  реальных записях; recovery controls отображаются, но mutation/recovery и
+  новая генерация не запускались.
+- Langfuse Cloud UI: v4.17.0; проект GRAF всё ещё показывает `Action needed`,
+  SDK `Latest`, affected evals `0`, experiments `Up to date`, affected APIs
+  `2`, exports `0`. Rules UI не содержит записей; PostHog inactive, Mixpanel
+  не настроен, Blob Storage configure недоступен. Code inventory подтверждает
+  Python SDK `langfuse==4.14.5` и v4 observation APIs; deprecated v3 API
+  aliases в runtime-коде не обнаружены. Project migration write actions не
+  выполнялись.
+- Production API/worker остаются на `TWOBRAIN_OUTCOME_GENERATION_ENABLED=false`;
+  LiteLLM и GRAF health endpoints отвечают 200, но production runtime не
+  привязан к этому SHA, а LiteLLM route-binding echo/validation не подтверждён.
+  Поэтому T031, prompt/root promotion, production deploy и private real-record
+  Temporal → LiteLLM → Langfuse generation остаются BLOCKED.
