@@ -134,3 +134,31 @@ Risk lane: high-risk Spec Kit — AI, private meeting data, accepted-result inte
 - Единственный оставшийся результат `blocked` внутри full gate — ожидаемая
   локальная RLS hardening boundary без production database; live production
   probe не выполнялся.
+
+## Exact current-SHA full gate
+
+Дата: 2026-08-25
+
+- Exact SHA: `b676e0b1`.
+- `infra/scripts/ci-local.sh --full`: PASS. macOS build и `767` Swift-тестов
+  прошли; ContractValidation — PASS; parallel PostgreSQL phase — `3529 passed`,
+  `1 skipped`; strict RLS phase — `52 passed`, `1 skipped`; server lint,
+  Python compile, compose config и deployment evidence scan — PASS.
+- Единственный `blocked` результат внутри gate — ожидаемая локальная RLS
+  hardening boundary без production database; live production enforcement не
+  инспектировался.
+
+## Current real-record UI smoke
+
+Дата: 2026-08-25
+
+- На двух авторизованных сохранённых встречах разной длительности read-only
+  проверены current format `Авто`, сохранённые итоги, статус «новые итоги ещё не
+  запрошены», format control, кнопка обновления, source-jump и возврат из
+  расшифровки в итоги.
+- После фонового status refresh обе встречи показывали согласованное состояние
+  «Расшифровка и спикеры готовы. Сохраненные итоги доступны» без ложного
+  preparing-overlay.
+- Новая генерация на реальном тексте не запускалась: production runtime ещё не
+  привязан к `b676e0b1`, а повторный provider egress и изменение сохранённых
+  итогов требуют отдельного production gate.
