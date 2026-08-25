@@ -391,8 +391,8 @@ def test_cabinet_rail_ready_state_geometry() -> None:
 
     collapsed_selector = 'html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned) {'
     expanded_selector = 'html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell].is-rail-pinned {'
-    assert f"{collapsed_selector}\n  --playback-inline-start: var(--app-rail-width);\n  grid-template-columns: var(--app-rail-width) minmax(0, 1fr);" in css
-    assert f"{expanded_selector}\n  --playback-inline-start: var(--app-sidebar-width);\n  grid-template-columns: var(--app-sidebar-width) minmax(0, 1fr);" in css
+    assert f"{collapsed_selector}\n  grid-template-columns: var(--app-rail-width) minmax(0, 1fr);" in css
+    assert f"{expanded_selector}\n  grid-template-columns: var(--app-sidebar-width) minmax(0, 1fr);" in css
 
 
 def test_cabinet_collapsed_rail_uses_one_centered_control_geometry() -> None:
@@ -456,14 +456,24 @@ def test_cabinet_collapsed_rail_uses_one_centered_control_geometry() -> None:
     ) in css
 
 
-def test_cabinet_playback_shares_ready_state_geometry() -> None:
+def test_cabinet_playback_uses_shell_grid_without_viewport_compensation() -> None:
     css = (STATIC_DIR / "cabinet.css").read_text()
+    script = (STATIC_DIR / "cabinet.js").read_text()
 
-    collapsed_selector = 'html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned) {'
-    expanded_selector = 'html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell].is-rail-pinned {'
-    assert f"{collapsed_selector}\n  --playback-inline-start: var(--app-rail-width);" in css
-    assert f"{expanded_selector}\n  --playback-inline-start: var(--app-sidebar-width);" in css
-    assert "left: var(--playback-inline-start);" in css
+    playback_start = css.index(".playback-bar {")
+    playback_end = css.index("\n.playback-bar.is-unavailable", playback_start)
+    playback_css = css[playback_start:playback_end]
+
+    assert "grid-template-rows: minmax(0, 1fr) auto;" in css
+    assert ".sidebar {\n  grid-row: 1 / -1;" in css
+    assert "grid-column: 2;\n  grid-row: 1;" in css
+    assert "grid-column: 2;" in playback_css
+    assert "grid-row: 2;" in playback_css
+    assert "position: fixed;" not in playback_css
+    assert "--playback-inline-start" not in css
+    assert "--playback-clearance" not in css
+    assert 'style.setProperty("--playback-clearance"' not in script
+    assert "ResizeObserver(syncPlaybackClearance)" not in script
     assert (
         'html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell] .sidebar {\n'
         "    z-index: 31;\n"
@@ -2502,7 +2512,8 @@ class FakeElement {
   matches() { return false; }
   querySelector() { return null; }
   querySelectorAll() { return []; }
-  removeAttribute() {}
+  remove() { this.isConnected = false; this.removed = true; }
+  removeAttribute(name) { this.removedAttribute = name; }
   replaceWith(node) {
     this.isConnected = false;
     currentMain = node;
@@ -2536,6 +2547,14 @@ detail.dataset.playbackPollActive = "true";
 detail.dataset.playbackPollUrl = "/meetings/private-id";
 detail.dataset.mediaRevisionId = "private-revision-id";
 detail.textContent = "PRIVATE MEETING TITLE";
+const player = new FakeElement("audio");
+player.pause = () => { player.paused = true; };
+player.load = () => { player.loaded = true; };
+const playback = new FakeElement("section");
+playback.querySelector = (selector) => selector === "[data-playback-player]" ? player : null;
+const shell = new FakeElement("div");
+shell.querySelector = (selector) => selector === ".playback-bar" ? playback : null;
+detail.closest = (selector) => selector === "[data-cabinet-shell]" ? shell : null;
 currentMain = detail;
 const body = new FakeElement("body");
 global.Element = FakeElement;
@@ -2596,6 +2615,9 @@ const allText = (node) => [node.textContent, ...node.children.flatMap(allText)].
   await new Promise((resolve) => setImmediate(resolve));
   await new Promise((resolve) => setImmediate(resolve));
   if (currentMain === detail || detail.isConnected) throw new Error("private detail remained connected");
+  if (!player.paused || !player.loaded || player.removedAttribute !== "src" || !playback.removed) {
+    throw new Error("private playback was not stopped and removed");
+  }
   if (allText(currentMain).includes("PRIVATE")) throw new Error("private detail leaked into recovery DOM");
   if (document.title.includes("PRIVATE") || document.title !== "Встреча больше недоступна - GRAF") {
     throw new Error("private document title was not replaced");

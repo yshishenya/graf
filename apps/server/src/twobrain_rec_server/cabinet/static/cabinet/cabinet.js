@@ -3962,16 +3962,6 @@
     document.querySelectorAll("[data-playback-shell]").forEach((shell) => {
       if (shell.dataset.playbackReady === "true") return;
       shell.dataset.playbackReady = "true";
-      const detailMain = shell.closest(".app-shell")?.querySelector(".detail-page-main");
-      const syncPlaybackClearance = () => {
-        if (!detailMain) return;
-        const height = Math.ceil(shell.getBoundingClientRect().height);
-        detailMain.style.setProperty("--playback-clearance", `${height + 20}px`);
-      };
-      syncPlaybackClearance();
-      if (typeof ResizeObserver === "function") {
-        new ResizeObserver(syncPlaybackClearance).observe(shell);
-      }
       const player = shell.querySelector("[data-playback-player]");
       if (!player) return;
       const toggle = shell.querySelector("[data-playback-toggle]");
@@ -5074,6 +5064,12 @@
 
   const renderMeetingDetailRecovery = (detail, kind) => {
     stopPlaybackRecoveryPolling();
+    const playback = detail.closest("[data-cabinet-shell]")?.querySelector(".playback-bar");
+    const player = playback?.querySelector("[data-playback-player]");
+    player?.pause?.();
+    player?.removeAttribute?.("src");
+    player?.load?.();
+    playback?.remove();
     const listPath = location.pathname.startsWith("/desktop/")
       ? "/desktop/meetings"
       : "/meetings";

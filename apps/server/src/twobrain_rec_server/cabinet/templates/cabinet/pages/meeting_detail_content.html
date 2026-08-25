@@ -94,7 +94,6 @@
       <div class="transcript" data-playback-transcript{% if media_revision_id and not transcript_available %} hidden aria-hidden="true"{% endif %}>{{ transcript }}</div>
     </section>
   </section>
-  {{ playback }}
   {{ content_export_dialog }}
   {% if summary_controls_available %}
   <dialog id="summary-format-dialog" class="summary-format-dialog" data-summary-format-dialog aria-labelledby="summary-format-dialog-title">
@@ -114,6 +113,7 @@
   </dialog>
   {% endif %}
 </main>
+{{ playback }}
 <template data-meeting-detail-recovery-template>
   {{ sections.full_page_state(
     "Встреча больше недоступна",
