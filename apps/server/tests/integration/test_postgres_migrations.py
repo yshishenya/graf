@@ -183,7 +183,9 @@ def test_production_share_head_upgrades_to_regeneration_merge(
     command.upgrade(alembic_config, "0037_auth_rate_limit_buckets")
     command.upgrade(alembic_config, "head")
 
-    async def inspect_schema() -> tuple[list[str], set[str], set[tuple[str, str]], str]:
+    async def inspect_schema() -> tuple[
+        list[str], set[str], set[tuple[str, str]], str, str, tuple[str, ...]
+    ]:
         engine = create_async_engine(postgres_clean_database_url)
         try:
             async with engine.connect() as connection:
@@ -215,12 +217,40 @@ def test_production_share_head_upgrades_to_regeneration_merge(
                 maintenance_helper = await connection.scalar(
                     text("select pg_get_functiondef('rec_maintenance_allowed()'::regprocedure)")
                 )
-                return versions, tables, columns, str(maintenance_helper)
+                promotion_counter_function = await connection.scalar(
+                    text(
+                        "select pg_get_functiondef("
+                        "'rec_sync_promotion_reservation_counter()'::regprocedure)"
+                    )
+                )
+                promotion_counter_config = await connection.scalar(
+                    text(
+                        "select proconfig from pg_proc where oid = "
+                        "'rec_sync_promotion_reservation_counter()'::regprocedure"
+                    )
+                )
+                return (
+                    versions,
+                    tables,
+                    columns,
+                    str(maintenance_helper),
+                    str(promotion_counter_function),
+                    tuple(str(item) for item in promotion_counter_config or ()),
+                )
         finally:
             await engine.dispose()
 
-    versions, tables, columns, maintenance_helper = asyncio.run(inspect_schema())
+    (
+        versions,
+        tables,
+        columns,
+        maintenance_helper,
+        promotion_counter_function,
+        promotion_counter_config,
+    ) = asyncio.run(inspect_schema())
     assert versions == ["0082_mediascribe_words"]
+    assert "public.promotion_campaigns" in promotion_counter_function
+    assert "search_path=pg_catalog, pg_temp" in promotion_counter_config
     assert {
         "dispatch_intents",
         "meeting_deletion_fences",
