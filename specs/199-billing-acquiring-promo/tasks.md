@@ -44,7 +44,7 @@ out of scope until Feature 140 launch evidence is complete.
 - [X] T020 [US4] Reuse one immutable hosted-payment helper for initial create and explicit continuation in `apps/server/src/twobrain_rec_server/cabinet/web_routes/billing.py`.
 - [X] T021 [US4] Render the real local state and only the valid continue/refresh action in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_operation_status_content.html` and `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_overview_content.html`.
 - [X] T022 [US4] Run the focused billing/RLS quickstart, fast lane and release-candidate full CI; update `CHANGELOG.md` with exact evidence.
-- [ ] T023 [US4] Merge through PR, deploy only clean synchronized `master`, then repeat one payment against the test shop without enabling the production shop.
+- [X] T023 [US4] Merge through PR, deploy only clean synchronized `master`, then repeat one payment against the test shop without enabling the production shop.
 
 Validation evidence (2026-08-25, candidate based on `origin/master` `104bd2dd`):
 focused billing `47 passed`; focused infra `89 passed`; FastAPI/PostgreSQL
@@ -75,8 +75,18 @@ the provider registration value as the presentation enum and rendered it as
 unknown. Both routes now reuse `receipt_state_for_registration`; a succeeded
 receipt without a safe URL says «Чек зарегистрирован», and a URL is exposed only
 for that state. Focused UI and receipt lifecycle tests: `29 passed`; full focused
-Feature 199 and receipt suite: `74 passed`. T023 remains open until this final UI
-fix is merged, deployed and visible in the browser.
+Feature 199 and receipt suite: `74 passed`. At that checkpoint T023 remained
+open until the final UI fix was merged, deployed and visible in the browser.
+
+Final closeout (2026-08-26): PRs #5853 and #5854 merged; exact release SHA
+`7eb7cf3d` passed full CI (`766` Swift, `3444 passed / 1 skipped` server,
+performance PASS, `52 passed / 1 skipped` strict RLS), backup/restore,
+migration verification, production smoke and health. Runtime remains the
+production application with YooKassa `test`, shop suffix `6758`, checkout
+enabled and emergency stop disabled. Browser E2E reused invoice
+`INV-41CF58F0C2114670948F` without creating another payment and confirmed the
+active monthly subscription, 99% redemption, paid status and «Чек
+зарегистрирован» in both history and detail. T023 is complete.
 
 ## Dependencies
 
