@@ -52,6 +52,13 @@ continue route `1 passed`; fast CI `1241 passed`; full CI `766` Swift tests,
 `3438 passed, 1 skipped` server tests and `52 passed, 1 skipped` strict RLS
 tests, with lint, compile, Compose and deployment evidence scan PASS.
 
+Test-shop canary diagnosis (2026-08-26): YooKassa rejected the initial request
+before creating a payment because the internal checkout key exceeded the
+provider's 64-character `Idempotence-Key` limit. The shared adapter now keeps
+valid short keys and deterministically hashes longer keys; focused billing
+`60 passed`, fast CI `1241 passed`. T023 remains open until the fix is merged,
+deployed and one test-shop payment reaches confirmed entitlement state.
+
 ## Dependencies
 
 - T003 precedes T004-T005 for the preview path.
