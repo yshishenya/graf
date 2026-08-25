@@ -443,7 +443,7 @@ const failedAbove = makeRow("failed-above", "failed", false);
 const processing = makeRow("processing", "processing", true);
 const failedBelow = makeRow("failed-below", "failed", false);
 const projections = [
-  { meeting_id: "processing", state: "polling", retry_class: "none" },
+  { meeting_id: "processing", state: "polling", retry_class: "retryable" },
   { meeting_id: "processing", state: "processed", retry_class: "none" },
 ];
 global.document = {
@@ -495,6 +495,14 @@ global.rows = rows;
   if (failedAbove.nodes.has("[data-processing-list-status]") || failedBelow.nodes.has("[data-processing-list-status]")) {
     throw new Error("failed neighbor received a processing status node");
   }
+  processing.isConnected = false;
+  const replacement = makeRow("processing", "processing", true);
+  rows.splice(rows.indexOf(processing), 1);
+  global.initProcessingListProjection();
+  if (replacement.querySelector(".meeting-content-readiness").textContent !== "Обработка временно приостановлена") {
+    throw new Error("progress swap reset the last processing projection");
+  }
+  if (fetches.length !== 1) throw new Error("projection snapshot bypassed the 15-second throttle");
   now += 15000;
   timers.shift().callback();
   await new Promise((resolve) => setImmediate(resolve));

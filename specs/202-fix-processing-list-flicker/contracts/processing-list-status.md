@@ -10,3 +10,6 @@
    rendered as a competing client terminal status.
 7. Authoritative user requests cancel projection requests/timers and retain
    current focus/selection recovery behavior.
+8. Upload/playback progress swaps may replace the list, but must synchronously
+   restore the last matching non-terminal processing projection and retain its
+   15-second request throttle.

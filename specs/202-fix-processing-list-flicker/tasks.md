@@ -17,14 +17,26 @@
 - [X] T005 [P] [US2] Update `[Unreleased]` in `CHANGELOG.md` and verify browser/embedded copy, focus, selection and narrow layout with metadata-only evidence
 - [X] T006 [US2] Run `specs/202-fix-processing-list-flicker/quickstart.md`, `infra/scripts/ci-local.sh --fast`, review the final diff, and reconcile GitHub issue/PR evidence
 
+## Phase 4: Mixed-status follow-up
+
+- [X] T007 [US1] Preserve the last matching processing projection and its 15-second throttle across upload/playback progress swaps in `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`
+- [X] T008 [US1] Add a mixed processing + progress-swap lifecycle regression in `apps/server/tests/contract/test_cabinet_static_assets_contract.py`
+- [ ] T009 [US2] Run `specs/202-fix-processing-list-flicker/quickstart.md` and `infra/scripts/ci-local.sh --fast`, review the follow-up diff, merge it, and reconcile PR/issue evidence
+
 ## Dependencies
 
 - T001/T002 must fail for the confirmed reason before T003/T004.
 - T003 and T004 implement one contract and precede T005/T006.
 - T006 is the PR gate; full CI/deploy are excluded until release approval.
+- T007/T008 close the mixed-status gap found during post-merge review; T009 is
+  complete after follow-up merge and issue reconciliation. Release/deploy stays
+  a separate approved gate.
 
 ## GitHub issue mapping
 
 - T001–T002: #5805
 - T003–T004: #5806
 - T005–T006: #5807
+- T007: #5806
+- T008: #5805
+- T009: #5807
