@@ -24,7 +24,9 @@
 - _Пока нет записей._
 
 ### Операции
-- _Пока нет записей._
+- Чувствительные к задержке PostgreSQL performance-проверки вынесены из
+  параллельной группы в отдельную последовательную фазу полного CI, чтобы
+  измерение не зависело от нагрузки соседних тестовых процессов.
 
 ## [2026.08.25.12] - 2026-08-25
 
@@ -8555,4 +8557,3 @@
 - Added production read-only RLS state verification output for covered-table
   counts, enabled/forced counts, failed tables, deployed commit, and Alembic
   revision (`feature:032`, `T015-T020`, `T028-T037`).
-

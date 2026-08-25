@@ -82,7 +82,9 @@ def test_full_runner_keeps_strict_rls_tests_and_uses_a_bounded_parallel_lane() -
     assert 'workers="${GRAF_TEST_WORKERS:-8}"' in script
     assert "GRAF_TEST_WORKERS must be an integer from 1 through 8." in script
     assert "--dist=loadfile" in script
-    assert "-m \"not strict_rls\"" in script
+    assert "-m \"not strict_rls and not serial_performance\"" in script
+    assert "-m \"serial_performance and not strict_rls\"" in script
+    assert "if run_phase performance" in script
     assert "-m strict_rls" in script
     assert "--durations=20" in script
     assert "collection_digest" in script
