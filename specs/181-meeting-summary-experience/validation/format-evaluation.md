@@ -221,3 +221,61 @@ Focused regression и fast CI после исправления зелёные. 
   an approved candidate-root/production-label promotion, a runtime deploy with
   outcome generation enabled, and an authorized real-record execution are
   available.
+
+## Current local runtime guard re-check
+
+Дата: 2026-08-25
+
+- Unbound child snapshots remain valid only as stored structural data for
+  lifecycle-fence ordering; they are rejected before LiteLLM egress, trusted
+  publication and Langfuse export.
+- The stale-source regression confirms that a newer transcript revision wins
+  over the unbound-bundle error and prevents any LiteLLM call.
+- No token cap `4048`/`4096` or judge output cap was introduced. The provider
+  request remains controlled by the exact validated Langfuse config and route
+  binding; optimizer accounting limits are not sent as model parameters.
+
+## Current exact-snapshot provider rerun
+
+2026-08-25 выполнен повторный read-only matrix через текущий LiteLLM route
+`https://litellm.pro-4.ru` на модели `gpt-5.6-luna`. Использованы exact
+unlabelled Langfuse snapshots: outcome `v23`, faithfulness `v24`, action-items
+`v25`, completeness `v24`. Матрица включала `9 x 2 = 18` synthetic
+suitable/unsuitable cases; содержимое transcript, candidate и judge feedback
+не выводилось и не сохранялось.
+
+- `18/18` outcome calls прошли strict schema и exact source-reference
+  validation; provider/schema failures: `0`.
+- Все `50` применимых judge calls завершились ответом; один bounded
+  completeness hard-fail наблюдался в `one-to-one/suitable`, остальные
+  применимые оценки прошли.
+- Outcome latency: mean `6.989s`, p95 `11.010s`; outcome tokens: `48,358`;
+  total provider calls: `68`.
+- Per-case judge aggregate: mean `0.944`, minimum `0.0`; failure code только
+  `meeting-outcome-completeness`.
+- Запросы не содержали `max_completion_tokens` и не меняли Langfuse labels,
+  datasets, queues или production state.
+
+## Targeted repeatability check
+
+Тот же suitable-кейс `one-to-one` повторён пять раз с теми же snapshot versions
+и тем же маршрутом. Все `5/5` completeness judge calls вернули `score=1.0,
+verdict=pass`; min/mean `1.0`, latency range `9.504–15.383s`. Это опровергает
+устойчивый format-specific failure, но не заменяет human calibration и не
+доказывает production release readiness: T031 остаётся открытой до
+human-labelled usefulness/pairwise gate и version-bound private Temporal run.
+
+## Current real-record read-only UI check
+
+2026-08-25 в установленном GRAF без изменения данных проверены две реальные
+сохранённые встречи с готовой расшифровкой и итогами. В обеих проверены вкладки
+`Итоги`/`Расшифровка`, сохранённый источник, current format marker, source-jump
+и возврат к итогам. В production runtime picker содержит только `Авто`.
+Нажатие `Обновить итоги` не отправило transcript в provider: production
+generation выключена, текущий результат остался на месте, UI показал
+«Новый вариант сейчас недоступен. Текущие итоги сохранены».
+
+Это подтверждает сохранность existing results и fail-closed recovery UX, но не
+является успешным real-record Temporal → LiteLLM → Langfuse → publication run.
+Такой egress остаётся blocked до отдельного согласования включения generation,
+candidate-root promotion и runtime deploy.

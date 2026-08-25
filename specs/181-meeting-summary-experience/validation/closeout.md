@@ -328,3 +328,29 @@ Risk lane: high-risk Spec Kit — AI, private meeting data, accepted-result inte
   привязан к этому SHA, а LiteLLM route-binding echo/validation не подтверждён.
   Поэтому T031, prompt/root promotion, production deploy и private real-record
   Temporal → LiteLLM → Langfuse generation остаются BLOCKED.
+
+## Latest continuation validation
+
+Дата: 2026-08-25, текущая ветка `181-meeting-summary-experience`.
+
+- Feature quickstart: `104 passed`, 2 ожидаемых warnings; isolated PostgreSQL
+  container removed.
+- `infra/scripts/ci-local.sh --fast`: `1274 passed`, server lint PASS, Python
+  compile PASS. Swift/macOS intentionally skipped by the fast lane.
+- Exact Langfuse candidate rerun: `18/18` schema/source-ref valid, `50`
+  applicable judge calls returned, one non-repeatable completeness hard-fail;
+  targeted repeat of that case `5/5` pass. Outcome latency mean `6.989s`, p95
+  `11.010s`, `48,358` outcome tokens. No cap `4048`/`4096` or judge output cap
+  was sent; no Langfuse project state changed.
+- Installed GRAF read-only smoke on two real saved meetings: saved results,
+  `Итоги`/`Расшифровка`, current marker, format control, source jump and return
+  were present. Refresh kept the current result and showed the unavailable-new-
+  variant copy because production generation is disabled.
+- Langfuse v4.17.0 project UI: GRAF remains `Action needed`, SDK `Latest`,
+  affected evals `0`, experiments `Up to date`, affected APIs `2`, exports `0`;
+  Rules, Datasets and Experiments contain no configured records. Production
+  labels remain legacy v5/capped; exact candidate v23 is available read-only.
+
+T031 remains open: human-labelled usefulness/pairwise evidence and a
+version-bound private Temporal real-record run are still absent. Prompt/root
+promotion, enabling generation, release, deploy and push remain separate gates.
