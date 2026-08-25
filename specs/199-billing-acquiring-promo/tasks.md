@@ -69,6 +69,14 @@ Focused Feature 199 plus receipt lifecycle suite: `70 passed`; fast CI:
 `1241 passed`, lint/compile PASS. T023 remains open until this follow-up is
 merged, deployed and the same payment is reconciled.
 
+Post-deploy UI diagnosis (2026-08-26): database reconciliation correctly moved
+the existing invoice receipt to `succeeded`, but history/detail routes parsed
+the provider registration value as the presentation enum and rendered it as
+unknown. Both routes now reuse `receipt_state_for_registration`; focused UI and
+receipt lifecycle tests: `26 passed`; full focused Feature 199 and receipt suite:
+`71 passed`; fast CI: `1241 passed`, lint/compile PASS. T023 remains open until
+this final UI fix is merged, deployed and visible in the browser.
+
 ## Dependencies
 
 - T003 precedes T004-T005 for the preview path.

@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from starlette.requests import Request
 
 from twobrain_rec_server.billing.catalog import plan_descriptor
+from twobrain_rec_server.billing.receipts import ReceiptState
 from twobrain_rec_server.billing.usage import format_duration
 from twobrain_rec_server.cabinet.templates import render_template
 from twobrain_rec_server.cabinet.view_models import settings_category_navigation
@@ -11,6 +12,7 @@ from twobrain_rec_server.cabinet.web_routes.billing import (
     _billing_amount_label,
     _checkout_result_redirect,
     _processing_threshold_label,
+    _receipt_registration_state,
 )
 from twobrain_rec_server.cabinet.web_routes.billing import (
     router as billing_router,
@@ -23,6 +25,12 @@ def test_billing_labels_are_localized_for_user_surfaces() -> None:
     assert _processing_threshold_label("normal") == "В норме"
     assert _processing_threshold_label("approaching") == "Приближается к лимиту"
     assert _processing_threshold_label("exhausted") == "Лимит исчерпан"
+
+
+def test_billing_receipt_registration_uses_provider_status_mapping() -> None:
+    assert _receipt_registration_state("succeeded") is ReceiptState.AVAILABLE
+    assert _receipt_registration_state("pending") is ReceiptState.PENDING
+    assert _receipt_registration_state("invalid") is ReceiptState.UNKNOWN
 
 
 def test_billing_keeps_legacy_account_alias_on_canonical_surface() -> None:
