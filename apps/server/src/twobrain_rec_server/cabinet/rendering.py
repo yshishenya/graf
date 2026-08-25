@@ -2049,7 +2049,7 @@ def _render_playback(
         speed_options = ",".join(f"{speed:g}" for speed in review.playback.speed_options)
         speaker_palette = _speaker_palette(review)
         return f"""
-          <section class="playback-bar detail-playback" data-playback-shell data-playback-state="available" data-playback-reason="{escape(review.playback.reason_code)}" data-source-mode="{escape(review.playback.source_mode)}" aria-describedby="playback-live-status">
+          <section class="playback-bar detail-playback" data-playback-shell data-playback-state="available" data-playback-reason="{escape(review.playback.reason_code)}" data-source-mode="{escape(review.playback.source_mode)}" aria-label="Воспроизведение записи" aria-describedby="playback-live-status">
             <audio class="playback-audio" data-playback-player preload="metadata" src="{escape(playback_path)}"></audio>
             <div class="playback-toolbar">
               {_render_speaker_manager(review, embedded=embedded, csrf_token=csrf_token, speaker_palette=speaker_palette)}
@@ -2081,7 +2081,7 @@ def _render_playback(
     if review.playback.state != "unavailable":
         state_classes += f" is-{escape(review.playback.state)}"
     return f"""
-      <section class="playback-bar detail-playback {state_classes}" data-playback-state="{escape(review.playback.state)}" data-playback-reason="{escape(review.playback.reason_code)}" data-source-mode="{escape(review.playback.source_mode)}" aria-describedby="playback-live-status"{focus_attribute}>
+      <section class="playback-bar detail-playback {state_classes}" data-playback-state="{escape(review.playback.state)}" data-playback-reason="{escape(review.playback.reason_code)}" data-source-mode="{escape(review.playback.source_mode)}" aria-label="Воспроизведение записи" aria-describedby="playback-live-status"{focus_attribute}>
         <span>{escape(review.playback.label)}</span>
         <span>{cabinet_view_models.format_duration(review.playback.duration_seconds)}</span>
       </section>

@@ -1269,12 +1269,12 @@ def test_web_shell_keeps_sidebar_pinned_without_scrollbar() -> None:
 
     assert (
         ".app-shell {\n"
-        "  --playback-inline-start: var(--app-sidebar-width);\n"
         "  height: 100vh;\n"
         "  min-height: 0;\n"
         "  overflow: hidden;\n"
         "  display: grid;\n"
         "  grid-template-columns: var(--app-sidebar-width) minmax(0, 1fr);\n"
+        "  grid-template-rows: minmax(0, 1fr) auto;\n"
         "}"
     ) in css
     assert (
@@ -1282,18 +1282,28 @@ def test_web_shell_keeps_sidebar_pinned_without_scrollbar() -> None:
         "  grid-template-columns: var(--app-sidebar-width) minmax(0, 1fr);\n"
         "}"
     ) in css
-    assert ".sidebar {\n  position: sticky;" in css
+    assert ".sidebar {\n  grid-row: 1 / -1;\n  position: sticky;" in css
     assert "  height: 100vh;\n  overflow-x: hidden;\n  overflow-y: auto;" in css
     assert (
-        ".main,\n.cabinet-main {\n  height: 100vh;\n  min-height: 0;\n  overflow-y: auto;\n}"
+        ".main,\n.cabinet-main {\n  grid-column: 2;\n  grid-row: 1;\n  height: 100%;\n  min-height: 0;\n  overflow-y: auto;\n}"
     ) in css
     assert "max-height: calc(100vh - 48px);" in css
     assert '.app-shell[data-mobile-scroll="page"] {' in css
     assert (
-        ".desktop-embedded .main {\n  --meeting-detail-main-padding-top: 22px;\n  padding: var(--meeting-detail-main-padding-top)"
+        ".desktop-embedded .main {\n  --meeting-detail-main-padding-top: 22px;\n\n  padding: var(--meeting-detail-main-padding-top)"
         in css
     )
     assert ".desktop-embedded .cabinet-main {\n  padding: 24px" in css
+    assert (
+        'html:not([data-cabinet-js="ready"]) .app-shell:not(.desktop-embedded) {\n'
+        "    grid-template-rows: auto minmax(0, 1fr) auto;"
+    ) in css
+    assert (
+        'html:not([data-cabinet-js="ready"]) '
+        ".app-shell:not(.desktop-embedded) > noscript {\n"
+        "    grid-column: 1;\n"
+        "    grid-row: 1;"
+    ) in css
 
 
 def test_embedded_window_breakpoints_keep_sidebar_stable_until_tight_width() -> None:
@@ -1304,14 +1314,12 @@ def test_embedded_window_breakpoints_keep_sidebar_stable_until_tight_width() -> 
     assert (
         "@media (max-width: 980px) {\n"
         "  .app-shell { grid-template-columns: 1fr; }\n"
-        "  .app-shell:not(.desktop-embedded) { --playback-inline-start: 0px; }\n"
         "  .app-shell.desktop-embedded { grid-template-columns: var(--app-sidebar-width) minmax(0, 1fr); }"
     ) in css
     assert "  .desktop-embedded .sidebar { display: flex; }" in css
     assert "  .desktop-embedded .cabinet-rail-toggle { display: none; }" in css
     assert (
         'html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned) {\n'
-        "  --playback-inline-start: var(--app-rail-width);\n"
         "  grid-template-columns: var(--app-rail-width) minmax(0, 1fr);\n"
         "}"
     ) in css
@@ -1320,10 +1328,15 @@ def test_embedded_window_breakpoints_keep_sidebar_stable_until_tight_width() -> 
     assert "    width: var(--app-rail-width);" in css
     assert "  .desktop-embedded .sidebar:hover," not in css
     assert ".desktop-embedded.is-rail-pinned .sidebar {" in css
-    assert "--playback-inline-start: var(--app-rail-width);" in css
-    assert "--playback-inline-start: var(--app-sidebar-width);" in css
-    assert "left: var(--playback-inline-start);" in css
-    assert ".desktop-embedded .cabinet-main { padding: 18px 14px 172px; }" in css
+    assert "--playback-inline-start" not in css
+    assert (
+        'html:not([data-cabinet-js="ready"]) '
+        ".app-shell:not(.desktop-embedded) > .playback-bar {\n    grid-column: 1;"
+    ) in css
+    assert ".cabinet-main { padding: 18px 14px; }" in css
+    assert ".desktop-embedded .main { padding: var(--meeting-detail-main-padding-top) 14px 18px; }" in css
+    assert ".desktop-embedded .cabinet-main { padding: 18px 14px; }" in css
+    assert "172px" not in css
 
 
 def test_embedded_shell_exposes_compact_rail_toggle_and_lucide_nav_icons() -> None:
@@ -1985,6 +1998,7 @@ def test_detail_shell_renders_playback_player_and_seekable_timestamps() -> None:
     page = render_meeting_detail_page(review)
 
     assert 'class="playback-bar detail-playback"' in page
+    assert 'aria-label="Воспроизведение записи"' in page
     assert "data-playback-transcript" in page
     assert 'data-playback-live-status role="status" aria-live="polite"' in page
     assert "data-playback-shell" in page
@@ -2022,6 +2036,11 @@ def test_detail_shell_renders_playback_player_and_seekable_timestamps() -> None:
     assert "recoverMeetingDetailFromResponse(response)" in script
     assert 'new URL(response.url, window.location.href).pathname === "/login"' in script
     assert "detail.replaceWith(recovery)" in script
+    assert 'querySelector(".playback-bar")' in script
+    assert "player?.pause?.()" in script
+    assert 'player?.removeAttribute?.("src")' in script
+    assert "player?.load?.()" in script
+    assert "playback?.remove()" in script
     assert 'document.querySelector("[data-meeting-detail-recovery-template]")' in script
     assert "cloneNode(true)" in script
     assert 'document.createElement("h1")' not in script
@@ -2234,6 +2253,7 @@ def test_detail_shell_renders_speaker_timeline_segments() -> None:
     assert 'data-speaker-timeline-default-height="120"' in page
     assert 'aria-valuemin="120" aria-valuemax="120" aria-valuenow="120"' in page
     assert page.count("data-speaker-timeline-hint") == 1
+    assert page.index("</main>") < page.index("data-playback-shell")
     assert "Нажмите на цветной фрагмент, чтобы перейти к этому месту записи." in page
     assert 'data-speaker-lane="speaker_00"' in page
     assert 'data-speaker-lane="speaker_01"' in page
@@ -2256,7 +2276,7 @@ def test_detail_shell_renders_speaker_timeline_segments() -> None:
     )
     assert ".playback-range-thumb" in css
     assert "width: 16px" in css
-    assert "--playback-clearance: 192px" in css
+    assert "--playback-clearance" not in css
     assert ".timeline-lane.is-active" in css
     assert ".segment.is-current" in css
     assert ".speaker {" in css and "color: var(--muted)" in css
@@ -2274,8 +2294,8 @@ def test_detail_shell_renders_speaker_timeline_segments() -> None:
     assert "width:50.00%" in page
     script = _cabinet_js()
     assert "const seekTo = (seconds, { follow = true, autoplay = false } = {}) =>" in script
-    assert 'detailMain.style.setProperty("--playback-clearance"' in script
-    assert "new ResizeObserver(syncPlaybackClearance).observe(shell)" in script
+    assert 'detailMain.style.setProperty("--playback-clearance"' not in script
+    assert "new ResizeObserver(syncPlaybackClearance).observe(shell)" not in script
     assert "const followTranscript = (seconds) =>" in script
     assert 'track.addEventListener("click"' in script
     assert 'lane.classList.toggle("is-active"' in script
@@ -2597,6 +2617,7 @@ def test_detail_shell_renders_all_non_playable_states_without_repair_controls() 
 
         assert f'data-playback-state="{state}"' in page
         assert f'data-playback-reason="{reason_code}"' in page
+        assert 'aria-label="Воспроизведение записи"' in page
         assert label in page
         assert "<audio" not in page
         forbidden_controls = (
@@ -3134,11 +3155,7 @@ def test_detail_shell_exposes_active_review_player_timeline_and_mobile_safe_cont
     css = _cabinet_css()
     assert "@media (max-width: 980px)" in css
     assert "@media (max-width: 540px)" in css
-    assert (
-        ".detail-page-main {\n"
-        "    --playback-clearance: 172px;\n"
-        "    padding-bottom: var(--playback-clearance);"
-    ) in css
+    assert "--playback-clearance" not in css
     assert ".detail-playback { --timeline-label-width: 68px; --timeline-value-width: 34px; }" in css
     assert ".speaker-timeline { gap: 4px; }" in css
 
