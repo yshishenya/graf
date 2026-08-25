@@ -2,6 +2,7 @@ import asyncio
 from pathlib import Path
 from uuid import UUID
 
+import pytest
 import yaml
 from sqlalchemy import select
 
@@ -9,7 +10,12 @@ import twobrain_rec_server.api.processing as processing_api
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fakes.fake_temporal import FakeTemporalClient
 from tests.fixtures.processing import create_finalized_meeting, enable_processing_autostart
-from twobrain_rec_server.db.models import MediaScribeJob, ProcessingAuditEvent, ProcessingResult
+from twobrain_rec_server.db.models import (
+    MediaScribeJob,
+    ProcessingAuditEvent,
+    ProcessingResult,
+    ProcessingWorkflow,
+)
 from twobrain_rec_server.domain.statuses import (
     MediaScribeJobStatus,
     ProcessingAvailabilityStatus,
@@ -289,6 +295,65 @@ def test_no_speech_new_attempt_lazily_connects_temporal_and_projects_as_active(c
     assert payload["attempt_ordinal"] == 2
     assert payload["state"] == ProcessingStatus.STARTING.value
     assert payload["attempt_in_flight"] is True
+
+
+def test_manual_check_releases_claim_when_temporal_connect_is_cancelled(client, monkeypatch) -> None:
+    finalized = create_finalized_meeting(client, "processing-status-cancelled-check")
+    meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
+    workspace_id = UUID(finalized["meeting"]["workspace_id"])
+
+    async def seed_polling_job() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            workflow = await store.upsert_processing_workflow(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+                workflow_id=f"processing/{media_revision_id}",
+                status=ProcessingStatus.WAITING_RETRY,
+            )
+            db.add(
+                MediaScribeJob(
+                    workspace_id=workspace_id,
+                    meeting_id=meeting_id,
+                    media_revision_id=media_revision_id,
+                    processing_workflow_id=workflow.id,
+                    external_job_id="job_cancelled_check",
+                    status=MediaScribeJobStatus.SUBMITTED.value,
+                )
+            )
+            await db.commit()
+
+    asyncio.run(seed_polling_job())
+
+    async def cancelled_temporal(_request):
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(processing_api, "_get_temporal_client", cancelled_temporal)
+    with pytest.raises(RuntimeError, match="No response returned"):
+        client.post(
+            f"/api/v1/meetings/{meeting_id}/processing/check",
+            headers=auth_headers(),
+            json={},
+        )
+
+    async def load_workflow() -> tuple[str, object | None, object | None]:
+        async with client.app_state["sessionmaker"]() as db:
+            workflow = await db.scalar(
+                select(ProcessingWorkflow).where(
+                    ProcessingWorkflow.meeting_id == meeting_id,
+                    ProcessingWorkflow.workspace_id == workspace_id,
+                )
+            )
+            assert workflow is not None
+            return workflow.status, workflow.manual_claimed_at, workflow.manual_claimed_by
+
+    assert asyncio.run(load_workflow()) == (
+        ProcessingStatus.WAITING_RETRY.value,
+        None,
+        None,
+    )
 
 
 def test_finalize_autostart_audit_metadata_is_content_safe(client) -> None:

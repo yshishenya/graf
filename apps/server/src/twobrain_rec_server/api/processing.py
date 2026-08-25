@@ -352,7 +352,18 @@ async def check_processing(
             same_job_check=claim.same_job_check,
         )
 
-    temporal_client = await _get_temporal_client(request)
+    try:
+        temporal_client = await _get_temporal_client(request)
+    except asyncio.CancelledError:
+        await asyncio.shield(
+            store.release_processing_manual_check_claim(
+                db,
+                workflow_id=claim.workflow.id,
+                manual_command_version=int(claim.workflow.manual_command_version or 0),
+                settings=getattr(request.app.state, "settings", None),
+            )
+        )
+        raise
     if temporal_client is None:
         await store.release_processing_manual_check_claim(
             db,
