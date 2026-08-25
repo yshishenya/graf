@@ -4714,6 +4714,14 @@ def test_production_smoke_setup_migration_downgrade_removes_operation(
         finally:
             await engine.dispose()
 
+    async def clear_summary_slot_fixture_rows() -> None:
+        engine = create_async_engine(migrated_postgres_urls.migration_url)
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text("delete from meeting_summary_slots"))
+        finally:
+            await engine.dispose()
+
     monkeypatch.setenv("TWOBRAIN_DATABASE_URL", migrated_postgres_urls.migration_url)
     get_settings.cache_clear()
     config = Config(str(REPO_ROOT / "apps/server/alembic.ini"))
@@ -4724,6 +4732,7 @@ def test_production_smoke_setup_migration_downgrade_removes_operation(
 
     assert asyncio.run(setup_allowed()) is True
     asyncio.run(remove_linked_workspace_downgrade_guard())
+    asyncio.run(clear_summary_slot_fixture_rows())
     try:
         command.downgrade(config, "0022_playback_normalization")
         assert asyncio.run(setup_allowed()) is False

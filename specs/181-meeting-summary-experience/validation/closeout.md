@@ -113,3 +113,11 @@ Risk lane: high-risk Spec Kit — AI, private meeting data, accepted-result inte
 - Предыдущий full CI больше не считается актуальным для release gate, потому
   что после него изменился commit. Full CI должен быть повторён на новом
   точном SHA.
+- В повторном full CI на `641a2f19` основной parallel phase прошёл (`3529
+  passed`, `1` skipped), но strict phase обнаружил загрязнение общей
+  disposable RLS-БД: migration contract test оставлял synthetic summary slots,
+  и последующий smoke-downgrade тест закономерно блокировался защитой `0076`.
+  Изолированный прогон двух RLS-файлов после очистки fixture rows: `44 passed`,
+  `2` ожидаемых предупреждения. Добавлена локальная очистка только этих
+  synthetic slots перед проверкой unrelated downgrade operation; full CI нужно
+  повторить на следующем SHA.
