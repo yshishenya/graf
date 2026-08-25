@@ -15,6 +15,11 @@ idempotency и user-facing recovery.
 4. Запустить focused checks, fast lane, полный exact-SHA CI и затем, после
    отдельного approval, deployment/smoke по release guidance.
 
+Production defect follow-up: новые попытки и manual same-job check должны
+получать Temporal client через общий ленивый, кешируемый API helper. Наличие
+client в `app.state` не является обязательным условием для первого recovery
+запроса после старта или перезапуска API.
+
 ## Invariants
 
 - Не менять MediaScribe client, Temporal workflow contract или provider retry

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request, Response
@@ -28,6 +29,7 @@ from twobrain_rec_server.processing.pickup import pick_up_processing
 from twobrain_rec_server.processing.status import get_content_safe_processing_status
 from twobrain_rec_server.workflows.temporal_client import (
     cancel_workflow_best_effort,
+    connect_temporal_client,
     request_processing_manual_check,
     start_processing_workflow,
 )
@@ -39,6 +41,29 @@ PrincipalDependency = Depends(get_principal)
 DeviceDependency = Depends(get_device_context)
 DbDependency = Depends(get_request_db_session)
 WebCSRFDependency = Depends(require_web_csrf)
+
+
+async def _get_temporal_client(request: Request) -> object | None:
+    """Reuse a process client while allowing recovery after a late startup."""
+
+    temporal_client = getattr(request.app.state, "temporal_client", None)
+    if temporal_client is not None:
+        return temporal_client
+
+    lock = getattr(request.app.state, "temporal_client_connect_lock", None)
+    if lock is None:
+        lock = asyncio.Lock()
+        request.app.state.temporal_client_connect_lock = lock
+    async with lock:
+        temporal_client = getattr(request.app.state, "temporal_client", None)
+        if temporal_client is not None:
+            return temporal_client
+        try:
+            temporal_client = await connect_temporal_client(request.app.state.settings)
+        except Exception:
+            return None
+        request.app.state.temporal_client = temporal_client
+        return temporal_client
 
 
 @router.post(
@@ -201,7 +226,7 @@ async def start_new_processing_attempt(
         )
         raise ProblemDetail(status=status, code=code, title=detail, detail=detail)
 
-    temporal_client = getattr(request.app.state, "temporal_client", None)
+    temporal_client = await _get_temporal_client(request)
     if temporal_client is None:
         await db.commit()
         await store.fail_processing_attempt_dispatch(
@@ -327,7 +352,7 @@ async def check_processing(
             same_job_check=claim.same_job_check,
         )
 
-    temporal_client = getattr(request.app.state, "temporal_client", None)
+    temporal_client = await _get_temporal_client(request)
     if temporal_client is None:
         await store.release_processing_manual_check_claim(
             db,

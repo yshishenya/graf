@@ -5,6 +5,7 @@ from uuid import UUID
 import yaml
 from sqlalchemy import select
 
+import twobrain_rec_server.api.processing as processing_api
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fakes.fake_temporal import FakeTemporalClient
 from tests.fixtures.processing import create_finalized_meeting, enable_processing_autostart
@@ -212,8 +213,13 @@ def test_processing_status_projects_imported_no_speech_as_terminal_even_with_sta
     assert payload["manual_action"] == "new_attempt"
 
 
-def test_no_speech_new_attempt_projects_as_active_and_hides_old_terminal_result(client) -> None:
-    client.app.state.temporal_client = FakeTemporalClient()
+def test_no_speech_new_attempt_lazily_connects_temporal_and_projects_as_active(client, monkeypatch) -> None:
+    temporal = FakeTemporalClient()
+
+    async def connect_temporal(_settings):
+        return temporal
+
+    monkeypatch.setattr(processing_api, "connect_temporal_client", connect_temporal)
     finalized = create_finalized_meeting(client, "processing-status-no-speech-retry")
     meeting_id = UUID(finalized["meeting"]["meeting_id"])
     media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
@@ -271,6 +277,8 @@ def test_no_speech_new_attempt_projects_as_active_and_hides_old_terminal_result(
     assert body["attempt_in_flight"] is True
     assert body["state"] == ProcessingStatus.STARTING.value
     assert body["manual_action"] == "none"
+    assert client.app.state.temporal_client is temporal
+    assert len(temporal.starts) == 1
 
     status = client.get(
         f"/api/v1/meetings/{meeting_id}/processing",
