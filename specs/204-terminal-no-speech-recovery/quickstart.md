@@ -29,6 +29,27 @@ infra/scripts/ci-local.sh --full
 status codes, timestamps и health/smoke results. Не сохранять контент,
 provider JSON, audio, title или credentials.
 
+### Выполненная production-проверка
+
+- Release `v2026.08.25.12` опубликован и выкачен в production; после следующего
+  release train финальный runtime оказался на свежем `master` SHA
+  `320a273e41e78c9d5a3c1ac1c3b760c23b1c63a2`, который содержит этот фикс.
+- На финальном runtime `/api/v1/health/live` и `/api/v1/health/ready` вернули
+  `200`; Temporal cluster health, processing worker readiness и MediaScribe
+  `/health` прошли. Все production-сервисы Compose были healthy.
+- Для записи с UUID-суффиксом `e9ae` попытка `4` завершилась со статусом
+  `processed`; provider job — `ready`, provider attempt `1/3`, job count `1`,
+  result count `1`, result status `imported`. Старые попытки не изменились.
+- У этой записи причина результата — `no_recognizable_speech`; поэтому
+  `transcript_status=unavailable`, `diarization_status=unavailable`,
+  `summary_status=not_requested`, а сегменты не публикуются. Это ожидаемый
+  no-speech результат, а не зависший recovery.
+- В production также есть импортированные результаты с доступными transcript и
+  diarization: агрегатная проверка показала 37 результатов в состоянии
+  `transcript_status=available` и `diarization_status=available`. Для текущего
+  production-контура summary не запрашивается (`TWOBRAIN_MEDIASCRIBE_SUMMARIZE`
+  выключен), поэтому summary-flow этим smoke не подтверждается.
+
 ## Выполненное локальное evidence
 
 - Feature 204 focused PostgreSQL matrix: `19 passed`.
@@ -52,6 +73,5 @@ provider JSON, audio, title или credentials.
 
 ## Production evidence
 
-Не выполнено: нужен exact-SHA release candidate, deployment approval и
-metadata-only smoke на существующей no-speech записи. До этого Feature 204 не
-считается закрытой.
+Feature 204 закрыта после exact-SHA release gate, production deployment и
+metadata-only smoke на существующей no-speech записи.
