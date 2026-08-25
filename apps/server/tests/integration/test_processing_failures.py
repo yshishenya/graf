@@ -132,6 +132,35 @@ def test_v5_timeout_retries_same_job_intent(client) -> None:
     assert mediascribe_client.idempotency_keys[0] == mediascribe_client.idempotency_keys[1]
 
 
+def test_waiting_retry_reuses_existing_job_and_reaches_poll_boundary(client) -> None:
+    finalized = create_finalized_meeting(client, "failure-waiting-retry-existing-job")
+    meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
+    workspace_id = UUID(finalized["meeting"]["workspace_id"])
+
+    async def run() -> tuple[str, str, bool]:
+        async with client.app_state["sessionmaker"]() as db:
+            workflow, job = await _submitted_job(db, workspace_id, meeting_id, media_revision_id)
+            workflow.status = ProcessingStatus.WAITING_RETRY.value
+            workflow.retry_class = "retryable"
+            await db.commit()
+
+            recovered = await submit_to_mediascribe(
+                db=db,
+                settings=client.app.state.settings,
+                storage=client.app_state["storage"],
+                mediascribe_client=object(),
+                workflow=workflow,
+            )
+            return workflow.status, recovered.job.status, recovered.submitted
+
+    assert asyncio.run(run()) == (
+        ProcessingStatus.SUBMITTED.value,
+        MediaScribeJobStatus.UPLOADED.value,
+        False,
+    )
+
+
 def test_unknown_outcome_manual_claim_release_keeps_same_job_recovery_available(client) -> None:
     finalized = create_finalized_meeting(client, "failure-unknown-manual-dispatch")
     meeting_id = UUID(finalized["meeting"]["meeting_id"])

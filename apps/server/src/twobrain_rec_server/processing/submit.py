@@ -207,7 +207,12 @@ async def submit_to_mediascribe(
             ProcessingStatus.WORKFLOW_STARTED,
             ProcessingStatus.SUBMITTING,
             ProcessingStatus.FAILED_RETRYABLE,
+            ProcessingStatus.WAITING_RETRY,
         }:
+            # A durable timer resumes the same idempotent provider job. Move
+            # the workflow back through the submitted boundary so the
+            # single-step activity polls it instead of scheduling another
+            # timer forever.
             await store.set_workflow_status(
                 db,
                 workflow,

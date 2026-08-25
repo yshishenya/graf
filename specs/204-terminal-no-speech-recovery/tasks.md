@@ -25,3 +25,6 @@
 - [X] T008 [US3] Разрешить переход свежей Temporal-попытки `starting → submitting`
   и добавить regression на реальный submit-путь, чтобы activity не завершалась
   ошибочно при ещё не сохранённой промежуточной проекции.
+- [X] T009 [US3] После durable `WAITING_RETRY` возвращать существующий
+  idempotent provider job через `submitted` и не зацикливать single-step poll;
+  добавить integration regression на recovery готового job.

@@ -36,6 +36,9 @@ provider JSON, audio, title или credentials.
 - Production-found lazy Temporal recovery regression: focused matrix `26
   passed`, including no-speech new-attempt API dispatch without a preloaded
   `app.state.temporal_client`.
+- Production-found durable-wait regression: focused PostgreSQL recovery matrix
+  `3 passed`, включая повторное использование существующего provider job после
+  `WAITING_RETRY` без нового submit.
 - `git diff --check` и touched-file Ruff: pass.
 - `infra/scripts/ci-local.sh --fast`: `1229 passed`, lint/compile/macOS guard pass.
 - `infra/scripts/ci-local.sh --full`: macOS `766 passed`, server `3415 passed,
