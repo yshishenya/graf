@@ -31,6 +31,7 @@ Risk lane: high-risk Spec Kit — AI, private meeting data, accepted-result inte
 - Exact Langfuse read-only compatibility check: candidate snapshots v23/v24/v25 доступны, но deployed API runtime до provider request требует удалённый из current config `max_completion_tokens`; это зафиксировано как release/deploy drift, prompt bypass не выполнялся.
 - 2026-08-25 exact snapshot held-out rerun: `18/18` schema/source-ref valid, `50` applicable judge calls, `46` pass и `4` hard-fail, `judge_min=0`, `judge_mean=0.91`, outcome latency mean `6.916s`, p95 `13.719s`, `51,718` outcome tokens. Повторяемость hard-fail=0 не доказана.
 - После следующего исправления eval accounting: prompt/optimizer unit suite `49 passed`, Feature 181 focused PostgreSQL suite `140 passed`, fast CI `1234 passed`; server lint и Python compile pass. Добавлен metadata-only usefulness/pairwise receipt validator, но его внешний human/private input ещё не запускался.
+- 2026-08-25: ветка обновлена до свежего `origin/master` и опубликован merge commit `62542154`; после merge focused summary suite — `104 passed`, а `infra/scripts/ci-local.sh --fast` — `1274 passed`, lint и Python compile pass.
 
 ## Незакрытые gates
 
@@ -50,10 +51,15 @@ Risk lane: high-risk Spec Kit — AI, private meeting data, accepted-result inte
   content-safe projection теперь сообщает `available`/`partial` только для
   active current default-slot outcome с той же media/processing revision,
   допустимым lifecycle/revision state и совместимым source hash.
-- Авторизованная реальная запись проверена read-only: сохранённые разделы,
-  format controls, current marker и source-jump controls отображаются. Новая
-  provider generation в этом smoke не запускалась, чтобы не отправлять приватную
-  расшифровку повторно.
+- Авторизованный установленный GRAF проверен на доступных реальных записях:
+  сохранённые разделы, format controls, current marker и source-jump controls
+  отображаются; на готовой записи штатные `Обновить итоги` и `Попробовать ещё
+  раз` оставили текущие итоги без изменений и показали честное состояние
+  `Новый вариант сейчас недоступен`. Это подтверждает fail-closed production
+  gate, но не является успешным provider generation.
+- В том же production smoke format picker содержал только `Авто`, что указывает
+  на старый runtime до текущего branch deploy; локальный актуальный catalog
+  покрыт контрактными тестами всех девяти форматов.
 - T031 остаётся открытой: version-bound Temporal/private real-meeting run,
   held-out human usefulness/pairwise evaluation и prompt promotion не выполнены.
 
