@@ -26,6 +26,14 @@ OOB protocol. Источники: https://htmx.org/docs/#polling,
 https://htmx.org/attributes/hx-swap/ и
 https://htmx.org/examples/update-other-content/.
 
+## Decision: Progress swap сохраняет processing projection
+
+Upload progress и playback preparing по-прежнему требуют серверного списка для
+порядка, фильтров и исчезновения строк. В смешанном списке последний bounded
+non-terminal projection snapshot восстанавливается на совпавшей processing-
+строке сразу после swap; authoritative запросы и исчезновение processing-строки
+очищают snapshot. Throttle остаётся 15-секундным.
+
 ## Decision: Один refresh на terminal transition
 
 `processed`, `blocked`, `failed_terminal` и `canceled` означают смену
