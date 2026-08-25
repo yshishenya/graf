@@ -183,28 +183,6 @@ async def grant_confirmed_payment(
         )
         .with_for_update()
     )
-    if existing_grant is not None:
-        if not defer_referral_reward:
-            snapshot = operation.request_snapshot
-            cycle = snapshot.get("cycle") if isinstance(snapshot, dict) else None
-            try:
-                payer_user_id = (
-                    UUID(str(snapshot["billing_actor_user_id"]))
-                    if isinstance(snapshot, dict)
-                    else None
-                )
-            except (KeyError, TypeError, ValueError):
-                payer_user_id = None
-            if payer_user_id is not None and cycle in {"month", "year"}:
-                await create_pending_credit(
-                    db,
-                    workspace_id=workspace_id,
-                    invitee_user_id=payer_user_id,
-                    provider_payment_id=provider_payment_id,
-                    paid_at=existing_grant.starts_at,
-                    cycle=cycle,
-                )
-        return "duplicate"
     receipt_became_available = False
     if receipt_registration is not None:
         try:
@@ -213,9 +191,44 @@ async def grant_confirmed_payment(
                 status=receipt_registration,
             )
         except ValueError:
-            operation.state = "reconciliation_gap"
-            return "receipt_mismatch"
-        invoice.plan_snapshot = updated_snapshot
+            if existing_grant is None:
+                operation.state = "reconciliation_gap"
+                return "receipt_mismatch"
+        else:
+            invoice.plan_snapshot = updated_snapshot
+    if existing_grant is not None:
+        snapshot = operation.request_snapshot
+        cycle = snapshot.get("cycle") if isinstance(snapshot, dict) else None
+        try:
+            payer_user_id = (
+                UUID(str(snapshot["billing_actor_user_id"])) if isinstance(snapshot, dict) else None
+            )
+        except (KeyError, TypeError, ValueError):
+            payer_user_id = None
+        if payer_user_id is not None:
+            if not defer_referral_reward and cycle in {"month", "year"}:
+                await create_pending_credit(
+                    db,
+                    workspace_id=workspace_id,
+                    invitee_user_id=payer_user_id,
+                    provider_payment_id=provider_payment_id,
+                    paid_at=existing_grant.starts_at,
+                    cycle=cycle,
+                )
+            if receipt_became_available:
+                await enqueue_billing_notification(
+                    db,
+                    workspace_id=workspace_id,
+                    recipient_id=payer_user_id,
+                    event_id=f"receipt:{invoice.id}:available",
+                    kind=BillingNotification.RECEIPT_AVAILABLE,
+                    payload={
+                        "invoice": invoice.safe_number,
+                        "action_path": f"/billing/invoices/{invoice.safe_number}",
+                    },
+                    marketing_allowed=False,
+                )
+        return "duplicate"
     snapshot = operation.request_snapshot
     plan_code = snapshot.get("plan_code")
     cycle = snapshot.get("cycle")

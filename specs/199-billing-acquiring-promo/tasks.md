@@ -59,6 +59,16 @@ valid short keys and deterministically hashes longer keys; focused billing
 `60 passed`, fast CI `1241 passed`. T023 remains open until the fix is merged,
 deployed and one test-shop payment reaches confirmed entitlement state.
 
+Test-shop payment evidence (2026-08-26): invoice
+`INV-41CF58F0C2114670948F` reached provider payment/receipt `succeeded`, local
+invoice/operation/entitlement/subscription `succeeded`, recurring enabled and
+promo redeemed. A remaining duplicate-reconciliation defect left only the local
+receipt projection at `pending`; the shared entitlement path now merges the
+later receipt state monotonically and preserves one receipt notification.
+Focused Feature 199 plus receipt lifecycle suite: `70 passed`; fast CI:
+`1241 passed`, lint/compile PASS. T023 remains open until this follow-up is
+merged, deployed and the same payment is reconciled.
+
 ## Dependencies
 
 - T003 precedes T004-T005 for the preview path.
