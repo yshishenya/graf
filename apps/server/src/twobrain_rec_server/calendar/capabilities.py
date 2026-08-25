@@ -132,10 +132,9 @@ PROVIDER_PRESETS = (
     ),
 )
 
-# A provider becomes visible as connectable only after its exact real
-# browser/macOS matrix is recorded. Adapters remain available to dedicated
-# synthetic and certification tests while this set is empty.
-REAL_E2E_CERTIFIED_PROVIDER_FAMILIES: frozenset[str] = frozenset()
+# Y201 rollout approval: enable only the certified provider family. Other
+# providers remain fail-closed until their own certification is complete.
+REAL_E2E_CERTIFIED_PROVIDER_FAMILIES: frozenset[str] = frozenset({"caldav_yandex"})
 
 
 def provider_preset(provider_family: str) -> CalendarProviderPreset | None:
