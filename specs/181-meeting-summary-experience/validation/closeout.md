@@ -202,3 +202,54 @@ Risk lane: high-risk Spec Kit — AI, private meeting data, accepted-result inte
 - Full gate produced 11 expected warnings. The only non-pass result remains the
   documented local RLS hardening boundary: live production enforcement was not
   inspected because no production database was provided.
+
+## Latest continuation after root-bundle guard fix
+
+Дата: 2026-08-25
+
+- Исправлен порядок fail-closed проверок: структурно валидный legacy snapshot
+  без root binding теперь может дойти до source/deletion fence, поэтому при
+  смене source возвращается `summary_source_revision_stale`; такой snapshot
+  всё равно блокируется непосредственно перед LiteLLM egress, публикацией и
+  Langfuse observability.
+- Регрессионный PostgreSQL тест stale-source: `1 passed`; полный файл
+  `test_summary_candidate_revisions.py`: `27 passed`.
+- Root-bundle, LiteLLM route-binding, prompt и Langfuse contract suite:
+  `40 passed`; Ruff и Python compile: PASS.
+- `infra/scripts/ci-local.sh --fast`: `1268 passed`, lint PASS, Python compile
+  PASS; exact full gate не заявляется, потому что после последнего полного gate
+  изменился код.
+- Повторная попытка read-only открыть авторизованный GRAF список встреч через
+  встроенный browser завершилась bounded timeout после текущей Langfuse-вкладки;
+  transcript, output и provider egress не выполнялись. Private real-record
+  Temporal run остаётся BLOCKED до доступного runtime и отдельного gate.
+
+## Current continuation: production readiness and real-record generation
+
+Дата: 2026-08-25
+
+- Read-only production runtime check: `master` на `56d0274b` (`v2026.08.25.7`),
+  рабочее дерево чистое; API и processing worker healthy.
+- В production API и processing worker явно установлено
+  `TWOBRAIN_OUTCOME_GENERATION_ENABLED=false`; поэтому на реальной записи
+  обновление итогов закономерно не может дойти до Temporal/LiteLLM и не должно
+  заменять сохранённые итоги.
+- Temporal container healthy, LiteLLM liveliness — HTTP 200, GRAF live — HTTP
+  200. Это не заменяет end-to-end proof: production generation остаётся
+  выключенной.
+- Langfuse Cloud EU read-only: production label root-bundle отсутствует;
+  все 10 legacy child labels — v5/config v1 с `max_completion_tokens` и
+  `gpt-5.6-luna`. Exact unlabelled candidate v23 для всех 10 prompt names
+  доступен, config v2, `gpt-5.6-luna`, без `max_completion_tokens`.
+- На доступной авторизованной реальной записи повторное нажатие обновления
+  сохранило текущие итоги и показало временную недоступность нового варианта;
+  успешного provider egress и публикации не было. Реальные тексты и IDs в
+  evidence не сохранялись.
+- В актуальном frontend добавлен отдельный copy для
+  `summary_dependency_unavailable`: «Сервис генерации временно недоступен.
+  Текущие итоги сохранены.»; JS syntax, focused contract suite (`45 passed`)
+  и `infra/scripts/ci-local.sh --fast` (`1268 passed`, lint/compile PASS)
+  прошли.
+- Promotion root-bundle, включение outcome generation, release/deploy и
+  private real-record Temporal run остаются заблокированными до отдельного
+  operator gate; prompt labels и production state не изменялись.

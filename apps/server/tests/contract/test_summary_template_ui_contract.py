@@ -128,6 +128,8 @@ def test_candidate_ui_keeps_current_notes_without_a_decision_surface() -> None:
 
     assert "Текущие итоги остаются доступны" in script
     assert "Текущие итоги сохранены" in script
+    assert "summary_dependency_unavailable" in script
+    assert "Сервис генерации временно недоступен. Текущие итоги сохранены." in script
     assert "Вариант" in script
     assert 'text: "Использовать"' not in script
     assert 'text: "Оставить текущие"' not in script
