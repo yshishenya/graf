@@ -72,10 +72,11 @@ merged, deployed and the same payment is reconciled.
 Post-deploy UI diagnosis (2026-08-26): database reconciliation correctly moved
 the existing invoice receipt to `succeeded`, but history/detail routes parsed
 the provider registration value as the presentation enum and rendered it as
-unknown. Both routes now reuse `receipt_state_for_registration`; focused UI and
-receipt lifecycle tests: `26 passed`; full focused Feature 199 and receipt suite:
-`71 passed`; fast CI: `1241 passed`, lint/compile PASS. T023 remains open until
-this final UI fix is merged, deployed and visible in the browser.
+unknown. Both routes now reuse `receipt_state_for_registration`; a succeeded
+receipt without a safe URL says «Чек зарегистрирован», and a URL is exposed only
+for that state. Focused UI and receipt lifecycle tests: `29 passed`; full focused
+Feature 199 and receipt suite: `74 passed`. T023 remains open until this final UI
+fix is merged, deployed and visible in the browser.
 
 ## Dependencies
 

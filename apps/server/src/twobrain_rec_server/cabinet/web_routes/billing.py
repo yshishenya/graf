@@ -3002,7 +3002,7 @@ async def billing_invoice_detail_page(
         return RedirectResponse("/billing/history?result=not_found", status_code=303)
     snapshot = invoice.plan_snapshot if isinstance(invoice.plan_snapshot, dict) else {}
     receipt_state = _receipt_registration_state(snapshot.get("receipt_registration"))
-    receipt_url = snapshot.get("receipt_url")
+    receipt_url = snapshot.get("receipt_url") if receipt_state is ReceiptState.AVAILABLE else None
     if not is_allowed_confirmation_url(receipt_url):
         receipt_url = None
     refund_mailto = None
