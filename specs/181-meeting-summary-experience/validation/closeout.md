@@ -253,3 +253,23 @@ Risk lane: high-risk Spec Kit — AI, private meeting data, accepted-result inte
 - Promotion root-bundle, включение outcome generation, release/deploy и
   private real-record Temporal run остаются заблокированными до отдельного
   operator gate; prompt labels и production state не изменялись.
+
+## Current continuation after accepted-replay regression
+
+Дата: 2026-08-25
+
+- При повторной проверке Feature 181 найден и исправлен lifecycle-регресс:
+  уже опубликованный `accepted` candidate требовал root-bundle binding до
+  проверки сохранённого Generation Call и ошибочно блокировал безопасный
+  replay legacy snapshot.
+- Accepted replay теперь не делает provider egress и не требует удалённый
+  prompt; он проверяет transcript hash, Generation Call integrity, validated
+  result, outcome slot и dispatch lifecycle. Новый provider execution всё ещё
+  требует полного root-bundle и LiteLLM route-binding.
+- Полный Feature 181 quickstart после исправления: `184 passed`, 2
+  ожидаемых предупреждения.
+- `infra/scripts/ci-local.sh --fast`: `1268 passed`, server lint и Python
+  compile pass.
+- T031 по-прежнему не закрыта: нет version-bound Temporal/private
+  real-meeting run и human usefulness/pairwise evaluation; production
+  generation, root promotion, release, deploy и push остаются blocked.
