@@ -204,6 +204,36 @@ def test_temporal_dispatch_failure_allows_a_fresh_attempt_after_recovery(client)
     assert asyncio.run(run()) == ("failed_terminal", "created", 2)
 
 
+def test_starting_attempt_persists_terminal_provider_failure(client) -> None:
+    finalized = create_finalized_meeting(client, "failure-starting-terminal")
+    meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
+    workspace_id = UUID(finalized["meeting"]["workspace_id"])
+
+    async def run() -> tuple[str, str]:
+        async with client.app_state["sessionmaker"]() as db:
+            workflow = await store.upsert_processing_workflow(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+                workflow_id=f"processing/{media_revision_id}",
+                status=ProcessingStatus.STARTING,
+            )
+            await store.set_workflow_status(
+                db,
+                workflow,
+                ProcessingStatus.FAILED_TERMINAL,
+                reason_code="mediascribe_auth_failed",
+                terminal=True,
+            )
+            failed = await db.scalar(select(ProcessingWorkflow).where(ProcessingWorkflow.id == workflow.id))
+            assert failed is not None
+            return failed.status, failed.last_reason_code or ""
+
+    assert asyncio.run(run()) == ("failed_terminal", "mediascribe_auth_failed")
+
+
 def test_imported_no_speech_result_allows_a_fresh_attempt(client) -> None:
     finalized = create_finalized_meeting(client, "failure-no-speech-new-attempt")
     meeting_id = UUID(finalized["meeting"]["meeting_id"])
