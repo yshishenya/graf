@@ -7,7 +7,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.schemas import ProcessingArtifactProjection, ProcessingStatusResponse
-from twobrain_rec_server.db.models import MeetingOutcomeSet, MeetingSummarySlot
+from twobrain_rec_server.db.models import MeetingOutcomeSet, MeetingSummarySlot, ProcessingResult
 from twobrain_rec_server.domain.statuses import (
     OutcomeSetStatus,
     ProcessingAvailabilityStatus,
@@ -326,13 +326,13 @@ async def get_content_safe_processing_status(
             )
         )
         published_outcome = None
+        published_result = None
         if default_slot is not None and default_slot.current_outcome_set_id is not None:
             published_outcome = await db.scalar(
                 select(MeetingOutcomeSet).where(
                     MeetingOutcomeSet.id == default_slot.current_outcome_set_id,
                     MeetingOutcomeSet.workspace_id == workspace_id,
                     MeetingOutcomeSet.meeting_id == meeting_id,
-                    MeetingOutcomeSet.processing_result_id == safe_result.id,
                     MeetingOutcomeSet.media_revision_id == media_revision_id,
                     MeetingOutcomeSet.lifecycle_state == "active",
                     MeetingOutcomeSet.status.in_(
@@ -344,10 +344,22 @@ async def get_content_safe_processing_status(
                     ),
                 )
             )
-        if published_outcome is not None and (
-            not published_outcome.source_result_hash
-            or not safe_result.source_result_hash
-            or published_outcome.source_result_hash == safe_result.source_result_hash
+            if published_outcome is not None:
+                published_result = await db.scalar(
+                    select(ProcessingResult).where(
+                        ProcessingResult.id == published_outcome.processing_result_id,
+                        ProcessingResult.workspace_id == workspace_id,
+                        ProcessingResult.meeting_id == meeting_id,
+                    )
+                )
+        if (
+            published_outcome is not None
+            and result_lineage_is_current(published_result, media_revision_id=media_revision_id)
+            and (
+                not published_outcome.source_result_hash
+                or not published_result.source_result_hash
+                or published_outcome.source_result_hash == published_result.source_result_hash
+            )
         ):
             summary_state = (
                 "partial"

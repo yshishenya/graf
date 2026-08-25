@@ -56,3 +56,22 @@ Risk lane: high-risk Spec Kit — AI, private meeting data, accepted-result inte
   расшифровку повторно.
 - T031 остаётся открытой: version-bound Temporal/private real-meeting run,
   held-out human usefulness/pairwise evaluation и prompt promotion не выполнены.
+
+## Current full-gate result
+
+Дата: 2026-08-25
+
+- `infra/scripts/ci-local.sh --full` завершился с `3533 passed, 1 skipped`,
+  `1 failed`, 11 предупреждениями. macOS build/tests и contract validation
+  прошли; единственный сбой — существующий timing test
+  `test_sc017_one_hundred_warmed_atomic_consumptions_are_within_50ms_p95`
+  (`52.68 ms` при пороге `50 ms`) в календарном контексте, вне изменённых
+  файлов итогов.
+- Повтор того же теста из изолированного focused PostgreSQL запуска прошёл:
+  `1 passed, 34 deselected`; это подтверждает нестабильность измерения, но full
+  CI остаётся `FAIL`, а не `PASS`.
+- Feature 181 quickstart после текущих изменений прошёл: `113 passed`, 2
+  ожидаемых предупреждения; контейнер PostgreSQL удалён wrapper-скриптом.
+- T031 по-прежнему не закрыта: не выполнены version-bound Temporal/private
+  real-meeting run и human-labelled usefulness/pairwise gate. Production
+  prompt promotion, commit/PR, release и deploy остаются отдельными gates.

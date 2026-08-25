@@ -31,6 +31,10 @@ OUTCOMES_MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0009_meeting_outcomes_mvp.py"
 )
+MEETING_SUMMARY_SLOTS_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0076_meeting_summary_slots.py"
+)
 CALENDAR_CONTEXT_MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0010_calendar_context_ingestion.py"
@@ -153,6 +157,7 @@ def test_rls_migration_covers_every_current_tenant_table() -> None:
         + DELETION_MIGRATION.read_text(encoding="utf-8")
         + RECORDING_SYNC_MIGRATION.read_text(encoding="utf-8")
         + OUTCOMES_MIGRATION.read_text(encoding="utf-8")
+        + MEETING_SUMMARY_SLOTS_MIGRATION.read_text(encoding="utf-8")
         + CALENDAR_CONTEXT_MIGRATION.read_text(encoding="utf-8")
         + SUPPORT_INCIDENT_MIGRATION.read_text(encoding="utf-8")
         + ADMIN_MIGRATION.read_text(encoding="utf-8")
@@ -199,6 +204,7 @@ def test_migration_and_contract_share_maintenance_operations() -> None:
         + LIFECYCLE_RECONCILIATION_MIGRATION.read_text(encoding="utf-8")
         + LEGACY_LINEAGE_MIGRATION.read_text(encoding="utf-8")
         + OUTCOME_BASELINE_MIGRATION.read_text(encoding="utf-8")
+        + MEETING_SUMMARY_SLOTS_MIGRATION.read_text(encoding="utf-8")
         + BILLING_FOUNDATION_MIGRATION.read_text(encoding="utf-8")
         + ACCOUNT_AUTH_LINKING_MIGRATION.read_text(encoding="utf-8")
         + PROCESSING_RECOVERY_MIGRATION.read_text(encoding="utf-8")

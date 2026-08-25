@@ -3382,7 +3382,10 @@ def build_review_response(
         if current_lineage
         and result is not None
         and outcome_set is not None
-        and outcome_set.processing_result_id == result.id
+        # The default summary slot is its own last-known-good revision fence.
+        # A newer processing result on the same media revision must not hide
+        # the already validated summary while that result is being reconciled.
+        and outcome_set.media_revision_id == current_media_revision_id
         else None
     )
     safe_outcome_items = outcome_items if safe_outcome_set is not None else []

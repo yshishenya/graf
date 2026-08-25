@@ -28,6 +28,10 @@ MEETING_OUTCOMES_MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0009_meeting_outcomes_mvp.py"
 )
+MEETING_SUMMARY_SLOTS_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0076_meeting_summary_slots.py"
+)
 CALENDAR_CONTEXT_MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0010_calendar_context_ingestion.py"
@@ -110,6 +114,10 @@ def test_rls_validation_inventory_matches_test_fixture() -> None:
 
 def test_rls_validation_inventory_matches_031_migration_policy_maps() -> None:
     migration = _load_migration_module(MIGRATION, "rls_hardening_migration")
+    meeting_summary_slots_migration = _load_migration_module(
+        MEETING_SUMMARY_SLOTS_MIGRATION,
+        "meeting_summary_slots_migration",
+    )
     access_migration = _load_migration_module(ACCESS_MIGRATION, "access_sharing_downloads_migration")
     retention_deletion_migration = _load_migration_module(
         RETENTION_DELETION_MIGRATION,
@@ -193,6 +201,7 @@ def test_rls_validation_inventory_matches_031_migration_policy_maps() -> None:
         | set(retention_deletion_migration.CONTENT_WORKSPACE_POLICIES)
         | set(recording_sync_migration.CONTENT_WORKSPACE_POLICIES)
         | set(meeting_outcomes_migration.CONTENT_WORKSPACE_POLICIES)
+        | {meeting_summary_slots_migration.SLOT_TABLE}
         | set(calendar_context_migration.CONTENT_WORKSPACE_POLICIES)
         | set(support_incident_migration.SUPPORT_TABLES)
         | set(admin_migration.ADMIN_TABLES)

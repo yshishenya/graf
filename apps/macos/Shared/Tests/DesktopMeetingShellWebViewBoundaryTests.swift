@@ -392,7 +392,7 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
         XCTAssertTrue(cabinetSource.contains("currentOutcomeSetId"))
         XCTAssertTrue(cabinetSource.contains("current_outcome_set_id"))
         XCTAssertTrue(cabinetSource.contains("summary-candidate-status"))
-        XCTAssertTrue(cabinetSource.contains("Текущие итоги остаются на месте"))
+        XCTAssertTrue(cabinetSource.contains("Текущие итоги остаются доступны."))
 
         for forbidden in [
             "data-summary-candidate-preview",

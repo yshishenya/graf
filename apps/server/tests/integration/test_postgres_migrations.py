@@ -798,6 +798,8 @@ def test_alembic_revision_ids_fit_default_version_table_length() -> None:
     legacy_overlength = {
         "0048_billing_notification_preferences",
         "0050_referral_token_lookup_context",
+        "0078_merge_summary_slots_provider_unlink",
+        "0080_merge_summary_state_processing_recovery",
     }
 
     for migration_path in versions.glob("*.py"):
