@@ -96,7 +96,7 @@ apps/server/src/twobrain_rec_server/
 ├── processing/{store.py,results.py,submit.py}
 ├── workflows/{processing_workflow.py,worker.py}
 ├── db/models/processing.py
-├── db/migrations/versions/0081_mediascribe_words.py
+├── db/migrations/versions/0082_mediascribe_words.py
 ├── domain/speaker_turns.py
 └── cabinet/{view_models.py,egress.py,rendering.py}
 

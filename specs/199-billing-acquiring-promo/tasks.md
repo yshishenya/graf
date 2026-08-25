@@ -42,6 +42,7 @@ out of scope until Feature 140 launch evidence is complete.
 - T003 precedes T004-T005 for the preview path.
 - T006 precedes T007 for provisioning.
 - T009 follows T003-T008; T010 follows T009; T011 follows all implementation and validation.
-- T012-T014 follow the current audit; T015 follows T012-T014.
+- T012-T014 follow the current audit; T015 follows T012-T014; T016 follows
+  T015; T017 follows T016.
 - T078-T080, T083-T085 and T087 from Feature 140 remain external gates and are
   not closed by this slice.

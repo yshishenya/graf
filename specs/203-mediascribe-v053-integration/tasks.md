@@ -15,7 +15,7 @@
 - [X] T004 [P] [US1] Add typed `MediaScribeWordItem` and `words` to `MediaScribeDiarizationSegment` with safe validation in `apps/server/src/twobrain_rec_server/mediascribe/schemas.py`.
 - [X] T005 [US1] Validate word structure at the provider trust boundary while preserving full segment text in `apps/server/src/twobrain_rec_server/mediascribe/client.py`.
 - [X] T006 [US1] Normalize omitted single-track source_role to `mixed`, keep dual-track omission degraded/unknown, and update `apps/server/src/twobrain_rec_server/mediascribe/client.py` and `apps/server/src/twobrain_rec_server/mediascribe/import_results.py`.
-- [X] T007 [P] [US4] Add nullable `words_json` to `DiarizationSegment` and an additive migration `apps/server/src/twobrain_rec_server/db/migrations/versions/0081_mediascribe_words.py` with downgrade safety.
+- [X] T007 [P] [US4] Add nullable `words_json` to `DiarizationSegment` and an additive migration `apps/server/src/twobrain_rec_server/db/migrations/versions/0082_mediascribe_words.py` with downgrade safety.
 - [X] T008 [US4] Persist validated words through the existing result lineage and deletion path in `apps/server/src/twobrain_rec_server/processing/store.py`.
 - [X] T009 [P] [US1] Add result-import tests proving exact provider block count/boundaries, source-role separation, text conservation and words persistence in `apps/server/tests/unit/test_mediascribe_result_import.py` and `apps/server/tests/integration/test_mediascribe_processing_happy_path.py`.
 

@@ -85,7 +85,7 @@ the release/deploy and live smoke are separate evidence gates.
 - 85 focused PostgreSQL status/cabinet/export/MediaScribe/migration tests
   passed after the terminal projection fix.
 - 26 migration and worker-head tests passed after rebasing the additive
-  migration onto master `0080` as `0081_mediascribe_words`.
+  migration onto master `0081_secure_promo_counter` as `0082_mediascribe_words`.
 - `git diff --check` passed.
 - `infra/scripts/ci-local.sh --fast` passed: 1229 unit tests, lint and Python
   compile.

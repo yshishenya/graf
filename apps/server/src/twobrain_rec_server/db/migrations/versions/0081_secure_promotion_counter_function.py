@@ -1,11 +1,11 @@
-"""Keep promotion reservation counters inside the trusted RLS boundary."""
+"""Prevent temporary-table shadowing in the promotion counter trigger."""
 
 from collections.abc import Sequence
 
 from alembic import op
 
-revision: str = "0080_promo_counter_trigger"
-down_revision: str | None = "0079_remove_billing_launch_gates"
+revision: str = "0081_secure_promo_counter"
+down_revision: str | None = "0080_promo_counter_trigger"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -42,19 +42,8 @@ def upgrade() -> None:
         $function$
         """
     )
-    op.execute(
-        """
-        create trigger promotion_redemptions_sync_campaign_counter
-        after insert or update of state on promotion_redemptions
-        for each row execute function rec_sync_promotion_reservation_counter()
-        """
-    )
 
 
 def downgrade() -> None:
-    if op.get_bind().dialect.name != "postgresql":
-        return
-    op.execute(
-        "drop trigger if exists promotion_redemptions_sync_campaign_counter on promotion_redemptions"
-    )
-    op.execute("drop function if exists rec_sync_promotion_reservation_counter()")
+    # Security hardening remains valid at the 0080 schema revision.
+    pass
