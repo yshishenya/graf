@@ -81,15 +81,20 @@ async def get_content_safe_processing_status(
         updated_at = workflow.updated_at
     elif result is not None:
         updated_at = result.updated_at
-    retry_class = workflow.retry_class if workflow is not None and workflow.retry_class in {
-        "retryable", "unknown_outcome", "terminal", "none"
-    } else (
-        "retryable" if state in {ProcessingStatus.FAILED_RETRYABLE, ProcessingStatus.WAITING_RETRY} else
-        "unknown_outcome" if state == ProcessingStatus.BLOCKED_UNKNOWN else
-        "terminal" if state == ProcessingStatus.FAILED_TERMINAL else "none"
-    )
     if result_terminal_no_speech:
         retry_class = "terminal"
+    elif state == ProcessingStatus.PROCESSED:
+        # A processed workflow may retain a historical retry class. It is no
+        # longer recoverable work once the current lifecycle is complete.
+        retry_class = "none"
+    else:
+        retry_class = workflow.retry_class if workflow is not None and workflow.retry_class in {
+            "retryable", "unknown_outcome", "terminal", "none"
+        } else (
+            "retryable" if state in {ProcessingStatus.FAILED_RETRYABLE, ProcessingStatus.WAITING_RETRY} else
+            "unknown_outcome" if state == ProcessingStatus.BLOCKED_UNKNOWN else
+            "terminal" if state == ProcessingStatus.FAILED_TERMINAL else "none"
+        )
     next_attempt_source = workflow.next_attempt_source if workflow is not None and workflow.next_attempt_source in {
         "provider_retry_after", "provider_next_retry_at", "server_fallback", "manual_override"
     } else None
