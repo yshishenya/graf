@@ -204,6 +204,55 @@ def test_temporal_dispatch_failure_allows_a_fresh_attempt_after_recovery(client)
     assert asyncio.run(run()) == ("failed_terminal", "created", 2)
 
 
+def test_imported_no_speech_result_allows_a_fresh_attempt(client) -> None:
+    finalized = create_finalized_meeting(client, "failure-no-speech-new-attempt")
+    meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
+    workspace_id = UUID(finalized["meeting"]["workspace_id"])
+
+    async def run() -> tuple[str, int, str, str]:
+        async with client.app_state["sessionmaker"]() as db:
+            workflow, job = await _submitted_job(db, workspace_id, meeting_id, media_revision_id)
+            workflow.status = ProcessingStatus.PROCESSED.value
+            workflow.last_reason_code = "no_recognizable_speech"
+            job.status = MediaScribeJobStatus.READY.value
+            result = ProcessingResult(
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+                mediascribe_job_id=job.id,
+                processing_workflow_id=workflow.id,
+                result_version=1,
+                status="imported",
+                transcript_status="unavailable",
+                diarization_status="unavailable",
+                summary_status="not_requested",
+                segment_count=0,
+                diarization_segment_count=0,
+                failure_reason="no_recognizable_speech",
+            )
+            db.add(result)
+            await db.commit()
+
+            creation = await store.create_processing_attempt(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+            )
+            assert creation.workflow is not None
+            old_result = await db.scalar(
+                select(ProcessingResult).where(ProcessingResult.id == result.id)
+            )
+            return (
+                creation.result,
+                creation.attempt_ordinal or 0,
+                old_result.failure_reason if old_result is not None else "missing",
+                old_result.processing_workflow_id == workflow.id if old_result is not None else "missing",
+            )
+
+    assert asyncio.run(run()) == ("created", 2, "no_recognizable_speech", True)
+
+
 def test_worker_activity_persists_blocked_config_when_mediascribe_is_unconfigured(client, monkeypatch) -> None:
     finalized = create_finalized_meeting(client, "failure-worker-config")
     meeting_id = UUID(finalized["meeting"]["meeting_id"])

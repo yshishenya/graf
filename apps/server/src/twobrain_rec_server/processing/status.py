@@ -12,6 +12,7 @@ from twobrain_rec_server.domain.statuses import (
     ProcessingStatus,
 )
 from twobrain_rec_server.processing import store
+from twobrain_rec_server.processing.reasons import NO_RECOGNIZABLE_SPEECH
 from twobrain_rec_server.processing.results import result_lineage_is_current
 
 
@@ -57,7 +58,9 @@ async def get_content_safe_processing_status(
     result_terminal_no_speech = bool(
         safe_result is not None
         and safe_result.status == ProcessingResultStatus.IMPORTED.value
-        and safe_result.failure_reason == "no_recognizable_speech"
+        and safe_result.failure_reason == NO_RECOGNIZABLE_SPEECH
+        and workflow is not None
+        and safe_result.processing_workflow_id == workflow.id
     )
     if result_terminal_no_speech:
         state = ProcessingStatus.FAILED_TERMINAL
