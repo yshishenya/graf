@@ -273,3 +273,17 @@ Risk lane: high-risk Spec Kit — AI, private meeting data, accepted-result inte
 - T031 по-прежнему не закрыта: нет version-bound Temporal/private
   real-meeting run и human usefulness/pairwise evaluation; production
   generation, root promotion, release, deploy и push остаются blocked.
+
+## Current continuation after full-gate observability regression
+
+Дата: 2026-08-25
+
+- Полный gate на предыдущем SHA обнаружил два lifecycle-регресса: retained
+  completed/failed Generation Calls без root binding не могли завершить
+  Langfuse delivery. Исправление ограничено export-only веткой уже
+  завершённого call; provider egress и trusted slot publication не менялись.
+- Повторный targeted regression (deletion race, retryable retained call и
+  cursor-invalidation test): `3 passed`, 2 ожидаемых предупреждения.
+- Полный gate на предыдущем SHA также показал один отдельный flaky calendar
+  failure; тот же тест в изолированном focused прогоне после исправления
+  прошёл. Full gate будет повторён на новом точном SHA.
