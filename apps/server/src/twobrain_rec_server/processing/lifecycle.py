@@ -61,8 +61,12 @@ def classify_mediascribe_error(status_code: int | None, *, timeout: bool = False
         return FailureClassification(ProcessingStatus.FAILED_RETRYABLE, reasons.MEDIASCRIBE_TIMEOUT, True)
     if status_code == 409:
         return FailureClassification(ProcessingStatus.FAILED_RETRYABLE, reasons.MEDIASCRIBE_RESULT_NOT_READY, True)
-    if status_code == 429 or (status_code is not None and status_code >= 500):
-        return FailureClassification(ProcessingStatus.FAILED_RETRYABLE, reasons.MEDIASCRIBE_RATE_LIMITED if status_code == 429 else reasons.MEDIASCRIBE_SERVER_ERROR, True)
+    if status_code == 429:
+        return FailureClassification(ProcessingStatus.FAILED_RETRYABLE, reasons.MEDIASCRIBE_RATE_LIMITED, True)
+    if status_code == 500:
+        return FailureClassification(ProcessingStatus.FAILED_TERMINAL, reasons.MEDIASCRIBE_SERVER_ERROR, False)
+    if status_code in {502, 503, 504}:
+        return FailureClassification(ProcessingStatus.FAILED_RETRYABLE, reasons.MEDIASCRIBE_SERVER_ERROR, True)
     if status_code is not None and 400 <= status_code < 500:
         return FailureClassification(ProcessingStatus.FAILED_TERMINAL, reasons.MEDIASCRIBE_VALIDATION_FAILED, False)
     return FailureClassification(ProcessingStatus.FAILED_RETRYABLE, reasons.UNKNOWN_DEPENDENCY_STATUS, True)

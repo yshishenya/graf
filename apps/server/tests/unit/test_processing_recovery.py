@@ -18,6 +18,7 @@ def test_retry_after_and_provider_classification_are_machine_first() -> None:
     assert parse_retry_after("30", now=now) == timedelta(seconds=30)
     assert parse_retry_after("not-a-delay", now=now) is None
     assert classify_provider_outcome(status_code=503, code="provider_unavailable").status == ProcessingStatus.WAITING_RETRY
+    assert classify_provider_outcome(status_code=500, code="internal_error").status == ProcessingStatus.FAILED_TERMINAL
     assert classify_provider_outcome(status_code=400, code="bad_input").status == ProcessingStatus.FAILED_TERMINAL
 
 
@@ -63,4 +64,20 @@ def test_retry_schedule_stops_at_deadline() -> None:
 
     assert schedule.next_attempt_at is None
     assert schedule.source is None
+    assert schedule.generation == 8
+
+
+def test_retry_schedule_stops_at_configured_attempt_limit() -> None:
+    now = datetime(2026, 8, 24, 12, 0, tzinfo=UTC)
+    schedule = schedule_retry(
+        now=now,
+        retry_count=3,
+        generation=7,
+        max_attempts=3,
+        random_source=Random(0),
+    )
+
+    assert schedule.next_attempt_at is None
+    assert schedule.source is None
+    assert schedule.retry_count == 3
     assert schedule.generation == 8

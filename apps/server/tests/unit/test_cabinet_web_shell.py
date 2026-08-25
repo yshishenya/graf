@@ -1166,6 +1166,29 @@ def test_meeting_detail_page_embeds_shared_runtime_recovery_template() -> None:
     assert "new-button" not in page
 
 
+def test_terminal_no_speech_detail_does_not_render_processing_transcript_placeholder() -> None:
+    review = _review()
+    review.processing = review.processing.model_copy(
+        update={"state": "failed", "reason_code": "no_recognizable_speech"}
+    )
+    page = render_meeting_detail_page(review)
+
+    assert 'data-transcript-pending' not in page
+    assert 'data-processing-state="failed"' in page
+    assert 'data-processing-reason-code="no_recognizable_speech"' in page
+
+
+def test_processing_summary_copy_can_distinguish_stored_output_from_not_requested() -> None:
+    review = _review()
+    review.notes_action_truth = review.notes_action_truth.model_copy(
+        update={"source_basis": "stored_output"}
+    )
+    page = render_meeting_detail_page(review)
+
+    assert 'data-stored-outcomes-available="true"' in page
+    assert 'data-processing-summary-status role="status" aria-live="off"' in page
+
+
 def test_meeting_detail_page_uses_manual_upload_receipt_date() -> None:
     review = _review()
     review = review.model_copy(

@@ -159,7 +159,7 @@ def test_processing_recovery_projection_keeps_artifacts_independent_and_refresh_
     assert "Проверить обработку" in detail
     assert "Начать обработку заново" in detail
     assert 'data-transcript-pending' in detail
-    assert 'data-playback-transcript{% if media_revision_id %} hidden aria-hidden="true"{% endif %}' in detail
+    assert 'data-playback-transcript{% if media_revision_id and not transcript_available %} hidden aria-hidden="true"{% endif %}' in detail
     assert 'data-processing-summary-status role="status" aria-live="off"' in detail
     assert 'data-processing-list-announcer role="status" aria-live="polite"' in meeting_list
 
@@ -185,11 +185,15 @@ def test_processing_recovery_projection_keeps_artifacts_independent_and_refresh_
     ):
         assert marker in script
     assert "fetch(statusUrl" in script
+    assert 'renderProcessingRecoveryFailure(detail, { preserveProjection: true });' in script
     assert '"Content-Type": "application/json"' in script
     assert "command_id: processingClientCommandId()" in script
     assert "schedule_generation: Number.parseInt(detail.dataset.processingScheduleGeneration" in script
     assert "processingRecoveryActionRequest !== null" in script
     assert "transcriptReady = processingTranscriptReady(projection)" in script
+    assert "const transcriptVisible = transcriptReady;" in script
+    assert 'const terminalTranscript = ["failed", "unavailable"].includes(transcriptState)' in script
+    assert "pending.hidden = transcriptVisible || terminalTranscript" in script
     assert "updateProcessingExportVisibility(transcriptReady)" in script
     assert "@media (prefers-reduced-motion: reduce)" in styles
     assert "@media (forced-colors: active)" in styles

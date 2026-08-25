@@ -6,7 +6,11 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.schemas import ProcessingArtifactProjection, ProcessingStatusResponse
-from twobrain_rec_server.domain.statuses import ProcessingAvailabilityStatus, ProcessingStatus
+from twobrain_rec_server.domain.statuses import (
+    ProcessingAvailabilityStatus,
+    ProcessingResultStatus,
+    ProcessingStatus,
+)
 from twobrain_rec_server.processing import store
 from twobrain_rec_server.processing.results import result_lineage_is_current
 
@@ -50,6 +54,13 @@ async def get_content_safe_processing_status(
         media_revision_id=media_revision_id,
     )
     safe_result = result if same_result_lineage else None
+    result_terminal_no_speech = bool(
+        safe_result is not None
+        and safe_result.status == ProcessingResultStatus.IMPORTED.value
+        and safe_result.failure_reason == "no_recognizable_speech"
+    )
+    if result_terminal_no_speech:
+        state = ProcessingStatus.FAILED_TERMINAL
     transcript_available = (
         same_result_lineage
         and result.transcript_status == ProcessingAvailabilityStatus.AVAILABLE.value
@@ -74,6 +85,8 @@ async def get_content_safe_processing_status(
         "unknown_outcome" if state == ProcessingStatus.BLOCKED_UNKNOWN else
         "terminal" if state == ProcessingStatus.FAILED_TERMINAL else "none"
     )
+    if result_terminal_no_speech:
+        retry_class = "terminal"
     next_attempt_source = workflow.next_attempt_source if workflow is not None and workflow.next_attempt_source in {
         "provider_retry_after", "provider_next_retry_at", "server_fallback", "manual_override"
     } else None
@@ -125,7 +138,13 @@ async def get_content_safe_processing_status(
         media_revision_id=media_revision_id,
         workspace_id=meeting.workspace_id,
         state=state,
-        reason_code=workflow.last_reason_code if workflow is not None else None,
+        reason_code=(
+            workflow.last_reason_code
+            if workflow is not None and workflow.last_reason_code
+            else safe_result.failure_reason
+            if safe_result is not None
+            else None
+        ),
         workflow_id=workflow.workflow_id if workflow is not None else None,
         attempt_ordinal=int(workflow.attempt_ordinal or 1) if workflow is not None else 1,
         mediascribe_job_id_present=bool(job is not None and job.external_job_id),

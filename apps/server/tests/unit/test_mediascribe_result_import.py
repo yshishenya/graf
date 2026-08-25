@@ -10,6 +10,7 @@ from twobrain_rec_server.mediascribe.schemas import (
     MediaScribeDiarizationSegment,
     MediaScribeResult,
     MediaScribeSegment,
+    MediaScribeWordItem,
 )
 from twobrain_rec_server.processing.audit import safe_audit_metadata
 
@@ -37,6 +38,64 @@ def test_result_normalization_maps_roles_and_digest_is_stable() -> None:
     assert normalized.transcript[0].source_role == "mic"
     assert normalized.diarization[0].source_role == "incoming"
     assert result_digest(normalized) == result_digest(normalized)
+
+
+def test_result_digest_changes_when_provider_words_change() -> None:
+    base = MediaScribeResult(
+        external_job_id="job_words_hash",
+        diarization=[
+            MediaScribeDiarizationSegment(
+                sequence=0,
+                start_seconds=0,
+                end_seconds=1,
+                text="hello",
+                speaker_label="SPEAKER_00",
+                words=[MediaScribeWordItem(word="hello")],
+            )
+        ],
+    )
+    changed = base.model_copy(
+        deep=True,
+        update={
+            "diarization": [
+                base.diarization[0].model_copy(
+                    update={"words": [MediaScribeWordItem(word="changed")]}
+                )
+            ]
+        },
+    )
+
+    assert result_digest(base) != result_digest(changed)
+
+
+def test_word_item_requires_word_and_ignores_provider_extensions() -> None:
+    with pytest.raises(ValidationError):
+        MediaScribeWordItem.model_validate({"start": 0, "end": 1})
+
+    word = MediaScribeWordItem.model_validate({"word": "hello", "future": "ignored"})
+    assert word.word == "hello"
+    assert "future" not in word.model_dump()
+
+
+def test_missing_single_track_roles_normalize_to_mixed() -> None:
+    result = MediaScribeResult(
+        external_job_id="job_single_role",
+        transcript=[MediaScribeSegment(sequence=0, start_seconds=0, end_seconds=1, text="hello")],
+        diarization=[
+            MediaScribeDiarizationSegment(
+                sequence=0,
+                start_seconds=0,
+                end_seconds=1,
+                text="hello",
+                speaker_label="SPEAKER_00",
+            )
+        ],
+    )
+
+    normalized = normalize_result(result)
+
+    assert normalized.transcript[0].source_role == "mixed"
+    assert normalized.diarization[0].source_role == "mixed"
 
 
 def test_result_schema_rejects_unbounded_attribution_reason_code() -> None:

@@ -261,6 +261,7 @@ async def _restore_unknown_processing_state(
     workflow: Any,
     retry_after_seconds: int | None = None,
     schedule_next_retry: bool = False,
+    settings: Any | None = None,
 ) -> Any | None:
     """Keep an unknown upload recoverable without ever issuing a new upload."""
 
@@ -284,13 +285,26 @@ async def _restore_unknown_processing_state(
             if retry_after_seconds is not None
             else None
         )
-        retry_schedule = schedule_retry(
-            now=datetime.now(UTC),
-            retry_count=int(current.retry_count or 0),
-            generation=int(current.schedule_generation or 0),
-            retry_after=retry_after,
-            deadline_at=current.deadline_at,
-            source="provider_retry_after" if retry_after is not None else None,
+        scheduler = schedule_retry_with_settings if settings is not None else schedule_retry
+        retry_schedule = (
+            scheduler(
+                settings,
+                now=datetime.now(UTC),
+                retry_count=int(current.retry_count or 0),
+                generation=int(current.schedule_generation or 0),
+                retry_after=retry_after,
+                deadline_at=current.deadline_at,
+                source="provider_retry_after" if retry_after is not None else None,
+            )
+            if settings is not None
+            else scheduler(
+                now=datetime.now(UTC),
+                retry_count=int(current.retry_count or 0),
+                generation=int(current.schedule_generation or 0),
+                retry_after=retry_after,
+                deadline_at=current.deadline_at,
+                source="provider_retry_after" if retry_after is not None else None,
+            )
         )
         current.next_attempt_at = retry_schedule.next_attempt_at
         current.next_attempt_source = retry_schedule.source
@@ -323,11 +337,12 @@ async def _reconcile_unknown_mediascribe_upload(
     workflow: Any,
     job: Any | None,
     mediascribe_client: Any,
+    settings: Any | None = None,
 ) -> Any | None:
     """Reconcile an uncertain POST without issuing another multipart upload."""
 
     if job is None:
-        await _restore_unknown_processing_state(db, workflow=workflow)
+        await _restore_unknown_processing_state(db, workflow=workflow, settings=settings)
         return None
 
     idempotency_key = getattr(job, "idempotency_key", None)
@@ -344,18 +359,19 @@ async def _reconcile_unknown_mediascribe_upload(
                     workflow=workflow,
                     retry_after_seconds=exc.retry_after_seconds,
                     schedule_next_retry=exc.retryable,
+                    settings=settings,
                 )
                 return None
             if not _provider_request_matches_job(provider_job=provider_job, job=job):
-                await _restore_unknown_processing_state(db, workflow=workflow)
+                await _restore_unknown_processing_state(db, workflow=workflow, settings=settings)
                 return None
     else:
         if not isinstance(idempotency_key, str) or not idempotency_key:
-            await _restore_unknown_processing_state(db, workflow=workflow)
+            await _restore_unknown_processing_state(db, workflow=workflow, settings=settings)
             return None
         list_jobs = getattr(mediascribe_client, "list_jobs", None)
         if not callable(list_jobs):
-            await _restore_unknown_processing_state(db, workflow=workflow)
+            await _restore_unknown_processing_state(db, workflow=workflow, settings=settings)
             return None
         try:
             listing = await list_jobs(q=idempotency_key, page_size=100)
@@ -365,6 +381,7 @@ async def _reconcile_unknown_mediascribe_upload(
                 workflow=workflow,
                 retry_after_seconds=exc.retry_after_seconds,
                 schedule_next_retry=exc.retryable,
+                settings=settings,
             )
             return None
         fingerprint_mismatch = False
@@ -380,13 +397,18 @@ async def _reconcile_unknown_mediascribe_upload(
                 external_job_id = candidate_id
                 break
         if fingerprint_mismatch and not external_job_id:
-            await _restore_unknown_processing_state(db, workflow=workflow)
+            await _restore_unknown_processing_state(db, workflow=workflow, settings=settings)
             return None
         if not external_job_id:
             # The provider may be eventually consistent after an ambiguous
             # upload. Re-querying with the same key is safe and avoids a
             # duplicate multipart submission.
-            await _restore_unknown_processing_state(db, workflow=workflow, schedule_next_retry=True)
+            await _restore_unknown_processing_state(
+                db,
+                workflow=workflow,
+                schedule_next_retry=True,
+                settings=settings,
+            )
             return None
 
     status = _provider_job_status(provider_job) if provider_job is not None else MediaScribeJobStatus.SUBMITTED
@@ -406,7 +428,7 @@ async def _reconcile_unknown_mediascribe_upload(
         job.last_error_code = None
         job.last_error_message = None
         await db.commit()
-    await _restore_unknown_processing_state(db, workflow=workflow)
+    await _restore_unknown_processing_state(db, workflow=workflow, settings=settings)
     return job
 
 
@@ -1323,6 +1345,7 @@ async def run_processing_pipeline_activity(payload: dict[str, str]) -> dict[str,
                     workflow=workflow,
                     job=job,
                     mediascribe_client=mediascribe_client,
+                    settings=settings,
                 )
                 if job is None:
                     return {
@@ -1369,6 +1392,7 @@ async def run_processing_pipeline_activity(payload: dict[str, str]) -> dict[str,
                     workflow=workflow,
                     job=job,
                     mediascribe_client=mediascribe_client,
+                    settings=settings,
                 )
                 if job is None:
                     return {
@@ -1382,6 +1406,12 @@ async def run_processing_pipeline_activity(payload: dict[str, str]) -> dict[str,
                 state="submitted",
                 meeting_id=meeting_ref,
             )
+            if single_step and workflow.status == ProcessingStatus.WAITING_RETRY.value:
+                return {
+                    "meeting_id": payload["meeting_id"],
+                    "processing_status": ProcessingStatus.WAITING_RETRY.value,
+                    "next_poll_seconds": _next_poll_seconds(workflow) or "30",
+                }
             poll_attempts = 1 if single_step else settings.processing_max_poll_attempts
             for poll_attempt in range(poll_attempts):
                 _heartbeat_processing_activity(
@@ -1516,7 +1546,13 @@ async def run_processing_pipeline_activity(payload: dict[str, str]) -> dict[str,
         }
     except MediaScribeClientError as exc:
         if exc.reason_code == reasons.BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN:
-            await _restore_unknown_processing_state(db, workflow=workflow)
+            await _restore_unknown_processing_state(
+                db,
+                workflow=workflow,
+                retry_after_seconds=exc.retry_after_seconds,
+                schedule_next_retry=True,
+                settings=settings,
+            )
             return {
                 "meeting_id": payload.get("meeting_id", meeting_ref),
                 "processing_status": ProcessingStatus.BLOCKED_UNKNOWN.value,
@@ -1543,6 +1579,7 @@ async def run_processing_pipeline_activity(payload: dict[str, str]) -> dict[str,
                 status=status,
                 reason_code=reason_code,
                 retry_after_seconds=exc.retry_after_seconds,
+                settings=settings,
             )
         except ProcessingLifecycleBlocked:
             return {
@@ -1556,9 +1593,14 @@ async def run_processing_pipeline_activity(payload: dict[str, str]) -> dict[str,
                 "processing_status": status.value,
                 "reason_code": reason_code,
             }
-        if status == ProcessingStatus.FAILED_RETRYABLE:
-            raise
-        return {"meeting_id": payload["meeting_id"], "processing_status": status.value}
+        return {
+            "meeting_id": payload["meeting_id"],
+            "processing_status": ProcessingStatus.WAITING_RETRY.value
+            if status == ProcessingStatus.FAILED_RETRYABLE
+            else status.value,
+            **({"next_poll_seconds": _next_poll_seconds(workflow) or "30"}
+               if status == ProcessingStatus.FAILED_RETRYABLE else {}),
+        }
     except RuntimeError as exc:
         classified = _processing_status_for_runtime_error(exc)
         if classified is None:
@@ -1581,6 +1623,7 @@ async def run_processing_pipeline_activity(payload: dict[str, str]) -> dict[str,
                 tenant_scope=tenant_scope,
                 status=status,
                 reason_code=reason_code,
+                settings=settings,
             )
         except ProcessingLifecycleBlocked:
             return {
@@ -1588,12 +1631,14 @@ async def run_processing_pipeline_activity(payload: dict[str, str]) -> dict[str,
                 "processing_status": ProcessingStatus.CANCELED.value,
                 "reason_code": "meeting_deleting",
             }
-        if status == ProcessingStatus.FAILED_RETRYABLE:
-            raise
         return {
             "meeting_id": payload["meeting_id"],
-            "processing_status": status.value,
+            "processing_status": ProcessingStatus.WAITING_RETRY.value
+            if status == ProcessingStatus.FAILED_RETRYABLE
+            else status.value,
             "reason_code": reason_code,
+            **({"next_poll_seconds": _next_poll_seconds(workflow) or "30"}
+               if status == ProcessingStatus.FAILED_RETRYABLE else {}),
         }
     finally:
         await engine.dispose()
@@ -2300,6 +2345,7 @@ async def _persist_activity_client_error(
     status: ProcessingStatus,
     reason_code: str,
     retry_after_seconds: int | None = None,
+    settings: Any | None = None,
 ) -> None:
     async with sessionmaker() as db:
         if tenant_scope is not None:
@@ -2327,17 +2373,23 @@ async def _persist_activity_client_error(
         if workflow is None:
             raise ProcessingLifecycleBlocked("processing_workflow_missing")
         if status == ProcessingStatus.FAILED_RETRYABLE:
-            schedule = schedule_retry(
-                now=datetime.now(UTC),
-                retry_count=int(workflow.retry_count or 0),
-                generation=int(workflow.schedule_generation or 0),
-                retry_after=(
+            scheduler = schedule_retry_with_settings if settings is not None else schedule_retry
+            schedule_kwargs = {
+                "now": datetime.now(UTC),
+                "retry_count": int(workflow.retry_count or 0),
+                "generation": int(workflow.schedule_generation or 0),
+                "retry_after": (
                     timedelta(seconds=max(0, int(retry_after_seconds)))
                     if retry_after_seconds is not None
                     else None
                 ),
-                deadline_at=workflow.deadline_at,
-                source="provider_retry_after" if retry_after_seconds is not None else None,
+                "deadline_at": workflow.deadline_at,
+                "source": "provider_retry_after" if retry_after_seconds is not None else None,
+            }
+            schedule = (
+                scheduler(settings, **schedule_kwargs)
+                if settings is not None
+                else scheduler(**schedule_kwargs)
             )
             workflow.next_attempt_at = schedule.next_attempt_at
             workflow.next_attempt_source = schedule.source
@@ -2345,7 +2397,11 @@ async def _persist_activity_client_error(
             workflow.retry_count = schedule.retry_count
             workflow.retry_class = "retryable"
         if status == ProcessingStatus.BLOCKED_UNKNOWN:
-            restored = await _restore_unknown_processing_state(db, workflow=workflow)
+            restored = await _restore_unknown_processing_state(
+                db,
+                workflow=workflow,
+                settings=settings,
+            )
             if restored is None:
                 raise ProcessingLifecycleBlocked("processing_workflow_missing")
             return

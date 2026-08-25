@@ -333,6 +333,7 @@ async def check_processing(
             db,
             workflow_id=claim.workflow.id,
             manual_command_version=int(claim.workflow.manual_command_version or 0),
+            settings=getattr(request.app.state, "settings", None),
         )
         raise ProblemDetail(
             status=503,
@@ -351,6 +352,7 @@ async def check_processing(
             db,
             workflow_id=claim.workflow.id,
             manual_command_version=int(claim.workflow.manual_command_version or 0),
+            settings=getattr(request.app.state, "settings", None),
         )
         raise ProblemDetail(
             status=503,

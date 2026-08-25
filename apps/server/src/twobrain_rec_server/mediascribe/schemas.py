@@ -312,10 +312,22 @@ class MediaScribeTranscriptSegment(MediaScribeModel):
     source_role_original: str | None = None
 
 
+class MediaScribeWordItem(BaseModel):
+    """The public v0.5.3 word contract; provider extensions are not public."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    word: str
+    start: float | None = None
+    end: float | None = None
+    probability: float | None = None
+
+
 class MediaScribeDiarizationSegment(MediaScribeTranscriptSegment):
     speaker_label: str = Field(
         validation_alias=AliasChoices("speaker_label", "speaker"),
     )
+    words: list[MediaScribeWordItem] | None = None
 
 
 class MediaScribeAcousticSpeakerTurn(MediaScribeModel):
