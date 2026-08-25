@@ -68,7 +68,7 @@ def test_renewal_and_storage_addon_are_bounded() -> None:
 
 def test_receipt_history_and_notification_copy_is_safe() -> None:
     assert mask_payment_method("card_ending_1234") == "card_ending_1234"
-    assert receipt_label(ReceiptState.AVAILABLE) == "Открыть чек"
+    assert receipt_label(ReceiptState.AVAILABLE) == "Чек зарегистрирован"
     event = build_notification(event_id="evt-1", kind=BillingNotification.PAYMENT_SUCCEEDED, payload={"invoice": "INV-1", "provider_token": "secret"})
     assert event.safe_payload == {"invoice": "INV-1"}
 

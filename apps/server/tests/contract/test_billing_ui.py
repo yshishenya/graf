@@ -1,16 +1,21 @@
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from uuid import UUID
 
+import pytest
 from starlette.requests import Request
 
 from twobrain_rec_server.billing.catalog import plan_descriptor
+from twobrain_rec_server.billing.receipts import ReceiptState, receipt_label
 from twobrain_rec_server.billing.usage import format_duration
 from twobrain_rec_server.cabinet.templates import render_template
 from twobrain_rec_server.cabinet.view_models import settings_category_navigation
+from twobrain_rec_server.cabinet.web_routes import billing as billing_routes
 from twobrain_rec_server.cabinet.web_routes.billing import (
     _billing_amount_label,
     _checkout_result_redirect,
     _processing_threshold_label,
+    _receipt_registration_state,
 )
 from twobrain_rec_server.cabinet.web_routes.billing import (
     router as billing_router,
@@ -23,6 +28,87 @@ def test_billing_labels_are_localized_for_user_surfaces() -> None:
     assert _processing_threshold_label("normal") == "В норме"
     assert _processing_threshold_label("approaching") == "Приближается к лимиту"
     assert _processing_threshold_label("exhausted") == "Лимит исчерпан"
+
+
+def test_billing_receipt_registration_uses_provider_status_mapping() -> None:
+    assert _receipt_registration_state("succeeded") is ReceiptState.AVAILABLE
+    assert _receipt_registration_state("pending") is ReceiptState.PENDING
+    assert _receipt_registration_state("invalid") is ReceiptState.UNKNOWN
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("registration", "expected_url"),
+    (("succeeded", "https://yookassa.test/receipt/1"), ("pending", None), ("invalid", None)),
+)
+async def test_invoice_receipt_link_requires_registered_receipt(
+    monkeypatch: pytest.MonkeyPatch,
+    registration: str,
+    expected_url: str | None,
+) -> None:
+    invoice = SimpleNamespace(
+        safe_number="INV-RECEIPT1",
+        created_at=datetime(2026, 8, 26, tzinfo=UTC),
+        amount_minor=1_000,
+        currency="RUB",
+        status="succeeded",
+        receipt_contact_snapshot=None,
+        plan_snapshot={
+            "cycle": "month",
+            "receipt_registration": registration,
+            "receipt_url": "https://yookassa.test/receipt/1",
+        },
+    )
+
+    class FakeSession:
+        def __init__(self) -> None:
+            self.results = iter((None, invoice))
+
+        async def scalar(self, _statement: object) -> object:
+            return next(self.results)
+
+    captured: dict[str, object] = {}
+
+    async def owner_role(*_args: object, **_kwargs: object) -> str:
+        return "owner"
+
+    def capture_page(_title: str, **context: object) -> str:
+        captured.update(context)
+        return "billing invoice"
+
+    monkeypatch.setattr(billing_routes, "_billing_role", owner_role)
+    monkeypatch.setattr(billing_routes, "_page_shell", capture_page)
+    monkeypatch.setattr(billing_routes, "build_request_browser_provider_context", lambda *_a, **_k: {})
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "scheme": "https",
+            "server": ("graf.test", 443),
+            "path": "/billing/invoices/INV-RECEIPT1",
+            "headers": [],
+            "query_string": b"",
+            "app": SimpleNamespace(
+                state=SimpleNamespace(settings=SimpleNamespace(billing_support_email=None))
+            ),
+        }
+    )
+    principal = SimpleNamespace(user_id=UUID(int=1), session_id=None, auth_via_session=False)
+    tenant_scope = SimpleNamespace(workspace_id=UUID(int=2), device_id=UUID(int=3))
+
+    response = await billing_routes.billing_invoice_detail_page(
+        "INV-RECEIPT1",
+        request,
+        tenant_scope=tenant_scope,
+        principal=principal,
+        db=FakeSession(),
+    )
+
+    assert response.status_code == 200
+    invoice_context = captured["invoice"]
+    assert isinstance(invoice_context, dict)
+    assert invoice_context["receipt_url"] == expected_url
+    assert invoice_context["receipt_label"] == receipt_label(_receipt_registration_state(registration))
 
 
 def test_billing_keeps_legacy_account_alias_on_canonical_surface() -> None:

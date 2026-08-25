@@ -53,7 +53,11 @@ from twobrain_rec_server.billing.promotions import (
     promo_code_hash,
 )
 from twobrain_rec_server.billing.provider_events import validate_provider_identifier
-from twobrain_rec_server.billing.receipts import ReceiptState, receipt_label
+from twobrain_rec_server.billing.receipts import (
+    ReceiptState,
+    receipt_label,
+    receipt_state_for_registration,
+)
 from twobrain_rec_server.billing.referrals import referral_token_hash, validate_referral_token
 from twobrain_rec_server.billing.refund_email import build_refund_mailto
 from twobrain_rec_server.billing.storage import (
@@ -604,6 +608,13 @@ def _invoice_status_label(status: str) -> str:
         "failed": "Не выполнен",
         "unknown": "Проверяем результат",
     }.get(status, "Статус уточняется")
+
+
+def _receipt_registration_state(value: object) -> ReceiptState:
+    try:
+        return receipt_state_for_registration(value if isinstance(value, str) else None)
+    except ValueError:
+        return ReceiptState.UNKNOWN
 
 
 def _masked_receipt_contact(value: str | None) -> str | None:
@@ -2908,13 +2919,7 @@ async def billing_history_page(
         )
         for invoice in rows:
             snapshot = invoice.plan_snapshot if isinstance(invoice.plan_snapshot, dict) else {}
-            receipt_value = snapshot.get("receipt_registration")
-            try:
-                receipt_state = (
-                    ReceiptState(receipt_value) if isinstance(receipt_value, str) else ReceiptState.UNKNOWN
-                )
-            except ValueError:
-                receipt_state = ReceiptState.UNKNOWN
+            receipt_state = _receipt_registration_state(snapshot.get("receipt_registration"))
             refund_mailto = None
             if request.app.state.settings.billing_support_email:
                 try:
@@ -2996,12 +3001,8 @@ async def billing_invoice_detail_page(
     if invoice is None:
         return RedirectResponse("/billing/history?result=not_found", status_code=303)
     snapshot = invoice.plan_snapshot if isinstance(invoice.plan_snapshot, dict) else {}
-    receipt_value = snapshot.get("receipt_registration")
-    try:
-        receipt_state = ReceiptState(receipt_value) if isinstance(receipt_value, str) else ReceiptState.UNKNOWN
-    except ValueError:
-        receipt_state = ReceiptState.UNKNOWN
-    receipt_url = snapshot.get("receipt_url")
+    receipt_state = _receipt_registration_state(snapshot.get("receipt_registration"))
+    receipt_url = snapshot.get("receipt_url") if receipt_state is ReceiptState.AVAILABLE else None
     if not is_allowed_confirmation_url(receipt_url):
         receipt_url = None
     refund_mailto = None
