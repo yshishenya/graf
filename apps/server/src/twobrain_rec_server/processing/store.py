@@ -80,6 +80,7 @@ from twobrain_rec_server.processing.lifecycle import (
 from twobrain_rec_server.processing.reasons import (
     BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN,
     BLOCKED_TEMPORAL_UNAVAILABLE,
+    NO_RECOGNIZABLE_SPEECH,
 )
 from twobrain_rec_server.processing.recovery import (
     DEFAULT_DEADLINE,
@@ -799,6 +800,20 @@ async def create_processing_attempt(
         )
     current = workflows[0]
     current_status = getattr(current.status, "value", current.status)
+    current_result = await latest_processing_result(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        media_revision_id=media_revision.id,
+    )
+    processed_no_speech_is_terminal = bool(
+        current_status == ProcessingStatus.PROCESSED.value
+        and current_result is not None
+        and current_result.status == ProcessingResultStatus.IMPORTED.value
+        and current_result.media_revision_id == media_revision.id
+        and current_result.processing_workflow_id == current.id
+        and current_result.failure_reason == NO_RECOGNIZABLE_SPEECH
+    )
     if current_status == ProcessingStatus.BLOCKED_UNKNOWN.value:
         return ProcessingAttemptCreation(
             result="unknown_outcome",
@@ -813,7 +828,7 @@ async def create_processing_attempt(
             media_revision_id=media_revision.id,
             attempt_ordinal=int(current.attempt_ordinal or 1),
         )
-    if current_status != ProcessingStatus.FAILED_TERMINAL.value:
+    if current_status != ProcessingStatus.FAILED_TERMINAL.value and not processed_no_speech_is_terminal:
         return ProcessingAttemptCreation(
             result=(
                 "configuration_failure"
