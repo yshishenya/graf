@@ -15,7 +15,7 @@
   `apps/server/src/twobrain_rec_server/processing/status.py`.
 - [X] T005 [US3] Прогнать focused matrix, quickstart, diff check и fast/full CI;
   записать evidence в `specs/204-terminal-no-speech-recovery/quickstart.md`.
-- [ ] T006 [US3] После approval проверить exact-SHA production deployment и
+- [X] T006 [US3] После approval проверить exact-SHA production deployment и
   metadata-only smoke на существующей записи.
 - [X] T007 [US3] Исправить lazy Temporal dispatch в новых попытках и manual
   check и добавить API regression coverage без заранее заполненного
