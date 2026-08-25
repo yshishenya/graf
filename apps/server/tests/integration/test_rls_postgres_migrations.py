@@ -27,6 +27,10 @@ PROMOTION_COUNTER_MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0080_promotion_reservation_counter_trigger.py"
 )
+PROMOTION_COUNTER_HARDENING_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0081_secure_promotion_counter_function.py"
+)
 
 
 def test_rls_migration_revision_file_exists() -> None:
@@ -90,5 +94,17 @@ def test_promotion_counter_migration_keeps_counter_updates_inside_trigger() -> N
     assert 'revision: str = "0080_promo_counter_trigger"' in migration_text
     assert 'down_revision: str | None = "0079_remove_billing_launch_gates"' in migration_text
     assert "security definer" in migration_text
+    assert "set search_path = pg_catalog, pg_temp" in migration_text
+    assert migration_text.count("update public.promotion_campaigns") == 2
     assert "promotion_redemptions_sync_campaign_counter" in migration_text
     assert "reserved_count = reserved_count + 1" in migration_text
+
+
+def test_promotion_counter_hardening_upgrades_existing_0080_database() -> None:
+    assert PROMOTION_COUNTER_HARDENING_MIGRATION.exists()
+    migration_text = PROMOTION_COUNTER_HARDENING_MIGRATION.read_text(encoding="utf-8")
+
+    assert 'revision: str = "0081_secure_promo_counter"' in migration_text
+    assert 'down_revision: str | None = "0080_promo_counter_trigger"' in migration_text
+    assert "set search_path = pg_catalog, pg_temp" in migration_text
+    assert migration_text.count("update public.promotion_campaigns") == 2
