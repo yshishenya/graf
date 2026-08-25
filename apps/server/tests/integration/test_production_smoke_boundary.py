@@ -33,6 +33,20 @@ def test_production_smoke_runner_dry_run_is_remote_first_and_non_ready() -> None
     assert "user_rollout_ready" not in output
 
 
+def test_production_smoke_execute_requires_release_gate() -> None:
+    result = subprocess.run(
+        [str(REPO_ROOT / "infra/scripts/run-production-smoke.sh"), "--execute"],
+        check=False,
+        text=True,
+        capture_output=True,
+        env={**os.environ, "TWOBRAIN_SMOKE_RUN_ID": "smoke-014"},
+    )
+
+    assert result.returncode != 0
+    assert "smoke_result=blocked" in result.stdout
+    assert "reason=production_smoke_requires_release_gate" in result.stdout
+
+
 def test_production_smoke_runner_mints_auth_session_and_cleans_it_up() -> None:
     script = (REPO_ROOT / "infra/scripts/run-production-smoke.sh").read_text()
 

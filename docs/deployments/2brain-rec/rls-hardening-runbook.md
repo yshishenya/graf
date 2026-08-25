@@ -14,8 +14,9 @@ production truth record:
 
 1. Local regression: `./infra/scripts/ci-local.sh`
 2. PostgreSQL RLS probe suite with `RLS_TEST_DATABASE_URL` set, or the
-   disposable database path created by `verify-rec-migration.sh --execute`.
-3. Production-like migration verification: `./infra/scripts/verify-rec-migration.sh --remote`
+   disposable database path created by the canonical release flow.
+3. Production-like migration verification: the migration gate inside
+   `./infra/scripts/cd-remote.sh --execute --branch master`.
 4. Production read-only state inspection:
    `python3 apps/server/scripts/verify_rls_hardening.py --production-read-only`
 5. Metadata-only evidence scan for specs, tests, scripts, and deployment notes.
@@ -32,8 +33,12 @@ Required probe categories:
 Production verification must run probes against a disposable `twobrain_rec_rls_*`
 database unless an operator intentionally provides a separate test database URL.
 Do not point `RLS_TEST_DATABASE_URL` at the live `twobrain_rec` production
-database. The validation helper fail-closes before migrations or probes when
+database. The validation helper fail-closes before probes when
 the URL database name is `twobrain_rec`.
+
+Direct `verify-rec-migration.sh --remote` and `--execute` calls are blocked;
+this prevents an isolated check from competing with another release or
+accidentally touching the shared production runtime.
 
 ## Halt Criteria
 

@@ -36,9 +36,14 @@ shell_quote() {
 }
 
 if [[ "$MODE" == "remote" ]]; then
+  if [[ "${TWOBRAIN_PRODUCTION_RELEASE_GATE:-}" != "1" ]]; then
+    echo "smoke_result=blocked"
+    echo "reason=production_smoke_requires_release_gate"
+    exit 1
+  fi
   remote_path_quoted="$(shell_quote "$REMOTE_PATH")"
   remote_run_id_quoted="$(shell_quote "$RUN_ID")"
-  ssh "$REMOTE_HOST" "cd -- $remote_path_quoted && TWOBRAIN_SMOKE_RUN_ID=$remote_run_id_quoted exec infra/scripts/run-production-smoke.sh --execute"
+  ssh "$REMOTE_HOST" "cd -- $remote_path_quoted && TWOBRAIN_PRODUCTION_RELEASE_GATE=1 TWOBRAIN_SMOKE_RUN_ID=$remote_run_id_quoted exec infra/scripts/run-production-smoke.sh --execute"
   exit $?
 fi
 
@@ -80,6 +85,22 @@ fi
 if [[ -L "$SMOKE_ARTIFACT_DIR" || -L "$SMOKE_TOKEN_FILE" ]]; then
   echo "smoke artifact and token paths must not be symlinks" >&2
   exit 2
+fi
+if [[ "${TWOBRAIN_PRODUCTION_RELEASE_GATE:-}" != "1" ]]; then
+  echo "smoke_result=blocked"
+  echo "reason=production_smoke_requires_release_gate"
+  exit 1
+fi
+
+if [[ "${TWOBRAIN_PRODUCTION_RELEASE_LOCK_HELD:-0}" != "1" ]]; then
+  cd "$(dirname "$0")/../.."
+  smoke_release_lock="$(git rev-parse --git-path twobrain-rec-deploy.lock)"
+  exec 8>"$smoke_release_lock"
+  if ! /usr/bin/flock -n 8; then
+    echo "smoke_result=blocked"
+    echo "reason=deploy_already_running"
+    exit 1
+  fi
 fi
 SMOKE_RUN_DIR="$(mktemp -d "/tmp/twobrain-rec-smoke-${RUN_ID}.XXXXXX")"
 chmod 700 "$SMOKE_RUN_DIR"

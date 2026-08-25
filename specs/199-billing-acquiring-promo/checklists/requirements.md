@@ -17,3 +17,5 @@
 - [x] Raw-code handling and operator boundary are explicit.
 - [x] Error and stale-state cases are covered.
 - [x] No public refund/admin surface is introduced.
+- [x] Failure-before-provider-reference, same-key continuation, key expiry and
+  truthful no-op status requirements are explicit and independently testable.

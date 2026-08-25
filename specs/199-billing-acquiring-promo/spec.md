@@ -30,6 +30,12 @@ review и production enablement остаются внешними операци
   checks.
 - Provider canary and independent review remain operational evidence, but
   отсутствие записи в бывшем internal registry больше не блокирует оплату.
+- Если YooKassa отклоняет или обрывает первый create до сохранения `provider_id`,
+  GRAF сохраняет только безопасный класс ошибки и продолжает ту же immutable
+  операцию с тем же provider idempotency key. Новая invoice/operation не создаётся.
+- Продолжение доступно только до `provider_key_expires_at`; после истечения окна
+  операция остаётся заблокированной для ручной сверки. Production-магазин не
+  включается: canary выполняется production-приложением только в test shop.
 
 ## User Scenarios & Testing
 
@@ -107,6 +113,29 @@ no-go state.
    release owner proceeds, **Then** production enablement remains a separate
    explicit approval and dry-run precedes execute.
 
+### User Story 4 - Продолжить незавершённую оплату без двойного списания (Priority: P1)
+
+Если первый запрос к YooKassa завершился до получения `provider_id`, Owner сразу
+видит фактическое локальное состояние операции. Пока исходный idempotency key
+действует, Owner может явно продолжить эту же операцию; GRAF повторяет тот же
+immutable checkout request с тем же ключом и не создаёт вторую invoice.
+
+**Independent Test**: Смоделировать provider reject/timeout до `provider_id`,
+повтор с тем же ключом, истёкший ключ и status refresh с `processed=0`.
+
+**Acceptance Scenarios**:
+
+1. **Given** create payment завершился без `provider_id`, **When** Owner открывает
+   статус, **Then** он видит локальный failure state и действие «Продолжить
+   оплату», а не ложное сообщение об обычном provider pending.
+2. **Given** исходный provider key ещё действует, **When** Owner продолжает
+   оплату, **Then** GRAF использует те же operation, invoice, amount, receipt
+   snapshot и idempotency key и сохраняет единственный provider id.
+3. **Given** provider key истёк, **When** Owner пытается продолжить, **Then**
+   provider mutation не выполняется и операция остаётся manual-resolution.
+4. **Given** операция не подходит для provider polling, **When** Owner запрашивает
+   refresh, **Then** UI не утверждает, что проверка обновила состояние.
+
 ## Edge Cases
 
 - Unicode confusable, whitespace and unsupported characters never become a
@@ -120,6 +149,9 @@ no-go state.
 - A missing catalog, disabled billing flag, emergency stop or invalid provider
   environment/shop keeps amounts/provider actions unavailable rather than
   inventing a price.
+- Provider/configuration/transport failure metadata contains only a bounded
+  class, optional HTTP status and timestamp; exception text and provider payload
+  are not persisted or rendered.
 
 ## Requirements
 
@@ -144,6 +176,16 @@ no-go state.
   checkout may be introduced by this feature.
 - **FR-008**: Launch documentation MUST preserve test/prod separation, provider
   observation, operational review, emergency stop and exact-SHA evidence.
+- **FR-009**: A checkout failure before `provider_id` MUST preserve the existing
+  operation/invoice and MUST NOT authorize a second checkout operation.
+- **FR-010**: Explicit continuation MUST reuse the immutable checkout snapshot
+  and original provider idempotency key, and MUST fail closed after
+  `provider_key_expires_at`.
+- **FR-011**: Checkout/status UI MUST render the current local state immediately;
+  a reconciliation no-op MUST NOT be reported as a successful refresh.
+- **FR-012**: Persisted checkout failure diagnostics MUST be metadata-safe and
+  MUST NOT include provider payload, exception text, credentials or receipt
+  contact.
 
 ### Key Entities
 
@@ -165,6 +207,9 @@ no-go state.
 - **SC-004**: Checkout remains controlled by explicit settings, provider/shop
   separation and emergency stop; no code change silently enables production
   money mutations.
+- **SC-005**: Focused tests prove that reject/timeout recovery makes at most one
+  logical provider request identity and that expired keys perform zero provider
+  mutations.
 
 ## Assumptions
 

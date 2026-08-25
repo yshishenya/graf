@@ -438,3 +438,41 @@ def test_checkout_hides_publishable_price_when_store_is_disabled() -> None:
     assert "магазин не включён" in html
     assert 'name="cycle" value="month"' not in html
     assert "Оплатить 790 ₽" not in html
+
+
+def test_manual_checkout_recovery_offers_continue_instead_of_noop_refresh() -> None:
+    common = {
+        "embedded": False,
+        "settings_navigation": settings_category_navigation(active="billing"),
+        "settings_active": "billing",
+        "csrf_token": "synthetic-csrf",
+        "invoice": SimpleNamespace(
+            safe_number="INV-RECOVERY1",
+            created_at_label="25.08.2026, 15:00 (МСК)",
+        ),
+        "amount_label": "10 ₽",
+        "operation_state_label": "Нужна ручная сверка платежа",
+        "updated_at_label": "25.08.2026, 15:01 (МСК)",
+        "billing_enabled": True,
+        "status_result": "provider_unavailable",
+    }
+    recovery_html = render_template(
+        "cabinet/pages/billing_operation_status_content.html",
+        **common,
+        operation_state="manual_resolution",
+        can_continue_payment=True,
+        can_refresh_payment=False,
+    )
+    pending_html = render_template(
+        "cabinet/pages/billing_operation_status_content.html",
+        **common,
+        operation_state="provider_pending",
+        can_continue_payment=False,
+        can_refresh_payment=True,
+    )
+
+    assert "Продолжить оплату" in recovery_html
+    assert "/continue" in recovery_html
+    assert "Проверить статус" not in recovery_html
+    assert "Проверить статус" in pending_html
+    assert "Продолжить оплату" not in pending_html

@@ -36,6 +36,21 @@ out of scope until Feature 140 launch evidence is complete.
 - [X] T015 [US3] Run focused billing/RLS/migration checks and record that full CI and provider payment were intentionally not run.
 - [X] T016 [US3] Fix production checkout promo reservation RLS by moving campaign counter transitions to a database trigger in `apps/server/src/twobrain_rec_server/db/migrations/versions/0080_promotion_reservation_counter_trigger.py` and removing duplicate ORM counter writes.
 - [X] T017 [US3] Re-run focused billing/migration checks and verify the test-shop checkout path without repeating an unresolved payment operation.
+- [X] T018 [US3] Make production deploy, migration verification, smoke and the production migration entrypoint fail closed outside a merged `master` release with one shared lock.
+
+## Phase 6: Recover checkout before provider reference
+
+- [X] T019 [US4] Add RED tests for provider reject before `provider_id`, same-key continuation, expired-key blocking, metadata-safe diagnostics and truthful status refresh in `apps/server/tests/unit/test_initial_checkout_recovery.py` and `apps/server/tests/contract/test_billing_ui.py`.
+- [X] T020 [US4] Reuse one immutable hosted-payment helper for initial create and explicit continuation in `apps/server/src/twobrain_rec_server/cabinet/web_routes/billing.py`.
+- [X] T021 [US4] Render the real local state and only the valid continue/refresh action in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_operation_status_content.html` and `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_overview_content.html`.
+- [X] T022 [US4] Run the focused billing/RLS quickstart, fast lane and release-candidate full CI; update `CHANGELOG.md` with exact evidence.
+- [ ] T023 [US4] Merge through PR, deploy only clean synchronized `master`, then repeat one payment against the test shop without enabling the production shop.
+
+Validation evidence (2026-08-25, candidate based on `origin/master` `104bd2dd`):
+focused billing `47 passed`; focused infra `89 passed`; FastAPI/PostgreSQL
+continue route `1 passed`; fast CI `1241 passed`; full CI `766` Swift tests,
+`3438 passed, 1 skipped` server tests and `52 passed, 1 skipped` strict RLS
+tests, with lint, compile, Compose and deployment evidence scan PASS.
 
 ## Dependencies
 
@@ -43,6 +58,8 @@ out of scope until Feature 140 launch evidence is complete.
 - T006 precedes T007 for provisioning.
 - T009 follows T003-T008; T010 follows T009; T011 follows all implementation and validation.
 - T012-T014 follow the current audit; T015 follows T012-T014; T016 follows
-  T015; T017 follows T016.
+  T015; T017 follows T016; T018 follows T017.
+- T019 precedes T020-T021; T022 follows T019-T021; T023 follows T022 and explicit
+  release approval already recorded for this test-shop canary.
 - T078-T080, T083-T085 and T087 from Feature 140 remain external gates and are
   not closed by this slice.

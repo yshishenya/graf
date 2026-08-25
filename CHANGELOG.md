@@ -18,6 +18,12 @@
 - После durable ожидания provider job с уже созданным idempotency key снова
   переводится в `submitted`, поэтому следующий Temporal poll может получить
   готовый результат и импортировать его вместо бесконечного повторения таймера.
+- Checkout после ошибки YooKassa до получения `provider_id` теперь показывает
+  фактический локальный статус и безопасно продолжает исходную операцию с тем же
+  invoice и idempotency key. Истёкший ключ не вызывает provider mutation, а
+  пустая сверка больше не выдаётся за успешное обновление (Feature 199).
+- Проверка синхронизации календаря теперь детерминированно читает основной
+  календарь и не зависит от порядка строк PostgreSQL при полном CI.
 
 ### Безопасность
 - _Пока нет записей._
@@ -241,6 +247,10 @@
 ### Операции
 - Тестовый платёж Feature 199 повторяется после проверки фикса; production-shop
   не используется.
+- Production runtime, migration verification и synthetic smoke теперь fail-closed:
+  execute проходит только через `master` release-контур с общим lock; прямой
+  запуск из feature-ветки или прямой production migration не может остановить
+  чужой deploy.
 
 ## [2026.08.25.3] - 2026-08-25
 
@@ -8524,5 +8534,4 @@
 - Added production read-only RLS state verification output for covered-table
   counts, enabled/forced counts, failed tables, deployed commit, and Alembic
   revision (`feature:032`, `T015-T020`, `T028-T037`).
-
 

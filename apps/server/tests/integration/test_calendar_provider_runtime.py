@@ -329,7 +329,10 @@ def test_provider_sync_discovers_catalog_before_selection(client) -> None:
     async def read_back() -> ExternalCalendar:
         async with client.app_state["sessionmaker"]() as session:
             return await session.scalar(
-                select(ExternalCalendar).where(ExternalCalendar.calendar_source_id == source_id)
+                select(ExternalCalendar).where(
+                    ExternalCalendar.calendar_source_id == source_id,
+                    ExternalCalendar.provider_calendar_id == "primary",
+                )
             )
 
     calendar = asyncio.run(read_back())

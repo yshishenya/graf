@@ -6,3 +6,7 @@
 - [x] Checkout revalidates catalog, eligibility, floor, consent and explicit provider environment/shop.
 - [x] No provider mutation is reachable from preview or provisioning dry-run.
 - [x] No secrets, payment data or private meeting data enter evidence.
+- [x] Checkout failure persistence is bounded to class, optional HTTP status and
+  timestamp; provider payload and exception text are excluded.
+- [x] Continuation remains owner-only, CSRF-protected, rate-limited and gated by
+  checkout/emergency-stop settings.
