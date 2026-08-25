@@ -20,6 +20,17 @@ CATALOG_XML = b"""
   </d:response>
 </d:multistatus>
 """
+PRINCIPAL_XML = b"""
+<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
+  <d:response>
+    <d:href>/principals/users/synthetic-owner@example.test/</d:href>
+    <d:propstat><d:prop>
+      <d:resourcetype><d:collection/></d:resourcetype>
+      <c:calendar-home-set><d:href>/calendars/users/synthetic-owner@example.test/</d:href></c:calendar-home-set>
+    </d:prop></d:propstat>
+  </d:response>
+</d:multistatus>
+"""
 EVENTS_XML = b"""
 <d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
   <d:response>
@@ -36,6 +47,23 @@ END:VCALENDAR</c:calendar-data></d:prop></d:propstat>
   </d:response>
 </d:multistatus>
 """
+MULTI_EVENT_XML = EVENTS_XML.replace(
+    b"</d:multistatus>",
+    b"""
+  <d:response>
+    <d:href>/calendars/synthetic/second.ics</d:href>
+    <d:propstat><d:prop><c:calendar-data>BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:second-synthetic-event@example.test
+DTSTART:20260819T110000Z
+DTEND:20260819T120000Z
+SUMMARY:Second Synthetic Event
+END:VEVENT
+END:VCALENDAR</c:calendar-data></d:prop></d:propstat>
+  </d:response>
+</d:multistatus>""",
+)
 
 
 class FakeCalDAVHttp:
@@ -83,7 +111,40 @@ async def test_caldav_catalog_and_events_are_read_only_and_normalized() -> None:
     assert http.requests[0]["method"] == "PROPFIND"
     assert http.requests[1]["method"] == "REPORT"
     assert "synthetic-app-password" not in str(http.requests[0]["body"])
+    assert "<d:displayname/><d:resourcetype>" in str(http.requests[0]["body"])
     assert "calendar-data" in str(http.requests[1]["body"])
+
+
+@pytest.mark.asyncio
+async def test_caldav_calendar_query_returns_complete_report_without_cursor() -> None:
+    adapter = CalDAVAdapter("custom_caldav", http=FakeCalDAVHttp([(207, MULTI_EVENT_XML, {})]))
+
+    page = await adapter.list_events(
+        _credential(), calendar_id="https://calendar.example.test/calendars/synthetic/"
+    )
+
+    assert {event.provider_event_id for event in page.events} == {
+        "synthetic-event@example.test",
+        "second-synthetic-event@example.test",
+    }
+    assert page.next_page_token is None
+    assert page.next_sync_token is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cursor", ["page-token", "sync-token"])
+async def test_caldav_does_not_silently_ignore_shared_cursors(cursor: str) -> None:
+    adapter = CalDAVAdapter("custom_caldav", http=FakeCalDAVHttp([]))
+
+    with pytest.raises(CalendarProviderError) as error:
+        await adapter.list_events(
+            _credential(),
+            calendar_id="https://calendar.example.test/calendars/synthetic/",
+            page_token=cursor if cursor == "page-token" else None,
+            sync_token=cursor if cursor == "sync-token" else None,
+        )
+
+    assert error.value.safe_code == "cursor_invalid"
 
 
 @pytest.mark.asyncio
@@ -206,7 +267,7 @@ def test_caldav_http_client_rejects_cross_origin_redirect_without_reusing_creden
 
 
 @pytest.mark.asyncio
-async def test_preset_caldav_connection_uses_its_documented_endpoint() -> None:
+async def test_yandex_preset_connection_uses_its_documented_principal_endpoint() -> None:
     http = FakeCalDAVHttp([(207, CATALOG_XML, {})])
     adapter = CalDAVAdapter("caldav_yandex", http=http)
 
@@ -219,4 +280,28 @@ async def test_preset_caldav_connection_uses_its_documented_endpoint() -> None:
         )
     )
 
-    assert http.requests[0]["url"] == "https://caldav.yandex.ru/"
+    assert (
+        http.requests[0]["url"]
+        == "https://caldav.yandex.ru/principals/users/synthetic-owner@example.test/"
+    )
+
+
+@pytest.mark.asyncio
+async def test_caldav_discovery_follows_calendar_home_set() -> None:
+    http = FakeCalDAVHttp([(207, PRINCIPAL_XML, {}), (207, CATALOG_XML, {})])
+    adapter = CalDAVAdapter("caldav_yandex", http=http)
+
+    validation = await adapter.validate(
+        json.dumps(
+            {
+                "username": "synthetic-owner@example.test",
+                "credential_input": "synthetic-app-password",
+            }
+        )
+    )
+
+    assert validation.calendars[0].display_label == "Synthetic Calendar"
+    assert [request["url"] for request in http.requests] == [
+        "https://caldav.yandex.ru/principals/users/synthetic-owner@example.test/",
+        "https://caldav.yandex.ru/calendars/users/synthetic-owner@example.test/",
+    ]

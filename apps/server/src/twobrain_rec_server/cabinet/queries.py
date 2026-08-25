@@ -340,6 +340,11 @@ async def get_calendar_settings_surface(
                 settings is not None
                 and getattr(settings, "env", "production").lower() == "development"
             ),
+            allow_uncertified_yandex=(
+                settings is not None
+                and getattr(settings, "env", "production").lower() == "development"
+                and getattr(settings, "calendar_allow_uncertified_yandex", False)
+            ),
         ),
         sources=sources,
         calendars_by_source=calendars_by_source,

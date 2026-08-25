@@ -24,7 +24,10 @@
   const resetProcessingListProjectionState = ({ preserveSnapshots = false } = {}) => {
     if (processingListProjectionPollTimer) window.clearTimeout(processingListProjectionPollTimer);
     processingListProjectionPollTimer = null;
-    processingListProjectionRequests.forEach((entry) => entry.controller?.abort());
+    processingListProjectionRequests.forEach((entry, meetingId) => {
+      entry.controller?.abort();
+      if (preserveSnapshots) processingListProjectionLastFetchedAt.delete(meetingId);
+    });
     processingListProjectionRequests.clear();
     if (!preserveSnapshots) {
       processingListProjectionLastFetchedAt.clear();
@@ -4122,7 +4125,7 @@
     const mutationCopy = {
       connect: "Проверяем доступ…",
       selection: "Сохраняем выбор…",
-      sync: "Ставим синхронизацию в очередь…",
+      sync: "Синхронизируем календарь…",
       disconnect: "Отключаем календарь…",
     };
     const initCalendarMutation = (form) => {

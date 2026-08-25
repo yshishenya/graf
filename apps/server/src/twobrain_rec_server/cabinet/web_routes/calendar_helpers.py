@@ -50,6 +50,7 @@ def safe_calendar_provider_result(value: str | None) -> str:
     if normalized in {
         "success",
         "cancelled",
+        "invalid_credentials",
         "denied",
         "failed",
         "no_readable_calendars",
@@ -90,7 +91,13 @@ def calendar_manual_sync_result(source, *, requested_at: datetime | None = None)
         ):
             return "accepted"
         return "already_running"
-    if source.sync_state in {"failed", "failed_closed", "provider_unavailable", "rate_limited"}:
+    if source.sync_state in {
+        "failed",
+        "failed_closed",
+        "provider_unavailable",
+        "rate_limited",
+        "stale",
+    }:
         return "failed"
     if (
         source.sync_state == "never_synced"

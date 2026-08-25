@@ -112,6 +112,23 @@ def test_google_provider_payload_reflects_runtime_availability() -> None:
     assert development_verification["runtime_available"] is True
 
 
+def test_yandex_provider_payload_can_be_enabled_only_for_local_verification() -> None:
+    local_verification = next(
+        item
+        for item in provider_preset_payloads(allow_uncertified_yandex=True)
+        if item["provider_family"] == "caldav_yandex"
+    )
+    default = next(
+        item
+        for item in provider_preset_payloads()
+        if item["provider_family"] == "caldav_yandex"
+    )
+
+    assert default["runtime_available"] is False
+    assert local_verification["supported"] is True
+    assert local_verification["runtime_available"] is True
+
+
 def test_provider_payload_does_not_claim_missing_ews_or_bitrix_runtime() -> None:
     payloads = {
         item["provider_family"]: item for item in provider_preset_payloads(google_available=True)

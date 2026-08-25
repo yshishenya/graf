@@ -10,7 +10,7 @@ from datetime import UTC
 from hashlib import sha256
 from typing import Any, Protocol
 from urllib.error import HTTPError
-from urllib.parse import urljoin, urlparse
+from urllib.parse import quote, urljoin, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 from xml.etree import ElementTree
 
@@ -161,6 +161,14 @@ class CalDAVAdapter:
         page_token: str | None = None,
         sync_token: str | None = None,
     ) -> CalendarEventPage:
+        """Read the complete CalDAV calendar-query REPORT response.
+
+        CalDAV calendar-query REPORT has no provider pagination-token contract;
+        a continuation cursor from the shared sync seam therefore requests a
+        safe full resync instead of being silently ignored.
+        """
+        if page_token or sync_token:
+            raise CalendarProviderError("cursor_invalid")
         config = _credential_config(credential, provider_family=self.provider_family)
         _require_same_origin(config["caldav_url"], calendar_id)
         body = _calendar_query_body(time_min, time_max)
@@ -212,20 +220,28 @@ class CalDAVAdapter:
             responses = _xml_responses(payload)
         except ElementTree.ParseError as exc:
             raise CalendarProviderError("invalid_payload") from exc
-        calendars = []
-        for response in responses:
-            if not response.get("is_calendar") or not response.get("href"):
-                continue
-            calendars.append(
-                CalendarCatalogEntry(
-                    provider_calendar_id=_require_same_origin(
-                        config["caldav_url"], str(response["href"])
-                    ),
-                    display_label=(response.get("display_name") or "CalDAV calendar")[:240],
-                    access_role="reader",
-                    primary=not calendars,
+        calendars = _catalog_entries(config["caldav_url"], responses)
+        if not calendars:
+            for calendar_home in _calendar_home_hrefs(payload, config["caldav_url"]):
+                home_status, home_payload, _home_headers = await self.http.request(
+                    "PROPFIND",
+                    calendar_home,
+                    username=config["username"],
+                    password=config["credential_input"],
+                    headers={
+                        "Content-Type": "application/xml; charset=utf-8",
+                        "Depth": "1",
+                    },
+                    body=_calendar_propfind_body(),
                 )
-            )
+                _require_success(home_status)
+                try:
+                    home_responses = _xml_responses(home_payload)
+                except ElementTree.ParseError as exc:
+                    raise CalendarProviderError("invalid_payload") from exc
+                calendars.extend(_catalog_entries(calendar_home, home_responses))
+                if calendars:
+                    break
         account = "|".join(
             (
                 self.provider_family,
@@ -247,9 +263,18 @@ def _credential_config(value: str, *, provider_family: str | None = None) -> dic
         key: config.get(key, "")
         for key in ("caldav_url", "username", "credential_input")
     }
+    if not all(isinstance(value, str) for value in result.values()):
+        raise CalendarProviderError("invalid_credentials")
+    if not result["username"].strip() or not result["credential_input"].strip():
+        raise CalendarProviderError("invalid_credentials")
     if not result["caldav_url"] and provider_family in PRESET_CALDAV_URLS:
         result["caldav_url"] = PRESET_CALDAV_URLS[provider_family]
-    if not all(isinstance(value, str) and value.strip() for value in result.values()):
+        if provider_family == "caldav_yandex":
+            result["caldav_url"] = urljoin(
+                result["caldav_url"],
+                f"principals/users/{quote(result['username'], safe='@')}/",
+            )
+    if not result["caldav_url"].strip():
         raise CalendarProviderError("invalid_credentials")
     if _safe_caldav_url(result["caldav_url"]) is None:
         raise CalendarProviderError("provider_policy_denied")
@@ -292,8 +317,8 @@ def _calendar_propfind_body() -> str:
     return (
         '<?xml version="1.0" encoding="utf-8" ?>'
         '<d:propfind xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">'
-        "<d:prop><d:displayname><d:resourcetype><c:calendar/></d:resourcetype>"
-        "</d:displayname></d:prop></d:propfind>"
+        "<d:prop><d:displayname/><d:resourcetype><c:calendar/></d:resourcetype>"
+        "<c:calendar-home-set/></d:prop></d:propfind>"
     )
 
 
@@ -350,6 +375,39 @@ def _xml_responses(payload: bytes) -> list[dict[str, str | bool]]:
                 row["is_calendar"] = True
         responses.append(row)
     return responses
+
+
+def _catalog_entries(
+    base_url: str, responses: list[dict[str, str | bool]]
+) -> list[CalendarCatalogEntry]:
+    calendars: list[CalendarCatalogEntry] = []
+    for response in responses:
+        if not response.get("is_calendar") or not response.get("href"):
+            continue
+        calendars.append(
+            CalendarCatalogEntry(
+                provider_calendar_id=_require_same_origin(base_url, str(response["href"])),
+                display_label=(response.get("display_name") or "CalDAV calendar")[:240],
+                access_role="reader",
+                primary=not calendars,
+            )
+        )
+    return calendars
+
+
+def _calendar_home_hrefs(payload: bytes, base_url: str) -> list[str]:
+    root = ElementTree.fromstring(payload)
+    hrefs: list[str] = []
+    for element in root.iter():
+        if _local(element.tag) != "calendar-home-set":
+            continue
+        for child in element.iter():
+            if _local(child.tag) != "href" or not (child.text or "").strip():
+                continue
+            href = _require_same_origin(base_url, child.text.strip())
+            if href not in hrefs:
+                hrefs.append(href)
+    return hrefs
 
 
 def _local(tag: str) -> str:

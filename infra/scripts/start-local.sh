@@ -5,6 +5,7 @@ COMPOSE_FILE="$ROOT_DIR/infra/docker-compose.local.yml"
 SERVER_DIR="$ROOT_DIR/apps/server"
 LOCAL_CREDENTIAL_KEY_FILE="$ROOT_DIR/infra/secrets/graf_credential_encryption_key"
 export TWOBRAIN_ENV=development
+export TWOBRAIN_CALENDAR_ALLOW_UNCERTIFIED_YANDEX="${TWOBRAIN_CALENDAR_ALLOW_UNCERTIFIED_YANDEX:-true}"
 export TWOBRAIN_API_HOST=127.0.0.1
 export TWOBRAIN_API_PORT="${TWOBRAIN_API_PORT:-8081}"
 export TWOBRAIN_DATABASE_URL="${TWOBRAIN_DATABASE_URL:-postgresql+asyncpg://twobrain_rec:twobrain_rec@127.0.0.1:54330/twobrain_rec}"

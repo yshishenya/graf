@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 import pytest
@@ -18,6 +18,11 @@ from twobrain_rec_server.calendar.providers import (
 )
 from twobrain_rec_server.calendar.service import disconnect_calendar_source
 from twobrain_rec_server.calendar.sync import run_calendar_provider_sync
+from twobrain_rec_server.calendar.worker import (
+    CALENDAR_SYNC_INTERVAL_SECONDS,
+    calendar_maintenance_context,
+    enqueue_due_yandex_calendar_syncs,
+)
 from twobrain_rec_server.db.models import (
     CalendarCredentialEnvelope,
     CalendarEventSnapshot,
@@ -103,6 +108,37 @@ def _create_selected_source(client) -> UUID:
     )
     assert selected.status_code == 200
     return source_id
+
+
+def test_yandex_due_source_is_queued_after_five_minutes(client) -> None:
+    source_id = _create_selected_source(client)
+    now = datetime(2026, 8, 25, 12, 0, tzinfo=UTC)
+
+    async def age_source() -> None:
+        async with client.app_state["sessionmaker"]() as session:
+            source = await session.get(CalendarSource, source_id)
+            source.sync_state = "synced"
+            source.last_successful_sync_at = now - timedelta(seconds=CALENDAR_SYNC_INTERVAL_SECONDS)
+            source.last_sync_finished_at = source.last_successful_sync_at
+            await session.commit()
+
+    asyncio.run(age_source())
+    queued = asyncio.run(
+        enqueue_due_yandex_calendar_syncs(
+            client.app_state["sessionmaker"],
+            calendar_maintenance_context(),
+            now=now,
+        )
+    )
+
+    async def read_source() -> CalendarSource:
+        async with client.app_state["sessionmaker"]() as session:
+            return await session.get(CalendarSource, source_id)
+
+    source = asyncio.run(read_source())
+    assert queued == 1
+    assert source.sync_state == "queued"
+    assert source.sync_horizon_end is not None
 
 
 def test_provider_sync_unseals_server_secret_and_persists_pages(client) -> None:
