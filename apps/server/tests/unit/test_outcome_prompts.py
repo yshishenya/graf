@@ -173,6 +173,18 @@ def test_outcome_prompt_config_is_closed_and_projected_explicitly() -> None:
             config=unsafe,
         )
 
+    legacy_capped = deepcopy(config)
+    legacy_capped["config_contract_version"] = 1
+    legacy_capped["max_completion_tokens"] = 2048
+    with pytest.raises(ValueError, match="prompt config does not match"):
+        validate_prompt_snapshot(
+            name="graf/meeting-outcome/auto",
+            version=7,
+            prompt_type="chat",
+            prompt=OUTCOME_PROMPT,
+            config=legacy_capped,
+        )
+
 
 def test_prompt_rejects_remote_ref_wrong_variables_and_modified_schema() -> None:
     config = outcome_config(schema_name="graf_meeting_outcome_auto_v1")

@@ -162,3 +162,30 @@ Risk lane: high-risk Spec Kit — AI, private meeting data, accepted-result inte
 - Новая генерация на реальном тексте не запускалась: production runtime ещё не
   привязан к `b676e0b1`, а повторный provider egress и изменение сохранённых
   итогов требуют отдельного production gate.
+
+## Continuation verification
+
+Дата: 2026-08-25
+
+- `master` повторно сверён с `origin/master`: оба указывают на `fbae88a4`
+  (`v2026.08.25.6`); рабочее дерево до этой metadata-only записи было чистым.
+- Langfuse Cloud EU read-only snapshot check подтвердил текущий production
+  drift: все 10 allowlisted outcome prompts (9 built-in и совместимый
+  `custom`) указывают на v5 с `config_contract_version=1` и
+  `max_completion_tokens`. Текущий validator намеренно отвергает этот legacy
+  shape, поэтому runtime остаётся fail-closed и не отправляет такой prompt в
+  LiteLLM.
+- Точные unlabelled candidate snapshots v23 для всех 10 prompt-ов проходят
+  текущий validator; их canonical hashes проверены metadata-only. Candidate
+  v23 содержит `gpt-5.6-luna` и не содержит `max_completion_tokens`.
+- Focused quickstart на текущем worktree: `104 passed`, 2 ожидаемых warnings;
+  local `/api/v1/health/live` и `/api/v1/health/ready` — HTTP 200; compose
+  config — PASS.
+- Доступный локальный browser runtime не содержит авторизованных реальных
+  встреч; production browser navigation не завершилась в bounded timeout, а
+  новая генерация не запускалась. Поэтому private real-meeting Temporal run,
+  provider egress и publication остаются blocked, пользовательские данные не
+  изменялись.
+- Prompt promotion, включение outcome generation, release, deploy и push
+  остаются отдельными gates. Попытка `git push` из этой среды снова не получила
+  ответа от SSH remote; локальные коммиты сохранены.

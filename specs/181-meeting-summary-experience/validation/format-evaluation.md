@@ -200,3 +200,24 @@ outcome, ту же media/processing revision и совместимый source ha
 Focused regression и fast CI после исправления зелёные. Новая генерация на
 реальной расшифровке не запускалась в этом smoke, поэтому transcript/output
 содержимое и provider egress в evidence отсутствуют.
+
+## Current Langfuse v4 snapshot compatibility re-check
+
+Дата: 2026-08-25
+
+- Langfuse Cloud EU project UI reported v4.17.0. Read-only SDK inspection of
+  the production label found v5 for each of the 10 allowlisted outcome prompt
+  names, with legacy `config_contract_version=1` plus
+  `max_completion_tokens`.
+- The current contract deliberately accepts only the no-cap v2 outcome shape
+  for new production candidates; v5 therefore fails validation before any
+  provider call. This is intended fail-closed behavior, not a provider quality
+  result.
+- Exact unlabelled candidate v23 snapshots for all 10 names passed the current
+  validator and were hashed without recording prompt or transcript content.
+  Candidate v23 routes to `gpt-5.6-luna` and has no token cap. No Langfuse
+  label, evaluator, dataset, experiment or annotation item was changed.
+- This check does not prove a private real-meeting run. It remains blocked until
+  an approved candidate-root/production-label promotion, a runtime deploy with
+  outcome generation enabled, and an authorized real-record execution are
+  available.
