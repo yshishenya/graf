@@ -25,6 +25,7 @@
 - [X] T010 [P] [US1] Обновить `CHANGELOG.md` в `[Unreleased]`.
 - [X] T011 [US1] Выполнить quickstart, focused tests, `git diff --check` и `infra/scripts/ci-local.sh --fast`; зафиксировать evidence.
 - [X] T012 [US1] Проверить UX/infra checklists и выполнить Spec Kit analyze без unresolved critical findings.
+- [X] T013 [US1] Исправить `apps/server/scripts/cleanup_smoke_artifacts.py`, чтобы удаление smoke-артефактов учитывало зависимости по `processing_result_id` и не оставляло production cleanup в блокирующем состоянии.
 
 ## Dependencies & Execution Order
 
@@ -54,3 +55,4 @@ provider jobs. Коммиты, PR, merge, release и deploy остаются о�
 - T010: #5864
 - T011: #5866
 - T012: #5865
+- T013: #5870
