@@ -1630,6 +1630,17 @@
           showCountdown: false,
         };
       }
+      if (["processing_retry_deadline_exceeded", "mediascribe_poll_limit_exceeded"].includes(reason)) {
+        return {
+          state: "retryable",
+          title: "Результат ещё не подтверждён",
+          copy: "MediaScribe не сообщил об ошибке. Автоматическое ожидание остановлено; проверьте обработку вручную.",
+          canCheck: projection?.manual_action === "check_now" && !inFlight,
+          canStartNewAttempt: false,
+          showRefresh: true,
+          showCountdown: false,
+        };
+      }
       const canCheck = projection?.manual_action === "check_now" && !inFlight;
       if (!canCheck) {
         return {
@@ -1759,6 +1770,18 @@
     }
     delete detail.dataset.processingRecoveryError;
     const transcriptReady = processingTranscriptReady(projection);
+    const statusLabel = detail.querySelector("[data-meeting-status-label]");
+    const projectionState = String(projection?.state || "").toLowerCase();
+    const retryClass = String(projection?.retry_class || "none");
+    const reason = String(projection?.reason_code || "").toLowerCase();
+    if (statusLabel) {
+      statusLabel.textContent = retryClass === "terminal"
+        || ["failed_terminal", "blocked", "canceled"].includes(projectionState)
+        ? "Нужна помощь"
+        : ["processing_retry_deadline_exceeded", "mediascribe_poll_limit_exceeded"].includes(reason)
+        ? "Нужна проверка"
+        : transcriptReady && projectionState === "processed" ? "Готово" : "Обрабатывается";
+    }
     const transcriptState = processingArtifactState(projection, "transcript");
     const transcriptVisible = transcriptReady;
     const terminalTranscript = ["failed", "unavailable"].includes(transcriptState);
@@ -1768,7 +1791,9 @@
       transcript.hidden = !transcriptVisible;
       transcript.setAttribute("aria-hidden", transcriptVisible ? "false" : "true");
     }
-    if (pending) pending.hidden = transcriptVisible || terminalTranscript;
+    const terminalProcessing = retryClass === "terminal"
+      || ["failed_terminal", "blocked", "canceled"].includes(projectionState);
+    if (pending) pending.hidden = transcriptVisible || terminalTranscript || terminalProcessing;
     updateProcessingExportVisibility(transcriptReady);
     detail.dataset.processingTranscriptVisible = transcriptVisible ? "true" : "false";
     detail.dataset.processingRetryClass = String(projection?.retry_class || "none");

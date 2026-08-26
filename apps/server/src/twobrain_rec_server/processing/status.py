@@ -141,6 +141,29 @@ async def get_content_safe_processing_status(
     elif state in {ProcessingStatus.BLOCKED, ProcessingStatus.FAILED_RETRYABLE}:
         manual_action = "contact_support"
     summary_state = store.summary_status_from_result(safe_result).value
+    terminal_without_result = state in {
+        ProcessingStatus.BLOCKED,
+        ProcessingStatus.FAILED_TERMINAL,
+        ProcessingStatus.CANCELED,
+    } and safe_result is None
+    transcript_artifact_state = (
+        "unavailable"
+        if terminal_without_result
+        else "available"
+        if transcript_available
+        else "processing"
+        if safe_result is None
+        else safe_result.transcript_status
+    )
+    diarization_artifact_state = (
+        "unavailable"
+        if terminal_without_result
+        else "available"
+        if diarization_available
+        else "processing"
+        if safe_result is None
+        else safe_result.diarization_status
+    )
     return ProcessingStatusResponse(
         meeting_id=meeting.id,
         media_revision_id=media_revision_id,
@@ -169,11 +192,11 @@ async def get_content_safe_processing_status(
         attempt_in_flight=attempt_in_flight,
         artifacts={
             "transcript": ProcessingArtifactProjection(
-                state="available" if transcript_available else "processing" if safe_result is None else safe_result.transcript_status,
+                state=transcript_artifact_state,
                 visible=transcript_available,
             ),
             "diarization": ProcessingArtifactProjection(
-                state="available" if diarization_available else "processing" if safe_result is None else safe_result.diarization_status,
+                state=diarization_artifact_state,
                 visible=diarization_available,
             ),
             "summary": ProcessingArtifactProjection(state=summary_state, visible=summary_state == "available"),

@@ -212,6 +212,7 @@ async def pick_up_processing(
                 expected_meeting_status=MeetingStatus.INGESTED_PENDING_PROCESSING.value,
                 expected_media_revision_id=media_revision_id,
                 archive_audio=meeting_archive_audio,
+                deadline_seconds=settings.processing_recovery_deadline_seconds,
             )
         except ProcessingLifecycleBlocked:
             await db.rollback()
@@ -280,6 +281,7 @@ async def pick_up_processing(
                 expected_meeting_status=MeetingStatus.INGESTED_PENDING_PROCESSING.value,
                 expected_media_revision_id=media_revision_id,
                 archive_audio=meeting_archive_audio,
+                deadline_seconds=settings.processing_recovery_deadline_seconds,
             )
         except ProcessingLifecycleBlocked:
             await db.rollback()

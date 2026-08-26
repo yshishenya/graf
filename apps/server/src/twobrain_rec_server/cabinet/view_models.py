@@ -486,8 +486,13 @@ PROCESSING_STATUSES = {
     ProcessingStatus.SUBMITTED.value,
     ProcessingStatus.POLLING.value,
     ProcessingStatus.WAITING_RETRY.value,
+    ProcessingStatus.FAILED_RETRYABLE.value,
     ProcessingStatus.IMPORTING.value,
 }
+
+PROCESSING_WATCHDOG_REASONS = frozenset(
+    {"processing_retry_deadline_exceeded", "mediascribe_poll_limit_exceeded"}
+)
 
 GENERATED_MANUAL_UPLOAD_RE = re.compile(r"^manual[-_]upload(?:[-_][a-z0-9]+)+$", re.IGNORECASE)
 GENERATED_CAPTURE_TITLE_RE = re.compile(
@@ -1805,6 +1810,8 @@ def meeting_list_row_presentation(
 
 def _meeting_list_content_readiness(item: MeetingListItem) -> str | None:
     presentation_status = meeting_list_presentation_status(item)
+    if presentation_status == "processing" and item.status_label == "Нужна проверка":
+        return "Результат ещё не подтверждён · откройте встречу для проверки"
     if presentation_status in {"submitted", "processing"}:
         return "Спикеры определяются · расшифровка готовится"
     if item.primary_action != "open" and presentation_status not in {"ready", "partial"}:
@@ -2394,9 +2401,19 @@ def build_list_item(
         duration_seconds=max(0, meeting.duration_seconds),
         source=source,
         status=status,
-        status_label=STATUS_LABELS[status],
+        status_label=(
+            "Нужна проверка"
+            if status == "processing"
+            and workflow is not None
+            and workflow.last_reason_code in PROCESSING_WATCHDOG_REASONS
+            else STATUS_LABELS[status]
+        ),
         status_reason=workflow.last_reason_code
-        if workflow is not None and status in {"blocked", "failed"}
+        if workflow is not None
+        and (
+            status in {"blocked", "failed"}
+            or workflow.last_reason_code in PROCESSING_WATCHDOG_REASONS
+        )
         else result.failure_reason
         if result is not None and status == "unavailable"
         else None,
@@ -2624,7 +2641,7 @@ def reason_label(reason_code: str | None) -> str | None:
         "mediascribe_submission_in_progress": "Предыдущая отправка ещё выполняется. Подождите завершения и обновите страницу.",
         "mediascribe_result_not_ready": "Сервис транскрипции ещё готовит результат. Повторная проверка будет выполнена автоматически.",
         "provider_result_not_ready": "Запись сохранена. GRAF проверит обработку автоматически; расшифровка появится после диаризации.",
-        "processing_retry_deadline_exceeded": "Автоматические попытки закончились. Проверьте обработку или обратитесь к оператору.",
+        "processing_retry_deadline_exceeded": "MediaScribe ещё не сообщил об ошибке, но автоматическое ожидание остановлено. Проверьте обработку вручную.",
         "manual_processing_check": "GRAF проверяет текущую попытку обработки.",
         "blocked_mediascribe_submission_outcome_unknown": "Не удалось подтвердить результат отправки записи. Повторная отправка остановлена во избежание дубликата; обратитесь к оператору.",
         "blocked_missing_artifacts": "Исходный файл записи недоступен. Повторите синхронизацию или загрузите запись заново.",

@@ -165,6 +165,7 @@ async def start_new_processing_attempt(
         db,
         workspace_id=tenant_scope.workspace_id,
         meeting_id=meeting_id,
+        deadline_seconds=request.app.state.settings.processing_recovery_deadline_seconds,
     )
     if creation.result == "already_in_flight":
         await db.rollback()

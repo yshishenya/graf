@@ -91,27 +91,32 @@ def _schedule_processing_retry(
     retry_after_seconds: int | None,
     provider_next_attempt_at: datetime | None = None,
     settings: object | None = None,
+    respect_max_attempts: bool = False,
 ) -> None:
     scheduler = schedule_retry_with_settings if settings is not None else schedule_retry
-    schedule = scheduler(
-        now=datetime.now(UTC),
-        retry_count=int(workflow.retry_count or 0),
-        generation=int(workflow.schedule_generation or 0),
-        retry_after=(
+    schedule_kwargs = {
+        "now": datetime.now(UTC),
+        "retry_count": int(workflow.retry_count or 0),
+        "generation": int(workflow.schedule_generation or 0),
+        "retry_after": (
             timedelta(seconds=max(0, int(retry_after_seconds)))
             if retry_after_seconds is not None
             else None
         ),
-        provider_next_attempt_at=provider_next_attempt_at,
-        deadline_at=workflow.deadline_at,
-        source=(
+        "provider_next_attempt_at": provider_next_attempt_at,
+        "deadline_at": workflow.deadline_at,
+        "source": (
             "provider_next_retry_at"
             if provider_next_attempt_at is not None
             else "provider_retry_after"
             if retry_after_seconds is not None
             else None
         ),
-        **({"settings": settings} if settings is not None else {}),
+    }
+    schedule = (
+        scheduler(settings, respect_max_attempts=respect_max_attempts, **schedule_kwargs)
+        if settings is not None
+        else scheduler(**schedule_kwargs)
     )
     workflow.retry_class = "retryable"
     workflow.retry_count = schedule.retry_count
@@ -520,9 +525,9 @@ async def submit_to_mediascribe(
             await store.set_workflow_status(
                 db,
                 workflow,
-                ProcessingStatus.FAILED_TERMINAL,
+                ProcessingStatus.FAILED_RETRYABLE,
                 reason_code="processing_retry_deadline_exceeded",
-                terminal=True,
+                terminal=False,
             )
         else:
             await store.set_workflow_status(

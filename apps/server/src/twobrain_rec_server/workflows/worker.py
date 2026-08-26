@@ -1453,6 +1453,7 @@ async def run_processing_pipeline_activity(payload: dict[str, str]) -> dict[str,
                 if single_step:
                     schedule = schedule_retry_with_settings(
                         settings,
+                        respect_max_attempts=False,
                         now=datetime.now(UTC),
                         retry_count=int(workflow.retry_count or 0),
                         generation=int(workflow.schedule_generation or 0),
@@ -1470,20 +1471,31 @@ async def run_processing_pipeline_activity(payload: dict[str, str]) -> dict[str,
                         ),
                     )
                     if schedule.next_attempt_at is None:
-                        reason_code = "processing_retry_deadline_exceeded"
-                        workflow.retry_class = "terminal"
+                        deadline_exceeded = schedule.stop_reason == "deadline_exceeded"
+                        reason_code = (
+                            "processing_retry_deadline_exceeded"
+                            if deadline_exceeded
+                            else "processing_recovery_attempt_limit_exceeded"
+                        )
+                        workflow.retry_class = "retryable" if deadline_exceeded else "terminal"
                         workflow.next_attempt_at = None
                         workflow.next_attempt_source = None
                         await store.set_workflow_status(
                             db,
                             workflow,
-                            ProcessingStatus.FAILED_TERMINAL,
+                            ProcessingStatus.FAILED_RETRYABLE
+                            if deadline_exceeded
+                            else ProcessingStatus.FAILED_TERMINAL,
                             reason_code=reason_code,
-                            terminal=True,
+                            terminal=not deadline_exceeded,
                         )
                         return {
                             "meeting_id": payload["meeting_id"],
-                            "processing_status": ProcessingStatus.FAILED_TERMINAL.value,
+                            "processing_status": (
+                                ProcessingStatus.FAILED_RETRYABLE
+                                if deadline_exceeded
+                                else ProcessingStatus.FAILED_TERMINAL
+                            ).value,
                             "reason_code": reason_code,
                         }
                     workflow.retry_class = "retryable"
@@ -1516,11 +1528,15 @@ async def run_processing_pipeline_activity(payload: dict[str, str]) -> dict[str,
             await store.set_workflow_status(
                 db,
                 workflow,
-                ProcessingStatus.FAILED_TERMINAL,
+                ProcessingStatus.FAILED_RETRYABLE,
                 reason_code="mediascribe_poll_limit_exceeded",
-                terminal=True,
+                terminal=False,
             )
-            return {"meeting_id": payload["meeting_id"], "processing_status": "failed_terminal"}
+            return {
+                "meeting_id": payload["meeting_id"],
+                "processing_status": ProcessingStatus.FAILED_RETRYABLE.value,
+                "reason_code": "mediascribe_poll_limit_exceeded",
+            }
     except ProcessingLifecycleBlocked as exc:
         if str(exc) == "processing_source_revision_stale":
             # A legacy callback can omit its revision id after a newer source

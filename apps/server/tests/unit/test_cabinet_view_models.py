@@ -942,6 +942,28 @@ def test_status_mapping_handles_ready_partial_processing_and_failed() -> None:
         assert view_models.meeting_list_presentation_status(item) == "failed"
 
 
+def test_watchdog_status_is_consistent_in_meeting_list_projection() -> None:
+    meeting = _meeting(ProcessingStatus.FAILED_RETRYABLE)
+    workflow = ProcessingWorkflow(
+        id=uuid4(),
+        workspace_id=meeting.workspace_id,
+        meeting_id=meeting.id,
+        workflow_id="processing/watchdog",
+        purpose="transcription",
+        status=ProcessingStatus.FAILED_RETRYABLE.value,
+        retry_class="retryable",
+        last_reason_code="processing_retry_deadline_exceeded",
+    )
+
+    item = view_models.build_list_item(meeting, result=None, workflow=workflow)
+    row = view_models.meeting_list_row_presentation(item, time_basis="meeting")
+
+    assert item.status == "processing"
+    assert item.status_label == "Нужна проверка"
+    assert item.status_reason == "processing_retry_deadline_exceeded"
+    assert row.content_readiness_label == "Результат ещё не подтверждён · откройте встречу для проверки"
+
+
 def test_processing_state_uses_no_speech_and_invalid_audio_copy_from_result() -> None:
     no_speech = ProcessingResult(
         id=uuid4(),

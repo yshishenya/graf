@@ -126,6 +126,74 @@ def test_processing_happy_path_imports_transcript_and_diarization(client) -> Non
     assert diarization_count == 1
 
 
+def test_pending_provider_status_reaches_ready_without_resubmission(client) -> None:
+    finalized = create_finalized_meeting(client, "processing-pending-to-ready")
+    meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
+    workspace_id = UUID(finalized["meeting"]["workspace_id"])
+    fake_client = FakeMediaScribeClient(
+        external_job_id="job_pending_to_ready",
+        status_sequence=[MediaScribeJobStatus.TRANSCRIBING, MediaScribeJobStatus.READY],
+        result=MediaScribeResult(
+            external_job_id="job_pending_to_ready",
+            transcript_status=ProcessingAvailabilityStatus.AVAILABLE,
+            transcript=[
+                MediaScribeSegment(
+                    sequence=0, start_seconds=0, end_seconds=1, text="hello", source_role="mic"
+                )
+            ],
+            diarization=[
+                MediaScribeDiarizationSegment(
+                    sequence=0,
+                    start_seconds=0,
+                    end_seconds=1,
+                    text="hello",
+                    source_role="mic",
+                    speaker_label="SPEAKER_00",
+                )
+            ],
+        ),
+    )
+
+    async def run_pipeline() -> tuple[str, str, int, int]:
+        async with client.app_state["sessionmaker"]() as db:
+            workflow = await store.upsert_processing_workflow(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+                workflow_id=f"processing/{media_revision_id}",
+                status=ProcessingStatus.WORKFLOW_STARTED,
+            )
+            submitted = await submit_to_mediascribe(
+                db=db,
+                settings=client.app.state.settings,
+                storage=client.app_state["storage"],
+                mediascribe_client=fake_client,
+                workflow=workflow,
+            )
+            pending = await poll_and_import_mediascribe_result(
+                db=db,
+                workflow=workflow,
+                job=submitted.job,
+                mediascribe_client=fake_client,
+            )
+            ready = await poll_and_import_mediascribe_result(
+                db=db,
+                workflow=workflow,
+                job=submitted.job,
+                mediascribe_client=fake_client,
+            )
+            return (
+                pending.status.value,
+                ready.status.value,
+                len(fake_client.submissions),
+                fake_client.poll_count,
+            )
+
+    assert asyncio.run(run_pipeline()) == ("polling", "processed", 1, 2)
+
+
 def test_import_diagnostics_match_persisted_millisecond_rounding(client) -> None:
     finalized = create_finalized_meeting(client, "processing-rounding-boundary")
     meeting_id = UUID(finalized["meeting"]["meeting_id"])
