@@ -80,6 +80,7 @@ ALLOWED_METADATA_KEYS = frozenset(
         "byte_bucket",
         "full_decode_passed",
         "moov_before_mdat",
+        "recovered_source",
         "cleanup_result",
     }
     | COUNTER_KEYS
@@ -150,7 +151,7 @@ def _safe_value(key: str, value: object) -> str | int | bool:
         return value
     if key in TIMESTAMP_KEYS:
         return _safe_timestamp(value)
-    if key in {"full_decode_passed", "moov_before_mdat"}:
+    if key in {"full_decode_passed", "moov_before_mdat", "recovered_source"}:
         if not isinstance(value, bool):
             _reject()
         return value

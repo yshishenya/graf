@@ -128,6 +128,12 @@ def test_probe_parser_rejects_unrequested_private_metadata() -> None:
             Decimal("60.251"),
         ),
         (
+            NormalizationAction.RECOVERED_SINGLE_TRANSCODE,
+            (Decimal("3600.000"),),
+            Decimal("3540.000"),
+            Decimal("3539.999"),
+        ),
+        (
             NormalizationAction.DUAL_MIX_TRANSCODE,
             (Decimal("59.000"), Decimal("60.000")),
             Decimal("59.750"),

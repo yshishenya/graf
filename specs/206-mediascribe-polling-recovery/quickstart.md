@@ -13,6 +13,11 @@ submit; provider `failed` показывает terminal recovery; retryable HTTP
 сохраняет same-job polling; watchdog оставляет ручную проверку; transcript
 скрыт до diarization, а summary имеет независимый статус.
 
+Для media recovery дополнительно проверить: повреждённый MP3 проходит tolerant
+первый transcode, валидный canonical M4A публикуется для playback, а хвостовое
+усечение отклоняется по authoritative длительности. Playback не подменяет
+authoritative `media` в MediaScribe submit.
+
 Repository gate перед PR:
 
 ```sh

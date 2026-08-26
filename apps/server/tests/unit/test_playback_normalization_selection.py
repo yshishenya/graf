@@ -114,6 +114,12 @@ def test_media_commands_are_explicit_file_only_and_metadata_free(tmp_path) -> No
     assert transcode[
         transcode.index("-map_metadata") : transcode.index("-map_metadata") + 2
     ] == ["-map_metadata", "-1"]
+    tolerant = build_transcode_command("ffmpeg", source, output, stream_index=3, tolerant=True)
+    assert "-xerror" not in tolerant
+    assert tolerant[tolerant.index("-err_detect") : tolerant.index("-err_detect") + 2] == [
+        "-err_detect",
+        "ignore_err",
+    ]
     assert "[mix]" in dual
     assert "amix=inputs=2:duration=longest" in " ".join(dual)
     assert "[0:3]" in " ".join(dual)

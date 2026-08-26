@@ -56,3 +56,8 @@ provider jobs. Коммиты, PR, merge, release и deploy остаются о�
 - T011: #5866
 - T012: #5865
 - T013: #5870
+
+## Дополнение: tolerant media recovery
+
+- [X] T014 [P] [US1] Выполнить tolerant first-pass recovery и строгую проверку результата в `apps/server/src/twobrain_rec_server/normalization/media.py` и `apps/server/src/twobrain_rec_server/normalization/service.py`.
+- [X] T015 [P] [US1] Добавить audit/readiness guards и regression matrix для повреждённых, усечённых и валидных media-файлов в `apps/server/src/twobrain_rec_server/normalization/audit.py`, `apps/server/src/twobrain_rec_server/normalization/worker.py` и `apps/server/tests/`.

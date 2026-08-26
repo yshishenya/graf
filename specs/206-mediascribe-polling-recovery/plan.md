@@ -76,6 +76,18 @@ apps/server/src/twobrain_rec_server/
 **Structure Decision**: Reuse existing processing, Temporal and cabinet modules;
 no new service, dependency, migration or abstraction.
 
+## Дополнение: восстановление повреждённого источника
+
+Для ручных загрузок playback-нормализация остаётся отдельным lifecycle-путём:
+MediaScribe получает authoritative `media`, а canonical M4A используется только
+для проигрывания. Если строгий первый decode обнаруживает повреждение, pipeline
+однократно выполняет bounded tolerant FFmpeg transcode с `ignore_err` и
+`discardcorrupt`. Результат публикуется только после строгой проверки output;
+сверка длительности с принятой revision блокирует тихо усечённые файлы.
+
+Recovery не добавляет новую durable-сущность или миграцию. Audit сохраняет
+только boolean `recovered_source`, без байтов аудио, текста или stderr.
+
 ## Complexity Tracking
 
 Нет нарушений конституции. Watchdog reuses `FAILED_RETRYABLE` and existing
