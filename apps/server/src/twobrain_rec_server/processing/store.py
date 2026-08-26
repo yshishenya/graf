@@ -731,6 +731,7 @@ async def create_processing_attempt(
     *,
     workspace_id: UUID,
     meeting_id: UUID,
+    deadline_seconds: int | None = None,
 ) -> ProcessingAttemptCreation:
     """Admit exactly one fresh attempt after a confirmed terminal failure.
 
@@ -901,6 +902,11 @@ async def create_processing_attempt(
         attempt_count=1,
         last_reason_code="user_new_attempt",
         started_at=now,
+        deadline_at=now + (
+            timedelta(seconds=deadline_seconds)
+            if deadline_seconds is not None
+            else DEFAULT_DEADLINE
+        ),
     )
     db.add(workflow)
     await db.flush()
@@ -1446,6 +1452,7 @@ async def upsert_processing_workflow(
     expected_meeting_status: str | None = None,
     expected_media_revision_id: UUID | None = None,
     archive_audio: bool = True,
+    deadline_seconds: int | None = None,
 ) -> ProcessingWorkflow:
     now = datetime.now(UTC)
     meeting = await lock_meeting_fence(db, workspace_id=workspace_id, meeting_id=meeting_id)
@@ -1550,7 +1557,11 @@ async def upsert_processing_workflow(
             transient_state="processing" if not archive_audio else "not_applicable",
             transient_admitted_at=now if not archive_audio else None,
             transient_hard_deadline=(now + TRANSIENT_HARD_LIFETIME) if not archive_audio else None,
-            deadline_at=now + DEFAULT_DEADLINE,
+            deadline_at=now + (
+                timedelta(seconds=deadline_seconds)
+                if deadline_seconds is not None
+                else DEFAULT_DEADLINE
+            ),
             attempt_count=1,
             last_reason_code=reason_code,
             started_at=now,
@@ -1567,7 +1578,11 @@ async def upsert_processing_workflow(
             raise ProcessingLifecycleBlocked("processing_source_fingerprint_conflict")
         workflow.source_fingerprint = workflow.source_fingerprint or source_fingerprint
         if workflow.deadline_at is None:
-            workflow.deadline_at = (workflow.started_at or now) + DEFAULT_DEADLINE
+            workflow.deadline_at = (workflow.started_at or now) + (
+                timedelta(seconds=deadline_seconds)
+                if deadline_seconds is not None
+                else DEFAULT_DEADLINE
+            )
         if workflow.archive_audio != archive_audio and workflow.status in {
             ProcessingStatus.BLOCKED.value,
             ProcessingStatus.CANCELED.value,

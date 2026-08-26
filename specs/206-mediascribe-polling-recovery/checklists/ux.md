@@ -1,0 +1,15 @@
+# UX Checklist: MediaScribe polling recovery
+
+**Purpose**: Проверить, что ожидание, временный сбой и terminal failure не
+смешиваются в пользовательском пути.
+**Created**: 2026-08-26
+**Feature**: [spec.md](../spec.md)
+
+- [X] Pending provider status объяснён простым языком.
+- [X] При назначенном повторе показывается countdown до следующей проверки.
+- [X] Ручная проверка видима, доступна с клавиатуры и сбрасывает countdown.
+- [X] Terminal provider failure имеет отдельный текст и recovery action.
+- [X] Watchdog state не утверждает, что провайдер сообщил ошибку.
+- [X] Transcript не появляется до готовой diarization.
+- [X] Summary state не блокирует готовый transcript.
+- [X] Detail и list показывают одну и ту же terminal/pending семантику.

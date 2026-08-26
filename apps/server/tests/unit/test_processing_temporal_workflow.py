@@ -159,6 +159,43 @@ async def test_unknown_outcome_uses_durable_timer_for_same_key_reconciliation() 
 
 
 @pytest.mark.asyncio
+async def test_watchdog_waits_for_manual_same_job_check_without_auto_retry() -> None:
+    first_finished = asyncio.Event()
+    calls: list[dict[str, str]] = []
+
+    @activity.defn(name="run_processing_pipeline_activity")
+    async def fake_processing_activity(payload: dict[str, str]) -> dict[str, str]:
+        calls.append(payload)
+        if len(calls) == 1:
+            first_finished.set()
+            return {
+                "processing_status": "failed_retryable",
+                "reason_code": "processing_retry_deadline_exceeded",
+            }
+        return {"processing_status": "processed"}
+
+    async with await WorkflowEnvironment.start_local() as env:
+        task_queue = f"processing-watchdog-{uuid4()}"
+        async with Worker(
+            env.client,
+            task_queue=task_queue,
+            workflows=[MediaScribeProcessingWorkflow],
+            activities=[fake_processing_activity],
+        ):
+            handle = await env.client.start_workflow(
+                MediaScribeProcessingWorkflow.run,
+                _payload(),
+                id=f"processing-watchdog/{uuid4()}",
+                task_queue=task_queue,
+            )
+            await asyncio.wait_for(first_finished.wait(), timeout=5)
+            await handle.signal(MediaScribeProcessingWorkflow.request_manual_check)
+            assert await handle.result() == {"processing_status": "processed"}
+
+    assert len(calls) == 2
+
+
+@pytest.mark.asyncio
 async def test_update_handler_is_registered_and_wakes_the_same_timer() -> None:
     first_finished = asyncio.Event()
     second_started = asyncio.Event()

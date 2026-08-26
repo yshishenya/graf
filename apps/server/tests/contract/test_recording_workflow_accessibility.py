@@ -32,6 +32,17 @@ def test_meeting_detail_has_exactly_two_keyboard_operable_content_tabs() -> None
     assert "tab.tabIndex = selected ? 0 : -1" in script
 
 
+def test_processing_recovery_updates_terminal_header_and_hides_pending_copy() -> None:
+    page = _source(MEETING_DETAIL)
+    script = _source(JAVASCRIPT)
+
+    assert "data-meeting-status-label" in page
+    assert 'statusLabel.textContent' in script
+    assert '"Нужна помощь"' in script
+    assert "terminalProcessing" in script
+    assert "processing_retry_deadline_exceeded" in script
+
+
 def test_meeting_review_continuity_exposes_lane_hint_resize_separator_and_sticky_header() -> None:
     page = _source(MEETING_DETAIL)
     rendering = _source(RENDERING)

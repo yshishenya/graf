@@ -86,6 +86,17 @@ if workflow is not None:
                             timeout_summary="manual same-key reconciliation",
                         )
                     continue
+                if status == "failed_retryable" and result.get("reason_code") in {
+                    "processing_retry_deadline_exceeded",
+                    "mediascribe_poll_limit_exceeded",
+                }:
+                    # Watchdog expiry is not provider failure. Keep the durable
+                    # workflow open for a manual same-job check without polling.
+                    await workflow.wait_condition(
+                        lambda: self._manual_check_requested,
+                        timeout_summary="manual provider processing check",
+                    )
+                    continue
                 if status not in {"polling", "waiting_retry", "submitted", "importing"}:
                     return result
                 try:
