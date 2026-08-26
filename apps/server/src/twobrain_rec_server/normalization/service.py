@@ -63,6 +63,9 @@ from twobrain_rec_server.normalization.media import (
     MAX_OUTPUT_BYTES,
     MAX_PROBE_STDOUT_BYTES,
     MAX_PROCESS_STDERR_BYTES,
+    RECOVERED_TRANSCODE_MAX_DURATION_LOSS_RATIO,
+    RECOVERED_TRANSCODE_MAX_DURATION_LOSS_SECONDS,
+    TRANSCODE_MIX_DURATION_TOLERANCE_SECONDS,
     BMFFLayout,
     FullDecodeReceipt,
     MediaPolicyError,
@@ -153,6 +156,7 @@ class NormalizedOutput:
     moov_before_mdat: bool
     fragmented: bool
     full_decode_passed: bool
+    recovered_source: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -299,27 +303,38 @@ class FFmpegNormalizationPipeline:
         try:
             facts, stream = await self._probe_source(source_path)
             _reject_known_probe_duration_over_limit(facts, stream)
-            decode_receipt = await self._full_decode(
-                source_path,
-                stream_index=stream.index,
-                generated=False,
-            )
-            duration = decode_receipt.duration_seconds
+            recovered_source = False
+            try:
+                decode_receipt = await self._full_decode(
+                    source_path,
+                    stream_index=stream.index,
+                    generated=False,
+                )
+                duration = decode_receipt.duration_seconds
+            except MediaPolicyError as exc:
+                if exc.reason_code != "corrupt_source":
+                    raise
+                duration = _known_probe_duration_seconds(facts, stream)
+                if duration is None:
+                    raise
+                recovered_source = True
             ideal_layout = BMFFLayout(
                 box_types=("ftyp", "moov", "mdat"),
                 moov_before_mdat=True,
                 fragmented=False,
                 has_private_metadata=False,
             )
-            validate_canonical_profile(
-                facts,
-                bmff_layout=ideal_layout,
-                byte_length=source_path.stat().st_size,
-                full_decode_passed=True,
-                enforce_reuse_bitrate=True,
-            )
-            actual_layout = inspect_bmff(source_path)
             try:
+                if recovered_source:
+                    raise MediaPolicyError("generated_output_invalid")
+                validate_canonical_profile(
+                    facts,
+                    bmff_layout=ideal_layout,
+                    byte_length=source_path.stat().st_size,
+                    full_decode_passed=True,
+                    enforce_reuse_bitrate=True,
+                )
+                actual_layout = inspect_bmff(source_path)
                 validate_canonical_profile(
                     facts,
                     bmff_layout=actual_layout,
@@ -327,22 +342,41 @@ class FFmpegNormalizationPipeline:
                     full_decode_passed=True,
                     enforce_reuse_bitrate=True,
                 )
-            except MediaPolicyError:
-                action = NormalizationAction.FASTSTART_REMUX
-                await self._run_ffmpeg(
-                    build_lossless_remux_command(
-                        self.ffmpeg_path,
-                        source_path,
-                        output_path,
-                        stream_index=stream.index,
-                    ),
-                    cwd=output_path.parent,
-                )
-                derivation_kind = DerivationKind.LOSSLESS_FASTSTART_REMUX.value
+            except MediaPolicyError as exc:
+                if exc.reason_code == "duration_limit_exceeded":
+                    raise
+                if recovered_source:
+                    action = NormalizationAction.RECOVERED_SINGLE_TRANSCODE
+                    await self._run_ffmpeg(
+                        build_transcode_command(
+                            self.ffmpeg_path,
+                            source_path,
+                            output_path,
+                            stream_index=stream.index,
+                            tolerant=True,
+                        ),
+                        cwd=output_path.parent,
+                    )
+                    derivation_kind = DerivationKind.SINGLE_SOURCE_TRANSCODE.value
+                    enforce_reuse_bitrate = False
+                else:
+                    action = NormalizationAction.FASTSTART_REMUX
+                    await self._run_ffmpeg(
+                        build_lossless_remux_command(
+                            self.ffmpeg_path,
+                            source_path,
+                            output_path,
+                            stream_index=stream.index,
+                        ),
+                        cwd=output_path.parent,
+                    )
+                    derivation_kind = DerivationKind.LOSSLESS_FASTSTART_REMUX.value
+                    enforce_reuse_bitrate = True
             else:
                 action = NormalizationAction.BYTE_COPY
                 copy_regular_file(source_path, output_path)
                 derivation_kind = DerivationKind.UPLOADED_CANDIDATE.value
+                enforce_reuse_bitrate = True
             return await self._validated_output(
                 output_path,
                 action=action,
@@ -352,7 +386,8 @@ class FFmpegNormalizationPipeline:
                 source_audio_stream_count=len(facts.audio_streams),
                 source_duration_ms=_duration_milliseconds(duration),
                 selected_stream_index=stream.index,
-                enforce_reuse_bitrate=True,
+                enforce_reuse_bitrate=enforce_reuse_bitrate,
+                recovered_source=recovered_source,
             )
         except MediaPolicyError as exc:
             if exc.reason_code in {
@@ -373,12 +408,21 @@ class FFmpegNormalizationPipeline:
         try:
             facts, stream = await self._probe_source(source_path)
             _reject_known_probe_duration_over_limit(facts, stream)
-            decode_receipt = await self._full_decode(
-                source_path,
-                stream_index=stream.index,
-                generated=False,
-            )
-            duration = decode_receipt.duration_seconds
+            recovered_source = False
+            try:
+                decode_receipt = await self._full_decode(
+                    source_path,
+                    stream_index=stream.index,
+                    generated=False,
+                )
+                duration = decode_receipt.duration_seconds
+            except MediaPolicyError as exc:
+                if exc.reason_code != "corrupt_source":
+                    raise
+                duration = _known_probe_duration_seconds(facts, stream)
+                if duration is None:
+                    raise
+                recovered_source = True
 
             ideal_layout = BMFFLayout(
                 box_types=("ftyp", "moov", "mdat"),
@@ -387,6 +431,8 @@ class FFmpegNormalizationPipeline:
                 has_private_metadata=False,
             )
             try:
+                if recovered_source:
+                    raise MediaPolicyError("generated_output_invalid")
                 validate_canonical_profile(
                     facts,
                     bmff_layout=ideal_layout,
@@ -397,13 +443,18 @@ class FFmpegNormalizationPipeline:
             except MediaPolicyError as exc:
                 if exc.reason_code == "duration_limit_exceeded":
                     raise
-                action = NormalizationAction.SINGLE_TRANSCODE
+                action = (
+                    NormalizationAction.RECOVERED_SINGLE_TRANSCODE
+                    if recovered_source
+                    else NormalizationAction.SINGLE_TRANSCODE
+                )
                 await self._run_ffmpeg(
                     build_transcode_command(
                         self.ffmpeg_path,
                         source_path,
                         output_path,
                         stream_index=stream.index,
+                        tolerant=recovered_source,
                     ),
                     cwd=output_path.parent,
                 )
@@ -447,6 +498,7 @@ class FFmpegNormalizationPipeline:
                 source_duration_ms=_duration_milliseconds(duration),
                 selected_stream_index=stream.index,
                 enforce_reuse_bitrate=enforce_reuse_bitrate,
+                recovered_source=recovered_source,
             )
         except OSError as exc:
             raise MediaPolicyError("temporary_storage_unavailable") from exc
@@ -575,6 +627,7 @@ class FFmpegNormalizationPipeline:
         source_duration_ms: int,
         selected_stream_index: int | None,
         enforce_reuse_bitrate: bool,
+        recovered_source: bool = False,
     ) -> NormalizedOutput:
         try:
             output_facts, output_stream = await self._probe_source(output_path)
@@ -616,6 +669,7 @@ class FFmpegNormalizationPipeline:
                 moov_before_mdat=layout.moov_before_mdat,
                 fragmented=layout.fragmented,
                 full_decode_passed=True,
+                recovered_source=recovered_source,
             )
         except MediaPolicyError as exc:
             if exc.reason_code in {
@@ -647,10 +701,28 @@ def _duration_milliseconds(duration: Decimal) -> int:
     return milliseconds
 
 
+def _validate_authoritative_source_duration(
+    source_duration_ms: int,
+    *,
+    expected_duration_seconds: int,
+) -> None:
+    expected = Decimal(expected_duration_seconds)
+    tolerance = max(
+        TRANSCODE_MIX_DURATION_TOLERANCE_SECONDS,
+        min(
+            RECOVERED_TRANSCODE_MAX_DURATION_LOSS_SECONDS,
+            expected * RECOVERED_TRANSCODE_MAX_DURATION_LOSS_RATIO,
+        ),
+    )
+    if abs(Decimal(source_duration_ms) / Decimal("1000") - expected) > tolerance:
+        raise MediaPolicyError("source_mismatch")
+
+
 @dataclass(frozen=True, slots=True)
 class _AttemptInputs:
     job: PlaybackNormalizationJob
     attempt: PlaybackNormalizationAttempt
+    expected_duration_seconds: int
     candidate: TrackArtifact | None
     media: TrackArtifact | None
     microphone: TrackArtifact | None
@@ -2289,6 +2361,7 @@ async def _prepare_attempt(
     return _AttemptInputs(
         job=job,
         attempt=attempt,
+        expected_duration_seconds=revision.duration_seconds,
         candidate=candidate,
         media=media,
         microphone=microphone,
@@ -2461,6 +2534,10 @@ async def _execute_normalization_job(
                 output_max_bytes=output_max_bytes,
                 work_reserve_bytes=work_reserve_bytes,
             )
+        _validate_authoritative_source_duration(
+            output.source_duration_ms,
+            expected_duration_seconds=prepared.expected_duration_seconds,
+        )
         _ensure_normalized_output_matches_file(output_path, output)
 
         # Fence ownership before storage I/O, then commit to release the
@@ -2614,6 +2691,7 @@ async def _execute_normalization_job(
                 "audio_stream_count": attempt.source_audio_stream_count,
                 "full_decode_passed": bool(attempt.full_decode_passed),
                 "moov_before_mdat": bool(attempt.moov_before_mdat),
+                "recovered_source": bool(output.recovered_source),
             },
             created_at=current_time,
         )

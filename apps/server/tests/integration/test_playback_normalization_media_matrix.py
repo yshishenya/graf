@@ -22,6 +22,7 @@ from twobrain_rec_server.normalization.media import (
 from twobrain_rec_server.normalization.service import (
     CandidateRejected,
     FFmpegNormalizationPipeline,
+    _validate_authoritative_source_duration,
     normalization_reason_from_exception,
 )
 from twobrain_rec_server.normalization.statuses import (
@@ -561,7 +562,76 @@ def test_selected_default_decode_failure_does_not_fallback_to_another_stream(
     source.write_bytes(b"synthetic")
     pipeline = DecodeFailingPipeline()
 
-    with pytest.raises(MediaPolicyError, match="corrupt_source"):
+    with pytest.raises(MediaPolicyError, match="dependency_unavailable"):
         asyncio.run(pipeline.derive_single_source(source, tmp_path / "output.m4a"))
 
     assert pipeline.decode_calls == [1]
+
+
+def test_corrupt_mp3_is_recovered_by_tolerant_first_transcode(tmp_path: Path) -> None:
+    source = tmp_path / "source.mp3"
+    broken = tmp_path / "broken.mp3"
+    output = tmp_path / "recovered.m4a"
+    candidate_output = tmp_path / "recovered-candidate.m4a"
+    _run_ffmpeg(
+        [
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:duration=5",
+            "-c:a",
+            "libmp3lame",
+            "-b:a",
+            "192k",
+            str(source),
+        ]
+    )
+    payload = bytearray(source.read_bytes())
+    assert len(payload) > 10_700
+    payload[10_700:10_704] = b"\x00\x00\x00\x00"
+    broken.write_bytes(payload)
+
+    result = asyncio.run(_pipeline().derive_single_source(broken, output))
+
+    assert result.recovered_source is True
+    assert result.derivation_kind == "single_source_transcode"
+    assert result.full_decode_passed is True
+    assert output.is_file()
+
+    candidate_result = asyncio.run(_pipeline().derive_candidate(broken, candidate_output))
+
+    assert candidate_result.recovered_source is True
+    assert candidate_result.derivation_kind == "single_source_transcode"
+    assert candidate_result.full_decode_passed is True
+    assert candidate_output.is_file()
+
+
+def test_truncated_mp3_is_rejected_against_authoritative_duration(tmp_path: Path) -> None:
+    source = tmp_path / "source-with-tail.mp3"
+    truncated = tmp_path / "truncated-tail.mp3"
+    output = tmp_path / "truncated-tail.m4a"
+    _run_ffmpeg(
+        [
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:duration=5",
+            "-c:a",
+            "libmp3lame",
+            "-b:a",
+            "192k",
+            str(source),
+        ]
+    )
+    source_bytes = source.read_bytes()
+    truncated.write_bytes(source_bytes[: int(len(source_bytes) * 0.85)])
+
+    result = asyncio.run(_pipeline().derive_single_source(truncated, output))
+
+    assert result.source_duration_ms < 4_750
+    with pytest.raises(MediaPolicyError, match="source_mismatch") as error:
+        _validate_authoritative_source_duration(
+            result.source_duration_ms,
+            expected_duration_seconds=5,
+        )
+    assert error.value.reason_code == "source_mismatch"

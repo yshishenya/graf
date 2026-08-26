@@ -32,6 +32,8 @@ COPY_CHUNK_BYTES = 4 * 1024 * 1024
 FORMAT_WHITELIST = "wav,w64,mp3,aac,flac,ogg,mov,matroska,webm"
 COPY_REMUX_DURATION_TOLERANCE_SECONDS = Decimal("0.050")
 TRANSCODE_MIX_DURATION_TOLERANCE_SECONDS = Decimal("0.250")
+RECOVERED_TRANSCODE_MAX_DURATION_LOSS_SECONDS = Decimal("60")
+RECOVERED_TRANSCODE_MAX_DURATION_LOSS_RATIO = Decimal("0.02")
 
 _PROBE_TOP_LEVEL_KEYS = frozenset(
     {"format", "streams", "chapters", "error", "programs", "stream_groups"}
@@ -112,6 +114,7 @@ class NormalizationAction(StrEnum):
     BYTE_COPY = "source_byte_copy"
     FASTSTART_REMUX = "lossless_faststart_remux"
     SINGLE_TRANSCODE = "single_source_transcode"
+    RECOVERED_SINGLE_TRANSCODE = "recovered_single_source_transcode"
     DUAL_MIX_TRANSCODE = "dual_source_mix_transcode"
 
 
@@ -596,10 +599,24 @@ def validate_duration_alignment(
     tolerance = (
         COPY_REMUX_DURATION_TOLERANCE_SECONDS
         if action in {NormalizationAction.BYTE_COPY, NormalizationAction.FASTSTART_REMUX}
+        else _recovered_transcode_duration_tolerance(source_durations_seconds[0])
+        if action is NormalizationAction.RECOVERED_SINGLE_TRANSCODE
         else TRANSCODE_MIX_DURATION_TOLERANCE_SECONDS
     )
     if abs(output_duration_seconds - expected_duration) > tolerance:
         raise MediaPolicyError("generated_output_invalid")
+
+
+def _recovered_transcode_duration_tolerance(source_duration: Decimal) -> Decimal:
+    """Bound how much tolerant decoding may discard before rejecting output."""
+
+    return max(
+        TRANSCODE_MIX_DURATION_TOLERANCE_SECONDS,
+        min(
+            RECOVERED_TRANSCODE_MAX_DURATION_LOSS_SECONDS,
+            source_duration * RECOVERED_TRANSCODE_MAX_DURATION_LOSS_RATIO,
+        ),
+    )
 
 
 def _read_exact(file_descriptor: int, offset: int, length: int) -> bytes:
@@ -798,8 +815,16 @@ def build_probe_command(executable: str, source_path: str | Path) -> list[str]:
     ]
 
 
-def _ffmpeg_preamble(executable: str) -> list[str]:
-    return [executable, "-hide_banner", "-loglevel", "error", "-nostdin", "-xerror", "-y"]
+def _ffmpeg_preamble(executable: str, *, tolerant: bool = False) -> list[str]:
+    return [
+        executable,
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-nostdin",
+        *([] if tolerant else ["-xerror"]),
+        "-y",
+    ]
 
 
 def _canonical_output_arguments(output_path: str | Path) -> list[str]:
@@ -847,12 +872,14 @@ def build_transcode_command(
     output_path: str | Path,
     *,
     stream_index: int,
+    tolerant: bool = False,
 ) -> list[str]:
     if stream_index < 0:
         raise ValueError("stream_index must be non-negative")
     return [
-        *_ffmpeg_preamble(executable),
+        *_ffmpeg_preamble(executable, tolerant=tolerant),
         *_input_guard_arguments(),
+        *(["-err_detect", "ignore_err", "-fflags", "+discardcorrupt"] if tolerant else []),
         "-i",
         str(source_path),
         "-map",

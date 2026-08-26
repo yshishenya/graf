@@ -74,6 +74,13 @@ def validate_startup_work_directory(
     return root
 
 
+def validate_media_tools(*, ffmpeg_path: str | Path, ffprobe_path: str | Path) -> None:
+    for tool_name, tool_path in (("FFmpeg", ffmpeg_path), ("FFprobe", ffprobe_path)):
+        path = Path(tool_path)
+        if not path.is_file() or not os.access(path, os.X_OK):
+            raise RuntimeError(f"playback normalization {tool_name} executable is unavailable")
+
+
 async def require_storage_ready(storage: object) -> None:
     is_ready_async = getattr(storage, "is_ready_async", None)
     if is_ready_async is not None:
@@ -404,6 +411,10 @@ async def run_worker() -> None:
     validate_startup_work_directory(
         settings.playback_normalization_work_directory,
         minimum_free_bytes=settings.playback_normalization_work_budget_bytes,
+    )
+    validate_media_tools(
+        ffmpeg_path=settings.playback_normalization_ffmpeg_path,
+        ffprobe_path=settings.playback_normalization_ffprobe_path,
     )
     clear_worker_readiness_marker(settings.playback_normalization_work_directory)
     cleanup_startup_work_directory(settings.playback_normalization_work_directory)
