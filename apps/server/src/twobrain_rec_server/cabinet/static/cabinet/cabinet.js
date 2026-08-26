@@ -5244,8 +5244,13 @@
 
   const playbackRecoveryCopy = "Не удалось обновить статус. GRAF попробует снова автоматически.";
 
+  const detailPlayback = (detail) => {
+    const playback = detail?.nextElementSibling;
+    return playback?.matches?.(".detail-playback") ? playback : null;
+  };
+
   const showPlaybackRecoveryNotice = (detail) => {
-    const playback = detail.querySelector(".detail-playback");
+    const playback = detailPlayback(detail);
     const liveStatus = detail.querySelector("[data-playback-live-status]");
     if (playback && !playback.querySelector("[data-playback-recovery-copy]")) {
       const notice = document.createElement("p");
@@ -5260,7 +5265,7 @@
   };
 
   const clearPlaybackRecoveryNotice = (detail) => {
-    detail.querySelector("[data-playback-recovery-copy]")?.remove();
+    detailPlayback(detail)?.querySelector("[data-playback-recovery-copy]")?.remove();
   };
 
   const refreshPlaybackRecovery = async () => {
@@ -5284,8 +5289,8 @@
       }
       const documentFragment = new DOMParser().parseFromString(await response.text(), "text/html");
       const nextDetail = documentFragment.querySelector("[data-playback-poll-url]");
-      const currentPlayback = detail.querySelector(".detail-playback");
-      const nextPlayback = nextDetail?.querySelector(".detail-playback");
+      const currentPlayback = detailPlayback(detail);
+      const nextPlayback = detailPlayback(nextDetail);
       const currentTranscript = detail.querySelector("[data-playback-transcript]");
       const nextTranscript = nextDetail?.querySelector("[data-playback-transcript]");
       const currentLiveStatus = detail.querySelector("[data-playback-live-status]");

@@ -2652,6 +2652,98 @@ const allText = (node) => [node.textContent, ...node.children.flatMap(allText)].
     assert completed.returncode == 0, completed.stderr
 
 
+def test_meeting_detail_playback_recovery_replaces_adjacent_fragment() -> None:
+    script_path = STATIC_DIR / "cabinet.js"
+    harness = r"""
+const fs = require("fs");
+const vm = require("vm");
+const script = fs.readFileSync(process.argv[1], "utf8");
+const start = script.indexOf("const playbackRecoveryCopy =");
+const end = script.indexOf("const initSpeakerNameForms =");
+if (start < 0 || end < 0) throw new Error("playback recovery block is missing");
+let initPlaybackCalls = 0;
+let playbackRecoveryRequest = null;
+let playbackRecoveryTimer = null;
+const stopPlaybackRecoveryPolling = () => {};
+const recoverMeetingDetailFromResponse = async () => false;
+const initPlayback = () => { initPlaybackCalls += 1; };
+vm.runInThisContext(`${script.slice(start, end)}; globalThis.refreshPlaybackRecovery = refreshPlaybackRecovery;`);
+const makePlayback = (state, sourceMode, text) => ({
+  dataset: { playbackState: state, sourceMode, playbackReason: "" },
+  textContent: text,
+  isConnected: true,
+  matches(selector) { return selector === ".detail-playback"; },
+  querySelector() { return null; },
+  replaceWith(node) { this.replacedWith = node; this.isConnected = false; },
+});
+const currentPlayback = makePlayback("preparing", "none", "Аудио готовится");
+const nextPlayback = makePlayback("available", "stored_review_m4a", "Аудио доступно");
+const currentTranscript = { innerHTML: "", replaceWith(node) { this.replacedWith = node; } };
+const nextTranscript = { innerHTML: "Готовый текст", replaceWith() {} };
+const currentLiveStatus = { textContent: "Аудио готовится" };
+const nextLiveStatus = { textContent: "Аудио доступно" };
+const detail = {
+  dataset: { playbackPollActive: "true", playbackPollUrl: "/meetings/meeting-1" },
+  isConnected: true,
+  nextElementSibling: currentPlayback,
+  querySelector(selector) {
+    return {
+      "[data-playback-transcript]": currentTranscript,
+      "[data-playback-live-status]": currentLiveStatus,
+    }[selector] || null;
+  },
+};
+const nextDetail = {
+  dataset: { playbackPollActive: "false" },
+  nextElementSibling: nextPlayback,
+  querySelector(selector) {
+    return {
+      "[data-playback-transcript]": nextTranscript,
+      "[data-playback-live-status]": nextLiveStatus,
+    }[selector] || null;
+  },
+};
+global.document = {
+  querySelector(selector) { return selector === "[data-playback-poll-url]" ? detail : null; },
+  addEventListener() {},
+  body: { dataset: {} },
+};
+global.window = {
+  addEventListener() {},
+  clearInterval() {},
+  setInterval() { return 1; },
+};
+global.fetch = async () => ({
+  ok: true,
+  status: 200,
+  redirected: false,
+  text: async () => "<main></main>",
+});
+global.DOMParser = class {
+  parseFromString() { return { querySelector() { return nextDetail; } }; }
+};
+(async () => {
+  await refreshPlaybackRecovery();
+  if (currentPlayback.replacedWith !== nextPlayback) throw new Error("ready playback was not installed");
+  if (currentTranscript.replacedWith !== nextTranscript) throw new Error("updated transcript was not installed");
+  if (detail.dataset.playbackPollActive !== "false") throw new Error("polling state was not updated");
+  if (currentLiveStatus.textContent !== "Аудио доступно") throw new Error("live playback status was not updated");
+  if (initPlaybackCalls !== 1) throw new Error("new playback controls were not initialized");
+})().catch((error) => {
+  process.stderr.write(`${error.stack || error}\n`);
+  process.exitCode = 1;
+});
+"""
+    completed = subprocess.run(
+        ["node", "-e", harness, str(script_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
 @pytest.mark.parametrize(
     ("status", "problem_code", "redirected", "response_url", "expect_reload"),
     [
