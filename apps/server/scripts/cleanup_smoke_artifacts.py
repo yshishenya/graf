@@ -150,11 +150,21 @@ async def _delete_smoke_meeting_rows(
         ),
         (
             "transcript_segments",
-            "delete from transcript_segments where meeting_id=:meeting_id",
+            """
+            delete from transcript_segments where meeting_id=:meeting_id
+               or processing_result_id in (
+                   select id from processing_results where meeting_id=:meeting_id
+               )
+            """,
         ),
         (
             "diarization_segments",
-            "delete from diarization_segments where meeting_id=:meeting_id",
+            """
+            delete from diarization_segments where meeting_id=:meeting_id
+               or processing_result_id in (
+                   select id from processing_results where meeting_id=:meeting_id
+               )
+            """,
         ),
         (
             "processing_audit_events",
@@ -169,12 +179,26 @@ async def _delete_smoke_meeting_rows(
             "delete from dispatch_intents where meeting_id=:meeting_id",
         ),
         (
+            "meetings",
+            "update meetings set current_outcome_set_id=null where id=:meeting_id",
+        ),
+        (
             "meeting_outcome_generation_attempts",
             """
             delete from meeting_outcome_generation_attempts
             where meeting_id=:meeting_id
+               or processing_result_id in (
+                   select id from processing_results where meeting_id=:meeting_id
+               )
+               or source_result_id in (
+                   select id from processing_results where meeting_id=:meeting_id
+               )
                or outcome_set_id in (
-                   select id from meeting_outcome_sets where meeting_id=:meeting_id
+                   select id from meeting_outcome_sets
+                   where meeting_id=:meeting_id
+                      or processing_result_id in (
+                          select id from processing_results where meeting_id=:meeting_id
+                      )
                )
             """,
         ),
@@ -183,13 +207,22 @@ async def _delete_smoke_meeting_rows(
             """
             delete from meeting_outcome_items
             where outcome_set_id in (
-                select id from meeting_outcome_sets where meeting_id=:meeting_id
+                select id from meeting_outcome_sets
+                where meeting_id=:meeting_id
+                   or processing_result_id in (
+                       select id from processing_results where meeting_id=:meeting_id
+                   )
             )
             """,
         ),
         (
             "meeting_outcome_sets",
-            "delete from meeting_outcome_sets where meeting_id=:meeting_id",
+            """
+            delete from meeting_outcome_sets where meeting_id=:meeting_id
+               or processing_result_id in (
+                   select id from processing_results where meeting_id=:meeting_id
+               )
+            """,
         ),
         (
             "processing_results",

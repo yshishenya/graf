@@ -86,6 +86,7 @@ def test_smoke_artifact_cleanup_deletes_processing_rows_before_meeting() -> None
         "delete from processing_audit_events where meeting_id=:meeting_id",
         '"processing_dependency_states",\n            processing_dependency_delete',
         "delete from dispatch_intents where meeting_id=:meeting_id",
+        "update meetings set current_outcome_set_id=null where id=:meeting_id",
         "delete from meeting_outcome_generation_attempts",
         "delete from meeting_outcome_items",
         "delete from meeting_outcome_sets where meeting_id=:meeting_id",
@@ -103,6 +104,33 @@ def test_smoke_artifact_cleanup_deletes_processing_rows_before_meeting() -> None
         position = script.index(fragment)
         assert position > previous_position
         previous_position = position
+
+
+def test_smoke_artifact_cleanup_follows_processing_result_dependencies() -> None:
+    script = (
+        Path(__file__).resolve().parents[2]
+        / "scripts"
+        / "cleanup_smoke_artifacts.py"
+    ).read_text(encoding="utf-8")
+
+    for table_name in (
+        "transcript_segments",
+        "diarization_segments",
+        "meeting_outcome_generation_attempts",
+        "meeting_outcome_items",
+        "meeting_outcome_sets",
+    ):
+        table_position = script.index(f'"{table_name}",')
+        processing_result_link = script.index(
+            "select id from processing_results where meeting_id=:meeting_id",
+            table_position,
+        )
+        processing_result_delete = script.index(
+            "delete from processing_results where meeting_id=:meeting_id"
+        )
+        assert table_position < processing_result_link < processing_result_delete
+
+    assert "or source_result_id in (" in script
 
 
 def test_smoke_artifact_cleanup_deletes_billing_children_before_workspace() -> None:
