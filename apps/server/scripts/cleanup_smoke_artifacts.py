@@ -168,7 +168,16 @@ async def _delete_smoke_meeting_rows(
         ),
         (
             "processing_audit_events",
-            "delete from processing_audit_events where meeting_id=:meeting_id",
+            """
+            delete from processing_audit_events
+            where meeting_id=:meeting_id
+               or mediascribe_job_id in (
+                   select id from mediascribe_jobs where meeting_id=:meeting_id
+               )
+               or processing_workflow_id in (
+                   select id from processing_workflows where meeting_id=:meeting_id
+               )
+            """,
         ),
         (
             "processing_dependency_states",
