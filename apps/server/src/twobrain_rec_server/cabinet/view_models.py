@@ -2206,6 +2206,7 @@ def review_status(
             media_revision_id=media_revision_id,
             processing_workflow_id=processing_workflow_id,
         )
+        and (workflow is None or result.processing_workflow_id == workflow.id)
         and result_is_terminal_input(result)
     ):
         return "failed"

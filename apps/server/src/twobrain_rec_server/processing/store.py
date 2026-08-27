@@ -901,21 +901,20 @@ async def create_processing_attempt(
         meeting_id=meeting_id,
         media_revision_id=media_revision.id,
     )
-    processed_terminal_input_is_terminal = bool(
-        current_status == ProcessingStatus.PROCESSED.value
-        and current_result is not None
+    terminal_input_result_is_terminal = bool(
+        current_result is not None
         and current_result.media_revision_id == media_revision.id
         and current_result.processing_workflow_id == current.id
         and result_is_terminal_input(current_result)
     )
-    if current_status == ProcessingStatus.BLOCKED_UNKNOWN.value:
+    if current_status == ProcessingStatus.BLOCKED_UNKNOWN.value and not terminal_input_result_is_terminal:
         return ProcessingAttemptCreation(
             result="unknown_outcome",
             workflow=current,
             media_revision_id=media_revision.id,
             attempt_ordinal=int(current.attempt_ordinal or 1),
         )
-    if current_status in _PROCESSING_NEW_ATTEMPT_ACTIVE_STATES:
+    if current_status in _PROCESSING_NEW_ATTEMPT_ACTIVE_STATES and not terminal_input_result_is_terminal:
         return ProcessingAttemptCreation(
             result="already_in_flight",
             workflow=current,
@@ -924,7 +923,7 @@ async def create_processing_attempt(
         )
     if (
         current_status != ProcessingStatus.FAILED_TERMINAL.value
-        and not processed_terminal_input_is_terminal
+        and not terminal_input_result_is_terminal
     ):
         return ProcessingAttemptCreation(
             result=(
@@ -937,10 +936,13 @@ async def create_processing_attempt(
             attempt_ordinal=int(current.attempt_ordinal or 1),
         )
     if (
-        current.last_reason_code in _PROCESSING_NEW_ATTEMPT_CONFIGURATION_REASONS
-        or (
-            (current.last_reason_code or "").startswith("blocked_")
-            and current.last_reason_code != BLOCKED_TEMPORAL_UNAVAILABLE
+        not terminal_input_result_is_terminal
+        and (
+            current.last_reason_code in _PROCESSING_NEW_ATTEMPT_CONFIGURATION_REASONS
+            or (
+                (current.last_reason_code or "").startswith("blocked_")
+                and current.last_reason_code != BLOCKED_TEMPORAL_UNAVAILABLE
+            )
         )
     ):
         return ProcessingAttemptCreation(
@@ -963,6 +965,33 @@ async def create_processing_attempt(
             media_revision_id=media_revision.id,
             attempt_ordinal=int(current.attempt_ordinal or 1),
         )
+    if terminal_input_result_is_terminal and current_status not in {
+        ProcessingStatus.PROCESSED.value,
+        ProcessingStatus.BLOCKED.value,
+        ProcessingStatus.FAILED_TERMINAL.value,
+        ProcessingStatus.CANCELED.value,
+    }:
+        now = datetime.now(UTC)
+        current.status = ProcessingStatus.FAILED_TERMINAL.value
+        current.retry_class = "terminal"
+        current.last_reason_code = current_result.failure_reason
+        current.next_attempt_at = None
+        current.next_attempt_source = None
+        current.manual_claimed_at = None
+        current.manual_claimed_by = None
+        current.attempt_count = int(current.attempt_count or 0) + 1
+        current.ended_at = now
+        if not current.archive_audio:
+            _mark_transient_terminal(current, now=now)
+        await release_processing_usage_reservation(
+            db,
+            workspace_id=current.workspace_id,
+            media_revision_id=current.media_revision_id,
+            meeting_id=current.meeting_id,
+        )
+        # Release the partial unique active-workflow slot before inserting the
+        # fresh attempt. Both changes remain atomic in the caller transaction.
+        await db.flush([current])
     if not await _reserve_processing_attempt_quota(
         db,
         workspace_id=workspace_id,

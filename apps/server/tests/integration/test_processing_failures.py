@@ -270,20 +270,22 @@ def test_starting_attempt_persists_terminal_provider_failure(client) -> None:
         ("invalid_audio_payload", "input_audio"),
     ],
 )
+@pytest.mark.parametrize("workflow_status", [ProcessingStatus.PROCESSED, ProcessingStatus.POLLING])
 def test_imported_terminal_input_result_allows_a_fresh_attempt(
     client,
     failure_reason: str,
     failure_source: str | None,
+    workflow_status: ProcessingStatus,
 ) -> None:
     finalized = create_finalized_meeting(client, f"failure-{failure_reason}-new-attempt")
     meeting_id = UUID(finalized["meeting"]["meeting_id"])
     media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
     workspace_id = UUID(finalized["meeting"]["workspace_id"])
 
-    async def run() -> tuple[str, int, str, str]:
+    async def run() -> tuple[str, int, str, bool, str]:
         async with client.app_state["sessionmaker"]() as db:
             workflow, job = await _submitted_job(db, workspace_id, meeting_id, media_revision_id)
-            workflow.status = ProcessingStatus.PROCESSED.value
+            workflow.status = workflow_status.value
             workflow.last_reason_code = failure_reason
             job.status = MediaScribeJobStatus.READY.value
             result = ProcessingResult(
@@ -319,9 +321,15 @@ def test_imported_terminal_input_result_allows_a_fresh_attempt(
                 creation.attempt_ordinal or 0,
                 old_result.failure_reason if old_result is not None else "missing",
                 old_result.processing_workflow_id == workflow.id if old_result is not None else "missing",
+                workflow.status,
             )
 
-    assert asyncio.run(run()) == ("created", 2, failure_reason, True)
+    previous_status = (
+        ProcessingStatus.FAILED_TERMINAL.value
+        if workflow_status == ProcessingStatus.POLLING
+        else ProcessingStatus.PROCESSED.value
+    )
+    assert asyncio.run(run()) == ("created", 2, failure_reason, True, previous_status)
 
 
 def test_worker_activity_persists_blocked_config_when_mediascribe_is_unconfigured(client, monkeypatch) -> None:

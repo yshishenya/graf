@@ -1045,6 +1045,42 @@ def test_terminal_input_result_is_terminal_for_list_and_detail_projections(
     )
 
 
+def test_previous_terminal_input_result_does_not_mask_active_attempt() -> None:
+    meeting = _meeting(ProcessingStatus.POLLING)
+    media_revision_id = uuid4()
+    result = ProcessingResult(
+        id=uuid4(),
+        meeting_id=meeting.id,
+        workspace_id=meeting.workspace_id,
+        media_revision_id=media_revision_id,
+        mediascribe_job_id=uuid4(),
+        processing_workflow_id=uuid4(),
+        status=ProcessingResultStatus.IMPORTED.value,
+        transcript_status=ProcessingAvailabilityStatus.UNAVAILABLE.value,
+        diarization_status=ProcessingAvailabilityStatus.UNAVAILABLE.value,
+        segment_count=0,
+        diarization_segment_count=0,
+        failure_reason="invalid_audio_payload",
+        failure_source="input_audio",
+    )
+    current = ProcessingWorkflow(
+        id=uuid4(),
+        meeting_id=meeting.id,
+        workspace_id=meeting.workspace_id,
+        media_revision_id=media_revision_id,
+        workflow_id="processing/current-attempt",
+        purpose="transcription",
+        status=ProcessingStatus.POLLING.value,
+    )
+
+    assert view_models.review_status(
+        meeting,
+        result=result,
+        workflow=current,
+        media_revision_id=media_revision_id,
+    ) == "processing"
+
+
 def test_transcript_mapping_uses_timestamp_speaker_and_source_role_truth() -> None:
     meeting = _meeting()
     result_id = uuid4()

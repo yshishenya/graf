@@ -1733,11 +1733,15 @@
     if (processingRecoveryActionRequest !== null) return;
     const transcriptReady = processingTranscriptReady(projection);
     const summaryState = processingSummaryState(projection);
-    const shouldPoll = !transcriptReady
+    const terminalProjection = projection?.retry_class === "terminal"
+      || ["failed_terminal", "blocked", "canceled"].includes(String(projection?.state || "").toLowerCase());
+    const shouldPoll = !terminalProjection && (
+      !transcriptReady
       || processingSummaryPending(summaryState)
       || projection?.retry_class === "retryable"
       || projection?.retry_class === "unknown_outcome"
-      || projection?.attempt_in_flight === true;
+      || projection?.attempt_in_flight === true
+    );
     if (!shouldPoll || !detail.dataset.processingStatusUrl) return;
     const remaining = processingServerSecondsRemaining(
       projection,
