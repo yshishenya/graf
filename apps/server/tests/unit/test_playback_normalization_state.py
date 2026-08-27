@@ -60,6 +60,11 @@ def test_job_terminal_retry_and_deletion_reasons_are_class_safe() -> None:
         reason_code=NormalizationReason.NO_AUDIO,
     )
     ensure_job_transition(
+        JobState.PUBLISHING,
+        JobState.TERMINAL,
+        reason_code=NormalizationReason.STORAGE_CAPACITY_EXCEEDED,
+    )
+    ensure_job_transition(
         JobState.READY,
         JobState.CANCELLED,
         reason_code=NormalizationReason.MEETING_DELETED,
@@ -78,6 +83,7 @@ def test_job_terminal_retry_and_deletion_reasons_are_class_safe() -> None:
             reason_code=NormalizationReason.CORRUPT_SOURCE,
         )
     assert reason_class(NormalizationReason.NO_AUDIO) is ReasonClass.PERMANENT_SOURCE
+    assert reason_class(NormalizationReason.STORAGE_CAPACITY_EXCEEDED) is ReasonClass.POLICY_BLOCK
     assert reason_class(NormalizationReason.NORMALIZATION_TIMEOUT) is ReasonClass.AUTOMATIC_RETRY
     assert reason_class(NormalizationReason.AUDIO_PURGED) is ReasonClass.LIFECYCLE
 

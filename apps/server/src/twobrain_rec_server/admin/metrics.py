@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.admin.queries import AdminWorkspaceContext
@@ -269,8 +269,7 @@ async def _processing_recovery_metrics(
     )
     duplicate_job_rows = int(
         await db.scalar(
-            select(func.count())
-            .select_from(
+            select(func.count()).select_from(
                 select(MediaScribeJob.external_job_id)
                 .where(
                     MediaScribeJob.workspace_id == workspace_id,
@@ -328,8 +327,14 @@ async def _billing_metrics(db: AsyncSession, *, workspace_id) -> dict[str, int]:
     )
     reserved_bytes = int(
         await db.scalar(
-            select(func.coalesce(func.sum(StorageReservation.declared_bytes - StorageReservation.committed_bytes), 0))
-            .where(
+            select(
+                func.coalesce(
+                    func.sum(
+                        StorageReservation.declared_bytes - StorageReservation.committed_bytes
+                    ),
+                    0,
+                )
+            ).where(
                 StorageReservation.workspace_id == workspace_id,
                 StorageReservation.state == "active",
             )
@@ -416,6 +421,56 @@ async def _playback_normalization_metrics(
         oldest_age_seconds = max(
             0,
             int((datetime.now(UTC) - oldest_created_at).total_seconds()),
+        )
+    completed_at = func.coalesce(
+        PlaybackNormalizationJob.ready_at,
+        PlaybackNormalizationJob.terminal_at,
+        PlaybackNormalizationJob.cancelled_at,
+    )
+    duration_count, duration_average, duration_maximum = (
+        await db.execute(
+            select(
+                func.count(),
+                func.avg(func.extract("epoch", completed_at - PlaybackNormalizationJob.started_at)),
+                func.max(func.extract("epoch", completed_at - PlaybackNormalizationJob.started_at)),
+            ).where(
+                PlaybackNormalizationJob.workspace_id == workspace_id,
+                PlaybackNormalizationJob.started_at.is_not(None),
+                completed_at.is_not(None),
+            )
+        )
+    ).one()
+    manual_gate_filter = (
+        PlaybackNormalizationJob.workspace_id == workspace_id,
+        PlaybackNormalizationJob.source_kind == "manual_upload",
+        PlaybackNormalizationJob.state.in_(backlog_states),
+        exists().where(
+            ProcessingWorkflow.workspace_id == PlaybackNormalizationJob.workspace_id,
+            ProcessingWorkflow.meeting_id == PlaybackNormalizationJob.meeting_id,
+            ProcessingWorkflow.media_revision_id == PlaybackNormalizationJob.media_revision_id,
+            ProcessingWorkflow.status.in_({"starting", "workflow_started", "submitting"}),
+        ),
+        ~exists().where(
+            MediaScribeJob.workspace_id == PlaybackNormalizationJob.workspace_id,
+            MediaScribeJob.meeting_id == PlaybackNormalizationJob.meeting_id,
+            MediaScribeJob.media_revision_id == PlaybackNormalizationJob.media_revision_id,
+            MediaScribeJob.external_job_id.is_not(None),
+        ),
+    )
+    gate_waiting_count, oldest_gate_created_at = (
+        await db.execute(
+            select(func.count(), func.min(PlaybackNormalizationJob.created_at)).where(
+                *manual_gate_filter
+            )
+        )
+    ).one()
+    oldest_gate_wait_seconds = 0
+    if oldest_gate_created_at is not None:
+        if oldest_gate_created_at.tzinfo is None:
+            oldest_gate_created_at = oldest_gate_created_at.replace(tzinfo=UTC)
+        oldest_gate_wait_seconds = max(
+            0,
+            int((datetime.now(UTC) - oldest_gate_created_at).total_seconds()),
         )
     retry_cycle_buckets = {"0": 0, "1": 0, "2": 0, "3_plus": 0}
     for retry_cycle_count, count in (
@@ -505,6 +560,13 @@ async def _playback_normalization_metrics(
         "reason_counts": reason_counts,
         "backlog_total": backlog_total,
         "oldest_backlog_age_seconds": oldest_age_seconds,
+        "execution_duration_seconds": {
+            "count": int(duration_count or 0),
+            "average": int(duration_average or 0),
+            "maximum": int(duration_maximum or 0),
+        },
+        "processing_gate_waiting_count": int(gate_waiting_count or 0),
+        "oldest_processing_gate_wait_seconds": oldest_gate_wait_seconds,
         "retry_cycle_buckets": retry_cycle_buckets,
         "cleanup_pending_count": cleanup_pending_count,
         "purge_journal_terminal_unknown_count": purge_journal_terminal_unknown_count,

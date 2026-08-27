@@ -170,8 +170,11 @@ def test_processing_recovery_projection_keeps_artifacts_independent_and_refresh_
     assert 'data-processing-check aria-describedby="processing-recovery-copy"' in detail
     assert 'data-processing-attempt-url=' in detail
     assert 'data-processing-new-attempt aria-describedby="processing-recovery-copy"' in detail
+    assert "data-processing-upload-another" in detail
+    assert "Загрузить другой файл" in detail
     assert "Проверить обработку" in detail
     assert "Начать обработку заново" in detail
+    assert "К списку встреч" in detail
     assert 'data-transcript-pending' in detail
     assert 'data-playback-transcript{% if media_revision_id and not transcript_available %} hidden aria-hidden="true"{% endif %}' in detail
     assert 'data-processing-summary-status role="status" aria-live="off"' in detail
@@ -186,7 +189,6 @@ def test_processing_recovery_projection_keeps_artifacts_independent_and_refresh_
         "retry_class",
         "attempt_in_flight",
         "manual_action",
-        "processingSafeNewAttemptReasons",
         "processingNewAttemptAllowed",
         "runProcessingNewAttempt",
         "unknown_outcome",
@@ -198,6 +200,7 @@ def test_processing_recovery_projection_keeps_artifacts_independent_and_refresh_
         "document.addEventListener(\"visibilitychange\"",
     ):
         assert marker in script
+    assert "processingSafeNewAttemptReasons" not in script
     assert "fetch(statusUrl" in script
     assert "preserveProjection" not in script
     assert '"Content-Type": "application/json"' in script
@@ -209,6 +212,18 @@ def test_processing_recovery_projection_keeps_artifacts_independent_and_refresh_
     assert 'const terminalTranscript = ["failed", "unavailable"].includes(transcriptState)' in script
     assert "pending.hidden = transcriptVisible || terminalTranscript" in script
     assert "updateProcessingExportVisibility(transcriptReady)" in script
+    assert 'manual_action === "upload_another"' in script
+    assert 'manualAction === "retry_preparation"' in script
+    assert '"Повторить подготовку"' in script
+    assert "processingTerminalFailure(projection)" in script
+    assert "refreshProcessingDetailContentOnce" in script
+    assert 'manual_action === "contact_support"' in script
+    assert 'projectionState === "canceled"' in script
+    assert 'title: "Обработка остановлена"' in script
+    assert (
+        "processingRecoveryActionRequest !== null || processingTerminalFailure(projection)"
+        in script
+    )
     assert "@media (prefers-reduced-motion: reduce)" in styles
     assert "@media (forced-colors: active)" in styles
     assert ".processing-stage-list" in styles

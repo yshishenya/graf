@@ -32,6 +32,8 @@ COPY_CHUNK_BYTES = 4 * 1024 * 1024
 FORMAT_WHITELIST = "wav,w64,mp3,aac,flac,ogg,mov,matroska,webm"
 COPY_REMUX_DURATION_TOLERANCE_SECONDS = Decimal("0.050")
 TRANSCODE_MIX_DURATION_TOLERANCE_SECONDS = Decimal("0.250")
+TOLERANT_FIRST_DURATION_TOLERANCE_SECONDS = Decimal("0.250")
+MAX_GENERATED_DURATION_SECONDS = MAX_DURATION_SECONDS + TOLERANT_FIRST_DURATION_TOLERANCE_SECONDS
 RECOVERED_TRANSCODE_MAX_DURATION_LOSS_SECONDS = Decimal("60")
 RECOVERED_TRANSCODE_MAX_DURATION_LOSS_RATIO = Decimal("0.02")
 
@@ -52,6 +54,7 @@ _PROBE_STREAM_KEYS = frozenset(
         "duration",
         "bit_rate",
         "disposition",
+        "tags",
     }
 )
 _PROBE_DISPOSITION_KEYS = frozenset({"default", "attached_pic"})
@@ -217,6 +220,25 @@ def _mapping(value: object) -> dict[str, object]:
     return value
 
 
+def _duration_tag_value(value: object) -> Decimal | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or len(value) > 32 or not value.isascii():
+        raise MediaPolicyError("corrupt_source")
+    parts = value.split(":")
+    if len(parts) != 3 or not parts[0].isdigit() or not parts[1].isdigit():
+        raise MediaPolicyError("corrupt_source")
+    try:
+        hours = int(parts[0])
+        minutes = int(parts[1])
+        seconds = Decimal(parts[2])
+    except (InvalidOperation, ValueError) as exc:
+        raise MediaPolicyError("corrupt_source") from exc
+    if minutes >= 60 or not seconds.is_finite() or not Decimal(0) <= seconds < Decimal(60):
+        raise MediaPolicyError("corrupt_source")
+    return Decimal(hours * 3600 + minutes * 60) + seconds
+
+
 def parse_probe_output(payload: bytes) -> ProbeFacts:
     if not payload or len(payload) > MAX_PROBE_STDOUT_BYTES:
         raise MediaPolicyError("corrupt_source")
@@ -280,6 +302,18 @@ def parse_probe_output(payload: bytes) -> ProbeFacts:
         sample_rate = _int_value(stream_data.get("sample_rate"))
         channels = _int_value(stream_data.get("channels"))
         bit_rate = _int_value(stream_data.get("bit_rate"))
+        tags = _mapping(stream_data.get("tags", {}))
+        if not set(tags) <= {"DURATION"}:
+            raise MediaPolicyError("corrupt_source")
+        duration = _decimal_value(stream_data.get("duration"))
+        tagged_duration = _duration_tag_value(tags.get("DURATION"))
+        if (
+            duration is not None
+            and tagged_duration is not None
+            and abs(duration - tagged_duration) > TOLERANT_FIRST_DURATION_TOLERANCE_SECONDS
+        ):
+            raise MediaPolicyError("source_mismatch")
+        duration = duration or tagged_duration
         if sample_rate is not None and sample_rate <= 0:
             raise MediaPolicyError("corrupt_source")
         if channels is not None and channels <= 0:
@@ -298,7 +332,7 @@ def parse_probe_output(payload: bytes) -> ProbeFacts:
                 sample_rate_hz=sample_rate,
                 channels=channels,
                 start_time_seconds=_decimal_value(stream_data.get("start_time")),
-                duration_seconds=_decimal_value(stream_data.get("duration")),
+                duration_seconds=duration,
                 bit_rate=bit_rate,
                 default=default == 1,
                 attached_picture=attached == 1,
@@ -395,7 +429,7 @@ def _codec_family(codec_name: str) -> str:
 
 
 _ALLOWED_CODEC_FAMILIES = {
-    "wav": frozenset({"pcm"}),
+    "wav": frozenset({"pcm", "adpcm_ima_wav", "adpcm_ms"}),
     "mp3": frozenset({"mp3"}),
     "aac": frozenset({"aac"}),
     "flac": frozenset({"flac"}),
@@ -537,7 +571,7 @@ def validate_canonical_profile(
 ) -> None:
     if facts.duration_seconds is None or facts.duration_seconds <= 0:
         raise MediaPolicyError("generated_output_invalid")
-    if facts.duration_seconds > MAX_DURATION_SECONDS:
+    if facts.duration_seconds > MAX_GENERATED_DURATION_SECONDS:
         raise MediaPolicyError("duration_limit_exceeded")
     if not 0 < byte_length <= MAX_OUTPUT_BYTES:
         raise MediaPolicyError("generated_output_invalid")
@@ -584,7 +618,7 @@ def validate_duration_alignment(
         len(source_durations_seconds) != expected_source_count
         or not output_duration_seconds.is_finite()
         or output_duration_seconds <= 0
-        or output_duration_seconds > MAX_DURATION_SECONDS
+        or output_duration_seconds > MAX_GENERATED_DURATION_SECONDS
         or any(
             not duration.is_finite() or duration <= 0 or duration > MAX_DURATION_SECONDS
             for duration in source_durations_seconds
@@ -604,6 +638,80 @@ def validate_duration_alignment(
         else TRANSCODE_MIX_DURATION_TOLERANCE_SECONDS
     )
     if abs(output_duration_seconds - expected_duration) > tolerance:
+        raise MediaPolicyError("generated_output_invalid")
+
+
+def validate_tolerant_source_duration(facts: ProbeFacts, stream: ProbeStream) -> Decimal:
+    """Return bounded probe duration without claiming that damaged frames were recovered."""
+
+    durations = tuple(
+        duration
+        for duration in (facts.duration_seconds, stream.duration_seconds)
+        if duration is not None
+    )
+    if not durations or any(not duration.is_finite() or duration <= 0 for duration in durations):
+        raise MediaPolicyError("corrupt_source")
+    if any(duration > MAX_DURATION_SECONDS for duration in durations):
+        raise MediaPolicyError("duration_limit_exceeded")
+    has_video = any(
+        candidate.codec_type == "video" and not candidate.attached_picture
+        for candidate in facts.streams
+    )
+    if (
+        not has_video
+        and len(durations) == 2
+        and abs(durations[0] - durations[1]) > TOLERANT_FIRST_DURATION_TOLERANCE_SECONDS
+    ):
+        raise MediaPolicyError("source_mismatch")
+    selected_duration = stream.duration_seconds or facts.duration_seconds
+    if selected_duration is None:  # Kept explicit for type checkers and future edits.
+        raise MediaPolicyError("corrupt_source")
+    return selected_duration
+
+
+def validate_tolerant_output_duration(
+    *,
+    source_duration_seconds: Decimal,
+    output_format_duration_seconds: Decimal | None,
+    output_stream_duration_seconds: Decimal | None,
+    output_decode_duration_seconds: Decimal,
+) -> None:
+    """Accept bounded frame loss while keeping generated timelines internally exact."""
+
+    probe_durations = tuple(
+        duration
+        for duration in (
+            output_format_duration_seconds,
+            output_stream_duration_seconds,
+        )
+        if duration is not None
+    )
+    if not probe_durations:
+        raise MediaPolicyError("generated_output_invalid")
+    if (
+        not source_duration_seconds.is_finite()
+        or source_duration_seconds <= 0
+        or source_duration_seconds > MAX_DURATION_SECONDS
+        or any(
+            not duration.is_finite() or duration <= 0 or duration > MAX_GENERATED_DURATION_SECONDS
+            for duration in (*probe_durations, output_decode_duration_seconds)
+        )
+    ):
+        raise MediaPolicyError("generated_output_invalid")
+    if any(
+        abs(duration - output_decode_duration_seconds) > TOLERANT_FIRST_DURATION_TOLERANCE_SECONDS
+        for duration in probe_durations
+    ):
+        raise MediaPolicyError("generated_output_invalid")
+    if (
+        output_decode_duration_seconds - source_duration_seconds
+        > TOLERANT_FIRST_DURATION_TOLERANCE_SECONDS
+    ):
+        raise MediaPolicyError("generated_output_invalid")
+    if (
+        source_duration_seconds - output_decode_duration_seconds
+        > _recovered_transcode_duration_tolerance(source_duration_seconds)
+    ):
         raise MediaPolicyError("generated_output_invalid")
 
 
@@ -807,7 +915,7 @@ def build_probe_command(executable: str, source_path: str | Path) -> list[str]:
             "format_tags=:"
             "stream=index,codec_type,codec_name,codec_tag_string,profile,sample_rate,channels,"
             "start_time,duration,bit_rate:stream_disposition=default,attached_pic:"
-            "stream_tags=:chapter=id,start_time,end_time:chapter_tags="
+            "stream_tags=DURATION:chapter=id,start_time,end_time:chapter_tags="
         ),
         "-of",
         "json=compact=1:string_validation=fail",
@@ -886,6 +994,7 @@ def build_transcode_command(
         f"0:{stream_index}",
         "-af",
         "aresample=48000:first_pts=0,asetpts=PTS-STARTPTS",
+        *(["-t", str(DECODE_GUARD_SECONDS)] if tolerant else []),
         *_canonical_output_arguments(output_path),
     ]
 

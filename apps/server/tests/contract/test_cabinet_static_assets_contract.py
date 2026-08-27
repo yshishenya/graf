@@ -461,6 +461,241 @@ global.rows = rows;
     assert completed.returncode == 0, completed.stderr
 
 
+def test_processing_detail_polling_stops_in_manual_pause_without_a_timer() -> None:
+    script_path = STATIC_DIR / "cabinet.js"
+    harness = r"""
+const fs = require("fs");
+const vm = require("vm");
+const script = fs.readFileSync(process.argv[1], "utf8");
+const source = script.slice(
+  script.indexOf("const scheduleProcessingRecoveryPolling"),
+  script.indexOf("const renderProcessingProjection"),
+);
+const scheduled = [];
+let processingRecoveryPollTimer = null;
+const processingRecoveryActionRequest = null;
+const stopProcessingRecoveryPolling = () => { processingRecoveryPollTimer = null; };
+const processingTerminalFailure = () => false;
+const processingSummaryState = (projection) => projection.summary_status;
+const processingSummaryPending = (state) => state === "processing";
+const processingServerSecondsRemaining = (projection) => projection.remaining ?? null;
+const processingServerClockOffset = () => 0;
+global.document = { hidden: false };
+global.window = {
+  setTimeout(_callback, delay) { scheduled.push(delay); return scheduled.length; },
+};
+const detail = { dataset: { processingStatusUrl: "/status" } };
+vm.runInThisContext(`${source}; global.scheduleProcessingRecoveryPolling = scheduleProcessingRecoveryPolling;`);
+global.scheduleProcessingRecoveryPolling(detail, {
+  retry_class: "retryable",
+  attempt_in_flight: false,
+  next_attempt_at: null,
+  summary_status: "unavailable",
+});
+if (scheduled.length !== 0) throw new Error("manual-only pause scheduled background polling");
+global.scheduleProcessingRecoveryPolling(detail, {
+  retry_class: "retryable",
+  attempt_in_flight: false,
+  next_attempt_at: "2026-01-01T00:00:00Z",
+  remaining: 360,
+  summary_status: "unavailable",
+});
+global.scheduleProcessingRecoveryPolling(detail, {
+  retry_class: "none",
+  attempt_in_flight: true,
+  next_attempt_at: null,
+  summary_status: "unavailable",
+});
+global.scheduleProcessingRecoveryPolling(detail, {
+  retry_class: "none",
+  attempt_in_flight: false,
+  next_attempt_at: null,
+  summary_status: "processing",
+});
+global.scheduleProcessingRecoveryPolling(detail, {
+  retry_class: "retryable",
+  attempt_in_flight: false,
+  next_attempt_at: "2026-01-01T00:00:00Z",
+  remaining: 0,
+  summary_status: "unavailable",
+});
+if (scheduled.join(",") !== "360000,15000,15000,15000") {
+  throw new Error(`unexpected polling delays: ${scheduled.join(",")}`);
+}
+"""
+    completed = subprocess.run(
+        ["node", "-e", harness, str(script_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_processing_detail_refreshes_content_once_when_artifacts_first_become_ready() -> None:
+    script_path = STATIC_DIR / "cabinet.js"
+    harness = r"""
+const fs = require("fs");
+const vm = require("vm");
+const script = fs.readFileSync(process.argv[1], "utf8");
+const source = script.slice(
+  script.indexOf("const refreshProcessingDetailContentOnce"),
+  script.indexOf("const renderProcessingProjection"),
+);
+let fetchCount = 0;
+let replaceCount = 0;
+let initCount = 0;
+let stopCount = 0;
+let failNext = true;
+let staleDetail = null;
+const scheduled = [];
+const nextDetail = { dataset: {} };
+const detail = {
+  dataset: {
+    playbackPollUrl: "/meetings/meeting-1",
+    processingTranscriptContentReady: "false",
+    processingSummaryContentReady: "false",
+  },
+  isConnected: true,
+  replaceWith(node) {
+    if (node !== nextDetail) throw new Error("unexpected detail fragment");
+    replaceCount += 1;
+    this.isConnected = false;
+  },
+};
+const processingTranscriptReady = (projection) => projection.transcript_ready === true;
+const processingSummaryState = (projection) => projection.summary_status;
+const recoverMeetingDetailFromResponse = async () => false;
+const stopProcessingRecoveryCountdown = () => { stopCount += 1; };
+const stopProcessingRecoveryPolling = () => { stopCount += 1; };
+const initCabinet = () => { initCount += 1; };
+global.fetch = async () => {
+  fetchCount += 1;
+  if (failNext) {
+    failNext = false;
+    return { ok: false, text: async () => "" };
+  }
+  return {
+    ok: true,
+    text: async () => {
+      if (staleDetail) staleDetail.isConnected = false;
+      return "<main></main>";
+    },
+  };
+};
+global.DOMParser = class {
+  parseFromString() { return { querySelector() { return nextDetail; } }; }
+};
+let processingRecoveryPollTimer = null;
+global.window = { setTimeout(callback) { scheduled.push(callback); } };
+vm.runInThisContext(`${source}; global.refreshProcessingDetailContentOnce = refreshProcessingDetailContentOnce;`);
+(async () => {
+  const projection = { transcript_ready: true, summary_status: "available" };
+  await global.refreshProcessingDetailContentOnce(detail, projection);
+  if (
+    fetchCount !== 1
+    || detail.dataset.processingTranscriptContentReady !== "false"
+    || detail.dataset.processingSummaryContentReady !== "false"
+    || scheduled.length !== 1
+  ) {
+    throw new Error("failed refresh claim was not released");
+  }
+  scheduled.shift()();
+  await new Promise((resolve) => setImmediate(resolve));
+  scheduled.shift()();
+  if (fetchCount !== 2 || replaceCount !== 1 || initCount !== 1 || stopCount !== 2) {
+    throw new Error(`unexpected refresh counts: ${fetchCount}/${replaceCount}/${initCount}`);
+  }
+  if (nextDetail.dataset.processingTranscriptContentReady !== "true") {
+    throw new Error("transcript refresh marker was not preserved");
+  }
+  if (nextDetail.dataset.processingSummaryContentReady !== "true") {
+    throw new Error("summary refresh marker was not preserved");
+  }
+  await global.refreshProcessingDetailContentOnce(nextDetail, projection);
+  if (fetchCount !== 2) throw new Error("ready content refreshed more than once");
+  staleDetail = {
+    dataset: {
+      playbackPollUrl: "/meetings/meeting-1",
+      processingTranscriptContentReady: "false",
+      processingSummaryContentReady: "false",
+    },
+    isConnected: true,
+    replaceWith() { replaceCount += 1; },
+  };
+  await global.refreshProcessingDetailContentOnce(staleDetail, projection);
+  if (replaceCount !== 1 || stopCount !== 2) {
+    throw new Error("stale fragment response mutated the current detail lifecycle");
+  }
+})().catch((error) => {
+  process.stderr.write(`${error.stack || error}\n`);
+  process.exitCode = 1;
+});
+"""
+    completed = subprocess.run(
+        ["node", "-e", harness, str(script_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_processing_terminal_projections_never_fall_back_to_active_copy() -> None:
+    script_path = STATIC_DIR / "cabinet.js"
+    harness = r"""
+const fs = require("fs");
+const vm = require("vm");
+const script = fs.readFileSync(process.argv[1], "utf8");
+const source = script.slice(
+  script.indexOf("const processingRecoveryCopy"),
+  script.indexOf("const renderProcessingCountdown"),
+);
+const processingNewAttemptAllowed = () => false;
+vm.runInThisContext(`${source}; global.processingRecoveryCopy = processingRecoveryCopy;`);
+const cases = [
+  {
+    projection: { state: "blocked", retry_class: "none", manual_action: "contact_support" },
+    title: "Нужна помощь с обработкой",
+    showRefresh: true,
+  },
+  {
+    projection: { state: "canceled", retry_class: "none", manual_action: "none" },
+    title: "Обработка отменена",
+    showRefresh: false,
+  },
+  {
+    projection: { state: "blocked", retry_class: "none", manual_action: "none" },
+    title: "Обработка остановлена",
+    showRefresh: true,
+  },
+];
+for (const testCase of cases) {
+  const copy = global.processingRecoveryCopy(testCase.projection, false);
+  if (
+    copy?.state !== "terminal"
+    || copy?.title !== testCase.title
+    || copy?.showRefresh !== testCase.showRefresh
+  ) {
+    throw new Error(`terminal projection used wrong copy: ${JSON.stringify(copy)}`);
+  }
+  if (copy.copy.includes("Спикеры ещё определяются")) {
+    throw new Error("terminal projection fell back to active processing copy");
+  }
+}
+"""
+    completed = subprocess.run(
+        ["node", "-e", harness, str(script_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
 def test_cabinet_rail_initial_state_uses_surface_breakpoints() -> None:
     script = (STATIC_DIR / "cabinet.js").read_text()
     css = (STATIC_DIR / "cabinet.css").read_text()
@@ -3135,7 +3370,7 @@ if (rendered.includes("PRIVATE")) throw new Error("private detail leaked into re
 def test_detail_fetch_actions_share_fail_closed_authorization_recovery() -> None:
     script = (STATIC_DIR / "cabinet.js").read_text()
 
-    assert script.count("recoverMeetingDetailFromResponse(response)") == 3
+    assert script.count("recoverMeetingDetailFromResponse(response)") == 4
     assert "summaryActionProblemCodes" in script
     assert "sharingActionProblemCodes" in script
     assert '"meeting_not_found"' in script

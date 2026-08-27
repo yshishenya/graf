@@ -71,6 +71,28 @@ class ProcessingWorkflow(Base):
                 "('processed', 'blocked', 'failed_terminal', 'canceled')"
             ),
         ),
+        Index(
+            "ix_processing_workflows_transient_hard_due",
+            "transient_hard_deadline",
+            "workspace_id",
+            "meeting_id",
+            "media_revision_id",
+            postgresql_where=(
+                "archive_audio = false and media_revision_id is not null and transient_state in "
+                "('admitted', 'processing', 'terminal', 'purge_due')"
+            ),
+        ),
+        Index(
+            "ix_processing_workflows_transient_terminal_due",
+            "transient_purge_due_at",
+            "workspace_id",
+            "meeting_id",
+            "media_revision_id",
+            postgresql_where=(
+                "archive_audio = false and media_revision_id is not null and transient_state in "
+                "('admitted', 'processing', 'terminal', 'purge_due')"
+            ),
+        ),
         UniqueConstraint("workflow_id"),
     )
 

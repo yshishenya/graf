@@ -25,11 +25,34 @@ def test_processing_state_machine_allows_happy_path_and_blocks_terminal_reopen()
     assert can_transition(ProcessingStatus.STARTING, ProcessingStatus.BLOCKED_UNKNOWN)
     assert can_transition(ProcessingStatus.STARTING, ProcessingStatus.CANCELED)
     assert can_transition(ProcessingStatus.WORKFLOW_STARTED, ProcessingStatus.SUBMITTING)
+    assert can_transition(ProcessingStatus.WORKFLOW_STARTED, ProcessingStatus.FAILED_TERMINAL)
+    assert can_transition(ProcessingStatus.WORKFLOW_STARTED, ProcessingStatus.CANCELED)
     assert can_transition(ProcessingStatus.SUBMITTING, ProcessingStatus.SUBMITTED)
     assert can_transition(ProcessingStatus.SUBMITTED, ProcessingStatus.POLLING)
     assert can_transition(ProcessingStatus.POLLING, ProcessingStatus.IMPORTING)
     assert can_transition(ProcessingStatus.IMPORTING, ProcessingStatus.PROCESSED)
     assert not can_transition(ProcessingStatus.PROCESSED, ProcessingStatus.SUBMITTING)
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        status
+        for status in ProcessingStatus
+        if status
+        not in {
+            ProcessingStatus.PENDING_PROCESSING,
+            ProcessingStatus.PROCESSED,
+            ProcessingStatus.BLOCKED,
+            ProcessingStatus.FAILED_TERMINAL,
+            ProcessingStatus.CANCELED,
+        }
+    ],
+)
+def test_processing_state_machine_allows_lifecycle_cancellation(
+    status: ProcessingStatus,
+) -> None:
+    assert can_transition(status, ProcessingStatus.CANCELED)
 
 
 def test_mediascribe_failure_classification_covers_retryable_and_terminal_cases() -> None:

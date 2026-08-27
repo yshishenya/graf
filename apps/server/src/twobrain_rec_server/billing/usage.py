@@ -149,26 +149,9 @@ async def reserve_free_usage(
     """Reserve exact seconds in the Moscow calendar window under a row lock."""
     if declared_seconds <= 0 or not reservation_key.strip():
         raise ValueError("usage reservation is invalid")
-    window_start, window_end = moscow_window_for(now)
-    # Serialize first-window creation as well as later reservations. The
-    # unique window key alone turns the first concurrent insert into an
-    # unhandled IntegrityError.
+    # Serialize admission and first-window creation per workspace. The unique
+    # keys alone would turn concurrent first use into an IntegrityError.
     await db.scalar(select(Workspace).where(Workspace.id == workspace_id).with_for_update())
-    window = await db.scalar(
-        select(FreeUsageWindow)
-        .where(FreeUsageWindow.workspace_id == workspace_id, FreeUsageWindow.window_start == window_start)
-        .with_for_update()
-    )
-    if window is None:
-        window = FreeUsageWindow(
-            id=uuid4(),
-            workspace_id=workspace_id,
-            window_start=window_start,
-            window_end=window_end,
-            included_seconds=FREE_PROCESSING_SECONDS,
-        )
-        db.add(window)
-        await db.flush()
     existing = await db.scalar(
         select(UsageReservationRow).where(
             UsageReservationRow.workspace_id == workspace_id,
@@ -176,30 +159,73 @@ async def reserve_free_usage(
         ).with_for_update()
     )
     if existing is not None:
-        if existing.state == "released":
-            # A retry of the same source lineage may reuse its reservation key.
-            # Keep already committed ranges immutable and restore only the
-            # uncommitted hold; this avoids charging a retry twice.
-            remaining = max(0, existing.declared_seconds - existing.committed_seconds)
-            if remaining:
-                existing.state = "active"
-                existing.expires_at = expires_at or now + timedelta(minutes=15)
-                window.reserved_seconds += remaining
+        if existing.state == "committed" or (
+            existing.state == "active"
+            and (existing.expires_at is None or _as_utc(existing.expires_at) > now)
+        ):
+            if (
+                existing.state == "active"
+                and expires_at is not None
+                and existing.expires_at is not None
+                and _as_utc(existing.expires_at) < _as_utc(expires_at)
+            ):
+                existing.expires_at = expires_at
                 await db.flush()
-        return existing
+            return existing
+        remaining = max(0, existing.declared_seconds - existing.committed_seconds)
+        if not remaining:
+            return existing
+        window = await db.scalar(
+            select(FreeUsageWindow)
+            .where(
+                FreeUsageWindow.id == existing.window_id,
+                FreeUsageWindow.workspace_id == workspace_id,
+            )
+            .with_for_update()
+        )
+        if window is None:
+            raise QuotaExceeded("free processing quota window is unavailable")
+    else:
+        remaining = declared_seconds
+        window_start, window_end = moscow_window_for(now)
+        window = await db.scalar(
+            select(FreeUsageWindow)
+            .where(
+                FreeUsageWindow.workspace_id == workspace_id,
+                FreeUsageWindow.window_start == window_start,
+            )
+            .with_for_update()
+        )
+        if window is None:
+            window = FreeUsageWindow(
+                id=uuid4(),
+                workspace_id=workspace_id,
+                window_start=window_start,
+                window_end=window_end,
+                included_seconds=FREE_PROCESSING_SECONDS,
+            )
+            db.add(window)
+            await db.flush()
     active_reserved = await db.scalar(
         select(func.coalesce(func.sum(UsageReservationRow.declared_seconds - UsageReservationRow.committed_seconds), 0)).where(
             UsageReservationRow.workspace_id == workspace_id,
             UsageReservationRow.window_id == window.id,
             UsageReservationRow.state == "active",
             (UsageReservationRow.expires_at.is_(None) | (UsageReservationRow.expires_at > now)),
+            *((UsageReservationRow.id != existing.id,) if existing is not None else ()),
         )
     )
-    # Reconcile the projection while the window row is locked; expired rows
-    # are excluded from admission and must not keep the UI showing stale hold.
-    window.reserved_seconds = int(active_reserved or 0)
-    if window.committed_seconds + int(active_reserved or 0) + declared_seconds > window.included_seconds:
+    if window.committed_seconds + int(active_reserved or 0) + remaining > window.included_seconds:
         raise QuotaExceeded("free processing quota is exhausted")
+    # Reconcile only after admission succeeds, so a rejected reservation leaves
+    # the caller's surrounding transaction and loaded lifecycle rows intact.
+    window.reserved_seconds = int(active_reserved or 0)
+    if existing is not None:
+        existing.state = "active"
+        existing.expires_at = expires_at or now + timedelta(minutes=15)
+        window.reserved_seconds += remaining
+        await db.flush()
+        return existing
     reservation = UsageReservationRow(
         id=uuid4(),
         workspace_id=workspace_id,

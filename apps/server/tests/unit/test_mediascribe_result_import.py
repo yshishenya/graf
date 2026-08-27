@@ -13,6 +13,11 @@ from twobrain_rec_server.mediascribe.schemas import (
     MediaScribeWordItem,
 )
 from twobrain_rec_server.processing.audit import safe_audit_metadata
+from twobrain_rec_server.processing.reasons import (
+    FAILURE_SOURCE_MEDIASCRIBE,
+    MEDIASCRIBE_MALFORMED_RESPONSE,
+)
+from twobrain_rec_server.processing.submit import _classify_ready_result
 
 
 def test_result_normalization_maps_roles_and_digest_is_stable() -> None:
@@ -424,3 +429,23 @@ def test_result_import_treats_null_diarization_as_an_empty_internal_collection()
     normalized = normalize_result(result)
 
     assert normalized.diarization == []
+
+
+def test_ready_result_without_requested_diarization_is_terminal_contract_evidence() -> None:
+    result = MediaScribeResult(
+        external_job_id="job_without_requested_diarization",
+        transcript=[
+            MediaScribeSegment(sequence=0, start_seconds=0, end_seconds=1, text="hello")
+        ],
+        diarization=None,
+    )
+
+    classified = _classify_ready_result(
+        normalize_result(result),
+        diarization_required=True,
+    )
+
+    assert classified.failure_reason == MEDIASCRIBE_MALFORMED_RESPONSE
+    assert classified.failure_source == FAILURE_SOURCE_MEDIASCRIBE
+    assert len(classified.transcript) == 1
+    assert classified.diarization == []

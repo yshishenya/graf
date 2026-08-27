@@ -39,11 +39,15 @@ from twobrain_rec_server.normalization.worker_readiness import (
     run_playback_normalization_readiness_activity,
 )
 from twobrain_rec_server.observability.logging import configure_logging
+from twobrain_rec_server.processing.store import get_processing_workflow
 from twobrain_rec_server.storage.minio_client import get_storage
 from twobrain_rec_server.workflows.playback_normalization_workflow import (
     PlaybackNormalizationWorkflow,
 )
-from twobrain_rec_server.workflows.temporal_client import connect_temporal_client
+from twobrain_rec_server.workflows.processing_workflow import MediaScribeProcessingWorkflow
+from twobrain_rec_server.workflows.temporal_client import (
+    connect_temporal_client,
+)
 
 WORK_DIRECTORY_NAME = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-[A-Za-z0-9_-]+$"
@@ -178,7 +182,6 @@ async def renew_normalization_activity_lease(
     lease_duration: timedelta,
     now: datetime | None = None,
 ) -> bool:
-    current_time = now or datetime.now(UTC)
     async with sessionmaker() as db:
         await apply_tenant_scope(db, tenant_scope, context_kind="worker")
         job = await db.scalar(
@@ -200,6 +203,7 @@ async def renew_normalization_activity_lease(
             or job.lease_owner_sha256 != lease_owner_sha256
         ):
             return False
+        current_time = now or datetime.now(UTC)
         job.last_heartbeat_at = current_time
         job.lease_expires_at = current_time + lease_duration
         await db.commit()
@@ -230,7 +234,46 @@ async def _normalization_activity_heartbeat_loop(
         heartbeat({"state": "normalizing", "job_id": str(job_id)})
 
 
-async def run_playback_normalization_activity(payload: dict[str, str]) -> dict[str, str]:
+async def _wake_processing_after_normalization(
+    *,
+    db,
+    temporal_client: object | None,
+    workspace_id: UUID,
+    meeting_id: UUID,
+    media_revision_id: UUID,
+) -> None:
+    if temporal_client is None:
+        return
+    workflow = await get_processing_workflow(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        media_revision_id=media_revision_id,
+        active_only=True,
+    )
+    if workflow is None:
+        return
+    try:
+        handle = temporal_client.get_workflow_handle(workflow.workflow_id)
+        await handle.signal(MediaScribeProcessingWorkflow.request_manual_check)
+    except Exception as exc:
+        # The processing workflow may not exist yet or Temporal may be briefly
+        # unavailable. Its bounded fallback timer remains authoritative.
+        LOGGER.info(
+            "playback_normalization.processing_wake_deferred",
+            extra={"error_type": type(exc).__name__},
+        )
+        return
+
+
+async def run_playback_normalization_activity(
+    payload: dict[str, str],
+    *,
+    settings: Settings | None = None,
+    sessionmaker=None,
+    storage: object | None = None,
+    temporal_client: object | None = None,
+) -> dict[str, str]:
     from temporalio import activity
     from temporalio.exceptions import ApplicationError
 
@@ -247,12 +290,15 @@ async def run_playback_normalization_activity(payload: dict[str, str]) -> dict[s
     lease_owner_sha256 = sha256(lease_owner.encode("utf-8")).hexdigest()
     activity.heartbeat({"state": "starting", "job_id": str(job_id)})
 
-    settings = get_settings()
+    settings = settings or get_settings()
     if not settings.playback_normalization_enabled:
         raise RuntimeError("playback normalization capability is disabled")
-    engine = create_engine(settings)
-    sessionmaker = create_sessionmaker(engine)
-    storage = get_storage(settings)
+    owned_engine = None
+    if sessionmaker is None:
+        owned_engine = create_engine(settings)
+        sessionmaker = create_sessionmaker(owned_engine)
+    if storage is None:
+        storage = get_storage(settings)
     try:
         async with sessionmaker() as db:
             await apply_tenant_scope(db, tenant_scope, context_kind="worker")
@@ -307,6 +353,10 @@ async def run_playback_normalization_activity(payload: dict[str, str]) -> dict[s
                 )
             )
             try:
+                # The service fences ownership before and after object upload.
+                # Let an in-flight transfer reach that post-upload fence: task
+                # cancellation can otherwise leave a completed MinIO PUT without
+                # durable cleanup evidence.
                 result = await run_normalization_job(
                     db=db,
                     storage=storage,
@@ -326,6 +376,14 @@ async def run_playback_normalization_activity(payload: dict[str, str]) -> dict[s
                     non_retryable=True,
                 ) from None
             except NormalizationExecutionFailure as exc:
+                if not exc.should_retry:
+                    await _wake_processing_after_normalization(
+                        db=db,
+                        temporal_client=temporal_client,
+                        workspace_id=tenant_scope.workspace_id,
+                        meeting_id=meeting_id,
+                        media_revision_id=media_revision_id,
+                    )
                 raise ApplicationError(
                     exc.reason_code.value,
                     type="PlaybackNormalizationFailure",
@@ -334,6 +392,13 @@ async def run_playback_normalization_activity(payload: dict[str, str]) -> dict[s
             finally:
                 heartbeat_task.cancel()
                 await asyncio.gather(heartbeat_task, return_exceptions=True)
+            await _wake_processing_after_normalization(
+                db=db,
+                temporal_client=temporal_client,
+                workspace_id=tenant_scope.workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+            )
             activity.heartbeat({"state": "published", "job_id": str(job_id)})
             return {
                 "job_id": str(result.job_id),
@@ -342,7 +407,8 @@ async def run_playback_normalization_activity(payload: dict[str, str]) -> dict[s
                 "reused": "true" if result.reused else "false",
             }
     finally:
-        await engine.dispose()
+        if owned_engine is not None:
+            await owned_engine.dispose()
 
 
 async def run_normalization_reconciliation_loop(
@@ -427,8 +493,18 @@ async def run_worker() -> None:
         worker_identity = playback_normalization_worker_identity()
         client = await connect_temporal_client(settings, identity=worker_identity)
         sessionmaker = create_sessionmaker(engine)
+
+        async def normalization_activity_impl(payload: dict[str, str]) -> dict[str, str]:
+            return await run_playback_normalization_activity(
+                payload,
+                settings=settings,
+                sessionmaker=sessionmaker,
+                storage=storage,
+                temporal_client=client,
+            )
+
         normalization_activity = activity.defn(name="run_playback_normalization_activity")(
-            run_playback_normalization_activity
+            normalization_activity_impl
         )
         readiness_activity = activity.defn(name="playback_normalization_worker_readiness_activity")(
             run_playback_normalization_readiness_activity

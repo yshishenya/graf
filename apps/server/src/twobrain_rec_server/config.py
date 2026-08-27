@@ -537,6 +537,8 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_processing_recovery_safety(self) -> "Settings":
+        if self.processing_enabled and not self.mediascribe_diarize:
+            raise ValueError("enabled processing requires MediaScribe diarization")
         if self.processing_recovery_min_delay_seconds > self.processing_recovery_default_delay_seconds:
             raise ValueError(
                 "processing recovery minimum delay must not exceed the default delay"

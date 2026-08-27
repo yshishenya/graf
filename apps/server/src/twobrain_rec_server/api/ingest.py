@@ -215,7 +215,11 @@ def media_revision_summary(revision: object) -> MediaRevisionSummary:
     )
 
 
-@router.post("/meetings", response_model=MeetingResponse, dependencies=[PrincipalDependency, DeviceDependency])
+@router.post(
+    "/meetings",
+    response_model=MeetingResponse,
+    dependencies=[PrincipalDependency, DeviceDependency],
+)
 async def create_meeting(
     payload: CreateMeetingRequest,
     request: Request,
@@ -251,8 +255,7 @@ async def create_meeting(
     if db is not None:
         calendar_context = await db.scalar(
             select(RecordingCalendarContextLink).where(
-                RecordingCalendarContextLink.workspace_id
-                == tenant_scope.workspace_id,
+                RecordingCalendarContextLink.workspace_id == tenant_scope.workspace_id,
                 RecordingCalendarContextLink.meeting_id == meeting.id,
             )
         )
@@ -451,7 +454,9 @@ async def get_missing_ranges(
 ) -> MissingRangesResponse:
     session = await get_upload_session_status(session_id, tenant_scope, db)
     expected = session.expected_track_sizes or {
-        role: sum(part.byte_length for (part_role, _), part in session.parts.items() if part_role == role)
+        role: sum(
+            part.byte_length for (part_role, _), part in session.parts.items() if part_role == role
+        )
         for role in session.expected_track_roles
     }
     ranges = missing_ranges_for_expected_sizes(session, expected)
@@ -476,7 +481,9 @@ async def abort_session(
     tenant_scope: TenantScope = TenantDependency,
     db: AsyncSession | None = DbDependency,
 ) -> UploadSessionResponse:
-    session = await abort_upload_session(tenant_scope=tenant_scope, db=db, session_id=session_id, reason=payload.reason)
+    session = await abort_upload_session(
+        tenant_scope=tenant_scope, db=db, session_id=session_id, reason=payload.reason
+    )
     await commit_if_available(db)
     return session_response(session)
 
@@ -502,6 +509,7 @@ async def finalize_session(
         tracks=payload.tracks,
         storage=storage,
         archive_audio=payload.archive_audio,
+        processing_requested=request.app.state.settings.processing_enabled,
     )
     await commit_if_available(db)
     if session.archive_audio:
