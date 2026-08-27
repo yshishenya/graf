@@ -7,15 +7,18 @@ import pytest
 from sqlalchemy import select
 from temporalio import activity
 
+from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fakes.auth_contexts import tenant_scope
 from tests.fixtures.processing import create_finalized_meeting, create_finalized_mixed_recording
 from twobrain_rec_server.cabinet.queries import _latest_workflow
 from twobrain_rec_server.db.models import (
     MediaRevision,
     MediaScribeJob,
+    Meeting,
     ProcessingAuditEvent,
     ProcessingResult,
     ProcessingWorkflow,
+    UsageReservation,
 )
 from twobrain_rec_server.deletion.service import reconcile_transient_media_purges
 from twobrain_rec_server.domain.statuses import MediaScribeJobStatus, ProcessingStatus
@@ -360,6 +363,123 @@ def test_imported_terminal_input_result_allows_a_fresh_attempt(
         True,
         True,
     )
+
+
+def test_stale_terminal_completion_cannot_regress_a_replacement_attempt(client) -> None:
+    finalized = create_finalized_meeting(client, "failure-stale-terminal-completion")
+    meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
+    workspace_id = UUID(finalized["meeting"]["workspace_id"])
+
+    async def run() -> tuple[str, str, str]:
+        async with client.app_state["sessionmaker"]() as db:
+            old_workflow, job = await _submitted_job(
+                db,
+                workspace_id,
+                meeting_id,
+                media_revision_id,
+            )
+            old_workflow.status = ProcessingStatus.POLLING.value
+            job.status = MediaScribeJobStatus.READY.value
+            db.add(
+                ProcessingResult(
+                    workspace_id=workspace_id,
+                    meeting_id=meeting_id,
+                    media_revision_id=media_revision_id,
+                    mediascribe_job_id=job.id,
+                    processing_workflow_id=old_workflow.id,
+                    result_version=1,
+                    status="imported",
+                    transcript_status="unavailable",
+                    diarization_status="unavailable",
+                    summary_status="not_requested",
+                    segment_count=0,
+                    diarization_segment_count=0,
+                    failure_reason="invalid_audio_payload",
+                    failure_source="input_audio",
+                )
+            )
+            await db.commit()
+
+            creation = await store.create_processing_attempt(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+            )
+            assert creation.workflow is not None
+            replacement_id = creation.workflow.id
+            await db.commit()
+
+            await store.set_workflow_status(
+                db,
+                old_workflow,
+                ProcessingStatus.FAILED_TERMINAL,
+                reason_code="invalid_audio_payload",
+                terminal=True,
+            )
+            replacement = await db.get(ProcessingWorkflow, replacement_id)
+            meeting = await db.get(Meeting, meeting_id)
+            reservation = await db.scalar(
+                select(UsageReservation).where(
+                    UsageReservation.workspace_id == workspace_id,
+                    UsageReservation.idempotency_key == f"processing:{media_revision_id}",
+                )
+            )
+            assert replacement is not None
+            assert meeting is not None
+            assert reservation is not None
+            return replacement.status, meeting.processing_status, reservation.state
+
+    assert asyncio.run(run()) == ("starting", "starting", "active")
+
+
+def test_desktop_sync_projects_legacy_processed_terminal_input_as_failed(client) -> None:
+    local_recording_id = "failure-desktop-sync-terminal-input"
+    finalized = create_finalized_meeting(client, local_recording_id)
+    meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
+    workspace_id = UUID(finalized["meeting"]["workspace_id"])
+
+    async def seed() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            workflow, job = await _submitted_job(db, workspace_id, meeting_id, media_revision_id)
+            workflow.status = ProcessingStatus.PROCESSED.value
+            job.status = MediaScribeJobStatus.READY.value
+            db.add(
+                ProcessingResult(
+                    workspace_id=workspace_id,
+                    meeting_id=meeting_id,
+                    media_revision_id=media_revision_id,
+                    mediascribe_job_id=job.id,
+                    processing_workflow_id=workflow.id,
+                    result_version=1,
+                    status="imported",
+                    transcript_status="unavailable",
+                    diarization_status="unavailable",
+                    summary_status="not_requested",
+                    segment_count=0,
+                    diarization_segment_count=0,
+                    failure_reason="invalid_audio_payload",
+                    failure_source="input_audio",
+                )
+            )
+            await db.commit()
+
+    asyncio.run(seed())
+    response = client.get(
+        f"/api/v1/desktop/recordings/{local_recording_id}/sync-state",
+        headers=auth_headers(),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["processing"] == {
+        "status": "failed_terminal",
+        "workflow_id": f"processing/{media_revision_id}",
+        "reason_code": "invalid_audio_payload",
+    }
+    assert body["review"]["status"] == "failed"
+    assert body["conflict"]["state"] == "processing_failed"
 
 
 def test_replacement_no_archive_attempt_owns_transient_media_purge(client, monkeypatch) -> None:

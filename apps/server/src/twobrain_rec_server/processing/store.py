@@ -1821,7 +1821,7 @@ async def set_workflow_status(
         current_status = ProcessingStatus(current.status)
     except ValueError:
         current_status = None
-    if current_status in TERMINAL_PROCESSING_STATUSES and status != current_status:
+    if current_status in TERMINAL_PROCESSING_STATUSES:
         await db.commit()
         return current
     if current_status is not None and not can_transition(current_status, status):

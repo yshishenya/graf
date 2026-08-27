@@ -48,7 +48,10 @@ from twobrain_rec_server.ingest.store import (
 )
 from twobrain_rec_server.processing import store as processing_store
 from twobrain_rec_server.processing.fences import lock_meeting_fence, meeting_is_deleted_or_deleting
-from twobrain_rec_server.processing.results import effective_processing_result_query
+from twobrain_rec_server.processing.results import (
+    effective_processing_result_query,
+    result_is_terminal_input,
+)
 
 
 def _utc_aware(value: datetime) -> datetime:
@@ -214,7 +217,7 @@ def _desktop_review_status(
     *,
     meeting: object,
     result: ProcessingResult | None,
-    workflow: ProcessingWorkflow | None,
+    processing_status: ProcessingStatus,
 ) -> str:
     has_transcript = _transcript_artifact_available(result)
     has_diarization = _diarization_available(result)
@@ -223,7 +226,7 @@ def _desktop_review_status(
     if has_transcript or has_diarization:
         return "partial"
 
-    lifecycle_status = workflow.status if workflow is not None else _status_value(meeting.processing_status)
+    lifecycle_status = processing_status.value
     if lifecycle_status in {
         ProcessingStatus.PENDING_PROCESSING.value,
         ProcessingStatus.STARTING.value,
@@ -719,7 +722,6 @@ async def get_desktop_recording_sync_state(
         deletion_state=deletion_state,
         media_revision_status=meeting.media_revision_status,
     )
-    processing_conflict = _processing_conflict(meeting.processing_status)
     review_workflow = await _latest_processing_workflow(
         db,
         workspace_id=tenant_scope.workspace_id,
@@ -732,10 +734,25 @@ async def get_desktop_recording_sync_state(
         meeting_id=meeting.id,
         media_revision_id=meeting.media_revision_id,
     )
-    effective_processing_status = (
-        ProcessingStatus(review_workflow.status) if review_workflow is not None else meeting.processing_status
+    terminal_input_result = bool(
+        review_workflow is not None
+        and review_result is not None
+        and review_result.processing_workflow_id == review_workflow.id
+        and result_is_terminal_input(review_result)
     )
-    review_status = _desktop_review_status(meeting=meeting, result=review_result, workflow=review_workflow)
+    effective_processing_status = (
+        ProcessingStatus.FAILED_TERMINAL
+        if terminal_input_result
+        else ProcessingStatus(review_workflow.status)
+        if review_workflow is not None
+        else ProcessingStatus(_status_value(meeting.processing_status))
+    )
+    processing_conflict = _processing_conflict(effective_processing_status)
+    review_status = _desktop_review_status(
+        meeting=meeting,
+        result=review_result,
+        processing_status=effective_processing_status,
+    )
     transcript_ready = _transcript_available(review_result)
     diarization_ready = _diarization_available(review_result)
     session_device_conflict = _session_device_conflict(tenant_scope=tenant_scope, session=session)
@@ -783,7 +800,13 @@ async def get_desktop_recording_sync_state(
         processing=DesktopSyncProcessingState(
             status=effective_processing_status,
             workflow_id=review_workflow.workflow_id if review_workflow is not None else None,
-            reason_code=review_workflow.last_reason_code if review_workflow is not None else processing_conflict.reason,
+            reason_code=(
+                review_result.failure_reason
+                if terminal_input_result
+                else review_workflow.last_reason_code
+                if review_workflow is not None
+                else processing_conflict.reason
+            ),
         ),
         review=DesktopSyncReviewState(
             available=review_available,
