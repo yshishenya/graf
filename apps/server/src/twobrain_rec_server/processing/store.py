@@ -1007,6 +1007,7 @@ async def create_processing_attempt(
 
     now = datetime.now(UTC)
     attempt_ordinal = max(int(row.attempt_ordinal or 1) for row in workflows) + 1
+    transient_admitted_at = current.transient_admitted_at or now
     from twobrain_rec_server.workflows.temporal_client import processing_workflow_id
 
     workflow = ProcessingWorkflow(
@@ -1023,8 +1024,13 @@ async def create_processing_attempt(
         retry_class="none",
         archive_audio=bool(current.archive_audio),
         transient_state="processing" if not current.archive_audio else "not_applicable",
-        transient_admitted_at=now if not current.archive_audio else None,
-        transient_hard_deadline=(now + TRANSIENT_HARD_LIFETIME) if not current.archive_audio else None,
+        transient_admitted_at=transient_admitted_at if not current.archive_audio else None,
+        transient_hard_deadline=(
+            current.transient_hard_deadline
+            or transient_admitted_at + TRANSIENT_HARD_LIFETIME
+            if not current.archive_audio
+            else None
+        ),
         attempt_count=1,
         last_reason_code="user_new_attempt",
         started_at=now,

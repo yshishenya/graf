@@ -373,7 +373,7 @@ def test_replacement_no_archive_attempt_owns_transient_media_purge(client) -> No
     workspace_id = UUID(finalized["meeting"]["workspace_id"])
     source_keys = set(client.app_state["storage"].objects)
 
-    async def run() -> tuple[int, bool, int, bool]:
+    async def run() -> tuple[bool, int, bool, int, bool]:
         async with client.app_state["sessionmaker"]() as db:
             workflow, job = await _submitted_job(
                 db,
@@ -411,6 +411,9 @@ def test_replacement_no_archive_attempt_owns_transient_media_purge(client) -> No
             )
             assert creation.workflow is not None
             assert workflow.transient_purge_due_at is not None
+            hard_deadline_preserved = (
+                creation.workflow.transient_hard_deadline == workflow.transient_hard_deadline
+            )
             stale_deadline = workflow.transient_purge_due_at
             await db.commit()
 
@@ -433,13 +436,14 @@ def test_replacement_no_archive_attempt_owns_transient_media_purge(client) -> No
             )
             source_purged = source_keys.isdisjoint(client.app_state["storage"].objects)
             return (
+                hard_deadline_preserved,
                 purged_while_replacement_active,
                 source_survived,
                 purged_after_latest_terminal,
                 source_purged,
             )
 
-    assert asyncio.run(run()) == (0, True, 1, True)
+    assert asyncio.run(run()) == (True, 0, True, 1, True)
 
 
 def test_worker_activity_persists_blocked_config_when_mediascribe_is_unconfigured(client, monkeypatch) -> None:
