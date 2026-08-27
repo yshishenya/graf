@@ -44,11 +44,16 @@ def _create_meeting(client, local_recording_id: str = "lifecycle") -> dict:
     return response.json()
 
 
-def _create_upload_session(client, meeting_id: str, expected_track_sizes: dict[str, int] | None = None) -> dict:
+def _create_upload_session(
+    client, meeting_id: str, expected_track_sizes: dict[str, int] | None = None
+) -> dict:
     response = client.post(
         f"/api/v1/meetings/{meeting_id}/upload-sessions",
         headers=auth_headers(),
-        json={"expected_track_sizes": expected_track_sizes or {"manifest": 8, "microphone": 9, "system": 10}},
+        json={
+            "expected_track_sizes": expected_track_sizes
+            or {"manifest": 8, "microphone": 9, "system": 10}
+        },
     )
     assert response.status_code == 200
     return response.json()
@@ -142,7 +147,9 @@ def test_create_upload_session_persists_meeting_uploading_status(client) -> None
 
     async def persisted_status() -> str | None:
         async with client.app_state["sessionmaker"]() as db:
-            return await db.scalar(select(Meeting.status).where(Meeting.id == UUID(meeting["meeting_id"])))
+            return await db.scalar(
+                select(Meeting.status).where(Meeting.id == UUID(meeting["meeting_id"]))
+            )
 
     import asyncio
 
@@ -346,19 +353,31 @@ def test_conflicting_meeting_create_is_rejected(client) -> None:
     first = client.post(
         "/api/v1/meetings",
         headers=auth_headers(),
-        json={"local_recording_id": "lifecycle-meeting-conflict", "duration_seconds": 60, "title": "Original"},
+        json={
+            "local_recording_id": "lifecycle-meeting-conflict",
+            "duration_seconds": 60,
+            "title": "Original",
+        },
     )
     assert first.status_code == 200
 
     replay = client.post(
         "/api/v1/meetings",
         headers=auth_headers(),
-        json={"local_recording_id": "lifecycle-meeting-conflict", "duration_seconds": 60, "title": "Original"},
+        json={
+            "local_recording_id": "lifecycle-meeting-conflict",
+            "duration_seconds": 60,
+            "title": "Original",
+        },
     )
     conflict = client.post(
         "/api/v1/meetings",
         headers=auth_headers(),
-        json={"local_recording_id": "lifecycle-meeting-conflict", "duration_seconds": 61, "title": "Changed"},
+        json={
+            "local_recording_id": "lifecycle-meeting-conflict",
+            "duration_seconds": 61,
+            "title": "Changed",
+        },
     )
 
     assert replay.status_code == 200
@@ -478,7 +497,11 @@ def test_terminal_sessions_reject_additional_mutations_and_persist_finalized_at(
 
     async def finalized_at():
         async with client.app_state["sessionmaker"]() as db:
-            return await db.scalar(select(UploadSession.finalized_at).where(UploadSession.id == UUID(session["session_id"])))
+            return await db.scalar(
+                select(UploadSession.finalized_at).where(
+                    UploadSession.id == UUID(session["session_id"])
+                )
+            )
 
     import asyncio
 
@@ -575,7 +598,9 @@ def test_expiry_preserves_metadata_committed_after_stale_sync_snapshot(client) -
                 meeting=stale_meeting,
                 session=stale_session,
             )
-            current_title = await db.scalar(select(Meeting.title).where(Meeting.id == UUID(meeting["meeting_id"])))
+            current_title = await db.scalar(
+                select(Meeting.title).where(Meeting.id == UUID(meeting["meeting_id"]))
+            )
             return conflict.state.value, current_title
 
     assert asyncio.run(expire_from_stale_snapshot()) == (
@@ -584,7 +609,9 @@ def test_expiry_preserves_metadata_committed_after_stale_sync_snapshot(client) -
     )
 
 
-def test_sync_state_copies_authoritative_meeting_when_session_terminalizes_concurrently(client) -> None:
+def test_sync_state_copies_authoritative_meeting_when_session_terminalizes_concurrently(
+    client,
+) -> None:
     meeting = _create_meeting(client, "lifecycle-sync-terminal-authoritative")
     session = _create_upload_session(client, meeting["meeting_id"])
 

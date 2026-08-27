@@ -128,7 +128,10 @@ async def _persist_degraded_finalize_failure(
             )
             .order_by(UploadSessionModel.created_at.desc(), UploadSessionModel.id.desc())
         )
-        if active_revision_id is not None and active_revision_id != persisted_session.media_revision_id:
+        if (
+            active_revision_id is not None
+            and active_revision_id != persisted_session.media_revision_id
+        ):
             raise ProblemDetail(
                 status=409,
                 code="media_revision_superseded",
@@ -198,7 +201,9 @@ async def _raise_degraded_finalize_problem(
     raise problem
 
 
-def _finalized_track_object_key(*, meeting: MeetingRecord, session: UploadSessionRecord, role: TrackRole) -> str:
+def _finalized_track_object_key(
+    *, meeting: MeetingRecord, session: UploadSessionRecord, role: TrackRole
+) -> str:
     prefix = build_final_artifact_prefix(
         organization_id=session.organization_id,
         workspace_id=session.workspace_id,
@@ -208,7 +213,9 @@ def _finalized_track_object_key(*, meeting: MeetingRecord, session: UploadSessio
     return f"{prefix}/media-revisions/{media_revision_id}/tracks/{role.value}"
 
 
-async def _put_storage_stream(storage: object, object_key: str, stream: BinaryIO, byte_length: int) -> None:
+async def _put_storage_stream(
+    storage: object, object_key: str, stream: BinaryIO, byte_length: int
+) -> None:
     ensure_bucket_async = getattr(storage, "ensure_bucket_async", None)
     if ensure_bucket_async is not None:
         await ensure_bucket_async()
@@ -313,7 +320,9 @@ async def _lock_finalize_upload_session(
         .execution_options(populate_existing=True)
     )
     if seed is None:
-        raise ProblemDetail(status=404, code="upload_session_not_found", title="Upload session not found")
+        raise ProblemDetail(
+            status=404, code="upload_session_not_found", title="Upload session not found"
+        )
     await _lock_finalize_lifecycle_fence(
         db,
         meeting_id=seed.meeting_id,
@@ -330,7 +339,9 @@ async def _lock_finalize_upload_session(
         .execution_options(populate_existing=True)
     )
     if persisted is None:
-        raise ProblemDetail(status=404, code="upload_session_not_found", title="Upload session not found")
+        raise ProblemDetail(
+            status=404, code="upload_session_not_found", title="Upload session not found"
+        )
     if persisted.status not in {
         UploadSessionStatus.PENDING.value,
         UploadSessionStatus.UPLOADING.value,
@@ -391,7 +402,9 @@ async def _copy_part_to_stream_async(
     digest: object,
 ) -> int:
     return await to_thread.run_sync(
-        lambda: _copy_part_to_stream(storage=storage, part=part, destination=destination, digest=digest)
+        lambda: _copy_part_to_stream(
+            storage=storage, part=part, destination=destination, digest=digest
+        )
     )
 
 
@@ -455,6 +468,7 @@ async def finalize_upload(
     tracks: list[TrackDescriptor],
     storage: object | None = None,
     archive_audio: bool = True,
+    processing_requested: bool = False,
 ) -> tuple[object, object]:
     # Read a stable snapshot for validation/materialization. Final mutation
     # takes Meeting → MediaRevision → UploadSession locks after storage I/O.
@@ -465,8 +479,7 @@ async def finalize_upload(
     deletion_epoch_at_start: int | None = None
     if db is not None:
         persisted_meeting = await db.scalar(
-            select(MeetingModel)
-            .where(
+            select(MeetingModel).where(
                 MeetingModel.id == meeting.id,
                 MeetingModel.workspace_id == tenant_scope.workspace_id,
             )
@@ -709,14 +722,20 @@ async def finalize_upload(
             UploadSessionStatus.UPLOADING,
         }:
             await cleanup_materialized("finalize_upload_session_changed")
-            code = "session_expired" if session.status == UploadSessionStatus.EXPIRED else "session_terminal"
+            code = (
+                "session_expired"
+                if session.status == UploadSessionStatus.EXPIRED
+                else "session_terminal"
+            )
             raise ProblemDetail(status=409, code=code, title="Upload session is terminal")
         expires_at = session.expires_at
         if expires_at.tzinfo is None:
             expires_at = expires_at.replace(tzinfo=UTC)
         if expires_at <= datetime.now(UTC):
             await cleanup_materialized("finalize_upload_session_expired")
-            raise ProblemDetail(status=409, code="session_expired", title="Upload session is expired")
+            raise ProblemDetail(
+                status=409, code="session_expired", title="Upload session is expired"
+            )
         if session.parts != session_parts_snapshot:
             await cleanup_materialized("finalize_upload_session_changed")
             raise ProblemDetail(
@@ -771,10 +790,12 @@ async def finalize_upload(
     previous_archive_audio = session.archive_audio
     try:
         meeting.status = MeetingStatus.INGESTED_PENDING_PROCESSING
-        meeting.processing_status = ProcessingStatus.NOT_SUBMITTED
+        meeting.processing_status = (
+            ProcessingStatus.STARTING if processing_requested else ProcessingStatus.NOT_SUBMITTED
+        )
         meeting.media_revision_status = MediaRevisionStatus.ACCEPTED
         session.status = UploadSessionStatus.FINALIZED
-        session.processing_status = ProcessingStatus.NOT_SUBMITTED
+        session.processing_status = meeting.processing_status
         session.finalized_at = datetime.now(UTC)
         session.archive_audio = archive_audio
         await persist_meeting(db, meeting, commit=False)
@@ -788,14 +809,14 @@ async def finalize_upload(
             finalized_track_object_keys,
             commit=False,
         )
-        if archive_audio:
+        if archive_audio or any(track.track_role == TrackRole.MEDIA for track in tracks):
             await upsert_playback_normalization_job(
                 db,
                 workspace_id=meeting.workspace_id,
                 meeting_id=meeting.id,
                 media_revision_id=session.media_revision_id or meeting.media_revision_id,
             )
-        else:
+        if not archive_audio:
             source_object_keys = {
                 track.track_role: (
                     finalized_track_object_keys[track.track_role],
@@ -821,5 +842,7 @@ async def finalize_upload(
         session.processing_status = previous_session_processing_status
         session.finalized_at = previous_finalized_at
         session.archive_audio = previous_archive_audio
-        raise ProblemDetail(status=503, code="persistence_unavailable", title="Persistence unavailable") from exc
+        raise ProblemDetail(
+            status=503, code="persistence_unavailable", title="Persistence unavailable"
+        ) from exc
     return meeting, session

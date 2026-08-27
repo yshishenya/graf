@@ -10,7 +10,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
 
-from sqlalchemy import delete, desc, func, select
+from sqlalchemy import and_, delete, desc, exists, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,6 +33,7 @@ from twobrain_rec_server.db.models import (
     MediaRevision,
     MediaScribeJob,
     Meeting,
+    PlaybackNormalizationJob,
     ProcessingAuditEvent,
     ProcessingDependencyState,
     ProcessingPlaceholder,
@@ -40,6 +41,7 @@ from twobrain_rec_server.db.models import (
     ProcessingWorkflow,
     TrackArtifact,
     TranscriptSegment,
+    UploadSession,
     WorkspaceSubscription,
 )
 from twobrain_rec_server.domain.statuses import (
@@ -62,6 +64,11 @@ from twobrain_rec_server.ingest.media_revisions import (
 from twobrain_rec_server.mediascribe.client import MediaScribeClientError
 from twobrain_rec_server.mediascribe.downloads import safe_download_references
 from twobrain_rec_server.mediascribe.schemas import MediaScribeResult
+from twobrain_rec_server.normalization.statuses import (
+    CANONICAL_PROFILE_VERSION,
+    VALIDATION_VERSION,
+    JobState,
+)
 from twobrain_rec_server.processing.audit import (
     safe_audit_metadata,
     validate_processing_aggregate_event,
@@ -74,12 +81,18 @@ from twobrain_rec_server.processing.fences import (
     record_stale_lifecycle_event,
 )
 from twobrain_rec_server.processing.lifecycle import (
+    PROCESSING_ACTIVE_RECONCILE_AFTER,
+    PROCESSING_START_RECONCILE_AFTER,
+    RECONCILABLE_PROCESSING_STATUSES,
     TERMINAL_PROCESSING_STATUSES,
     can_transition,
 )
 from twobrain_rec_server.processing.reasons import (
     BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN,
     BLOCKED_TEMPORAL_UNAVAILABLE,
+    FAILURE_SOURCE_INPUT_AUDIO,
+    INVALID_AUDIO_PAYLOAD,
+    MEDIASCRIBE_MALFORMED_RESPONSE,
     NO_RECOGNIZABLE_SPEECH,
 )
 from twobrain_rec_server.processing.recovery import (
@@ -87,7 +100,10 @@ from twobrain_rec_server.processing.recovery import (
     schedule_retry,
     schedule_retry_with_settings,
 )
-from twobrain_rec_server.processing.results import effective_processing_result_query
+from twobrain_rec_server.processing.results import (
+    effective_processing_result_query,
+    result_is_complete,
+)
 
 
 class ProcessingLifecycleBlocked(RuntimeError):
@@ -404,7 +420,11 @@ async def claim_processing_manual_check(
         workflow.schedule_generation = int(workflow.schedule_generation or 0) + 1
         workflow.next_attempt_at = None
         workflow.next_attempt_source = None
-        workflow.retry_class = "unknown_outcome" if status_value == ProcessingStatus.BLOCKED_UNKNOWN.value else "retryable"
+        workflow.retry_class = (
+            "unknown_outcome"
+            if status_value == ProcessingStatus.BLOCKED_UNKNOWN.value
+            else "retryable"
+        )
         workflow.status = ProcessingStatus.WAITING_RETRY.value
         workflow.last_reason_code = "manual_check_claim_expired"
         status_value = ProcessingStatus.WAITING_RETRY.value
@@ -541,9 +561,7 @@ async def release_processing_manual_check_claim(
         return False
     workflow.manual_claimed_at = None
     workflow.manual_claimed_by = None
-    unknown_reconciliation = (
-        workflow.retry_class == "unknown_outcome"
-    )
+    unknown_reconciliation = workflow.retry_class == "unknown_outcome"
     workflow.retry_class = "unknown_outcome" if unknown_reconciliation else "retryable"
     scheduler = schedule_retry_with_settings if settings is not None else schedule_retry
     schedule_kwargs = {
@@ -584,7 +602,9 @@ async def release_processing_manual_check_claim(
     await set_workflow_status(
         db,
         workflow,
-        ProcessingStatus.BLOCKED_UNKNOWN if unknown_reconciliation else ProcessingStatus.WAITING_RETRY,
+        ProcessingStatus.BLOCKED_UNKNOWN
+        if unknown_reconciliation
+        else ProcessingStatus.WAITING_RETRY,
         reason_code=reason_code,
     )
     return True
@@ -616,6 +636,125 @@ class ProcessingSourceArtifacts:
     @property
     def is_v5_mixed_recording(self) -> bool:
         return self.source_kind == MediaRevisionSourceKind.INITIAL_MIXED_RECORDING.value
+
+
+@dataclass(frozen=True, slots=True)
+class ManualUploadPreparation:
+    state: str
+    reason_code: str | None = None
+    next_attempt_at: datetime | None = None
+    source: ProcessingSourceArtifacts | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ProcessingStartIntent:
+    workspace_id: UUID
+    meeting_id: UUID
+    workflow_id: UUID
+
+
+@dataclass(frozen=True, slots=True)
+class MissingProcessingStartIntent:
+    upload_session_id: UUID
+    workspace_id: UUID
+    meeting_id: UUID
+    media_revision_id: UUID
+    archive_audio: bool
+
+
+async def load_manual_upload_preparation(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+    media_revision_id: UUID | None,
+    revision: MediaRevision | None = None,
+) -> ManualUploadPreparation | None:
+    """Resolve the one canonical provider source for a manual upload."""
+
+    if media_revision_id is None:
+        return None
+    if revision is None:
+        revision = await db.scalar(
+            select(MediaRevision).where(
+                MediaRevision.id == media_revision_id,
+                MediaRevision.workspace_id == workspace_id,
+                MediaRevision.meeting_id == meeting_id,
+                MediaRevision.status == MediaRevisionStatus.ACCEPTED.value,
+                MediaRevision.immutable.is_(True),
+            )
+        )
+    if (
+        revision is None
+        or revision.id != media_revision_id
+        or revision.workspace_id != workspace_id
+        or revision.meeting_id != meeting_id
+        or revision.status != MediaRevisionStatus.ACCEPTED.value
+        or not revision.immutable
+        or revision.source_kind != MediaRevisionSourceKind.MANUAL_UPLOAD.value
+    ):
+        return None
+    job = await db.scalar(
+        select(PlaybackNormalizationJob).where(
+            PlaybackNormalizationJob.workspace_id == workspace_id,
+            PlaybackNormalizationJob.meeting_id == meeting_id,
+            PlaybackNormalizationJob.media_revision_id == media_revision_id,
+            PlaybackNormalizationJob.profile_version == CANONICAL_PROFILE_VERSION,
+        )
+    )
+    if job is None:
+        return ManualUploadPreparation(
+            state="pending",
+            reason_code="normalization_queued",
+        )
+    if job.state in {
+        JobState.QUEUED.value,
+        JobState.RUNNING.value,
+        JobState.PUBLISHING.value,
+        JobState.RETRY_WAIT.value,
+    }:
+        return ManualUploadPreparation(
+            state="pending",
+            reason_code=f"normalization_{job.state}",
+            next_attempt_at=job.next_attempt_at,
+        )
+    if job.state == JobState.CANCELLED.value:
+        return ManualUploadPreparation(
+            state="cancelled",
+            reason_code=job.reason_code or "normalization_cancelled",
+        )
+    if job.state != JobState.READY.value or job.canonical_track_artifact_id is None:
+        return ManualUploadPreparation(
+            state="terminal",
+            reason_code=job.reason_code or "normalization_failed",
+        )
+    artifact = await db.scalar(
+        select(TrackArtifact).where(
+            TrackArtifact.id == job.canonical_track_artifact_id,
+            TrackArtifact.workspace_id == workspace_id,
+            TrackArtifact.meeting_id == meeting_id,
+            TrackArtifact.media_revision_id == media_revision_id,
+            TrackArtifact.track_role == TrackRole.PLAYBACK.value,
+            TrackArtifact.status == "stored",
+            TrackArtifact.normalization_profile_version == CANONICAL_PROFILE_VERSION,
+            TrackArtifact.validation_version == VALIDATION_VERSION,
+            TrackArtifact.validated_at.is_not(None),
+            TrackArtifact.source_fingerprint_sha256 == job.source_fingerprint_sha256,
+        )
+    )
+    if artifact is None or artifact.codec != "m4a-aac-lc" or len(artifact.sha256 or "") != 64:
+        return ManualUploadPreparation(
+            state="terminal",
+            reason_code="canonical_artifact_missing",
+        )
+    return ManualUploadPreparation(
+        state="ready",
+        source=ProcessingSourceArtifacts(
+            request_mode="single_track",
+            source_kind=revision.source_kind,
+            source_artifact=artifact,
+        ),
+    )
 
 
 async def load_meeting_for_workspace(
@@ -660,11 +799,33 @@ class ProcessingAttemptCreation:
     attempt_ordinal: int | None = None
 
 
+async def _processing_is_unlimited(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    now: datetime,
+) -> bool:
+    subscription = await db.scalar(
+        select(WorkspaceSubscription)
+        .where(WorkspaceSubscription.workspace_id == workspace_id)
+        .with_for_update()
+    )
+    effective_plan = effective_plan_code(
+        plan_code=(subscription.plan_code if subscription is not None else "free"),
+        state=(subscription.state if subscription is not None else "free"),
+        now=now,
+        paid_through=subscription.paid_through if subscription is not None else None,
+        trial_ends_at=subscription.trial_ends_at if subscription is not None else None,
+    )
+    return entitlement_for_plan(plan_code=effective_plan).processing_unlimited
+
+
 async def _reserve_processing_attempt_quota(
     db: AsyncSession,
     *,
     workspace_id: UUID,
     media_revision: MediaRevision,
+    expires_at: datetime | None = None,
 ) -> bool:
     """Reuse the revision reservation, or admit one new bounded reservation.
 
@@ -683,35 +844,40 @@ async def _reserve_processing_attempt_quota(
         return False
     reservation_key = f"processing:{media_revision.id}"
     now = datetime.now(UTC)
+    unlimited = await _processing_is_unlimited(
+        db,
+        workspace_id=workspace_id,
+        now=now,
+    )
     reservation = await find_free_usage_reservation(
         db,
         workspace_id=workspace_id,
         reservation_key=reservation_key,
     )
+    if unlimited:
+        if reservation is not None and reservation.state == "active":
+            await release_free_usage(db, reservation_id=reservation.id)
+        return True
     if reservation is not None:
         if reservation.state == "committed":
             return True
         if reservation.state == "active":
             if reservation.expires_at is None or reservation.expires_at > now:
+                if (
+                    expires_at is not None
+                    and reservation.expires_at is not None
+                    and reservation.expires_at < expires_at
+                ):
+                    reservation.expires_at = expires_at
+                    await db.flush()
                 return True
             await release_free_usage(db, reservation_id=reservation.id)
-        if reservation.state == "released" and reservation.committed_seconds >= reservation.declared_seconds:
+        if (
+            reservation.state == "released"
+            and reservation.committed_seconds >= reservation.declared_seconds
+        ):
             return True
 
-    subscription = await db.scalar(
-        select(WorkspaceSubscription)
-        .where(WorkspaceSubscription.workspace_id == workspace_id)
-        .with_for_update()
-    )
-    effective_plan = effective_plan_code(
-        plan_code=(subscription.plan_code if subscription is not None else "free"),
-        state=(subscription.state if subscription is not None else "free"),
-        now=now,
-        paid_through=subscription.paid_through if subscription is not None else None,
-        trial_ends_at=subscription.trial_ends_at if subscription is not None else None,
-    )
-    if entitlement_for_plan(plan_code=effective_plan).processing_unlimited:
-        return True
     try:
         await reserve_free_usage(
             db,
@@ -719,11 +885,91 @@ async def _reserve_processing_attempt_quota(
             reservation_key=reservation_key,
             declared_seconds=duration_seconds,
             now=now,
-            expires_at=now + timedelta(hours=24),
+            expires_at=expires_at or now + timedelta(hours=24),
         )
     except QuotaExceeded:
         return False
     return True
+
+
+async def ensure_processing_usage_reservation(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    media_revision_id: UUID | None,
+    expires_at: datetime | None = None,
+) -> bool:
+    """Re-admit the revision immediately before paid provider work or import."""
+
+    if media_revision_id is None:
+        return False
+    media_revision = await db.scalar(
+        select(MediaRevision).where(
+            MediaRevision.id == media_revision_id,
+            MediaRevision.workspace_id == workspace_id,
+            MediaRevision.status == MediaRevisionStatus.ACCEPTED.value,
+            MediaRevision.immutable.is_(True),
+        )
+    )
+    if media_revision is None:
+        return False
+    return await _reserve_processing_attempt_quota(
+        db,
+        workspace_id=workspace_id,
+        media_revision=media_revision,
+        expires_at=expires_at,
+    )
+
+
+async def _lock_workflow_result(
+    db: AsyncSession,
+    *,
+    workflow: ProcessingWorkflow,
+) -> ProcessingResult | None:
+    """Lock the current durable result, including legacy job-linked rows."""
+
+    job_ids = list(
+        await db.scalars(
+            select(MediaScribeJob.id)
+            .where(
+                MediaScribeJob.workspace_id == workflow.workspace_id,
+                MediaScribeJob.meeting_id == workflow.meeting_id,
+                MediaScribeJob.processing_workflow_id == workflow.id,
+            )
+            .order_by(MediaScribeJob.id)
+            .with_for_update()
+        )
+    )
+    lineage = [ProcessingResult.processing_workflow_id == workflow.id]
+    if job_ids:
+        lineage.append(ProcessingResult.mediascribe_job_id.in_(job_ids))
+    media_revision_filter = (
+        ProcessingResult.media_revision_id.is_(None)
+        if workflow.media_revision_id is None
+        else ProcessingResult.media_revision_id == workflow.media_revision_id
+    )
+    return await db.scalar(
+        select(ProcessingResult)
+        .where(
+            ProcessingResult.workspace_id == workflow.workspace_id,
+            ProcessingResult.meeting_id == workflow.meeting_id,
+            media_revision_filter,
+            ProcessingResult.status.in_(
+                {
+                    ProcessingResultStatus.IMPORTED.value,
+                    ProcessingResultStatus.FAILED.value,
+                }
+            ),
+            or_(*lineage),
+        )
+        .order_by(
+            ProcessingResult.result_version.desc(),
+            ProcessingResult.created_at.desc(),
+            ProcessingResult.id.desc(),
+        )
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
 
 
 async def create_processing_attempt(
@@ -731,7 +977,6 @@ async def create_processing_attempt(
     *,
     workspace_id: UUID,
     meeting_id: UUID,
-    deadline_seconds: int | None = None,
 ) -> ProcessingAttemptCreation:
     """Admit exactly one fresh attempt after a confirmed terminal failure.
 
@@ -739,7 +984,7 @@ async def create_processing_attempt(
     are then locked and the newest one is authoritative.  The old terminal
     workflow, its provider job, and its result are never mutated or reused.
     This function intentionally leaves commit/rollback to the API boundary so
-    Temporal dispatch can be compensated before the new row becomes visible.
+    the durable start intent can be committed before Temporal dispatch.
     """
 
     meeting = await lock_meeting_fence(
@@ -766,12 +1011,23 @@ async def create_processing_attempt(
             result="source_unavailable",
             media_revision_id=media_revision.id,
         )
-    if await load_processing_source(
+    preparation = await load_manual_upload_preparation(
         db,
         workspace_id=workspace_id,
         meeting_id=meeting_id,
         media_revision_id=media_revision.id,
-    ) is None:
+    )
+    source = (
+        preparation.source
+        if preparation is not None
+        else await load_processing_source(
+            db,
+            workspace_id=workspace_id,
+            meeting_id=meeting_id,
+            media_revision_id=media_revision.id,
+        )
+    )
+    if source is None:
         return ProcessingAttemptCreation(
             result="source_unavailable",
             media_revision_id=media_revision.id,
@@ -801,19 +1057,42 @@ async def create_processing_attempt(
         )
     current = workflows[0]
     current_status = getattr(current.status, "value", current.status)
-    current_result = await latest_processing_result(
-        db,
-        workspace_id=workspace_id,
-        meeting_id=meeting_id,
-        media_revision_id=media_revision.id,
+    current_result = await _lock_workflow_result(db, workflow=current)
+    terminal_input_result = bool(
+        current_result is not None
+        and (
+            current_result.failure_reason == NO_RECOGNIZABLE_SPEECH
+            or (
+                current_result.failure_reason == INVALID_AUDIO_PAYLOAD
+                and current_result.failure_source == FAILURE_SOURCE_INPUT_AUDIO
+            )
+        )
     )
-    processed_no_speech_is_terminal = bool(
-        current_status == ProcessingStatus.PROCESSED.value
+    if (
+        terminal_input_result
         and current_result is not None
-        and current_result.status == ProcessingResultStatus.IMPORTED.value
-        and current_result.media_revision_id == media_revision.id
-        and current_result.processing_workflow_id == current.id
-        and current_result.failure_reason == NO_RECOGNIZABLE_SPEECH
+        and current_result.failure_reason == INVALID_AUDIO_PAYLOAD
+    ):
+        return ProcessingAttemptCreation(
+            result="source_unavailable",
+            workflow=current,
+            media_revision_id=media_revision.id,
+            attempt_ordinal=int(current.attempt_ordinal or 1),
+        )
+    provider_contract_result = bool(
+        current_result is not None
+        and not terminal_input_result
+        and not result_is_complete(current_result)
+    )
+    result_allows_new_attempt = bool(
+        current_status
+        in {
+            ProcessingStatus.PROCESSED.value,
+            ProcessingStatus.BLOCKED.value,
+            ProcessingStatus.FAILED_TERMINAL.value,
+            ProcessingStatus.CANCELED.value,
+        }
+        and (terminal_input_result or provider_contract_result)
     )
     if current_status == ProcessingStatus.BLOCKED_UNKNOWN.value:
         return ProcessingAttemptCreation(
@@ -829,7 +1108,7 @@ async def create_processing_attempt(
             media_revision_id=media_revision.id,
             attempt_ordinal=int(current.attempt_ordinal or 1),
         )
-    if current_status != ProcessingStatus.FAILED_TERMINAL.value and not processed_no_speech_is_terminal:
+    if current_status != ProcessingStatus.FAILED_TERMINAL.value and not result_allows_new_attempt:
         return ProcessingAttemptCreation(
             result=(
                 "configuration_failure"
@@ -840,7 +1119,7 @@ async def create_processing_attempt(
             media_revision_id=media_revision.id,
             attempt_ordinal=int(current.attempt_ordinal or 1),
         )
-    if (
+    if not result_allows_new_attempt and (
         current.last_reason_code in _PROCESSING_NEW_ATTEMPT_CONFIGURATION_REASONS
         or (
             (current.last_reason_code or "").startswith("blocked_")
@@ -898,15 +1177,13 @@ async def create_processing_attempt(
         archive_audio=bool(current.archive_audio),
         transient_state="processing" if not current.archive_audio else "not_applicable",
         transient_admitted_at=now if not current.archive_audio else None,
-        transient_hard_deadline=(now + TRANSIENT_HARD_LIFETIME) if not current.archive_audio else None,
+        transient_hard_deadline=(now + TRANSIENT_HARD_LIFETIME)
+        if not current.archive_audio
+        else None,
         attempt_count=1,
         last_reason_code="user_new_attempt",
         started_at=now,
-        deadline_at=now + (
-            timedelta(seconds=deadline_seconds)
-            if deadline_seconds is not None
-            else DEFAULT_DEADLINE
-        ),
+        deadline_at=None,
     )
     db.add(workflow)
     await db.flush()
@@ -943,6 +1220,7 @@ async def record_processing_attempt_run(
         await db.rollback()
         return False
     workflow.workflow_run_id = workflow_run_id
+    workflow.updated_at = datetime.now(UTC)
     await db.commit()
     return True
 
@@ -953,7 +1231,7 @@ async def fail_processing_attempt_dispatch(
     workflow_id: UUID,
     reason_code: str = "blocked_temporal_unavailable",
 ) -> bool:
-    """Clear a pre-dispatch ``starting`` row without reopening terminal data."""
+    """Terminalize a definitely failed pre-start Temporal dispatch."""
 
     workflow = await db.scalar(
         select(ProcessingWorkflow)
@@ -964,7 +1242,10 @@ async def fail_processing_attempt_dispatch(
     if workflow is None:
         await db.rollback()
         return False
-    if workflow.status == ProcessingStatus.STARTING.value:
+    if workflow.status in {
+        ProcessingStatus.STARTING.value,
+        ProcessingStatus.WORKFLOW_STARTED.value,
+    }:
         now = datetime.now(UTC)
         # No provider request exists yet. Treat a failed Temporal dispatch as
         # a terminal business attempt so the user can safely start a fresh
@@ -1048,6 +1329,14 @@ async def load_processing_source(
     revision = await db.scalar(revision_query)
     if revision is None or not revision.track_sha256_by_role:
         return None
+    if revision.source_kind == MediaRevisionSourceKind.MANUAL_UPLOAD.value:
+        preparation = await load_manual_upload_preparation(
+            db,
+            workspace_id=workspace_id,
+            meeting_id=meeting_id,
+            media_revision_id=revision.id,
+        )
+        return preparation.source if preparation is not None else None
     try:
         expected_digests = authoritative_track_sha256_by_role(
             source_kind=revision.source_kind,
@@ -1078,7 +1367,6 @@ async def load_processing_source(
         return None
     if revision.source_kind in {
         MediaRevisionSourceKind.INITIAL_MIXED_RECORDING.value,
-        MediaRevisionSourceKind.MANUAL_UPLOAD.value,
         MediaRevisionSourceKind.LOCAL_TRIM.value,
         MediaRevisionSourceKind.REPLACE.value,
         MediaRevisionSourceKind.RESTORE.value,
@@ -1142,6 +1430,152 @@ async def get_processing_workflow(
             ProcessingWorkflow.created_at.desc(),
         )
     )
+
+
+async def claim_stale_processing_start_intents(
+    db: AsyncSession,
+    *,
+    now: datetime | None = None,
+    limit: int = 25,
+) -> list[ProcessingStartIntent]:
+    """Enumerate stale Temporal executions for bounded reconciliation."""
+
+    current_time = now or datetime.now(UTC)
+    rows = list(
+        await db.scalars(
+            select(ProcessingWorkflow)
+            .where(
+                ProcessingWorkflow.purpose == "transcription",
+                or_(
+                    and_(
+                        ProcessingWorkflow.status.in_(
+                            {
+                                ProcessingStatus.STARTING.value,
+                                ProcessingStatus.WORKFLOW_STARTED.value,
+                            }
+                        ),
+                        ProcessingWorkflow.workflow_run_id.is_(None),
+                        ProcessingWorkflow.updated_at
+                        <= current_time - PROCESSING_START_RECONCILE_AFTER,
+                    ),
+                    and_(
+                        ProcessingWorkflow.status.in_(RECONCILABLE_PROCESSING_STATUSES),
+                        ProcessingWorkflow.workflow_run_id.is_not(None),
+                        ProcessingWorkflow.updated_at
+                        <= current_time - PROCESSING_ACTIVE_RECONCILE_AFTER,
+                    ),
+                ),
+            )
+            .order_by(ProcessingWorkflow.updated_at, ProcessingWorkflow.id)
+            .limit(max(1, min(limit, 100)))
+            .execution_options(populate_existing=True)
+        )
+    )
+    return [
+        ProcessingStartIntent(
+            workspace_id=row.workspace_id,
+            meeting_id=row.meeting_id,
+            workflow_id=row.id,
+        )
+        for row in rows
+    ]
+
+
+async def claim_missing_processing_start_intents(
+    db: AsyncSession,
+    *,
+    now: datetime | None = None,
+    limit: int = 25,
+) -> list[MissingProcessingStartIntent]:
+    """Find accepted meetings that crashed before creating their workflow row."""
+
+    current_time = now or datetime.now(UTC)
+    rows = list(
+        await db.execute(
+            select(
+                UploadSession.id,
+                UploadSession.workspace_id,
+                UploadSession.meeting_id,
+                UploadSession.media_revision_id,
+                UploadSession.archive_audio,
+            )
+            .join(
+                Meeting,
+                and_(
+                    Meeting.id == UploadSession.meeting_id,
+                    Meeting.workspace_id == UploadSession.workspace_id,
+                ),
+            )
+            .where(
+                UploadSession.status == "finalized",
+                UploadSession.processing_status == ProcessingStatus.STARTING.value,
+                UploadSession.media_revision_id.is_not(None),
+                UploadSession.finalized_at <= current_time - PROCESSING_START_RECONCILE_AFTER,
+                Meeting.deleted_at.is_(None),
+                or_(Meeting.deletion_state.is_(None), Meeting.deletion_state == "none"),
+                ~exists(
+                    select(ProcessingWorkflow.id).where(
+                        ProcessingWorkflow.workflow_id
+                        == func.concat("processing/", UploadSession.media_revision_id)
+                    )
+                ),
+            )
+            .order_by(UploadSession.finalized_at, UploadSession.id)
+            .limit(max(1, min(limit, 100)))
+        )
+    )
+    return [
+        MissingProcessingStartIntent(
+            upload_session_id=row.id,
+            workspace_id=row.workspace_id,
+            meeting_id=row.meeting_id,
+            media_revision_id=row.media_revision_id,
+            archive_audio=bool(row.archive_audio),
+        )
+        for row in rows
+        if row.media_revision_id is not None
+    ]
+
+
+async def close_superseded_processing_start_intent(
+    db: AsyncSession,
+    *,
+    upload_session_id: UUID,
+    workspace_id: UUID,
+    meeting_id: UUID,
+    media_revision_id: UUID,
+) -> bool:
+    """Close a crash-recovery marker only when a newer revision won."""
+
+    meeting = await lock_meeting_fence(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+    )
+    session = await db.scalar(
+        select(UploadSession)
+        .where(
+            UploadSession.id == upload_session_id,
+            UploadSession.workspace_id == workspace_id,
+            UploadSession.meeting_id == meeting_id,
+            UploadSession.media_revision_id == media_revision_id,
+            UploadSession.status == "finalized",
+            UploadSession.processing_status == ProcessingStatus.STARTING.value,
+        )
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    current = await latest_media_revision_for_meeting(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+    )
+    if meeting is None or session is None or current is None or current.id == media_revision_id:
+        await db.rollback()
+        return False
+    session.processing_status = ProcessingStatus.CANCELED.value
+    await db.commit()
+    return True
 
 
 async def reconcile_legacy_processing_lineage(
@@ -1452,7 +1886,6 @@ async def upsert_processing_workflow(
     expected_meeting_status: str | None = None,
     expected_media_revision_id: UUID | None = None,
     archive_audio: bool = True,
-    deadline_seconds: int | None = None,
 ) -> ProcessingWorkflow:
     now = datetime.now(UTC)
     meeting = await lock_meeting_fence(db, workspace_id=workspace_id, meeting_id=meeting_id)
@@ -1557,11 +1990,7 @@ async def upsert_processing_workflow(
             transient_state="processing" if not archive_audio else "not_applicable",
             transient_admitted_at=now if not archive_audio else None,
             transient_hard_deadline=(now + TRANSIENT_HARD_LIFETIME) if not archive_audio else None,
-            deadline_at=now + (
-                timedelta(seconds=deadline_seconds)
-                if deadline_seconds is not None
-                else DEFAULT_DEADLINE
-            ),
+            deadline_at=None,
             attempt_count=1,
             last_reason_code=reason_code,
             started_at=now,
@@ -1577,12 +2006,6 @@ async def upsert_processing_workflow(
         ):
             raise ProcessingLifecycleBlocked("processing_source_fingerprint_conflict")
         workflow.source_fingerprint = workflow.source_fingerprint or source_fingerprint
-        if workflow.deadline_at is None:
-            workflow.deadline_at = (workflow.started_at or now) + (
-                timedelta(seconds=deadline_seconds)
-                if deadline_seconds is not None
-                else DEFAULT_DEADLINE
-            )
         if workflow.archive_audio != archive_audio and workflow.status in {
             ProcessingStatus.BLOCKED.value,
             ProcessingStatus.CANCELED.value,
@@ -1631,6 +2054,8 @@ async def set_workflow_status(
     *,
     reason_code: str | None = None,
     terminal: bool = False,
+    deadline_seconds: int | None = None,
+    commit: bool = True,
 ) -> ProcessingWorkflow:
     meeting = await lock_meeting_fence(
         db, workspace_id=workflow.workspace_id, meeting_id=workflow.meeting_id
@@ -1653,7 +2078,10 @@ async def set_workflow_status(
             media_revision_id=current.media_revision_id,
             meeting_id=current.meeting_id,
         )
-        await db.commit()
+        if commit:
+            await db.commit()
+        else:
+            await db.flush()
         raise ProcessingLifecycleBlocked("meeting_deleting")
     current = await db.scalar(
         select(ProcessingWorkflow)
@@ -1668,14 +2096,26 @@ async def set_workflow_status(
     except ValueError:
         current_status = None
     if current_status in TERMINAL_PROCESSING_STATUSES and status != current_status:
-        await db.commit()
+        if commit:
+            await db.commit()
+        else:
+            await db.flush()
         return current
     if current_status is not None and not can_transition(current_status, status):
-        await db.commit()
+        if commit:
+            await db.commit()
+        else:
+            await db.flush()
         return current
     current.status = status.value
     current.last_reason_code = reason_code
     current.attempt_count += 1
+    if status == ProcessingStatus.SUBMITTING and current.deadline_at is None:
+        current.deadline_at = datetime.now(UTC) + (
+            timedelta(seconds=deadline_seconds)
+            if deadline_seconds is not None
+            else DEFAULT_DEADLINE
+        )
     if status in {
         ProcessingStatus.WAITING_RETRY,
         ProcessingStatus.BLOCKED_UNKNOWN,
@@ -1714,8 +2154,209 @@ async def set_workflow_status(
         media_revision_id=current.media_revision_id,
         status=status,
     )
+    if commit:
+        await db.commit()
+    else:
+        await db.flush()
+    return current
+
+
+async def reconcile_closed_processing_workflow_result(
+    db: AsyncSession,
+    *,
+    workflow: ProcessingWorkflow,
+) -> ProcessingWorkflow:
+    """Project a closed Temporal execution from its durable provider result."""
+
+    meeting = await lock_meeting_fence(
+        db,
+        workspace_id=workflow.workspace_id,
+        meeting_id=workflow.meeting_id,
+    )
+    current = await db.scalar(
+        select(ProcessingWorkflow)
+        .where(ProcessingWorkflow.id == workflow.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if current is None:
+        raise ProcessingLifecycleBlocked("workflow_not_found")
+
+    result = await _lock_workflow_result(db, workflow=current)
+    terminal_input_result = bool(
+        result is not None
+        and (
+            result.failure_reason == NO_RECOGNIZABLE_SPEECH
+            or (
+                result.failure_reason == INVALID_AUDIO_PAYLOAD
+                and result.failure_source == FAILURE_SOURCE_INPUT_AUDIO
+            )
+        )
+    )
+    if meeting is None or meeting_is_deleted_or_deleting(meeting):
+        status = ProcessingStatus.CANCELED
+        reason_code = "meeting_deleting"
+    elif result_is_complete(result):
+        status = ProcessingStatus.PROCESSED
+        reason_code = result.failure_reason if result is not None else None
+    elif terminal_input_result:
+        status = ProcessingStatus.FAILED_TERMINAL
+        reason_code = result.failure_reason if result is not None else None
+    elif result is not None:
+        status = ProcessingStatus.FAILED_TERMINAL
+        reason_code = result.failure_reason or MEDIASCRIBE_MALFORMED_RESPONSE
+        result.status = ProcessingResultStatus.FAILED.value
+        result.failure_reason = reason_code
+    else:
+        status = ProcessingStatus.BLOCKED
+        reason_code = "temporal_workflow_already_closed"
+
+    now = datetime.now(UTC)
+    current.status = status.value
+    current.last_reason_code = reason_code
+    current.retry_class = "terminal" if status == ProcessingStatus.FAILED_TERMINAL else "none"
+    current.attempt_count = int(current.attempt_count or 0) + 1
+    current.manual_claimed_at = None
+    current.manual_claimed_by = None
+    current.next_attempt_at = None
+    current.next_attempt_source = None
+    current.ended_at = now
+    if not current.archive_audio:
+        _mark_transient_terminal(current, now=now)
+    await release_processing_usage_reservation(
+        db,
+        workspace_id=current.workspace_id,
+        media_revision_id=current.media_revision_id,
+        meeting_id=current.meeting_id,
+    )
+    await _sync_meeting_processing_status(
+        db,
+        workspace_id=current.workspace_id,
+        meeting_id=current.meeting_id,
+        media_revision_id=current.media_revision_id,
+        status=status,
+    )
     await db.commit()
     return current
+
+
+async def prepare_closed_workflow_same_job_recovery(
+    db: AsyncSession,
+    *,
+    workflow: ProcessingWorkflow,
+) -> ProcessingWorkflow | None:
+    """Create a new Temporal execution while retaining an accepted provider job."""
+
+    meeting = await lock_meeting_fence(
+        db,
+        workspace_id=workflow.workspace_id,
+        meeting_id=workflow.meeting_id,
+    )
+    workflows = list(
+        await db.scalars(
+            select(ProcessingWorkflow)
+            .where(
+                ProcessingWorkflow.workspace_id == workflow.workspace_id,
+                ProcessingWorkflow.meeting_id == workflow.meeting_id,
+                ProcessingWorkflow.media_revision_id == workflow.media_revision_id,
+                ProcessingWorkflow.purpose == workflow.purpose,
+            )
+            .order_by(ProcessingWorkflow.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    )
+    current = next((item for item in workflows if item.id == workflow.id), None)
+    if (
+        meeting is None
+        or meeting_is_deleted_or_deleting(meeting)
+        or current is None
+        or current.media_revision_id is None
+        or await _lock_workflow_result(db, workflow=current) is not None
+    ):
+        return None
+    job = await db.scalar(
+        select(MediaScribeJob)
+        .where(
+            MediaScribeJob.processing_workflow_id == current.id,
+            MediaScribeJob.workspace_id == current.workspace_id,
+            MediaScribeJob.meeting_id == current.meeting_id,
+            MediaScribeJob.external_job_id.is_not(None),
+        )
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if job is None:
+        return None
+
+    next_ordinal = max(int(item.attempt_ordinal or 1) for item in workflows) + 1
+    now = datetime.now(UTC)
+    recovery_deadlines = [
+        deadline
+        for item in workflows
+        if not item.archive_audio
+        for deadline in (
+            item.transient_hard_deadline
+            or (
+                item.transient_admitted_at + TRANSIENT_HARD_LIFETIME
+                if item.transient_admitted_at is not None
+                else None
+            ),
+        )
+        if deadline is not None
+    ]
+    recovery_hard_deadline = min(recovery_deadlines) if recovery_deadlines else None
+    recovery_provider_deadline = current.deadline_at
+    if not current.archive_audio and recovery_hard_deadline is None:
+        return None
+    current.status = ProcessingStatus.CANCELED.value
+    current.last_reason_code = "temporal_execution_closed_same_job_recovered"
+    current.retry_class = "none"
+    current.next_attempt_at = None
+    current.next_attempt_source = None
+    current.ended_at = now
+    if not current.archive_audio:
+        current.transient_state = "terminal"
+        current.transient_terminal_at = now
+        current.transient_purge_due_at = None
+        current.transient_hard_deadline = None
+    await db.flush()
+
+    from twobrain_rec_server.workflows.temporal_client import processing_workflow_id
+
+    recovered = ProcessingWorkflow(
+        workspace_id=current.workspace_id,
+        meeting_id=current.meeting_id,
+        media_revision_id=current.media_revision_id,
+        workflow_id=processing_workflow_id(current.media_revision_id, next_ordinal),
+        purpose=current.purpose,
+        archive_audio=bool(current.archive_audio),
+        transient_state="processing" if not current.archive_audio else "not_applicable",
+        transient_admitted_at=current.transient_admitted_at if not current.archive_audio else None,
+        transient_hard_deadline=recovery_hard_deadline if not current.archive_audio else None,
+        deadline_at=recovery_provider_deadline,
+        source_fingerprint=current.source_fingerprint,
+        deletion_epoch_at_start=current.deletion_epoch_at_start,
+        status=ProcessingStatus.STARTING.value,
+        attempt_ordinal=next_ordinal,
+        stage="poll",
+        retry_class="none",
+        attempt_count=1,
+        last_reason_code="temporal_execution_closed_same_job_recovery",
+        started_at=now,
+    )
+    db.add(recovered)
+    await db.flush()
+    job.processing_workflow_id = recovered.id
+    await _sync_meeting_processing_status(
+        db,
+        workspace_id=recovered.workspace_id,
+        meeting_id=recovered.meeting_id,
+        media_revision_id=recovered.media_revision_id,
+        status=ProcessingStatus.STARTING,
+    )
+    await db.commit()
+    return recovered
 
 
 def _start_transient_lifecycle(workflow: ProcessingWorkflow, *, now: datetime) -> None:
@@ -2401,6 +3042,13 @@ async def persist_processing_result(
     )
     if existing_hash is not None and existing_hash.status == ProcessingResultStatus.IMPORTED.value:
         return existing_hash
+    if not await ensure_processing_usage_reservation(
+        db,
+        workspace_id=job.workspace_id,
+        media_revision_id=job.media_revision_id,
+        expires_at=datetime.now(UTC) + timedelta(hours=24),
+    ):
+        raise QuotaExceeded("processing usage reservation is unavailable")
     existing = existing_workflow_hash or existing_hash
     if existing is None:
         existing = await db.scalar(
@@ -2546,6 +3194,13 @@ async def _commit_processing_usage(
     job: MediaScribeJob,
     transcript: list[object],
 ) -> int:
+    now = datetime.now(UTC)
+    if await _processing_is_unlimited(
+        db,
+        workspace_id=job.workspace_id,
+        now=now,
+    ):
+        return 0
     reservation = await find_free_usage_reservation(
         db,
         workspace_id=job.workspace_id,
@@ -2554,8 +3209,12 @@ async def _commit_processing_usage(
             meeting_id=job.meeting_id,
         ),
     )
-    if reservation is None or reservation.state != "active":
+    if reservation is None:
+        raise QuotaExceeded("processing usage reservation is missing")
+    if reservation.state == "committed":
         return 0
+    if reservation.state != "active":
+        raise QuotaExceeded("processing usage reservation is not active")
     source_id = job.source_fingerprint or f"meeting:{job.meeting_id}"
     ranges: list[SourceRange] = []
     for segment in transcript:

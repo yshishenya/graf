@@ -25,6 +25,7 @@ ALLOWED_MAINTENANCE_OPERATIONS = frozenset(
         "outcome_dispatch_reconciliation",
         "deletion_purge_reconciliation",
         "processing_legacy_lineage_reconciliation",
+        "processing_recovery_reconciliation",
         "outcome_initial_baseline_reconciliation",
         "billing_reconciliation",
         "billing_notification_reconciliation",

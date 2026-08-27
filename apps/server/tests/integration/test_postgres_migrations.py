@@ -44,6 +44,10 @@ LINKED_WORKSPACE_MIGRATION = (
     ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0074_linked_workspace_and_merge_proofs.py"
 )
+PROCESSING_RECOVERY_MIGRATION = (
+    ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0083_processing_recovery_maintenance.py"
+)
 
 
 class _ScalarResult:
@@ -103,6 +107,60 @@ def _load_migration_module(path: Path, module_name: str):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def test_processing_recovery_migration_adds_revision_first_transient_custody_index(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    migration = _load_migration_module(
+        PROCESSING_RECOVERY_MIGRATION,
+        "processing_recovery_migration_index_test",
+    )
+    created: list[tuple[str, str, tuple[str, ...], str]] = []
+    dropped: list[tuple[str, str | None]] = []
+
+    class MigrationOp:
+        def get_bind(self):
+            return SimpleNamespace(dialect=SimpleNamespace(name="sqlite"))
+
+        def create_index(self, name, table_name, columns, **kwargs) -> None:
+            created.append(
+                (
+                    name,
+                    table_name,
+                    tuple(columns),
+                    str(kwargs.get("postgresql_where", "")),
+                )
+            )
+
+        def drop_index(self, name, *, table_name=None) -> None:
+            dropped.append((name, table_name))
+
+    monkeypatch.setattr(migration, "op", MigrationOp())
+
+    migration.upgrade()
+    migration.downgrade()
+
+    assert (
+        "ix_upload_sessions_transient_revision_custody",
+        "upload_sessions",
+        ("workspace_id", "meeting_id", "media_revision_id"),
+        "status = 'finalized' and media_revision_id is not null",
+    ) in created
+    assert (
+        "ix_upload_sessions_transient_revision_custody",
+        "upload_sessions",
+    ) in dropped
+    assert (
+        "ix_upload_sessions_processing_dispatch_recovery",
+        "upload_sessions",
+        ("finalized_at", "workspace_id", "meeting_id", "media_revision_id"),
+        "status = 'finalized' and processing_status = 'starting' and media_revision_id is not null",
+    ) in created
+    assert (
+        "ix_upload_sessions_processing_dispatch_recovery",
+        "upload_sessions",
+    ) in dropped
 
 
 async def _seed_identity(sessionmaker) -> None:
@@ -248,7 +306,7 @@ def test_production_share_head_upgrades_to_regeneration_merge(
         promotion_counter_function,
         promotion_counter_config,
     ) = asyncio.run(inspect_schema())
-    assert versions == ["0082_mediascribe_words"]
+    assert versions == ["0083_processing_recovery"]
     assert "public.promotion_campaigns" in promotion_counter_function
     assert "search_path=pg_catalog, pg_temp" in promotion_counter_config
     assert {
@@ -295,6 +353,7 @@ def test_production_share_head_upgrades_to_regeneration_merge(
     )
     assert "prompt_optimization" in maintenance_helper
     assert "processing_legacy_lineage_reconciliation" in maintenance_helper
+    assert "processing_recovery_reconciliation" in maintenance_helper
 
 
 @pytest.mark.parametrize("legacy_check_exists", [False, True])

@@ -79,6 +79,7 @@ class NormalizationReason(StrEnum):
     SOURCE_MISSING = "source_missing"
     SOURCE_MISMATCH = "source_mismatch"
     STORAGE_UNAVAILABLE = "storage_unavailable"
+    STORAGE_CAPACITY_EXCEEDED = "storage_capacity_exceeded"
     DATABASE_UNAVAILABLE = "database_unavailable"
     TEMPORAL_UNAVAILABLE = "temporal_unavailable"
     TEMPORARY_STORAGE_UNAVAILABLE = "temporary_storage_unavailable"
@@ -95,6 +96,7 @@ class NormalizationReason(StrEnum):
 
 class ReasonClass(StrEnum):
     PERMANENT_SOURCE = "permanent_source"
+    POLICY_BLOCK = "policy_block"
     AUTOMATIC_RETRY = "automatic_retry"
     LIFECYCLE = "lifecycle"
 
@@ -115,6 +117,7 @@ PERMANENT_SOURCE_REASONS = frozenset(
         NormalizationReason.SOURCE_MISMATCH,
     }
 )
+POLICY_BLOCK_REASONS = frozenset({NormalizationReason.STORAGE_CAPACITY_EXCEEDED})
 AUTOMATIC_RETRY_REASONS = frozenset(
     {
         NormalizationReason.STORAGE_UNAVAILABLE,
@@ -195,6 +198,8 @@ BACKFILL_TRANSITIONS = frozenset(
 def reason_class(reason: NormalizationReason) -> ReasonClass:
     if reason in PERMANENT_SOURCE_REASONS:
         return ReasonClass.PERMANENT_SOURCE
+    if reason in POLICY_BLOCK_REASONS:
+        return ReasonClass.POLICY_BLOCK
     if reason in AUTOMATIC_RETRY_REASONS:
         return ReasonClass.AUTOMATIC_RETRY
     if reason in LIFECYCLE_REASONS:
@@ -213,16 +218,16 @@ def ensure_job_transition(
     if (current, target) not in JOB_TRANSITIONS:
         raise InvalidNormalizationTransition(f"Unsupported job transition: {current} -> {target}")
 
-    expected_reason_class = {
-        JobState.RETRY_WAIT: ReasonClass.AUTOMATIC_RETRY,
-        JobState.TERMINAL: ReasonClass.PERMANENT_SOURCE,
-        JobState.CANCELLED: ReasonClass.LIFECYCLE,
+    expected_reason_classes = {
+        JobState.RETRY_WAIT: {ReasonClass.AUTOMATIC_RETRY},
+        JobState.TERMINAL: {ReasonClass.PERMANENT_SOURCE, ReasonClass.POLICY_BLOCK},
+        JobState.CANCELLED: {ReasonClass.LIFECYCLE},
     }.get(target)
-    if expected_reason_class is None:
+    if expected_reason_classes is None:
         if reason_code is not None:
             raise InvalidNormalizationTransition("Non-failure state cannot retain a reason")
         return
-    if reason_code is None or reason_class(reason_code) is not expected_reason_class:
+    if reason_code is None or reason_class(reason_code) not in expected_reason_classes:
         raise InvalidNormalizationTransition(f"Reason class does not match target state: {target}")
 
 

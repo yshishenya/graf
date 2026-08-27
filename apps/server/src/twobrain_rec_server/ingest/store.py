@@ -38,6 +38,30 @@ from twobrain_rec_server.ingest.media_revisions import (
 )
 
 
+async def revision_archives_audio(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+    media_revision_id: UUID | None,
+) -> bool:
+    """Return the finalized revision custody policy; conflicts fail closed."""
+
+    if media_revision_id is None:
+        return True
+    choices = tuple(
+        await db.scalars(
+            select(UploadSession.archive_audio).where(
+                UploadSession.workspace_id == workspace_id,
+                UploadSession.meeting_id == meeting_id,
+                UploadSession.media_revision_id == media_revision_id,
+                UploadSession.status == UploadSessionStatus.FINALIZED.value,
+            )
+        )
+    )
+    return all(bool(choice) for choice in choices) if choices else True
+
+
 @dataclass(slots=True)
 class MeetingRecord:
     id: UUID

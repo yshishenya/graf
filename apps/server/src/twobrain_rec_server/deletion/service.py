@@ -5,9 +5,10 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import delete, desc, exists, or_, select
+from sqlalchemy import and_, delete, desc, exists, func, or_, select, tuple_, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.api.schemas import (
@@ -18,6 +19,7 @@ from twobrain_rec_server.api.schemas import (
 )
 from twobrain_rec_server.billing.source_lifecycle import (
     SOURCE_TRACK_ROLES,
+    TRANSIENT_HARD_LIFETIME,
     SourceLifecycleState,
     source_cogs_evidence,
     source_lifecycle_state_for_gates,
@@ -83,7 +85,9 @@ from twobrain_rec_server.domain.statuses import (
     DeletionState,
     LifecycleAuditOutcome,
     OutcomeLifecycleState,
+    ProcessingStatus,
     TrackRole,
+    UploadSessionStatus,
 )
 from twobrain_rec_server.normalization.audit import add_normalization_audit_event
 from twobrain_rec_server.normalization.statuses import (
@@ -94,8 +98,15 @@ from twobrain_rec_server.normalization.statuses import (
     ensure_job_transition,
 )
 from twobrain_rec_server.processing.fences import ensure_deletion_fence
-from twobrain_rec_server.processing.lifecycle import MEDIA_REVISION_DELETION_SAFE_REASON
-from twobrain_rec_server.processing.store import release_processing_usage_reservation
+from twobrain_rec_server.processing.lifecycle import (
+    MEDIA_REVISION_DELETION_SAFE_REASON,
+    TERMINAL_PROCESSING_STATUSES,
+)
+from twobrain_rec_server.processing.store import (
+    MEDIASCRIBE_SUBMISSION_CLAIM_STALE_AFTER,
+    release_processing_usage_reservation,
+    set_workflow_status,
+)
 
 TERMINAL_REQUEST_STATES = {
     DeletionState.COMPLETE.value,
@@ -105,6 +116,7 @@ TERMINAL_REQUEST_STATES = {
 DEFAULT_BACKUP_EXPIRY_DAYS = 30
 MAX_PURGE_JOURNAL_ATTEMPTS = 8
 STORAGE_CALL_TIMEOUT_SECONDS = 30.0
+TRANSIENT_PURGE_OBJECT_LIMIT = 5
 
 POST_EGRESS_REPORT_EVENT_TYPES = {
     "download_completed",
@@ -159,9 +171,10 @@ async def request_meeting_deletion(
     if locked_meeting is None:
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
     meeting = locked_meeting
-    if meeting.deleted_at is not None or (
-        meeting.deletion_state or DeletionState.NONE.value
-    ) != DeletionState.NONE.value:
+    if (
+        meeting.deleted_at is not None
+        or (meeting.deletion_state or DeletionState.NONE.value) != DeletionState.NONE.value
+    ):
         raise ProblemDetail(
             status=409, code="meeting_deletion_active", title="Meeting deletion is already active"
         )
@@ -230,6 +243,17 @@ async def request_meeting_deletion(
 
     meeting.deletion_state = DeletionState.DELETING.value
     meeting.deletion_requested_at = now
+    await db.execute(
+        update(UploadSession)
+        .where(
+            UploadSession.workspace_id == workspace_id,
+            UploadSession.meeting_id == meeting_id,
+            UploadSession.status == UploadSessionStatus.FINALIZED.value,
+            UploadSession.processing_status == ProcessingStatus.STARTING.value,
+            UploadSession.media_revision_id.is_not(None),
+        )
+        .values(processing_status=ProcessingStatus.CANCELED.value)
+    )
     await _flush_or_fail_closed(db)
     # Quota is a logical projection: release canonical playback bytes under
     # the committed tombstone before object-store deletion.  The artifact key
@@ -308,12 +332,16 @@ async def request_meeting_deletion(
             .with_for_update()
             .execution_options(populate_existing=True)
         )
-        deletion_request = await db.scalar(
-            select(MeetingDeletionRequest)
-            .where(MeetingDeletionRequest.id == request_id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        ) if report is not None else None
+        deletion_request = (
+            await db.scalar(
+                select(MeetingDeletionRequest)
+                .where(MeetingDeletionRequest.id == request_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            if report is not None
+            else None
+        )
         if report is not None and report.overall_state == DeletionState.ACTIVE_PURGE_COMPLETE.value:
             await db.rollback()
             return DeletionRequestResponse(
@@ -364,9 +392,7 @@ async def request_meeting_deletion(
         calendar_context_accounted=calendar_context_artifact_count > 0,
     )
     report = await db.scalar(
-        select(MeetingDeletionReport)
-        .where(MeetingDeletionReport.id == report_id)
-        .with_for_update()
+        select(MeetingDeletionReport).where(MeetingDeletionReport.id == report_id).with_for_update()
     )
     if report is None:
         raise ProblemDetail(
@@ -409,9 +435,10 @@ async def request_meeting_deletion(
 
 
 async def lifecycle_for_meeting(*, meeting: Meeting) -> DeletionState:
-    if meeting.deleted_at is not None and (
-        meeting.deletion_state or DeletionState.NONE.value
-    ) == DeletionState.NONE.value:
+    if (
+        meeting.deleted_at is not None
+        and (meeting.deletion_state or DeletionState.NONE.value) == DeletionState.NONE.value
+    ):
         return DeletionState.DELETING
     return DeletionState(meeting.deletion_state or DeletionState.NONE.value)
 
@@ -463,9 +490,11 @@ async def fanout_account_close_deletions(
                 .where(Meeting.workspace_id == workspace_id, Meeting.id == meeting_id)
                 .with_for_update()
             )
-            if meeting is None or meeting.deleted_at is not None or (
-                meeting.deletion_state or DeletionState.NONE.value
-            ) != DeletionState.NONE.value:
+            if (
+                meeting is None
+                or meeting.deleted_at is not None
+                or (meeting.deletion_state or DeletionState.NONE.value) != DeletionState.NONE.value
+            ):
                 continue
             await request_meeting_deletion(
                 db,
@@ -618,12 +647,16 @@ async def retry_meeting_deletion(
             .with_for_update()
             .execution_options(populate_existing=True)
         )
-        deletion_request = await db.scalar(
-            select(MeetingDeletionRequest)
-            .where(MeetingDeletionRequest.id == report_request_id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        ) if report is not None else None
+        deletion_request = (
+            await db.scalar(
+                select(MeetingDeletionRequest)
+                .where(MeetingDeletionRequest.id == report_request_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            if report is not None
+            else None
+        )
         if report is None or deletion_request is None:
             raise
         if report.overall_state == DeletionState.ACTIVE_PURGE_COMPLETE.value:
@@ -691,7 +724,9 @@ async def retry_meeting_deletion(
         .execution_options(populate_existing=True)
     )
     if report is None:
-        raise ProblemDetail(status=503, code="deletion_report_unavailable", title="Deletion report unavailable")
+        raise ProblemDetail(
+            status=503, code="deletion_report_unavailable", title="Deletion report unavailable"
+        )
     deletion_request = await db.scalar(
         select(MeetingDeletionRequest)
         .where(
@@ -778,20 +813,20 @@ async def reconcile_deletion_purges(
     """Resume committed deletion tombstones after a worker or storage outage."""
     now = datetime.now(UTC)
     due_journal_meeting_ids = select(PurgeJournal.meeting_id).where(
+        PurgeJournal.artifact_class != "transient_audio",
         PurgeJournal.state.in_({"pending", "deleting", "retryable_failed"}),
         PurgeJournal.attempt_count < MAX_PURGE_JOURNAL_ATTEMPTS,
         PurgeJournal.next_retry_at.is_(None) | (PurgeJournal.next_retry_at <= now),
     )
     pending_report_meeting_ids = select(MeetingDeletionReport.meeting_id).where(
-        (
-            MeetingDeletionReport.overall_state == DeletionState.DELETING.value
-        )
+        (MeetingDeletionReport.overall_state == DeletionState.DELETING.value)
         | (
             (MeetingDeletionReport.overall_state == DeletionState.RETRYABLE_FAILED.value)
             & (
                 ~exists(
                     select(PurgeJournal.id).where(
                         PurgeJournal.meeting_id == MeetingDeletionReport.meeting_id,
+                        PurgeJournal.artifact_class != "transient_audio",
                         PurgeJournal.state.not_in({"purged", "superseded"}),
                     )
                 )
@@ -872,6 +907,7 @@ async def reconcile_transient_media_purges(
     storage: object | None,
     now: datetime | None = None,
     limit: int = 20,
+    object_limit: int = TRANSIENT_PURGE_OBJECT_LIMIT,
 ) -> int:
     """Purge persisted no-archive media after terminal/24-hour deadlines.
 
@@ -882,83 +918,388 @@ async def reconcile_transient_media_purges(
     """
 
     now = now or datetime.now(UTC)
-    rows = list(
+    bounded_limit = max(1, min(limit, 100))
+    remaining_object_budget = max(1, min(object_limit, 500))
+    terminal_processing_statuses = {status.value for status in TERMINAL_PROCESSING_STATUSES}
+    active_workflow = aliased(ProcessingWorkflow)
+    hard_deadline_due = and_(
+        ProcessingWorkflow.transient_hard_deadline.is_not(None),
+        ProcessingWorkflow.transient_hard_deadline <= now,
+    )
+    terminal_deadline_due = and_(
+        ProcessingWorkflow.transient_purge_due_at.is_not(None),
+        ProcessingWorkflow.transient_purge_due_at <= now,
+    )
+    no_active_attempt = ~exists().where(
+        active_workflow.workspace_id == ProcessingWorkflow.workspace_id,
+        active_workflow.meeting_id == ProcessingWorkflow.meeting_id,
+        active_workflow.media_revision_id == ProcessingWorkflow.media_revision_id,
+        active_workflow.status.not_in(terminal_processing_statuses),
+    )
+    workflow_due_at = func.min(
+        func.least(
+            func.coalesce(
+                ProcessingWorkflow.transient_hard_deadline,
+                ProcessingWorkflow.transient_purge_due_at,
+            ),
+            func.coalesce(
+                ProcessingWorkflow.transient_purge_due_at,
+                ProcessingWorkflow.transient_hard_deadline,
+            ),
+        )
+    ).label("due_at")
+    due_workflow_revisions = (
+        select(
+            ProcessingWorkflow.workspace_id.label("workspace_id"),
+            ProcessingWorkflow.meeting_id.label("meeting_id"),
+            ProcessingWorkflow.media_revision_id.label("media_revision_id"),
+            workflow_due_at,
+        )
+        .where(
+            ProcessingWorkflow.archive_audio.is_(False),
+            ProcessingWorkflow.media_revision_id.is_not(None),
+            ProcessingWorkflow.transient_state.in_(
+                {"admitted", "processing", "terminal", "purge_due"}
+            ),
+            or_(
+                hard_deadline_due,
+                and_(terminal_deadline_due, no_active_attempt),
+            ),
+        )
+        .group_by(
+            ProcessingWorkflow.workspace_id,
+            ProcessingWorkflow.meeting_id,
+            ProcessingWorkflow.media_revision_id,
+        )
+        .cte("due_transient_workflow_revisions")
+    )
+    deferred_journal = exists().where(
+        PurgeJournal.workspace_id == due_workflow_revisions.c.workspace_id,
+        PurgeJournal.meeting_id == due_workflow_revisions.c.meeting_id,
+        PurgeJournal.artifact_class == "transient_audio",
+        PurgeJournal.state != "purged",
+        PurgeJournal.next_retry_at.is_not(None),
+        PurgeJournal.next_retry_at > now,
+    )
+    due_workflow_rows = list(
         (
-            await db.scalars(
-                select(ProcessingWorkflow)
-                .where(
-                    ProcessingWorkflow.archive_audio.is_(False),
-                    ProcessingWorkflow.transient_state.in_(
-                        {"admitted", "processing", "terminal", "purge_due"}
-                    ),
-                    (
-                        (ProcessingWorkflow.transient_hard_deadline.is_not(None)
-                         & (ProcessingWorkflow.transient_hard_deadline <= now))
-                        | (ProcessingWorkflow.transient_purge_due_at.is_not(None)
-                           & (ProcessingWorkflow.transient_purge_due_at <= now))
+            await db.execute(
+                select(
+                    due_workflow_revisions.c.workspace_id,
+                    due_workflow_revisions.c.meeting_id,
+                    due_workflow_revisions.c.media_revision_id,
+                )
+                .join(
+                    Meeting,
+                    and_(
+                        Meeting.workspace_id == due_workflow_revisions.c.workspace_id,
+                        Meeting.id == due_workflow_revisions.c.meeting_id,
                     ),
                 )
-                .order_by(ProcessingWorkflow.transient_purge_due_at, ProcessingWorkflow.id)
-                .limit(max(1, min(limit, 100)))
-                .with_for_update(skip_locked=True)
-                .execution_options(populate_existing=True)
+                .where(
+                    Meeting.deleted_at.is_(None),
+                    or_(
+                        Meeting.deletion_state.is_(None),
+                        Meeting.deletion_state == DeletionState.NONE.value,
+                    ),
+                    ~deferred_journal,
+                )
+                .order_by(
+                    due_workflow_revisions.c.due_at,
+                    due_workflow_revisions.c.media_revision_id,
+                )
+                .with_for_update(of=Meeting, skip_locked=True)
+                .limit(bounded_limit)
             )
         ).all()
     )
+    candidates = [
+        (workspace_id, meeting_id, media_revision_id)
+        for workspace_id, meeting_id, media_revision_id in due_workflow_rows
+        if media_revision_id is not None
+    ]
+    seen_candidates = set(candidates)
+    if len(candidates) < bounded_limit:
+        fallback_due_revisions = (
+            select(
+                UploadSession.workspace_id.label("workspace_id"),
+                UploadSession.meeting_id.label("meeting_id"),
+                UploadSession.media_revision_id.label("media_revision_id"),
+                func.min(UploadSession.finalized_at).label("due_at"),
+            )
+            .where(
+                UploadSession.archive_audio.is_(False),
+                UploadSession.status == UploadSessionStatus.FINALIZED.value,
+                UploadSession.media_revision_id.is_not(None),
+                UploadSession.finalized_at.is_not(None),
+                UploadSession.finalized_at <= now - TRANSIENT_HARD_LIFETIME,
+                or_(
+                    exists().where(
+                        TemporaryUploadObject.upload_session_id == UploadSession.id,
+                        TemporaryUploadObject.cleanup_status != "purged",
+                    ),
+                    exists().where(
+                        TrackArtifact.workspace_id == UploadSession.workspace_id,
+                        TrackArtifact.meeting_id == UploadSession.meeting_id,
+                        TrackArtifact.media_revision_id == UploadSession.media_revision_id,
+                        TrackArtifact.track_role.in_(
+                            (*SOURCE_TRACK_ROLES, TrackRole.PLAYBACK.value)
+                        ),
+                        TrackArtifact.status.not_in({"purged", "deleted"}),
+                    ),
+                ),
+            )
+            .group_by(
+                UploadSession.workspace_id,
+                UploadSession.meeting_id,
+                UploadSession.media_revision_id,
+            )
+            .cte("due_transient_upload_revisions")
+        )
+        fallback_deferred_journal = exists().where(
+            PurgeJournal.workspace_id == fallback_due_revisions.c.workspace_id,
+            PurgeJournal.meeting_id == fallback_due_revisions.c.meeting_id,
+            PurgeJournal.artifact_class == "transient_audio",
+            PurgeJournal.state != "purged",
+            PurgeJournal.next_retry_at.is_not(None),
+            PurgeJournal.next_retry_at > now,
+        )
+        fallback_statement = (
+            select(
+                fallback_due_revisions.c.workspace_id,
+                fallback_due_revisions.c.meeting_id,
+                fallback_due_revisions.c.media_revision_id,
+            )
+            .join(
+                Meeting,
+                and_(
+                    Meeting.workspace_id == fallback_due_revisions.c.workspace_id,
+                    Meeting.id == fallback_due_revisions.c.meeting_id,
+                ),
+            )
+            .where(
+                Meeting.deleted_at.is_(None),
+                or_(
+                    Meeting.deletion_state.is_(None),
+                    Meeting.deletion_state == DeletionState.NONE.value,
+                ),
+                ~fallback_deferred_journal,
+            )
+            .order_by(
+                fallback_due_revisions.c.due_at,
+                fallback_due_revisions.c.media_revision_id,
+            )
+            .with_for_update(of=Meeting, skip_locked=True)
+            .limit(bounded_limit - len(candidates))
+        )
+        if seen_candidates:
+            fallback_statement = fallback_statement.where(
+                tuple_(
+                    fallback_due_revisions.c.workspace_id,
+                    fallback_due_revisions.c.meeting_id,
+                    fallback_due_revisions.c.media_revision_id,
+                ).not_in(seen_candidates)
+            )
+        fallback_rows = (await db.execute(fallback_statement)).all()
+        for workspace_id, meeting_id, media_revision_id in fallback_rows:
+            candidate = (workspace_id, meeting_id, media_revision_id)
+            if media_revision_id is not None and candidate not in seen_candidates:
+                candidates.append(candidate)
+                seen_candidates.add(candidate)
+    await db.rollback()
     purged = 0
-    for workflow in rows:
-        workflow.transient_state = "purge_due"
-        artifacts = list(
+    for workspace_id, meeting_id, media_revision_id in candidates[:bounded_limit]:
+        meeting = await db.scalar(
+            select(Meeting)
+            .where(Meeting.workspace_id == workspace_id, Meeting.id == meeting_id)
+            .with_for_update(skip_locked=True)
+            .execution_options(populate_existing=True)
+        )
+        if (
+            meeting is None
+            or meeting.deleted_at is not None
+            or meeting.deletion_state
+            not in {
+                None,
+                DeletionState.NONE.value,
+            }
+        ):
+            await db.rollback()
+            continue
+        workflows = list(
             await db.scalars(
-                select(TrackArtifact)
+                select(ProcessingWorkflow)
                 .where(
-                    TrackArtifact.workspace_id == workflow.workspace_id,
-                    TrackArtifact.meeting_id == workflow.meeting_id,
-                    TrackArtifact.media_revision_id == workflow.media_revision_id,
-                    TrackArtifact.status.not_in({"purged", "deleted"}),
+                    ProcessingWorkflow.workspace_id == workspace_id,
+                    ProcessingWorkflow.meeting_id == meeting_id,
+                    ProcessingWorkflow.media_revision_id == media_revision_id,
                 )
+                .order_by(ProcessingWorkflow.id)
                 .with_for_update()
+                .execution_options(populate_existing=True)
             )
         )
-        attempts = list(
+        mediascribe_jobs = list(
             await db.scalars(
-                select(PlaybackNormalizationAttempt)
+                select(MediaScribeJob)
                 .where(
-                    PlaybackNormalizationAttempt.workspace_id == workflow.workspace_id,
-                    PlaybackNormalizationAttempt.meeting_id == workflow.meeting_id,
-                    PlaybackNormalizationAttempt.media_revision_id == workflow.media_revision_id,
-                    PlaybackNormalizationAttempt.state.not_in({AttemptState.PURGED.value}),
+                    MediaScribeJob.workspace_id == workspace_id,
+                    MediaScribeJob.meeting_id == meeting_id,
+                    MediaScribeJob.media_revision_id == media_revision_id,
                 )
+                .order_by(MediaScribeJob.id)
                 .with_for_update()
+                .execution_options(populate_existing=True)
             )
         )
         jobs = list(
             await db.scalars(
                 select(PlaybackNormalizationJob)
                 .where(
-                    PlaybackNormalizationJob.workspace_id == workflow.workspace_id,
-                    PlaybackNormalizationJob.meeting_id == workflow.meeting_id,
-                    PlaybackNormalizationJob.media_revision_id == workflow.media_revision_id,
+                    PlaybackNormalizationJob.workspace_id == workspace_id,
+                    PlaybackNormalizationJob.meeting_id == meeting_id,
+                    PlaybackNormalizationJob.media_revision_id == media_revision_id,
                 )
+                .order_by(PlaybackNormalizationJob.id)
                 .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        )
+        attempts = list(
+            await db.scalars(
+                select(PlaybackNormalizationAttempt)
+                .where(
+                    PlaybackNormalizationAttempt.workspace_id == workspace_id,
+                    PlaybackNormalizationAttempt.meeting_id == meeting_id,
+                    PlaybackNormalizationAttempt.media_revision_id == media_revision_id,
+                    or_(
+                        PlaybackNormalizationAttempt.state != AttemptState.PURGED.value,
+                        PlaybackNormalizationAttempt.cleaned_at.is_(None),
+                    ),
+                )
+                .order_by(PlaybackNormalizationAttempt.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        )
+        artifacts = list(
+            await db.scalars(
+                select(TrackArtifact)
+                .where(
+                    TrackArtifact.workspace_id == workspace_id,
+                    TrackArtifact.meeting_id == meeting_id,
+                    TrackArtifact.media_revision_id == media_revision_id,
+                    TrackArtifact.track_role.in_((*SOURCE_TRACK_ROLES, TrackRole.PLAYBACK.value)),
+                    TrackArtifact.status.not_in({"purged", "deleted"}),
+                )
+                .order_by(TrackArtifact.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        )
+        sessions = list(
+            await db.scalars(
+                select(UploadSession)
+                .where(
+                    UploadSession.workspace_id == workspace_id,
+                    UploadSession.meeting_id == meeting_id,
+                    UploadSession.media_revision_id == media_revision_id,
+                    UploadSession.status == UploadSessionStatus.FINALIZED.value,
+                )
+                .order_by(UploadSession.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
             )
         )
         temporary_objects = list(
             (
                 await db.scalars(
                     select(TemporaryUploadObject)
-                    .join(UploadSession, TemporaryUploadObject.upload_session_id == UploadSession.id)
+                    .join(
+                        UploadSession, TemporaryUploadObject.upload_session_id == UploadSession.id
+                    )
                     .where(
-                        TemporaryUploadObject.workspace_id == workflow.workspace_id,
-                        TemporaryUploadObject.media_revision_id == workflow.media_revision_id,
-                        UploadSession.workspace_id == workflow.workspace_id,
-                        UploadSession.media_revision_id == workflow.media_revision_id,
+                        TemporaryUploadObject.workspace_id == workspace_id,
+                        TemporaryUploadObject.media_revision_id == media_revision_id,
+                        UploadSession.workspace_id == workspace_id,
+                        UploadSession.meeting_id == meeting_id,
+                        UploadSession.media_revision_id == media_revision_id,
                         TemporaryUploadObject.cleanup_status != "purged",
                     )
-                    .with_for_update()
+                    .order_by(TemporaryUploadObject.id)
+                    .with_for_update(of=TemporaryUploadObject)
+                    .execution_options(populate_existing=True)
                 )
             ).all()
         )
+        if any(workflow.archive_audio for workflow in workflows) or any(
+            session.archive_audio for session in sessions
+        ):
+            await db.rollback()
+            continue
+        hard_deadlines = [
+            deadline
+            for deadline in (
+                *(workflow.transient_hard_deadline for workflow in workflows),
+                *(
+                    session.finalized_at + TRANSIENT_HARD_LIFETIME
+                    for session in sessions
+                    if session.finalized_at is not None
+                ),
+            )
+            if deadline is not None
+        ]
+        hard_due = bool(hard_deadlines and min(hard_deadlines) <= now)
+        terminal_due = any(
+            workflow.transient_purge_due_at is not None and workflow.transient_purge_due_at <= now
+            for workflow in workflows
+        )
+        active_workflow = any(
+            workflow.status not in terminal_processing_statuses for workflow in workflows
+        )
+        fresh_submission_claim = any(
+            job.status == "submitting"
+            and bool(job.submission_claim_token)
+            and job.submission_claimed_at is not None
+            and now - job.submission_claimed_at < MEDIASCRIBE_SUBMISSION_CLAIM_STALE_AFTER
+            for job in mediascribe_jobs
+        )
+        fresh_normalization_claim = any(
+            job.state in {JobState.RUNNING.value, JobState.PUBLISHING.value}
+            and job.lease_expires_at is not None
+            and job.lease_expires_at > now
+            for job in jobs
+        )
+        late_put_tombstone_keys = {
+            attempt.storage_object_key
+            for attempt in attempts
+            if attempt.uploaded_at is None
+            and attempt.cleaned_at is None
+            and attempt.state
+            in {
+                AttemptState.LOCAL_PREPARING.value,
+                AttemptState.CLEANUP_PENDING.value,
+                AttemptState.PURGED.value,
+            }
+        }
+        if hard_due and active_workflow:
+            for workflow in workflows:
+                if workflow.status not in terminal_processing_statuses:
+                    await set_workflow_status(
+                        db,
+                        workflow,
+                        ProcessingStatus.CANCELED,
+                        reason_code=NormalizationReason.AUDIO_PURGED.value,
+                        terminal=True,
+                        commit=False,
+                    )
+            active_workflow = False
+        if (fresh_submission_claim and not hard_due) or (
+            not hard_due and (not terminal_due or active_workflow)
+        ):
+            await db.rollback()
+            continue
+
         object_keys = {
             *(artifact.storage_object_key for artifact in artifacts),
             *(attempt.storage_object_key for attempt in attempts),
@@ -972,20 +1313,22 @@ async def reconcile_transient_media_purges(
                 await db.scalars(
                     select(PurgeJournal)
                     .where(
-                        PurgeJournal.workspace_id == workflow.workspace_id,
-                        PurgeJournal.meeting_id == workflow.meeting_id,
+                        PurgeJournal.workspace_id == workspace_id,
+                        PurgeJournal.meeting_id == meeting_id,
                         PurgeJournal.artifact_class == "transient_audio",
                         PurgeJournal.object_key.in_(object_keys or {""}),
                     )
+                    .order_by(PurgeJournal.id)
                     .with_for_update()
+                    .execution_options(populate_existing=True)
                 )
             ).all()
         }
         for object_key in sorted(object_keys):
             if object_key not in journals:
                 journal = PurgeJournal(
-                    workspace_id=workflow.workspace_id,
-                    meeting_id=workflow.meeting_id,
+                    workspace_id=workspace_id,
+                    meeting_id=meeting_id,
                     artifact_class="transient_audio",
                     object_key=object_key,
                     state="pending",
@@ -993,47 +1336,9 @@ async def reconcile_transient_media_purges(
                 )
                 db.add(journal)
                 journals[object_key] = journal
-        await _flush_or_fail_closed(db)
-        try:
-            for object_key in sorted(object_keys):
-                journal = journals[object_key]
-                if journal.state in {"purged", "superseded"}:
-                    continue
-                journal.state = "deleting"
-                journal.attempt_count += 1
-                journal.started_at = now
-                await _flush_or_fail_closed(db)
-                if await _storage_object_exists(storage, object_key):
-                    await _delete_storage_object(storage, object_key)
-                    if await _storage_object_exists(storage, object_key):
-                        raise RuntimeError("transient_storage_delete_unverified")
-                journal.state = "purged"
-                journal.completed_at = now
-                journal.next_retry_at = None
-                journal.safe_reason = "transient_object_deleted_verified"
-        except Exception:
-            await db.rollback()
-            continue
-
-        for artifact in artifacts:
-            artifact.status = "purged"
-            if artifact.track_role in SOURCE_TRACK_ROLES:
-                artifact.source_lifecycle_state = SourceLifecycleState.PURGED.value
-                artifact.source_purged_at = now
-                artifact.source_retention_purge_due_at = None
-            if artifact.track_role == TrackRole.PLAYBACK.value:
-                artifact.normalization_profile_version = None
-                artifact.validated_at = None
-                artifact.derivation_kind = None
-                artifact.source_fingerprint_sha256 = None
-                artifact.validation_version = None
-        for attempt in attempts:
-            current = AttemptState(attempt.state)
-            if current is not AttemptState.PURGED:
-                ensure_attempt_transition(current, AttemptState.PURGED)
-                attempt.state = AttemptState.PURGED.value
-                attempt.cleanup_reason = NormalizationReason.AUDIO_PURGED.value
-                attempt.cleaned_at = attempt.cleaned_at or now
+        for workflow in workflows:
+            if not workflow.archive_audio and workflow.transient_state != "purged":
+                workflow.transient_state = "purge_due"
         for job in jobs:
             if job.state in {
                 JobState.QUEUED.value,
@@ -1050,19 +1355,268 @@ async def reconcile_transient_media_purges(
                 job.state = JobState.CANCELLED.value
                 job.reason_code = NormalizationReason.AUDIO_PURGED.value
                 job.cancelled_at = now
+                job.lease_owner_sha256 = None
+                job.lease_expires_at = None
+        for attempt in attempts:
+            current = AttemptState(attempt.state)
+            if current in {
+                AttemptState.LOCAL_PREPARING,
+                AttemptState.UPLOADED,
+                AttemptState.CLEANED,
+            }:
+                ensure_attempt_transition(current, AttemptState.CLEANUP_PENDING)
+                attempt.state = AttemptState.CLEANUP_PENDING.value
+                attempt.cleanup_reason = NormalizationReason.AUDIO_PURGED.value
+        for artifact in artifacts:
+            artifact.status = "purge_pending"
+            if artifact.track_role in SOURCE_TRACK_ROLES:
+                artifact.source_lifecycle_state = SourceLifecycleState.PURGE_PENDING.value
+                artifact.source_retention_purge_due_at = None
+            if artifact.track_role == TrackRole.PLAYBACK.value:
+                artifact.normalization_profile_version = None
+                artifact.validated_at = None
+                artifact.derivation_kind = None
+                artifact.source_fingerprint_sha256 = None
+                artifact.validation_version = None
+        for temporary_object in temporary_objects:
+            temporary_object.cleanup_status = "purge_pending"
+        await db.commit()
+        if fresh_submission_claim or fresh_normalization_claim:
+            # The durable purge fence is committed, so workers cannot publish
+            # or submit again. Let an already-running external I/O call settle
+            # before deleting its source or late-PUT target.
+            continue
+
+        all_objects_purged = True
+        for object_key in sorted(object_keys):
+            if remaining_object_budget <= 0:
+                all_objects_purged = False
+                break
+            journal = await db.scalar(
+                select(PurgeJournal)
+                .where(
+                    PurgeJournal.workspace_id == workspace_id,
+                    PurgeJournal.meeting_id == meeting_id,
+                    PurgeJournal.artifact_class == "transient_audio",
+                    PurgeJournal.object_key == object_key,
+                )
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            if journal is None:
+                all_objects_purged = False
+                await db.rollback()
+                continue
+            if journal.state == "purged" and object_key not in late_put_tombstone_keys:
+                await db.rollback()
+                continue
+            if journal.state in {"purged", "superseded"}:
+                journal.state = "pending"
+                journal.attempt_count = 0
+                journal.completed_at = None
+                journal.next_retry_at = None
+            if journal.next_retry_at is not None and journal.next_retry_at > now:
+                all_objects_purged = False
+                await db.rollback()
+                continue
+            journal.state = "deleting"
+            journal.attempt_count += 1
+            journal.started_at = now
+            journal.next_retry_at = now + timedelta(seconds=STORAGE_CALL_TIMEOUT_SECONDS)
+            journal_id = journal.id
+            journal_attempt = journal.attempt_count
+            remaining_object_budget -= 1
+            await db.commit()
+            try:
+                object_existed = (
+                    await _storage_object_exists(storage, object_key)
+                    if object_key in late_put_tombstone_keys
+                    else None
+                )
+                await _delete_storage_object(storage, object_key)
+                if await _storage_object_exists(storage, object_key):
+                    raise RuntimeError("transient_storage_delete_unverified")
+            except Exception:
+                await db.rollback()
+                journal = await db.scalar(
+                    select(PurgeJournal)
+                    .where(PurgeJournal.id == journal_id)
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
+                )
+                if (
+                    journal is not None
+                    and journal.state == "deleting"
+                    and journal.attempt_count == journal_attempt
+                ):
+                    journal.state = "pending"
+                    journal.next_retry_at = now + timedelta(minutes=1)
+                    journal.safe_reason = "transient_object_delete_retry"
+                    await db.commit()
+                else:
+                    await db.rollback()
+                all_objects_purged = False
+                continue
+            journal = await db.scalar(
+                select(PurgeJournal)
+                .where(PurgeJournal.id == journal_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            if (
+                journal is None
+                or journal.state != "deleting"
+                or journal.attempt_count != journal_attempt
+            ):
+                await db.rollback()
+                all_objects_purged = False
+                continue
+            if object_key in late_put_tombstone_keys and object_existed is not True:
+                journal.state = "pending"
+                journal.completed_at = None
+                journal.next_retry_at = now + timedelta(minutes=1)
+                journal.safe_reason = "transient_late_put_pending_recheck"
+                await db.commit()
+                all_objects_purged = False
+                continue
+            journal.state = "purged"
+            journal.completed_at = now
+            journal.next_retry_at = None
+            journal.safe_reason = "transient_object_deleted_verified"
+            await db.commit()
+        if not all_objects_purged:
+            if remaining_object_budget <= 0:
+                break
+            continue
+
+        meeting = await db.scalar(
+            select(Meeting)
+            .where(Meeting.workspace_id == workspace_id, Meeting.id == meeting_id)
+            .with_for_update(skip_locked=True)
+            .execution_options(populate_existing=True)
+        )
+        if meeting is None:
+            await db.rollback()
+            continue
+        workflows = list(
+            await db.scalars(
+                select(ProcessingWorkflow)
+                .where(
+                    ProcessingWorkflow.workspace_id == workspace_id,
+                    ProcessingWorkflow.meeting_id == meeting_id,
+                    ProcessingWorkflow.media_revision_id == media_revision_id,
+                )
+                .order_by(ProcessingWorkflow.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        )
+        attempts = list(
+            await db.scalars(
+                select(PlaybackNormalizationAttempt)
+                .where(
+                    PlaybackNormalizationAttempt.workspace_id == workspace_id,
+                    PlaybackNormalizationAttempt.meeting_id == meeting_id,
+                    PlaybackNormalizationAttempt.media_revision_id == media_revision_id,
+                    or_(
+                        PlaybackNormalizationAttempt.state != AttemptState.PURGED.value,
+                        PlaybackNormalizationAttempt.cleaned_at.is_(None),
+                    ),
+                )
+                .order_by(PlaybackNormalizationAttempt.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        )
+        artifacts = list(
+            await db.scalars(
+                select(TrackArtifact)
+                .where(
+                    TrackArtifact.workspace_id == workspace_id,
+                    TrackArtifact.meeting_id == meeting_id,
+                    TrackArtifact.media_revision_id == media_revision_id,
+                    TrackArtifact.track_role.in_((*SOURCE_TRACK_ROLES, TrackRole.PLAYBACK.value)),
+                    TrackArtifact.status.not_in({"purged", "deleted"}),
+                )
+                .order_by(TrackArtifact.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        )
+        temporary_objects = list(
+            await db.scalars(
+                select(TemporaryUploadObject)
+                .join(UploadSession, TemporaryUploadObject.upload_session_id == UploadSession.id)
+                .where(
+                    TemporaryUploadObject.workspace_id == workspace_id,
+                    TemporaryUploadObject.media_revision_id == media_revision_id,
+                    UploadSession.workspace_id == workspace_id,
+                    UploadSession.meeting_id == meeting_id,
+                    UploadSession.media_revision_id == media_revision_id,
+                    TemporaryUploadObject.cleanup_status != "purged",
+                )
+                .order_by(TemporaryUploadObject.id)
+                .with_for_update(of=TemporaryUploadObject)
+                .execution_options(populate_existing=True)
+            )
+        )
+        journals_complete = all(
+            journal.state == "purged"
+            for journal in await db.scalars(
+                select(PurgeJournal).where(
+                    PurgeJournal.workspace_id == workspace_id,
+                    PurgeJournal.meeting_id == meeting_id,
+                    PurgeJournal.artifact_class == "transient_audio",
+                    PurgeJournal.object_key.in_(object_keys or {""}),
+                )
+            )
+        )
+        if not journals_complete:
+            await db.rollback()
+            continue
+        retry_fence_needed = False
+        for attempt in attempts:
+            current = AttemptState(attempt.state)
+            if current in {
+                AttemptState.LOCAL_PREPARING,
+                AttemptState.UPLOADED,
+                AttemptState.CLEANED,
+            }:
+                ensure_attempt_transition(current, AttemptState.CLEANUP_PENDING)
+                attempt.state = AttemptState.CLEANUP_PENDING.value
+                attempt.cleanup_reason = NormalizationReason.AUDIO_PURGED.value
+                retry_fence_needed = True
+                continue
+            ensure_attempt_transition(current, AttemptState.PURGED)
+            attempt.state = AttemptState.PURGED.value
+            attempt.cleanup_reason = NormalizationReason.AUDIO_PURGED.value
+            attempt.cleaned_at = attempt.cleaned_at or now
+        for artifact in artifacts:
+            artifact.status = "purged"
+            if artifact.track_role in SOURCE_TRACK_ROLES:
+                artifact.source_lifecycle_state = SourceLifecycleState.PURGED.value
+                artifact.source_purged_at = now
+                artifact.source_retention_purge_due_at = None
         for temporary_object in temporary_objects:
             temporary_object.cleanup_status = "purged"
             temporary_object.failure_reason = None
             temporary_object.last_error = None
-        workflow.transient_state = "purged"
-        workflow.transient_purged_at = now
-        await release_processing_usage_reservation(
-            db,
-            workspace_id=workflow.workspace_id,
-            media_revision_id=workflow.media_revision_id,
-            meeting_id=workflow.meeting_id,
-        )
+        for workflow in workflows:
+            if not workflow.archive_audio and not retry_fence_needed:
+                workflow.transient_state = "purged"
+                workflow.transient_purged_at = now
+        if not retry_fence_needed and not any(
+            workflow.status not in terminal_processing_statuses for workflow in workflows
+        ):
+            await release_processing_usage_reservation(
+                db,
+                workspace_id=workspace_id,
+                media_revision_id=media_revision_id,
+                meeting_id=meeting_id,
+            )
         await db.commit()
+        if retry_fence_needed:
+            continue
         purged += 1
     return purged
 
@@ -1109,9 +1663,11 @@ async def reconcile_source_retention_purges(
             .with_for_update(of=Meeting)
             .execution_options(populate_existing=True)
         )
-        if meeting is None or meeting.deleted_at is not None or (
-            meeting.deletion_state or DeletionState.NONE.value
-        ) != DeletionState.NONE.value:
+        if (
+            meeting is None
+            or meeting.deleted_at is not None
+            or (meeting.deletion_state or DeletionState.NONE.value) != DeletionState.NONE.value
+        ):
             continue
         candidate_artifact = await db.scalar(
             select(TrackArtifact).where(
@@ -1227,7 +1783,11 @@ async def reconcile_source_retention_purges(
             journal.completed_at = None
             journal.next_retry_at = None
             journal.safe_reason = "source_object_reintroduced"
-        if journal.state == "retryable_failed" and journal.next_retry_at is not None and journal.next_retry_at > now:
+        if (
+            journal.state == "retryable_failed"
+            and journal.next_retry_at is not None
+            and journal.next_retry_at > now
+        ):
             continue
         _ensure_storage_delete_capability(storage)
         journal.state = "deleting"
@@ -1283,9 +1843,7 @@ async def _object_key_referenced(
             PlaybackNormalizationAttempt.workspace_id == meeting.workspace_id,
             PlaybackNormalizationAttempt.meeting_id == meeting.id,
             PlaybackNormalizationAttempt.storage_object_key == object_key,
-            PlaybackNormalizationAttempt.state.in_(
-                {"local_preparing", "uploaded", "published"}
-            ),
+            PlaybackNormalizationAttempt.state.in_({"local_preparing", "uploaded", "published"}),
         ),
         select(TemporaryUploadObject.id)
         .join(UploadSession, TemporaryUploadObject.upload_session_id == UploadSession.id)
@@ -1327,10 +1885,10 @@ async def _reconcile_orphan_purge_journals(
                 .where(
                     PurgeJournal.workspace_id == meeting.workspace_id,
                     PurgeJournal.meeting_id == meeting.id,
+                    PurgeJournal.artifact_class != "transient_audio",
                     PurgeJournal.state.in_({"pending", "deleting", "retryable_failed"}),
                     PurgeJournal.attempt_count < MAX_PURGE_JOURNAL_ATTEMPTS,
-                    PurgeJournal.next_retry_at.is_(None)
-                    | (PurgeJournal.next_retry_at <= now),
+                    PurgeJournal.next_retry_at.is_(None) | (PurgeJournal.next_retry_at <= now),
                 )
                 .order_by(PurgeJournal.created_at.asc(), PurgeJournal.id.asc())
                 .limit(limit)
@@ -1366,16 +1924,16 @@ async def _reconcile_orphan_purge_journals(
     await _flush_or_fail_closed(db)
     await db.commit()
 
-    outcomes: dict[UUID, bool] = {}
-    for row_id, object_key, _attempt_count in snapshots:
+    outcomes: dict[UUID, tuple[int, bool]] = {}
+    for row_id, object_key, attempt_count in snapshots:
         try:
             if await _storage_object_exists(storage, object_key):
                 await _delete_storage_object(storage, object_key)
                 if await _storage_object_exists(storage, object_key):
                     raise RuntimeError("storage_delete_unverified")
-            outcomes[row_id] = True
+            outcomes[row_id] = (attempt_count, True)
         except Exception:
-            outcomes[row_id] = False
+            outcomes[row_id] = (attempt_count, False)
 
     locked_meeting = await db.scalar(
         select(Meeting)
@@ -1398,9 +1956,11 @@ async def _reconcile_orphan_purge_journals(
         ).all()
     }
     failures = False
-    for row_id, deleted in outcomes.items():
+    stale_claim = False
+    for row_id, (attempt_count, deleted) in outcomes.items():
         row = current_rows.get(row_id)
-        if row is None or row.state == "purged":
+        if row is None or row.state != "deleting" or row.attempt_count != attempt_count:
+            stale_claim = True
             continue
         if deleted:
             row.state = "purged"
@@ -1429,10 +1989,15 @@ async def _reconcile_orphan_purge_journals(
         .with_for_update()
         .execution_options(populate_existing=True)
     )
-    if report is not None and (failures or blocked_by_reference) and report.overall_state not in {
-        DeletionState.DELETING.value,
-        DeletionState.RETRYABLE_FAILED.value,
-    }:
+    if (
+        report is not None
+        and (failures or blocked_by_reference)
+        and report.overall_state
+        not in {
+            DeletionState.DELETING.value,
+            DeletionState.RETRYABLE_FAILED.value,
+        }
+    ):
         report.overall_state = DeletionState.RETRYABLE_FAILED.value
         report.summary_label = "Deletion needs retry"
         report.updated_at = datetime.now(UTC)
@@ -1448,7 +2013,7 @@ async def _reconcile_orphan_purge_journals(
             deletion_request.failed_at = datetime.now(UTC)
         locked_meeting.deletion_state = DeletionState.RETRYABLE_FAILED.value
     await db.commit()
-    return not failures and not blocked_by_reference
+    return not failures and not blocked_by_reference and not stale_claim
 
 
 async def retry_orphan_purge_journals(
@@ -1614,7 +2179,8 @@ async def _backup_expiry_days_for_retry(
     """Keep the original retention snapshot when rebuilding a retry report."""
     if deletion_request.policy_snapshot_id is not None:
         snapshot = await db.scalar(
-            select(RetentionPolicySnapshot).where(
+            select(RetentionPolicySnapshot)
+            .where(
                 RetentionPolicySnapshot.id == deletion_request.policy_snapshot_id,
                 RetentionPolicySnapshot.workspace_id == deletion_request.workspace_id,
             )
@@ -1721,10 +2287,7 @@ async def _purge_server_controlled_content(
     if any(
         artifact.track_role == "playback"
         and artifact.status in {"stored", "deleted"}
-        and (
-            artifact.validated_at is not None
-            or artifact.status == "deleted"
-        )
+        and (artifact.validated_at is not None or artifact.status == "deleted")
         for artifact in artifacts
     ):
         result.materialized_classes.add(DeletionArtifactClass.PLAYBACK_CANONICAL)
@@ -1763,7 +2326,7 @@ async def _purge_server_controlled_content(
             .where(
                 PurgeJournal.workspace_id == meeting.workspace_id,
                 PurgeJournal.meeting_id == meeting.id,
-                    PurgeJournal.state.not_in({"purged", "superseded"}),
+                PurgeJournal.state.not_in({"purged", "superseded"}),
             )
             .with_for_update()
             .execution_options(populate_existing=True)
@@ -2638,18 +3201,18 @@ async def _mark_outcomes_deleting(
             .where(
                 PlaybackNormalizationJob.workspace_id == meeting.workspace_id,
                 PlaybackNormalizationJob.meeting_id == meeting.id,
-                PlaybackNormalizationJob.state.notin_({
-                    JobState.TERMINAL.value,
-                    JobState.CANCELLED.value,
-                }),
+                PlaybackNormalizationJob.state.notin_(
+                    {
+                        JobState.TERMINAL.value,
+                        JobState.CANCELLED.value,
+                    }
+                ),
             )
             .with_for_update()
             .execution_options(populate_existing=True)
         )
     ).all()
-    workflow_ids.extend(
-        job.workflow_id for job in normalization_jobs if job.workflow_id
-    )
+    workflow_ids.extend(job.workflow_id for job in normalization_jobs if job.workflow_id)
 
     mediascribe_jobs = (
         await db.scalars(
@@ -2676,9 +3239,7 @@ async def _mark_outcomes_deleting(
             .where(
                 DispatchIntent.workspace_id == meeting.workspace_id,
                 DispatchIntent.meeting_id == meeting.id,
-                DispatchIntent.state.in_(
-                    {"created", "dispatching", "started", "retryable_failed"}
-                ),
+                DispatchIntent.state.in_({"created", "dispatching", "started", "retryable_failed"}),
             )
             .with_for_update()
             .execution_options(populate_existing=True)

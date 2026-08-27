@@ -69,6 +69,7 @@ from twobrain_rec_server.domain.statuses import (
     ProcessingResultStatus,
     TrackRole,
 )
+from twobrain_rec_server.ingest.store import revision_archives_audio
 from twobrain_rec_server.normalization.media import MAX_OUTPUT_BYTES
 from twobrain_rec_server.normalization.statuses import (
     CANONICAL_PROFILE_VERSION,
@@ -913,6 +914,13 @@ async def stored_audio_artifacts(
     )
     if revision is None:
         return []
+    if not await revision_archives_audio(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        media_revision_id=revision.id,
+    ):
+        return []
     job = await _normalization_job_for_revision(
         db,
         workspace_id=workspace_id,
@@ -994,6 +1002,17 @@ async def review_playback_state(
             state="unavailable",
             reason_code="no_audio",
             label=playback_reason_copy("no_audio"),
+        )
+    if not await revision_archives_audio(
+        db,
+        workspace_id=meeting.workspace_id,
+        meeting_id=meeting.id,
+        media_revision_id=revision.id,
+    ):
+        return PlaybackPreparationState(
+            state="unavailable",
+            reason_code="audio_not_archived",
+            label=playback_reason_copy("audio_not_archived"),
         )
     job = await _normalization_job_for_revision(
         db,

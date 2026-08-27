@@ -1,4 +1,5 @@
 import asyncio
+from pathlib import Path
 from uuid import UUID
 
 from sqlalchemy import select
@@ -7,12 +8,18 @@ from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fakes.fake_mediascribe import FakeMediaScribeClient
 from tests.fakes.fake_temporal import FakeTemporalClient
 from tests.fixtures.artifacts import deterministic_wav_bytes
-from tests.fixtures.processing import create_finalized_meeting, create_finalized_mixed_recording
+from tests.fixtures.processing import (
+    apply_job_worker_scope,
+    create_finalized_meeting,
+    create_finalized_mixed_recording,
+)
+from tests.integration.test_playback_normalization_workflow import FakeManualNormalizationPipeline
 from twobrain_rec_server.db.models import (
     DiarizationSegment,
     MediaScribeJob,
     MeetingOutcomeGenerationAttempt,
     MeetingOutcomeSet,
+    PlaybackNormalizationJob,
     ProcessingAuditEvent,
     ProcessingDependencyState,
     ProcessingResult,
@@ -32,6 +39,7 @@ from twobrain_rec_server.mediascribe.schemas import (
     MediaScribeSegment,
     MediaScribeWordItem,
 )
+from twobrain_rec_server.normalization.service import run_normalization_job
 from twobrain_rec_server.processing import store
 from twobrain_rec_server.processing.submit import (
     poll_and_import_mediascribe_result,
@@ -399,8 +407,12 @@ def test_v5_mixed_recording_submits_one_canonical_wav_and_imports_one_result(cli
     assert review_payload["speakers"]["available"] is True
 
 
-def test_normal_recording_and_manual_upload_share_canonical_speaker_projection(client) -> None:
+def test_normal_recording_and_manual_upload_share_canonical_speaker_projection(
+    client,
+    tmp_path: Path,
+) -> None:
     client.app.state.settings.processing_enabled = True
+    client.app.state.settings.playback_normalization_enabled = True
     client.app.state.temporal_client = FakeTemporalClient()
     normal = create_finalized_mixed_recording(client, "canonical-parity-normal")
     manual_response = client.post(
@@ -408,13 +420,33 @@ def test_normal_recording_and_manual_upload_share_canonical_speaker_projection(c
         headers=auth_headers(),
         data={
             "title": "Canonical parity manual",
-            "duration_seconds": "2",
+            "duration_seconds": "60",
             "local_recording_id": "canonical-parity-manual",
         },
         files={"file": ("synthetic.wav", deterministic_wav_bytes(128), "audio/wav")},
     )
     assert manual_response.status_code == 202
     manual = manual_response.json()
+
+    async def prepare_manual_source() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            job = await db.scalar(
+                select(PlaybackNormalizationJob).where(
+                    PlaybackNormalizationJob.meeting_id
+                    == UUID(manual["meeting"]["meeting_id"])
+                )
+            )
+            assert job is not None
+            await apply_job_worker_scope(db, job)
+            await run_normalization_job(
+                db=db,
+                storage=client.app_state["storage"],
+                job_id=job.id,
+                work_directory=tmp_path / "canonical-parity-manual",
+                pipeline=FakeManualNormalizationPipeline(),
+            )
+
+    asyncio.run(prepare_manual_source())
 
     sources = (
         (

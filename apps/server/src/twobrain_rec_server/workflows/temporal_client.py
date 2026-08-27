@@ -41,6 +41,8 @@ class ProcessingWorkflowStart:
     workflow_id: str
     run_id: str | None = None
     reused: bool = False
+    closed: bool = False
+    ambiguous: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,6 +88,25 @@ def _temporal_update_fallback_allowed(exc: BaseException) -> bool:
             pass
         current = current.__cause__ or current.__context__
     return False
+
+
+def _temporal_start_outcome_ambiguous(exc: BaseException) -> bool:
+    if isinstance(exc, (TimeoutError, ConnectionError, OSError)):
+        return True
+    try:
+        from temporalio.client import RPCError, RPCStatusCode
+
+        return isinstance(exc, RPCError) and exc.status in {
+            RPCStatusCode.CANCELLED,
+            RPCStatusCode.UNKNOWN,
+            RPCStatusCode.DEADLINE_EXCEEDED,
+            RPCStatusCode.ABORTED,
+            RPCStatusCode.INTERNAL,
+            RPCStatusCode.UNAVAILABLE,
+            RPCStatusCode.DATA_LOSS,
+        }
+    except ImportError:
+        return False
 
 
 @dataclass(frozen=True, slots=True)
@@ -681,6 +702,10 @@ async def start_processing_workflow(
         )
         if tenant_scope.auth_session_id is not None:
             payload["auth_session_id"] = str(tenant_scope.auth_session_id)
+    from temporalio.client import WorkflowExecutionStatus
+    from temporalio.common import WorkflowIDReusePolicy
+    from temporalio.exceptions import WorkflowAlreadyStartedError
+
     from twobrain_rec_server.workflows.processing_workflow import MediaScribeProcessingWorkflow
 
     try:
@@ -689,12 +714,29 @@ async def start_processing_workflow(
             payload,
             id=workflow_id,
             task_queue=settings.temporal_task_queue,
+            id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
+        )
+    except WorkflowAlreadyStartedError as exc:
+        handle = temporal_client.get_workflow_handle(workflow_id, run_id=exc.run_id)
+        try:
+            description = await handle.describe()
+        except Exception:
+            return ProcessingWorkflowStart(
+                workflow_id=workflow_id,
+                run_id=exc.run_id,
+                reused=True,
+                ambiguous=True,
+            )
+        return ProcessingWorkflowStart(
+            workflow_id=workflow_id,
+            run_id=exc.run_id,
+            reused=True,
+            closed=description.status is not WorkflowExecutionStatus.RUNNING,
         )
     except Exception as exc:
-        exc_name = exc.__class__.__name__.lower()
-        if "already" not in exc_name and "workflowalready" not in exc_name:
+        if not _temporal_start_outcome_ambiguous(exc):
             raise
-        return ProcessingWorkflowStart(workflow_id=workflow_id, reused=True)
+        return ProcessingWorkflowStart(workflow_id=workflow_id, reused=True, ambiguous=True)
     run_id = _started_workflow_run_id(handle)
     return ProcessingWorkflowStart(workflow_id=workflow_id, run_id=run_id, reused=False)
 

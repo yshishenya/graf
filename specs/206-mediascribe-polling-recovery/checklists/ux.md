@@ -13,3 +13,7 @@
 - [X] Transcript не появляется до готовой diarization.
 - [X] Summary state не блокирует готовый transcript.
 - [X] Detail и list показывают одну и ту же terminal/pending семантику.
+- [X] Normalization pending не показывается как provider error.
+- [X] Normalization retry имеет countdown и отдельное действие «Повторить подготовку».
+- [X] Terminal input-audio state прекращает polling и предлагает загрузить другой файл.
+- [X] No-archive flow не показывает transient canonical в плеере.

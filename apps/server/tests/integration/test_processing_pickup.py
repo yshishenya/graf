@@ -1,7 +1,9 @@
 import asyncio
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from uuid import UUID
 
+import pytest
 from sqlalchemy import select
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
@@ -19,15 +21,22 @@ from tests.fixtures.processing import create_finalized_meeting, enable_processin
 from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
 from twobrain_rec_server.auth.sessions import issue_auth_session
 from twobrain_rec_server.billing.catalog import FREE_PROCESSING_SECONDS
-from twobrain_rec_server.billing.usage import moscow_window_for
+from twobrain_rec_server.billing.usage import (
+    moscow_window_for,
+    release_free_usage,
+    reserve_free_usage,
+)
 from twobrain_rec_server.db.models import (
     AuthSessionDeviceBinding,
     FreeUsageWindow,
+    MediaScribeJob,
     ProcessingAuditEvent,
     ProcessingWorkflow,
     UsageReservation,
     WorkspaceSubscription,
 )
+from twobrain_rec_server.domain.statuses import ProcessingStatus
+from twobrain_rec_server.processing import store
 
 
 def test_processing_pickup_starts_workflow_and_reuses_duplicate(client) -> None:
@@ -154,6 +163,59 @@ def test_processing_pickup_blocks_free_job_when_window_is_exhausted(client) -> N
     assert asyncio.run(blocked_reason()) == "blocked_free_processing_exhausted"
 
 
+def test_stale_start_intent_rechecks_original_reservation_window_quota(client) -> None:
+    temporal = FakeTemporalClient()
+    client.app.state.temporal_client = temporal
+    finalized = create_finalized_meeting(client, "pickup-stale-free-exhausted", duration_seconds=60)
+    meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
+    now = datetime.now(UTC)
+    window_start, window_end = moscow_window_for(now - timedelta(days=31))
+
+    async def seed_stale_intent_and_exhausted_window() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            workflow = await store.upsert_processing_workflow(
+                db,
+                workspace_id=WORKSPACE_ID,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+                workflow_id=f"processing/{media_revision_id}",
+                status=ProcessingStatus.STARTING,
+            )
+            workflow.updated_at = now - timedelta(minutes=2)
+            window = FreeUsageWindow(
+                workspace_id=WORKSPACE_ID,
+                window_start=window_start,
+                window_end=window_end,
+                included_seconds=FREE_PROCESSING_SECONDS,
+                committed_seconds=FREE_PROCESSING_SECONDS,
+            )
+            db.add(window)
+            await db.flush()
+            db.add(
+                UsageReservation(
+                    workspace_id=WORKSPACE_ID,
+                    window_id=window.id,
+                    idempotency_key=f"processing:{media_revision_id}",
+                    declared_seconds=60,
+                    state="released",
+                )
+            )
+            await db.commit()
+
+    asyncio.run(seed_stale_intent_and_exhausted_window())
+    response = client.post(
+        "/api/v1/internal/processing/pickup",
+        headers=auth_headers(),
+        json={"meeting_id": str(meeting_id)},
+    )
+
+    assert response.status_code == 202
+    assert response.json()["started_count"] == 0
+    assert response.json()["blocked_count"] == 1
+    assert temporal.starts == {}
+
+
 def test_processing_pickup_keeps_paid_processing_unlimited_without_reservation(client) -> None:
     client.app.state.temporal_client = FakeTemporalClient()
     finalized = create_finalized_meeting(client, "pickup-paid-unlimited", duration_seconds=60)
@@ -162,6 +224,16 @@ def test_processing_pickup_keeps_paid_processing_unlimited_without_reservation(c
 
     async def seed_paid_subscription() -> None:
         async with client.app_state["sessionmaker"]() as db:
+            now = datetime.now(UTC)
+            reservation = await reserve_free_usage(
+                db,
+                workspace_id=WORKSPACE_ID,
+                reservation_key=f"processing:{media_revision_id}",
+                declared_seconds=60,
+                now=now,
+                expires_at=now + timedelta(hours=24),
+            )
+            await release_free_usage(db, reservation_id=reservation.id)
             db.add(
                 WorkspaceSubscription(
                     workspace_id=WORKSPACE_ID,
@@ -182,19 +254,38 @@ def test_processing_pickup_keeps_paid_processing_unlimited_without_reservation(c
     assert response.status_code == 202
     assert response.json()["started_count"] == 1
 
-    async def reservation_count() -> int:
+    async def commit_usage_with_released_reservation() -> tuple[int, str]:
         async with client.app_state["sessionmaker"]() as db:
-            return len(
-                (
-                    await db.scalars(
-                        select(UsageReservation).where(
-                            UsageReservation.idempotency_key == f"processing:{media_revision_id}"
-                        )
-                    )
-                ).all()
+            workflow = await db.scalar(
+                select(ProcessingWorkflow).where(
+                    ProcessingWorkflow.meeting_id == UUID(meeting_id)
+                )
             )
+            assert workflow is not None
+            job = MediaScribeJob(
+                workspace_id=WORKSPACE_ID,
+                meeting_id=UUID(meeting_id),
+                media_revision_id=UUID(media_revision_id),
+                processing_workflow_id=workflow.id,
+                idempotency_key=f"paid-released-reservation:{media_revision_id}",
+                source_fingerprint=workflow.source_fingerprint,
+            )
+            db.add(job)
+            await db.flush()
+            committed = await store._commit_processing_usage(
+                db,
+                job=job,
+                transcript=[SimpleNamespace(start_seconds=0, end_seconds=1)],
+            )
+            reservation = await db.scalar(
+                select(UsageReservation).where(
+                    UsageReservation.idempotency_key == f"processing:{media_revision_id}"
+                )
+            )
+            assert reservation is not None
+            return committed, reservation.state
 
-    assert asyncio.run(reservation_count()) == 0
+    assert asyncio.run(commit_usage_with_released_reservation()) == (0, "released")
 
 
 def test_processing_pickup_reopens_blocked_workflow_after_temporal_recovers(client) -> None:
@@ -261,6 +352,54 @@ def test_processing_pickup_reuses_workflow_started_by_finalize_autostart(client)
     assert metadata["reason_code"] == "duplicate_workflow_reused"
     serialized = str(metadata).lower()
     assert all(token not in serialized for token in {"transcript", "audio_download_url", "api_key", "signed_url"})
+
+
+@pytest.mark.parametrize(
+    "waiting_status",
+    [ProcessingStatus.WAITING_RETRY, ProcessingStatus.BLOCKED_UNKNOWN],
+)
+def test_processing_pickup_reuses_existing_durable_wait(client, waiting_status) -> None:
+    temporal = FakeTemporalClient()
+    client.app.state.temporal_client = temporal
+    finalized = create_finalized_meeting(client, f"pickup-{waiting_status.value}")
+    meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
+
+    async def seed_wait() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            await store.upsert_processing_workflow(
+                db,
+                workspace_id=WORKSPACE_ID,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+                workflow_id=f"processing/{media_revision_id}",
+                status=waiting_status,
+            )
+
+    asyncio.run(seed_wait())
+    response = client.post(
+        "/api/v1/internal/processing/pickup",
+        headers=auth_headers(),
+        json={"meeting_id": str(meeting_id)},
+    )
+
+    assert response.status_code == 202
+    assert response.json()["started_count"] == 0
+    assert response.json()["reused_count"] == 1
+    assert temporal.starts == {}
+
+    async def workflow_states() -> list[str]:
+        async with client.app_state["sessionmaker"]() as db:
+            workflows = list(
+                await db.scalars(
+                    select(ProcessingWorkflow).where(
+                        ProcessingWorkflow.meeting_id == meeting_id
+                    )
+                )
+            )
+            return [workflow.status for workflow in workflows]
+
+    assert asyncio.run(workflow_states()) == [waiting_status.value]
 
 
 def test_processing_pickup_rejects_workspace_member(client) -> None:

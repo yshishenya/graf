@@ -1,4 +1,5 @@
 import asyncio
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import UUID
 
@@ -161,6 +162,123 @@ def test_processing_status_endpoint_requires_rows_for_content_availability(clien
     assert payload["transcript_available"] is False
     assert payload["diarization_available"] is False
     assert payload["content_available"] is False
+
+
+@pytest.mark.parametrize("stale_retry_class", ["none", "retryable"])
+def test_processed_result_without_diarization_is_terminal_and_does_not_poll(
+    client,
+    stale_retry_class: str,
+) -> None:
+    client.app.state.temporal_client = FakeTemporalClient()
+    finalized = create_finalized_meeting(
+        client,
+        f"processing-status-missing-diarization-{stale_retry_class}",
+    )
+    meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
+    workspace_id = UUID(finalized["meeting"]["workspace_id"])
+
+    async def seed_incomplete_result() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            workflow = await store.upsert_processing_workflow(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+                workflow_id=f"processing/{media_revision_id}",
+                status=ProcessingStatus.PROCESSED,
+            )
+            workflow.retry_class = stale_retry_class
+            job = MediaScribeJob(
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+                processing_workflow_id=workflow.id,
+                external_job_id="job_missing_diarization",
+                status=MediaScribeJobStatus.READY.value,
+            )
+            db.add(job)
+            await db.flush()
+            db.add(
+                ProcessingResult(
+                    workspace_id=workspace_id,
+                    meeting_id=meeting_id,
+                    media_revision_id=media_revision_id,
+                    mediascribe_job_id=job.id,
+                    processing_workflow_id=workflow.id,
+                    result_version=1,
+                    status=ProcessingResultStatus.IMPORTED.value,
+                    transcript_status=ProcessingAvailabilityStatus.AVAILABLE.value,
+                    diarization_status=ProcessingAvailabilityStatus.UNAVAILABLE.value,
+                    summary_status=SummaryStatus.NOT_REQUESTED.value,
+                    segment_count=1,
+                    diarization_segment_count=0,
+                    failure_reason="mediascribe_malformed_response",
+                )
+            )
+            await db.commit()
+
+    asyncio.run(seed_incomplete_result())
+
+    response = client.get(f"/api/v1/meetings/{meeting_id}/processing", headers=auth_headers())
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["state"] == ProcessingStatus.FAILED_TERMINAL.value
+    assert payload["retry_class"] == "terminal"
+    assert payload["manual_action"] == "new_attempt"
+    assert payload["attempt_in_flight"] is False
+    assert payload["transcript_available"] is False
+    assert payload["artifacts"]["transcript"] == {"state": "unavailable", "visible": False}
+    assert payload["artifacts"]["diarization"] == {"state": "unavailable", "visible": False}
+
+    attempt = client.post(
+        f"/api/v1/meetings/{meeting_id}/processing/attempt",
+        headers=auth_headers(),
+    )
+    assert attempt.status_code == 202
+    assert attempt.json()["attempt_result"] == "created"
+
+
+def test_expired_manual_check_claim_reopens_same_job_action(client) -> None:
+    finalized = create_finalized_meeting(client, "processing-status-expired-manual-claim")
+    meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
+    workspace_id = UUID(finalized["meeting"]["workspace_id"])
+
+    async def seed_expired_claim() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            workflow = await store.upsert_processing_workflow(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+                workflow_id=f"processing/{media_revision_id}",
+                status=ProcessingStatus.POLLING,
+            )
+            workflow.retry_class = "retryable"
+            workflow.last_reason_code = "manual_processing_check"
+            workflow.manual_claimed_at = datetime.now(UTC) - timedelta(minutes=3)
+            workflow.manual_claimed_by = "user"
+            db.add(
+                MediaScribeJob(
+                    workspace_id=workspace_id,
+                    meeting_id=meeting_id,
+                    media_revision_id=media_revision_id,
+                    processing_workflow_id=workflow.id,
+                    external_job_id="job_expired_manual_claim",
+                    status=MediaScribeJobStatus.TRANSCRIBING.value,
+                )
+            )
+            await db.commit()
+
+    asyncio.run(seed_expired_claim())
+
+    response = client.get(f"/api/v1/meetings/{meeting_id}/processing", headers=auth_headers())
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["attempt_in_flight"] is False
+    assert payload["manual_action"] == "check_now"
+    assert payload["next_attempt_at"] is None
 
 
 def test_processing_status_ignores_historical_retry_class_after_processed_result(client) -> None:
@@ -338,8 +456,9 @@ def test_no_speech_new_attempt_lazily_connects_temporal_and_projects_as_active(c
     assert body["attempt_result"] == "created"
     assert body["attempt_ordinal"] == 2
     assert body["attempt_in_flight"] is True
-    assert body["state"] == ProcessingStatus.STARTING.value
+    assert body["state"] == ProcessingStatus.WORKFLOW_STARTED.value
     assert body["manual_action"] == "none"
+    assert body["dispatch"] == "started"
     assert client.app.state.temporal_client is temporal
     assert len(temporal.starts) == 1
 
@@ -350,7 +469,7 @@ def test_no_speech_new_attempt_lazily_connects_temporal_and_projects_as_active(c
     assert status.status_code == 200
     payload = status.json()
     assert payload["attempt_ordinal"] == 2
-    assert payload["state"] == ProcessingStatus.STARTING.value
+    assert payload["state"] == ProcessingStatus.WORKFLOW_STARTED.value
     assert payload["attempt_in_flight"] is True
 
 
@@ -432,7 +551,7 @@ def test_finalize_autostart_audit_metadata_is_content_safe(client) -> None:
             return event.metadata_json
 
     metadata = asyncio.run(audit_metadata())
-    assert set(metadata) <= {"workflow_id", "started_count"}
+    assert set(metadata) <= {"workflow_id", "started_count", "reason_code"}
     serialized = str(metadata).lower()
     forbidden = {"transcript", "audio_download_url", "api_key", "signed_url", "/users/"}
     assert all(token not in serialized for token in forbidden)

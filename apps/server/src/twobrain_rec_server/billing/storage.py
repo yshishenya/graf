@@ -4,12 +4,12 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import func, select, text
+from sqlalchemy import exists, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.billing.catalog import classify_storage_threshold
 from twobrain_rec_server.db.models import StorageReservation as StorageReservationRow
-from twobrain_rec_server.db.models import TrackArtifact
+from twobrain_rec_server.db.models import TrackArtifact, UploadSession
 
 CANONICAL_PLAYBACK_PROFILE = "review_m4a_aac_lc_48k_mono_64k_v1"
 CANONICAL_PLAYBACK_FILENAME = "meeting-review.m4a"
@@ -97,6 +97,15 @@ async def project_active_playback_storage(
             TrackArtifact.status == "stored",
             TrackArtifact.normalization_profile_version == CANONICAL_PLAYBACK_PROFILE,
             TrackArtifact.storage_object_key.endswith("/meeting-review.m4a"),
+            ~exists(
+                select(UploadSession.id).where(
+                    UploadSession.workspace_id == TrackArtifact.workspace_id,
+                    UploadSession.meeting_id == TrackArtifact.meeting_id,
+                    UploadSession.media_revision_id == TrackArtifact.media_revision_id,
+                    UploadSession.status == "finalized",
+                    UploadSession.archive_audio.is_(False),
+                )
+            ),
         )
     )
     return StorageProjection(

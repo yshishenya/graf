@@ -805,17 +805,6 @@ async def reconcile_normalization_jobs(
     ):
         return NormalizationReconcileResult()
     current_time = now or datetime.now(UTC)
-    (
-        workspaces_enumerated,
-        inventory_evaluated,
-        inventory_completed,
-        inventory_blocked,
-    ) = await _inventory_legacy_workspaces(
-        sessionmaker=sessionmaker,
-        settings=settings,
-        now=current_time,
-        actor_id=actor_id,
-    )
     batch_size = int(settings.playback_normalization_dispatch_batch_size)
     async with sessionmaker() as maintenance_db:
         await apply_tenant_context(
@@ -945,6 +934,17 @@ async def reconcile_normalization_jobs(
                 dispatched += 1
             if result.reused:
                 reused += 1
+    (
+        workspaces_enumerated,
+        inventory_evaluated,
+        inventory_completed,
+        inventory_blocked,
+    ) = await _inventory_legacy_workspaces(
+        sessionmaker=sessionmaker,
+        settings=settings,
+        now=current_time,
+        actor_id=actor_id,
+    )
     return NormalizationReconcileResult(
         workspaces_enumerated=workspaces_enumerated,
         inventory_evaluated=inventory_evaluated,

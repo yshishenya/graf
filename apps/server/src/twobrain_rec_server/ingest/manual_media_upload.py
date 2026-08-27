@@ -112,6 +112,17 @@ async def accept_manual_media_upload(
         raise ProblemDetail(
             status=413, code="upload_part_bytes_exceeded", title="Upload part byte limit exceeded"
         )
+    if not (
+        settings.playback_normalization_enabled
+        and settings.playback_normalization_automatic_dispatch_enabled
+    ):
+        file.stream.close()
+        raise ProblemDetail(
+            status=503,
+            code="manual_media_preparation_unavailable",
+            title="Подготовка записи временно недоступна",
+            detail="Попробуйте загрузить запись позже.",
+        )
 
     media_sha256 = file.sha256
     recording_id = local_recording_id or f"manual-upload-{media_sha256[:32]}"
@@ -212,6 +223,7 @@ async def accept_manual_media_upload(
             tracks=[manifest, media],
             storage=storage,
             archive_audio=archive_audio,
+            processing_requested=settings.processing_enabled,
         )
         if db is not None:
             await db.commit()
@@ -223,14 +235,13 @@ async def accept_manual_media_upload(
             detail=f"{exc.limit_name}={exc.limit_value}, actual={exc.actual_value}",
         ) from exc
 
-    if session.archive_audio:
-        await dispatch_normalization_after_accepted_commit(
-            db=db,
-            settings=settings,
-            tenant_scope=tenant_scope,
-            media_revision_id=session.media_revision_id or meeting.media_revision_id,
-            temporal_client=temporal_client,
-        )
+    await dispatch_normalization_after_accepted_commit(
+        db=db,
+        settings=settings,
+        tenant_scope=tenant_scope,
+        media_revision_id=session.media_revision_id or meeting.media_revision_id,
+        temporal_client=temporal_client,
+    )
     processing = await dispatch_processing_after_finalize(
         db=db,
         settings=settings,

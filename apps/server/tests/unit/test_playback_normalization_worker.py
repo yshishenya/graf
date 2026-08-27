@@ -9,12 +9,14 @@ import pytest
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.normalization import worker as worker_module
 from twobrain_rec_server.normalization.worker import (
+    _wake_processing_after_normalization,
     cleanup_startup_work_directory,
     normalization_activity_lease_duration,
     packaged_schema_head,
     require_schema_head,
     require_storage_ready,
     run_normalization_reconciliation_loop,
+    run_playback_normalization_activity,
     validate_media_tools,
     validate_startup_work_directory,
 )
@@ -45,6 +47,129 @@ def test_activity_lease_outlives_one_missed_heartbeat_until_reconciliation() -> 
     assert settings.playback_normalization_heartbeat_seconds == 30
     assert settings.playback_normalization_reconcile_interval_seconds == 60
     assert normalization_activity_lease_duration(settings) == timedelta(seconds=90)
+
+
+@pytest.mark.anyio
+async def test_normalization_activity_reuses_worker_dependencies(monkeypatch, tmp_path) -> None:
+    workspace_id = UUID("11111111-1111-4111-8111-111111111111")
+    meeting_id = UUID("22222222-2222-4222-8222-222222222222")
+    revision_id = UUID("33333333-3333-4333-8333-333333333333")
+    job_id = UUID("44444444-4444-4444-8444-444444444444")
+    settings = Settings(
+        playback_normalization_enabled=True,
+        playback_normalization_work_directory=tmp_path,
+    )
+    storage = object()
+    job = SimpleNamespace(
+        id=job_id,
+        meeting_id=meeting_id,
+        media_revision_id=revision_id,
+        profile_version="profile-v1",
+        validation_version="validation-v1",
+        state="queued",
+        lease_expires_at=None,
+    )
+
+    class Db:
+        async def scalar(self, _statement):
+            return job
+
+    class Session:
+        async def __aenter__(self):
+            return Db()
+
+        async def __aexit__(self, *_args) -> None:
+            return None
+
+    async def apply_scope(*_args, **_kwargs) -> None:
+        return None
+
+    async def run_job(**kwargs):
+        assert kwargs["storage"] is storage
+        return SimpleNamespace(
+            job_id=job_id,
+            canonical_track_artifact_id=UUID("55555555-5555-4555-8555-555555555555"),
+            reused=False,
+        )
+
+    def must_not_create(*_args, **_kwargs):
+        raise AssertionError("worker activity created an owned dependency")
+
+    monkeypatch.setattr(worker_module, "apply_tenant_scope", apply_scope)
+    monkeypatch.setattr(worker_module, "run_normalization_job", run_job)
+    monkeypatch.setattr(worker_module, "create_engine", must_not_create)
+    monkeypatch.setattr(worker_module, "get_storage", must_not_create)
+    monkeypatch.setattr(
+        "temporalio.activity.info",
+        lambda: SimpleNamespace(workflow_run_id="run", activity_id="activity", attempt=1),
+    )
+    monkeypatch.setattr("temporalio.activity.heartbeat", lambda *_args, **_kwargs: None)
+
+    result = await run_playback_normalization_activity(
+        {
+            "organization_id": "66666666-6666-4666-8666-666666666666",
+            "workspace_id": str(workspace_id),
+            "user_id": "77777777-7777-4777-8777-777777777777",
+            "device_id": "88888888-8888-4888-8888-888888888888",
+            "job_id": str(job_id),
+            "meeting_id": str(meeting_id),
+            "media_revision_id": str(revision_id),
+            "profile_version": "profile-v1",
+            "validation_version": "validation-v1",
+        },
+        settings=settings,
+        sessionmaker=Session,
+        storage=storage,
+    )
+
+    assert result == {
+        "job_id": str(job_id),
+        "canonical_track_artifact_id": "55555555-5555-4555-8555-555555555555",
+        "state": "ready",
+        "reused": "false",
+    }
+
+
+@pytest.mark.anyio
+async def test_normalization_wake_uses_persisted_active_processing_workflow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[object, object]] = []
+
+    class Handle:
+        async def signal(self, signal) -> None:
+            calls.append(("signal", signal))
+
+    class TemporalClient:
+        def get_workflow_handle(self, workflow_id: str) -> Handle:
+            calls.append(("workflow_id", workflow_id))
+            return Handle()
+
+    media_revision_id = UUID("22222222-2222-4222-8222-222222222222")
+    workspace_id = UUID("44444444-4444-4444-8444-444444444444")
+    meeting_id = UUID("55555555-5555-4555-8555-555555555555")
+    persisted_workflow_id = f"processing/{media_revision_id}/2"
+
+    async def active_workflow(_db, **kwargs):
+        assert kwargs == {
+            "workspace_id": workspace_id,
+            "meeting_id": meeting_id,
+            "media_revision_id": media_revision_id,
+            "active_only": True,
+        }
+        return SimpleNamespace(workflow_id=persisted_workflow_id)
+
+    monkeypatch.setattr(worker_module, "get_processing_workflow", active_workflow)
+
+    await _wake_processing_after_normalization(
+        db=object(),
+        temporal_client=TemporalClient(),
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        media_revision_id=media_revision_id,
+    )
+    assert calls[0] == ("workflow_id", persisted_workflow_id)
+    assert calls[1][0] == "signal"
 
 
 def test_startup_cleanup_removes_only_owned_normalization_work_directories(
@@ -175,7 +300,7 @@ async def test_schema_startup_gate_requires_exact_migration_head() -> None:
 
 
 def test_worker_schema_head_is_derived_from_packaged_migrations() -> None:
-    assert packaged_schema_head() == "0082_mediascribe_words"
+    assert packaged_schema_head() == "0083_processing_recovery"
 
 
 @pytest.mark.anyio

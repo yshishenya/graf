@@ -34,6 +34,11 @@ def test_processing_recovery_settings_are_bounded_and_ordered() -> None:
     assert schedule.next_attempt_at > datetime(2026, 8, 24, tzinfo=UTC)
 
 
+def test_enabled_processing_requires_diarization() -> None:
+    with pytest.raises(ValueError, match="requires MediaScribe diarization"):
+        Settings(processing_enabled=True, mediascribe_diarize=False)
+
+
 @pytest.mark.parametrize(
     "overrides",
     [

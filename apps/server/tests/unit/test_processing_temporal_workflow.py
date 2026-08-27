@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 from datetime import timedelta
 from pathlib import Path
 from uuid import uuid4
@@ -10,6 +11,7 @@ from temporalio import activity, workflow
 from temporalio.client import WorkflowHistory
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Replayer, Worker
+from temporalio.workflow import ActivityCancellationType
 
 from twobrain_rec_server.workflows.processing_workflow import (
     MediaScribeProcessingWorkflow,
@@ -31,6 +33,46 @@ class LegacyMediaScribeProcessingWorkflow:
             schedule_to_close_timeout=timedelta(hours=4),
             heartbeat_timeout=timedelta(seconds=60),
             retry_policy=processing_retry_policy(),
+        )
+
+
+@workflow.defn(name="MediaScribeProcessingWorkflow")
+class PreNormalizationMediaScribeProcessingWorkflow:
+    """The recovery command shape immediately before normalization waiting."""
+
+    def __init__(self) -> None:
+        self._manual_check_requested = False
+
+    @workflow.run
+    async def run(self, payload: dict[str, str]) -> dict[str, str]:
+        assert workflow.patched("processing-recovery-v1")
+        step_payload = {**payload, "single_step": "true"}
+        cancellation_type = (
+            ActivityCancellationType.WAIT_CANCELLATION_COMPLETED
+            if workflow.patched("processing-cancellation-v1")
+            else ActivityCancellationType.TRY_CANCEL
+        )
+        result = await workflow.execute_activity(
+            "run_processing_pipeline_activity",
+            step_payload,
+            schedule_to_close_timeout=timedelta(minutes=20),
+            heartbeat_timeout=timedelta(seconds=60),
+            retry_policy=processing_retry_policy(),
+            cancellation_type=cancellation_type,
+        )
+        with suppress(TimeoutError):
+            await workflow.wait_condition(
+                lambda: self._manual_check_requested,
+                timeout=timedelta(seconds=int(result["next_poll_seconds"])),
+                timeout_summary="next provider processing check",
+            )
+        return await workflow.execute_activity(
+            "run_processing_pipeline_activity",
+            step_payload,
+            schedule_to_close_timeout=timedelta(minutes=20),
+            heartbeat_timeout=timedelta(seconds=60),
+            retry_policy=processing_retry_policy(),
+            cancellation_type=cancellation_type,
         )
 
 
@@ -77,9 +119,9 @@ async def test_recovery_workflow_uses_durable_timer_and_bounded_activity_options
     )
     assert scheduled.schedule_to_close_timeout.seconds == 20 * 60
     assert scheduled.heartbeat_timeout.seconds == 60
-    workflow_source = (SERVER_SRC / "twobrain_rec_server/workflows/processing_workflow.py").read_text(
-        encoding="utf-8"
-    )
+    workflow_source = (
+        SERVER_SRC / "twobrain_rec_server/workflows/processing_workflow.py"
+    ).read_text(encoding="utf-8")
     assert "ActivityCancellationType.WAIT_CANCELLATION_COMPLETED" in workflow_source
 
 
@@ -238,6 +280,198 @@ async def test_update_handler_is_registered_and_wakes_the_same_timer() -> None:
 
 
 @pytest.mark.asyncio
+async def test_normalization_pending_wait_is_bounded_and_continues_as_new() -> None:
+    calls: list[dict[str, str]] = []
+
+    @activity.defn(name="run_processing_pipeline_activity")
+    async def fake_processing_activity(payload: dict[str, str]) -> dict[str, str]:
+        calls.append(payload)
+        if len(calls) <= 32:
+            return {
+                "processing_status": "normalization_pending",
+                "reason_code": "normalization_retry_wait",
+                "next_attempt_at": "2026-08-28T00:00:00+00:00",
+                "next_poll_seconds": "900",
+            }
+        return {"processing_status": "processed"}
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        task_queue = f"processing-normalization-{uuid4()}"
+        async with Worker(
+            env.client,
+            task_queue=task_queue,
+            workflows=[MediaScribeProcessingWorkflow],
+            activities=[fake_processing_activity],
+        ):
+            handle = await env.client.start_workflow(
+                MediaScribeProcessingWorkflow.run,
+                _payload(),
+                id=f"processing-normalization-test/{uuid4()}",
+                task_queue=task_queue,
+            )
+            first_run_handle = env.client.get_workflow_handle(
+                handle.id,
+                run_id=handle.first_execution_run_id,
+            )
+            assert await handle.result() == {"processing_status": "processed"}
+            first_run_history = await first_run_handle.fetch_history()
+
+    assert len(calls) == 33
+    assert all(call["single_step"] == "true" for call in calls)
+    assert any(
+        event.HasField("workflow_execution_continued_as_new_event_attributes")
+        for event in first_run_history.events
+    )
+
+
+@pytest.mark.asyncio
+async def test_provider_polling_history_is_bounded_with_continue_as_new() -> None:
+    calls = 0
+
+    @activity.defn(name="run_processing_pipeline_activity")
+    async def fake_processing_activity(_payload: dict[str, str]) -> dict[str, str]:
+        nonlocal calls
+        calls += 1
+        if calls <= 32:
+            return {"processing_status": "waiting_retry", "next_poll_seconds": "5"}
+        return {"processing_status": "processed"}
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        task_queue = f"processing-provider-history-{uuid4()}"
+        async with Worker(
+            env.client,
+            task_queue=task_queue,
+            workflows=[MediaScribeProcessingWorkflow],
+            activities=[fake_processing_activity],
+        ):
+            handle = await env.client.start_workflow(
+                MediaScribeProcessingWorkflow.run,
+                _payload(),
+                id=f"processing-provider-history/{uuid4()}",
+                task_queue=task_queue,
+            )
+            first_run_handle = env.client.get_workflow_handle(
+                handle.id,
+                run_id=handle.first_execution_run_id,
+            )
+            assert await handle.result() == {"processing_status": "processed"}
+            first_run_history = await first_run_handle.fetch_history()
+
+    assert calls == 33
+    assert any(
+        event.HasField("workflow_execution_continued_as_new_event_attributes")
+        for event in first_run_history.events
+    )
+
+
+@pytest.mark.asyncio
+async def test_normalization_pending_uses_slow_fallback_when_schedule_is_missing() -> None:
+    calls = 0
+
+    @activity.defn(name="run_processing_pipeline_activity")
+    async def fake_processing_activity(_payload: dict[str, str]) -> dict[str, str]:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return {"processing_status": "normalization_pending"}
+        return {"processing_status": "processed"}
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        task_queue = f"processing-normalization-fallback-{uuid4()}"
+        async with Worker(
+            env.client,
+            task_queue=task_queue,
+            workflows=[MediaScribeProcessingWorkflow],
+            activities=[fake_processing_activity],
+        ):
+            handle = await env.client.start_workflow(
+                MediaScribeProcessingWorkflow.run,
+                _payload(),
+                id=f"processing-normalization-fallback/{uuid4()}",
+                task_queue=task_queue,
+            )
+            assert await handle.result() == {"processing_status": "processed"}
+            history = await handle.fetch_history()
+
+    timer = next(
+        event.timer_started_event_attributes
+        for event in history.events
+        if event.HasField("timer_started_event_attributes")
+    )
+    assert timer.start_to_fire_timeout.seconds == 900
+
+
+@pytest.mark.asyncio
+async def test_manual_check_wakes_normalization_wait() -> None:
+    first_finished = asyncio.Event()
+    calls = 0
+
+    @activity.defn(name="run_processing_pipeline_activity")
+    async def fake_processing_activity(_payload: dict[str, str]) -> dict[str, str]:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            first_finished.set()
+            return {
+                "processing_status": "normalization_pending",
+                "next_poll_seconds": "900",
+            }
+        return {"processing_status": "processed"}
+
+    async with await WorkflowEnvironment.start_local() as env:
+        task_queue = f"processing-normalization-manual-{uuid4()}"
+        async with Worker(
+            env.client,
+            task_queue=task_queue,
+            workflows=[MediaScribeProcessingWorkflow],
+            activities=[fake_processing_activity],
+        ):
+            handle = await env.client.start_workflow(
+                MediaScribeProcessingWorkflow.run,
+                _payload(),
+                id=f"processing-normalization-manual/{uuid4()}",
+                task_queue=task_queue,
+            )
+            await asyncio.wait_for(first_finished.wait(), timeout=5)
+            await handle.signal(MediaScribeProcessingWorkflow.request_manual_check)
+            assert await handle.result() == {"processing_status": "processed"}
+
+    assert calls == 2
+
+
+@pytest.mark.asyncio
+async def test_current_recovery_history_replays_with_normalization_branch() -> None:
+    calls = 0
+
+    @activity.defn(name="run_processing_pipeline_activity")
+    async def fake_processing_activity(_payload: dict[str, str]) -> dict[str, str]:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return {"processing_status": "polling", "next_poll_seconds": "5"}
+        return {"processing_status": "processed"}
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        task_queue = f"processing-current-replay-{uuid4()}"
+        async with Worker(
+            env.client,
+            task_queue=task_queue,
+            workflows=[PreNormalizationMediaScribeProcessingWorkflow],
+            activities=[fake_processing_activity],
+        ):
+            handle = await env.client.start_workflow(
+                PreNormalizationMediaScribeProcessingWorkflow.run,
+                _payload(),
+                id=f"processing-current-replay/{uuid4()}",
+                task_queue=task_queue,
+            )
+            assert await handle.result() == {"processing_status": "processed"}
+            history = await handle.fetch_history()
+
+    await Replayer(workflows=[MediaScribeProcessingWorkflow]).replay_workflow(history)
+
+
+@pytest.mark.asyncio
 async def test_legacy_history_replays_without_recovery_commands() -> None:
     @activity.defn(name="run_processing_pipeline_activity")
     async def fake_processing_activity(payload: dict[str, str]) -> dict[str, str]:
@@ -327,6 +561,52 @@ async def test_long_processing_operation_heartbeats_and_honors_cancellation() ->
         await asyncio.wait_for(task, timeout=1)
 
     assert operation_cancelled.is_set()
-    assert activity_context.heartbeats == [
-        {"state": "submitting", "meeting_id": "meeting-1"}
-    ]
+    assert activity_context.heartbeats == [{"state": "submitting", "meeting_id": "meeting-1"}]
+
+
+@pytest.mark.asyncio
+async def test_provider_egress_finishes_after_caller_cancellation() -> None:
+    submit_module = pytest.importorskip("twobrain_rec_server.processing.submit")
+    release_egress = asyncio.Event()
+    operation_finished = asyncio.Event()
+
+    async def bounded_egress() -> None:
+        await release_egress.wait()
+        operation_finished.set()
+
+    task = asyncio.create_task(submit_module._await_provider_egress(bounded_egress()))
+    await asyncio.sleep(0)
+    task.cancel()
+    await asyncio.sleep(0)
+    assert not task.done()
+    task.cancel()
+    await asyncio.sleep(0)
+    assert not task.done()
+    release_egress.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert operation_finished.is_set()
+
+
+@pytest.mark.asyncio
+async def test_worker_failure_stops_siblings_before_shared_resource_cleanup() -> None:
+    processing_worker = pytest.importorskip("twobrain_rec_server.workflows.worker")
+    sibling_stopped = asyncio.Event()
+
+    class FailedWorker:
+        async def run(self) -> None:
+            await asyncio.sleep(0)
+            raise RuntimeError("worker failed")
+
+    class SiblingWorker:
+        async def run(self) -> None:
+            try:
+                await asyncio.Event().wait()
+            finally:
+                sibling_stopped.set()
+
+    with pytest.raises(RuntimeError, match="worker failed"):
+        await processing_worker._run_temporal_workers([FailedWorker(), SiblingWorker()])
+
+    assert sibling_stopped.is_set()

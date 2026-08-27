@@ -90,6 +90,54 @@ async def test_v5_canonical_wav_uses_one_audio_wav_part_and_never_includes_playb
 
 
 @pytest.mark.asyncio
+async def test_canonical_m4a_codec_label_is_inferred_as_safe_multipart_metadata() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        body = await request.aread()
+        assert b'filename="manual-media.m4a"' in body
+        assert b"Content-Type: audio/mp4" in body
+        assert b"m4a-aac-lc" not in body
+        return httpx.Response(200, json={"id": "job_canonical_m4a", "status": "uploaded"})
+
+    client = MediaScribeClient(
+        base_url="https://mediascribe.test",
+        api_key="server-side-key",
+        transport=httpx.MockTransport(handler),
+    )
+    response = await client.submit_single_track(
+        media_file=BytesIO(b"\x00\x00\x00\x18ftypM4A canonical"),
+        media_content_type="m4a-aac-lc",
+        diarize=True,
+        summarize=False,
+    )
+
+    assert response.external_job_id == "job_canonical_m4a"
+
+
+@pytest.mark.asyncio
+async def test_unknown_codec_label_falls_back_without_becoming_multipart_mime() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        body = await request.aread()
+        assert b'filename="manual-media.bin"' in body
+        assert b"Content-Type: application/octet-stream" in body
+        assert b"private-codec-label" not in body
+        return httpx.Response(200, json={"id": "job_safe_fallback", "status": "uploaded"})
+
+    client = MediaScribeClient(
+        base_url="https://mediascribe.test",
+        api_key="server-side-key",
+        transport=httpx.MockTransport(handler),
+    )
+    response = await client.submit_single_track(
+        media_file=BytesIO(b"unrecognized media"),
+        media_content_type="private-codec-label",
+        diarize=True,
+        summarize=False,
+    )
+
+    assert response.external_job_id == "job_safe_fallback"
+
+
+@pytest.mark.asyncio
 async def test_mediascribe_client_maps_auth_failure_without_response_secret() -> None:
     async def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(401, json={"detail": "bad key"})
@@ -104,6 +152,31 @@ async def test_mediascribe_client_maps_auth_failure_without_response_secret() ->
     assert exc.value.reason_code == "mediascribe_auth_failed"
     assert not exc.value.retryable
     assert "server-side-key" not in str(exc.value)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "response_kwargs",
+    [
+        {"json": {"retryable": True}},
+        {"json": {}, "headers": {"X-Job-Retryable": "true"}},
+    ],
+)
+async def test_terminal_http_classification_ignores_retryable_provider_hints(
+    response_kwargs: dict[str, object],
+) -> None:
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, **response_kwargs)
+
+    client = MediaScribeClient(
+        base_url="https://mediascribe.test",
+        api_key="server-side-key",
+        transport=httpx.MockTransport(handler),
+    )
+    with pytest.raises(MediaScribeClientError) as exc:
+        await client.poll_job("job_terminal_hint")
+
+    assert not exc.value.retryable
 
 
 @pytest.mark.asyncio
@@ -223,7 +296,9 @@ async def test_mediascribe_client_polls_and_maps_live_result_contract_shape() ->
     async def handler(request: httpx.Request) -> httpx.Response:
         captured_paths.append(request.url.path)
         if request.url.path == "/v1/audio/transcriptions/job_live":
-            return httpx.Response(200, json={"id": "job_live", "status": "ready", "result_available": True})
+            return httpx.Response(
+                200, json={"id": "job_live", "status": "ready", "result_available": True}
+            )
         if request.url.path == "/v1/audio/transcriptions/job_live/result":
             return httpx.Response(
                 200,
@@ -234,8 +309,20 @@ async def test_mediascribe_client_polls_and_maps_live_result_contract_shape() ->
                         {"start": 1.3, "end": 2.4, "text": "remote", "source_role": "incoming"},
                     ],
                     "diarization": [
-                        {"start": 0.1, "end": 1.2, "speaker": "MIC", "text": "local", "source_role": "mic"},
-                        {"start": 1.3, "end": 2.4, "speaker": "REMOTE_00", "text": "remote", "source_role": "incoming"},
+                        {
+                            "start": 0.1,
+                            "end": 1.2,
+                            "speaker": "MIC",
+                            "text": "local",
+                            "source_role": "mic",
+                        },
+                        {
+                            "start": 1.3,
+                            "end": 2.4,
+                            "speaker": "REMOTE_00",
+                            "text": "remote",
+                            "source_role": "incoming",
+                        },
                     ],
                     "summary": None,
                 },
@@ -252,7 +339,10 @@ async def test_mediascribe_client_polls_and_maps_live_result_contract_shape() ->
     result = await client.fetch_result("job_live")
 
     assert poll.status == MediaScribeJobStatus.READY
-    assert captured_paths == ["/v1/audio/transcriptions/job_live", "/v1/audio/transcriptions/job_live/result"]
+    assert captured_paths == [
+        "/v1/audio/transcriptions/job_live",
+        "/v1/audio/transcriptions/job_live/result",
+    ]
     assert result.external_job_id == "job_live"
     assert len(result.transcript) == 2
     assert result.transcript[0].start_seconds == 0.1
@@ -260,6 +350,35 @@ async def test_mediascribe_client_polls_and_maps_live_result_contract_shape() ->
     assert len(result.diarization) == 2
     assert result.diarization[0].speaker_label == "MIC"
     assert result.diarization[1].speaker_label == "REMOTE_00"
+
+
+@pytest.mark.asyncio
+async def test_worker_scoped_client_reuses_and_explicitly_closes_http_connections() -> None:
+    requests = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal requests
+        requests += 1
+        assert request.headers["x-api-key"] == "server-side-key"
+        return httpx.Response(200, json={"id": "job_reused", "status": "processing"})
+
+    http_client = httpx.AsyncClient(
+        base_url="https://mediascribe.test",
+        transport=httpx.MockTransport(handler),
+    )
+    client = MediaScribeClient(
+        base_url="https://mediascribe.test",
+        api_key="server-side-key",
+        shared_http_client=http_client,
+    )
+
+    await client.poll_job("job_reused")
+    await client.poll_job("job_reused")
+
+    assert requests == 2
+    assert not http_client.is_closed
+    await client.aclose()
+    assert http_client.is_closed
 
 
 @pytest.mark.asyncio
@@ -387,9 +506,7 @@ async def test_mediascribe_client_preserves_empty_provider_speaker_key() -> None
             json={
                 "job": {"id": "job_empty_speaker"},
                 "transcript": [{"start": 0, "end": 1, "text": "synthetic"}],
-                "diarization": [
-                    {"start": 0, "end": 1, "speaker_label": "", "text": "synthetic"}
-                ],
+                "diarization": [{"start": 0, "end": 1, "speaker_label": "", "text": "synthetic"}],
             },
         )
 
@@ -416,9 +533,7 @@ async def test_mediascribe_client_keeps_text_when_provider_speaker_key_is_absent
             json={
                 "job": {"id": "job_absent_speaker"},
                 "transcript": [{"start": 0, "end": 1, "text": "synthetic"}],
-                "diarization": [
-                    {"start": 0, "end": 1, "text": "synthetic", **speaker_fields}
-                ],
+                "diarization": [{"start": 0, "end": 1, "text": "synthetic", **speaker_fields}],
             },
         )
 
@@ -722,11 +837,23 @@ async def test_v1_result_preserves_summary_downloads_provenance_and_unknown_fiel
                     "updated_at": "2026-08-23T10:01:00+00:00",
                 },
                 "transcript": [
-                    {"start": 0, "end": 1, "text": "hello", "source_role": "future_role", "future_segment": 1}
+                    {
+                        "start": 0,
+                        "end": 1,
+                        "text": "hello",
+                        "source_role": "future_role",
+                        "future_segment": 1,
+                    }
                 ],
                 "transcript_status": "available",
                 "diarization": [
-                    {"start": 0, "end": 1, "speaker": "SPEAKER_00", "text": "hello", "source_role": "incoming"}
+                    {
+                        "start": 0,
+                        "end": 1,
+                        "speaker": "SPEAKER_00",
+                        "text": "hello",
+                        "source_role": "incoming",
+                    }
                 ],
                 "acoustic_speaker_turns": [{"start": 0, "end": 1, "speaker": "SPEAKER_00"}],
                 "overlaps": [{"start": 0.2, "end": 0.4, "speaker_count": 2}],
@@ -811,7 +938,10 @@ async def test_v1_capabilities_version_list_delete_and_download_dtos() -> None:
             )
         if request.url.path == "/v1/audio/transcriptions" and request.method == "GET":
             assert request.url.params["page"] == "1"
-            assert request.url.params["cursor"] == "opaque%2Fcursor" or request.url.params["cursor"] == "opaque/cursor"
+            assert (
+                request.url.params["cursor"] == "opaque%2Fcursor"
+                or request.url.params["cursor"] == "opaque/cursor"
+            )
             assert "q" not in request.url.params
             return httpx.Response(
                 200,
@@ -951,9 +1081,9 @@ async def test_v1_upload_preserves_202_headers_and_explicit_speaker_options() ->
         assert request.headers["X-Request-ID"] == "upload-request-1"
         body = await request.aread()
         assert b'name="num_speakers"' in body
-        assert b'\r\n4\r\n' in body
+        assert b"\r\n4\r\n" in body
         assert b'name="speaker_count_mode"' in body
-        assert b'\r\nmax\r\n' in body
+        assert b"\r\nmax\r\n" in body
         return httpx.Response(
             202,
             headers={

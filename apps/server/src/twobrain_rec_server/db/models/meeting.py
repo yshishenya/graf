@@ -21,13 +21,13 @@ class Meeting(Base):
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
-    created_by_user_id: Mapped[UUID] = mapped_column(ForeignKey("user_identities.id"), nullable=False)
+    created_by_user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("user_identities.id"), nullable=False
+    )
     device_id: Mapped[UUID] = mapped_column(ForeignKey("registered_devices.id"), nullable=False)
     local_recording_id: Mapped[str] = mapped_column(String(240), nullable=False)
     title: Mapped[str | None] = mapped_column(String(500))
-    title_source: Mapped[str] = mapped_column(
-        String(64), nullable=False, default="legacy_unknown"
-    )
+    title_source: Mapped[str] = mapped_column(String(64), nullable=False, default="legacy_unknown")
     title_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     create_request_fingerprint_sha256: Mapped[str | None] = mapped_column(String(64))
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -55,7 +55,9 @@ class Meeting(Base):
         )
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class ProcessingPlaceholder(Base):
@@ -69,4 +71,6 @@ class ProcessingPlaceholder(Base):
     workflow_id: Mapped[str | None] = mapped_column(String(240))
     mediascribe_job_id: Mapped[str | None] = mapped_column(String(240))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )

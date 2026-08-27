@@ -418,6 +418,7 @@ PLAYBACK_REASON_COPY: dict[str, dict[str, str]] = {
         "canonical_artifact_missing": "GRAF автоматически восстанавливает аудио",
         "canonical_ready": "Аудио готово",
         "access_denied": "Аудио недоступно",
+        "audio_not_archived": "Аудио не сохранено по вашему выбору",
         "empty_source": "В исходном файле нет данных",
         "no_audio": "В файле нет пригодной аудиодорожки",
         "ambiguous_audio_tracks": "В файле несколько равноправных аудиодорожек",
@@ -443,6 +444,7 @@ PLAYBACK_REASON_COPY: dict[str, dict[str, str]] = {
         "canonical_artifact_missing": "GRAF is automatically recovering the audio",
         "canonical_ready": "Audio is ready",
         "access_denied": "Audio is unavailable",
+        "audio_not_archived": "Audio was not saved by your choice",
         "empty_source": "The source file is empty",
         "no_audio": "The file has no usable audio track",
         "ambiguous_audio_tracks": "The file has multiple equally valid audio tracks",
@@ -2192,7 +2194,7 @@ def review_status(
     if has_transcript or has_diarization:
         return "partial"
 
-    # An imported provider result with an explicit terminal no-speech outcome
+    # An imported provider result with an explicit terminal input outcome
     # is authoritative even if a stale workflow row still says "processing".
     # This keeps list, detail, and the content-safe status endpoint on the
     # same user-visible terminal state.
@@ -2204,7 +2206,13 @@ def review_status(
             processing_workflow_id=processing_workflow_id,
         )
         and result.status == ProcessingResultStatus.IMPORTED.value
-        and result.failure_reason == "no_recognizable_speech"
+        and (
+            result.failure_reason == "no_recognizable_speech"
+            or (
+                result.failure_reason == "invalid_audio_payload"
+                and result.failure_source == "input_audio"
+            )
+        )
     ):
         return "failed"
 
