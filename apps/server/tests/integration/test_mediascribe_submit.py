@@ -1,4 +1,5 @@
 import asyncio
+from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -12,6 +13,7 @@ from tests.fixtures.processing import create_finalized_meeting, create_finalized
 from twobrain_rec_server.db.models import (
     MediaRevision,
     MediaScribeJob,
+    PlaybackNormalizationJob,
     ProcessingWorkflow,
     TrackArtifact,
 )
@@ -26,7 +28,10 @@ from twobrain_rec_server.processing.reasons import (
     PROCESSING_TEMP_STORAGE_UNAVAILABLE,
 )
 from twobrain_rec_server.processing.store import ProcessingLifecycleBlocked
-from twobrain_rec_server.processing.submit import submit_to_mediascribe
+from twobrain_rec_server.processing.submit import (
+    ManualUploadNormalizationPending,
+    submit_to_mediascribe,
+)
 
 
 class StagingOnlyStorage:
@@ -499,8 +504,14 @@ def test_submit_marks_temp_storage_unavailable_retryable_before_staging(client, 
     assert submission_count == 0
 
 
-def test_submit_single_track_media_upload_persists_source_and_reuses_existing_job(client) -> None:
+@pytest.mark.parametrize("use_canonical", [False, True])
+def test_submit_single_track_media_upload_persists_source_and_reuses_existing_job(
+    client, use_canonical: bool
+) -> None:
+    client.app.state.settings.playback_normalization_enabled = use_canonical
+    client.app.state.settings.playback_normalization_automatic_dispatch_enabled = True
     client.app.state.temporal_client = FakeTemporalClient()
+    source_body = b"manual-media-audio"
     upload = client.post(
         "/api/v1/media-uploads",
         headers={
@@ -510,13 +521,14 @@ def test_submit_single_track_media_upload_persists_source_and_reuses_existing_jo
             "X-Device-Id": str(UUID("40000000-0000-0000-0000-000000000001")),
         },
         data={"duration_seconds": "60", "local_recording_id": "manual-mediascribe-submit"},
-        files={"file": ("meeting.wav", b"manual-media-audio", "audio/wav")},
+        files={"file": ("meeting.wav", source_body, "audio/wav")},
     )
     assert upload.status_code == 202
     finalized = upload.json()
     meeting_id = UUID(finalized["meeting"]["meeting_id"])
     media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
     fake_client = FakeMediaScribeClient(external_job_id="job_single_submit")
+    canonical_body = b"canonical-manual-media"
 
     async def submit_twice() -> tuple[str, int, str | None, bool, str, bool, bool]:
         async with client.app_state["sessionmaker"]() as db:
@@ -528,6 +540,51 @@ def test_submit_single_track_media_upload_persists_source_and_reuses_existing_jo
                 workflow_id=f"processing/{media_revision_id}",
                 status=ProcessingStatus.WORKFLOW_STARTED,
             )
+            if use_canonical:
+                with pytest.raises(ManualUploadNormalizationPending):
+                    await submit_to_mediascribe(
+                        db=db,
+                        settings=client.app.state.settings,
+                        storage=StagingOnlyStorage(client.app_state["storage"]),
+                        mediascribe_client=fake_client,
+                        workflow=workflow,
+                    )
+                assert fake_client.submissions == []
+
+                normalization_job = await db.scalar(
+                    select(PlaybackNormalizationJob).where(
+                        PlaybackNormalizationJob.media_revision_id == media_revision_id
+                    )
+                )
+                assert normalization_job is not None
+                canonical_id = uuid4()
+                canonical_key = f"tests/canonical/{canonical_id}.m4a"
+                client.app_state["storage"].put_bytes(canonical_key, canonical_body)
+                canonical = TrackArtifact(
+                    id=canonical_id,
+                    meeting_id=meeting_id,
+                    media_revision_id=media_revision_id,
+                    workspace_id=UUID(finalized["meeting"]["workspace_id"]),
+                    track_role="playback",
+                    codec="m4a-aac-lc",
+                    sample_rate_hz=48_000,
+                    channel_count=1,
+                    duration_seconds=60,
+                    byte_length=len(canonical_body),
+                    sha256=sha256(canonical_body).hexdigest(),
+                    storage_object_key=canonical_key,
+                    status="stored",
+                    normalization_profile_version=normalization_job.profile_version,
+                    validation_version=normalization_job.validation_version,
+                    validated_at=datetime.now(UTC),
+                    derivation_kind="single_source_transcode",
+                    source_fingerprint_sha256=normalization_job.source_fingerprint_sha256,
+                )
+                db.add(canonical)
+                normalization_job.state = "ready"
+                normalization_job.canonical_track_artifact_id = canonical.id
+                normalization_job.ready_at = datetime.now(UTC)
+                await db.commit()
             first = await submit_to_mediascribe(
                 db=db,
                 settings=client.app.state.settings,
@@ -563,12 +620,24 @@ def test_submit_single_track_media_upload_persists_source_and_reuses_existing_jo
     ) = asyncio.run(submit_twice())
     assert request_mode == "single_track"
     assert submission_count == 1
-    assert media_content_type == "audio/wav"
+    assert media_content_type == ("audio/mp4" if use_canonical else "audio/wav")
     assert second_submitted is False
     assert external_job_id == "job_single_submit"
     assert has_source is True
     assert no_pair is True
-    assert fake_client.submissions[0]["request_mode"] == "single_track"
+    submitted_body = canonical_body if use_canonical else source_body
+    assert fake_client.submissions[0] == {
+        "request_mode": "single_track",
+        "media_size": len(submitted_body),
+        "media_sha256": sha256(submitted_body).hexdigest(),
+        "media_content_type": "audio/mp4" if use_canonical else "audio/wav",
+        **({"media_filename": "manual-media.m4a"} if use_canonical else {}),
+        "diarize": True,
+        "summarize": False,
+        "num_speakers": None,
+        "speaker_count_mode": None,
+        "idempotency_key": fake_client.submissions[0]["idempotency_key"],
+    }
 
 
 def test_v5_mislabeled_media_is_blocked_before_any_provider_submission(client) -> None:

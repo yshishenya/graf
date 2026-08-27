@@ -75,6 +75,17 @@ class TempStorageUnavailableError(RuntimeError):
     pass
 
 
+class ManualUploadNormalizationPending(RuntimeError):
+    def __init__(self, *, reason_code: str, next_attempt_at: datetime | None) -> None:
+        super().__init__(reason_code)
+        self.reason_code = reason_code
+        self.next_attempt_at = next_attempt_at
+
+
+class ManualUploadNormalizationTerminal(RuntimeError):
+    pass
+
+
 def _provider_retry_at(value: str | None) -> datetime | None:
     if not isinstance(value, str) or not value.strip():
         return None
@@ -267,11 +278,46 @@ async def submit_to_mediascribe(
         # lineage identity.
         raise ProcessingLifecycleBlocked("legacy_lineage_unresolved")
 
-    source = await store.load_processing_source(
-        db,
-        workspace_id=workflow.workspace_id,
-        meeting_id=workflow.meeting_id,
-        media_revision_id=workflow.media_revision_id,
+    require_manual_canonical = bool(
+        workflow.archive_audio
+        and settings.playback_normalization_enabled
+        and settings.playback_normalization_automatic_dispatch_enabled
+    )
+    preparation = (
+        await store.load_manual_upload_preparation(
+            db,
+            workspace_id=workflow.workspace_id,
+            meeting_id=workflow.meeting_id,
+            media_revision_id=workflow.media_revision_id,
+        )
+        if require_manual_canonical
+        else None
+    )
+    if preparation is not None and preparation.state == "pending":
+        raise ManualUploadNormalizationPending(
+            reason_code=preparation.reason_code or "normalization_pending",
+            next_attempt_at=preparation.next_attempt_at,
+        )
+    if preparation is not None and preparation.state in {"terminal", "cancelled"}:
+        await store.set_workflow_status(
+            db,
+            workflow,
+            ProcessingStatus.BLOCKED,
+            reason_code=preparation.reason_code or "normalization_failed",
+            terminal=True,
+        )
+        raise ManualUploadNormalizationTerminal(
+            preparation.reason_code or "normalization_failed"
+        )
+    source = (
+        preparation.source
+        if preparation is not None
+        else await store.load_processing_source(
+            db,
+            workspace_id=workflow.workspace_id,
+            meeting_id=workflow.meeting_id,
+            media_revision_id=workflow.media_revision_id,
+        )
     )
     if source is None:
         await store.set_workflow_status(
@@ -331,9 +377,15 @@ async def submit_to_mediascribe(
                 media_artifact = source.source_artifact
                 if media_artifact is None:
                     raise ArtifactStagingError("source_artifact_missing")
+                is_manual_canonical = (
+                    source.source_kind == "manual_upload"
+                    and media_artifact.track_role == "playback"
+                )
                 media_path = temp_path / (
                     "meeting-transcription.wav"
                     if source.is_v5_mixed_recording
+                    else "manual-media.m4a"
+                    if is_manual_canonical
                     else "source-media.bin"
                 )
                 await _stage_artifact(
@@ -355,9 +407,13 @@ async def submit_to_mediascribe(
                         media_file=media_file,
                         media_content_type="audio/wav"
                         if source.is_v5_mixed_recording
+                        else "audio/mp4"
+                        if is_manual_canonical
                         else media_artifact.codec,
                         media_filename="meeting-transcription.wav"
                         if source.is_v5_mixed_recording
+                        else "manual-media.m4a"
+                        if is_manual_canonical
                         else None,
                         diarize=bool(job.diarize),
                         summarize=bool(job.summarize),

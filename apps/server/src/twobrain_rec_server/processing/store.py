@@ -33,6 +33,7 @@ from twobrain_rec_server.db.models import (
     MediaRevision,
     MediaScribeJob,
     Meeting,
+    PlaybackNormalizationJob,
     ProcessingAuditEvent,
     ProcessingDependencyState,
     ProcessingPlaceholder,
@@ -62,6 +63,11 @@ from twobrain_rec_server.ingest.media_revisions import (
 from twobrain_rec_server.mediascribe.client import MediaScribeClientError
 from twobrain_rec_server.mediascribe.downloads import safe_download_references
 from twobrain_rec_server.mediascribe.schemas import MediaScribeResult
+from twobrain_rec_server.normalization.statuses import (
+    CANONICAL_PROFILE_VERSION,
+    VALIDATION_VERSION,
+    JobState,
+)
 from twobrain_rec_server.processing.audit import (
     safe_audit_metadata,
     validate_processing_aggregate_event,
@@ -616,6 +622,92 @@ class ProcessingSourceArtifacts:
     @property
     def is_v5_mixed_recording(self) -> bool:
         return self.source_kind == MediaRevisionSourceKind.INITIAL_MIXED_RECORDING.value
+
+
+@dataclass(frozen=True, slots=True)
+class ManualUploadPreparation:
+    state: str
+    reason_code: str | None = None
+    next_attempt_at: datetime | None = None
+    source: ProcessingSourceArtifacts | None = None
+
+
+async def load_manual_upload_preparation(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+    media_revision_id: UUID | None,
+) -> ManualUploadPreparation | None:
+    if media_revision_id is None:
+        return None
+    revision = await db.scalar(
+        select(MediaRevision).where(
+            MediaRevision.id == media_revision_id,
+            MediaRevision.workspace_id == workspace_id,
+            MediaRevision.meeting_id == meeting_id,
+            MediaRevision.status == MediaRevisionStatus.ACCEPTED.value,
+            MediaRevision.immutable.is_(True),
+        )
+    )
+    if revision is None or revision.source_kind != MediaRevisionSourceKind.MANUAL_UPLOAD.value:
+        return None
+
+    job = await db.scalar(
+        select(PlaybackNormalizationJob).where(
+            PlaybackNormalizationJob.workspace_id == workspace_id,
+            PlaybackNormalizationJob.meeting_id == meeting_id,
+            PlaybackNormalizationJob.media_revision_id == media_revision_id,
+            PlaybackNormalizationJob.profile_version == CANONICAL_PROFILE_VERSION,
+        )
+    )
+    if job is None:
+        return None
+    if job.state in {
+        JobState.QUEUED.value,
+        JobState.RUNNING.value,
+        JobState.PUBLISHING.value,
+        JobState.RETRY_WAIT.value,
+    }:
+        return ManualUploadPreparation(
+            state="pending",
+            reason_code=job.reason_code or "normalization_queued",
+            next_attempt_at=job.next_attempt_at,
+        )
+    if job.state != JobState.READY.value or job.canonical_track_artifact_id is None:
+        return ManualUploadPreparation(
+            state="cancelled" if job.state == JobState.CANCELLED.value else "terminal",
+            reason_code=job.reason_code or "normalization_failed",
+        )
+
+    artifact = await db.scalar(
+        select(TrackArtifact).where(
+            TrackArtifact.id == job.canonical_track_artifact_id,
+            TrackArtifact.workspace_id == workspace_id,
+            TrackArtifact.meeting_id == meeting_id,
+            TrackArtifact.media_revision_id == media_revision_id,
+            TrackArtifact.track_role == TrackRole.PLAYBACK.value,
+            TrackArtifact.status == "stored",
+            TrackArtifact.codec == "m4a-aac-lc",
+            TrackArtifact.normalization_profile_version == CANONICAL_PROFILE_VERSION,
+            TrackArtifact.validation_version == VALIDATION_VERSION,
+            TrackArtifact.validated_at.is_not(None),
+            TrackArtifact.source_fingerprint_sha256 == job.source_fingerprint_sha256,
+        )
+    )
+    if artifact is None:
+        return ManualUploadPreparation(
+            state="terminal",
+            reason_code="canonical_artifact_missing",
+        )
+    return ManualUploadPreparation(
+        state="ready",
+        source=ProcessingSourceArtifacts(
+            request_mode="single_track",
+            source_kind=revision.source_kind,
+            source_artifact=artifact,
+        ),
+    )
 
 
 async def load_meeting_for_workspace(
