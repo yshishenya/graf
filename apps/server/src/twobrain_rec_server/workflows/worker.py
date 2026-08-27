@@ -91,6 +91,8 @@ from twobrain_rec_server.processing.fences import is_legacy_lineage
 from twobrain_rec_server.processing.recovery import schedule_retry, schedule_retry_with_settings
 from twobrain_rec_server.processing.store import ProcessingLifecycleBlocked
 from twobrain_rec_server.processing.submit import (
+    ManualUploadNormalizationPending,
+    ManualUploadNormalizationTerminal,
     poll_and_import_mediascribe_result,
     submit_to_mediascribe,
 )
@@ -1373,6 +1375,25 @@ async def run_processing_pipeline_activity(payload: dict[str, str]) -> dict[str,
                     meeting_id=meeting_ref,
                 )
                 job = submit_result.job
+            except ManualUploadNormalizationPending as exc:
+                delay = 30
+                if exc.next_attempt_at is not None:
+                    due_at = exc.next_attempt_at
+                    if due_at.tzinfo is None:
+                        due_at = due_at.replace(tzinfo=UTC)
+                    delay = max(5, min(int((due_at - datetime.now(UTC)).total_seconds()), 900))
+                return {
+                    "meeting_id": payload.get("meeting_id", meeting_ref),
+                    "processing_status": ProcessingStatus.WAITING_RETRY.value,
+                    "reason_code": exc.reason_code,
+                    "next_poll_seconds": str(delay),
+                }
+            except ManualUploadNormalizationTerminal as exc:
+                return {
+                    "meeting_id": payload.get("meeting_id", meeting_ref),
+                    "processing_status": ProcessingStatus.BLOCKED.value,
+                    "reason_code": str(exc),
+                }
             except MediaScribeClientError as exc:
                 if exc.reason_code != reasons.BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN:
                     raise
