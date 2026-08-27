@@ -106,8 +106,8 @@ def test_google_provider_payload_reflects_runtime_availability() -> None:
     )
     assert unavailable["supported"] is False
     assert unavailable["runtime_available"] is False
-    assert available["supported"] is False
-    assert available["runtime_available"] is False
+    assert available["supported"] is True
+    assert available["runtime_available"] is True
     assert development_verification["supported"] is True
     assert development_verification["runtime_available"] is True
 
@@ -165,8 +165,8 @@ def test_provider_view_prioritizes_common_available_connections() -> None:
     )
 
     assert [provider.provider_family for provider in surface.providers[:4]] == [
-        "caldav_yandex",
         "google_calendar",
+        "caldav_yandex",
         "caldav_mail_ru",
         "custom_caldav",
     ]
