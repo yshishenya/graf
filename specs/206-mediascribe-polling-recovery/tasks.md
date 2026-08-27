@@ -67,4 +67,4 @@ provider jobs. Коммиты, PR, merge, release и deploy остаются о�
 ## Дополнение: terminal input-audio recovery
 
 - [X] T025 [P] [US2] Зафиксировать contract/integration checks для `invalid_audio_payload/input_audio`, единого terminal-статуса и остановки frontend polling. (#5890)
-- [X] T026 [US2] Терминализировать новый provider input-audio failure, согласовать legacy `processed` projection и разрешить новую попытку на сохранённом canonical source. (#5892)
+- [X] T026 [US2] Терминализировать новый provider input-audio failure, согласовать legacy `processed` projection, сделать новую попытку текущей во всех проекциях и защитить её canonical no-archive source от purge старой попыткой. (#5892)

@@ -8,6 +8,7 @@ from uuid import UUID
 from sqlalchemy import delete, desc, exists, or_, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.api.schemas import (
@@ -882,6 +883,7 @@ async def reconcile_transient_media_purges(
     """
 
     now = now or datetime.now(UTC)
+    newer_workflow = aliased(ProcessingWorkflow)
     rows = list(
         (
             await db.scalars(
@@ -896,6 +898,20 @@ async def reconcile_transient_media_purges(
                          & (ProcessingWorkflow.transient_hard_deadline <= now))
                         | (ProcessingWorkflow.transient_purge_due_at.is_not(None)
                            & (ProcessingWorkflow.transient_purge_due_at <= now))
+                    ),
+                    # Media is revision-scoped, so only its latest attempt may
+                    # decide when the shared objects are safe to purge.
+                    ~exists(
+                        select(1).where(
+                            newer_workflow.workspace_id == ProcessingWorkflow.workspace_id,
+                            newer_workflow.meeting_id == ProcessingWorkflow.meeting_id,
+                            newer_workflow.media_revision_id.is_not_distinct_from(
+                                ProcessingWorkflow.media_revision_id
+                            ),
+                            newer_workflow.purpose == ProcessingWorkflow.purpose,
+                            newer_workflow.attempt_ordinal
+                            > ProcessingWorkflow.attempt_ordinal,
+                        )
                     ),
                 )
                 .order_by(ProcessingWorkflow.transient_purge_due_at, ProcessingWorkflow.id)

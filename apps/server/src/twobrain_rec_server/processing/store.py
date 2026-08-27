@@ -860,17 +860,6 @@ async def create_processing_attempt(
             result="source_unavailable",
             media_revision_id=media_revision.id,
         )
-    if await load_processing_source(
-        db,
-        workspace_id=workspace_id,
-        meeting_id=meeting_id,
-        media_revision_id=media_revision.id,
-    ) is None:
-        return ProcessingAttemptCreation(
-            result="source_unavailable",
-            media_revision_id=media_revision.id,
-        )
-
     workflows = (
         await db.scalars(
             select(ProcessingWorkflow)
@@ -888,6 +877,18 @@ async def create_processing_attempt(
             .execution_options(populate_existing=True)
         )
     ).all()
+    # Purge reconciliation locks the same workflow rows. Check the shared
+    # revision source only after that lock so retry cannot race a deletion.
+    if await load_processing_source(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        media_revision_id=media_revision.id,
+    ) is None:
+        return ProcessingAttemptCreation(
+            result="source_unavailable",
+            media_revision_id=media_revision.id,
+        )
     if not workflows:
         return ProcessingAttemptCreation(
             result="not_terminal",

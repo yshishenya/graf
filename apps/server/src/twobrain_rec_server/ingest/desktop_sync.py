@@ -1,6 +1,5 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.problems import ProblemDetail
@@ -47,6 +46,7 @@ from twobrain_rec_server.ingest.store import (
     persist_upload_session,
     restore_meeting_after_upload_session_lifecycle,
 )
+from twobrain_rec_server.processing import store as processing_store
 from twobrain_rec_server.processing.fences import lock_meeting_fence, meeting_is_deleted_or_deleting
 from twobrain_rec_server.processing.results import effective_processing_result_query
 
@@ -262,16 +262,12 @@ async def _latest_processing_workflow(
 ) -> ProcessingWorkflow | None:
     if db is None:
         return None
-    base_query = select(ProcessingWorkflow).where(
-        ProcessingWorkflow.workspace_id == workspace_id,
-        ProcessingWorkflow.meeting_id == meeting_id,
+    return await processing_store.get_processing_workflow(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        media_revision_id=media_revision_id,
     )
-    query = base_query
-    if media_revision_id is not None:
-        query = query.where(ProcessingWorkflow.media_revision_id == media_revision_id)
-    else:
-        query = query.where(ProcessingWorkflow.media_revision_id.is_(None))
-    return await db.scalar(query.order_by(desc(ProcessingWorkflow.updated_at), desc(ProcessingWorkflow.created_at)))
 
 
 async def _latest_processing_result(

@@ -127,6 +127,7 @@ from twobrain_rec_server.domain.statuses import (
 )
 from twobrain_rec_server.outcomes.service import load_outcome_items
 from twobrain_rec_server.outcomes.templates import built_in_template_for_version
+from twobrain_rec_server.processing import store as processing_store
 from twobrain_rec_server.processing.results import (
     effective_processing_result_query,
     result_lineage_is_current,
@@ -1536,16 +1537,12 @@ async def _latest_workflow(
     meeting_id: UUID,
     media_revision_id: UUID | None = None,
 ) -> ProcessingWorkflow | None:
-    query = select(ProcessingWorkflow).where(
-        ProcessingWorkflow.workspace_id == workspace_id,
-        ProcessingWorkflow.meeting_id == meeting_id,
+    return await processing_store.get_processing_workflow(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        media_revision_id=media_revision_id,
     )
-    query = query.where(
-        ProcessingWorkflow.media_revision_id == media_revision_id
-        if media_revision_id is not None
-        else ProcessingWorkflow.media_revision_id.is_(None)
-    )
-    return await db.scalar(query.order_by(ProcessingWorkflow.updated_at.desc()))
 
 
 async def _latest_result(

@@ -1,5 +1,6 @@
 import asyncio
 from contextlib import suppress
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 import pytest
@@ -8,6 +9,7 @@ from temporalio import activity
 
 from tests.fakes.auth_contexts import tenant_scope
 from tests.fixtures.processing import create_finalized_meeting, create_finalized_mixed_recording
+from twobrain_rec_server.cabinet.queries import _latest_workflow
 from twobrain_rec_server.db.models import (
     MediaRevision,
     MediaScribeJob,
@@ -15,7 +17,9 @@ from twobrain_rec_server.db.models import (
     ProcessingResult,
     ProcessingWorkflow,
 )
+from twobrain_rec_server.deletion.service import reconcile_transient_media_purges
 from twobrain_rec_server.domain.statuses import MediaScribeJobStatus, ProcessingStatus
+from twobrain_rec_server.ingest.desktop_sync import _latest_processing_workflow
 from twobrain_rec_server.mediascribe.client import MediaScribeClientError
 from twobrain_rec_server.mediascribe.import_results import MediaScribeResultValidationError
 from twobrain_rec_server.mediascribe.schemas import MediaScribePollResponse
@@ -282,7 +286,7 @@ def test_imported_terminal_input_result_allows_a_fresh_attempt(
     media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
     workspace_id = UUID(finalized["meeting"]["workspace_id"])
 
-    async def run() -> tuple[str, int, str, bool, str]:
+    async def run() -> tuple[str, int, str, bool, str, bool, bool]:
         async with client.app_state["sessionmaker"]() as db:
             workflow, job = await _submitted_job(db, workspace_id, meeting_id, media_revision_id)
             workflow.status = workflow_status.value
@@ -313,6 +317,22 @@ def test_imported_terminal_input_result_allows_a_fresh_attempt(
                 meeting_id=meeting_id,
             )
             assert creation.workflow is not None
+            timestamp = datetime.now(UTC)
+            workflow.updated_at = timestamp + timedelta(minutes=1)
+            creation.workflow.updated_at = timestamp
+            await db.flush()
+            cabinet_workflow = await _latest_workflow(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+            )
+            desktop_workflow = await _latest_processing_workflow(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+            )
             old_result = await db.scalar(
                 select(ProcessingResult).where(ProcessingResult.id == result.id)
             )
@@ -322,6 +342,8 @@ def test_imported_terminal_input_result_allows_a_fresh_attempt(
                 old_result.failure_reason if old_result is not None else "missing",
                 old_result.processing_workflow_id == workflow.id if old_result is not None else "missing",
                 workflow.status,
+                cabinet_workflow.id == creation.workflow.id if cabinet_workflow is not None else False,
+                desktop_workflow.id == creation.workflow.id if desktop_workflow is not None else False,
             )
 
     previous_status = (
@@ -329,7 +351,95 @@ def test_imported_terminal_input_result_allows_a_fresh_attempt(
         if workflow_status == ProcessingStatus.POLLING
         else ProcessingStatus.PROCESSED.value
     )
-    assert asyncio.run(run()) == ("created", 2, failure_reason, True, previous_status)
+    assert asyncio.run(run()) == (
+        "created",
+        2,
+        failure_reason,
+        True,
+        previous_status,
+        True,
+        True,
+    )
+
+
+def test_replacement_no_archive_attempt_owns_transient_media_purge(client) -> None:
+    finalized = create_finalized_meeting(
+        client,
+        "failure-no-archive-replacement-purge",
+        archive_audio=False,
+    )
+    meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
+    workspace_id = UUID(finalized["meeting"]["workspace_id"])
+    source_keys = set(client.app_state["storage"].objects)
+
+    async def run() -> tuple[int, bool, int, bool]:
+        async with client.app_state["sessionmaker"]() as db:
+            workflow, job = await _submitted_job(
+                db,
+                workspace_id,
+                meeting_id,
+                media_revision_id,
+                archive_audio=False,
+            )
+            workflow.status = ProcessingStatus.POLLING.value
+            job.status = MediaScribeJobStatus.READY.value
+            db.add(
+                ProcessingResult(
+                    workspace_id=workspace_id,
+                    meeting_id=meeting_id,
+                    media_revision_id=media_revision_id,
+                    mediascribe_job_id=job.id,
+                    processing_workflow_id=workflow.id,
+                    result_version=1,
+                    status="imported",
+                    transcript_status="unavailable",
+                    diarization_status="unavailable",
+                    summary_status="not_requested",
+                    segment_count=0,
+                    diarization_segment_count=0,
+                    failure_reason="invalid_audio_payload",
+                    failure_source="input_audio",
+                )
+            )
+            await db.commit()
+
+            creation = await store.create_processing_attempt(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+            )
+            assert creation.workflow is not None
+            assert workflow.transient_purge_due_at is not None
+            stale_deadline = workflow.transient_purge_due_at
+            await db.commit()
+
+            purged_while_replacement_active = await reconcile_transient_media_purges(
+                db,
+                storage=client.app_state["storage"],
+                now=stale_deadline,
+            )
+            source_survived = source_keys <= set(client.app_state["storage"].objects)
+
+            assert await store.fail_processing_attempt_dispatch(
+                db,
+                workflow_id=creation.workflow.id,
+            )
+            assert creation.workflow.transient_purge_due_at is not None
+            purged_after_latest_terminal = await reconcile_transient_media_purges(
+                db,
+                storage=client.app_state["storage"],
+                now=creation.workflow.transient_purge_due_at,
+            )
+            source_purged = source_keys.isdisjoint(client.app_state["storage"].objects)
+            return (
+                purged_while_replacement_active,
+                source_survived,
+                purged_after_latest_terminal,
+                source_purged,
+            )
+
+    assert asyncio.run(run()) == (0, True, 1, True)
 
 
 def test_worker_activity_persists_blocked_config_when_mediascribe_is_unconfigured(client, monkeypatch) -> None:
@@ -696,7 +806,14 @@ async def _track_artifact(db, workspace_id: UUID, meeting_id: UUID, track_role: 
     return artifact
 
 
-async def _submitted_job(db, workspace_id: UUID, meeting_id: UUID, media_revision_id: UUID):
+async def _submitted_job(
+    db,
+    workspace_id: UUID,
+    meeting_id: UUID,
+    media_revision_id: UUID,
+    *,
+    archive_audio: bool = True,
+):
     workflow = await store.upsert_processing_workflow(
         db,
         workspace_id=workspace_id,
@@ -704,6 +821,7 @@ async def _submitted_job(db, workspace_id: UUID, meeting_id: UUID, media_revisio
         media_revision_id=media_revision_id,
         workflow_id=f"processing/{media_revision_id}",
         status=ProcessingStatus.SUBMITTED,
+        archive_audio=archive_audio,
     )
     job = await store.upsert_mediascribe_job(
         db,
