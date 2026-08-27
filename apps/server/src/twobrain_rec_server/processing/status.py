@@ -58,14 +58,8 @@ async def get_content_safe_processing_status(
     safe_result = (
         result
         if same_result_lineage
-        and (
-            workflow is None
-            or result.processing_workflow_id == workflow.id
-            or (
-                result.processing_workflow_id is None
-                and int(workflow.attempt_ordinal or 1) == 1
-            )
-        )
+        and workflow is not None
+        and result.processing_workflow_id == workflow.id
         else None
     )
     result_terminal_input = bool(

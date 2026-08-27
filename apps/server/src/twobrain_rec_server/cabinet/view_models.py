@@ -2051,16 +2051,7 @@ def _result_lineage_matches(
     if result is None:
         return False
     if media_revision_id is not None:
-        if result_lineage_is_current(result, media_revision_id=media_revision_id):
-            return True
-        # Detached unit/view-model fixtures may carry the revision but omit
-        # the workflow FK. DB selectors remain fail-closed before production
-        # data reaches this pure projection layer.
-        return (
-            processing_workflow_id is None
-            and getattr(result, "processing_workflow_id", None) is None
-            and getattr(result, "media_revision_id", None) in {None, media_revision_id}
-        )
+        return result_lineage_is_current(result, media_revision_id=media_revision_id)
     if processing_workflow_id is not None:
         return result.processing_workflow_id == processing_workflow_id
     # Direct pure view-model callers may omit a context. Production database
