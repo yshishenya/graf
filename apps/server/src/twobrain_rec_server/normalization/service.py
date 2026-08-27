@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import stat
 import tempfile
 from asyncio import CancelledError
 from collections import defaultdict
@@ -26,8 +27,10 @@ from twobrain_rec_server.billing.source_lifecycle import (
     mark_source_playback_verified,
 )
 from twobrain_rec_server.billing.storage import (
+    StorageAdmissionError,
     commit_storage_reservation,
     lock_storage_workspace,
+    release_storage_reservation,
     reserve_storage,
 )
 from twobrain_rec_server.config import Settings
@@ -41,6 +44,7 @@ from twobrain_rec_server.db.models import (
     Workspace,
     WorkspaceSubscription,
 )
+from twobrain_rec_server.db.models import StorageReservation as StorageReservationRow
 from twobrain_rec_server.db.tenant_context import (
     rehydrate_tenant_context,
     require_database_context,
@@ -58,11 +62,13 @@ from twobrain_rec_server.ingest.media_revisions import (
 from twobrain_rec_server.ingest.store import (
     archive_audio_for_revision,
     persist_orphan_cleanup_intents,
+    revision_archives_audio,
 )
 from twobrain_rec_server.normalization.audit import add_normalization_audit_event
 from twobrain_rec_server.normalization.media import (
     MAX_DECODE_PROGRESS_BYTES,
     MAX_DURATION_SECONDS,
+    MAX_GENERATED_DURATION_SECONDS,
     MAX_OUTPUT_BYTES,
     MAX_PROBE_STDOUT_BYTES,
     MAX_PROCESS_STDERR_BYTES,
@@ -93,6 +99,8 @@ from twobrain_rec_server.normalization.media import (
     validate_canonical_profile,
     validate_duration_alignment,
     validate_probe_source_file,
+    validate_tolerant_output_duration,
+    validate_tolerant_source_duration,
 )
 from twobrain_rec_server.normalization.statuses import (
     CANONICAL_PROFILE_VERSION,
@@ -229,6 +237,9 @@ class NormalizationPipeline(Protocol):
         self,
         source_path: Path,
         output_path: Path,
+        *,
+        tolerant_first: bool = False,
+        expected_duration_seconds: int | None = None,
     ) -> NormalizedOutput: ...
 
 
@@ -407,10 +418,44 @@ class FFmpegNormalizationPipeline:
         self,
         source_path: Path,
         output_path: Path,
+        *,
+        tolerant_first: bool = False,
+        expected_duration_seconds: int | None = None,
     ) -> NormalizedOutput:
         try:
             facts, stream = await self._probe_source(source_path)
             _reject_known_probe_duration_over_limit(facts, stream)
+            if tolerant_first:
+                duration = validate_tolerant_source_duration(facts, stream)
+                if expected_duration_seconds is not None:
+                    _validate_authoritative_source_duration(
+                        _duration_milliseconds(duration),
+                        expected_duration_seconds=expected_duration_seconds,
+                        manual_upload=True,
+                    )
+                await self._run_ffmpeg(
+                    build_transcode_command(
+                        self.ffmpeg_path,
+                        source_path,
+                        output_path,
+                        stream_index=stream.index,
+                        tolerant=True,
+                    ),
+                    cwd=output_path.parent,
+                )
+                return await self._validated_output(
+                    output_path,
+                    action=NormalizationAction.SINGLE_TRANSCODE,
+                    derivation_kind=DerivationKind.SINGLE_SOURCE_TRANSCODE.value,
+                    source_durations=(duration,),
+                    source_stream_count=facts.stream_count,
+                    source_audio_stream_count=len(facts.audio_streams),
+                    source_duration_ms=_duration_milliseconds(duration),
+                    selected_stream_index=stream.index,
+                    enforce_reuse_bitrate=False,
+                    recovered_source=False,
+                    tolerant_first=True,
+                )
             recovered_source = False
             try:
                 decode_receipt = await self._full_decode(
@@ -708,14 +753,23 @@ def _validate_authoritative_source_duration(
     source_duration_ms: int,
     *,
     expected_duration_seconds: int,
+    manual_upload: bool = False,
 ) -> None:
     expected = Decimal(expected_duration_seconds)
-    tolerance = max(
-        TRANSCODE_MIX_DURATION_TOLERANCE_SECONDS,
-        min(
-            RECOVERED_TRANSCODE_MAX_DURATION_LOSS_SECONDS,
-            expected * RECOVERED_TRANSCODE_MAX_DURATION_LOSS_RATIO,
-        ),
+    tolerance = (
+        # The browser reports ceil(media.duration), so this allowance covers
+        # integer rounding plus small probe differences.  Frame-loss recovery
+        # is validated separately against the generated M4A and must not let a
+        # long upload under-declare its source duration by up to a minute.
+        Decimal("1.25")
+        if manual_upload
+        else max(
+            TRANSCODE_MIX_DURATION_TOLERANCE_SECONDS,
+            min(
+                RECOVERED_TRANSCODE_MAX_DURATION_LOSS_SECONDS,
+                expected * RECOVERED_TRANSCODE_MAX_DURATION_LOSS_RATIO,
+            ),
+        )
     )
     if abs(Decimal(source_duration_ms) / Decimal("1000") - expected) > tolerance:
         raise MediaPolicyError("source_mismatch")
@@ -1859,6 +1913,97 @@ async def activate_due_normalization_retry(
     return True
 
 
+async def request_normalization_retry_now(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+    media_revision_id: UUID | None,
+    now: datetime | None = None,
+) -> NormalizationManualRetryResult:
+    """Make one scheduled normalization retry due without creating parallel work."""
+
+    if media_revision_id is None:
+        return NormalizationManualRetryResult(result="not_available")
+    require_database_context(
+        db,
+        allowed_context_kinds=frozenset({"request", "worker"}),
+        workspace_id=workspace_id,
+    )
+    current_time = now or datetime.now(UTC)
+    meeting = await db.scalar(
+        select(Meeting)
+        .where(Meeting.id == meeting_id, Meeting.workspace_id == workspace_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if meeting is None or meeting_is_deleted_or_deleting(meeting):
+        return NormalizationManualRetryResult(result="closed")
+    current_revision_id = await db.scalar(
+        select(MediaRevision.id)
+        .where(
+            MediaRevision.workspace_id == workspace_id,
+            MediaRevision.meeting_id == meeting_id,
+            MediaRevision.status == MediaRevisionStatus.ACCEPTED.value,
+        )
+        .order_by(MediaRevision.revision_number.desc())
+    )
+    if current_revision_id != media_revision_id:
+        return NormalizationManualRetryResult(result="closed")
+    job = await db.scalar(
+        select(PlaybackNormalizationJob)
+        .where(
+            PlaybackNormalizationJob.workspace_id == workspace_id,
+            PlaybackNormalizationJob.meeting_id == meeting_id,
+            PlaybackNormalizationJob.media_revision_id == media_revision_id,
+            PlaybackNormalizationJob.profile_version == CANONICAL_PROFILE_VERSION,
+        )
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if job is None:
+        return NormalizationManualRetryResult(result="not_available")
+    if job.state in {
+        JobState.QUEUED.value,
+        JobState.RUNNING.value,
+        JobState.PUBLISHING.value,
+    }:
+        return NormalizationManualRetryResult(
+            result="already_in_flight",
+            job_id=job.id,
+            media_revision_id=job.media_revision_id,
+        )
+    if (
+        job.state != JobState.RETRY_WAIT.value
+        or job.next_attempt_at is None
+        or job.reason_code is None
+    ):
+        return NormalizationManualRetryResult(
+            result="not_retryable",
+            job_id=job.id,
+            media_revision_id=job.media_revision_id,
+        )
+    job.next_attempt_at = current_time
+    job.priority_class = PriorityClass.DUE_RETRY.value
+    job.trigger_kind = TriggerKind.RECONCILE.value
+    _add_job_audit_event(
+        db,
+        job=job,
+        event_type="playback_normalization_manual_retry_requested",
+        metadata={
+            "state": job.state,
+            "reason_code": job.reason_code,
+        },
+        created_at=current_time,
+    )
+    await db.commit()
+    return NormalizationManualRetryResult(
+        result="accepted",
+        job_id=job.id,
+        media_revision_id=job.media_revision_id,
+    )
+
+
 async def cleanup_unpublished_normalization_attempts(
     db: AsyncSession,
     *,
@@ -2799,7 +2944,16 @@ async def _derive_from_single_source(
         output_max_bytes=output_max_bytes,
         reserve_bytes=work_reserve_bytes,
     )
-    return await pipeline.derive_single_source(media_path, output_path)
+    return await pipeline.derive_single_source(
+        media_path,
+        output_path,
+        tolerant_first=(prepared.job.source_kind == MediaRevisionSourceKind.MANUAL_UPLOAD.value),
+        expected_duration_seconds=(
+            prepared.expected_duration_seconds
+            if prepared.job.source_kind == MediaRevisionSourceKind.MANUAL_UPLOAD.value
+            else None
+        ),
+    )
 
 
 def _attempt_is_publishable(attempt: PlaybackNormalizationAttempt) -> bool:

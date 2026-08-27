@@ -88,6 +88,23 @@ def _replace_normalization_terminal_constraint(*, allow_storage_capacity: bool) 
 def upgrade() -> None:
     _replace_maintenance_helper(CURRENT_OPERATIONS)
     _replace_normalization_terminal_constraint(allow_storage_capacity=True)
+    op.add_column(
+        "meeting_purge_journal",
+        sa.Column("media_revision_id", sa.Uuid(), nullable=True),
+    )
+    op.create_foreign_key(
+        "fk_meeting_purge_journal_media_revision_id",
+        "meeting_purge_journal",
+        "media_revisions",
+        ["media_revision_id"],
+        ["id"],
+    )
+    op.create_index(
+        "ix_meeting_purge_journal_transient_revision",
+        "meeting_purge_journal",
+        ["media_revision_id", "state", "next_retry_at"],
+        postgresql_where=sa.text("artifact_class = 'transient_audio'"),
+    )
     op.create_index(
         "ix_upload_sessions_processing_dispatch_recovery",
         "upload_sessions",
@@ -137,6 +154,24 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    if op.get_bind().dialect.name == "postgresql":
+        op.execute(
+            """
+            do $$
+            begin
+                if exists (
+                    select 1
+                    from playback_normalization_jobs
+                    where state = 'terminal'
+                      and reason_code = 'storage_capacity_exceeded'
+                ) then
+                    raise exception using
+                        message = '0083 downgrade blocked: resolve storage_capacity_exceeded normalization jobs first';
+                end if;
+            end
+            $$
+            """
+        )
     op.drop_index(
         "ix_temporary_upload_objects_session",
         table_name="temporary_upload_objects",
@@ -158,5 +193,15 @@ def downgrade() -> None:
         "ix_processing_workflows_transient_hard_due",
         table_name="processing_workflows",
     )
+    op.drop_index(
+        "ix_meeting_purge_journal_transient_revision",
+        table_name="meeting_purge_journal",
+    )
+    op.drop_constraint(
+        "fk_meeting_purge_journal_media_revision_id",
+        "meeting_purge_journal",
+        type_="foreignkey",
+    )
+    op.drop_column("meeting_purge_journal", "media_revision_id")
     _replace_normalization_terminal_constraint(allow_storage_capacity=False)
     _replace_maintenance_helper(PREVIOUS_OPERATIONS)

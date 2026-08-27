@@ -79,6 +79,7 @@ from twobrain_rec_server.processing.lifecycle import (
     can_transition,
 )
 from twobrain_rec_server.processing.reasons import (
+    BLOCKED_FREE_PROCESSING_EXHAUSTED,
     BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN,
     BLOCKED_TEMPORAL_UNAVAILABLE,
 )
@@ -258,7 +259,11 @@ def _processing_manual_command_id(
     """Return a stable, non-sensitive Temporal command identifier."""
 
     supplied = command_key.strip() if isinstance(command_key, str) else ""
-    seed = supplied or f"slot:{workflow_id or 'missing'}:{command_version}"
+    seed = (
+        f"key:{supplied}:{command_version}"
+        if supplied
+        else f"slot:{workflow_id or 'missing'}:{command_version}"
+    )
     material = "|".join(
         (
             str(workspace_id),
@@ -284,8 +289,8 @@ async def claim_processing_manual_check(
 
     The meeting fence is acquired before the workflow and provider-job locks.
     ``BLOCKED_UNKNOWN`` is deliberately allowed with only its durable
-    idempotency key: the next worker operation is reconciliation, never a new
-    multipart upload.
+    idempotency key: the next worker operation replays the exact request under
+    that key and can never create a second provider job.
     """
 
     meeting = await lock_meeting_fence(
@@ -380,6 +385,15 @@ async def claim_processing_manual_check(
         else command_version + 1,
     )
     status_value = getattr(workflow.status, "value", workflow.status)
+    if (
+        expected_schedule_generation is not None
+        and int(workflow.schedule_generation or 0) != expected_schedule_generation
+    ):
+        return ProcessingManualCheckClaim(
+            request_result="stale_schedule",
+            command_id=command_id,
+            workflow=workflow,
+        )
 
     if status_value in _PROCESSING_MANUAL_CHECK_ACTIVE_STATES:
         claimed_at = workflow.manual_claimed_at
@@ -429,16 +443,6 @@ async def claim_processing_manual_check(
             command_id=command_id,
             workflow=workflow,
         )
-    if (
-        expected_schedule_generation is not None
-        and int(workflow.schedule_generation or 0) != expected_schedule_generation
-    ):
-        return ProcessingManualCheckClaim(
-            request_result="stale_schedule",
-            command_id=command_id,
-            workflow=workflow,
-        )
-
     job = await get_mediascribe_job(
         db,
         workspace_id=workspace_id,
@@ -937,6 +941,7 @@ async def create_processing_attempt(
                 (current.last_reason_code or "").startswith("blocked_")
                 and current.last_reason_code != BLOCKED_TEMPORAL_UNAVAILABLE
             )
+
         )
     ):
         return ProcessingAttemptCreation(
@@ -1760,6 +1765,28 @@ async def upsert_mediascribe_job(
         )
         idempotency_key = f"mediascribe:{processing_workflow_id}:{effective_source_fingerprint}"
         if previous_job is not None:
+            persisted_snapshot_fingerprint = processing_request_fingerprint(
+                request_mode=previous_job.request_mode,
+                source_fingerprint=previous_job.source_fingerprint,
+                mic_artifact=mic_artifact,
+                incoming_artifact=incoming_artifact,
+                source_artifact=source_artifact,
+                diarize=bool(previous_job.diarize),
+                summarize=bool(previous_job.summarize),
+                speaker_count_mode=previous_job.speaker_count_mode,
+                num_speakers=previous_job.num_speakers,
+            )
+            unknown_outcome_replay = (
+                previous_job.external_job_id is None
+                and previous_job.status == MediaScribeJobStatus.BLOCKED.value
+                and previous_job.last_error_code == _UNKNOWN_SUBMISSION_OUTCOME
+                and previous_job.request_fingerprint == persisted_snapshot_fingerprint
+            )
+            if (
+                previous_job.request_fingerprint != request_fingerprint
+                and not unknown_outcome_replay
+            ):
+                raise ProcessingLifecycleBlocked("processing_request_fingerprint_conflict")
             job = previous_job
         else:
             job = MediaScribeJob(
@@ -1796,6 +1823,8 @@ async def upsert_mediascribe_job(
                 if job is None:
                     raise
     if job.external_job_id is None:
+        if job.request_fingerprint != request_fingerprint:
+            raise ProcessingLifecycleBlocked("processing_request_fingerprint_conflict") from None
         if job.request_fingerprint not in {None, request_fingerprint}:
             raise ProcessingLifecycleBlocked("processing_request_fingerprint_conflict")
         job.request_mode = request_mode
@@ -1834,10 +1863,17 @@ async def claim_mediascribe_submission(
         current.status == MediaScribeJobStatus.BLOCKED.value
         and current.last_error_code == BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN
     ):
-        raise MediaScribeClientError(
-            BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN,
-            retryable=False,
-        )
+        if not current.idempotency_key or not current.request_fingerprint:
+            raise MediaScribeClientError(
+                BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN,
+                retryable=False,
+            )
+        current.status = MediaScribeJobStatus.NOT_SUBMITTED.value
+        current.submission_claim_token = None
+        current.submission_claimed_at = None
+        current.failed_at = None
+        current.last_error_code = None
+        current.last_error_message = None
     now = datetime.now(UTC)
     if current.status == MediaScribeJobStatus.SUBMITTING.value:
         claimed_at = current.submission_claimed_at
@@ -1852,7 +1888,6 @@ async def claim_mediascribe_submission(
         current.last_error_code = None
         current.last_error_message = None
         current.failed_at = None
-        await db.commit()
     token = uuid4().hex
     current.status = MediaScribeJobStatus.SUBMITTING.value
     current.submission_claim_token = token
@@ -2049,42 +2084,6 @@ async def persist_mediascribe_submission(
     return current
 
 
-async def persist_mediascribe_submission_fallback(
-    db: AsyncSession,
-    *,
-    job: MediaScribeJob,
-    external_job_id: str,
-    reason_code: str,
-    error_message: str | None = None,
-) -> MediaScribeJob:
-    """Retain a provider job when the post-egress lifecycle fence loses a race.
-
-    The normal persistence path re-checks the meeting fence and therefore must
-    reject a deleted or stale source. Once MediaScribe accepted the upload, the
-    opaque external ID is still durable lineage needed by deletion and retry
-    reconciliation, so this bounded fallback intentionally records only the ID
-    and a blocked status without reopening the meeting workflow.
-    """
-    current = await db.scalar(
-        select(MediaScribeJob)
-        .where(MediaScribeJob.id == job.id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    if current is None:
-        raise MediaScribeClientError("mediascribe_job_not_found", retryable=False)
-    current.external_job_id = current.external_job_id or external_job_id
-    current.status = MediaScribeJobStatus.BLOCKED.value
-    current.submitted_at = current.submitted_at or datetime.now(UTC)
-    current.failed_at = datetime.now(UTC)
-    current.last_error_code = reason_code
-    current.last_error_message = error_message or reason_code
-    current.submission_claim_token = None
-    current.submission_claimed_at = None
-    await db.commit()
-    return current
-
-
 async def update_mediascribe_job_status(
     db: AsyncSession,
     *,
@@ -2093,6 +2092,7 @@ async def update_mediascribe_job_status(
     reason_code: str | None = None,
     error_message: str | None = None,
     retryable: bool | None = None,
+
     retry_after_seconds: int | None = None,
     provider_next_retry_at: datetime | None = None,
     provider_status: str | None = None,
@@ -2302,6 +2302,18 @@ async def persist_processing_result(
     )
     if existing_hash is not None and existing_hash.status == ProcessingResultStatus.IMPORTED.value:
         return existing_hash
+    if not await ensure_processing_usage_reservation(
+        db,
+        workspace_id=job.workspace_id,
+        media_revision_id=job.media_revision_id,
+        expires_at=datetime.now(UTC) + timedelta(hours=24),
+    ):
+        raise QuotaExceeded("processing usage reservation is unavailable")
+    await _commit_processing_usage(
+        db,
+        job=job,
+        transcript=result.transcript,
+    )
     existing = existing_workflow_hash or existing_hash
     if existing is None:
         existing = await db.scalar(
@@ -2419,11 +2431,6 @@ async def persist_processing_result(
                 ),
             )
         )
-    await _commit_processing_usage(
-        db,
-        job=job,
-        transcript=result.transcript,
-    )
     await set_dependency_state(
         db,
         workspace_id=job.workspace_id,

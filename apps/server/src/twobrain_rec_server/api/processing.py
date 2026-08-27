@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import suppress
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request, Response
@@ -287,7 +286,6 @@ async def start_new_processing_attempt(
                     workflow_run_id=started.run_id,
                 )
             except Exception:
-                await db.rollback()
                 run_persisted = False
             if not run_persisted:
                 # Temporal may already be running. Keep the committed start
@@ -359,15 +357,58 @@ async def check_processing(
         command_key=check.command_id,
         expected_schedule_generation=check.schedule_generation,
     )
+    workflow_id = claim.workflow.id if claim.workflow is not None else None
+    manual_command_version = (
+        int(claim.workflow.manual_command_version or 0)
+        if claim.workflow is not None
+        else 0
+    )
+
+    async def release_claim() -> None:
+        if claim.claimed and workflow_id is not None:
+            await db.rollback()
+            await store.release_processing_manual_check_claim(
+                db,
+                workflow_id=workflow_id,
+                manual_command_version=manual_command_version,
+                settings=getattr(request.app.state, "settings", None),
+            )
+
     if current.manual_action == "retry_preparation":
-        retry = await request_normalization_retry_now(
-            db,
-            workspace_id=tenant_scope.workspace_id,
-            meeting_id=meeting_id,
-            media_revision_id=current.media_revision_id,
-        )
+        if claim.request_result == "stale_schedule":
+            await db.commit()
+            latest = await get_content_safe_processing_status(
+                db,
+                workspace_id=tenant_scope.workspace_id,
+                meeting_id=meeting_id,
+            ) or current
+            return _processing_check_response(
+                latest,
+                request_result="stale_schedule",
+                command_id=claim.command_id,
+                same_job_check=False,
+            )
+        try:
+            retry = await request_normalization_retry_now(
+                db,
+                workspace_id=tenant_scope.workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=current.media_revision_id,
+            )
+        except asyncio.CancelledError:
+            await asyncio.shield(release_claim())
+            raise
+        except Exception as exc:
+            await release_claim()
+            raise ProblemDetail(
+                status=503,
+                code="processing_manual_check_unavailable",
+                title="Не удалось запустить повторную подготовку",
+                detail="Попробуйте ещё раз позже.",
+            ) from exc
         if retry.result not in {"accepted", "already_in_flight"}:
             await db.rollback()
+            await release_claim()
             latest = await get_content_safe_processing_status(
                 db,
                 workspace_id=tenant_scope.workspace_id,
@@ -379,22 +420,31 @@ async def check_processing(
                 command_id=claim.command_id,
                 same_job_check=False,
             )
-        temporal_client = await _get_temporal_client(request)
-        await dispatch_normalization_after_accepted_commit(
-            db=db,
-            settings=request.app.state.settings,
-            tenant_scope=tenant_scope,
-            media_revision_id=current.media_revision_id,
-            temporal_client=temporal_client,
-            lease_owner=f"manual-retry:{claim.command_id}",
-        )
-        if temporal_client is not None and claim.workflow is not None:
-            with suppress(Exception):
-                await request_processing_manual_check(
-                    temporal_client=temporal_client,
-                    workflow_id=claim.workflow.workflow_id,
-                    command_id=claim.command_id,
-                )
+        try:
+            temporal_client = await _get_temporal_client(request)
+            normalization_dispatch = await dispatch_normalization_after_accepted_commit(
+                db=db,
+                settings=request.app.state.settings,
+                tenant_scope=tenant_scope,
+                media_revision_id=current.media_revision_id,
+                temporal_client=temporal_client,
+                lease_owner=f"manual-retry:{claim.command_id}",
+            )
+            # The normalization worker wakes processing after publication.
+            # Do not spend an extra processing cycle while the M4A is pending.
+            if not (normalization_dispatch.started or normalization_dispatch.reused):
+                await release_claim()
+        except asyncio.CancelledError:
+            await asyncio.shield(release_claim())
+            raise
+        except Exception as exc:
+            await release_claim()
+            raise ProblemDetail(
+                status=503,
+                code="processing_manual_check_unavailable",
+                title="Не удалось запустить повторную подготовку",
+                detail="Попробуйте ещё раз позже.",
+            ) from exc
         latest = await get_content_safe_processing_status(
             db,
             workspace_id=tenant_scope.workspace_id,
@@ -425,22 +475,10 @@ async def check_processing(
     try:
         temporal_client = await _get_temporal_client(request)
     except asyncio.CancelledError:
-        await asyncio.shield(
-            store.release_processing_manual_check_claim(
-                db,
-                workflow_id=claim.workflow.id,
-                manual_command_version=int(claim.workflow.manual_command_version or 0),
-                settings=getattr(request.app.state, "settings", None),
-            )
-        )
+        await asyncio.shield(release_claim())
         raise
     if temporal_client is None:
-        await store.release_processing_manual_check_claim(
-            db,
-            workflow_id=claim.workflow.id,
-            manual_command_version=int(claim.workflow.manual_command_version or 0),
-            settings=getattr(request.app.state, "settings", None),
-        )
+        await release_claim()
         raise ProblemDetail(
             status=503,
             code="processing_temporal_unavailable",
@@ -453,13 +491,11 @@ async def check_processing(
             workflow_id=claim.workflow.workflow_id,
             command_id=claim.command_id,
         )
+    except asyncio.CancelledError:
+        await asyncio.shield(release_claim())
+        raise
     except Exception as exc:
-        await store.release_processing_manual_check_claim(
-            db,
-            workflow_id=claim.workflow.id,
-            manual_command_version=int(claim.workflow.manual_command_version or 0),
-            settings=getattr(request.app.state, "settings", None),
-        )
+        await release_claim()
         raise ProblemDetail(
             status=503,
             code="processing_manual_check_unavailable",

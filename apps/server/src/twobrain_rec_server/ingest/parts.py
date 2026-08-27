@@ -46,9 +46,13 @@ async def get_session_for_tenant(
     if session is None:
         session = store_module.store.sessions.get(session_id)
     if session is None or session.workspace_id != tenant_scope.workspace_id:
-        raise ProblemDetail(status=404, code="upload_session_not_found", title="Upload session not found")
+        raise ProblemDetail(
+            status=404, code="upload_session_not_found", title="Upload session not found"
+        )
     if session.created_by_user_id != tenant_scope.user_id:
-        raise ProblemDetail(status=404, code="upload_session_not_found", title="Upload session not found")
+        raise ProblemDetail(
+            status=404, code="upload_session_not_found", title="Upload session not found"
+        )
     if session.device_id != tenant_scope.device_id:
         raise ProblemDetail(status=403, code="device_scope_denied", title="Device scope denied")
     return session
@@ -71,11 +75,19 @@ def _validate_part_against_session(
     try:
         ensure_can_accept_part(session.status)
     except ValueError as exc:
-        raise ProblemDetail(status=409, code="session_terminal", title="Upload session is terminal") from exc
+        raise ProblemDetail(
+            status=409, code="session_terminal", title="Upload session is terminal"
+        ) from exc
     if track_role not in set(session.expected_track_roles):
-        raise ProblemDetail(status=409, code="unexpected_track_role", title="Track role is not expected for this session")
+        raise ProblemDetail(
+            status=409,
+            code="unexpected_track_role",
+            title="Track role is not expected for this session",
+        )
     if byte_length > settings.max_upload_part_bytes:
-        raise ProblemDetail(status=413, code="upload_part_bytes_exceeded", title="Upload part byte limit exceeded")
+        raise ProblemDetail(
+            status=413, code="upload_part_bytes_exceeded", title="Upload part byte limit exceeded"
+        )
     try:
         validate_track_bytes(settings, byte_length)
     except IngestLimitViolation as exc:
@@ -89,7 +101,11 @@ def _validate_part_against_session(
     new_end = byte_offset + byte_length
     expected_size = session.expected_track_sizes.get(track_role)
     if expected_size is not None and new_end > expected_size:
-        raise ProblemDetail(status=409, code="expected_track_size_exceeded", title="Upload part exceeds expected track size")
+        raise ProblemDetail(
+            status=409,
+            code="expected_track_size_exceeded",
+            title="Upload part exceeds expected track size",
+        )
     accepted_track_bytes = 0
     accepted_package_bytes = 0
     for (part_role, _), accepted_part in session.parts.items():
@@ -100,11 +116,17 @@ def _validate_part_against_session(
         accepted_start = accepted_part.byte_offset
         accepted_end = accepted_start + accepted_part.byte_length
         if byte_offset < accepted_end and new_end > accepted_start:
-            raise ProblemDetail(status=409, code="range_overlap", title="Upload part overlaps an accepted range")
+            raise ProblemDetail(
+                status=409, code="range_overlap", title="Upload part overlaps an accepted range"
+            )
     if accepted_track_bytes + byte_length > settings.max_track_bytes:
-        raise ProblemDetail(status=413, code="track_bytes_exceeded", title="Track byte limit exceeded")
+        raise ProblemDetail(
+            status=413, code="track_bytes_exceeded", title="Track byte limit exceeded"
+        )
     if accepted_package_bytes + byte_length > settings.max_package_bytes:
-        raise ProblemDetail(status=413, code="package_bytes_exceeded", title="Package byte limit exceeded")
+        raise ProblemDetail(
+            status=413, code="package_bytes_exceeded", title="Package byte limit exceeded"
+        )
 
 
 async def _delete_or_record_uploaded_object(
@@ -177,7 +199,9 @@ async def accept_part(
         )
     if byte_offset < 0:
         close_upload_stream()
-        raise ProblemDetail(status=400, code="invalid_byte_offset", title="Byte offset must be non-negative")
+        raise ProblemDetail(
+            status=400, code="invalid_byte_offset", title="Byte offset must be non-negative"
+        )
     try:
         # Read a validation snapshot only. The Meeting → Session lock is
         # acquired after storage I/O, so a slow upload cannot hold lifecycle
@@ -194,11 +218,21 @@ async def accept_part(
     part_key = (track_role, part_number)
     existing = session.parts.get(part_key)
     if existing:
-        if existing.sha256 == content_sha256 and existing.byte_length == byte_length and existing.byte_offset == byte_offset:
+        if (
+            existing.sha256 == content_sha256
+            and existing.byte_length == byte_length
+            and existing.byte_offset == byte_offset
+        ):
             close_upload_stream()
             return existing
-        conflict_code = "checksum_conflict" if existing.byte_offset == byte_offset else "range_conflict"
-        conflict_title = "Checksum conflict" if conflict_code == "checksum_conflict" else "Upload part replay conflicts with accepted range"
+        conflict_code = (
+            "checksum_conflict" if existing.byte_offset == byte_offset else "range_conflict"
+        )
+        conflict_title = (
+            "Checksum conflict"
+            if conflict_code == "checksum_conflict"
+            else "Upload part replay conflicts with accepted range"
+        )
         event = record_audit_event(
             event_type="part_conflict",
             workspace_id=tenant_scope.workspace_id,
@@ -237,16 +271,30 @@ async def accept_part(
         )
         if persisted_meeting is None or meeting_is_deleted_or_deleting(persisted_meeting):
             close_upload_stream()
-            raise ProblemDetail(status=409, code="meeting_deletion_active", title="Meeting deletion is active")
+            raise ProblemDetail(
+                status=409, code="meeting_deletion_active", title="Meeting deletion is active"
+            )
         deletion_epoch_at_start = int(persisted_meeting.deletion_epoch or 0)
-    object_key = f"{build_track_object_key(
-        organization_id=tenant_scope.organization_id,
-        workspace_id=tenant_scope.workspace_id,
-        meeting_id=meeting.id,
-        upload_session_id=session.id,
-        track_role=track_role,
-        part_number=part_number,
-    )}/{uuid4().hex}"
+    object_key = f"{
+        build_track_object_key(
+            organization_id=tenant_scope.organization_id,
+            workspace_id=tenant_scope.workspace_id,
+            meeting_id=meeting.id,
+            upload_session_id=session.id,
+            track_role=track_role,
+            part_number=part_number,
+        )
+    }/{uuid4().hex}"
+    if storage is not None and db is not None:
+        # Object-store writes cannot share the database transaction. Commit a
+        # cleanup address before PUT, then replace it with accepted custody.
+        await persist_orphan_cleanup_intents(
+            db,
+            workspace_id=tenant_scope.workspace_id,
+            meeting_id=meeting.id,
+            object_keys=[object_key],
+            reason="part_storage_write_pending",
+        )
     if storage is not None:
         try:
             ensure_bucket_async = getattr(storage, "ensure_bucket_async", None)
@@ -281,7 +329,9 @@ async def accept_part(
                     title="Uploaded object cleanup could not be recorded",
                 ) from cleanup_exc
             close_upload_stream()
-            raise ProblemDetail(status=503, code="storage_unavailable", title="Storage unavailable") from exc
+            raise ProblemDetail(
+                status=503, code="storage_unavailable", title="Storage unavailable"
+            ) from exc
     if db is not None:
         # The durable mutation fence is Meeting → Session. Object storage is
         # already complete and uses a unique attempt key, so a losing
@@ -313,7 +363,9 @@ async def accept_part(
                     title="Uploaded object cleanup could not be recorded",
                 ) from cleanup_exc
             close_upload_stream()
-            raise ProblemDetail(status=409, code="meeting_deletion_active", title="Meeting deletion is active")
+            raise ProblemDetail(
+                status=409, code="meeting_deletion_active", title="Meeting deletion is active"
+            )
         persisted_session = await load_upload_session_record(db, session.id, for_update=True)
         if persisted_session is None:
             try:
@@ -333,7 +385,9 @@ async def accept_part(
                     title="Uploaded object cleanup could not be recorded",
                 ) from cleanup_exc
             close_upload_stream()
-            raise ProblemDetail(status=404, code="upload_session_not_found", title="Upload session not found")
+            raise ProblemDetail(
+                status=404, code="upload_session_not_found", title="Upload session not found"
+            )
         if persisted_session.status not in {
             UploadSessionStatus.PENDING.value,
             UploadSessionStatus.UPLOADING.value,
@@ -355,7 +409,11 @@ async def accept_part(
                     title="Uploaded object cleanup could not be recorded",
                 ) from cleanup_exc
             close_upload_stream()
-            code = "session_expired" if persisted_session.status == UploadSessionStatus.EXPIRED.value else "session_terminal"
+            code = (
+                "session_expired"
+                if persisted_session.status == UploadSessionStatus.EXPIRED.value
+                else "session_terminal"
+            )
             raise ProblemDetail(status=409, code=code, title="Upload session is terminal")
         current_existing = persisted_session.parts.get(part_key)
         if current_existing is not None:
@@ -443,13 +501,21 @@ async def accept_part(
         upload_session_id=session.id,
         actor_user_id=tenant_scope.user_id,
         device_id=tenant_scope.device_id,
-        metadata={"track_role": track_role.value, "part_number": part_number, "byte_length": byte_length},
+        metadata={
+            "track_role": track_role.value,
+            "part_number": part_number,
+            "byte_length": byte_length,
+        },
     )
     try:
-        await persist_temporary_upload_object(db, session, part, object_role="accepted_part", commit=False)
+        await persist_temporary_upload_object(
+            db, session, part, object_role="accepted_part", commit=False
+        )
         await persist_upload_session(db, session, settings, commit=False)
         await persist_upload_part(db, session, part, commit=False)
         await persist_audit_event(db, event, commit=False)
+        if db is not None:
+            await db.commit()
     except Exception as exc:
         session.parts.pop(part_key, None)
         session.status = previous_status
@@ -486,7 +552,9 @@ async def accept_part(
             except Exception:
                 with suppress(Exception):
                     await db.rollback()
-        raise ProblemDetail(status=503, code="persistence_unavailable", title="Persistence unavailable") from exc
+        raise ProblemDetail(
+            status=503, code="persistence_unavailable", title="Persistence unavailable"
+        ) from exc
     finally:
         close_upload_stream()
     return part

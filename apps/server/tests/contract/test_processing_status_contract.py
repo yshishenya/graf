@@ -11,7 +11,10 @@ import twobrain_rec_server.api.processing as processing_api
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fakes.fake_temporal import FakeTemporalClient
 from tests.fixtures.processing import create_finalized_meeting, enable_processing_autostart
+from twobrain_rec_server.billing.catalog import FREE_PROCESSING_SECONDS
+from twobrain_rec_server.billing.usage import moscow_window_for
 from twobrain_rec_server.db.models import (
+    FreeUsageWindow,
     MediaScribeJob,
     ProcessingAuditEvent,
     ProcessingResult,
@@ -67,17 +70,16 @@ def test_attribution_reason_codes_require_the_fixed_allowlist() -> None:
         {"reason_codes": ["invalid_provider_timing", "private meeting content"]}
     )
 
-    assert allowed == {
-        "reason_codes": ["invalid_provider_timing", "text_conservation_mismatch"]
-    }
+    assert allowed == {"reason_codes": ["invalid_provider_timing", "text_conservation_mismatch"]}
     assert rejected == {}
 
 
 def test_processing_status_openapi_contract_has_content_safe_fields() -> None:
     contract = yaml.safe_load(
-        (ROOT / "specs/015-mediascribe-processing-pipeline/contracts/processing-status.openapi.yaml").read_text(
-            encoding="utf-8"
-        )
+        (
+            ROOT
+            / "specs/015-mediascribe-processing-pipeline/contracts/processing-status.openapi.yaml"
+        ).read_text(encoding="utf-8")
     )
     properties = contract["components"]["schemas"]["ProcessingStatusResponse"]["properties"]
     assert "transcript_available" in properties
@@ -107,7 +109,13 @@ def test_processing_status_endpoint_returns_no_content_or_secret_fields(client) 
     assert payload["meeting_id"] == str(meeting_id)
     assert payload["workflow_id"] == f"processing/{media_revision_id}"
     assert payload["mediascribe_job_id_present"] is False
-    forbidden = {"transcript_text", "audio_download_url", "mediascribe_job_id", "api_key", "signed_url"}
+    forbidden = {
+        "transcript_text",
+        "audio_download_url",
+        "mediascribe_job_id",
+        "api_key",
+        "signed_url",
+    }
     assert forbidden.isdisjoint(payload)
 
 
@@ -344,7 +352,9 @@ def test_processing_status_projects_imported_terminal_input_even_with_stale_work
     assert payload["manual_action"] == "new_attempt"
 
 
-def test_no_speech_new_attempt_lazily_connects_temporal_and_projects_as_active(client, monkeypatch) -> None:
+def test_no_speech_new_attempt_lazily_connects_temporal_and_projects_as_active(
+    client, monkeypatch
+) -> None:
     temporal = FakeTemporalClient()
 
     async def connect_temporal(_settings):
@@ -462,7 +472,9 @@ def test_expired_transient_source_requires_a_new_upload(client) -> None:
     assert response.json()["detail"] == "Срок временного хранения записи истёк. Загрузите файл заново."
 
 
-def test_manual_check_releases_claim_when_temporal_connect_is_cancelled(client, monkeypatch) -> None:
+def test_manual_check_releases_claim_when_temporal_connect_is_cancelled(
+    client, monkeypatch
+) -> None:
     finalized = create_finalized_meeting(client, "processing-status-cancelled-check")
     meeting_id = UUID(finalized["meeting"]["meeting_id"])
     media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
@@ -519,6 +531,82 @@ def test_manual_check_releases_claim_when_temporal_connect_is_cancelled(client, 
         None,
         None,
     )
+
+
+def test_manual_check_shields_claim_release_when_temporal_update_is_cancelled(
+    client,
+    monkeypatch,
+) -> None:
+    finalized = create_finalized_meeting(client, "processing-status-cancelled-update")
+    meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
+    workspace_id = UUID(finalized["meeting"]["workspace_id"])
+
+    async def seed_polling_job() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            workflow = await store.upsert_processing_workflow(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+                workflow_id=f"processing/{media_revision_id}",
+                status=ProcessingStatus.WAITING_RETRY,
+            )
+            db.add(
+                MediaScribeJob(
+                    workspace_id=workspace_id,
+                    meeting_id=meeting_id,
+                    media_revision_id=media_revision_id,
+                    processing_workflow_id=workflow.id,
+                    external_job_id="job_cancelled_update",
+                    status=MediaScribeJobStatus.SUBMITTED.value,
+                )
+            )
+            await db.commit()
+
+    asyncio.run(seed_polling_job())
+    update_calls = 0
+    shield_calls = 0
+    original_shield = asyncio.shield
+
+    async def temporal_client(_request):
+        return object()
+
+    async def cancelled_update(**_kwargs):
+        nonlocal update_calls
+        update_calls += 1
+        raise asyncio.CancelledError
+
+    def tracked_shield(awaitable):
+        nonlocal shield_calls
+        shield_calls += 1
+        return original_shield(awaitable)
+
+    monkeypatch.setattr(processing_api, "_get_temporal_client", temporal_client)
+    monkeypatch.setattr(processing_api, "request_processing_manual_check", cancelled_update)
+    monkeypatch.setattr(processing_api.asyncio, "shield", tracked_shield)
+
+    with pytest.raises(RuntimeError, match="No response returned"):
+        client.post(
+            f"/api/v1/meetings/{meeting_id}/processing/check",
+            headers=auth_headers(),
+            json={},
+        )
+
+    async def load_claim() -> tuple[object | None, object | None]:
+        async with client.app_state["sessionmaker"]() as db:
+            workflow = await db.scalar(
+                select(ProcessingWorkflow).where(
+                    ProcessingWorkflow.meeting_id == meeting_id,
+                    ProcessingWorkflow.workspace_id == workspace_id,
+                )
+            )
+            assert workflow is not None
+            return workflow.manual_claimed_at, workflow.manual_claimed_by
+
+    assert update_calls == 1
+    assert shield_calls >= 1
+    assert asyncio.run(load_claim()) == (None, None)
 
 
 def test_finalize_autostart_audit_metadata_is_content_safe(client) -> None:

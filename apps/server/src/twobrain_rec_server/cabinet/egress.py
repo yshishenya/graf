@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
@@ -106,7 +105,6 @@ ALLOWED_AUDIT_KEYS = {
     "renderer_version",
     "turn_policy_version",
 }
-STORAGE_MATERIALIZATION_TIMEOUT_SECONDS = 30
 IMPLICIT_OWNER_ONLY_POLICY_SOURCES = frozenset({"meeting_default", "workspace_default"})
 
 
@@ -1243,9 +1241,6 @@ async def download_artifact(
                 offset=0,
                 length=playback.byte_length,
             )
-            # Materialize the bounded review artifact while the meeting row
-            # lock is held; deletion cannot advance its tombstone mid-stream.
-            body = await _materialize_storage_stream(body, expected_length=playback.byte_length)
         except ReviewAudioBuildError as exc:
             status = 503 if exc.reason in {"storage_unavailable", "storage_timeout"} else 409
             code = "storage_unavailable" if status == 503 else "audio_unavailable"
@@ -1408,9 +1403,6 @@ async def playback_artifact(
             offset=offset,
             length=length,
         )
-        response_body = iter(
-            (await _materialize_storage_stream(response_body, expected_length=length),)
-        )
     except (KeyError, ReviewAudioBuildError) as exc:
         reason = exc.reason if isinstance(exc, ReviewAudioBuildError) else "storage_unavailable"
         status = 503 if reason in {"storage_unavailable", "storage_timeout"} else 409
@@ -1509,21 +1501,6 @@ async def _stream_storage_object(
         raise ReviewAudioBuildError("storage_unavailable") from exc
     except Exception as exc:
         raise ReviewAudioBuildError("storage_unavailable") from exc
-
-
-async def _materialize_storage_stream(
-    body: Iterator[bytes], *, expected_length: int
-) -> bytes:
-    try:
-        async with asyncio.timeout(STORAGE_MATERIALIZATION_TIMEOUT_SECONDS):
-            materialized = await to_thread.run_sync(lambda: b"".join(body))
-    except TimeoutError as exc:
-        raise ReviewAudioBuildError("storage_timeout") from exc
-    except Exception as exc:
-        raise ReviewAudioBuildError("storage_unavailable") from exc
-    if len(materialized) != expected_length:
-        raise ReviewAudioBuildError("storage_object_size_mismatch")
-    return materialized
 
 
 def _playback_response_for_range(

@@ -1533,6 +1533,23 @@
     }
   };
 
+  const scheduleProcessingStatusRetry = (
+    generation = processingRecoveryGeneration,
+    delay = 15000,
+  ) => {
+    stopProcessingRecoveryPolling();
+    processingRecoveryPollTimer = window.setTimeout(() => {
+      processingRecoveryPollTimer = null;
+      if (
+        !document.hidden
+        && generation === processingRecoveryGeneration
+        && processingRecoveryActionRequest === null
+      ) {
+        void refreshProcessingStatus({ force: true, generation });
+      }
+    }, delay);
+  };
+
   const announceProcessingChange = (detail, message, signature = message) => {
     const live = detail.querySelector("[data-processing-live]");
     if (!live || !message || detail.dataset.processingAnnouncement === signature) return;
@@ -1577,7 +1594,85 @@
   const processingRecoveryCopy = (projection, transcriptReady) => {
     const retryClass = String(projection?.retry_class || "none");
     const reason = String(projection?.reason_code || "").toLowerCase();
+    const projectionState = String(projection?.state || "").toLowerCase();
     const inFlight = projection?.attempt_in_flight === true;
+    if (projection?.manual_action === "retry_preparation") {
+      return {
+        state: "retryable",
+        title: "Подготовка записи временно приостановлена",
+        copy: "GRAF повторит подготовку автоматически. Можно запустить попытку раньше — параллельная обработка не создастся.",
+        canCheck: !inFlight,
+        checkLabel: "Повторить подготовку",
+        busyLabel: "Запускаем подготовку…",
+        showRefresh: false,
+        showCountdown: true,
+      };
+    }
+    if (projection?.manual_action === "upload_another") {
+      const storageFull = reason === "storage_capacity_exceeded";
+      return {
+        state: "terminal",
+        title: storageFull ? "Недостаточно места для аудио" : "Не удалось подготовить запись",
+        copy: storageFull
+          ? "Загрузите запись без сохранения аудио — расшифровка и итоги останутся доступны. Освободить или увеличить хранилище можно позже."
+          : "Этот файл не удалось обработать. Загрузите другую копию или файл в другом формате.",
+        canCheck: false,
+        canStartNewAttempt: false,
+        canUploadAnother: true,
+        uploadWithoutArchive: storageFull,
+        showRefresh: false,
+      };
+    }
+    if (projection?.manual_action === "contact_support") {
+      const accessFailure = [
+        "blocked_config",
+        "blocked_unauthorized",
+        "mediascribe_auth_failed",
+      ].includes(reason);
+      return {
+        state: "terminal",
+        title: accessFailure ? "Сервис расшифровки временно недоступен" : "Нужна помощь с обработкой",
+        copy: accessFailure
+          ? "GRAF не может продолжить из-за настройки доступа к сервису расшифровки. Запись сохранена; вернитесь позже или к списку встреч."
+          : "Автоматическое продолжение недоступно. Запись сохранена; обновите статус позже или вернитесь к списку встреч.",
+        canCheck: false,
+        canStartNewAttempt: false,
+        showRefresh: true,
+      };
+    }
+    if (
+      reason === "blocked_free_processing_exhausted"
+      && projection?.manual_action === "new_attempt"
+    ) {
+      return {
+        state: "terminal",
+        title: "Лимит расшифровки исчерпан",
+        copy: "Для этой записи не хватило доступного времени расшифровки. После обновления лимита запустите обработку заново.",
+        canCheck: false,
+        canStartNewAttempt: processingNewAttemptAllowed(projection),
+        showRefresh: false,
+      };
+    }
+    if (projectionState === "canceled") {
+      return {
+        state: "terminal",
+        title: "Обработка отменена",
+        copy: "Обработка этой записи остановлена. Вернитесь к списку встреч, чтобы продолжить работу.",
+        canCheck: false,
+        canStartNewAttempt: false,
+        showRefresh: false,
+      };
+    }
+    if (["blocked", "failed_terminal"].includes(projectionState)) {
+      return {
+        state: "terminal",
+        title: "Обработка остановлена",
+        copy: "Автоматическое продолжение недоступно. Обновите страницу или вернитесь к списку встреч.",
+        canCheck: false,
+        canStartNewAttempt: false,
+        showRefresh: true,
+      };
+    }
     if (retryClass === "unknown_outcome") {
       return {
         state: "unknown",
@@ -1605,7 +1700,7 @@
         title: "Обработка завершилась без результата",
         copy: canStartNewAttempt
           ? "Доступные результаты сохранены. Если нужно, начните обработку заново кнопкой ниже."
-          : "Автоматический перезапуск недоступен. Обновите страницу позже; если проблема повторится, обратитесь в поддержку.",
+          : "Автоматический перезапуск недоступен. Обновите страницу позже или вернитесь к списку встреч.",
         canCheck: false,
         canStartNewAttempt,
         showRefresh: true,
@@ -1639,7 +1734,7 @@
         return {
           state: "terminal",
           title: "Обработка требует внимания",
-          copy: "GRAF не может безопасно повторить эту операцию автоматически. Обновите страницу позже; если проблема повторится, обратитесь в поддержку.",
+          copy: "GRAF не может безопасно повторить эту операцию автоматически. Обновите страницу позже или вернитесь к списку встреч.",
           canCheck: false,
           canStartNewAttempt: false,
           showRefresh: true,
@@ -1741,6 +1836,91 @@
     return retryClass === "terminal"
       || ["failed_terminal", "canceled"].includes(state)
       || (state === "blocked" && retryClass !== "unknown_outcome");
+  };
+  const refreshProcessingDetailContentOnce = async (detail, projection) => {
+    const transcriptReady = processingTranscriptReady(projection);
+    const summaryReady = processingSummaryState(projection).toLowerCase() === "available";
+    const refreshTranscript = transcriptReady
+      && detail.dataset.processingTranscriptContentReady !== "true";
+    const refreshSummary = summaryReady
+      && detail.dataset.processingSummaryContentReady !== "true";
+    if (!refreshTranscript && !refreshSummary) return false;
+    const pollUrl = detail.dataset.playbackPollUrl;
+    if (!pollUrl) return false;
+    const refreshGeneration = processingRecoveryGeneration;
+    const refreshScheduleGeneration = detail.dataset.processingScheduleGeneration || "0";
+    const refreshClaim = [
+      refreshGeneration,
+      refreshScheduleGeneration,
+      projection?.updated_at || "",
+      transcriptReady,
+      summaryReady,
+    ].join("|");
+    if (detail.dataset.processingContentRefreshClaim === refreshClaim) return false;
+    detail.dataset.processingContentRefreshClaim = refreshClaim;
+    const refreshIsCurrent = () => (
+      detail.isConnected
+      && refreshGeneration === processingRecoveryGeneration
+      && (detail.dataset.processingScheduleGeneration || "0") === refreshScheduleGeneration
+      && detail.dataset.processingContentRefreshClaim === refreshClaim
+      && processingProjectionMatchesDetail(detail, projection)
+    );
+    const releaseRefreshClaim = () => {
+      if (detail.dataset.processingContentRefreshClaim === refreshClaim) {
+        delete detail.dataset.processingContentRefreshClaim;
+      }
+    };
+    const discardStaleRefresh = () => {
+      if (refreshIsCurrent()) return false;
+      releaseRefreshClaim();
+      return true;
+    };
+    const retryFragmentRefreshOnce = () => {
+      releaseRefreshClaim();
+      if (
+        processingRecoveryPollTimer !== null
+        || detail.dataset.processingContentRefreshRetried === "true"
+      ) return;
+      detail.dataset.processingContentRefreshRetried = "true";
+      window.setTimeout(() => {
+        if (detail.isConnected) void refreshProcessingDetailContentOnce(detail, projection);
+      }, 2000);
+    };
+    try {
+      const response = await fetch(pollUrl, {
+        method: "GET",
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: { "HX-Request": "true" },
+      });
+      if (discardStaleRefresh() || await recoverMeetingDetailFromResponse(response)) return false;
+      if (!response.ok) {
+        retryFragmentRefreshOnce();
+        return false;
+      }
+      const responseText = await response.text();
+      if (discardStaleRefresh()) return false;
+      const fragment = new DOMParser().parseFromString(responseText, "text/html");
+      const nextDetail = fragment.querySelector("[data-playback-poll-url]");
+      if (!nextDetail) {
+        retryFragmentRefreshOnce();
+        return false;
+      }
+      nextDetail.dataset.processingTranscriptContentReady =
+        refreshTranscript ? "true" : detail.dataset.processingTranscriptContentReady || "false";
+      nextDetail.dataset.processingSummaryContentReady =
+        refreshSummary ? "true" : detail.dataset.processingSummaryContentReady || "false";
+      if (discardStaleRefresh()) return false;
+      releaseRefreshClaim();
+      stopProcessingRecoveryCountdown();
+      stopProcessingRecoveryPolling();
+      detail.replaceWith(nextDetail);
+      window.setTimeout(initCabinet, 0);
+      return true;
+    } catch {
+      retryFragmentRefreshOnce();
+      return false;
+    }
   };
 
   const renderProcessingProjection = (detail, projection) => {
@@ -1867,6 +2047,15 @@
       newAttempt.disabled = busy || !copy?.canStartNewAttempt;
       newAttempt.setAttribute("aria-busy", busy && busyAction === "new_attempt" ? "true" : "false");
       newAttempt.textContent = busy && busyAction === "new_attempt" ? "Запускаем…" : "Начать обработку заново";
+    }
+    if (uploadAnother) {
+      uploadAnother.hidden = !copy?.canUploadAnother;
+      uploadAnother.href = copy?.uploadWithoutArchive
+        ? uploadAnother.dataset.noArchiveHref
+        : uploadAnother.dataset.defaultHref;
+      uploadAnother.textContent = copy?.uploadWithoutArchive
+        ? "Загрузить без сохранения аудио"
+        : "Загрузить другой файл";
     }
     if (refresh) refresh.hidden = !copy?.showRefresh;
     const summaryAnnouncement = summaryCopy?.[0] || "";
@@ -2045,11 +2234,9 @@
       if (error?.name === "AbortError" || requestGeneration !== processingRecoveryGeneration) return false;
       if (processingRecoveryRequest !== null && processingRecoveryRequest !== request) return false;
       if (processingRecoveryRequest === request) processingRecoveryRequest = null;
-      if (detail.isConnected && detail.dataset.processingTerminal !== "true") {
-        renderProcessingRecoveryFailure(detail);
-        processingRecoveryPollTimer = window.setTimeout(() => {
-          void refreshProcessingStatus({ force: true, generation: requestGeneration });
-        }, 15000);
+      if (detail.isConnected) {
+        renderProcessingRecoveryFailure(detail, { preserveProjection: true });
+        scheduleProcessingStatusRetry(requestGeneration);
       }
       return false;
     } finally {
@@ -2083,6 +2270,7 @@
         message: "Сессия не подтверждена. Обновите страницу и войдите снова.",
         signature: `manual-check-failed-${generation}`,
       });
+      scheduleProcessingStatusRetry(generation, 1000);
       focusProcessingRecovery(detail);
       return;
     }
@@ -2157,6 +2345,7 @@
         signature: `new-attempt-failed-${generation}`,
         failedAction: "new_attempt",
       });
+      scheduleProcessingStatusRetry(generation, 1000);
       focusProcessingRecovery(detail);
       return;
     }
@@ -2181,6 +2370,17 @@
       const payload = response.status === 204 ? null : await response.json().catch(() => null);
       if (!response.ok) {
         if (response.status === 409) {
+          if (payload?.code === "processing_quota_exceeded") {
+            processingRecoveryActionRequest = null;
+            renderProcessingRecoveryFailure(detail, {
+              title: "Лимит расшифровки ещё не обновился",
+              message: "Новая попытка не запущена. Дождитесь обновления лимита и нажмите «Начать обработку заново» ещё раз.",
+              preserveProjection: true,
+              signature: `new-attempt-quota-${generation}`,
+              failedAction: "new_attempt",
+            });
+            return;
+          }
           processingRecoveryActionRequest = null;
           await refreshProcessingStatus({ force: true, generation });
           return;

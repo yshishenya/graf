@@ -244,16 +244,16 @@ async def _wake_processing_after_normalization(
 ) -> None:
     if temporal_client is None:
         return
-    workflow = await get_processing_workflow(
-        db,
-        workspace_id=workspace_id,
-        meeting_id=meeting_id,
-        media_revision_id=media_revision_id,
-        active_only=True,
-    )
-    if workflow is None:
-        return
     try:
+        workflow = await get_processing_workflow(
+            db,
+            workspace_id=workspace_id,
+            meeting_id=meeting_id,
+            media_revision_id=media_revision_id,
+            active_only=True,
+        )
+        if workflow is None:
+            return
         handle = temporal_client.get_workflow_handle(workflow.workflow_id)
         await handle.signal(MediaScribeProcessingWorkflow.request_manual_check)
     except Exception as exc:

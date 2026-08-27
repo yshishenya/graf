@@ -73,7 +73,9 @@
 
 Если автоматическое ожидание достигло watchdog deadline, пользователь видит,
 что результат ещё не подтверждён, может запустить ручную проверку, а GRAF
-использует тот же MediaScribe job и не создаёт дубликат multipart-загрузки.
+использует тот же MediaScribe job/idempotency key и не создаёт вторую provider
+job. Если исход POST неизвестен, exact multipart может быть повторён с тем же
+ключом согласно контракту MediaScribe.
 
 **Independent Test**: Довести workflow до watchdog deadline, проверить отдельное
 recoverable состояние, ручную проверку и отсутствие новой provider job.
@@ -169,7 +171,8 @@ artifact при включённом архиве.
   technical failure, watchdog timeout/stuck state, and local processing failure
   in durable reason/status projection.
 - **FR-006**: Manual check MUST reconcile the same provider job or idempotency
-  key and MUST NOT issue a duplicate multipart upload.
+  key. An ambiguous POST MAY be replayed only as the exact same multipart
+  request with that durable key and MUST NOT create a second provider job.
 - **FR-007**: The UI MUST show transcript only when diarization is available;
   summary readiness remains independently represented.
 - **FR-008**: The UI MUST show a clear pending/retry/watchdog state, countdown

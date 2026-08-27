@@ -88,8 +88,10 @@ class FakeManualNormalizationPipeline:
         output_path: Path,
         *,
         tolerant_first: bool = False,
+        expected_duration_seconds: int | None = None,
     ) -> NormalizedOutput:
         assert tolerant_first is True
+        assert expected_duration_seconds is not None
         self.source_body = source_path.read_bytes()
         body = b"canonical-manual-source"
         output_path.write_bytes(body)

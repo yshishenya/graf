@@ -53,8 +53,9 @@ class NeverCalledNormalizationPipeline:
         _output_path: Path,
         *,
         tolerant_first: bool = False,
+        expected_duration_seconds: int | None = None,
     ):
-        del tolerant_first
+        del tolerant_first, expected_duration_seconds
         raise AssertionError("source custody must fail before conversion")
 
 

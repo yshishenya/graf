@@ -1,18 +1,30 @@
 from __future__ import annotations
 
+import asyncio
 import shutil
 import tempfile
+from collections.abc import Awaitable
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
+from typing import Any
+from uuid import UUID
 
 from anyio import to_thread
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from twobrain_rec_server.billing.usage import QuotaExceeded
 from twobrain_rec_server.config import Settings
-from twobrain_rec_server.db.models import MediaRevision, MediaScribeJob, ProcessingWorkflow
+from twobrain_rec_server.db.models import (
+    MediaRevision,
+    MediaScribeJob,
+    PlaybackNormalizationJob,
+    ProcessingWorkflow,
+    TrackArtifact,
+)
 from twobrain_rec_server.domain.statuses import (
     MediaScribeJobStatus,
     ProcessingAvailabilityStatus,
@@ -48,6 +60,7 @@ from twobrain_rec_server.processing.reasons import (
 )
 from twobrain_rec_server.processing.recovery import schedule_retry, schedule_retry_with_settings
 from twobrain_rec_server.processing.store import ProcessingLifecycleBlocked
+from twobrain_rec_server.storage.minio_client import StorageTransferError
 
 DOWNLOAD_CHUNK_BYTES = 4 * 1024 * 1024
 
@@ -80,7 +93,39 @@ class ManualUploadNormalizationPending(RuntimeError):
 
 
 class ManualUploadNormalizationTerminal(RuntimeError):
+    def __init__(self, *, reason_code: str, cancelled: bool = False) -> None:
+        self.reason_code = reason_code
+        self.cancelled = cancelled
+        super().__init__(reason_code)
+
+
+class ProcessingUsageUnavailable(RuntimeError):
     pass
+
+
+async def _await_provider_egress(operation: Awaitable[Any]) -> Any:
+    """Finish initiated provider egress before acknowledging cancellation."""
+
+    task = asyncio.ensure_future(operation)
+    deferred_cancel: asyncio.CancelledError | None = None
+    while True:
+        try:
+            result = await asyncio.shield(task)
+        except asyncio.CancelledError as exc:
+            deferred_cancel = deferred_cancel or exc
+            if not task.done():
+                continue
+            if not task.cancelled():
+                with suppress(Exception):
+                    task.result()
+            raise deferred_cancel from exc
+        except Exception as exc:
+            if deferred_cancel is not None:
+                raise deferred_cancel from exc
+            raise
+        if deferred_cancel is not None:
+            raise deferred_cancel
+        return result
 
 
 def _provider_retry_at(value: str | None) -> datetime | None:
@@ -155,6 +200,10 @@ async def _cancel_stale_processing(
 async def _ensure_processing_fence(
     db: AsyncSession,
     workflow: ProcessingWorkflow,
+    *,
+    mediascribe_job_id: UUID | None = None,
+    submission_claim_token: str | None = None,
+    manual_canonical_artifact_id: UUID | None = None,
 ) -> None:
     meeting = await lock_meeting_fence(
         db, workspace_id=workflow.workspace_id, meeting_id=workflow.meeting_id
@@ -165,19 +214,62 @@ async def _ensure_processing_fence(
         or int(meeting.deletion_epoch or 0) != int(workflow.deletion_epoch_at_start or 0)
     ):
         raise ProcessingLifecycleBlocked("meeting_deleting")
-    current_workflow = await store.get_processing_workflow(
-        db,
-        workspace_id=workflow.workspace_id,
-        meeting_id=workflow.meeting_id,
-        media_revision_id=workflow.media_revision_id,
+    current_workflow = await db.scalar(
+        select(ProcessingWorkflow)
+        .where(ProcessingWorkflow.id == workflow.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
-    if current_workflow is None or current_workflow.id != workflow.id:
-        raise ProcessingLifecycleBlocked("processing_workflow_superseded")
-    current_status = await db.scalar(
-        select(ProcessingWorkflow.status).where(ProcessingWorkflow.id == current_workflow.id)
-    )
-    if current_status in {status.value for status in TERMINAL_PROCESSING_STATUSES}:
-        raise ProcessingLifecycleBlocked("processing_workflow_terminal")
+    if current_workflow is None:
+        raise ProcessingLifecycleBlocked("processing_workflow_missing")
+    if not current_workflow.archive_audio and current_workflow.transient_state in {
+        "purge_due",
+        "purged",
+    }:
+        raise ProcessingLifecycleBlocked("transient_media_purge_started")
+    if mediascribe_job_id is not None:
+        current_job = await db.scalar(
+            select(MediaScribeJob)
+            .where(MediaScribeJob.id == mediascribe_job_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if (
+            current_job is None
+            or not submission_claim_token
+            or current_job.submission_claim_token != submission_claim_token
+            or current_job.status != MediaScribeJobStatus.SUBMITTING.value
+            or current_job.external_job_id is not None
+        ):
+            raise ProcessingLifecycleBlocked("mediascribe_submission_claim_lost")
+        current_job.submission_claimed_at = datetime.now(UTC)
+    if manual_canonical_artifact_id is not None:
+        normalization_job = await db.scalar(
+            select(PlaybackNormalizationJob)
+            .where(
+                PlaybackNormalizationJob.workspace_id == workflow.workspace_id,
+                PlaybackNormalizationJob.meeting_id == workflow.meeting_id,
+                PlaybackNormalizationJob.media_revision_id == workflow.media_revision_id,
+                PlaybackNormalizationJob.state == JobState.READY.value,
+                PlaybackNormalizationJob.canonical_track_artifact_id == manual_canonical_artifact_id,
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        canonical = await db.scalar(
+            select(TrackArtifact)
+            .where(
+                TrackArtifact.id == manual_canonical_artifact_id,
+                TrackArtifact.workspace_id == workflow.workspace_id,
+                TrackArtifact.meeting_id == workflow.meeting_id,
+                TrackArtifact.media_revision_id == workflow.media_revision_id,
+                TrackArtifact.status == "stored",
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if normalization_job is None or canonical is None:
+            raise ProcessingLifecycleBlocked("manual_canonical_source_unavailable")
     latest_revision = await db.scalar(
         select(MediaRevision)
         .where(
@@ -216,22 +308,18 @@ async def submit_to_mediascribe(
         processing_workflow_id=workflow.id,
     )
     if existing_job is not None and existing_job.external_job_id:
-        if workflow.status in {
-            ProcessingStatus.WORKFLOW_STARTED,
-            ProcessingStatus.SUBMITTING,
-            ProcessingStatus.FAILED_RETRYABLE,
-            ProcessingStatus.WAITING_RETRY,
-        }:
+        if workflow.status == ProcessingStatus.WORKFLOW_STARTED.value:
             # A durable timer resumes the same idempotent provider job. Move
-            # the workflow back through the submitted boundary so the
-            # single-step activity polls it instead of scheduling another
-            # timer forever.
+            # a crash-recovered pre-submit projection through its required
+            # lifecycle boundary before polling the already-known job.
             await store.set_workflow_status(
                 db,
                 workflow,
                 ProcessingStatus.SUBMITTING,
                 reason_code="submission_recovered",
+                deadline_seconds=settings.processing_recovery_deadline_seconds,
             )
+        if workflow.status == ProcessingStatus.SUBMITTING.value:
             await store.set_workflow_status(
                 db,
                 workflow,
@@ -281,15 +369,21 @@ async def submit_to_mediascribe(
             next_attempt_at=preparation.next_attempt_at,
         )
     if preparation is not None and preparation.state in {"terminal", "cancelled"}:
+        target = (
+            ProcessingStatus.CANCELED
+            if preparation.state == "cancelled"
+            else ProcessingStatus.FAILED_TERMINAL
+        )
         await store.set_workflow_status(
             db,
             workflow,
-            ProcessingStatus.BLOCKED,
+            target,
             reason_code=preparation.reason_code or "normalization_failed",
             terminal=True,
         )
         raise ManualUploadNormalizationTerminal(
-            preparation.reason_code or "normalization_failed"
+            reason_code=preparation.reason_code or "normalization_failed",
+            cancelled=preparation.state == "cancelled",
         )
     source = (
         preparation.source
@@ -321,27 +415,33 @@ async def submit_to_mediascribe(
         )
         raise RuntimeError(BLOCKED_AUDIO_TOO_LARGE)
 
-    try:
-        job = await store.upsert_mediascribe_job(
-            db,
-            workflow=workflow,
-            mic_artifact=source.mic_artifact,
-            incoming_artifact=source.incoming_artifact,
-            source_artifact=source.source_artifact,
-            request_mode=source.request_mode,
-            source_fingerprint=workflow.source_fingerprint,
-            diarize=settings.mediascribe_diarize,
-            summarize=settings.mediascribe_summarize,
-        )
-    except ProcessingLifecycleBlocked as exc:
+    usage_expires_at = datetime.now(UTC) + timedelta(hours=24)
+    if not await store.ensure_processing_usage_reservation(
+        db,
+        workspace_id=workflow.workspace_id,
+        media_revision_id=workflow.media_revision_id,
+        expires_at=usage_expires_at,
+    ):
         await store.set_workflow_status(
             db,
             workflow,
             ProcessingStatus.BLOCKED,
-            reason_code=str(exc),
+            reason_code=BLOCKED_FREE_PROCESSING_EXHAUSTED,
             terminal=True,
         )
-        raise
+        raise ProcessingUsageUnavailable(BLOCKED_FREE_PROCESSING_EXHAUSTED)
+
+    job = await store.upsert_mediascribe_job(
+        db,
+        workflow=workflow,
+        mic_artifact=source.mic_artifact,
+        incoming_artifact=source.incoming_artifact,
+        source_artifact=source.source_artifact,
+        request_mode=source.request_mode,
+        source_fingerprint=workflow.source_fingerprint,
+        diarize=settings.mediascribe_diarize,
+        summarize=settings.mediascribe_summarize,
+    )
     claim_token = await store.claim_mediascribe_submission(db, job=job)
     if claim_token is None:
         resolved = await store.wait_for_mediascribe_submission(db, job_id=job.id)
@@ -353,7 +453,12 @@ async def submit_to_mediascribe(
                 MEDIASCRIBE_SUBMISSION_IN_PROGRESS,
                 retryable=True,
             )
-    transitioned = await store.set_workflow_status(db, workflow, ProcessingStatus.SUBMITTING)
+    transitioned = await store.set_workflow_status(
+        db,
+        workflow,
+        ProcessingStatus.SUBMITTING,
+        deadline_seconds=settings.processing_recovery_deadline_seconds,
+    )
     if transitioned.status != ProcessingStatus.SUBMITTING.value:
         await store.release_mediascribe_submission_claim(db, job=job, claim_token=claim_token)
         raise MediaScribeClientError("processing_workflow_terminal", retryable=False)
@@ -369,10 +474,7 @@ async def submit_to_mediascribe(
                 media_artifact = source.source_artifact
                 if media_artifact is None:
                     raise ArtifactStagingError("source_artifact_missing")
-                is_manual_canonical = (
-                    source.source_kind == "manual_upload"
-                    and media_artifact.track_role == "playback"
-                )
+                is_manual_canonical = source.source_kind == "manual_upload"
                 media_path = temp_path / (
                     "meeting-transcription.wav"
                     if source.is_v5_mixed_recording
@@ -389,29 +491,46 @@ async def submit_to_mediascribe(
                 )
                 if source.is_v5_mixed_recording:
                     _verify_v5_canonical_wav(media_path)
-                await _ensure_processing_fence(db, workflow)
+                await _ensure_processing_fence(
+                    db,
+                    workflow,
+                    mediascribe_job_id=job.id,
+                    submission_claim_token=claim_token,
+                    manual_canonical_artifact_id=(
+                        media_artifact.id if is_manual_canonical else None
+                    ),
+                )
                 # Release the meeting fence before provider I/O. The claim and
                 # idempotency key are durable; the post-egress fence below
                 # rechecks lifecycle before persisting the opaque job ID.
                 await db.commit()
                 with media_path.open("rb") as media_file:
-                    response = await mediascribe_client.submit_single_track(
-                        media_file=media_file,
-                        media_content_type="audio/wav"
-                        if source.is_v5_mixed_recording
-                        else "audio/mp4"
-                        if is_manual_canonical
-                        else media_artifact.codec,
-                        media_filename="meeting-transcription.wav"
-                        if source.is_v5_mixed_recording
-                        else "manual-media.m4a"
-                        if is_manual_canonical
-                        else None,
-                        diarize=bool(job.diarize),
-                        summarize=bool(job.summarize),
-                        num_speakers=job.num_speakers,
-                        speaker_count_mode=job.speaker_count_mode,
-                        idempotency_key=job.idempotency_key,
+                    result = await _await_provider_egress(
+                        _complete_provider_submission(
+                            db=db,
+                            settings=settings,
+                            workflow=workflow,
+                            job=job,
+                            claim_token=claim_token,
+                            provider_operation=mediascribe_client.submit_single_track(
+                                media_file=media_file,
+                                media_content_type="audio/wav"
+                                if source.is_v5_mixed_recording
+                                else "audio/mp4"
+                                if is_manual_canonical
+                                else media_artifact.codec,
+                                media_filename="meeting-transcription.wav"
+                                if source.is_v5_mixed_recording
+                                else "manual-media.m4a"
+                                if is_manual_canonical
+                                else None,
+                                diarize=bool(job.diarize),
+                                summarize=bool(job.summarize),
+                                num_speakers=job.num_speakers,
+                                speaker_count_mode=job.speaker_count_mode,
+                                idempotency_key=job.idempotency_key,
+                            ),
+                        )
                     )
             else:
                 mic = source.mic_artifact
@@ -434,17 +553,31 @@ async def submit_to_mediascribe(
                     expected_bytes=incoming.byte_length,
                     expected_sha256=incoming.sha256,
                 )
-                await _ensure_processing_fence(db, workflow)
+                await _ensure_processing_fence(
+                    db,
+                    workflow,
+                    mediascribe_job_id=job.id,
+                    submission_claim_token=claim_token,
+                )
                 await db.commit()
                 with mic_path.open("rb") as mic_file, incoming_path.open("rb") as incoming_file:
-                    response = await mediascribe_client.submit_dual_track(
-                        mic_file=mic_file,
-                        incoming_file=incoming_file,
-                        diarize=bool(job.diarize),
-                        summarize=bool(job.summarize),
-                        num_speakers=job.num_speakers,
-                        speaker_count_mode=job.speaker_count_mode,
-                        idempotency_key=job.idempotency_key,
+                    result = await _await_provider_egress(
+                        _complete_provider_submission(
+                            db=db,
+                            settings=settings,
+                            workflow=workflow,
+                            job=job,
+                            claim_token=claim_token,
+                            provider_operation=mediascribe_client.submit_dual_track(
+                                mic_file=mic_file,
+                                incoming_file=incoming_file,
+                                diarize=bool(job.diarize),
+                                summarize=bool(job.summarize),
+                                num_speakers=job.num_speakers,
+                                speaker_count_mode=job.speaker_count_mode,
+                                idempotency_key=job.idempotency_key,
+                            ),
+                        )
                     )
     except ProcessingLifecycleBlocked as exc:
         await store.release_mediascribe_submission_claim(db, job=job, claim_token=claim_token)
@@ -478,115 +611,7 @@ async def submit_to_mediascribe(
             reason_code=PROCESSING_TEMP_STORAGE_UNAVAILABLE,
         )
         raise RuntimeError(PROCESSING_TEMP_STORAGE_UNAVAILABLE) from exc
-    except MediaScribeClientError as exc:
-        malformed = exc.reason_code == MEDIASCRIBE_MALFORMED_RESPONSE
-        if exc.egress_state == "unknown":
-            await store.mark_mediascribe_submission_unknown(
-                db,
-                job=job,
-                error_message=BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN,
-            )
-            await store.set_workflow_status(
-                db,
-                workflow,
-                ProcessingStatus.BLOCKED_UNKNOWN,
-                reason_code=BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN,
-            )
-            raise MediaScribeClientError(
-                BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN,
-                retryable=False,
-                status_code=exc.status_code,
-                egress_state="unknown",
-                headers=exc.headers,
-                retry_after_seconds=exc.retry_after_seconds,
-                request_id=exc.request_id,
-                job_id=exc.job_id,
-            ) from exc
-        status = (
-            ProcessingStatus.FAILED_TERMINAL
-            if malformed or not exc.retryable
-            else ProcessingStatus.FAILED_RETRYABLE
-        )
-        await store.release_mediascribe_submission_claim(db, job=job, claim_token=claim_token)
-        await store.update_mediascribe_job_status(
-            db,
-            job=job,
-            status=MediaScribeJobStatus.FAILED,
-            reason_code=exc.reason_code,
-            error_message=exc.reason_code,
-            retryable=exc.retryable,
-            retry_after_seconds=exc.retry_after_seconds,
-            request_id=exc.request_id,
-        )
-        if status == ProcessingStatus.FAILED_RETRYABLE:
-            _schedule_processing_retry(
-                workflow,
-                retry_after_seconds=exc.retry_after_seconds,
-                settings=settings,
-            )
-        await store.set_workflow_status(
-            db,
-            workflow,
-            status,
-            reason_code=exc.reason_code,
-            terminal=malformed or not exc.retryable,
-        )
-        raise
-
-    try:
-        await _ensure_processing_fence(db, workflow)
-    except ProcessingLifecycleBlocked as exc:
-        # MediaScribe has already accepted the bytes. Keep its opaque job ID
-        # before projecting the local workflow as canceled; otherwise a retry
-        # can submit a duplicate and deletion cannot account for provider data.
-        await store.persist_mediascribe_submission_fallback(
-            db,
-            job=job,
-            external_job_id=response.external_job_id,
-            reason_code=BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN,
-            error_message=str(exc),
-        )
-        await _cancel_stale_processing(db, workflow=workflow, reason=exc)
-        raise
-    await store.persist_mediascribe_submission(
-        db,
-        job=job,
-        external_job_id=response.external_job_id,
-        status=response.status,
-        submission_claim_token=claim_token,
-        provider_status=response.status_raw,
-        provider_queue_state=response.queue_state_raw,
-        provider_attempt=response.attempt,
-        provider_max_attempts=response.max_attempts,
-        retry_after_seconds=response.retry_after_seconds,
-        provider_next_retry_at=_provider_retry_at(response.next_retry_at),
-        request_id=response.request_id,
-    )
-    if response.retry_after_seconds is not None or response.next_retry_at is not None:
-        _schedule_processing_retry(
-            workflow,
-            retry_after_seconds=response.retry_after_seconds,
-            provider_next_attempt_at=_provider_retry_at(response.next_retry_at),
-            settings=settings,
-        )
-        if workflow.next_attempt_at is None:
-            await store.set_workflow_status(
-                db,
-                workflow,
-                ProcessingStatus.FAILED_RETRYABLE,
-                reason_code="processing_retry_deadline_exceeded",
-                terminal=False,
-            )
-        else:
-            await store.set_workflow_status(
-                db,
-                workflow,
-                ProcessingStatus.WAITING_RETRY,
-                reason_code="provider_result_not_ready",
-            )
-    else:
-        await store.set_workflow_status(db, workflow, ProcessingStatus.SUBMITTED)
-    return SubmitProcessingResult(job=job, submitted=True)
+    return result
 
 
 def _ensure_temp_capacity(temp_dir: Path, expected_bytes: int) -> None:
