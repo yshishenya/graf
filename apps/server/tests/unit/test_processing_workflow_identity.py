@@ -10,6 +10,7 @@ from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from tests.fakes.fake_temporal import FakeTemporalClient
+from twobrain_rec_server.processing import store
 from twobrain_rec_server.processing.lifecycle import processing_start_reconciliation_due
 from twobrain_rec_server.workflows.temporal_client import (
     processing_workflow_id,
@@ -24,6 +25,20 @@ def test_processing_workflow_id_uses_media_revision_id() -> None:
         processing_workflow_id(media_revision_id=media_revision_id)
         == f"processing/{media_revision_id}"
     )
+
+
+def test_manual_check_command_id_deduplicates_one_version_only() -> None:
+    identity = {
+        "workspace_id": UUID("dddddddd-dddd-dddd-dddd-dddddddddddd"),
+        "meeting_id": UUID("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
+        "media_revision_id": UUID("cccccccc-cccc-cccc-cccc-cccccccccccc"),
+        "workflow_id": "processing/cccccccc-cccc-cccc-cccc-cccccccccccc",
+        "command_key": "client-command",
+    }
+
+    first = store._processing_manual_command_id(**identity, command_version=1)
+    assert first == store._processing_manual_command_id(**identity, command_version=1)
+    assert first != store._processing_manual_command_id(**identity, command_version=2)
 
 
 def test_only_stale_start_intents_are_due_for_reconciliation() -> None:

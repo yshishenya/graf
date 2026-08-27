@@ -244,6 +244,9 @@ async def pick_up_processing(
                 now=datetime.now(UTC),
                 workflow_run_id=workflow.workflow_run_id,
             ):
+                recovery_meeting_id = meeting.id
+                recovery_workflow_id = workflow.id
+                recovery_temporal_workflow_id = workflow.workflow_id
                 try:
                     known_temporal_run = bool(
                         isinstance(workflow.workflow_run_id, str)
@@ -305,6 +308,8 @@ async def pick_up_processing(
                         )
                         if recovered is not None:
                             workflow, started = recovered
+                            recovery_workflow_id = workflow.id
+                            recovery_temporal_workflow_id = workflow.workflow_id
                     if started.closed:
                         workflow = await store.reconcile_closed_processing_workflow_result(
                             db,
@@ -352,16 +357,16 @@ async def pick_up_processing(
                     await store.record_processing_audit_event(
                         db,
                         workspace_id=workspace_id,
-                        meeting_id=meeting.id,
-                        processing_workflow_id=workflow.id,
+                        meeting_id=recovery_meeting_id,
+                        processing_workflow_id=recovery_workflow_id,
                         event_type="workflow_start_reconciliation_deferred",
                         metadata={
-                            "workflow_id": workflow.workflow_id,
+                            "workflow_id": recovery_temporal_workflow_id,
                             "reason_code": "temporal_start_reconciliation_unavailable",
                         },
                     )
                 result.reused_count += 1
-                result.meeting_ids.append(meeting.id)
+                result.meeting_ids.append(recovery_meeting_id)
                 continue
             result.reused_count += 1
             result.meeting_ids.append(meeting.id)

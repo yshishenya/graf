@@ -73,9 +73,14 @@ class FailingPipeline:
         return self._fail(output_path)
 
     async def derive_single_source(
-        self, source_path: Path, output_path: Path, *, tolerant_first: bool = False
+        self,
+        source_path: Path,
+        output_path: Path,
+        *,
+        tolerant_first: bool = False,
+        expected_duration_seconds: int | None = None,
     ):
-        del tolerant_first
+        del tolerant_first, expected_duration_seconds
         del source_path
         return self._fail(output_path)
 
@@ -105,8 +110,9 @@ class InvalidReceiptPipeline:
         output_path: Path,
         *,
         tolerant_first: bool = False,
+        expected_duration_seconds: int | None = None,
     ) -> NormalizedOutput:
-        del tolerant_first
+        del tolerant_first, expected_duration_seconds
         del source_path
         return self._invalid(output_path)
 
@@ -152,8 +158,9 @@ class ValidReceiptPipeline:
         output_path: Path,
         *,
         tolerant_first: bool = False,
+        expected_duration_seconds: int | None = None,
     ) -> NormalizedOutput:
-        del tolerant_first, source_path
+        del tolerant_first, expected_duration_seconds, source_path
         return self._valid(output_path)
 
     @staticmethod

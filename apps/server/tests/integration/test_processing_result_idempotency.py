@@ -6,8 +6,9 @@ from sqlalchemy import select
 
 from tests.fakes.fake_mediascribe import FakeMediaScribeClient
 from tests.fixtures.processing import create_finalized_meeting
-from twobrain_rec_server.billing.usage import reserve_free_usage
+from twobrain_rec_server.billing.usage import QuotaExceeded, reserve_free_usage
 from twobrain_rec_server.db.models import (
+    DiarizationSegment,
     ProcessingResult,
     TranscriptSegment,
     UsageLedgerEntry,
@@ -124,3 +125,74 @@ def test_processing_result_persists_contract_transcript_status_without_rows(clie
             return persisted.transcript_status, persisted.segment_count
 
     assert asyncio.run(import_result()) == ("available", 0)
+
+
+def test_quota_failure_does_not_publish_result_or_segments(client, monkeypatch) -> None:
+    finalized = create_finalized_meeting(client, "processing-quota-atomicity")
+    meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
+    workspace_id = UUID(finalized["meeting"]["workspace_id"])
+    result = MediaScribeResult(
+        external_job_id="job_quota_atomicity",
+        transcript_status=ProcessingAvailabilityStatus.AVAILABLE,
+        transcript=[
+            MediaScribeSegment(
+                sequence=0,
+                start_seconds=0,
+                end_seconds=10,
+                text="quota fixture",
+                source_role="mic",
+            )
+        ],
+    )
+    fake_client = FakeMediaScribeClient(
+        external_job_id="job_quota_atomicity",
+        status_sequence=[MediaScribeJobStatus.READY],
+        result=result,
+    )
+
+    async def reject_usage_commit(*_args, **_kwargs) -> int:
+        raise QuotaExceeded("processing usage reservation is unavailable")
+
+    monkeypatch.setattr(store, "_commit_processing_usage", reject_usage_commit)
+
+    async def import_result() -> tuple[str, int, int, int]:
+        async with client.app_state["sessionmaker"]() as db:
+            workflow = await store.upsert_processing_workflow(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+                workflow_id=f"processing/{media_revision_id}",
+                status=ProcessingStatus.WORKFLOW_STARTED,
+            )
+            submitted = await submit_to_mediascribe(
+                db=db,
+                settings=client.app.state.settings,
+                storage=client.app_state["storage"],
+                mediascribe_client=fake_client,
+                workflow=workflow,
+            )
+            imported = await poll_and_import_mediascribe_result(
+                db=db,
+                workflow=workflow,
+                job=submitted.job,
+                mediascribe_client=fake_client,
+            )
+            result_count = len(
+                (await db.scalars(select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id))).all()
+            )
+            transcript_count = len(
+                (await db.scalars(select(TranscriptSegment).where(TranscriptSegment.meeting_id == meeting_id))).all()
+            )
+            diarization_count = len(
+                (await db.scalars(select(DiarizationSegment).where(DiarizationSegment.meeting_id == meeting_id))).all()
+            )
+            return (
+                imported.status.value,
+                result_count,
+                transcript_count,
+                diarization_count,
+            )
+
+    assert asyncio.run(import_result()) == (ProcessingStatus.BLOCKED.value, 0, 0, 0)

@@ -725,6 +725,36 @@ def test_explicit_tolerant_first_primitive_has_exact_subprocess_budget(
     assert result.moov_before_mdat is True
 
 
+def test_manual_duration_mismatch_stops_after_probe_before_transcode(tmp_path: Path) -> None:
+    source = tmp_path / "duration-mismatch.mp3"
+    output = tmp_path / "must-not-exist.m4a"
+    _run_ffmpeg(
+        [
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:duration=5",
+            "-c:a",
+            "libmp3lame",
+            str(source),
+        ]
+    )
+    pipeline = _RecordingPipeline()
+
+    with pytest.raises(MediaPolicyError, match="source_mismatch"):
+        asyncio.run(
+            pipeline.derive_single_source(
+                source,
+                output,
+                tolerant_first=True,
+                expected_duration_seconds=30,
+            )
+        )
+
+    assert pipeline.events == [("probe", source)]
+    assert not output.exists()
+
+
 def test_truncated_mp3_is_rejected_against_authoritative_duration(tmp_path: Path) -> None:
     source = tmp_path / "source-with-tail.mp3"
     truncated = tmp_path / "truncated-tail.mp3"
@@ -765,3 +795,25 @@ def test_truncated_mp3_is_rejected_against_authoritative_duration(tmp_path: Path
             )
         )
     assert tolerant_error.value.reason_code == "generated_output_invalid"
+
+
+def test_manual_upload_duration_allowance_stays_bounded_for_long_recordings() -> None:
+    _validate_authoritative_source_duration(
+        3_598_750,
+        expected_duration_seconds=3_600,
+        manual_upload=True,
+    )
+
+    with pytest.raises(MediaPolicyError, match="source_mismatch"):
+        _validate_authoritative_source_duration(
+            3_598_749,
+            expected_duration_seconds=3_600,
+            manual_upload=True,
+        )
+
+    # Recovery output uses the wider, duration-relative allowance; the client
+    # declaration does not.
+    _validate_authoritative_source_duration(
+        3_598_749,
+        expected_duration_seconds=3_600,
+    )

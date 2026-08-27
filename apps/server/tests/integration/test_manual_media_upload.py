@@ -15,10 +15,27 @@ from tests.integration.test_playback_normalization_dispatch import (
 from twobrain_rec_server.db.models import (
     PlaybackNormalizationJob,
     ProcessingWorkflow,
+    PurgeJournal,
     RecordingCalendarContextLink,
     TrackArtifact,
+    UploadPart,
 )
 from twobrain_rec_server.normalization.statuses import NormalizationReason
+
+
+class FailSecondPutStorage:
+    def __init__(self, delegate: object) -> None:
+        self.delegate = delegate
+        self.put_count = 0
+
+    def put_stream(self, object_key, stream, length) -> None:
+        self.put_count += 1
+        if self.put_count == 2:
+            raise RuntimeError("configured second PUT failure")
+        self.delegate.put_stream(object_key, stream, length)
+
+    def __getattr__(self, name: str):
+        return getattr(self.delegate, name)
 
 
 def test_manual_media_upload_creates_single_media_artifact_and_starts_processing(client) -> None:
@@ -65,6 +82,37 @@ def test_manual_media_upload_creates_single_media_artifact_and_starts_processing
     roles, deadline_at = asyncio.run(load_artifact_roles_and_deadline())
     assert roles == ["manifest", "media"]
     assert deadline_at is None
+
+
+def test_manual_media_upload_commits_custody_before_the_next_storage_write(client) -> None:
+    delegate = client.app_state["storage"]
+    client.app.state.storage = FailSecondPutStorage(delegate)
+    client.app.state.settings.playback_normalization_enabled = True
+
+    response = client.post(
+        "/api/v1/media-uploads",
+        headers=auth_headers(),
+        data={"duration_seconds": "60", "local_recording_id": "manual-second-put-fails"},
+        files={"file": ("meeting.wav", deterministic_wav_bytes(128), "audio/wav")},
+    )
+
+    assert response.status_code == 503
+    stored_keys = set(delegate.objects)
+    assert len(stored_keys) == 1
+
+    async def custody_keys() -> set[str]:
+        async with client.app_state["sessionmaker"]() as db:
+            accepted = set(await db.scalars(select(UploadPart.storage_object_key)))
+            cleanup = set(
+                await db.scalars(
+                    select(PurgeJournal.object_key).where(
+                        PurgeJournal.state.not_in({"purged", "superseded"})
+                    )
+                )
+            )
+            return accepted | cleanup
+
+    assert stored_keys <= asyncio.run(custody_keys())
 
 
 @pytest.mark.parametrize("processing_enabled", [True, False])
@@ -127,6 +175,16 @@ def test_manual_normalization_retry_projects_countdown_and_manual_due_now(client
     assert status.status_code == 200
     assert status.json()["manual_action"] == "retry_preparation"
     assert status.json()["next_attempt_at"] is not None
+
+    stale = client.post(
+        f"/api/v1/meetings/{meeting_id}/processing/check",
+        headers=auth_headers(),
+        json={"schedule_generation": status.json()["schedule_generation"] + 999},
+    )
+    assert stale.status_code == 200
+    assert stale.json()["request_result"] == "stale_schedule"
+    assert stale.json()["manual_action"] == "retry_preparation"
+    assert stale.json()["next_attempt_at"] is not None
 
     retried = client.post(
         f"/api/v1/meetings/{meeting_id}/processing/check",
@@ -191,6 +249,46 @@ def test_terminal_manual_normalization_does_not_offer_impossible_processing_atte
     )
     assert attempt.status_code == 409
     assert attempt.json()["code"] == "processing_source_unavailable"
+
+
+def test_storage_full_manual_normalization_offers_no_archive_upload(client) -> None:
+    client.app.state.settings.processing_enabled = True
+    client.app.state.settings.playback_normalization_enabled = True
+    client.app.state.temporal_client = FakeTemporalClient()
+    response = client.post(
+        "/api/v1/media-uploads",
+        headers=auth_headers(),
+        data={
+            "title": "Storage-full preparation",
+            "duration_seconds": "60",
+            "local_recording_id": "manual-preparation-storage-full",
+        },
+        files={"file": ("meeting.wav", deterministic_wav_bytes(128), "audio/wav")},
+    )
+    assert response.status_code == 202
+    meeting_id = UUID(response.json()["meeting"]["meeting_id"])
+
+    async def fail_preparation() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            job = await db.scalar(
+                select(PlaybackNormalizationJob).where(
+                    PlaybackNormalizationJob.meeting_id == meeting_id
+                )
+            )
+            assert job is not None
+            job.state = "terminal"
+            job.reason_code = NormalizationReason.STORAGE_CAPACITY_EXCEEDED.value
+            job.terminal_at = datetime.now(UTC)
+            job.lease_owner_sha256 = None
+            job.lease_expires_at = None
+            await db.commit()
+
+    asyncio.run(fail_preparation())
+    status = client.get(f"/api/v1/meetings/{meeting_id}/processing", headers=auth_headers())
+    assert status.status_code == 200
+    assert status.json()["state"] == "failed_terminal"
+    assert status.json()["reason_code"] == "storage_capacity_exceeded"
+    assert status.json()["manual_action"] == "upload_another"
 
 
 def test_manual_media_upload_commits_and_starts_normalization_without_processing(client) -> None:

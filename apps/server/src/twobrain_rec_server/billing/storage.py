@@ -234,8 +234,25 @@ async def reserve_storage(
         .with_for_update()
     )
     if existing is not None:
-        return existing
+        if existing.state == "committed":
+            return existing
+        existing_active = (
+            existing.state == "active"
+            and (existing.expires_at is None or existing.expires_at > now)
+        )
+        if existing_active and existing.declared_bytes == declared_bytes:
+            if expires_at is not None and (
+                existing.expires_at is None or existing.expires_at < expires_at
+            ):
+                existing.expires_at = expires_at
+                await db.flush()
+            return existing
     reserved = await _active_reserved_bytes(db, workspace_id=workspace_id, now=now)
+    if existing is not None and existing_active:
+        reserved = max(
+            0,
+            reserved - max(0, existing.declared_bytes - existing.committed_bytes),
+        )
     projection = await project_active_playback_storage(
         db,
         workspace_id=workspace_id,
@@ -243,6 +260,14 @@ async def reserve_storage(
         reserved_bytes=reserved,
     )
     admit_storage(projection, declared_bytes)
+    if existing is not None:
+        existing.declared_bytes = declared_bytes
+        existing.committed_bytes = 0
+        existing.artifact_id = None
+        existing.state = "active"
+        existing.expires_at = expires_at or now + timedelta(minutes=15)
+        await db.flush()
+        return existing
     reservation = StorageReservationRow(
         workspace_id=workspace_id,
         idempotency_key=reservation_key,

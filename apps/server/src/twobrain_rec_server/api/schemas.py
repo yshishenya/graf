@@ -1278,6 +1278,7 @@ PlaybackPreparationReasonCode = Literal[
     "canonical_ready",
     "access_denied",
     "audio_not_archived",
+    "storage_capacity_exceeded",
     "empty_source",
     "no_audio",
     "ambiguous_audio_tracks",

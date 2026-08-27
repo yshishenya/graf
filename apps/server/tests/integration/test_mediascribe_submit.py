@@ -25,6 +25,7 @@ from twobrain_rec_server.processing import store
 from twobrain_rec_server.processing import submit as submit_module
 from twobrain_rec_server.processing.reasons import (
     BLOCKED_AUDIO_TOO_LARGE,
+    BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN,
     BLOCKED_MISSING_ARTIFACTS,
     PROCESSING_TEMP_STORAGE_UNAVAILABLE,
 )
@@ -72,6 +73,177 @@ class StagingOnlyStorage:
             destination_path,
             chunk_size=chunk_size,
         )
+
+
+class AmbiguousThenSuccessfulManualClient(FakeMediaScribeClient):
+    async def submit_single_track(self, **kwargs):
+        response = await super().submit_single_track(**kwargs)
+        if len(self.submissions) == 1:
+            raise MediaScribeClientError(
+                "mediascribe_timeout",
+                retryable=True,
+                egress_state="unknown",
+            )
+        return response
+
+
+async def _processing_source_for_workflow(db, workflow):
+    source = await store.load_processing_source(
+        db,
+        workspace_id=workflow.workspace_id,
+        meeting_id=workflow.meeting_id,
+        media_revision_id=workflow.media_revision_id,
+    )
+    assert source is not None
+    return source
+
+
+def test_concurrent_job_creation_rejects_changed_request_fingerprint(client, monkeypatch) -> None:
+    finalized = create_finalized_meeting(client, "mediascribe-concurrent-fingerprint")
+    meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
+    workspace_id = UUID(finalized["meeting"]["workspace_id"])
+    original_get = store.get_mediascribe_job
+    active_reads_ready = asyncio.Event()
+    previous_reads_ready = asyncio.Event()
+    active_none_reads = 0
+    previous_none_reads = 0
+    arrival_lock = asyncio.Lock()
+
+    async def synchronized_get(db, **kwargs):
+        nonlocal active_none_reads, previous_none_reads
+        result = await original_get(db, **kwargs)
+        if kwargs.get("active_only"):
+            async with arrival_lock:
+                assert result is None
+                active_none_reads += 1
+                if active_none_reads == 2:
+                    active_reads_ready.set()
+            await active_reads_ready.wait()
+        elif result is None:
+            async with arrival_lock:
+                previous_none_reads += 1
+                if previous_none_reads == 2:
+                    previous_reads_ready.set()
+            await previous_reads_ready.wait()
+        return result
+
+    monkeypatch.setattr(store, "get_mediascribe_job", synchronized_get)
+
+    async def run() -> tuple[list[object], int]:
+        async with client.app_state["sessionmaker"]() as db:
+            await store.upsert_processing_workflow(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+                workflow_id=f"processing/{media_revision_id}",
+                status=ProcessingStatus.WORKFLOW_STARTED,
+            )
+
+        async def contender(diarize: bool) -> object:
+            async with client.app_state["sessionmaker"]() as db:
+                workflow = await db.scalar(
+                    select(ProcessingWorkflow).where(
+                        ProcessingWorkflow.workspace_id == workspace_id,
+                        ProcessingWorkflow.meeting_id == meeting_id,
+                        ProcessingWorkflow.media_revision_id == media_revision_id,
+                    )
+                )
+                assert workflow is not None
+                source = await _processing_source_for_workflow(db, workflow)
+                return await store.upsert_mediascribe_job(
+                    db,
+                    workflow=workflow,
+                    mic_artifact=source.mic_artifact,
+                    incoming_artifact=source.incoming_artifact,
+                    source_artifact=source.source_artifact,
+                    request_mode=source.request_mode,
+                    source_fingerprint=workflow.source_fingerprint,
+                    diarize=diarize,
+                )
+
+        results = await asyncio.gather(contender(True), contender(False), return_exceptions=True)
+        async with client.app_state["sessionmaker"]() as db:
+            count = len(
+                list(
+                    await db.scalars(
+                        select(MediaScribeJob).where(
+                            MediaScribeJob.workspace_id == workspace_id,
+                            MediaScribeJob.meeting_id == meeting_id,
+                            MediaScribeJob.media_revision_id == media_revision_id,
+                        )
+                    )
+                )
+            )
+        return results, count
+
+    results, count = asyncio.run(run())
+    assert count == 1
+    assert (active_none_reads, previous_none_reads) == (2, 2)
+    assert sum(isinstance(result, MediaScribeJob) for result in results) == 1
+    assert sum(isinstance(result, ProcessingLifecycleBlocked) for result in results) == 1
+
+
+def test_unknown_outcome_replay_claim_is_assigned_in_one_transaction(client) -> None:
+    finalized = create_finalized_meeting(client, "mediascribe-atomic-replay-claim")
+    meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
+    workspace_id = UUID(finalized["meeting"]["workspace_id"])
+
+    async def run() -> tuple[str | None, str | None]:
+        async with client.app_state["sessionmaker"]() as db:
+            workflow = await store.upsert_processing_workflow(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+                workflow_id=f"processing/{media_revision_id}",
+                status=ProcessingStatus.WORKFLOW_STARTED,
+            )
+            source = await _processing_source_for_workflow(db, workflow)
+            job = await store.upsert_mediascribe_job(
+                db,
+                workflow=workflow,
+                mic_artifact=source.mic_artifact,
+                incoming_artifact=source.incoming_artifact,
+                source_artifact=source.source_artifact,
+                request_mode=source.request_mode,
+                source_fingerprint=workflow.source_fingerprint,
+            )
+            job.status = MediaScribeJobStatus.BLOCKED.value
+            job.last_error_code = BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN
+            await db.commit()
+            job_id = job.id
+
+        first_committed = asyncio.Event()
+        allow_first_to_return = asyncio.Event()
+        async with (
+            client.app_state["sessionmaker"]() as first_db,
+            client.app_state["sessionmaker"]() as second_db,
+        ):
+            first_job = await first_db.get(MediaScribeJob, job_id)
+            second_job = await second_db.get(MediaScribeJob, job_id)
+            assert first_job is not None and second_job is not None
+            original_commit = first_db.commit
+
+            async def controlled_commit() -> None:
+                await original_commit()
+                first_committed.set()
+                await allow_first_to_return.wait()
+
+            first_db.commit = controlled_commit  # type: ignore[method-assign]
+            first_claim = asyncio.create_task(
+                store.claim_mediascribe_submission(first_db, job=first_job)
+            )
+            await first_committed.wait()
+            second_claim = await store.claim_mediascribe_submission(second_db, job=second_job)
+            allow_first_to_return.set()
+            return await first_claim, second_claim
+
+    first_claim, second_claim = asyncio.run(run())
+    assert first_claim is not None
+    assert second_claim is None
 
 
 def test_staging_prefers_single_pass_verified_download(tmp_path: Path) -> None:
@@ -637,7 +809,7 @@ def test_submit_marks_temp_storage_unavailable_retryable_before_staging(
     assert submission_count == 0
 
 
-def test_submit_single_track_media_upload_persists_source_and_reuses_existing_job(client) -> None:
+def test_ambiguous_manual_submit_replays_exact_request_then_reuses_job(client) -> None:
     client.app.state.settings.playback_normalization_enabled = True
     client.app.state.settings.playback_normalization_automatic_dispatch_enabled = True
     client.app.state.temporal_client = FakeTemporalClient()
@@ -656,10 +828,12 @@ def test_submit_single_track_media_upload_persists_source_and_reuses_existing_jo
     finalized = upload.json()
     meeting_id = UUID(finalized["meeting"]["meeting_id"])
     media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
-    fake_client = FakeMediaScribeClient(external_job_id="job_single_submit")
+    fake_client = AmbiguousThenSuccessfulManualClient(external_job_id="job_single_submit")
     canonical_body = b"canonical-manual-media"
+    original_diarize = client.app.state.settings.mediascribe_diarize
+    original_summarize = client.app.state.settings.mediascribe_summarize
 
-    async def submit_twice() -> tuple[str, int, str | None, bool, str, bool, bool]:
+    async def submit_three_times() -> tuple[str, int, str | None, bool, str, bool, bool]:
         async with client.app_state["sessionmaker"]() as db:
             normalization_job = await db.scalar(
                 select(PlaybackNormalizationJob).where(
@@ -703,14 +877,50 @@ def test_submit_single_track_media_upload_persists_source_and_reuses_existing_jo
                 workflow_id=f"processing/{media_revision_id}",
                 status=ProcessingStatus.WORKFLOW_STARTED,
             )
-            first = await submit_to_mediascribe(
+            with pytest.raises(
+                MediaScribeClientError,
+                match="blocked_mediascribe_submission_outcome_unknown",
+            ):
+                await submit_to_mediascribe(
+                    db=db,
+                    settings=client.app.state.settings,
+                    storage=StagingOnlyStorage(client.app_state["storage"]),
+                    mediascribe_client=fake_client,
+                    workflow=workflow,
+                )
+            client.app.state.settings.mediascribe_diarize = not original_diarize
+            client.app.state.settings.mediascribe_summarize = not original_summarize
+            changed_body = b"different-canonical-manual-media"
+            changed_key = f"tests/canonical/{uuid4()}.m4a"
+            client.app_state["storage"].put_bytes(changed_key, changed_body)
+            canonical.storage_object_key = changed_key
+            canonical.byte_length = len(changed_body)
+            canonical.sha256 = sha256(changed_body).hexdigest()
+            await db.commit()
+            with pytest.raises(
+                ProcessingLifecycleBlocked,
+                match="processing_request_fingerprint_conflict",
+            ):
+                await submit_to_mediascribe(
+                    db=db,
+                    settings=client.app.state.settings,
+                    storage=StagingOnlyStorage(client.app_state["storage"]),
+                    mediascribe_client=fake_client,
+                    workflow=workflow,
+                )
+            assert len(fake_client.submissions) == 1
+            canonical.storage_object_key = canonical_key
+            canonical.byte_length = len(canonical_body)
+            canonical.sha256 = sha256(canonical_body).hexdigest()
+            await db.commit()
+            replay = await submit_to_mediascribe(
                 db=db,
                 settings=client.app.state.settings,
                 storage=StagingOnlyStorage(client.app_state["storage"]),
                 mediascribe_client=fake_client,
                 workflow=workflow,
             )
-            second = await submit_to_mediascribe(
+            reused = await submit_to_mediascribe(
                 db=db,
                 settings=client.app.state.settings,
                 storage=StagingOnlyStorage(client.app_state["storage"]),
@@ -718,35 +928,45 @@ def test_submit_single_track_media_upload_persists_source_and_reuses_existing_jo
                 workflow=workflow,
             )
             return (
-                first.job.request_mode,
+                replay.job.request_mode,
                 len(fake_client.submissions),
                 str(fake_client.submissions[0]["media_content_type"]),
-                second.submitted,
-                first.job.external_job_id,
-                first.job.source_track_artifact_id is not None,
-                first.job.mic_track_artifact_id is None
-                and first.job.incoming_track_artifact_id is None,
+                reused.submitted,
+                replay.job.external_job_id,
+                replay.job.source_track_artifact_id is not None,
+                replay.job.mic_track_artifact_id is None
+                and replay.job.incoming_track_artifact_id is None,
             )
 
     (
         request_mode,
         submission_count,
         media_content_type,
-        second_submitted,
+        reused_submitted,
         external_job_id,
         has_source,
         no_pair,
-    ) = asyncio.run(submit_twice())
+    ) = asyncio.run(submit_three_times())
     assert request_mode == "single_track"
-    assert submission_count == 1
+    assert submission_count == 2
     assert media_content_type == "audio/mp4"
-    assert second_submitted is False
+    assert reused_submitted is False
     assert external_job_id == "job_single_submit"
     assert has_source is True
     assert no_pair is True
-    assert fake_client.submissions[0]["request_mode"] == "single_track"
-    assert fake_client.submissions[0]["media_filename"] == "manual-media.m4a"
-    assert fake_client.submissions[0]["media_sha256"] == sha256(canonical_body).hexdigest()
+    assert fake_client.submissions[0] == fake_client.submissions[1]
+    assert fake_client.submissions[0] == {
+        "request_mode": "single_track",
+        "media_size": len(canonical_body),
+        "media_sha256": sha256(canonical_body).hexdigest(),
+        "media_content_type": "audio/mp4",
+        "media_filename": "manual-media.m4a",
+        "diarize": original_diarize,
+        "summarize": original_summarize,
+        "num_speakers": None,
+        "speaker_count_mode": None,
+        "idempotency_key": fake_client.submissions[0]["idempotency_key"],
+    }
 
 
 def test_v5_mislabeled_media_is_blocked_before_any_provider_submission(client) -> None:

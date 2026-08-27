@@ -19,6 +19,7 @@ from tests.integration.test_playback_normalization_workflow import (
     FakeManualNormalizationPipeline,
 )
 from twobrain_rec_server.db.models import (
+    MediaRevision,
     MediaScribeJob,
     Meeting,
     PlaybackNormalizationAttempt,
@@ -33,7 +34,11 @@ from twobrain_rec_server.db.tenant_context import (
     MaintenanceTenantContext,
     apply_tenant_context,
 )
-from twobrain_rec_server.deletion.service import reconcile_transient_media_purges
+from twobrain_rec_server.deletion.service import (
+    MAX_PURGE_JOURNAL_ATTEMPTS,
+    reconcile_transient_media_purges,
+    retry_orphan_purge_journals,
+)
 from twobrain_rec_server.normalization.service import (
     NormalizationExecutionDeferred,
     run_normalization_job,
@@ -66,6 +71,129 @@ class BlockingVerifiedUploadStorage:
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self.delegate, name)
+
+
+def test_transient_delete_failure_stops_after_bounded_attempts(client) -> None:
+    client.app.state.settings.processing_enabled = True
+    client.app.state.settings.playback_normalization_enabled = True
+    client.app.state.temporal_client = FakeTemporalClient()
+    response = client.post(
+        "/api/v1/media-uploads",
+        headers=auth_headers(),
+        data={
+            "title": "Bounded transient purge",
+            "duration_seconds": "60",
+            "local_recording_id": "bounded-transient-purge",
+            "archive_audio": "false",
+        },
+        files={"file": ("manual.wav", deterministic_wav_bytes(128), "audio/wav")},
+    )
+    assert response.status_code == 202
+    meeting_id = UUID(response.json()["meeting"]["meeting_id"])
+    media_revision_id = UUID(response.json()["meeting"]["media_revision"]["media_revision_id"])
+    workspace_id = UUID(response.json()["meeting"]["workspace_id"])
+    now = datetime.now(UTC)
+
+    async def arrange() -> str:
+        async with client.app_state["sessionmaker"]() as db:
+            workflow = await db.scalar(
+                select(ProcessingWorkflow).where(ProcessingWorkflow.meeting_id == meeting_id)
+            )
+            assert workflow is not None
+            workflow.status = "failed_terminal"
+            workflow.transient_state = "terminal"
+            workflow.transient_terminal_at = now - timedelta(minutes=20)
+            workflow.transient_purge_due_at = now - timedelta(minutes=5)
+            object_keys = set(
+                await db.scalars(
+                    select(TrackArtifact.storage_object_key).where(
+                        TrackArtifact.meeting_id == meeting_id,
+                        TrackArtifact.media_revision_id == media_revision_id,
+                        TrackArtifact.track_role.in_({"media", "playback"}),
+                    )
+                )
+            )
+            object_keys.update(
+                await db.scalars(
+                    select(TemporaryUploadObject.storage_object_key).where(
+                        TemporaryUploadObject.workspace_id == workspace_id,
+                        TemporaryUploadObject.media_revision_id == media_revision_id,
+                        TemporaryUploadObject.object_role == "transient_source",
+                    )
+                )
+            )
+            assert object_keys
+            object_key = min(object_keys)
+            db.add(
+                PurgeJournal(
+                    workspace_id=workspace_id,
+                    meeting_id=meeting_id,
+                    media_revision_id=media_revision_id,
+                    artifact_class="transient_audio",
+                    object_key=object_key,
+                    state="pending",
+                    attempt_count=MAX_PURGE_JOURNAL_ATTEMPTS - 1,
+                    safe_reason="transient_media_purge",
+                )
+            )
+            await db.commit()
+            return object_key
+
+    object_key = asyncio.run(arrange())
+    failing_storage = FailOnceDeleteStorage(client.app_state["storage"])
+    failing_storage.arm(object_key)
+
+    async def purge(at: datetime) -> int:
+        async with client.app_state["sessionmaker"]() as db:
+            await apply_tenant_context(
+                db,
+                MaintenanceTenantContext(
+                    operation_name="deletion_purge_reconciliation",
+                    actor_id="bounded-transient-purge-test",
+                    reason_category="transient_media",
+                    feature_area="deletion",
+                ),
+            )
+            return await reconcile_transient_media_purges(
+                db,
+                storage=failing_storage,
+                now=at,
+                limit=10,
+                object_limit=1,
+            )
+
+    assert asyncio.run(purge(now)) == 0
+
+    async def journal_state() -> tuple[str, int, datetime | None]:
+        async with client.app_state["sessionmaker"]() as db:
+            journal = await db.scalar(
+                select(PurgeJournal).where(
+                    PurgeJournal.meeting_id == meeting_id,
+                    PurgeJournal.object_key == object_key,
+                )
+            )
+            assert journal is not None
+            return journal.state, journal.attempt_count, journal.next_retry_at
+
+    assert asyncio.run(journal_state()) == (
+        "terminal_unknown",
+        MAX_PURGE_JOURNAL_ATTEMPTS,
+        None,
+    )
+
+    async def operator_retry() -> dict[str, object]:
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.get(Meeting, meeting_id)
+            assert meeting is not None
+            return await retry_orphan_purge_journals(
+                db,
+                meeting=meeting,
+                storage=failing_storage,
+            )
+
+    assert asyncio.run(operator_retry()) == {"reset_count": 1, "converged": False}
+    assert asyncio.run(purge(now + timedelta(hours=1))) == 1
+    assert not client.app_state["storage"].object_exists(object_key)
 
 
 def test_no_archive_purge_fences_new_attempt_and_recovers_after_delete_failure(
@@ -511,7 +639,8 @@ def test_transient_purge_bounds_storage_operations_per_cycle(client) -> None:
             temporary_object_keys = set(
                 await db.scalars(
                     select(TemporaryUploadObject.storage_object_key).where(
-                        TemporaryUploadObject.media_revision_id == media_revision_id
+                        TemporaryUploadObject.media_revision_id == media_revision_id,
+                        TemporaryUploadObject.object_role == "transient_source",
                     )
                 )
             )
@@ -925,6 +1054,28 @@ def test_successful_no_archive_result_stays_processed_after_audio_purge(
                     diarization_segment_count=1,
                 )
             )
+            previous_revision = MediaRevision(
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                local_media_revision_id="successful-transient-upload-previous",
+                revision_number=2,
+                source_kind="manual_upload",
+                status="finalized",
+                duration_seconds=60,
+            )
+            db.add(previous_revision)
+            await db.flush()
+            db.add(
+                PurgeJournal(
+                    workspace_id=workspace_id,
+                    meeting_id=meeting_id,
+                    media_revision_id=previous_revision.id,
+                    artifact_class="transient_audio",
+                    object_key="transient/previous-revision/terminal.m4a",
+                    state="terminal_unknown",
+                    attempt_count=MAX_PURGE_JOURNAL_ATTEMPTS,
+                )
+            )
             await db.commit()
         async with client.app_state["sessionmaker"]() as db:
             await apply_tenant_context(
@@ -954,3 +1105,23 @@ def test_successful_no_archive_result_stays_processed_after_audio_purge(
     assert projection["retry_class"] == "none"
     assert projection["manual_action"] == "none"
     assert projection["transcript_available"] is True
+
+    async def retained_manifest_and_purged_audio() -> tuple[str, list[tuple[str, str]]]:
+        async with client.app_state["sessionmaker"]() as db:
+            artifacts = list(
+                await db.scalars(
+                    select(TrackArtifact)
+                    .where(TrackArtifact.meeting_id == meeting_id)
+                    .order_by(TrackArtifact.track_role)
+                )
+            )
+            manifest = next(row for row in artifacts if row.track_role == "manifest")
+            return manifest.storage_object_key, [
+                (row.track_role, row.status)
+                for row in artifacts
+                if row.track_role in {"media", "playback"}
+            ]
+
+    manifest_key, audio_states = asyncio.run(retained_manifest_and_purged_audio())
+    assert client.app_state["storage"].object_exists(manifest_key)
+    assert all(state == "purged" for _role, state in audio_states)

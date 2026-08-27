@@ -921,7 +921,7 @@ async def reconcile_transient_media_purges(
     bounded_limit = max(1, min(limit, 100))
     remaining_object_budget = max(1, min(object_limit, 500))
     terminal_processing_statuses = {status.value for status in TERMINAL_PROCESSING_STATUSES}
-    active_workflow = aliased(ProcessingWorkflow)
+    active_workflow_row = aliased(ProcessingWorkflow)
     hard_deadline_due = and_(
         ProcessingWorkflow.transient_hard_deadline.is_not(None),
         ProcessingWorkflow.transient_hard_deadline <= now,
@@ -931,10 +931,10 @@ async def reconcile_transient_media_purges(
         ProcessingWorkflow.transient_purge_due_at <= now,
     )
     no_active_attempt = ~exists().where(
-        active_workflow.workspace_id == ProcessingWorkflow.workspace_id,
-        active_workflow.meeting_id == ProcessingWorkflow.meeting_id,
-        active_workflow.media_revision_id == ProcessingWorkflow.media_revision_id,
-        active_workflow.status.not_in(terminal_processing_statuses),
+        active_workflow_row.workspace_id == ProcessingWorkflow.workspace_id,
+        active_workflow_row.meeting_id == ProcessingWorkflow.meeting_id,
+        active_workflow_row.media_revision_id == ProcessingWorkflow.media_revision_id,
+        active_workflow_row.status.not_in(terminal_processing_statuses),
     )
     workflow_due_at = func.min(
         func.least(
@@ -976,10 +976,17 @@ async def reconcile_transient_media_purges(
     deferred_journal = exists().where(
         PurgeJournal.workspace_id == due_workflow_revisions.c.workspace_id,
         PurgeJournal.meeting_id == due_workflow_revisions.c.meeting_id,
+        PurgeJournal.media_revision_id == due_workflow_revisions.c.media_revision_id,
         PurgeJournal.artifact_class == "transient_audio",
         PurgeJournal.state != "purged",
-        PurgeJournal.next_retry_at.is_not(None),
-        PurgeJournal.next_retry_at > now,
+        or_(
+            PurgeJournal.state == "terminal_unknown",
+            PurgeJournal.attempt_count >= MAX_PURGE_JOURNAL_ATTEMPTS,
+            and_(
+                PurgeJournal.next_retry_at.is_not(None),
+                PurgeJournal.next_retry_at > now,
+            ),
+        ),
     )
     due_workflow_rows = list(
         (
@@ -1059,10 +1066,17 @@ async def reconcile_transient_media_purges(
         fallback_deferred_journal = exists().where(
             PurgeJournal.workspace_id == fallback_due_revisions.c.workspace_id,
             PurgeJournal.meeting_id == fallback_due_revisions.c.meeting_id,
+            PurgeJournal.media_revision_id == fallback_due_revisions.c.media_revision_id,
             PurgeJournal.artifact_class == "transient_audio",
             PurgeJournal.state != "purged",
-            PurgeJournal.next_retry_at.is_not(None),
-            PurgeJournal.next_retry_at > now,
+            or_(
+                PurgeJournal.state == "terminal_unknown",
+                PurgeJournal.attempt_count >= MAX_PURGE_JOURNAL_ATTEMPTS,
+                and_(
+                    PurgeJournal.next_retry_at.is_not(None),
+                    PurgeJournal.next_retry_at > now,
+                ),
+            ),
         )
         fallback_statement = (
             select(
@@ -1224,6 +1238,7 @@ async def reconcile_transient_media_purges(
                         UploadSession.workspace_id == workspace_id,
                         UploadSession.meeting_id == meeting_id,
                         UploadSession.media_revision_id == media_revision_id,
+                        TemporaryUploadObject.object_role == "transient_source",
                         TemporaryUploadObject.cleanup_status != "purged",
                     )
                     .order_by(TemporaryUploadObject.id)
@@ -1329,6 +1344,7 @@ async def reconcile_transient_media_purges(
                 journal = PurgeJournal(
                     workspace_id=workspace_id,
                     meeting_id=meeting_id,
+                    media_revision_id=media_revision_id,
                     artifact_class="transient_audio",
                     object_key=object_key,
                     state="pending",
@@ -1415,6 +1431,16 @@ async def reconcile_transient_media_purges(
                 journal.attempt_count = 0
                 journal.completed_at = None
                 journal.next_retry_at = None
+            if (
+                journal.state == "terminal_unknown"
+                or journal.attempt_count >= MAX_PURGE_JOURNAL_ATTEMPTS
+            ):
+                journal.state = "terminal_unknown"
+                journal.next_retry_at = None
+                journal.safe_reason = "transient_storage_delete_terminal_unknown"
+                all_objects_purged = False
+                await db.commit()
+                continue
             if journal.next_retry_at is not None and journal.next_retry_at > now:
                 all_objects_purged = False
                 await db.rollback()
@@ -1449,9 +1475,14 @@ async def reconcile_transient_media_purges(
                     and journal.state == "deleting"
                     and journal.attempt_count == journal_attempt
                 ):
-                    journal.state = "pending"
-                    journal.next_retry_at = now + timedelta(minutes=1)
-                    journal.safe_reason = "transient_object_delete_retry"
+                    if journal.attempt_count >= MAX_PURGE_JOURNAL_ATTEMPTS:
+                        journal.state = "terminal_unknown"
+                        journal.next_retry_at = None
+                        journal.safe_reason = "transient_storage_delete_terminal_unknown"
+                    else:
+                        journal.state = "pending"
+                        journal.next_retry_at = now + timedelta(minutes=1)
+                        journal.safe_reason = "transient_object_delete_retry"
                     await db.commit()
                 else:
                     await db.rollback()
@@ -1472,10 +1503,15 @@ async def reconcile_transient_media_purges(
                 all_objects_purged = False
                 continue
             if object_key in late_put_tombstone_keys and object_existed is not True:
-                journal.state = "pending"
                 journal.completed_at = None
-                journal.next_retry_at = now + timedelta(minutes=1)
-                journal.safe_reason = "transient_late_put_pending_recheck"
+                if journal.attempt_count >= MAX_PURGE_JOURNAL_ATTEMPTS:
+                    journal.state = "terminal_unknown"
+                    journal.next_retry_at = None
+                    journal.safe_reason = "transient_late_put_terminal_unknown"
+                else:
+                    journal.state = "pending"
+                    journal.next_retry_at = now + timedelta(minutes=1)
+                    journal.safe_reason = "transient_late_put_pending_recheck"
                 await db.commit()
                 all_objects_purged = False
                 continue
@@ -2055,6 +2091,7 @@ async def retry_orphan_purge_journals(
         await db.rollback()
         return {"reset_count": 0, "converged": True}
     retry_started_at = datetime.now(UTC)
+    transient_reset = any(row.artifact_class == "transient_audio" for row in rows)
     for row in rows:
         row.state = "retryable_failed"
         row.attempt_count = 0
@@ -2069,7 +2106,7 @@ async def retry_orphan_purge_journals(
         storage=storage,
         limit=limit,
     )
-    return {"reset_count": len(rows), "converged": converged}
+    return {"reset_count": len(rows), "converged": converged and not transient_reset}
 
 
 async def deletion_report_response(

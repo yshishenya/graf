@@ -71,6 +71,15 @@ Pre-sync focused evidence 2026-08-27:
   replay/continue-as-new, double cancellation и sibling-worker cleanup входят в
   обязательную current-SHA matrix ниже; pre-sync evidence не заменяет её.
 
+Current-SHA evidence 2026-08-27:
+
+- critical upload/processing/migration/UX PostgreSQL matrix — `288 passed`;
+- quota/idempotency/purge recovery matrix — `110 passed`;
+- exact media-pass, Temporal replay/restart, canonical-submit и UI matrix —
+  `213 passed`;
+- manual retry/cancellation/custody matrix — `15 passed`;
+- `infra/scripts/ci-local.sh --fast` — `1303 passed`, lint/compile/PASS.
+
 После scoped/current-SHA validation выполнить уже одобренные PR/review/merge,
 release/deploy и production E2E. Full CI повторно не запускать; repository
 deployment gates и exact-SHA guard обязательны.

@@ -176,7 +176,9 @@ async def get_content_safe_processing_status(
         # A processed workflow may retain a historical retry class. It is no
         # longer recoverable work once the current lifecycle is complete.
         retry_class = "none"
-    elif state == ProcessingStatus.FAILED_TERMINAL:
+    elif state == ProcessingStatus.FAILED_TERMINAL or (
+        state == ProcessingStatus.BLOCKED and reason_code == BLOCKED_FREE_PROCESSING_EXHAUSTED
+    ):
         retry_class = "terminal"
     else:
         retry_class = (
@@ -256,9 +258,13 @@ async def get_content_safe_processing_status(
         )
     ):
         manual_action = "check_now"
+    elif (
+        state in {ProcessingStatus.BLOCKED, ProcessingStatus.FAILED_TERMINAL}
+        and reason_code == BLOCKED_FREE_PROCESSING_EXHAUSTED
+    ):
+        manual_action = "new_attempt"
     elif state == ProcessingStatus.FAILED_TERMINAL and reason_code in {
         BLOCKED_CONFIG,
-        BLOCKED_FREE_PROCESSING_EXHAUSTED,
         BLOCKED_UNAUTHORIZED,
         MEDIASCRIBE_AUTH_FAILED,
     }:

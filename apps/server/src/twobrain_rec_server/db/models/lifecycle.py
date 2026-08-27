@@ -42,9 +42,7 @@ class DispatchIntent(Base):
     intent_kind: Mapped[str] = mapped_column(String(64), nullable=False)
     idempotency_key: Mapped[str] = mapped_column(String(240), nullable=False)
     state: Mapped[str] = mapped_column(String(32), nullable=False, default="created")
-    reconciliation_state: Mapped[str] = mapped_column(
-        String(32), nullable=False, default="pending"
-    )
+    reconciliation_state: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     payload_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     source_fingerprint: Mapped[str | None] = mapped_column(String(128))
     deletion_epoch: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
@@ -106,6 +104,7 @@ class PurgeJournal(Base):
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
     meeting_id: Mapped[UUID] = mapped_column(ForeignKey("meetings.id"), nullable=False)
+    media_revision_id: Mapped[UUID | None] = mapped_column(ForeignKey("media_revisions.id"))
     deletion_request_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("meeting_deletion_requests.id")
     )

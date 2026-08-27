@@ -275,7 +275,7 @@ async def _restore_unknown_processing_state(
     schedule_next_retry: bool = False,
     settings: Any | None = None,
 ) -> Any | None:
-    """Keep an unknown upload recoverable without ever issuing a new upload."""
+    """Keep an unknown upload recoverable on its durable idempotency key."""
 
     current = await store.get_processing_workflow(
         db,
@@ -351,42 +351,25 @@ async def _reconcile_unknown_mediascribe_upload(
     mediascribe_client: Any,
     settings: Any | None = None,
 ) -> Any | None:
-    """Reconcile an uncertain POST without issuing another multipart upload."""
+    """Reconcile an uncertain POST when the provider job id is already known."""
 
     if job is None:
         await _restore_unknown_processing_state(db, workflow=workflow, settings=settings)
         return None
 
-    idempotency_key = getattr(job, "idempotency_key", None)
     external_job_id = getattr(job, "external_job_id", None)
+    if not external_job_id:
+        # A POST can time out after the provider accepted it.  The only
+        # contract-backed reconciliation is replaying the exact request with
+        # the same durable Idempotency-Key; submit_to_mediascribe owns that
+        # replay on the next Temporal/manual cycle.
+        return job
+
     provider_job: Any | None = None
-    if external_job_id:
-        get_job = getattr(mediascribe_client, "get_job", None)
-        if callable(get_job):
-            try:
-                provider_job = await get_job(external_job_id)
-            except MediaScribeClientError as exc:
-                await _restore_unknown_processing_state(
-                    db,
-                    workflow=workflow,
-                    retry_after_seconds=exc.retry_after_seconds,
-                    schedule_next_retry=exc.retryable,
-                    settings=settings,
-                )
-                return None
-            if not _provider_request_matches_job(provider_job=provider_job, job=job):
-                await _restore_unknown_processing_state(db, workflow=workflow, settings=settings)
-                return None
-    else:
-        if not isinstance(idempotency_key, str) or not idempotency_key:
-            await _restore_unknown_processing_state(db, workflow=workflow, settings=settings)
-            return None
-        list_jobs = getattr(mediascribe_client, "list_jobs", None)
-        if not callable(list_jobs):
-            await _restore_unknown_processing_state(db, workflow=workflow, settings=settings)
-            return None
+    get_job = getattr(mediascribe_client, "get_job", None)
+    if callable(get_job):
         try:
-            listing = await list_jobs(q=idempotency_key, page_size=100)
+            provider_job = await get_job(external_job_id)
         except MediaScribeClientError as exc:
             await _restore_unknown_processing_state(
                 db,
@@ -396,31 +379,8 @@ async def _reconcile_unknown_mediascribe_upload(
                 settings=settings,
             )
             return None
-        fingerprint_mismatch = False
-        for candidate in getattr(listing, "data", ()) or ():
-            if _provider_job_field(candidate, "idempotency_key") != idempotency_key:
-                continue
-            candidate_id = _provider_job_field(candidate, "id")
-            if isinstance(candidate_id, str) and candidate_id:
-                if not _provider_request_matches_job(provider_job=candidate, job=job):
-                    fingerprint_mismatch = True
-                    continue
-                provider_job = candidate
-                external_job_id = candidate_id
-                break
-        if fingerprint_mismatch and not external_job_id:
+        if not _provider_request_matches_job(provider_job=provider_job, job=job):
             await _restore_unknown_processing_state(db, workflow=workflow, settings=settings)
-            return None
-        if not external_job_id:
-            # The provider may be eventually consistent after an ambiguous
-            # upload. Re-querying with the same key is safe and avoids a
-            # duplicate multipart submission.
-            await _restore_unknown_processing_state(
-                db,
-                workflow=workflow,
-                schedule_next_retry=True,
-                settings=settings,
-            )
             return None
 
     status = (
@@ -428,22 +388,13 @@ async def _reconcile_unknown_mediascribe_upload(
         if provider_job is not None
         else MediaScribeJobStatus.SUBMITTED
     )
-    if getattr(job, "external_job_id", None) is None:
-        job.external_job_id = external_job_id
-        job = await store.persist_mediascribe_submission(
-            db,
-            job=job,
-            external_job_id=external_job_id,
-            status=status,
-        )
-    else:
-        # The fallback path already retained the opaque provider ID. Clear the
-        # blocked projection so the normal poll/import path can advance it.
-        job.status = status.value
-        job.failed_at = None
-        job.last_error_code = None
-        job.last_error_message = None
-        await db.commit()
+    # The fallback path already retained the opaque provider ID. Clear the
+    # blocked projection so the normal poll/import path can advance it.
+    job.status = status.value
+    job.failed_at = None
+    job.last_error_code = None
+    job.last_error_message = None
+    await db.commit()
     await _restore_unknown_processing_state(db, workflow=workflow, settings=settings)
     return job
 
@@ -1498,9 +1449,12 @@ async def run_processing_pipeline_activity(
                 job = submit_result.job
             except ManualUploadNormalizationPending as exc:
                 now = datetime.now(UTC)
+                next_attempt_at = exc.next_attempt_at
+                if next_attempt_at is not None and next_attempt_at.tzinfo is None:
+                    next_attempt_at = next_attempt_at.replace(tzinfo=UTC)
                 delay = (
-                    max(5, min(int((exc.next_attempt_at - now).total_seconds()), 900))
-                    if exc.next_attempt_at is not None
+                    max(5, min(int((next_attempt_at - now).total_seconds()), 900))
+                    if next_attempt_at is not None
                     else 900
                 )
                 return {
@@ -1509,8 +1463,8 @@ async def run_processing_pipeline_activity(
                     "reason_code": exc.reason_code,
                     "next_poll_seconds": str(delay),
                     **(
-                        {"next_attempt_at": exc.next_attempt_at.isoformat()}
-                        if exc.next_attempt_at is not None
+                        {"next_attempt_at": next_attempt_at.isoformat()}
+                        if next_attempt_at is not None
                         else {}
                     ),
                 }
@@ -1533,35 +1487,29 @@ async def run_processing_pipeline_activity(
             except MediaScribeClientError as exc:
                 if exc.reason_code != reasons.BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN:
                     raise
-                # submit.py has already recorded the safe unknown marker. The
-                # only allowed next operation is a same-key lookup; no upload
-                # retry is attempted when that lookup cannot prove a job.
-                job = await store.get_mediascribe_job(
-                    db,
-                    workspace_id=workspace_id,
-                    meeting_id=meeting_id,
-                    media_revision_id=workflow.media_revision_id,
-                    processing_workflow_id=workflow.id,
-                    active_only=False,
+                # The ambiguous attempt is durably recorded. Replaying the
+                # exact same POST belongs to the next workflow/manual cycle;
+                # never poll a job whose opaque provider id is unknown.
+                workflow = (
+                    await _restore_unknown_processing_state(
+                        db,
+                        workflow=workflow,
+                        retry_after_seconds=exc.retry_after_seconds,
+                        schedule_next_retry=True,
+                        settings=settings,
+                    )
+                    or workflow
                 )
-                job = await _reconcile_unknown_mediascribe_upload(
-                    db,
-                    workflow=workflow,
-                    job=job,
-                    mediascribe_client=mediascribe_client,
-                    settings=settings,
-                )
-                if job is None:
-                    return {
-                        "meeting_id": payload.get("meeting_id", meeting_ref),
-                        "processing_status": ProcessingStatus.BLOCKED_UNKNOWN.value,
-                        "reason_code": reasons.BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN,
-                        **(
-                            {"next_poll_seconds": _next_poll_seconds(workflow)}
-                            if _next_poll_seconds(workflow)
-                            else {}
-                        ),
-                    }
+                return {
+                    "meeting_id": payload.get("meeting_id", meeting_ref),
+                    "processing_status": ProcessingStatus.BLOCKED_UNKNOWN.value,
+                    "reason_code": reasons.BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN,
+                    **(
+                        {"next_poll_seconds": _next_poll_seconds(workflow)}
+                        if _next_poll_seconds(workflow)
+                        else {}
+                    ),
+                }
             _heartbeat_processing_activity(
                 activity,
                 state="submitted",

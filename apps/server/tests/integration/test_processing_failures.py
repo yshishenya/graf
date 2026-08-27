@@ -26,7 +26,10 @@ from twobrain_rec_server.domain.statuses import (
 )
 from twobrain_rec_server.mediascribe.client import MediaScribeClientError
 from twobrain_rec_server.mediascribe.import_results import MediaScribeResultValidationError
-from twobrain_rec_server.mediascribe.schemas import MediaScribePollResponse
+from twobrain_rec_server.mediascribe.schemas import (
+    MediaScribePollResponse,
+    MediaScribeSubmitResponse,
+)
 from twobrain_rec_server.processing import store
 from twobrain_rec_server.processing import submit as submit_module
 from twobrain_rec_server.processing.reasons import PROCESSING_TEMP_STORAGE_UNAVAILABLE
@@ -108,6 +111,35 @@ class RetryablePipelineSubmitClient:
         raise MediaScribeClientError("mediascribe_timeout", retryable=True)
 
 
+class AmbiguousThenReplayedV5Client:
+    def __init__(self) -> None:
+        self.idempotency_keys: list[str | None] = []
+        self.media_payloads: list[bytes] = []
+        self.poll_count = 0
+
+    async def submit_single_track(self, **kwargs):
+        self.idempotency_keys.append(kwargs.get("idempotency_key"))
+        self.media_payloads.append(kwargs["media_file"].read())
+        if len(self.media_payloads) == 1:
+            raise MediaScribeClientError(
+                "mediascribe_timeout",
+                retryable=True,
+                egress_state="unknown",
+            )
+        return MediaScribeSubmitResponse(
+            external_job_id="job_ambiguous_replayed",
+            status=MediaScribeJobStatus.UPLOADED,
+        )
+
+    async def poll_job(self, external_job_id: str) -> MediaScribePollResponse:
+        assert external_job_id == "job_ambiguous_replayed"
+        self.poll_count += 1
+        return MediaScribePollResponse(
+            external_job_id=external_job_id,
+            status=MediaScribeJobStatus.TRANSCRIBING,
+        )
+
+
 def test_processing_failure_matrix_marks_auth_terminal_and_timeout_retryable(client) -> None:
     terminal = _run_submit_failure(
         client, "failure-auth", "mediascribe_auth_failed", retryable=False
@@ -130,7 +162,7 @@ def test_worker_single_step_advances_retry_state_once(client, monkeypatch, fail_
     monkeypatch.setattr(worker.MediaScribeClient, "from_settings", lambda _settings: fake_client)
     monkeypatch.setattr(activity, "heartbeat", lambda *_args, **_kwargs: None)
 
-    async def run() -> tuple[dict[str, str], int, int]:
+    async def run() -> tuple[dict[str, str], int, int, str, str]:
         async with client.app_state["sessionmaker"]() as db:
             await _submitted_job(db, workspace_id, meeting_id, media_revision_id)
             await db.commit()
@@ -151,12 +183,34 @@ def test_worker_single_step_advances_retry_state_once(client, monkeypatch, fail_
                 select(ProcessingWorkflow).where(ProcessingWorkflow.meeting_id == meeting_id)
             )
             assert persisted is not None
-            return result, persisted.retry_count, persisted.schedule_generation
+            retry_count = persisted.retry_count
+            schedule_generation = persisted.schedule_generation
+            job = await db.scalar(
+                select(MediaScribeJob).where(MediaScribeJob.meeting_id == meeting_id)
+            )
+            assert job is not None
+            job_status = job.status
+            claim = await store.claim_processing_manual_check(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+                command_key=f"retry-{fail_at}",
+            )
+            return (
+                result,
+                retry_count,
+                schedule_generation,
+                job_status,
+                claim.request_result,
+            )
 
-    result, retry_count, schedule_generation = asyncio.run(run())
+    result, retry_count, schedule_generation, job_status, claim_result = asyncio.run(run())
     assert result["processing_status"] == ProcessingStatus.WAITING_RETRY.value
     assert retry_count == 1
     assert schedule_generation == 1
+    assert job_status != MediaScribeJobStatus.FAILED.value
+    assert claim_result == "accepted"
 
 
 def test_worker_submit_failure_advances_retry_state_once(client, monkeypatch) -> None:
@@ -423,18 +477,73 @@ def test_v5_timeout_retries_same_job_intent(client) -> None:
     assert mediascribe_client.idempotency_keys[0] == mediascribe_client.idempotency_keys[1]
 
 
+def test_ambiguous_v5_submit_replays_exact_intent_next_cycle_before_polling(
+    client,
+    monkeypatch,
+) -> None:
+    finalized = create_finalized_mixed_recording(client, "failure-v5-ambiguous-replay")
+    meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
+    workspace_id = UUID(finalized["meeting"]["workspace_id"])
+    mediascribe_client = AmbiguousThenReplayedV5Client()
+    monkeypatch.setattr(worker, "get_settings", lambda: client.app.state.settings)
+    monkeypatch.setattr(
+        worker.MediaScribeClient,
+        "from_settings",
+        lambda _settings: mediascribe_client,
+    )
+    monkeypatch.setattr(worker, "get_storage", lambda _settings: client.app_state["storage"])
+    monkeypatch.setattr(activity, "heartbeat", lambda *_args, **_kwargs: None)
+
+    async def run() -> tuple[dict[str, str], dict[str, str]]:
+        async with client.app_state["sessionmaker"]() as db:
+            await store.upsert_processing_workflow(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+                workflow_id=f"processing/{media_revision_id}",
+                status=ProcessingStatus.WORKFLOW_STARTED,
+            )
+        scope = tenant_scope()
+        payload = {
+            "meeting_id": str(meeting_id),
+            "workspace_id": str(workspace_id),
+            "organization_id": str(scope.organization_id),
+            "user_id": str(scope.user_id),
+            "device_id": str(scope.device_id),
+            "media_revision_id": str(media_revision_id),
+            "single_step": "true",
+        }
+        first = await worker.run_processing_pipeline_activity(payload)
+        assert mediascribe_client.poll_count == 0
+        second = await worker.run_processing_pipeline_activity(payload)
+        return first, second
+
+    first, second = asyncio.run(run())
+
+    assert first["processing_status"] == ProcessingStatus.BLOCKED_UNKNOWN.value
+    assert first["reason_code"] == "blocked_mediascribe_submission_outcome_unknown"
+    assert second["processing_status"] == ProcessingStatus.WAITING_RETRY.value
+    assert mediascribe_client.poll_count == 1
+    assert len(mediascribe_client.idempotency_keys) == 2
+    assert mediascribe_client.idempotency_keys[0] == mediascribe_client.idempotency_keys[1]
+    assert mediascribe_client.media_payloads[0] == mediascribe_client.media_payloads[1]
+
+
 def test_waiting_retry_reuses_existing_job_and_reaches_poll_boundary(client) -> None:
     finalized = create_finalized_meeting(client, "failure-waiting-retry-existing-job")
     meeting_id = UUID(finalized["meeting"]["meeting_id"])
     media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
     workspace_id = UUID(finalized["meeting"]["workspace_id"])
 
-    async def run() -> tuple[str, str, bool]:
+    async def run() -> tuple[str, str, bool, int]:
         async with client.app_state["sessionmaker"]() as db:
             workflow, job = await _submitted_job(db, workspace_id, meeting_id, media_revision_id)
             workflow.status = ProcessingStatus.WAITING_RETRY.value
             workflow.retry_class = "retryable"
             await db.commit()
+            attempt_count = workflow.attempt_count
 
             recovered = await submit_to_mediascribe(
                 db=db,
@@ -443,12 +552,18 @@ def test_waiting_retry_reuses_existing_job_and_reaches_poll_boundary(client) -> 
                 mediascribe_client=object(),
                 workflow=workflow,
             )
-            return workflow.status, recovered.job.status, recovered.submitted
+            return (
+                workflow.status,
+                recovered.job.status,
+                recovered.submitted,
+                workflow.attempt_count - attempt_count,
+            )
 
     assert asyncio.run(run()) == (
-        ProcessingStatus.SUBMITTED.value,
+        ProcessingStatus.WAITING_RETRY.value,
         MediaScribeJobStatus.UPLOADED.value,
         False,
+        0,
     )
 
 

@@ -107,7 +107,9 @@ Gate обходится только после подтверждённого p
 явном same-idempotency-key reconciliation неизвестного результата POST. Локальная
 строка job без `external_job_id` остаётся pre-egress и повторно обязана доказать
 exact canonical identity и request fingerprint. После подтверждённого provider
-job workflow продолжает same-job polling и никогда не повторяет multipart upload.
+job workflow продолжает same-job polling. До получения `external_job_id`
+неизвестный POST может быть повторён только exact тем же multipart envelope и
+durable idempotency key; новый ключ и новая provider job запрещены.
 
 `archive_audio=false` использует тот же canonical artifact временно: единый
 revision policy helper запрещает playback egress и storage reserve/commit, но

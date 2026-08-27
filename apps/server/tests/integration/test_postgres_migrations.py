@@ -1,15 +1,17 @@
 import asyncio
 import importlib.util
 import re
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from tests.fakes.fake_minio import FakeMinioStorage
@@ -118,6 +120,7 @@ def test_processing_recovery_migration_adds_revision_first_transient_custody_ind
     )
     created: list[tuple[str, str, tuple[str, ...], str]] = []
     dropped: list[tuple[str, str | None]] = []
+    added_columns: list[tuple[str, str]] = []
 
     class MigrationOp:
         def get_bind(self):
@@ -135,6 +138,18 @@ def test_processing_recovery_migration_adds_revision_first_transient_custody_ind
 
         def drop_index(self, name, *, table_name=None) -> None:
             dropped.append((name, table_name))
+
+        def add_column(self, table_name, column) -> None:
+            added_columns.append((table_name, column.name))
+
+        def drop_column(self, _table_name, _column_name) -> None:
+            return None
+
+        def create_foreign_key(self, *_args, **_kwargs) -> None:
+            return None
+
+        def drop_constraint(self, *_args, **_kwargs) -> None:
+            return None
 
     monkeypatch.setattr(migration, "op", MigrationOp())
 
@@ -161,6 +176,142 @@ def test_processing_recovery_migration_adds_revision_first_transient_custody_ind
         "ix_upload_sessions_processing_dispatch_recovery",
         "upload_sessions",
     ) in dropped
+    assert ("meeting_purge_journal", "media_revision_id") in added_columns
+    assert (
+        "ix_meeting_purge_journal_transient_revision",
+        "meeting_purge_journal",
+        ("media_revision_id", "state", "next_retry_at"),
+        "artifact_class = 'transient_audio'",
+    ) in created
+
+
+def test_processing_recovery_downgrade_blocks_storage_capacity_terminal_row(
+    postgres_clean_database_url: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TWOBRAIN_DATABASE_URL", postgres_clean_database_url)
+    get_settings.cache_clear()
+    alembic_config = Config(str(ROOT / "apps/server/alembic.ini"))
+    alembic_config.set_main_option(
+        "script_location", str(ROOT / "apps/server/src/twobrain_rec_server/db/migrations")
+    )
+    command.upgrade(alembic_config, "0083_processing_recovery")
+    meeting_id = uuid4()
+    media_revision_id = uuid4()
+    job_id = uuid4()
+
+    async def seed_storage_capacity_failure() -> None:
+        engine = create_async_engine(postgres_clean_database_url)
+        sessionmaker = async_sessionmaker(engine, expire_on_commit=False)
+        try:
+            await _seed_identity(sessionmaker)
+            async with engine.begin() as connection:
+                await connection.execute(
+                    text(
+                        """
+                        insert into meetings
+                            (id, workspace_id, created_by_user_id, device_id,
+                             local_recording_id, duration_seconds, status)
+                        values
+                            (:id, :workspace_id, :user_id, :device_id,
+                             'migration-0083-downgrade', 60, 'ready')
+                        """
+                    ),
+                    {
+                        "id": meeting_id,
+                        "workspace_id": WORKSPACE_ID,
+                        "user_id": USER_ID,
+                        "device_id": DEVICE_ID,
+                    },
+                )
+                await connection.execute(
+                    text(
+                        """
+                        insert into media_revisions
+                            (id, workspace_id, meeting_id, local_media_revision_id,
+                             source_kind, status, immutable, accepted_at)
+                        values
+                            (:id, :workspace_id, :meeting_id, 'migration-0083-revision',
+                             'manual_upload', 'accepted', true, current_timestamp)
+                        """
+                    ),
+                    {
+                        "id": media_revision_id,
+                        "workspace_id": WORKSPACE_ID,
+                        "meeting_id": meeting_id,
+                    },
+                )
+                await connection.execute(
+                    text(
+                        """
+                        insert into playback_normalization_jobs
+                            (id, organization_id, workspace_id, requested_by_user_id,
+                             source_device_id, meeting_id, media_revision_id,
+                             trigger_kind, priority_class, source_kind,
+                             source_fingerprint_sha256, planned_action, state,
+                             reason_code, workflow_id, terminal_at,
+                             lease_owner_sha256, lease_expires_at)
+                        values
+                            (:id, :organization_id, :workspace_id, :user_id,
+                             :device_id, :meeting_id, :media_revision_id,
+                             'finalize', 'new_ingest', 'manual_upload', :fingerprint,
+                             'normalize_source', 'terminal',
+                             'storage_capacity_exceeded', :workflow_id, :terminal_at,
+                             :lease_owner, :lease_expires_at)
+                        """
+                    ),
+                    {
+                        "id": job_id,
+                        "organization_id": ORG_ID,
+                        "workspace_id": WORKSPACE_ID,
+                        "user_id": USER_ID,
+                        "device_id": DEVICE_ID,
+                        "meeting_id": meeting_id,
+                        "media_revision_id": media_revision_id,
+                        "fingerprint": "a" * 64,
+                        "workflow_id": f"playback-normalization/{media_revision_id}",
+                        "terminal_at": datetime.now(UTC),
+                        "lease_owner": "b" * 64,
+                        "lease_expires_at": datetime.now(UTC),
+                    },
+                )
+        finally:
+            await engine.dispose()
+
+    asyncio.run(seed_storage_capacity_failure())
+    with pytest.raises(SQLAlchemyError, match="0083 downgrade blocked"):
+        command.downgrade(alembic_config, "0082_mediascribe_words")
+
+    async def downgraded_row() -> tuple[object, ...]:
+        engine = create_async_engine(postgres_clean_database_url)
+        try:
+            async with engine.connect() as connection:
+                row = (
+                    await connection.execute(
+                        text(
+                            """
+                            select state, reason_code, next_attempt_at, terminal_at,
+                                   lease_owner_sha256, lease_expires_at
+                            from playback_normalization_jobs
+                            where id = :job_id
+                            """
+                        ),
+                        {"job_id": job_id},
+                    )
+                ).one()
+                return tuple(row)
+        finally:
+            await engine.dispose()
+
+    state, reason, next_attempt_at, terminal_at, lease_owner, lease_expires_at = asyncio.run(
+        downgraded_row()
+    )
+    assert (state, reason) == ("terminal", "storage_capacity_exceeded")
+    assert next_attempt_at is None
+    assert terminal_at is not None
+    assert lease_owner == "b" * 64
+    assert lease_expires_at is not None
+    get_settings.cache_clear()
 
 
 async def _seed_identity(sessionmaker) -> None:
@@ -344,6 +495,7 @@ def test_production_share_head_upgrades_to_regeneration_merge(
             "generator_config_hash",
         },
         "dispatch_intents": {"reconciliation_state", "last_reconciled_at"},
+        "meeting_purge_journal": {"media_revision_id"},
         "time_credit_ledger_entries": {"referral_attribution_id"},
     }
     assert all(

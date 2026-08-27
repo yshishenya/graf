@@ -344,6 +344,8 @@ class MinioStorage:
                     if remaining is not None:
                         remaining -= len(chunk)
                     yield chunk
+                if remaining:
+                    raise StorageTransferError("storage_object_size_mismatch")
             finally:
                 response.close()
                 response.release_conn()

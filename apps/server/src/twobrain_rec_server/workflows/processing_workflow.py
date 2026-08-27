@@ -116,7 +116,7 @@ if workflow is not None:
                     continue
                 if status == "blocked_unknown":
                     # A lost upload response is not a terminal workflow. The
-                    # activity schedules a same-key lookup when it is safe;
+                    # activity schedules an exact same-key replay when safe;
                     # manual reconciliation can wake the same durable wait.
                     try:
                         delay = max(5, min(int(result.get("next_poll_seconds", "")), 900))

@@ -246,6 +246,7 @@ class NormalizationPipeline(Protocol):
         output_path: Path,
         *,
         tolerant_first: bool = False,
+        expected_duration_seconds: int | None = None,
     ) -> NormalizedOutput: ...
 
 
@@ -426,12 +427,19 @@ class FFmpegNormalizationPipeline:
         output_path: Path,
         *,
         tolerant_first: bool = False,
+        expected_duration_seconds: int | None = None,
     ) -> NormalizedOutput:
         try:
             facts, stream = await self._probe_source(source_path)
             _reject_known_probe_duration_over_limit(facts, stream)
             if tolerant_first:
                 duration = validate_tolerant_source_duration(facts, stream)
+                if expected_duration_seconds is not None:
+                    _validate_authoritative_source_duration(
+                        _duration_milliseconds(duration),
+                        expected_duration_seconds=expected_duration_seconds,
+                        manual_upload=True,
+                    )
                 await self._run_ffmpeg(
                     build_transcode_command(
                         self.ffmpeg_path,
@@ -766,6 +774,10 @@ def _validate_authoritative_source_duration(
 ) -> None:
     expected = Decimal(expected_duration_seconds)
     tolerance = (
+        # The browser reports ceil(media.duration), so this allowance covers
+        # integer rounding plus small probe differences.  Frame-loss recovery
+        # is validated separately against the generated M4A and must not let a
+        # long upload under-declare its source duration by up to a minute.
         Decimal("1.25")
         if manual_upload
         else max(
@@ -1953,6 +1965,11 @@ async def request_normalization_retry_now(
 
     if media_revision_id is None:
         return NormalizationManualRetryResult(result="not_available")
+    require_database_context(
+        db,
+        allowed_context_kinds=frozenset({"request", "worker"}),
+        workspace_id=workspace_id,
+    )
     current_time = now or datetime.now(UTC)
     meeting = await db.scalar(
         select(Meeting)
@@ -1961,6 +1978,17 @@ async def request_normalization_retry_now(
         .execution_options(populate_existing=True)
     )
     if meeting is None or meeting_is_deleted_or_deleting(meeting):
+        return NormalizationManualRetryResult(result="closed")
+    current_revision_id = await db.scalar(
+        select(MediaRevision.id)
+        .where(
+            MediaRevision.workspace_id == workspace_id,
+            MediaRevision.meeting_id == meeting_id,
+            MediaRevision.status == MediaRevisionStatus.ACCEPTED.value,
+        )
+        .order_by(MediaRevision.revision_number.desc())
+    )
+    if current_revision_id != media_revision_id:
         return NormalizationManualRetryResult(result="closed")
     job = await db.scalar(
         select(PlaybackNormalizationJob)
@@ -1985,7 +2013,11 @@ async def request_normalization_retry_now(
             job_id=job.id,
             media_revision_id=job.media_revision_id,
         )
-    if job.state != JobState.RETRY_WAIT.value or job.next_attempt_at is None:
+    if (
+        job.state != JobState.RETRY_WAIT.value
+        or job.next_attempt_at is None
+        or job.reason_code is None
+    ):
         return NormalizationManualRetryResult(
             result="not_retryable",
             job_id=job.id,
@@ -3007,6 +3039,11 @@ async def _derive_from_single_source(
         media_path,
         output_path,
         tolerant_first=(prepared.job.source_kind == MediaRevisionSourceKind.MANUAL_UPLOAD.value),
+        expected_duration_seconds=(
+            prepared.expected_duration_seconds
+            if prepared.job.source_kind == MediaRevisionSourceKind.MANUAL_UPLOAD.value
+            else None
+        ),
     )
 
 

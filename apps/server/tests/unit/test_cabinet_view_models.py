@@ -188,6 +188,23 @@ def test_playback_preparing_state_never_creates_a_dead_player_path() -> None:
     assert playback.playback_path is None
 
 
+def test_storage_capacity_playback_reason_is_in_public_state_contract() -> None:
+    playback = PlaybackPreparationState(
+        state="unavailable",
+        reason_code="storage_capacity_exceeded",
+        label="Недостаточно места для подготовки аудио",
+    )
+
+    assert playback.model_dump(mode="json") == {
+        "state": "unavailable",
+        "reason_code": "storage_capacity_exceeded",
+        "label": "Недостаточно места для подготовки аудио",
+        "automatic_recovery": False,
+        "can_play": False,
+        "action": "disabled",
+    }
+
+
 def test_playback_reason_copy_has_complete_bounded_ru_en_pairs() -> None:
     expected = {
         "normalization_queued": (
@@ -247,6 +264,10 @@ def test_playback_reason_copy_has_complete_bounded_ru_en_pairs() -> None:
             "Целостность исходного файла не подтверждена",
             "Source file integrity could not be confirmed",
         ),
+        "storage_capacity_exceeded": (
+            "Недостаточно места для подготовки аудио",
+            "There is not enough storage to prepare the audio",
+        ),
     }
 
     for reason_code, (ru_copy, en_copy) in expected.items():
@@ -260,6 +281,10 @@ def test_playback_reason_copy_has_complete_bounded_ru_en_pairs() -> None:
     )
     assert view_models.playback_reason_copy("private-new-reason", locale="en") == (
         "Audio is unavailable"
+    )
+    assert (
+        view_models.PLAYBACK_TERMINAL_REASON["storage_capacity_exceeded"]
+        == "storage_capacity_exceeded"
     )
 
 
@@ -922,6 +947,24 @@ def test_status_mapping_handles_ready_partial_processing_and_failed() -> None:
 
     assert view_models.review_status(_meeting(), result=ready, workflow=None) == "ready"
     assert view_models.review_status(_meeting(), result=partial, workflow=None) == "partial"
+    processed_workflow = ProcessingWorkflow(
+        id=uuid4(),
+        workspace_id=partial.workspace_id,
+        meeting_id=partial.meeting_id,
+        workflow_id="processing/incomplete-result",
+        purpose="transcription",
+        status=ProcessingStatus.PROCESSED.value,
+    )
+    partial.processing_workflow_id = processed_workflow.id
+    assert (
+        view_models.review_status(_meeting(), result=partial, workflow=processed_workflow)
+        == "failed"
+    )
+    processed_workflow.status = ProcessingStatus.IMPORTING.value
+    assert (
+        view_models.review_status(_meeting(), result=partial, workflow=processed_workflow)
+        == "processing"
+    )
     assert (
         view_models.review_status(_meeting(ProcessingStatus.POLLING), result=None, workflow=None)
         == "processing"
@@ -961,7 +1004,10 @@ def test_watchdog_status_is_consistent_in_meeting_list_projection() -> None:
     assert item.status == "processing"
     assert item.status_label == "Нужна проверка"
     assert item.status_reason == "processing_retry_deadline_exceeded"
-    assert row.content_readiness_label == "Результат ещё не подтверждён · откройте встречу для проверки"
+    assert (
+        row.content_readiness_label
+        == "Результат ещё не подтверждён · откройте встречу для проверки"
+    )
 
 
 def test_processing_state_uses_no_speech_and_invalid_audio_copy_from_result() -> None:

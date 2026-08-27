@@ -460,16 +460,10 @@ async def submit_to_mediascribe(
         source_fingerprint=workflow.source_fingerprint,
     )
     if existing_job is not None and existing_job.external_job_id:
-        if workflow.status in {
-            ProcessingStatus.WORKFLOW_STARTED,
-            ProcessingStatus.SUBMITTING,
-            ProcessingStatus.FAILED_RETRYABLE,
-            ProcessingStatus.WAITING_RETRY,
-        }:
+        if workflow.status == ProcessingStatus.WORKFLOW_STARTED.value:
             # A durable timer resumes the same idempotent provider job. Move
-            # the workflow back through the submitted boundary so the
-            # single-step activity polls it instead of scheduling another
-            # timer forever.
+            # a crash-recovered pre-submit projection through its required
+            # lifecycle boundary before polling the already-known job.
             await store.set_workflow_status(
                 db,
                 workflow,
@@ -477,6 +471,7 @@ async def submit_to_mediascribe(
                 reason_code="submission_recovered",
                 deadline_seconds=settings.processing_recovery_deadline_seconds,
             )
+        if workflow.status == ProcessingStatus.SUBMITTING.value:
             await store.set_workflow_status(
                 db,
                 workflow,
