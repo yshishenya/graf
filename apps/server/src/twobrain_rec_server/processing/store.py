@@ -966,6 +966,17 @@ async def create_processing_attempt(
             media_revision_id=media_revision.id,
             attempt_ordinal=int(current.attempt_ordinal or 1),
         )
+    if (
+        not current.archive_audio
+        and current.transient_hard_deadline is not None
+        and current.transient_hard_deadline <= datetime.now(UTC)
+    ):
+        return ProcessingAttemptCreation(
+            result="source_expired",
+            workflow=current,
+            media_revision_id=media_revision.id,
+            attempt_ordinal=int(current.attempt_ordinal or 1),
+        )
     if terminal_input_result_is_terminal and current_status not in {
         ProcessingStatus.PROCESSED.value,
         ProcessingStatus.BLOCKED.value,
@@ -1000,6 +1011,17 @@ async def create_processing_attempt(
     ):
         return ProcessingAttemptCreation(
             result="quota_exceeded",
+            workflow=current,
+            media_revision_id=media_revision.id,
+            attempt_ordinal=int(current.attempt_ordinal or 1),
+        )
+    if (
+        not current.archive_audio
+        and current.transient_hard_deadline is not None
+        and current.transient_hard_deadline <= datetime.now(UTC)
+    ):
+        return ProcessingAttemptCreation(
+            result="source_expired",
             workflow=current,
             media_revision_id=media_revision.id,
             attempt_ordinal=int(current.attempt_ordinal or 1),

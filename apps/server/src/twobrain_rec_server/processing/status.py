@@ -55,7 +55,19 @@ async def get_content_safe_processing_status(
         result,
         media_revision_id=media_revision_id,
     )
-    safe_result = result if same_result_lineage else None
+    safe_result = (
+        result
+        if same_result_lineage
+        and (
+            workflow is None
+            or result.processing_workflow_id == workflow.id
+            or (
+                result.processing_workflow_id is None
+                and int(workflow.attempt_ordinal or 1) == 1
+            )
+        )
+        else None
+    )
     result_terminal_input = bool(
         result_is_terminal_input(safe_result)
         and workflow is not None
@@ -64,16 +76,16 @@ async def get_content_safe_processing_status(
     if result_terminal_input:
         state = ProcessingStatus.FAILED_TERMINAL
     transcript_available = (
-        same_result_lineage
-        and result.transcript_status == ProcessingAvailabilityStatus.AVAILABLE.value
-        and result.segment_count > 0
-        and result.diarization_status == ProcessingAvailabilityStatus.AVAILABLE.value
-        and result.diarization_segment_count > 0
+        safe_result is not None
+        and safe_result.transcript_status == ProcessingAvailabilityStatus.AVAILABLE.value
+        and safe_result.segment_count > 0
+        and safe_result.diarization_status == ProcessingAvailabilityStatus.AVAILABLE.value
+        and safe_result.diarization_segment_count > 0
     )
     diarization_available = (
-        same_result_lineage
-        and result.diarization_status == ProcessingAvailabilityStatus.AVAILABLE.value
-        and result.diarization_segment_count > 0
+        safe_result is not None
+        and safe_result.diarization_status == ProcessingAvailabilityStatus.AVAILABLE.value
+        and safe_result.diarization_segment_count > 0
     )
     updated_at = None
     if workflow is not None:

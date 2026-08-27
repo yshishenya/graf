@@ -362,7 +362,7 @@ def test_imported_terminal_input_result_allows_a_fresh_attempt(
     )
 
 
-def test_replacement_no_archive_attempt_owns_transient_media_purge(client) -> None:
+def test_replacement_no_archive_attempt_owns_transient_media_purge(client, monkeypatch) -> None:
     finalized = create_finalized_meeting(
         client,
         "failure-no-archive-replacement-purge",
@@ -402,6 +402,34 @@ def test_replacement_no_archive_attempt_owns_transient_media_purge(client) -> No
                     failure_source="input_audio",
                 )
             )
+            await db.commit()
+
+            workflow.transient_hard_deadline = datetime.now(UTC)
+            await db.commit()
+            expired_creation = await store.create_processing_attempt(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+            )
+            assert expired_creation.result == "source_expired"
+            workflow.transient_hard_deadline = datetime.now(UTC) + timedelta(hours=1)
+            await db.commit()
+
+            reserve_quota = store._reserve_processing_attempt_quota
+
+            async def expire_while_reserving(*_args, **_kwargs) -> bool:
+                workflow.transient_hard_deadline = datetime.now(UTC)
+                return True
+
+            monkeypatch.setattr(store, "_reserve_processing_attempt_quota", expire_while_reserving)
+            raced_creation = await store.create_processing_attempt(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+            )
+            assert raced_creation.result == "source_expired"
+            monkeypatch.setattr(store, "_reserve_processing_attempt_quota", reserve_quota)
+            workflow.transient_hard_deadline = datetime.now(UTC) + timedelta(hours=1)
             await db.commit()
 
             creation = await store.create_processing_attempt(
