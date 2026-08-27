@@ -56,8 +56,15 @@ provider jobs. Коммиты, PR, merge, release и deploy остаются о�
 - T011: #5866
 - T012: #5865
 - T013: #5870
+- T025: #5890
+- T026: #5892
 
 ## Дополнение: tolerant media recovery
 
 - [X] T014 [P] [US1] Выполнить tolerant first-pass recovery и строгую проверку результата в `apps/server/src/twobrain_rec_server/normalization/media.py` и `apps/server/src/twobrain_rec_server/normalization/service.py`.
 - [X] T015 [P] [US1] Добавить audit/readiness guards и regression matrix для повреждённых, усечённых и валидных media-файлов в `apps/server/src/twobrain_rec_server/normalization/audit.py`, `apps/server/src/twobrain_rec_server/normalization/worker.py` и `apps/server/tests/`.
+
+## Дополнение: terminal input-audio recovery
+
+- [X] T025 [P] [US2] Зафиксировать contract/integration checks для `invalid_audio_payload/input_audio`, единого terminal-статуса и остановки frontend polling. (#5890)
+- [X] T026 [US2] Терминализировать новый provider input-audio failure, согласовать legacy `processed` projection и разрешить новую попытку на сохранённом canonical source. (#5892)

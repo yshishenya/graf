@@ -12,6 +12,11 @@ from twobrain_rec_server.domain.statuses import (
     ProcessingAvailabilityStatus,
     ProcessingResultStatus,
 )
+from twobrain_rec_server.processing.reasons import (
+    FAILURE_SOURCE_INPUT_AUDIO,
+    INVALID_AUDIO_PAYLOAD,
+    NO_RECOGNIZABLE_SPEECH,
+)
 
 
 def complete_processing_result_clause(model: Any = ProcessingResult) -> Any:
@@ -95,4 +100,21 @@ def result_is_complete(result: object | None) -> bool:
         and getattr(diarization_status, "value", diarization_status)
         == ProcessingAvailabilityStatus.AVAILABLE.value
         and int(getattr(result, "diarization_segment_count", 0) or 0) > 0
+    )
+
+
+def result_is_terminal_input(result: object | None) -> bool:
+    """Return whether an imported result proves a terminal input outcome."""
+
+    if result is None:
+        return False
+    status = getattr(result, "status", None)
+    reason = getattr(result, "failure_reason", None)
+    source = getattr(result, "failure_source", None)
+    return bool(
+        getattr(status, "value", status) == ProcessingResultStatus.IMPORTED.value
+        and (
+            reason == NO_RECOGNIZABLE_SPEECH
+            or (reason == INVALID_AUDIO_PAYLOAD and source == FAILURE_SOURCE_INPUT_AUDIO)
+        )
     )

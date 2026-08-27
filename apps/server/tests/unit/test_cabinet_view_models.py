@@ -1008,7 +1008,17 @@ def test_processing_state_uses_no_speech_and_invalid_audio_copy_from_result() ->
     assert invalid_audio_state.transcript_available is False
 
 
-def test_no_speech_result_is_terminal_for_list_and_detail_projections() -> None:
+@pytest.mark.parametrize(
+    ("failure_reason", "failure_source"),
+    [
+        ("no_recognizable_speech", None),
+        ("invalid_audio_payload", "input_audio"),
+    ],
+)
+def test_terminal_input_result_is_terminal_for_list_and_detail_projections(
+    failure_reason: str,
+    failure_source: str | None,
+) -> None:
     result = ProcessingResult(
         id=uuid4(),
         meeting_id=uuid4(),
@@ -1019,7 +1029,8 @@ def test_no_speech_result_is_terminal_for_list_and_detail_projections() -> None:
         diarization_status=ProcessingAvailabilityStatus.UNAVAILABLE.value,
         segment_count=0,
         diarization_segment_count=0,
-        failure_reason="no_recognizable_speech",
+        failure_reason=failure_reason,
+        failure_source=failure_source,
     )
     meeting = _meeting(ProcessingStatus.POLLING)
     meeting_id = meeting.id

@@ -981,7 +981,7 @@ async def _persist_input_audio_failure_result(
     await store.set_workflow_status(
         db,
         workflow,
-        ProcessingStatus.PROCESSED,
+        ProcessingStatus.FAILED_TERMINAL,
         reason_code=result.failure_reason,
         terminal=True,
     )
@@ -997,7 +997,7 @@ async def _persist_input_audio_failure_result(
         failure_source=FAILURE_SOURCE_INPUT_AUDIO,
         transcript_status=ProcessingAvailabilityStatus.UNAVAILABLE.value,
     )
-    return ImportProcessingResult(imported=True, status=ProcessingStatus.PROCESSED)
+    return ImportProcessingResult(imported=True, status=ProcessingStatus.FAILED_TERMINAL)
 
 
 async def _record_import_diagnostic(

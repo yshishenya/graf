@@ -220,8 +220,19 @@ def test_processing_status_ignores_historical_retry_class_after_processed_result
     assert payload["diarization_available"] is True
 
 
-def test_processing_status_projects_imported_no_speech_as_terminal_even_with_stale_workflow(client) -> None:
-    finalized = create_finalized_meeting(client, "processing-status-no-speech")
+@pytest.mark.parametrize(
+    ("failure_reason", "failure_source"),
+    [
+        ("no_recognizable_speech", None),
+        ("invalid_audio_payload", "input_audio"),
+    ],
+)
+def test_processing_status_projects_imported_terminal_input_even_with_stale_workflow(
+    client,
+    failure_reason: str,
+    failure_source: str | None,
+) -> None:
+    finalized = create_finalized_meeting(client, f"processing-status-{failure_reason}")
     meeting_id = UUID(finalized["meeting"]["meeting_id"])
     media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
     workspace_id = UUID(finalized["meeting"]["workspace_id"])
@@ -260,7 +271,8 @@ def test_processing_status_projects_imported_no_speech_as_terminal_even_with_sta
                     summary_status=SummaryStatus.NOT_REQUESTED.value,
                     segment_count=0,
                     diarization_segment_count=0,
-                    failure_reason="no_recognizable_speech",
+                    failure_reason=failure_reason,
+                    failure_source=failure_source,
                 )
             )
             await db.commit()
@@ -272,7 +284,7 @@ def test_processing_status_projects_imported_no_speech_as_terminal_even_with_sta
     payload = status.json()
     assert payload["state"] == ProcessingStatus.FAILED_TERMINAL.value
     assert payload["retry_class"] == "terminal"
-    assert payload["reason_code"] == "no_recognizable_speech"
+    assert payload["reason_code"] == failure_reason
     assert payload["manual_action"] == "new_attempt"
 
 

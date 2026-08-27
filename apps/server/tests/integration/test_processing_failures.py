@@ -263,8 +263,19 @@ def test_starting_attempt_persists_terminal_provider_failure(client) -> None:
     assert asyncio.run(run()) == ("failed_terminal", "mediascribe_auth_failed")
 
 
-def test_imported_no_speech_result_allows_a_fresh_attempt(client) -> None:
-    finalized = create_finalized_meeting(client, "failure-no-speech-new-attempt")
+@pytest.mark.parametrize(
+    ("failure_reason", "failure_source"),
+    [
+        ("no_recognizable_speech", None),
+        ("invalid_audio_payload", "input_audio"),
+    ],
+)
+def test_imported_terminal_input_result_allows_a_fresh_attempt(
+    client,
+    failure_reason: str,
+    failure_source: str | None,
+) -> None:
+    finalized = create_finalized_meeting(client, f"failure-{failure_reason}-new-attempt")
     meeting_id = UUID(finalized["meeting"]["meeting_id"])
     media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
     workspace_id = UUID(finalized["meeting"]["workspace_id"])
@@ -273,7 +284,7 @@ def test_imported_no_speech_result_allows_a_fresh_attempt(client) -> None:
         async with client.app_state["sessionmaker"]() as db:
             workflow, job = await _submitted_job(db, workspace_id, meeting_id, media_revision_id)
             workflow.status = ProcessingStatus.PROCESSED.value
-            workflow.last_reason_code = "no_recognizable_speech"
+            workflow.last_reason_code = failure_reason
             job.status = MediaScribeJobStatus.READY.value
             result = ProcessingResult(
                 workspace_id=workspace_id,
@@ -288,7 +299,8 @@ def test_imported_no_speech_result_allows_a_fresh_attempt(client) -> None:
                 summary_status="not_requested",
                 segment_count=0,
                 diarization_segment_count=0,
-                failure_reason="no_recognizable_speech",
+                failure_reason=failure_reason,
+                failure_source=failure_source,
             )
             db.add(result)
             await db.commit()
@@ -309,7 +321,7 @@ def test_imported_no_speech_result_allows_a_fresh_attempt(client) -> None:
                 old_result.processing_workflow_id == workflow.id if old_result is not None else "missing",
             )
 
-    assert asyncio.run(run()) == ("created", 2, "no_recognizable_speech", True)
+    assert asyncio.run(run()) == ("created", 2, failure_reason, True)
 
 
 def test_worker_activity_persists_blocked_config_when_mediascribe_is_unconfigured(client, monkeypatch) -> None:
@@ -563,8 +575,8 @@ def test_failed_job_invalid_audio_payload_is_input_audio_business_outcome(client
     persisted = asyncio.run(run())
 
     assert persisted == {
-        "import_status": "processed",
-        "workflow_status": "processed",
+        "import_status": "failed_terminal",
+        "workflow_status": "failed_terminal",
         "workflow_reason": "invalid_audio_payload",
         "job_status": "failed",
         "job_error_code": "invalid_audio_payload",

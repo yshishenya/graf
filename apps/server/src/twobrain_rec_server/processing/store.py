@@ -86,14 +86,16 @@ from twobrain_rec_server.processing.lifecycle import (
 from twobrain_rec_server.processing.reasons import (
     BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN,
     BLOCKED_TEMPORAL_UNAVAILABLE,
-    NO_RECOGNIZABLE_SPEECH,
 )
 from twobrain_rec_server.processing.recovery import (
     DEFAULT_DEADLINE,
     schedule_retry,
     schedule_retry_with_settings,
 )
-from twobrain_rec_server.processing.results import effective_processing_result_query
+from twobrain_rec_server.processing.results import (
+    effective_processing_result_query,
+    result_is_terminal_input,
+)
 
 
 class ProcessingLifecycleBlocked(RuntimeError):
@@ -899,13 +901,12 @@ async def create_processing_attempt(
         meeting_id=meeting_id,
         media_revision_id=media_revision.id,
     )
-    processed_no_speech_is_terminal = bool(
+    processed_terminal_input_is_terminal = bool(
         current_status == ProcessingStatus.PROCESSED.value
         and current_result is not None
-        and current_result.status == ProcessingResultStatus.IMPORTED.value
         and current_result.media_revision_id == media_revision.id
         and current_result.processing_workflow_id == current.id
-        and current_result.failure_reason == NO_RECOGNIZABLE_SPEECH
+        and result_is_terminal_input(current_result)
     )
     if current_status == ProcessingStatus.BLOCKED_UNKNOWN.value:
         return ProcessingAttemptCreation(
@@ -921,7 +922,10 @@ async def create_processing_attempt(
             media_revision_id=media_revision.id,
             attempt_ordinal=int(current.attempt_ordinal or 1),
         )
-    if current_status != ProcessingStatus.FAILED_TERMINAL.value and not processed_no_speech_is_terminal:
+    if (
+        current_status != ProcessingStatus.FAILED_TERMINAL.value
+        and not processed_terminal_input_is_terminal
+    ):
         return ProcessingAttemptCreation(
             result=(
                 "configuration_failure"

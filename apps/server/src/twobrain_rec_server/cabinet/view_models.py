@@ -97,7 +97,10 @@ from twobrain_rec_server.domain.statuses import (
 )
 from twobrain_rec_server.outcomes.templates import built_in_template_for_version
 from twobrain_rec_server.processing.fences import meeting_is_deleted_or_deleting
-from twobrain_rec_server.processing.results import result_lineage_is_current
+from twobrain_rec_server.processing.results import (
+    result_is_terminal_input,
+    result_lineage_is_current,
+)
 
 if TYPE_CHECKING:
     from twobrain_rec_server.auth.account_closure import AccountCloseView
@@ -2192,7 +2195,7 @@ def review_status(
     if has_transcript or has_diarization:
         return "partial"
 
-    # An imported provider result with an explicit terminal no-speech outcome
+    # An imported provider result with an explicit terminal input outcome
     # is authoritative even if a stale workflow row still says "processing".
     # This keeps list, detail, and the content-safe status endpoint on the
     # same user-visible terminal state.
@@ -2203,8 +2206,7 @@ def review_status(
             media_revision_id=media_revision_id,
             processing_workflow_id=processing_workflow_id,
         )
-        and result.status == ProcessingResultStatus.IMPORTED.value
-        and result.failure_reason == "no_recognizable_speech"
+        and result_is_terminal_input(result)
     ):
         return "failed"
 

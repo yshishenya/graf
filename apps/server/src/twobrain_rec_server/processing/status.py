@@ -8,12 +8,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from twobrain_rec_server.api.schemas import ProcessingArtifactProjection, ProcessingStatusResponse
 from twobrain_rec_server.domain.statuses import (
     ProcessingAvailabilityStatus,
-    ProcessingResultStatus,
     ProcessingStatus,
 )
 from twobrain_rec_server.processing import store
-from twobrain_rec_server.processing.reasons import NO_RECOGNIZABLE_SPEECH
-from twobrain_rec_server.processing.results import result_lineage_is_current
+from twobrain_rec_server.processing.results import (
+    result_is_terminal_input,
+    result_lineage_is_current,
+)
 
 
 async def get_content_safe_processing_status(
@@ -55,14 +56,12 @@ async def get_content_safe_processing_status(
         media_revision_id=media_revision_id,
     )
     safe_result = result if same_result_lineage else None
-    result_terminal_no_speech = bool(
-        safe_result is not None
-        and safe_result.status == ProcessingResultStatus.IMPORTED.value
-        and safe_result.failure_reason == NO_RECOGNIZABLE_SPEECH
+    result_terminal_input = bool(
+        result_is_terminal_input(safe_result)
         and workflow is not None
         and safe_result.processing_workflow_id == workflow.id
     )
-    if result_terminal_no_speech:
+    if result_terminal_input:
         state = ProcessingStatus.FAILED_TERMINAL
     transcript_available = (
         same_result_lineage
@@ -81,7 +80,7 @@ async def get_content_safe_processing_status(
         updated_at = workflow.updated_at
     elif result is not None:
         updated_at = result.updated_at
-    if result_terminal_no_speech:
+    if result_terminal_input:
         retry_class = "terminal"
     elif state == ProcessingStatus.PROCESSED:
         # A processed workflow may retain a historical retry class. It is no
