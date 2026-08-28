@@ -33,6 +33,7 @@ def test_result_import_is_idempotent_for_same_normalized_result(client) -> None:
     workspace_id = UUID(finalized["meeting"]["workspace_id"])
     result = MediaScribeResult(
         external_job_id="job_idempotent",
+        transcript_status=ProcessingAvailabilityStatus.AVAILABLE,
         transcript=[MediaScribeTranscriptSegment(sequence=0, start_seconds=0, end_seconds=1, text="hello", source_role="mic")],
     )
     fake_client = FakeMediaScribeClient(

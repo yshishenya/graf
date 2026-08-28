@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from sqlalchemy import select
@@ -366,6 +367,7 @@ async def _seed_reprocessed_result(client, meeting_id) -> None:
             meeting_id=previous.meeting_id,
             media_revision_id=previous.media_revision_id,
             mediascribe_job_id=previous.mediascribe_job_id,
+            processing_workflow_id=previous.processing_workflow_id,
             result_version=previous.result_version + 1,
             status=previous.status,
             transcript_status=previous.transcript_status,
@@ -375,6 +377,7 @@ async def _seed_reprocessed_result(client, meeting_id) -> None:
             segment_count=len(transcripts),
             diarization_segment_count=len(speakers),
             source_result_hash="synthetic-reprocessed-result",
+            imported_at=datetime.now(UTC),
         )
         db.add(current)
         await db.flush()
