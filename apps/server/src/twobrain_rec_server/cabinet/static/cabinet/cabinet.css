@@ -806,9 +806,10 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
   border-radius: 12px;
   background: var(--surface);
   text-align: left;
+  white-space: normal;
 }
 .summary-format-grid > button,
-.summary-personal-formats > button { align-items: flex-start; flex-direction: column; }
+.summary-personal-formats > button { align-items: flex-start; flex-direction: column; white-space: normal; }
 .summary-format-grid > button { white-space: normal; }
 .summary-format-grid > button span,
 .summary-personal-formats > button span,

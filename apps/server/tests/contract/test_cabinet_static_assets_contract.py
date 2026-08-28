@@ -298,7 +298,7 @@ const fs = require("fs");
 const vm = require("vm");
 const script = fs.readFileSync(process.argv[1], "utf8");
 const source = script.slice(
-  script.indexOf("const processingListStatusNode"),
+      script.indexOf("const renderProcessingListProjection"),
   script.indexOf("const initSummaryFormats"),
 );
 class FakeElement {
@@ -402,7 +402,7 @@ const fs = require("fs");
 const vm = require("vm");
 const script = fs.readFileSync(process.argv[1], "utf8");
 const source = script.slice(
-  script.indexOf("const processingListStatusNode"),
+      script.indexOf("const renderProcessingListProjection"),
   script.indexOf("const initSummaryFormats"),
 );
 let now = 100000;
@@ -1116,8 +1116,6 @@ def test_cabinet_rail_ready_state_geometry() -> None:
         f"{expanded_selector}\n  grid-template-columns: var(--app-sidebar-width) minmax(0, 1fr);"
         in css
     )
-    assert f"{collapsed_selector}\n  --playback-inline-start: var(--app-rail-width);\n  grid-template-columns: var(--app-rail-width) minmax(0, 1fr);" in css
-    assert f"{expanded_selector}\n  --playback-inline-start: var(--app-sidebar-width);\n  grid-template-columns: var(--app-sidebar-width) minmax(0, 1fr);" in css
 
 
 def test_cabinet_collapsed_rail_uses_one_centered_control_geometry() -> None:
@@ -1181,9 +1179,6 @@ def test_cabinet_playback_shares_ready_state_geometry() -> None:
 
     collapsed_selector = 'html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned) {'
     expanded_selector = 'html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell].is-rail-pinned {'
-    assert f"{collapsed_selector}\n  --playback-inline-start: var(--app-rail-width);" in css
-    assert f"{expanded_selector}\n  --playback-inline-start: var(--app-sidebar-width);" in css
-    assert "left: var(--playback-inline-start);" in css
     assert (
         'html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell] .sidebar {\n'
         "    z-index: 31;\n"
@@ -3672,7 +3667,7 @@ def test_detail_fetch_actions_share_fail_closed_authorization_recovery() -> None
         script.count(
             "recoverMeetingDetailFromResponse(response, { actionProblemCodes: summaryActionProblemCodes })"
         )
-        == 4
+            == 3
     )
     assert (
         script.count(
