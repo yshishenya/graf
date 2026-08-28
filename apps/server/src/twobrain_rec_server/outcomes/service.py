@@ -55,6 +55,7 @@ from twobrain_rec_server.processing.fences import (
 from twobrain_rec_server.processing.store import ProcessingLifecycleBlocked
 
 BASELINE_TEMPLATE_KEY = "graf-auto-v1"
+AI_DISPATCH_UNAVAILABLE = "summary_generation_unavailable"
 
 
 class SummarySlotDefaultConflict(ValueError):
@@ -140,6 +141,7 @@ async def ensure_outcomes_for_processing_result(
     *,
     result: ProcessingResult,
     publish_initial_baseline: bool = False,
+    ai_dispatch_planned: bool | None = None,
 ) -> MeetingOutcomeSet:
     meeting = await lock_meeting_fence(
         db, workspace_id=result.workspace_id, meeting_id=result.meeting_id
@@ -220,10 +222,12 @@ async def ensure_outcomes_for_processing_result(
             )
             .with_for_update()
         )
-    revision_scoped_initial_ai_only = (
-        publish_initial_baseline and result.media_revision_id is not None
-    )
     transcript_is_available = canonical_speech_available(result)
+    revision_scoped_ai_wait = (
+        publish_initial_baseline
+        and result.media_revision_id is not None
+        and ai_dispatch_planned is not None
+    )
     speaker_revision = await speaker_attribution_revision(
         db,
         workspace_id=result.workspace_id,
@@ -238,6 +242,13 @@ async def ensure_outcomes_for_processing_result(
         "accepted",
         "superseded",
     }
+    if revision_scoped_ai_wait and existing is not None and not existing_is_immutable_history:
+        await _project_revision_scoped_ai_wait(
+            db,
+            outcome_set=existing,
+            ai_dispatch_planned=bool(ai_dispatch_planned),
+        )
+        return existing
     if existing is not None and not existing_is_immutable_history:
         existing.template_key = existing.template_key or template_key
         existing.template_version = existing.template_version or template_version
@@ -306,6 +317,13 @@ async def ensure_outcomes_for_processing_result(
     )
     if replace_blocked_revision:
         outcome_set.supersedes_outcome_set_id = existing.id
+    if revision_scoped_ai_wait:
+        await _project_revision_scoped_ai_wait(
+            db,
+            outcome_set=outcome_set,
+            ai_dispatch_planned=bool(ai_dispatch_planned),
+        )
+        return outcome_set
     outcome_set.status = OutcomeSetStatus.GENERATING.value
     outcome_set.failure_reason = None
     outcome_set.failure_source = None

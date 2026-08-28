@@ -27,13 +27,15 @@ OUTCOME_CONFIG_KEYS_WITH_LIMIT: Final = {
     "config_contract_version",
     "model",
     "temperature",
-    "max_completion_tokens",
     "response_format",
 }
 OUTCOME_CONFIG_KEYS_WITHOUT_LIMIT: Final = OUTCOME_CONFIG_KEYS_WITH_LIMIT - {
     "max_completion_tokens"
 }
-REFLECTION_CONFIG_KEYS: Final = OUTCOME_CONFIG_KEYS_WITH_LIMIT - {"response_format"}
+REFLECTION_CONFIG_KEYS: Final = OUTCOME_CONFIG_KEYS_WITHOUT_LIMIT - {"response_format"}
+REFLECTION_CONFIG_KEYS_WITHOUT_LIMIT: Final = OUTCOME_CONFIG_KEYS_WITHOUT_LIMIT - {
+    "response_format"
+}
 OUTCOME_VARIABLES: Final = {
     "transcript_json",
     "output_language",
@@ -167,6 +169,12 @@ class PromptSnapshot:
         "langfuse_production", "langfuse_evaluation", "verified_promoted_snapshot"
     ]
     canonical_hash: str
+    # Set only after the snapshot has been authorized by the immutable root
+    # bundle. A child prompt without these bindings is not production-ready.
+    root_bundle_hash: str | None = None
+    root_prompt_version: int | None = None
+    route_binding_hash: str | None = None
+    route_binding: dict[str, object] | None = None
 
     @property
     def model(self) -> str:
@@ -516,10 +524,9 @@ def _validate_base_config(
 
 def _validate_outcome_config(config: Mapping[str, object], *, judge: bool) -> None:
     version = config.get("config_contract_version")
-    without_limit = version == (3 if judge else 2)
     _validate_base_config(
         config,
-        OUTCOME_CONFIG_KEYS_WITHOUT_LIMIT if without_limit else OUTCOME_CONFIG_KEYS_WITH_LIMIT,
+        OUTCOME_CONFIG_KEYS_WITHOUT_LIMIT,
         contract_versions={1, 2, 3} if judge else {1, 2},
     )
     response_format = config.get("response_format")
@@ -542,11 +549,7 @@ def _validate_outcome_config(config: Mapping[str, object], *, judge: bool) -> No
         raise ValueError("response schema does not match the closed contract v1")
     if judge:
         expected_temperature = 0 if version == 1 else 1
-        expected_max_tokens = None if version == 3 else 2048
-        if (
-            config["temperature"] != expected_temperature
-            or config.get("max_completion_tokens") != expected_max_tokens
-        ):
+        if config["temperature"] != expected_temperature:
             raise ValueError("judge settings do not match the config contract")
 
 

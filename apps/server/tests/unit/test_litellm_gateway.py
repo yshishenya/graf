@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 
 from twobrain_rec_server.outcomes.generator import LiteLLMError, LiteLLMGateway
+from twobrain_rec_server.outcomes.prompt_bundle import route_binding_hash
 from twobrain_rec_server.outcomes.prompts import outcome_config, validate_prompt_snapshot
 
 
@@ -88,6 +89,99 @@ async def test_gateway_projects_only_pinned_config_and_does_not_retry(monkeypatc
     assert result.actual_provider == "provider-a"
     assert result.token_usage == {"input": 11, "output": 7, "total": 18}
     assert _AsyncClient.requests[0]["headers"]["Idempotency-Key"] == "candidate-attempt-1"
+
+
+@pytest.mark.asyncio
+async def test_gateway_requires_echoed_route_binding_and_allowlisted_pair(monkeypatch) -> None:
+    import dataclasses
+
+    import httpx
+
+    descriptor = {
+        "alias": "gpt-5.6-luna",
+        "binding_version": "graf-litellm-route-v1",
+        "allowed_provider_models": [{"provider": "provider-a", "model": "provider-model"}],
+        "request_compiler_hash": "b" * 64,
+        "request_compiler_version": "graf-chat-compiler-v1",
+    }
+    binding = {**descriptor, "binding_hash": route_binding_hash(descriptor)}
+    snapshot = dataclasses.replace(
+        _snapshot(),
+        root_bundle_hash="c" * 64,
+        root_prompt_version=7,
+        route_binding_hash=binding["binding_hash"],
+        route_binding=binding,
+    )
+
+    class BoundResponse(_Response):
+        headers = {"X-GRAF-Route-Binding-Hash": binding["binding_hash"]}
+
+    class BoundClient(_AsyncClient):
+        async def post(self, *args, **kwargs):
+            self.requests.append({"url": args[0], "headers": kwargs["headers"], "json": kwargs["json"]})
+            return BoundResponse()
+
+    monkeypatch.setattr(httpx, "AsyncClient", BoundClient)
+    _AsyncClient.requests.clear()
+    result = await LiteLLMGateway(
+        base_url="https://litellm.example/v1",
+        api_key="secret",
+        timeout_seconds=19,
+    ).generate(snapshot=snapshot, messages=[{"role": "user", "content": "full"}])
+    assert result.actual_model == "provider-model"
+    assert _AsyncClient.requests[0]["headers"]["X-GRAF-Route-Binding-Hash"] == binding["binding_hash"]
+
+
+@pytest.mark.asyncio
+async def test_gateway_accepts_provider_provenance_from_bound_response_headers(monkeypatch) -> None:
+    import dataclasses
+
+    import httpx
+
+    descriptor = {
+        "alias": "gpt-5.6-luna",
+        "binding_version": "graf-litellm-route-v1",
+        "allowed_provider_models": [{"provider": "openai", "model": "gpt-5.6-luna"}],
+        "request_compiler_hash": "b" * 64,
+        "request_compiler_version": "graf-chat-compiler-v1",
+    }
+    binding = {**descriptor, "binding_hash": route_binding_hash(descriptor)}
+    snapshot = dataclasses.replace(
+        _snapshot(),
+        root_bundle_hash="c" * 64,
+        root_prompt_version=7,
+        route_binding_hash=binding["binding_hash"],
+        route_binding=binding,
+    )
+
+    class HeaderOnlyResponse(_Response):
+        headers = {
+            "X-GRAF-Route-Binding-Hash": binding["binding_hash"],
+            "X-GRAF-Actual-Provider": "openai",
+            "X-GRAF-Actual-Model": "gpt-5.6-luna",
+        }
+
+        def json(self) -> dict[str, Any]:
+            value = super().json()
+            value.pop("provider")
+            value["model"] = None
+            return value
+
+    class HeaderOnlyClient(_AsyncClient):
+        async def post(self, *args, **kwargs):
+            self.requests.append({"url": args[0], "headers": kwargs["headers"], "json": kwargs["json"]})
+            return HeaderOnlyResponse()
+
+    monkeypatch.setattr(httpx, "AsyncClient", HeaderOnlyClient)
+    _AsyncClient.requests.clear()
+    result = await LiteLLMGateway(
+        base_url="https://litellm.example/v1",
+        api_key="secret",
+        timeout_seconds=19,
+    ).generate(snapshot=snapshot, messages=[{"role": "user", "content": "full"}])
+
+    assert result.actual_provider == "openai"
+    assert result.actual_model == "gpt-5.6-luna"
 
 
 @pytest.mark.asyncio

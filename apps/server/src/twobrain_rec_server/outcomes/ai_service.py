@@ -52,10 +52,17 @@ from twobrain_rec_server.outcomes.generator import (
     compile_prompt_messages,
 )
 from twobrain_rec_server.outcomes.models import OutcomeSourceReference, OutcomeTranscriptSegment
+from twobrain_rec_server.outcomes.prompt_bundle import (
+    PromptBundleError,
+    bind_snapshot_from_metadata,
+    fetch_root_bundle_by_label,
+    load_last_known_good_root_bundle,
+    persist_root_bundle,
+    snapshot_bundle_metadata,
+)
 from twobrain_rec_server.outcomes.prompt_optimization import (
     PromptOptimizationError,
     load_verified_promoted_snapshot,
-    persist_verified_promoted_snapshot,
 )
 from twobrain_rec_server.outcomes.prompts import (
     PromptSnapshot,
@@ -1033,73 +1040,68 @@ async def resolve_candidate_prompt(
         prompt_name = attempt.prompt_name
     client = create_langfuse_client(settings)
     try:
-        try:
-            remote = await asyncio.to_thread(
-                fetch_prompt_by_label,
-                client,
-                name=prompt_name,
-                prompt_type="chat",
-                label=settings.outcome_prompt_label,
-            )
-        except Exception:
-            async with sessionmaker() as guard_db:
-                await _apply_worker_workspace(guard_db, workspace_id)
-                guard_attempt = await _candidate_attempt(guard_db, workspace_id, candidate_id)
-                guard_attempt = await _ensure_candidate_source_or_mark_stale(
-                    guard_db, guard_attempt
-                )
+        if settings.outcome_prompt_label == "production":
             try:
-                snapshot = await asyncio.to_thread(
-                    load_verified_promoted_snapshot,
-                    get_storage(settings),
-                    prompt_name=prompt_name,
-                )
-            except (PromptOptimizationError, ValueError) as fallback_exc:
-                raise OutcomeGenerationTerminalError(
-                    "summary_prompt_snapshot_corrupt"
-                ) from fallback_exc
-            except Exception as fallback_exc:
-                raise OutcomeGenerationDependencyError(
-                    "langfuse_prompt_unavailable"
-                ) from fallback_exc
-            async with sessionmaker() as guard_db:
-                await _apply_worker_workspace(guard_db, workspace_id)
-                guard_attempt = await _candidate_attempt(guard_db, workspace_id, candidate_id)
-                guard_attempt = await _ensure_candidate_source_or_mark_stale(
-                    guard_db, guard_attempt
-                )
+                bundle = await asyncio.to_thread(fetch_root_bundle_by_label, client)
+                snapshot = bundle.child(prompt_name)
+                await asyncio.to_thread(persist_root_bundle, get_storage(settings), bundle)
+            except Exception as live_exc:
+                try:
+                    bundle = await asyncio.to_thread(
+                        load_last_known_good_root_bundle,
+                        get_storage(settings),
+                    )
+                    snapshot = bundle.child(prompt_name)
+                except PromptBundleError as fallback_exc:
+                    if isinstance(live_exc, PromptBundleError):
+                        raise OutcomeGenerationTerminalError(
+                            "summary_prompt_snapshot_invalid"
+                        ) from live_exc
+                    raise OutcomeGenerationDependencyError(
+                        "langfuse_prompt_unavailable"
+                    ) from fallback_exc
+                except Exception as fallback_exc:
+                    raise OutcomeGenerationDependencyError(
+                        "langfuse_prompt_unavailable"
+                    ) from fallback_exc
         else:
             try:
+                remote = await asyncio.to_thread(
+                    fetch_prompt_by_label,
+                    client,
+                    name=prompt_name,
+                    prompt_type="chat",
+                    label=settings.outcome_prompt_label,
+                )
                 snapshot = validate_prompt_snapshot(
                     name=prompt_name,
                     version=int(remote.version),
                     prompt_type="chat",
                     prompt=remote.prompt,
                     config=remote.config or {},
-                    source=(
-                        "langfuse_production"
-                        if settings.outcome_prompt_label == "production"
-                        else "langfuse_evaluation"
-                    ),
+                    source="langfuse_evaluation",
                 )
             except ValueError as exc:
                 raise OutcomeGenerationTerminalError("summary_prompt_snapshot_invalid") from exc
-            try:
-                async with sessionmaker() as guard_db:
-                    await _apply_worker_workspace(guard_db, workspace_id)
-                    guard_attempt = await _candidate_attempt(guard_db, workspace_id, candidate_id)
-                    guard_attempt = await _ensure_candidate_source_or_mark_stale(
-                        guard_db, guard_attempt
+            except Exception:
+                try:
+                    snapshot = await asyncio.to_thread(
+                        load_verified_promoted_snapshot,
+                        get_storage(settings),
+                        prompt_name=prompt_name,
                     )
-                await asyncio.to_thread(
-                    persist_verified_promoted_snapshot,
-                    get_storage(settings),
-                    snapshot,
-                )
-            except Exception as exc:
-                raise OutcomeGenerationDependencyError(
-                    "prompt_snapshot_export_unavailable"
-                ) from exc
+                except (PromptOptimizationError, ValueError) as fallback_exc:
+                    raise OutcomeGenerationTerminalError(
+                        "summary_prompt_snapshot_corrupt"
+                    ) from fallback_exc
+                except Exception as fallback_exc:
+                    raise OutcomeGenerationDependencyError(
+                        "langfuse_prompt_unavailable"
+                    ) from fallback_exc
+        async with sessionmaker() as guard_db:
+            await _apply_worker_workspace(guard_db, workspace_id)
+            guard_attempt = await _candidate_attempt(guard_db, workspace_id, candidate_id)
+            await _ensure_candidate_source_or_mark_stale(guard_db, guard_attempt)
     finally:
         shutdown_langfuse(client)
     async with sessionmaker() as db:
@@ -1142,6 +1144,13 @@ async def resolve_candidate_prompt(
             attempt.model_parameters["max_completion_tokens"] = snapshot.config[
                 "max_completion_tokens"
             ]
+        metadata = dict(attempt.metadata_json or {})
+        bundle_metadata = snapshot_bundle_metadata(snapshot)
+        if bundle_metadata is None:
+            metadata.pop("prompt_bundle", None)
+        else:
+            metadata["prompt_bundle"] = bundle_metadata
+        attempt.metadata_json = metadata
         attempt.generator_config_hash = _ai_generator_config_hash(
             template_id=attempt.template_id,
             template_key=attempt.template_key,
@@ -1495,6 +1504,7 @@ async def execute_candidate_generation(
         base_url=str(settings.litellm_base_url),
         api_key=api_key,
         timeout_seconds=settings.litellm_request_timeout_seconds,
+        require_route_binding=True,
     )
     async with sessionmaker() as db:
         await _apply_worker_workspace(db, workspace_id)
@@ -2849,6 +2859,14 @@ def _stored_prompt_snapshot(
     except ValueError as exc:
         raise OutcomeGenerationTerminalError("summary_prompt_snapshot_corrupt") from exc
     if snapshot.canonical_hash != attempt.prompt_hash:
+        raise OutcomeGenerationTerminalError("summary_prompt_snapshot_corrupt")
+    bundle_metadata = (attempt.metadata_json or {}).get("prompt_bundle")
+    if bundle_metadata is not None:
+        try:
+            snapshot = bind_snapshot_from_metadata(snapshot, bundle_metadata)
+        except PromptBundleError as exc:
+            raise OutcomeGenerationTerminalError("summary_prompt_snapshot_corrupt") from exc
+    elif snapshot.source == "langfuse_production":
         raise OutcomeGenerationTerminalError("summary_prompt_snapshot_corrupt")
     return snapshot
 

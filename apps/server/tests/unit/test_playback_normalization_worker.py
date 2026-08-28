@@ -215,6 +215,7 @@ async def test_initial_reconciliation_failure_disposes_engine_and_storage(
     monkeypatch.setattr(worker_module, "create_sessionmaker", lambda _engine: object())
     monkeypatch.setattr(worker_module, "require_storage_ready", no_op_async)
     monkeypatch.setattr(worker_module, "require_schema_head", no_op_async)
+    monkeypatch.setattr(worker_module, "validate_media_tools", lambda **_kwargs: None)
     monkeypatch.setattr(worker_module, "connect_temporal_client", connect_temporal)
     monkeypatch.setattr(
         worker_module,
