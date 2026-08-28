@@ -5,6 +5,11 @@ import json
 from contextlib import suppress
 from pathlib import Path
 
+from twobrain_rec_server.outcomes.prompt_bundle import (
+    ROOT_BUNDLE_PROMPT_NAME,
+    build_root_bundle_document,
+    promote_root_bundle_label,
+)
 from twobrain_rec_server.outcomes.prompt_optimization import (
     control_gate_evidence_hash,
     promote_control_prompt,
@@ -358,6 +363,123 @@ def sync_prompts(*, base_url: str, public_key: str, secret_key: str, apply: bool
         client.shutdown()
 
 
+def create_root_bundle_candidate(
+    *,
+    base_url: str,
+    public_key: str,
+    secret_key: str,
+    child_version: int,
+    route_binding: dict[str, object],
+) -> dict[str, object]:
+    """Create an unlabelled root candidate pinned to one exact child version."""
+
+    from langfuse import Langfuse
+
+    client = Langfuse(
+        base_url=base_url.rstrip("/"),
+        public_key=public_key,
+        secret_key=secret_key,
+        environment="production",
+        tracing_enabled=False,
+    )
+    try:
+        children = {}
+        for definition in BUILT_IN_TEMPLATES:
+            name = definition.prompt_name
+            child = client.get_prompt(
+                name,
+                version=child_version,
+                type="chat",
+                cache_ttl_seconds=0,
+                max_retries=0,
+                fetch_timeout_seconds=10,
+            )
+            children[name] = validate_prompt_snapshot(
+                name=name,
+                version=int(child.version),
+                prompt_type="chat",
+                prompt=child.prompt,
+                config=child.config or {},
+            )
+        custom_name = "graf/meeting-outcome/custom"
+        custom = client.get_prompt(
+            custom_name,
+            version=child_version,
+            type="chat",
+            cache_ttl_seconds=0,
+            max_retries=0,
+            fetch_timeout_seconds=10,
+        )
+        children[custom_name] = validate_prompt_snapshot(
+            name=custom_name,
+            version=int(custom.version),
+            prompt_type="chat",
+            prompt=custom.prompt,
+            config=custom.config or {},
+        )
+        document = build_root_bundle_document(children, route_binding)
+        created = client.create_prompt(
+            name=ROOT_BUNDLE_PROMPT_NAME,
+            prompt=json.dumps(document, ensure_ascii=False, sort_keys=True),
+            labels=[],
+            tags=["graf", "recording-workflows", "root-bundle-v1"],
+            type="text",
+            config={},
+            commit_message=(
+                "Feature 181 root bundle candidate; requires held-out gate and operator promotion"
+            ),
+        )
+        return {
+            "prompt_name": ROOT_BUNDLE_PROMPT_NAME,
+            "root_prompt_version": int(created.version),
+            "bundle_hash": document["bundle_hash"],
+            "route_binding_hash": route_binding["binding_hash"],
+            "child_version": child_version,
+        }
+    finally:
+        client.flush()
+        client.shutdown()
+
+
+def promote_root_bundle_candidate(
+    *,
+    base_url: str,
+    public_key: str,
+    secret_key: str,
+    candidate_version: int,
+    expected_source_version: int | None,
+    protected_label_capability_verified: bool,
+) -> dict[str, object]:
+    from langfuse import Langfuse
+
+    client = Langfuse(
+        base_url=base_url.rstrip("/"),
+        public_key=public_key,
+        secret_key=secret_key,
+        environment="production",
+        tracing_enabled=False,
+    )
+    try:
+        promoted = promote_root_bundle_label(
+            client,
+            expected_source_version=expected_source_version,
+            target_version=candidate_version,
+            protected_label_capability_verified=protected_label_capability_verified,
+        )
+        return {
+            "prompt_name": ROOT_BUNDLE_PROMPT_NAME,
+            "root_prompt_version": promoted.root.root_prompt_version,
+            "bundle_hash": promoted.root.bundle_hash,
+            "route_binding_hash": promoted.root.route_binding_hash,
+            "child_versions": sorted(
+                {version for version, _digest in promoted.root.children.values()}
+            ),
+        }
+    finally:
+        client.flush()
+        client.shutdown()
+
+
 def promote_control_prompt_version(
     *,
     base_url: str,
@@ -433,10 +555,38 @@ def main() -> None:
     parser.add_argument("--expected-source-version", type=int)
     parser.add_argument("--gate-evidence-file", type=Path)
     parser.add_argument("--protected-label-capability-verified", action="store_true")
+    parser.add_argument("--create-root-bundle", action="store_true")
+    parser.add_argument("--root-child-version", type=int)
+    parser.add_argument("--root-route-binding-file", type=Path)
+    parser.add_argument("--promote-root-bundle-version", type=int)
+    parser.add_argument("--expected-root-source-version", type=int)
     args = parser.parse_args()
     public_key = args.public_key_file.read_text(encoding="utf-8").strip()
     secret_key = args.secret_key_file.read_text(encoding="utf-8").strip()
-    if args.promote_control:
+    if args.create_root_bundle:
+        if args.root_child_version is None or args.root_route_binding_file is None:
+            parser.error("root bundle creation requires child version and route binding file")
+        result = create_root_bundle_candidate(
+            base_url=args.base_url,
+            public_key=public_key,
+            secret_key=secret_key,
+            child_version=args.root_child_version,
+            route_binding=json.loads(
+                args.root_route_binding_file.read_text(encoding="utf-8")
+            ),
+        )
+        print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+    elif args.promote_root_bundle_version is not None:
+        result = promote_root_bundle_candidate(
+            base_url=args.base_url,
+            public_key=public_key,
+            secret_key=secret_key,
+            candidate_version=args.promote_root_bundle_version,
+            expected_source_version=args.expected_root_source_version,
+            protected_label_capability_verified=args.protected_label_capability_verified,
+        )
+        print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+    elif args.promote_control:
         if args.candidate_version is None or args.gate_evidence_file is None:
             parser.error("control promotion requires candidate version and gate evidence file")
         result = promote_control_prompt_version(

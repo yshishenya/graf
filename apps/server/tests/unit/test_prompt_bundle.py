@@ -3,13 +3,15 @@ from __future__ import annotations
 import json
 
 import pytest
-
 from twobrain_rec_server.outcomes.prompt_bundle import (
+    ROOT_BUNDLE_PROMPT_NAME,
     ROOT_BUNDLE_SCHEMA_VERSION,
     ResolvedPromptBundle,
+    build_root_bundle_document,
     build_root_export,
     fetch_root_bundle_by_label,
     load_root_export_bytes,
+    promote_root_bundle_label,
     route_binding_hash,
     snapshot_bundle_metadata,
     validate_root_bundle_document,
@@ -92,6 +94,84 @@ def test_root_export_round_trip_preserves_exact_children_and_binding() -> None:
         for snapshot in restored.children.values()
     )
     assert snapshot_bundle_metadata(restored.child("graf/meeting-outcome/auto"))["root_prompt_version"] == 42
+
+
+def test_build_root_bundle_document_pins_exact_child_hashes() -> None:
+    bundle = _bundle()
+    document = build_root_bundle_document(bundle.children, bundle.root.route_binding)
+
+    assert document["bundle_hash"] == bundle.root.bundle_hash
+    assert {
+        child["name"]: child["version"] for child in document["children"]
+    } == {
+        name: version for name, (version, _digest) in bundle.root.children.items()
+    }
+
+
+def test_root_bundle_promotion_bootstraps_when_production_label_is_absent() -> None:
+    bundle = _bundle()
+
+    class NotFoundError(Exception):
+        pass
+
+    class Prompt:
+        def __init__(self, version: int, prompt: object, config: dict[str, object]):
+            self.version = version
+            self.prompt = prompt
+            self.config = config
+
+    class Client:
+        def __init__(self) -> None:
+            self.promoted = False
+
+        def get_prompt(self, name: str, **kwargs: object) -> Prompt:
+            if kwargs.get("label") == "production":
+                if not self.promoted:
+                    raise NotFoundError()
+                return Prompt(42, json.dumps({
+                    "schema_version": ROOT_BUNDLE_SCHEMA_VERSION,
+                    "bundle_hash": bundle.root.bundle_hash,
+                    "children": [
+                        {"name": n, "version": v, "hash": h}
+                        for n, (v, h) in sorted(bundle.root.children.items())
+                    ],
+                    "route_binding": bundle.root.route_binding,
+                }), {})
+            if name == ROOT_BUNDLE_PROMPT_NAME:
+                document = {
+                    "schema_version": ROOT_BUNDLE_SCHEMA_VERSION,
+                    "bundle_hash": bundle.root.bundle_hash,
+                    "children": [
+                        {"name": n, "version": v, "hash": h}
+                        for n, (v, h) in sorted(bundle.root.children.items())
+                    ],
+                    "route_binding": bundle.root.route_binding,
+                }
+                return Prompt(42, json.dumps(document), {})
+            child = bundle.children[name]
+            return Prompt(child.version, child.prompt, child.config)
+
+        def update_prompt(self, **kwargs: object) -> None:
+            self.updated = kwargs
+            self.promoted = True
+
+        def clear_prompt_cache(self) -> None:
+            return None
+
+    import sys
+    import types
+
+    module = types.ModuleType("langfuse.api.commons.errors.not_found_error")
+    module.NotFoundError = NotFoundError
+    sys.modules[module.__name__] = module
+
+    promoted = promote_root_bundle_label(
+        Client(),
+        expected_source_version=None,
+        target_version=42,
+        protected_label_capability_verified=True,
+    )
+    assert promoted.root.root_prompt_version == 42
 
 
 def test_langfuse_root_fetch_reads_children_by_numeric_version() -> None:

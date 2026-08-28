@@ -187,6 +187,41 @@ def validate_root_bundle_document(
     )
 
 
+def build_root_bundle_document(
+    children: Mapping[str, PromptSnapshot],
+    route_binding: Mapping[str, object],
+    *,
+    expected_children: frozenset[str] = OUTCOME_PROMPT_NAMES,
+) -> dict[str, object]:
+    """Build a root document from already validated exact child snapshots."""
+
+    if set(children) != set(expected_children):
+        raise PromptBundleError("root_bundle_children_invalid")
+    binding = _validate_route_binding(route_binding)
+    refs = {
+        name: (snapshot.version, snapshot.canonical_hash)
+        for name, snapshot in children.items()
+    }
+    body = {
+        "children": [
+            {"hash": digest, "name": name, "version": version}
+            for name, (version, digest) in sorted(refs.items())
+        ],
+        "route_binding": binding,
+        "schema_version": ROOT_BUNDLE_SCHEMA_VERSION,
+    }
+    document = {
+        **body,
+        "bundle_hash": sha256(canonical_json(body).encode("utf-8")).hexdigest(),
+    }
+    validate_root_bundle_document(
+        document,
+        root_prompt_version=1,
+        expected_children=expected_children,
+    )
+    return document
+
+
 def _child_payload(snapshot: PromptSnapshot) -> dict[str, object]:
     return {
         "canonical_hash": snapshot.canonical_hash,
@@ -486,14 +521,21 @@ def promote_root_bundle_label(
     if not protected_label_capability_verified:
         raise PromptBundleError("protected_label_capability_unavailable")
     try:
-        current = client.get_prompt(
-            ROOT_BUNDLE_PROMPT_NAME,
-            label=ROOT_BUNDLE_LABEL,
-            type="text",
-            cache_ttl_seconds=0,
-            max_retries=0,
-            fetch_timeout_seconds=10,
-        )
+        try:
+            current = client.get_prompt(
+                ROOT_BUNDLE_PROMPT_NAME,
+                label=ROOT_BUNDLE_LABEL,
+                type="text",
+                cache_ttl_seconds=0,
+                max_retries=0,
+                fetch_timeout_seconds=10,
+            )
+        except Exception as exc:
+            from langfuse.api.commons.errors.not_found_error import NotFoundError
+
+            if expected_source_version is not None or not isinstance(exc, NotFoundError):
+                raise
+            current = None
         target = client.get_prompt(
             ROOT_BUNDLE_PROMPT_NAME,
             version=target_version,
@@ -502,7 +544,10 @@ def promote_root_bundle_label(
             max_retries=0,
             fetch_timeout_seconds=10,
         )
-        if int(current.version) not in {expected_source_version, target_version}:
+        if current is not None and int(current.version) not in {
+            expected_source_version,
+            target_version,
+        }:
             raise PromptBundleError("root_bundle_source_conflict")
         if not isinstance(target.prompt, str):
             raise PromptBundleError("root_bundle_prompt_invalid")
@@ -511,7 +556,7 @@ def promote_root_bundle_label(
             document,
             root_prompt_version=int(target.version),
         )
-        if int(current.version) != target_version:
+        if current is None or int(current.version) != target_version:
             client.update_prompt(
                 name=ROOT_BUNDLE_PROMPT_NAME,
                 version=target_version,
