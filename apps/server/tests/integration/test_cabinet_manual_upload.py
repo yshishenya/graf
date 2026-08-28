@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+import pytest
 from sqlalchemy import func, select
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
@@ -14,6 +15,11 @@ from twobrain_rec_server.auth.sessions import hash_token
 from twobrain_rec_server.db.models import AuthSession, AuthSessionDeviceBinding, Meeting
 
 OWNER_UPLOAD_TEST_TOKEN = "csrf-owner-manual-upload-session-cookie-token"
+
+
+@pytest.fixture(autouse=True)
+def enable_manual_upload_preparation(client) -> None:
+    client.app.state.settings.playback_normalization_enabled = True
 
 
 def test_cabinet_manual_upload_accepts_session_bound_csrf_and_reuses_single_track_response(client) -> None:

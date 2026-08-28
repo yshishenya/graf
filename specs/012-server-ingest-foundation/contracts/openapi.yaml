@@ -13860,6 +13860,8 @@ components:
           - canonical_artifact_missing
           - canonical_ready
           - access_denied
+          - audio_not_archived
+          - storage_capacity_exceeded
           - empty_source
           - no_audio
           - ambiguous_audio_tracks
@@ -13916,6 +13918,8 @@ components:
           - canonical_artifact_missing
           - canonical_ready
           - access_denied
+          - audio_not_archived
+          - storage_capacity_exceeded
           - empty_source
           - no_audio
           - ambiguous_audio_tracks
@@ -14473,7 +14477,7 @@ components:
           title: Server Time
         manual_action:
           type: string
-          enum: [none, check_now, new_attempt, contact_support]
+          enum: [none, check_now, retry_preparation, new_attempt, upload_another, contact_support]
           title: Manual Action
           default: none
         attempt_in_flight:

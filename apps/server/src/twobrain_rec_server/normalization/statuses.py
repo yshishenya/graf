@@ -176,6 +176,7 @@ ATTEMPT_TRANSITIONS = frozenset(
         (AttemptState.CLEANUP_PENDING, AttemptState.CLEANED),
         (AttemptState.CLEANUP_PENDING, AttemptState.PURGED),
         (AttemptState.CLEANED, AttemptState.CLEANUP_PENDING),
+        (AttemptState.CLEANED, AttemptState.PURGED),
         (AttemptState.PUBLISHED, AttemptState.PURGED),
     }
 )
