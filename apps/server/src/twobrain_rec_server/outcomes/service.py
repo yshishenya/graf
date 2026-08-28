@@ -227,6 +227,7 @@ async def ensure_outcomes_for_processing_result(
         publish_initial_baseline
         and result.media_revision_id is not None
         and ai_dispatch_planned is not None
+        and transcript_is_available
     )
     speaker_revision = await speaker_attribution_revision(
         db,

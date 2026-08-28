@@ -18,6 +18,10 @@
   snapshots и bootstrap-продвижение production label при его первом создании.
 
 ### Исправлено
+- Исправлены production-проверки восстановления: playback больше не показывает
+  непостоянное аудио, новые итоги не публикуются до доступности расшифровки,
+  latest workflow выбирается по номеру попытки, а migration head и OpenAPI
+  синхронизированы с runtime.
 - Продвижение root bundle теперь корректно обрабатывает отсутствие предыдущего
   production label, сохраняя проверку полного bundle и read-back после mutation.
 

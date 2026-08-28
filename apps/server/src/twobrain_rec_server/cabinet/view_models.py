@@ -434,6 +434,7 @@ PLAYBACK_REASON_COPY: dict[str, dict[str, str]] = {
         "meeting_deleting": "Аудио удаляется",
         "meeting_deleted": "Аудио удалено",
         "audio_purged": "Аудио удалено",
+        "audio_not_archived": "Аудио доступно только во время обработки",
         "fallback": "Аудио недоступно",
     },
     "en": {
@@ -459,6 +460,7 @@ PLAYBACK_REASON_COPY: dict[str, dict[str, str]] = {
         "meeting_deleting": "Audio is being deleted",
         "meeting_deleted": "Audio was deleted",
         "audio_purged": "Audio was deleted",
+        "audio_not_archived": "Audio is available only while processing",
         "fallback": "Audio is unavailable",
     },
 }
@@ -640,6 +642,11 @@ CALENDAR_NOTICE_COPY: dict[str, tuple[str, str, str]] = {
     "connect_cancelled": (
         "Подключение отменено",
         "Источник не добавлен. Можно повторить подключение или продолжить ручную запись без календаря.",
+        "warning",
+    ),
+    "connect_invalid_credentials": (
+        "Неверные данные Яндекса",
+        "Проверьте логин и пароль приложения. Источник не добавлен.",
         "warning",
     ),
     "connect_denied": (

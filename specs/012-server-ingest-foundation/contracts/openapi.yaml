@@ -14735,7 +14735,9 @@ components:
           enum:
           - none
           - check_now
+          - retry_preparation
           - new_attempt
+          - upload_another
           - contact_support
           title: Manual Action
           default: none
@@ -14908,7 +14910,9 @@ components:
           enum:
           - none
           - check_now
+          - retry_preparation
           - new_attempt
+          - upload_another
           - contact_support
           title: Manual Action
           default: none

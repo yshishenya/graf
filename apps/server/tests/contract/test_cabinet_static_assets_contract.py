@@ -1177,8 +1177,6 @@ def test_cabinet_collapsed_rail_uses_one_centered_control_geometry() -> None:
 def test_cabinet_playback_shares_ready_state_geometry() -> None:
     css = (STATIC_DIR / "cabinet.css").read_text()
 
-    collapsed_selector = 'html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned) {'
-    expanded_selector = 'html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell].is-rail-pinned {'
     assert (
         'html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell] .sidebar {\n'
         "    z-index: 31;\n"

@@ -361,7 +361,7 @@ promotion, enabling generation, release, deploy and push remain separate gates.
 
 - Текущая ветка содержит актуальный `origin/master` (`db70ff12b`); локальные
   исправления сохранены до синхронизации и возвращены без конфликтов.
-- Добавлена merge-миграция `0085_merge_summary_mediascribe_processing_recovery`
+- Добавлена merge-миграция `0085_merge_summary_mediascribe`
   для единственной Alembic head после объединения summary и processing
   recovery; тестовые ожидания обновлены.
 - Langfuse обновлён с `4.14.1` до актуального на дату проверки `4.15.1`;
@@ -431,7 +431,7 @@ root-bundle, включать generation или запускать private real-
   compile PASS, legacy audio architecture guard PASS; macOS Swift checks
   intentionally skipped by the fast lane.
 - `git diff --check` PASS; `alembic heads` возвращает единственную head
-  `0085_merge_summary_mediascribe_processing_recovery`.
+  `0085_merge_summary_mediascribe`.
 - Проверка не меняла Langfuse project state, production data или сохранённые
   встречи; private real-record generation, prompt promotion, release и deploy
   остаются заблокированными указанными выше project/runtime gates.
@@ -449,7 +449,7 @@ root-bundle, включать generation или запускать private real-
   Python compile PASS, legacy audio architecture guard PASS; macOS Swift
   checks intentionally skipped by the fast lane.
 - `langfuse==4.15.1` импортируется из project environment; `alembic heads`
-  возвращает единственную head `0085_merge_summary_mediascribe_processing_recovery`.
+  возвращает единственную head `0085_merge_summary_mediascribe`.
 - Production data, Langfuse project state и сохранённые встречи не изменялись;
   real-record generation, prompt promotion, release и deploy остаются
   заблокированными project/runtime gates.
@@ -513,3 +513,19 @@ release, deploy и full CI exact-SHA gate.
 - `infra/scripts/cd-remote.sh --dry-run --branch
   181-meeting-summary-experience` завершился успешно и перечислил полный
   набор release/deploy gates; execute не запускался.
+
+## Final current-worktree validation
+
+Дата: 2026-08-29
+
+- Исправлен последний full-CI regression: integration migration contract теперь
+  ожидает фактический head `0085_merge_summary_mediascribe`; focused migration
+  suite прошёл `16/16`.
+- Финальный `infra/scripts/ci-local.sh --full` завершился с
+  `ci_local_result=pass`: server `3716 passed, 1 skipped`, Swift `769 passed`,
+  contract validation, lint, compile, compose и deployment evidence scan PASS.
+  RLS live enforcement остался BLOCKED без production database, как и требует
+  fail-closed gate.
+- `git diff --check` PASS; production data, Langfuse project state и записи
+  встреч не изменялись. T031 остаётся открытой: version-bound Temporal →
+  LiteLLM → Langfuse private real-record run и human usefulness evaluation.

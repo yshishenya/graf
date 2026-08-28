@@ -1543,7 +1543,12 @@ async def _latest_workflow(
         if media_revision_id is not None
         else ProcessingWorkflow.media_revision_id.is_(None)
     )
-    return await db.scalar(query.order_by(ProcessingWorkflow.updated_at.desc()))
+    return await db.scalar(
+        query.order_by(
+            ProcessingWorkflow.attempt_ordinal.desc(),
+            ProcessingWorkflow.created_at.desc(),
+        )
+    )
 
 
 async def _latest_result(

@@ -754,6 +754,7 @@ def calendar_settings_notice_codes(
     result_map = {
         "success": "connect_success",
         "cancelled": "connect_cancelled",
+        "invalid_credentials": "connect_invalid_credentials",
         "denied": "connect_denied",
         "failed": "connect_failed",
         "no_readable_calendars": "no_readable_calendars",
@@ -811,7 +812,7 @@ def calendar_connection_result_from_problem(code: str | None) -> str:
         "unsupported_calendar_provider": "failed",
         "credential_encryption_key_unavailable": "failed",
         "calendar_credential_key_unavailable": "failed",
-        "invalid_credentials": "denied",
+        "invalid_credentials": "invalid_credentials",
         "tenant_policy_denied": "denied",
         "provider_timeout": "failed",
         "provider_unavailable": "failed",
@@ -1716,6 +1717,7 @@ def _render_home_upcoming(
         "/desktop/settings/integrations/calendar" if embedded else "/settings/integrations/calendar"
     )
     preview = calendar_surface.preview[:4]
+    upcoming_refresh_at = min((item.ends_at for item in preview), default=None)
     source_states = {source.sync_health_state for source in calendar_surface.sources}
     credential_issue = bool(source_states & {"credential_failed", "failed_closed"})
     provider_issue = bool(source_states & {"provider_unavailable", "rate_limited"})
@@ -1774,7 +1776,7 @@ def _render_home_upcoming(
         )
 
     return f"""
-      <details class="calendar-home-upcoming" open>
+      <details class="calendar-home-upcoming" open{f' data-calendar-upcoming-refresh-at="{escape(upcoming_refresh_at.isoformat())}"' if upcoming_refresh_at is not None else ''}>
         <summary>
           <span>Ближайшие встречи</span>
           <small>{escape(state_copy)}</small>
