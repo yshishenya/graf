@@ -16,7 +16,7 @@
 ## Phase 2: Validation and closeout
 
 - [X] T003 Запустить focused tests, Swift build и `infra/scripts/ci-local.sh --fast`, затем обновить `CHANGELOG.md` и `specs/208-desktop-billing-actions/tasks.md` фактическим evidence
-- [ ] T004 После merge и освобождения release/deploy lock подготовить отдельный exact-SHA macOS release, пройти full/signing/notarization/Sparkle gate и записать installed-app smoke в `specs/208-desktop-billing-actions/validation/implementation-evidence.md`
+- [X] T004 После merge и освобождения release/deploy lock подготовить отдельный exact-SHA macOS release, пройти full/signing/notarization/Sparkle gate и записать installed-app smoke в `specs/208-desktop-billing-actions/validation/implementation-evidence.md`
 
 ## Dependencies
 
@@ -42,5 +42,7 @@
 - `swift build --package-path apps/macos`: PASS.
 - `infra/scripts/ci-local.sh --fast`: PASS; server unit `1250 passed`, Ruff и
   Python compile — PASS.
-- Full exact-SHA CI, подписанный релиз и installed-app smoke остаются в T004 и
-  не запускаются параллельно с активным release/deploy.
+- Full exact-SHA CI, Developer ID/notarization/Sparkle release и installed-app
+  smoke прошли на `c428f7990843cc39c141b25c3d8dfdc8de3d66f2`; подробности — в
+  `specs/208-desktop-billing-actions/validation/implementation-evidence.md` и
+  `docs/deployments/2brain-rec/release-v2026.08.28.11.md`.
