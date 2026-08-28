@@ -45,6 +45,7 @@ docker-data/
 minio-data/
 postgres-data/
 infra/runtime/
+/twobrain-rec-deploy.lock
 
 # Swift / Xcode local outputs
 .build/

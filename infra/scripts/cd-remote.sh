@@ -106,7 +106,9 @@ if ! /usr/bin/flock -n 9; then
 fi
 previous_sha="$(git rev-parse HEAD)"
 
-if [ -n "$(git status --porcelain --untracked-files=all)" ]; then
+worktree_status="$(git status --porcelain --untracked-files=all)"
+unexpected_worktree_status="$(printf '%s\n' "$worktree_status" | grep -v -F -x "?? twobrain-rec-deploy.lock" || true)"
+if [ -n "$unexpected_worktree_status" ]; then
   echo "deploy_result=blocked"
   echo "reason=remote_worktree_dirty"
   exit 1

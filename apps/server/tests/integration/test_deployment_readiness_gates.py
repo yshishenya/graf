@@ -70,6 +70,7 @@ def test_remote_deploy_script_declares_and_executes_all_normalization_gates() ->
     repo_root = Path(__file__).parents[4]
     wrapper = (repo_root / "infra/scripts/cd-remote.sh").read_text()
     runtime = (repo_root / "infra/scripts/cd-remote-runtime.sh").read_text()
+    gitignore = (repo_root / ".gitignore").read_text().splitlines()
 
     for token in (
         "migration_head",
@@ -92,6 +93,9 @@ def test_remote_deploy_script_declares_and_executes_all_normalization_gates() ->
         in wrapper
     )
     assert "/usr/bin/flock -n 9" in wrapper
+    assert 'deploy_lock="$(git rev-parse --git-path twobrain-rec-deploy.lock)"' in wrapper
+    assert 'grep -v -F -x "?? twobrain-rec-deploy.lock"' in wrapper
+    assert "/twobrain-rec-deploy.lock" in gitignore
     assert wrapper.index("/usr/bin/flock -n 9") < wrapper.index(
         'previous_sha="$(git rev-parse HEAD)"'
     )

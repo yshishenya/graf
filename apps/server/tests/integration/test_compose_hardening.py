@@ -59,6 +59,10 @@ def test_production_compose_api_has_healthcheck_and_localhost_bind_policy() -> N
     healthcheck = " ".join(api["healthcheck"]["test"])
     assert "/api/v1/health/ready" in healthcheck
     assert "127.0.0.1:8080" in healthcheck
+    assert "timeout=8" in healthcheck
+    assert api["healthcheck"]["timeout"] == "10s"
+    assert api["healthcheck"]["interval"] == "10s"
+    assert api["healthcheck"]["retries"] == 12
 
 
 def test_production_compose_sets_log_rotation_and_resource_limits_for_services() -> None:
