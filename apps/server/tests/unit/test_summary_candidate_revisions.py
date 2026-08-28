@@ -110,6 +110,7 @@ def test_latest_processing_result_prefers_version_over_import_time(client) -> No
                 workspace_id=current.workspace_id,
                 meeting_id=current.meeting_id,
                 media_revision_id=current.media_revision_id,
+                processing_workflow_id=current.processing_workflow_id,
             )
             store = await latest_store_result(
                 db,

@@ -355,6 +355,32 @@ T031 remains open: human-labelled usefulness/pairwise evidence and a
 version-bound private Temporal real-record run are still absent. Prompt/root
 promotion, enabling generation, release, deploy and push remain separate gates.
 
+## Continuation on current master
+
+Дата: 2026-08-29
+
+- Текущая ветка содержит актуальный `origin/master` (`db70ff12b`); локальные
+  исправления сохранены до синхронизации и возвращены без конфликтов.
+- Добавлена merge-миграция `0085_merge_summary_mediascribe_processing_recovery`
+  для единственной Alembic head после объединения summary и processing
+  recovery; тестовые ожидания обновлены.
+- Langfuse обновлён с `4.14.1` до актуального на дату проверки `4.15.1`;
+  `uv.lock` пересобран, runtime import и v4 observation APIs проверены.
+- Focused Feature 181 suite после обновления: `104 passed`, 2 ожидаемых
+  предупреждения, exit 0. `git diff --check` чистый.
+- В авторизованном production web route read-only проверены две реальные
+  записи: готовые сохранённые итоги, `Итоги`/`Расшифровка`, полный каталог
+  форматов, source-jump и возврат. Новая генерация, share/delete и любые
+  Langfuse write actions не выполнялись.
+- Production UI всё ещё показывает stale processing banner рядом с готовыми
+  итогами, потому что удалённый runtime не переведён на этот SHA; это не
+  исправляется изменением данных и требует отдельного release/deploy gate.
+
+T018/T031 не отмечаются выполненными: оставлены открытыми version-bound
+quality/evaluation gates — human usefulness/pairwise evidence, стабильный
+held-out результат и приватный Temporal → LiteLLM → Langfuse run с проверенной
+route provenance.
+
 ## Latest continuation: master sync and Langfuse v4 migration gate
 
 Дата: 2026-08-25
@@ -393,3 +419,19 @@ read-back на том же endpoint. До этого нельзя создава
 root-bundle, включать generation или запускать private real-record E2E: это
 оставило бы непроверенную модельную маршрутизацию и нарушило trusted-publication
 контракт.
+
+## Final local verification after current-master refresh
+
+Дата: 2026-08-29
+
+- Feature 181 focused PostgreSQL suite: `104 passed`, 2 ожидаемых warnings,
+  exit 0; isolated container removed.
+- Processing-status contract rerun: `17 passed`, 2 ожидаемых warnings, exit 0.
+- `infra/scripts/ci-local.sh --fast`: `1340 passed`, server lint PASS, Python
+  compile PASS, legacy audio architecture guard PASS; macOS Swift checks
+  intentionally skipped by the fast lane.
+- `git diff --check` PASS; `alembic heads` возвращает единственную head
+  `0085_merge_summary_mediascribe_processing_recovery`.
+- Проверка не меняла Langfuse project state, production data или сохранённые
+  встречи; private real-record generation, prompt promotion, release и deploy
+  остаются заблокированными указанными выше project/runtime gates.

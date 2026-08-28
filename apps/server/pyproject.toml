@@ -21,7 +21,7 @@ dependencies = [
     "pydantic-settings>=2.7,<3",
     "python-multipart>=0.0.20,<1",
     "sqlalchemy[asyncio]>=2.0,<3",
-    "langfuse==4.14.1",
+    "langfuse==4.15.1",
     "opentelemetry-sdk==1.44.0",
     "temporalio[opentelemetry]==1.30.0",
     "uvicorn[standard]>=0.34,<1",

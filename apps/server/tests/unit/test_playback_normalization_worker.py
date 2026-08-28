@@ -160,7 +160,7 @@ async def test_schema_startup_gate_requires_exact_migration_head() -> None:
 
 
 def test_worker_schema_head_is_derived_from_packaged_migrations() -> None:
-    assert packaged_schema_head() == "0084_processing_recovery"
+    assert packaged_schema_head() == "0085_merge_summary_mediascribe_processing_recovery"
 
 
 @pytest.mark.anyio

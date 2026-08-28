@@ -400,11 +400,11 @@ async def get_content_safe_processing_status(
         attempt_in_flight=attempt_in_flight,
         artifacts={
             "transcript": ProcessingArtifactProjection(
-                state="available" if transcript_available else "processing" if safe_result is None else safe_result.transcript_status,
+                state=transcript_artifact_state,
                 visible=transcript_available,
             ),
             "diarization": ProcessingArtifactProjection(
-                state="available" if diarization_available else "processing" if safe_result is None else safe_result.diarization_status,
+                state=diarization_artifact_state,
                 visible=diarization_available,
             ),
             "summary": ProcessingArtifactProjection(
