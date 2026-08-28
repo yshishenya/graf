@@ -28,11 +28,8 @@ async def get_content_safe_processing_status(
         return None
     media_revision = await store.latest_media_revision_for_meeting(db, workspace_id=workspace_id, meeting_id=meeting_id)
     media_revision_id = media_revision.id if media_revision is not None else None
-    workflow = await store.get_processing_workflow(
-        db,
-        workspace_id=workspace_id,
-        meeting_id=meeting_id,
-        media_revision_id=media_revision_id,
+    workflow, result = await store.latest_processing_attempt_snapshot(
+        db, workspace_id=workspace_id, meeting_id=meeting_id, media_revision_id=media_revision_id
     )
     job = await store.get_mediascribe_job(
         db,
@@ -40,12 +37,6 @@ async def get_content_safe_processing_status(
         meeting_id=meeting_id,
         media_revision_id=media_revision_id,
         processing_workflow_id=workflow.id if workflow is not None else None,
-    )
-    result = await store.latest_processing_result(
-        db,
-        workspace_id=workspace_id,
-        meeting_id=meeting_id,
-        media_revision_id=media_revision_id,
     )
     try:
         state = ProcessingStatus(workflow.status) if workflow is not None else ProcessingStatus(meeting.processing_status)

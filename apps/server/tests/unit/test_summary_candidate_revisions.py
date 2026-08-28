@@ -132,16 +132,20 @@ def test_latest_processing_result_prefers_version_over_import_time(client) -> No
 
 
 def test_latest_processing_result_uses_one_database_snapshot() -> None:
-    class ScalarSession:
+    class SnapshotResult:
+        def first(self):
+            return None
+
+    class SnapshotSession:
         def __init__(self) -> None:
             self.statements = []
 
-        async def scalar(self, statement):
+        async def execute(self, statement):
             self.statements.append(statement)
-            return None
+            return SnapshotResult()
 
     async def run():
-        db = ScalarSession()
+        db = SnapshotSession()
         await latest_store_result(
             db,
             workspace_id=uuid4(),
@@ -153,7 +157,7 @@ def test_latest_processing_result_uses_one_database_snapshot() -> None:
     statements = asyncio.run(run())
     assert len(statements) == 1
     sql = str(statements[0].compile(compile_kwargs={"literal_binds": True}))
-    assert "processing_results.processing_workflow_id = (SELECT processing_workflows.id" in sql
+    assert "processing_results.processing_workflow_id = processing_workflows.id" in sql
     assert "processing_workflows.attempt_ordinal DESC" in sql
 
 

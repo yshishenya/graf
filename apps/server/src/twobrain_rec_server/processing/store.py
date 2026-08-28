@@ -10,7 +10,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
 
-from sqlalchemy import delete, desc, func, select
+from sqlalchemy import and_, delete, desc, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -90,10 +90,7 @@ from twobrain_rec_server.processing.recovery import (
     schedule_retry,
     schedule_retry_with_settings,
 )
-from twobrain_rec_server.processing.results import (
-    effective_processing_result_query,
-    result_is_terminal_input,
-)
+from twobrain_rec_server.processing.results import result_is_terminal_input
 
 
 class ProcessingLifecycleBlocked(RuntimeError):
@@ -2535,26 +2532,59 @@ async def latest_processing_result(
     meeting_id: UUID,
     media_revision_id: UUID | None = None,
 ) -> ProcessingResult | None:
-    latest_workflow_id = select(ProcessingWorkflow.id).where(
-        ProcessingWorkflow.workspace_id == workspace_id,
-        ProcessingWorkflow.meeting_id == meeting_id,
-        ProcessingWorkflow.purpose == "transcription",
+    _, result = await latest_processing_attempt_snapshot(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        media_revision_id=media_revision_id,
     )
-    latest_workflow_id = latest_workflow_id.where(
-        ProcessingWorkflow.media_revision_id.is_(None)
+    return result
+
+
+async def latest_processing_attempt_snapshot(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+    media_revision_id: UUID | None = None,
+) -> tuple[ProcessingWorkflow | None, ProcessingResult | None]:
+    result_revision_match = (
+        ProcessingResult.id.is_(None)
         if media_revision_id is None
-        else ProcessingWorkflow.media_revision_id == media_revision_id
-    ).order_by(
-        ProcessingWorkflow.attempt_ordinal.desc(),
-        ProcessingWorkflow.created_at.desc(),
-    ).limit(1).scalar_subquery()
-    return await db.scalar(
-        effective_processing_result_query(
-            workspace_id=workspace_id,
-            meeting_id=meeting_id,
-            media_revision_id=media_revision_id,
-        ).where(ProcessingResult.processing_workflow_id == latest_workflow_id)
+        else ProcessingResult.media_revision_id == media_revision_id
     )
+    query = (
+        select(ProcessingWorkflow, ProcessingResult)
+        .outerjoin(
+            ProcessingResult,
+            and_(
+                ProcessingResult.processing_workflow_id == ProcessingWorkflow.id,
+                ProcessingResult.workspace_id == workspace_id,
+                ProcessingResult.meeting_id == meeting_id,
+                ProcessingResult.status == ProcessingResultStatus.IMPORTED.value,
+                result_revision_match,
+            ),
+        )
+        .where(
+            ProcessingWorkflow.workspace_id == workspace_id,
+            ProcessingWorkflow.meeting_id == meeting_id,
+            ProcessingWorkflow.purpose == "transcription",
+            ProcessingWorkflow.media_revision_id.is_(None)
+            if media_revision_id is None
+            else ProcessingWorkflow.media_revision_id == media_revision_id,
+        )
+        .order_by(
+            ProcessingWorkflow.attempt_ordinal.desc(),
+            ProcessingWorkflow.created_at.desc(),
+            ProcessingResult.result_version.desc().nullslast(),
+            ProcessingResult.imported_at.desc().nullslast(),
+            ProcessingResult.created_at.desc().nullslast(),
+            ProcessingResult.id.desc().nullslast(),
+        )
+        .limit(1)
+    )
+    row = (await db.execute(query)).first()
+    return (None, None) if row is None else (row[0], row[1])
 
 
 async def record_processing_audit_event(
