@@ -515,7 +515,10 @@ async def list_desktop_calendar_upcoming(
     events, _truncated = await list_upcoming_events(
         session,
         tenant_scope,
-        starts_from=now - timedelta(minutes=before_minutes),
+        # `before_minutes` remains part of the client contract, but a desktop
+        # upcoming projection must not keep an event after its end time.
+        # Calendar context matching has its own overlap window.
+        starts_from=now,
         starts_to=now + timedelta(minutes=after_minutes),
         limit=50,
         preference=preference,

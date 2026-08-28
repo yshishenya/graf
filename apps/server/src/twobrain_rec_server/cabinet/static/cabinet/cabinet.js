@@ -11,6 +11,7 @@
   let listRefreshFocusOrigin = null;
   let playbackRecoveryTimer = null;
   let playbackRecoveryRequest = null;
+  let calendarUpcomingRefreshTimer = null;
   let processingRecoveryCountdownTimer = null;
   let processingRecoveryPollTimer = null;
   let processingRecoveryRequest = null;
@@ -4547,6 +4548,22 @@
     });
   };
 
+  const initCalendarUpcomingRefresh = () => {
+    if (calendarUpcomingRefreshTimer !== null) {
+      window.clearTimeout(calendarUpcomingRefreshTimer);
+      calendarUpcomingRefreshTimer = null;
+    }
+    const upcoming = document.querySelector("[data-calendar-upcoming-refresh-at]");
+    if (!upcoming) return;
+    const endsAt = Date.parse(upcoming.dataset.calendarUpcomingRefreshAt || "");
+    if (!Number.isFinite(endsAt)) return;
+    const delay = Math.max(0, endsAt - Date.now() + 1000);
+    calendarUpcomingRefreshTimer = window.setTimeout(() => {
+      calendarUpcomingRefreshTimer = null;
+      window.location.reload();
+    }, Math.min(delay, 2147483647));
+  };
+
   const initSettingsFormState = () => {
     document.querySelectorAll("[data-settings-form]").forEach((form) => {
       if (form.dataset.settingsFormReady === "true") return;
@@ -6546,6 +6563,7 @@
     initContentExport();
     initMeetingDeleteDialog();
     initCalendarSettings();
+    initCalendarUpcomingRefresh();
     initSettingsFormState();
     initAccountPreferences();
     initSettingsConfirmations();

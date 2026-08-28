@@ -236,8 +236,37 @@ def test_meeting_home_renders_authoritative_calendar_upcoming_projection() -> No
     assert snapshot.title in page
     assert f"/api/v1/calendar/events/{snapshot.id}/open" in page
     assert ">Подключиться</a>" in page
+    assert f'data-calendar-upcoming-refresh-at="{snapshot.ends_at.isoformat()}"' in page
     assert "synthetic-envelope" not in page
     assert "/settings/integrations/calendar" in page
+
+
+def test_calendar_home_refreshes_after_the_earliest_visible_event_ends() -> None:
+    source = calendar_settings_source(sync_state="synced")
+    calendar = calendar_settings_calendar(source=source, selected=True)
+    snapshot = calendar_settings_snapshot(
+        source=source,
+        calendar=calendar,
+        starts_at=datetime(2026, 8, 20, 9, 0, tzinfo=UTC),
+        ends_at=datetime(2026, 8, 20, 10, 0, tzinfo=UTC),
+    )
+    surface = calendar_settings_surface(
+        provider_payloads=[],
+        sources=[source],
+        calendars_by_source={source.id: [calendar]},
+        preview_events=[snapshot],
+        now=datetime(2026, 8, 20, 9, 30, tzinfo=UTC),
+    )
+    page = render_meeting_list_page(
+        MeetingListResponse(
+            items=[],
+            filters=MeetingFilterState(q=None, status=None, access=None, sort="started_desc"),
+            generated_at=datetime(2026, 8, 20, 9, 30, tzinfo=UTC),
+        ),
+        calendar_surface=surface,
+    )
+
+    assert f'data-calendar-upcoming-refresh-at="{snapshot.ends_at.isoformat()}"' in page
 
 
 def test_meeting_home_names_credential_recovery_without_false_freshness() -> None:
