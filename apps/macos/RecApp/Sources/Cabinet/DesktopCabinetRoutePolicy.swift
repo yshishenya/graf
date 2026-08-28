@@ -626,9 +626,27 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
         if components.count == 2 {
             return ["plans", "usage", "subscription", "payment-method", "checkout", "history", "discounts", "storage"].contains(components[1])
         }
+        if [
+            ["billing", "checkout", "preview"],
+            ["billing", "checkout", "start"],
+            ["billing", "discounts", "apply"],
+            ["billing", "discounts", "remove"],
+            ["billing", "trial", "activate"],
+            ["billing", "payment-method", "delete"],
+            ["billing", "subscription", "cancel"],
+            ["billing", "subscription", "resume"]
+        ].contains(components) {
+            return true
+        }
         if components == ["billing", "checkout", "return"] { return true }
         if components.count == 4 && components[1] == "checkout" && components[2] == "status" {
             return isSafePathComponent(components[3])
+        }
+        if components.count == 5,
+           components[1] == "checkout",
+           components[2] == "status",
+           isSafePathComponent(components[3]) {
+            return ["refresh", "continue"].contains(components[4])
         }
         return components.count == 3 && components[1] == "invoices" && isSafePathComponent(components[2])
     }
