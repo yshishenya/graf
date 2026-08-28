@@ -27,3 +27,16 @@
   no new helper or test file is needed.
 - **Alternatives considered**: Runtime-only smoke — rejected because it would
   not prevent a future configuration regression before deploy.
+
+## Decision 4: Bootstrap one obsolete root lock without weakening dirty guards
+
+- **Decision**: Before checkout, filter only the exact untracked status line
+  `?? twobrain-rec-deploy.lock`; add the root path to `.gitignore` for future
+  checkouts. Keep the active lock in `.git/twobrain-rec-deploy.lock` unchanged.
+- **Rationale**: The failed execute proved that the zero-byte root file is stale
+  legacy state and is not held or referenced by current tooling. Manual server
+  cleanup would bypass the repository-owned release path.
+- **Alternatives considered**: Delete the file over SSH — rejected as a manual
+  production edit. Ignore all untracked files — rejected because it weakens the
+  clean-worktree guard. Move or replace the active lock — rejected because the
+  current `.git` lock and `flock` semantics already work.

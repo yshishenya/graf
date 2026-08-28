@@ -31,7 +31,8 @@ rollback semantics. Изменить одну compose healthcheck и один с
 
 **Constraints**: Readiness path unchanged; internal budget less than runner budget; no billing/config/data mutation; no manual server edit
 
-**Scale/Scope**: One healthcheck stanza, one existing test, Feature 209 docs
+**Scale/Scope**: One healthcheck stanza, one exact legacy-lock bootstrap filter,
+one root ignore entry, existing deployment contracts, Feature 209 docs
 
 ## Constitution Check
 
@@ -51,15 +52,21 @@ rollback semantics. Изменить одну compose healthcheck и один с
 3. Set the Docker healthcheck runner timeout to 10 seconds, preserving a two-second termination margin.
 4. Keep interval and retry count unchanged.
 5. Extend the existing compose hardening test to pin route and both budgets.
+6. Allow only the exact untracked legacy root lock during remote bootstrap;
+   retain blocking behavior for every other status line.
+7. Ignore that obsolete root path after the candidate checkout while preserving
+   the active `.git` lock and `flock` behavior.
 
 ## Validation Plan
 
 1. RED/GREEN: `cd apps/server && uv run --extra dev pytest tests/integration/test_compose_hardening.py -q`.
 2. Rendered config: `docker compose --env-file infra/env/rec.production.env.example -f infra/docker-compose.yml config`.
-3. Before PR: `infra/scripts/ci-local.sh --fast`.
-4. After merge: synchronize exact master SHA, run `infra/scripts/ci-local.sh --full`, then `cd-remote.sh --dry-run --branch master` and approved `--execute`.
-5. Verify public live/ready, container health history and bounded YooKassa environment fields only.
-6. Continue macOS notarization/Sparkle only after server deploy PASS.
+3. Focused deployment contract:
+   `cd apps/server && uv run --extra dev pytest tests/integration/test_deployment_readiness_gates.py -q`.
+4. Before PR: `infra/scripts/ci-local.sh --fast`.
+5. After merge: synchronize exact master SHA, run `infra/scripts/ci-local.sh --full`, then `cd-remote.sh --dry-run --branch master` and approved `--execute`.
+6. Verify public live/ready, container health history and bounded YooKassa environment fields only.
+7. Continue macOS notarization/Sparkle only after server deploy PASS.
 
 ## Project Structure
 
@@ -78,7 +85,10 @@ specs/209-api-healthcheck-budget/
 └── tasks.md
 
 infra/docker-compose.yml
+infra/scripts/cd-remote.sh
 apps/server/tests/integration/test_compose_hardening.py
+apps/server/tests/integration/test_deployment_readiness_gates.py
+.gitignore
 CHANGELOG.md
 ```
 

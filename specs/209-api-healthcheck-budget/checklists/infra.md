@@ -30,3 +30,4 @@
 
 - [x] CHK011 Are the measured latency, timeout evidence, and absence of startup exceptions documented as assumptions supporting the chosen budgets? [Assumption, Spec §Assumptions]
 - [x] CHK012 Are backup, restore, secret handling, log redaction, and disk-full semantics intentionally unchanged rather than silently omitted? [Boundary, Spec §FR-006]
+- [x] CHK013 Is the one permitted legacy dirty path exact, distinguishable from the active lock, and bounded so all other worktree changes remain blocking? [Clarity, Spec §FR-008–FR-009]
