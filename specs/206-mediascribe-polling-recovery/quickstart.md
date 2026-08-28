@@ -25,11 +25,13 @@ MediaScribe получает exact canonical M4A один раз, original media
 отправляется. First-party mixed capture сохраняет `single_wav_v1` и отправляет
 canonical WAV; historical dual-track остаётся compatibility-only. Existing
 capture, copy/remux и other single-source pass counts не меняются.
+При ambiguous response допускаются несколько exact same-key HTTP attempts,
+но ровно один provider job; новый key/job разрешён только после подтверждённого
+terminal provider outcome и явного нового business attempt.
 
 Worker-owned DB/sessionmaker/storage/HTTP clients переиспользуются между
-activities и закрываются только после остановки всех sibling workers. Runtime
-legacy-lineage inventory больше не запускается; historical compatibility
-остаётся только в read/replay путях.
+activities и закрываются только после остановки всех sibling workers. Historical
+lineage compatibility остаётся только в read/replay путях.
 
 ```sh
 cd apps/server
@@ -48,6 +50,8 @@ bash scripts/run_local_postgres_tests.sh --focused -q \
 
 - valid и corrupt-but-recoverable manual input → canonical M4A → один provider POST;
 - first-party `single_wav_v1` → canonical WAV без manual M4A gate;
+- timeout-after-egress → несколько одинаковых POST attempts с одним key/fingerprint
+  и всё ещё один provider job;
 - no-audio/truncated/terminal normalization → ноль provider POST;
 - normalization retry → countdown + manual due-now без параллельного transcode;
 - worker restart до Temporal start и после publication → deterministic recovery;
@@ -66,7 +70,8 @@ Repository gate перед PR:
 infra/scripts/ci-local.sh --fast
 ```
 
-Pre-sync focused evidence 2026-08-27:
+Historical pre-audit evidence 2026-08-27 (не является current-SHA evidence после
+исправлений повторного аудита):
 
 - changed-file Ruff, Python compile, JavaScript syntax и `git diff --check` — PASS;
 - normalization worker unit — `13 passed`;
@@ -76,15 +81,6 @@ Pre-sync focused evidence 2026-08-27:
 - exact manual subprocess contract, one canonical provider POST, Temporal
   replay/continue-as-new, double cancellation и sibling-worker cleanup входят в
   обязательную current-SHA matrix ниже; pre-sync evidence не заменяет её.
-
-Current-SHA evidence 2026-08-27:
-
-- critical upload/processing/migration/UX PostgreSQL matrix — `288 passed`;
-- quota/idempotency/purge recovery matrix — `110 passed`;
-- exact media-pass, Temporal replay/restart, canonical-submit и UI matrix —
-  `213 passed`;
-- manual retry/cancellation/custody matrix — `15 passed`;
-- `infra/scripts/ci-local.sh --fast` — `1303 passed`, lint/compile/PASS.
 
 После scoped/current-SHA validation выполнить уже одобренные PR/review/merge,
 release/deploy и production E2E. Full CI повторно не запускать; repository

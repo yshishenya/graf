@@ -97,6 +97,7 @@ from twobrain_rec_server.domain.statuses import (
 )
 from twobrain_rec_server.outcomes.templates import built_in_template_for_version
 from twobrain_rec_server.processing.fences import meeting_is_deleted_or_deleting
+from twobrain_rec_server.processing.reasons import MEDIASCRIBE_MALFORMED_RESPONSE
 from twobrain_rec_server.processing.results import (
     result_is_terminal_input,
     result_lineage_is_current,
@@ -407,7 +408,6 @@ PLAYBACK_TERMINAL_REASON: dict[str, PlaybackPreparationReasonCode] = {
     "source_size_limit_exceeded": "limit_exceeded",
     "source_missing": "source_missing",
     "source_mismatch": "source_mismatch",
-    "storage_capacity_exceeded": "storage_capacity_exceeded",
 }
 
 PLAYBACK_REASON_COPY: dict[str, dict[str, str]] = {
@@ -422,8 +422,6 @@ PLAYBACK_REASON_COPY: dict[str, dict[str, str]] = {
         "canonical_artifact_missing": "GRAF автоматически восстанавливает аудио",
         "canonical_ready": "Аудио готово",
         "access_denied": "Аудио недоступно",
-        "audio_not_archived": "Аудио не сохранено по вашему выбору",
-        "storage_capacity_exceeded": "Недостаточно места для подготовки аудио",
         "empty_source": "В исходном файле нет данных",
         "no_audio": "В файле нет пригодной аудиодорожки",
         "ambiguous_audio_tracks": "В файле несколько равноправных аудиодорожек",
@@ -449,8 +447,6 @@ PLAYBACK_REASON_COPY: dict[str, dict[str, str]] = {
         "canonical_artifact_missing": "GRAF is automatically recovering the audio",
         "canonical_ready": "Audio is ready",
         "access_denied": "Audio is unavailable",
-        "audio_not_archived": "Audio was not saved by your choice",
-        "storage_capacity_exceeded": "There is not enough storage to prepare the audio",
         "empty_source": "The source file is empty",
         "no_audio": "The file has no usable audio track",
         "ambiguous_audio_tracks": "The file has multiple equally valid audio tracks",
@@ -2193,8 +2189,29 @@ def review_status(
         media_revision_id=media_revision_id,
         processing_workflow_id=processing_workflow_id,
     )
+    lifecycle_status = workflow.status if workflow is not None else meeting.processing_status
+    if (
+        result is not None
+        and _result_lineage_matches(
+            result,
+            media_revision_id=media_revision_id,
+            processing_workflow_id=processing_workflow_id,
+        )
+        and result.status == ProcessingResultStatus.IMPORTED.value
+        and result.failure_reason == MEDIASCRIBE_MALFORMED_RESPONSE
+        and lifecycle_status
+        in {
+            ProcessingStatus.PROCESSED.value,
+            ProcessingStatus.BLOCKED.value,
+            ProcessingStatus.FAILED_TERMINAL.value,
+            ProcessingStatus.CANCELED.value,
+        }
+    ):
+        return "failed"
     if has_transcript and has_diarization:
         return "ready"
+    if has_transcript or has_diarization:
+        return "partial"
 
     # An imported provider result with an explicit terminal input outcome
     # is authoritative even if a stale workflow row still says "processing".
@@ -2218,7 +2235,6 @@ def review_status(
     if meeting.status in {MeetingStatus.FAILED.value, MeetingStatus.DEGRADED.value}:
         return "failed"
 
-    lifecycle_status = workflow.status if workflow is not None else meeting.processing_status
     if lifecycle_status in PROCESSING_STATUSES:
         return "processing"
     if lifecycle_status == ProcessingStatus.NOT_SUBMITTED.value:
@@ -2234,17 +2250,6 @@ def review_status(
         return "failed"
     if lifecycle_status == ProcessingStatus.CANCELED.value:
         return "unavailable"
-    if (
-        lifecycle_status == ProcessingStatus.PROCESSED.value
-        and workflow is not None
-        and result is not None
-        and result.processing_workflow_id == workflow.id
-        and result.status == ProcessingResultStatus.IMPORTED.value
-        and (has_transcript or has_diarization)
-    ):
-        return "failed"
-    if has_transcript or has_diarization:
-        return "partial"
 
     return "unavailable"
 
@@ -2671,14 +2676,10 @@ def _same_result_transcript_rows(
     """Require visible rows to come from one result, allowing diarization-only display rows."""
 
     transcript_result_ids = {
-        row.processing_result_id
-        for row in transcript_segments
-        if row.processing_result_id is not None
+        row.processing_result_id for row in transcript_segments if row.processing_result_id is not None
     }
     diarization_result_ids = {
-        row.processing_result_id
-        for row in diarization_segments
-        if row.processing_result_id is not None
+        row.processing_result_id for row in diarization_segments if row.processing_result_id is not None
     }
     if not transcript_result_ids or len(transcript_result_ids) != 1:
         return False

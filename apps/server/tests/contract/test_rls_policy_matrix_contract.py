@@ -133,7 +133,7 @@ ACCOUNT_AUTH_LINKING_MIGRATION = (
 )
 PROCESSING_RECOVERY_MIGRATION = (
     REPO_ROOT
-    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0083_processing_recovery_maintenance.py"
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0084_processing_recovery_maintenance.py"
 )
 PRODUCTION_SMOKE_SETUP_MIGRATION = (
     REPO_ROOT

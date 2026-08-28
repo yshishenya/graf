@@ -176,7 +176,7 @@ async def get_content_safe_processing_status(
         retry_class = "terminal"
     elif preparation is not None and preparation.state == "pending":
         retry_class = (
-            "retryable" if preparation.reason_code == "normalization_retry_wait" else "none"
+            "retryable" if preparation.next_attempt_at is not None else "none"
         )
     elif state == ProcessingStatus.PROCESSED:
         # A processed workflow may retain a historical retry class. It is no
@@ -217,7 +217,7 @@ async def get_content_safe_processing_status(
         ProcessingStatus.IMPORTING,
     }
     if preparation is not None and preparation.state == "pending":
-        attempt_in_flight = preparation.reason_code != "normalization_retry_wait"
+        attempt_in_flight = preparation.next_attempt_at is None
     manual_claim_expired = False
     if workflow is not None and workflow.manual_claimed_at is not None:
         claimed_at = workflow.manual_claimed_at
@@ -253,7 +253,11 @@ async def get_content_safe_processing_status(
         or (state == ProcessingStatus.CANCELED and reason_code == "audio_purged")
     ):
         manual_action = "upload_another"
-    elif preparation is not None and preparation.reason_code == "normalization_retry_wait":
+    elif (
+        preparation is not None
+        and preparation.state == "pending"
+        and preparation.next_attempt_at is not None
+    ):
         manual_action = "retry_preparation"
     elif (
         (manual_claim_expired and same_job_recovery_safe)

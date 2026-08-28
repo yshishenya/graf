@@ -13,9 +13,8 @@
   `processing_retry_deadline_exceeded`, не различая лимит попыток и deadline.
 - MediaScribe v1 client уже сохраняет `status`, `retry_after_seconds` и
   `next_retry_at` из job status response.
-- Same-job recovery использует внешний job id или durable idempotency key.
-  Неизвестный POST восстанавливается exact replay с тем же ключом; после
-  получения external job id повторный multipart запрещён.
+- Same-job recovery уже использует внешний job id или idempotency key и не
+  должен повторять multipart upload.
 - Deadline workflow создавался через `DEFAULT_DEADLINE`, а не через
   `processing_recovery_deadline_seconds`.
 - Manual upload dispatch запускает normalization и processing независимо;
@@ -56,17 +55,16 @@
 9. Terminalize provider input-audio failure и прекращать frontend polling.
 10. Allowlist/infer multipart MIME; canonical contract — `audio/mp4` +
     `manual-media.m4a`.
-11. Для неизвестного результата POST использовать документированный контракт
-    MediaScribe v0.5.3: повторять только exact multipart с тем же durable
-    `Idempotency-Key`; изменившийся request fingerprint блокировать до egress.
-    Локальная pre-egress job строка сама по себе canonical gate не обходит.
+11. Bypass canonical gate только после external provider id либо explicit
+    unknown-outcome reconciliation; локальная pre-egress job строка gate не
+    обходит.
 12. Не расходовать provider watchdog во время normalization; ждать durable
     next-attempt/fallback timer и ограничивать history через `continue_as_new`.
 
 ## Не выбранные варианты
 
-- Новый idempotency key или изменённый multipart после неизвестного submit не
-  используется: это создаёт вторую job либо `409 idempotency_conflict`.
+- Повторная multipart-загрузка после неизвестного submit не используется:
+  это может создать дубликат.
 - Изменение MediaScribe API не требуется: status/result endpoints уже есть.
 - Увеличение production `processing_recovery_max_attempts` не решает смешение
   семантик и оставляет ложную terminal failure.

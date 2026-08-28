@@ -347,11 +347,6 @@ class MediaScribeClient:
                 egress_state="not_sent",
             ) from exc
 
-    async def get_result(
-        self, external_job_id: str, *, request_id: str | None = None
-    ) -> MediaScribeResult:
-        return await self.fetch_result(external_job_id, request_id=request_id)
-
     async def get_summary(
         self,
         external_job_id: str,
@@ -480,14 +475,6 @@ class MediaScribeClient:
             headers=response.headers,
             http_status=response.status_code,
         )
-
-    async def download_artifact(
-        self,
-        download_url: str,
-        *,
-        request_id: str | None = None,
-    ) -> MediaScribeDownloadResponse:
-        return await self.download(download_url, request_id=request_id)
 
     async def _request_json(
         self,

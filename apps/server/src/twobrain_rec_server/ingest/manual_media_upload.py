@@ -119,6 +119,17 @@ async def accept_manual_media_upload(
             code="transient_processing_unavailable",
             title="Processing without stored audio is unavailable",
         )
+    if not (
+        settings.playback_normalization_enabled
+        and settings.playback_normalization_automatic_dispatch_enabled
+    ):
+        file.stream.close()
+        raise ProblemDetail(
+            status=503,
+            code="manual_media_preparation_unavailable",
+            title="Подготовка записи временно недоступна",
+            detail="Попробуйте загрузить запись позже.",
+        )
 
     media_sha256 = file.sha256
     recording_id = local_recording_id or f"manual-upload-{media_sha256[:32]}"
@@ -219,6 +230,7 @@ async def accept_manual_media_upload(
             tracks=[manifest, media],
             storage=storage,
             archive_audio=archive_audio,
+            processing_requested=settings.processing_enabled,
         )
         if db is not None:
             await db.commit()

@@ -89,7 +89,9 @@ def test_result_import_is_idempotent_for_same_normalized_result(client) -> None:
     assert asyncio.run(import_twice()) == 1
 
 
-def test_processing_result_persists_contract_transcript_status_without_rows(client) -> None:
+def test_processing_result_persists_empty_result_without_quota_reservation(
+    client, monkeypatch
+) -> None:
     finalized = create_finalized_meeting(client, "processing-authoritative-status")
     meeting_id = UUID(finalized["meeting"]["meeting_id"])
     media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
@@ -102,6 +104,19 @@ def test_processing_result_persists_contract_transcript_status_without_rows(clie
             transcript_status=ProcessingAvailabilityStatus.AVAILABLE,
             transcript=[],
         ),
+    )
+
+    reservation_calls = 0
+
+    async def allow_submit_reservation_only(*_args, **_kwargs) -> bool:
+        nonlocal reservation_calls
+        reservation_calls += 1
+        return reservation_calls == 1
+
+    monkeypatch.setattr(
+        store,
+        "ensure_processing_usage_reservation",
+        allow_submit_reservation_only,
     )
 
     async def import_result() -> tuple[str, int]:
@@ -126,6 +141,7 @@ def test_processing_result_persists_contract_transcript_status_without_rows(clie
             return persisted.transcript_status, persisted.segment_count
 
     assert asyncio.run(import_result()) == ("available", 0)
+    assert reservation_calls == 1
 
 
 def test_quota_failure_does_not_publish_result_or_segments(client, monkeypatch) -> None:
@@ -137,7 +153,7 @@ def test_quota_failure_does_not_publish_result_or_segments(client, monkeypatch) 
         external_job_id="job_quota_atomicity",
         transcript_status=ProcessingAvailabilityStatus.AVAILABLE,
         transcript=[
-            MediaScribeSegment(
+            MediaScribeTranscriptSegment(
                 sequence=0,
                 start_seconds=0,
                 end_seconds=10,

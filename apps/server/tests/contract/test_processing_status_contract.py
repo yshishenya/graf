@@ -70,16 +70,17 @@ def test_attribution_reason_codes_require_the_fixed_allowlist() -> None:
         {"reason_codes": ["invalid_provider_timing", "private meeting content"]}
     )
 
-    assert allowed == {"reason_codes": ["invalid_provider_timing", "text_conservation_mismatch"]}
+    assert allowed == {
+        "reason_codes": ["invalid_provider_timing", "text_conservation_mismatch"]
+    }
     assert rejected == {}
 
 
 def test_processing_status_openapi_contract_has_content_safe_fields() -> None:
     contract = yaml.safe_load(
-        (
-            ROOT
-            / "specs/015-mediascribe-processing-pipeline/contracts/processing-status.openapi.yaml"
-        ).read_text(encoding="utf-8")
+        (ROOT / "specs/015-mediascribe-processing-pipeline/contracts/processing-status.openapi.yaml").read_text(
+            encoding="utf-8"
+        )
     )
     properties = contract["components"]["schemas"]["ProcessingStatusResponse"]["properties"]
     assert "transcript_available" in properties
@@ -109,13 +110,7 @@ def test_processing_status_endpoint_returns_no_content_or_secret_fields(client) 
     assert payload["meeting_id"] == str(meeting_id)
     assert payload["workflow_id"] == f"processing/{media_revision_id}"
     assert payload["mediascribe_job_id_present"] is False
-    forbidden = {
-        "transcript_text",
-        "audio_download_url",
-        "mediascribe_job_id",
-        "api_key",
-        "signed_url",
-    }
+    forbidden = {"transcript_text", "audio_download_url", "mediascribe_job_id", "api_key", "signed_url"}
     assert forbidden.isdisjoint(payload)
 
 
@@ -153,6 +148,7 @@ def test_processing_status_endpoint_requires_rows_for_content_availability(clien
                     mediascribe_job_id=job.id,
                     result_version=1,
                     status=ProcessingResultStatus.IMPORTED.value,
+                    processing_workflow_id=workflow.id,
                     transcript_status=ProcessingAvailabilityStatus.AVAILABLE.value,
                     diarization_status=ProcessingAvailabilityStatus.AVAILABLE.value,
                     summary_status=SummaryStatus.NOT_REQUESTED.value,
@@ -172,13 +168,21 @@ def test_processing_status_endpoint_requires_rows_for_content_availability(clien
     assert payload["content_available"] is False
 
 
-def test_complete_result_without_workflow_lineage_is_hidden(client) -> None:
-    finalized = create_finalized_meeting(client, "processing-status-missing-result-lineage")
+@pytest.mark.parametrize("stale_retry_class", ["none", "retryable"])
+def test_processed_result_without_diarization_is_terminal_and_does_not_poll(
+    client,
+    stale_retry_class: str,
+) -> None:
+    client.app.state.temporal_client = FakeTemporalClient()
+    finalized = create_finalized_meeting(
+        client,
+        f"processing-status-missing-diarization-{stale_retry_class}",
+    )
     meeting_id = UUID(finalized["meeting"]["meeting_id"])
     media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
     workspace_id = UUID(finalized["meeting"]["workspace_id"])
 
-    async def seed_unlineaged_result() -> None:
+    async def seed_incomplete_result() -> None:
         async with client.app_state["sessionmaker"]() as db:
             workflow = await store.upsert_processing_workflow(
                 db,
@@ -188,12 +192,13 @@ def test_complete_result_without_workflow_lineage_is_hidden(client) -> None:
                 workflow_id=f"processing/{media_revision_id}",
                 status=ProcessingStatus.PROCESSED,
             )
+            workflow.retry_class = stale_retry_class
             job = MediaScribeJob(
                 workspace_id=workspace_id,
                 meeting_id=meeting_id,
                 media_revision_id=media_revision_id,
                 processing_workflow_id=workflow.id,
-                external_job_id="job_missing_result_lineage",
+                external_job_id="job_missing_diarization",
                 status=MediaScribeJobStatus.READY.value,
             )
             db.add(job)
@@ -206,25 +211,194 @@ def test_complete_result_without_workflow_lineage_is_hidden(client) -> None:
                     mediascribe_job_id=job.id,
                     result_version=1,
                     status=ProcessingResultStatus.IMPORTED.value,
+                    processing_workflow_id=workflow.id,
                     transcript_status=ProcessingAvailabilityStatus.AVAILABLE.value,
-                    diarization_status=ProcessingAvailabilityStatus.AVAILABLE.value,
-                    summary_status=SummaryStatus.AVAILABLE.value,
+                    diarization_status=ProcessingAvailabilityStatus.UNAVAILABLE.value,
+                    summary_status=SummaryStatus.NOT_REQUESTED.value,
                     segment_count=1,
-                    diarization_segment_count=1,
+                    diarization_segment_count=0,
+                    failure_reason="mediascribe_malformed_response",
                 )
             )
             await db.commit()
 
-    asyncio.run(seed_unlineaged_result())
+    asyncio.run(seed_incomplete_result())
 
     response = client.get(f"/api/v1/meetings/{meeting_id}/processing", headers=auth_headers())
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["state"] == ProcessingStatus.PROCESSED.value
-    assert payload["artifacts"]["transcript"]["state"] == "processing"
-    assert payload["artifacts"]["diarization"]["state"] == "processing"
-    assert payload["artifacts"]["summary"]["state"] == "not_requested"
+    assert payload["state"] == ProcessingStatus.FAILED_TERMINAL.value
+    assert payload["retry_class"] == "terminal"
+    assert payload["manual_action"] == "new_attempt"
+    assert payload["attempt_in_flight"] is False
+    assert payload["transcript_available"] is False
+    assert payload["artifacts"]["transcript"] == {"state": "unavailable", "visible": False}
+    assert payload["artifacts"]["diarization"] == {"state": "unavailable", "visible": False}
+
+    detail = client.get(
+        f"/api/v1/cabinet/meetings/{meeting_id}",
+        headers=auth_headers(),
+    )
+    assert detail.status_code == 200
+    assert detail.json()["processing"]["state"] == "failed"
+    listed = client.get(
+        "/api/v1/cabinet/meetings",
+        params={"q": f"processing-status-missing-diarization-{stale_retry_class}"},
+        headers=auth_headers(),
+    )
+    assert listed.status_code == 200
+    assert listed.json()["items"][0]["status"] == "failed"
+
+    attempt = client.post(
+        f"/api/v1/meetings/{meeting_id}/processing/attempt",
+        headers=auth_headers(),
+    )
+    assert attempt.status_code == 202
+    assert attempt.json()["attempt_result"] == "created"
+
+
+def test_exhausted_processing_limit_offers_a_later_new_attempt(client) -> None:
+    client.app.state.temporal_client = FakeTemporalClient()
+    finalized = create_finalized_meeting(client, "processing-status-quota-exhausted")
+    meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
+    workspace_id = UUID(finalized["meeting"]["workspace_id"])
+
+    async def seed_terminal_workflow() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            workflow = await store.upsert_processing_workflow(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+                workflow_id=f"processing/{media_revision_id}",
+                status=ProcessingStatus.FAILED_TERMINAL,
+            )
+            workflow.last_reason_code = "blocked_free_processing_exhausted"
+            workflow.retry_class = "terminal"
+            workflow.ended_at = datetime.now(UTC)
+            db.add(
+                MediaScribeJob(
+                    workspace_id=workspace_id,
+                    meeting_id=meeting_id,
+                    media_revision_id=media_revision_id,
+                    processing_workflow_id=workflow.id,
+                    external_job_id="job_quota_ready_result",
+                    status=MediaScribeJobStatus.READY.value,
+                )
+            )
+            window_start, window_end = moscow_window_for(datetime.now(UTC))
+            db.add(
+                FreeUsageWindow(
+                    workspace_id=workspace_id,
+                    window_start=window_start,
+                    window_end=window_end,
+                    included_seconds=FREE_PROCESSING_SECONDS,
+                    committed_seconds=FREE_PROCESSING_SECONDS,
+                )
+            )
+            await db.commit()
+
+    asyncio.run(seed_terminal_workflow())
+    response = client.get(f"/api/v1/meetings/{meeting_id}/processing", headers=auth_headers())
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["state"] == ProcessingStatus.FAILED_TERMINAL.value
+    assert payload["reason_code"] == "blocked_free_processing_exhausted"
+    assert payload["manual_action"] == "new_attempt"
+
+    exhausted = client.post(
+        f"/api/v1/meetings/{meeting_id}/processing/attempt",
+        headers=auth_headers(),
+    )
+    assert exhausted.status_code == 409
+    assert exhausted.json()["code"] == "processing_quota_exceeded"
+
+    async def restore_limit() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            window = await db.scalar(
+                select(FreeUsageWindow).where(FreeUsageWindow.workspace_id == workspace_id)
+            )
+            assert window is not None
+            window.committed_seconds = 0
+            await db.commit()
+
+    asyncio.run(restore_limit())
+    created = client.post(
+        f"/api/v1/meetings/{meeting_id}/processing/attempt",
+        headers=auth_headers(),
+    )
+    assert created.status_code == 202
+    assert created.json()["attempt_result"] == "created"
+    assert created.json()["attempt_ordinal"] == 2
+
+    async def same_provider_job_is_reused() -> tuple[int, str, bool]:
+        async with client.app_state["sessionmaker"]() as db:
+            jobs = list(
+                await db.scalars(
+                    select(MediaScribeJob).where(MediaScribeJob.meeting_id == meeting_id)
+                )
+            )
+            latest_workflow = await db.scalar(
+                select(ProcessingWorkflow)
+                .where(ProcessingWorkflow.meeting_id == meeting_id)
+                .order_by(ProcessingWorkflow.attempt_ordinal.desc())
+            )
+            assert latest_workflow is not None
+            return (
+                len(jobs),
+                jobs[0].external_job_id or "",
+                jobs[0].processing_workflow_id == latest_workflow.id,
+            )
+
+    assert asyncio.run(same_provider_job_is_reused()) == (
+        1,
+        "job_quota_ready_result",
+        True,
+    )
+
+
+def test_expired_manual_check_claim_reopens_same_job_action(client) -> None:
+    finalized = create_finalized_meeting(client, "processing-status-expired-manual-claim")
+    meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
+    workspace_id = UUID(finalized["meeting"]["workspace_id"])
+
+    async def seed_expired_claim() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            workflow = await store.upsert_processing_workflow(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+                workflow_id=f"processing/{media_revision_id}",
+                status=ProcessingStatus.POLLING,
+            )
+            workflow.retry_class = "retryable"
+            workflow.last_reason_code = "manual_processing_check"
+            workflow.manual_claimed_at = datetime.now(UTC) - timedelta(minutes=3)
+            workflow.manual_claimed_by = "user"
+            db.add(
+                MediaScribeJob(
+                    workspace_id=workspace_id,
+                    meeting_id=meeting_id,
+                    media_revision_id=media_revision_id,
+                    processing_workflow_id=workflow.id,
+                    external_job_id="job_expired_manual_claim",
+                    status=MediaScribeJobStatus.TRANSCRIBING.value,
+                )
+            )
+            await db.commit()
+
+    asyncio.run(seed_expired_claim())
+
+    response = client.get(f"/api/v1/meetings/{meeting_id}/processing", headers=auth_headers())
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["attempt_in_flight"] is False
+    assert payload["manual_action"] == "check_now"
+    assert payload["next_attempt_at"] is None
 
 
 def test_processing_status_ignores_historical_retry_class_after_processed_result(client) -> None:
@@ -349,12 +523,12 @@ def test_processing_status_projects_imported_terminal_input_even_with_stale_work
     assert payload["state"] == ProcessingStatus.FAILED_TERMINAL.value
     assert payload["retry_class"] == "terminal"
     assert payload["reason_code"] == failure_reason
-    assert payload["manual_action"] == "new_attempt"
+    assert payload["manual_action"] == (
+        "upload_another" if failure_reason == "invalid_audio_payload" else "new_attempt"
+    )
 
 
-def test_no_speech_new_attempt_lazily_connects_temporal_and_projects_as_active(
-    client, monkeypatch
-) -> None:
+def test_no_speech_new_attempt_lazily_connects_temporal_and_projects_as_active(client, monkeypatch) -> None:
     temporal = FakeTemporalClient()
 
     async def connect_temporal(_settings):
@@ -416,7 +590,7 @@ def test_no_speech_new_attempt_lazily_connects_temporal_and_projects_as_active(
     assert body["attempt_result"] == "created"
     assert body["attempt_ordinal"] == 2
     assert body["attempt_in_flight"] is True
-    assert body["state"] == ProcessingStatus.STARTING.value
+    assert body["state"] == ProcessingStatus.WORKFLOW_STARTED.value
     assert body["manual_action"] == "none"
     assert body["artifacts"]["transcript"]["state"] == "processing"
     assert body["artifacts"]["diarization"]["state"] == "processing"
@@ -430,7 +604,7 @@ def test_no_speech_new_attempt_lazily_connects_temporal_and_projects_as_active(
     assert status.status_code == 200
     payload = status.json()
     assert payload["attempt_ordinal"] == 2
-    assert payload["state"] == ProcessingStatus.STARTING.value
+    assert payload["state"] == ProcessingStatus.WORKFLOW_STARTED.value
     assert payload["attempt_in_flight"] is True
     assert payload["artifacts"]["transcript"]["state"] == "processing"
     assert payload["artifacts"]["diarization"]["state"] == "processing"
@@ -472,9 +646,7 @@ def test_expired_transient_source_requires_a_new_upload(client) -> None:
     assert response.json()["detail"] == "Срок временного хранения записи истёк. Загрузите файл заново."
 
 
-def test_manual_check_releases_claim_when_temporal_connect_is_cancelled(
-    client, monkeypatch
-) -> None:
+def test_manual_check_releases_claim_when_temporal_connect_is_cancelled(client, monkeypatch) -> None:
     finalized = create_finalized_meeting(client, "processing-status-cancelled-check")
     meeting_id = UUID(finalized["meeting"]["meeting_id"])
     media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
@@ -531,82 +703,6 @@ def test_manual_check_releases_claim_when_temporal_connect_is_cancelled(
         None,
         None,
     )
-
-
-def test_manual_check_shields_claim_release_when_temporal_update_is_cancelled(
-    client,
-    monkeypatch,
-) -> None:
-    finalized = create_finalized_meeting(client, "processing-status-cancelled-update")
-    meeting_id = UUID(finalized["meeting"]["meeting_id"])
-    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
-    workspace_id = UUID(finalized["meeting"]["workspace_id"])
-
-    async def seed_polling_job() -> None:
-        async with client.app_state["sessionmaker"]() as db:
-            workflow = await store.upsert_processing_workflow(
-                db,
-                workspace_id=workspace_id,
-                meeting_id=meeting_id,
-                media_revision_id=media_revision_id,
-                workflow_id=f"processing/{media_revision_id}",
-                status=ProcessingStatus.WAITING_RETRY,
-            )
-            db.add(
-                MediaScribeJob(
-                    workspace_id=workspace_id,
-                    meeting_id=meeting_id,
-                    media_revision_id=media_revision_id,
-                    processing_workflow_id=workflow.id,
-                    external_job_id="job_cancelled_update",
-                    status=MediaScribeJobStatus.SUBMITTED.value,
-                )
-            )
-            await db.commit()
-
-    asyncio.run(seed_polling_job())
-    update_calls = 0
-    shield_calls = 0
-    original_shield = asyncio.shield
-
-    async def temporal_client(_request):
-        return object()
-
-    async def cancelled_update(**_kwargs):
-        nonlocal update_calls
-        update_calls += 1
-        raise asyncio.CancelledError
-
-    def tracked_shield(awaitable):
-        nonlocal shield_calls
-        shield_calls += 1
-        return original_shield(awaitable)
-
-    monkeypatch.setattr(processing_api, "_get_temporal_client", temporal_client)
-    monkeypatch.setattr(processing_api, "request_processing_manual_check", cancelled_update)
-    monkeypatch.setattr(processing_api.asyncio, "shield", tracked_shield)
-
-    with pytest.raises(RuntimeError, match="No response returned"):
-        client.post(
-            f"/api/v1/meetings/{meeting_id}/processing/check",
-            headers=auth_headers(),
-            json={},
-        )
-
-    async def load_claim() -> tuple[object | None, object | None]:
-        async with client.app_state["sessionmaker"]() as db:
-            workflow = await db.scalar(
-                select(ProcessingWorkflow).where(
-                    ProcessingWorkflow.meeting_id == meeting_id,
-                    ProcessingWorkflow.workspace_id == workspace_id,
-                )
-            )
-            assert workflow is not None
-            return workflow.manual_claimed_at, workflow.manual_claimed_by
-
-    assert update_calls == 1
-    assert shield_calls >= 1
-    assert asyncio.run(load_claim()) == (None, None)
 
 
 def test_finalize_autostart_audit_metadata_is_content_safe(client) -> None:

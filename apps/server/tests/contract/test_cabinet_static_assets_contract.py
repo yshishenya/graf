@@ -543,6 +543,17 @@ if (scheduled.join(",") !== "360000,15000,15000,15000") {
 
 def test_processing_status_retry_survives_transient_fetch_and_action_failures() -> None:
     script_path = STATIC_DIR / "cabinet.js"
+    script = script_path.read_text()
+    manual_catch = script[
+        script.index("signature: `manual-check-failed-${generation}`") :
+        script.index("const runProcessingNewAttempt")
+    ]
+    new_attempt_catch = script[
+        script.index("} catch (error) {", script.index("const runProcessingNewAttempt")) :
+        script.index("const initProcessingRecovery")
+    ]
+    assert "scheduleProcessingStatusRetry(generation);" in manual_catch
+    assert "scheduleProcessingStatusRetry(generation);" in new_attempt_catch
     harness = r"""
 const fs = require("fs");
 const vm = require("vm");

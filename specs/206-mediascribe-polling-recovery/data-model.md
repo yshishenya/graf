@@ -21,13 +21,17 @@
 - `TrackArtifact` canonical M4A — единственный manual-upload provider source;
   при `archive_audio=true` это также playback source, при `false` — transient и
   скрытый от playback/storage quota;
-- `ProcessingWorkflow` — создаётся сразу после accepted commit и сохраняет
-  transient lifecycle, processing quota reservation, deterministic workflow id
-  и manual command generation;
+- `ProcessingWorkflow` — business-attempt и Temporal-execution lineage;
+  создаётся сразу после accepted commit и сохраняет transient lifecycle,
+  processing quota reservation, deterministic workflow id и manual command
+  generation. Replacement Temporal execution не означает новую provider
+  operation;
 - `MediaScribeJob` — local pre-egress row может существовать до POST, но не
   обходит gate; только `external_job_id` либо explicit same-key unknown-outcome
   reconciliation подтверждает provider submission. Canonical artifact identity,
-  SHA, size, profile, validation и lineage входят в неизменный request contract;
+  SHA, size, profile, validation, request fingerprint и idempotency key входят в
+  неизменный provider-operation contract. Один provider job может пережить
+  несколько Temporal executions и несколько exact same-key HTTP attempts;
 - finalized `UploadSession.archive_audio` — revision-scoped policy source;
   любой конфликтующий `false` трактуется fail-closed как no-archive, отсутствие
   session сохраняет legacy archival behavior;
@@ -43,7 +47,9 @@ a `recovered_source=false`, пока фактическое recovery не док
 Миграция `0083_result_workflow_lineage` не меняет публичную модель данных. Она
 консервативно заполняет существующий `ProcessingResult.processing_workflow_id`
 только через доказанную цепочку result → MediaScribe job → workflow и не
-угадывает конфликтующую lineage. Bounded transient purge использует уже
-существующие индексы, journal и maintenance allowlist. Если реализация потребует
+угадывает конфликтующую lineage. Следующая миграция `0084_processing_recovery`
+идёт строго после уже применяемого production head `0083_result_workflow_lineage`
+и добавляет только индексы/внешний ключ для bounded transient purge и recovery;
+второй migration head не создаётся. Если реализация потребует
 новый public status, artifact role или retention entity, работа останавливается
 и plan пересматривается.

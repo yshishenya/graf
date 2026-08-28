@@ -402,6 +402,7 @@ def test_v5_mixed_recording_submits_one_canonical_wav_and_imports_one_result(cli
 
 def test_normal_recording_and_manual_upload_share_canonical_speaker_projection(client) -> None:
     client.app.state.settings.processing_enabled = True
+    client.app.state.settings.playback_normalization_enabled = True
     client.app.state.temporal_client = FakeTemporalClient()
     normal = create_finalized_mixed_recording(client, "canonical-parity-normal")
     manual_response = client.post(

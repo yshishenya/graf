@@ -1,7 +1,6 @@
 import asyncio
 import importlib.util
 import re
-from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from uuid import UUID, uuid4
@@ -11,13 +10,18 @@ from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
 from sqlalchemy import text
-from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from tests.fakes.fake_minio import FakeMinioStorage
 from twobrain_rec_server.config import Settings, get_settings
 from twobrain_rec_server.db.models import (
+    MediaRevision,
+    MediaScribeJob,
+    Meeting,
+    MeetingOutcomeSet,
     Organization,
+    ProcessingResult,
+    ProcessingWorkflow,
     RegisteredDevice,
     UserIdentity,
     Workspace,
@@ -45,10 +49,6 @@ SPEAKER_NAMES_MIGRATION = (
 LINKED_WORKSPACE_MIGRATION = (
     ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0074_linked_workspace_and_merge_proofs.py"
-)
-PROCESSING_RECOVERY_MIGRATION = (
-    ROOT
-    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0083_processing_recovery_maintenance.py"
 )
 
 
@@ -109,209 +109,6 @@ def _load_migration_module(path: Path, module_name: str):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
-
-
-def test_processing_recovery_migration_adds_revision_first_transient_custody_index(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    migration = _load_migration_module(
-        PROCESSING_RECOVERY_MIGRATION,
-        "processing_recovery_migration_index_test",
-    )
-    created: list[tuple[str, str, tuple[str, ...], str]] = []
-    dropped: list[tuple[str, str | None]] = []
-    added_columns: list[tuple[str, str]] = []
-
-    class MigrationOp:
-        def get_bind(self):
-            return SimpleNamespace(dialect=SimpleNamespace(name="sqlite"))
-
-        def create_index(self, name, table_name, columns, **kwargs) -> None:
-            created.append(
-                (
-                    name,
-                    table_name,
-                    tuple(columns),
-                    str(kwargs.get("postgresql_where", "")),
-                )
-            )
-
-        def drop_index(self, name, *, table_name=None) -> None:
-            dropped.append((name, table_name))
-
-        def add_column(self, table_name, column) -> None:
-            added_columns.append((table_name, column.name))
-
-        def drop_column(self, _table_name, _column_name) -> None:
-            return None
-
-        def create_foreign_key(self, *_args, **_kwargs) -> None:
-            return None
-
-        def drop_constraint(self, *_args, **_kwargs) -> None:
-            return None
-
-    monkeypatch.setattr(migration, "op", MigrationOp())
-
-    migration.upgrade()
-    migration.downgrade()
-
-    assert (
-        "ix_upload_sessions_transient_revision_custody",
-        "upload_sessions",
-        ("workspace_id", "meeting_id", "media_revision_id"),
-        "status = 'finalized' and media_revision_id is not null",
-    ) in created
-    assert (
-        "ix_upload_sessions_transient_revision_custody",
-        "upload_sessions",
-    ) in dropped
-    assert (
-        "ix_upload_sessions_processing_dispatch_recovery",
-        "upload_sessions",
-        ("finalized_at", "workspace_id", "meeting_id", "media_revision_id"),
-        "status = 'finalized' and processing_status = 'starting' and media_revision_id is not null",
-    ) in created
-    assert (
-        "ix_upload_sessions_processing_dispatch_recovery",
-        "upload_sessions",
-    ) in dropped
-    assert ("meeting_purge_journal", "media_revision_id") in added_columns
-    assert (
-        "ix_meeting_purge_journal_transient_revision",
-        "meeting_purge_journal",
-        ("media_revision_id", "state", "next_retry_at"),
-        "artifact_class = 'transient_audio'",
-    ) in created
-
-
-def test_processing_recovery_downgrade_blocks_storage_capacity_terminal_row(
-    postgres_clean_database_url: str,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("TWOBRAIN_DATABASE_URL", postgres_clean_database_url)
-    get_settings.cache_clear()
-    alembic_config = Config(str(ROOT / "apps/server/alembic.ini"))
-    alembic_config.set_main_option(
-        "script_location", str(ROOT / "apps/server/src/twobrain_rec_server/db/migrations")
-    )
-    command.upgrade(alembic_config, "0083_processing_recovery")
-    meeting_id = uuid4()
-    media_revision_id = uuid4()
-    job_id = uuid4()
-
-    async def seed_storage_capacity_failure() -> None:
-        engine = create_async_engine(postgres_clean_database_url)
-        sessionmaker = async_sessionmaker(engine, expire_on_commit=False)
-        try:
-            await _seed_identity(sessionmaker)
-            async with engine.begin() as connection:
-                await connection.execute(
-                    text(
-                        """
-                        insert into meetings
-                            (id, workspace_id, created_by_user_id, device_id,
-                             local_recording_id, duration_seconds, status)
-                        values
-                            (:id, :workspace_id, :user_id, :device_id,
-                             'migration-0083-downgrade', 60, 'ready')
-                        """
-                    ),
-                    {
-                        "id": meeting_id,
-                        "workspace_id": WORKSPACE_ID,
-                        "user_id": USER_ID,
-                        "device_id": DEVICE_ID,
-                    },
-                )
-                await connection.execute(
-                    text(
-                        """
-                        insert into media_revisions
-                            (id, workspace_id, meeting_id, local_media_revision_id,
-                             source_kind, status, immutable, accepted_at)
-                        values
-                            (:id, :workspace_id, :meeting_id, 'migration-0083-revision',
-                             'manual_upload', 'accepted', true, current_timestamp)
-                        """
-                    ),
-                    {
-                        "id": media_revision_id,
-                        "workspace_id": WORKSPACE_ID,
-                        "meeting_id": meeting_id,
-                    },
-                )
-                await connection.execute(
-                    text(
-                        """
-                        insert into playback_normalization_jobs
-                            (id, organization_id, workspace_id, requested_by_user_id,
-                             source_device_id, meeting_id, media_revision_id,
-                             trigger_kind, priority_class, source_kind,
-                             source_fingerprint_sha256, planned_action, state,
-                             reason_code, workflow_id, terminal_at,
-                             lease_owner_sha256, lease_expires_at)
-                        values
-                            (:id, :organization_id, :workspace_id, :user_id,
-                             :device_id, :meeting_id, :media_revision_id,
-                             'finalize', 'new_ingest', 'manual_upload', :fingerprint,
-                             'normalize_source', 'terminal',
-                             'storage_capacity_exceeded', :workflow_id, :terminal_at,
-                             :lease_owner, :lease_expires_at)
-                        """
-                    ),
-                    {
-                        "id": job_id,
-                        "organization_id": ORG_ID,
-                        "workspace_id": WORKSPACE_ID,
-                        "user_id": USER_ID,
-                        "device_id": DEVICE_ID,
-                        "meeting_id": meeting_id,
-                        "media_revision_id": media_revision_id,
-                        "fingerprint": "a" * 64,
-                        "workflow_id": f"playback-normalization/{media_revision_id}",
-                        "terminal_at": datetime.now(UTC),
-                        "lease_owner": "b" * 64,
-                        "lease_expires_at": datetime.now(UTC),
-                    },
-                )
-        finally:
-            await engine.dispose()
-
-    asyncio.run(seed_storage_capacity_failure())
-    with pytest.raises(SQLAlchemyError, match="0083 downgrade blocked"):
-        command.downgrade(alembic_config, "0082_mediascribe_words")
-
-    async def downgraded_row() -> tuple[object, ...]:
-        engine = create_async_engine(postgres_clean_database_url)
-        try:
-            async with engine.connect() as connection:
-                row = (
-                    await connection.execute(
-                        text(
-                            """
-                            select state, reason_code, next_attempt_at, terminal_at,
-                                   lease_owner_sha256, lease_expires_at
-                            from playback_normalization_jobs
-                            where id = :job_id
-                            """
-                        ),
-                        {"job_id": job_id},
-                    )
-                ).one()
-                return tuple(row)
-        finally:
-            await engine.dispose()
-
-    state, reason, next_attempt_at, terminal_at, lease_owner, lease_expires_at = asyncio.run(
-        downgraded_row()
-    )
-    assert (state, reason) == ("terminal", "storage_capacity_exceeded")
-    assert next_attempt_at is None
-    assert terminal_at is not None
-    assert lease_owner == "b" * 64
-    assert lease_expires_at is not None
-    get_settings.cache_clear()
 
 
 async def _seed_identity(sessionmaker) -> None:
@@ -457,7 +254,7 @@ def test_production_share_head_upgrades_to_regeneration_merge(
         promotion_counter_function,
         promotion_counter_config,
     ) = asyncio.run(inspect_schema())
-    assert versions == ["0083_processing_recovery"]
+    assert versions == ["0084_processing_recovery"]
     assert "public.promotion_campaigns" in promotion_counter_function
     assert "search_path=pg_catalog, pg_temp" in promotion_counter_config
     assert {
@@ -495,7 +292,6 @@ def test_production_share_head_upgrades_to_regeneration_merge(
             "generator_config_hash",
         },
         "dispatch_intents": {"reconciliation_state", "last_reconciled_at"},
-        "meeting_purge_journal": {"media_revision_id"},
         "time_credit_ledger_entries": {"referral_attribution_id"},
     }
     assert all(
@@ -504,8 +300,7 @@ def test_production_share_head_upgrades_to_regeneration_merge(
         for column_name in column_names
     )
     assert "prompt_optimization" in maintenance_helper
-    assert "processing_legacy_lineage_reconciliation" in maintenance_helper
-    assert "processing_recovery_reconciliation" in maintenance_helper
+    assert "processing_legacy_lineage_reconciliation" not in maintenance_helper
 
 
 @pytest.mark.parametrize("legacy_check_exists", [False, True])
@@ -941,6 +736,176 @@ def test_linked_workspace_migration_handles_optional_legacy_check_and_adds_merge
         )
     )
     assert "proof_link.target_provider_identity_id = proof_identity.id" in reupgraded_helper
+
+
+def test_processing_result_workflow_lineage_backfill_is_exact(
+    postgres_clean_database_url: str,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("TWOBRAIN_DATABASE_URL", postgres_clean_database_url)
+    get_settings.cache_clear()
+    alembic_config = Config(str(ROOT / "apps/server/alembic.ini"))
+    alembic_config.set_main_option(
+        "script_location", str(ROOT / "apps/server/src/twobrain_rec_server/db/migrations")
+    )
+    command.upgrade(alembic_config, "0082_mediascribe_words")
+
+    result_ids = {
+        name: uuid4()
+        for name in (
+            "exact",
+            "mismatched",
+            "duplicate_old",
+            "duplicate_new",
+            "existing_conflict",
+            "blocked_conflict",
+        )
+    }
+
+    async def seed() -> UUID:
+        engine = create_async_engine(postgres_clean_database_url)
+        sessionmaker = async_sessionmaker(engine, expire_on_commit=False)
+        try:
+            async with sessionmaker() as db:
+                await _seed_identity(sessionmaker)
+                meeting = Meeting(
+                    workspace_id=WORKSPACE_ID,
+                    created_by_user_id=USER_ID,
+                    device_id=DEVICE_ID,
+                    local_recording_id="lineage-backfill",
+                    duration_seconds=60,
+                    status="ready",
+                )
+                db.add(meeting)
+                await db.flush()
+                exact_revision = MediaRevision(
+                    workspace_id=WORKSPACE_ID,
+                    meeting_id=meeting.id,
+                    local_media_revision_id="lineage-backfill-exact",
+                    revision_number=1,
+                    source_kind="manual_upload",
+                    status="accepted",
+                    immutable=True,
+                )
+                other_revision = MediaRevision(
+                    workspace_id=WORKSPACE_ID,
+                    meeting_id=meeting.id,
+                    local_media_revision_id="lineage-backfill-other",
+                    revision_number=2,
+                    source_kind="manual_upload",
+                    status="accepted",
+                    immutable=True,
+                )
+                db.add_all([exact_revision, other_revision])
+                await db.flush()
+                exact_workflow = ProcessingWorkflow(
+                    workspace_id=WORKSPACE_ID,
+                    meeting_id=meeting.id,
+                    media_revision_id=exact_revision.id,
+                    workflow_id=f"processing/{exact_revision.id}",
+                    purpose="transcription",
+                    status="processed",
+                )
+                other_workflow = ProcessingWorkflow(
+                    workspace_id=WORKSPACE_ID,
+                    meeting_id=meeting.id,
+                    media_revision_id=other_revision.id,
+                    workflow_id=f"processing/{other_revision.id}",
+                    purpose="transcription",
+                    status="processed",
+                )
+                db.add_all([exact_workflow, other_workflow])
+                await db.flush()
+                exact_job = MediaScribeJob(
+                    workspace_id=WORKSPACE_ID,
+                    meeting_id=meeting.id,
+                    media_revision_id=exact_revision.id,
+                    processing_workflow_id=exact_workflow.id,
+                    external_job_id="lineage-backfill-exact-job",
+                    status="ready",
+                )
+                other_job = MediaScribeJob(
+                    workspace_id=WORKSPACE_ID,
+                    meeting_id=meeting.id,
+                    media_revision_id=other_revision.id,
+                    processing_workflow_id=other_workflow.id,
+                    external_job_id="lineage-backfill-other-job",
+                    status="ready",
+                )
+                db.add_all([exact_job, other_job])
+                await db.flush()
+                scenarios = (
+                    ("exact", exact_revision, exact_job, None, 1, "exact-source"),
+                    ("mismatched", exact_revision, other_job, None, 1, "mismatched-source"),
+                    ("duplicate_old", exact_revision, exact_job, None, 2, "duplicate-source"),
+                    ("duplicate_new", exact_revision, exact_job, None, 3, "duplicate-source"),
+                    (
+                        "existing_conflict",
+                        exact_revision,
+                        exact_job,
+                        exact_workflow.id,
+                        4,
+                        "existing-source",
+                    ),
+                    ("blocked_conflict", exact_revision, exact_job, None, 5, "existing-source"),
+                )
+                db.add_all(
+                    [
+                        ProcessingResult(
+                            id=result_ids[name],
+                            workspace_id=WORKSPACE_ID,
+                            meeting_id=meeting.id,
+                            media_revision_id=revision.id,
+                            mediascribe_job_id=job.id,
+                            processing_workflow_id=workflow_id,
+                            result_version=result_version,
+                            status="imported",
+                            source_result_hash=source_hash,
+                        )
+                        for name, revision, job, workflow_id, result_version, source_hash in scenarios
+                    ]
+                )
+                await db.flush()
+                accepted_outcome = MeetingOutcomeSet(
+                    workspace_id=WORKSPACE_ID,
+                    meeting_id=meeting.id,
+                    media_revision_id=exact_revision.id,
+                    processing_result_id=result_ids["duplicate_old"],
+                    status="available",
+                    generator_version="lineage-backfill-test",
+                    source_result_hash="duplicate-source",
+                    revision_state="accepted",
+                    lifecycle_state="active",
+                )
+                db.add(accepted_outcome)
+                await db.flush()
+                meeting.current_outcome_set_id = accepted_outcome.id
+                await db.commit()
+                return exact_workflow.id
+        finally:
+            await engine.dispose()
+
+    exact_workflow_id = asyncio.run(seed())
+    command.upgrade(alembic_config, "head")
+
+    async def read_lineage() -> dict[UUID, UUID | None]:
+        engine = create_async_engine(postgres_clean_database_url)
+        try:
+            async with engine.connect() as connection:
+                rows = await connection.execute(
+                    text("select id, processing_workflow_id from processing_results"),
+                )
+                return {row.id: row.processing_workflow_id for row in rows}
+        finally:
+            await engine.dispose()
+
+    lineage = asyncio.run(read_lineage())
+    assert lineage[result_ids["exact"]] == exact_workflow_id
+    assert lineage[result_ids["mismatched"]] is None
+    assert lineage[result_ids["duplicate_old"]] == exact_workflow_id
+    assert lineage[result_ids["duplicate_new"]] is None
+    assert lineage[result_ids["existing_conflict"]] == exact_workflow_id
+    assert lineage[result_ids["blocked_conflict"]] is None
 
 
 def test_fair_use_review_metadata_constraints_are_postgres_enforced(

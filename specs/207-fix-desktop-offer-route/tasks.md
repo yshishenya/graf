@@ -16,7 +16,7 @@
 ## Phase 2: Closeout and PR evidence
 
 - [X] T003 Обновить пользовательский changelog в `CHANGELOG.md` и implementation evidence в `specs/207-fix-desktop-offer-route/tasks.md` после focused test, Swift build и `infra/scripts/ci-local.sh --fast`
-- [X] T004 После merge подготовить отдельный exact-SHA macOS release candidate, пройти full/signing/notarization/Sparkle gate и записать installed production smoke в `specs/207-fix-desktop-offer-route/validation/implementation-evidence.md`
+- [ ] T004 После merge подготовить отдельный exact-SHA macOS release candidate, пройти full/signing/notarization/Sparkle gate и записать installed production smoke в `specs/207-fix-desktop-offer-route/validation/implementation-evidence.md`
 
 ## Dependencies
 
@@ -47,8 +47,6 @@
 - Sibling policy: `swift test --package-path apps/macos --filter DesktopCabinetRoutePolicyTests` — 16/16 PASS.
 - Compile: `swift build --package-path apps/macos` — PASS.
 - Repository fast lane: `infra/scripts/ci-local.sh --fast` — PASS; 1248 server unit tests, Ruff и Python compile.
-- Full exact-SHA CI для `v2026.08.28.8`: PASS; macOS `767/767`, server
-  `3485 passed, 1 skipped`, strict RLS `52 passed, 1 skipped`.
-- Production release/appcast/installed-app smoke: PASS; подробности записаны в
-  `specs/207-fix-desktop-offer-route/validation/implementation-evidence.md`.
+- Full CI: не запускался; обязателен для T004 на exact release-candidate SHA.
+- Production release/appcast/installed-app smoke: pending T004.
 - Tracker canon: Feature 207 issues #5901–#5904 соответствуют project canon; глобальный validator PASS — 300/300 открытых Spec Kit issues.

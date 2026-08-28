@@ -143,4 +143,5 @@ RLS_ALLOWED_MAINTENANCE_OPERATIONS = {
     "outcome_initial_baseline_reconciliation",
     "billing_reconciliation",
     "account_merge",
+    "processing_recovery_reconciliation",
 }

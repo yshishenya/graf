@@ -112,7 +112,7 @@ crash/replay, no-archive и terminal UI contracts добавляются до р
 ## Phase 8: Validation and release readiness
 
 - [X] T028 [P] Обновить `[Unreleased]`, operational metrics и runbook в `CHANGELOG.md`, `apps/server/src/twobrain_rec_server/admin/metrics.py` и `specs/206-mediascribe-polling-recovery/quickstart.md`.
-- [X] T029 Выполнить updated checklists, `$speckit-analyze`, quickstart, focused tests, replay evidence, `git diff --check` и `infra/scripts/ci-local.sh --fast`.
+- [ ] T029 Повторить updated checklists, `$speckit-analyze`, quickstart, focused tests, replay evidence, `git diff --check` и `infra/scripts/ci-local.sh --fast` после исправлений повторного аудита.
 - [ ] T030 Провести Product Design audit web/embedded flow на pending, retry countdown, terminal failure и success; сохранить текущие screenshots/evidence вне git.
 - [ ] T031 Выполнить scoped/current-SHA gate без повторного Full CI, PR/review/merge/release/deploy и production E2E на real ready, recoverable corrupt, no-archive и terminal recordings.
 

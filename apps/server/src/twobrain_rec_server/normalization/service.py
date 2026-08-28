@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import shutil
-import stat
 import tempfile
 from asyncio import CancelledError
 from collections import defaultdict
@@ -27,10 +26,8 @@ from twobrain_rec_server.billing.source_lifecycle import (
     mark_source_playback_verified,
 )
 from twobrain_rec_server.billing.storage import (
-    StorageAdmissionError,
     commit_storage_reservation,
     lock_storage_workspace,
-    release_storage_reservation,
     reserve_storage,
 )
 from twobrain_rec_server.config import Settings
@@ -44,7 +41,6 @@ from twobrain_rec_server.db.models import (
     Workspace,
     WorkspaceSubscription,
 )
-from twobrain_rec_server.db.models import StorageReservation as StorageReservationRow
 from twobrain_rec_server.db.tenant_context import (
     rehydrate_tenant_context,
     require_database_context,
@@ -62,7 +58,6 @@ from twobrain_rec_server.ingest.media_revisions import (
 from twobrain_rec_server.ingest.store import (
     archive_audio_for_revision,
     persist_orphan_cleanup_intents,
-    revision_archives_audio,
 )
 from twobrain_rec_server.normalization.audit import add_normalization_audit_event
 from twobrain_rec_server.normalization.media import (
@@ -187,6 +182,13 @@ class NormalizationFailureResult:
     retry_cycle_count: int
     should_temporal_retry: bool
     cycle_exhausted: bool
+
+
+@dataclass(frozen=True, slots=True)
+class NormalizationManualRetryResult:
+    result: str
+    job_id: UUID | None = None
+    media_revision_id: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -348,7 +350,7 @@ class FFmpegNormalizationPipeline:
                     full_decode_passed=True,
                     enforce_reuse_bitrate=True,
                 )
-                actual_layout = inspect_bmff(source_path)
+                actual_layout = await _inspect_bmff(source_path)
                 validate_canonical_profile(
                     facts,
                     bmff_layout=actual_layout,
@@ -509,7 +511,7 @@ class FFmpegNormalizationPipeline:
                 derivation_kind = DerivationKind.SINGLE_SOURCE_TRANSCODE.value
                 enforce_reuse_bitrate = False
             else:
-                actual_layout = inspect_bmff(source_path)
+                actual_layout = await _inspect_bmff(source_path)
                 try:
                     validate_canonical_profile(
                         facts,
@@ -642,7 +644,8 @@ class FFmpegNormalizationPipeline:
             reason = "generated_output_invalid" if generated else "corrupt_source"
             raise MediaPolicyError(reason) from exc
         receipt = parse_full_decode_progress(result.stdout)
-        if receipt.duration_seconds > MAX_DURATION_SECONDS:
+        duration_limit = MAX_GENERATED_DURATION_SECONDS if generated else MAX_DURATION_SECONDS
+        if receipt.duration_seconds > duration_limit:
             reason = "generated_output_invalid" if generated else "duration_limit_exceeded"
             raise MediaPolicyError(reason)
         return receipt
@@ -676,6 +679,7 @@ class FFmpegNormalizationPipeline:
         selected_stream_index: int | None,
         enforce_reuse_bitrate: bool,
         recovered_source: bool = False,
+        tolerant_first: bool = False,
     ) -> NormalizedOutput:
         try:
             output_facts, output_stream = await self._probe_source(output_path)
@@ -684,8 +688,8 @@ class FFmpegNormalizationPipeline:
                 stream_index=output_stream.index,
                 generated=True,
             )
-            layout = inspect_bmff(output_path)
-            digest = hash_regular_file(output_path, max_bytes=MAX_OUTPUT_BYTES)
+            layout = await _inspect_bmff(output_path)
+            digest = await _hash_regular_file(output_path, max_bytes=MAX_OUTPUT_BYTES)
             validate_canonical_profile(
                 output_facts,
                 bmff_layout=layout,
@@ -694,11 +698,19 @@ class FFmpegNormalizationPipeline:
                 enforce_reuse_bitrate=enforce_reuse_bitrate,
             )
             output_duration = decode_receipt.duration_seconds
-            validate_duration_alignment(
-                action=action,
-                source_durations_seconds=source_durations,
-                output_duration_seconds=output_duration,
-            )
+            if tolerant_first:
+                validate_tolerant_output_duration(
+                    source_duration_seconds=max(source_durations),
+                    output_format_duration_seconds=output_facts.duration_seconds,
+                    output_stream_duration_seconds=output_stream.duration_seconds,
+                    output_decode_duration_seconds=output_duration,
+                )
+            else:
+                validate_duration_alignment(
+                    action=action,
+                    source_durations_seconds=source_durations,
+                    output_duration_seconds=output_duration,
+                )
             output_bit_rate = output_stream.bit_rate or output_facts.bit_rate
             if output_bit_rate is None or output_bit_rate <= 0:
                 raise MediaPolicyError("generated_output_invalid")
@@ -757,10 +769,6 @@ def _validate_authoritative_source_duration(
 ) -> None:
     expected = Decimal(expected_duration_seconds)
     tolerance = (
-        # The browser reports ceil(media.duration), so this allowance covers
-        # integer rounding plus small probe differences.  Frame-loss recovery
-        # is validated separately against the generated M4A and must not let a
-        # long upload under-declare its source duration by up to a minute.
         Decimal("1.25")
         if manual_upload
         else max(
@@ -1583,7 +1591,7 @@ async def _download_verified_artifact(
             )
         except KeyError as exc:
             raise RuntimeError("source_missing") from exc
-    digest = hash_regular_file(destination_path, max_bytes=max_bytes)
+    digest = await _hash_regular_file(destination_path, max_bytes=max_bytes)
     if digest.byte_length != artifact.byte_length or digest.sha256_hex != artifact.sha256:
         destination_path.unlink(missing_ok=True)
         raise RuntimeError("source_mismatch")
@@ -1674,6 +1682,14 @@ def _ensure_normalized_output_matches_file(
         or not output.full_decode_passed
     ):
         raise RuntimeError("generated_output_invalid")
+
+
+async def _inspect_bmff(path: Path) -> BMFFLayout:
+    return await to_thread.run_sync(inspect_bmff, path)
+
+
+async def _hash_regular_file(path: Path, *, max_bytes: int):
+    return await to_thread.run_sync(lambda: hash_regular_file(path, max_bytes=max_bytes))
 
 
 def _aware_utc(value: datetime) -> datetime:
@@ -2944,14 +2960,13 @@ async def _derive_from_single_source(
         output_max_bytes=output_max_bytes,
         reserve_bytes=work_reserve_bytes,
     )
+    is_manual_upload = prepared.job.source_kind == MediaRevisionSourceKind.MANUAL_UPLOAD.value
     return await pipeline.derive_single_source(
         media_path,
         output_path,
-        tolerant_first=(prepared.job.source_kind == MediaRevisionSourceKind.MANUAL_UPLOAD.value),
+        tolerant_first=is_manual_upload,
         expected_duration_seconds=(
-            prepared.expected_duration_seconds
-            if prepared.job.source_kind == MediaRevisionSourceKind.MANUAL_UPLOAD.value
-            else None
+            prepared.expected_duration_seconds if is_manual_upload else None
         ),
     )
 

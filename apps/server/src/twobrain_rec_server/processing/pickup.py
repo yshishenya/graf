@@ -342,7 +342,7 @@ async def pick_up_processing(
                         meeting_id=meeting.id,
                         processing_workflow_id=workflow.id,
                         event_type=event_type,
-                        metadata={"workflow_id": workflow.workflow_id, "reason_code": reason_code},
+                        metadata={"workflow_id": workflow.workflow_id},
                     )
                     if started.reused:
                         result.reused_count += 1
@@ -590,7 +590,7 @@ async def pick_up_processing(
             meeting_id=meeting.id,
             processing_workflow_id=workflow.id,
             event_type=event_type,
-            metadata={"workflow_id": workflow.workflow_id, "reason_code": reason_code},
+            metadata={"workflow_id": workflow.workflow_id},
         )
         if started.reused:
             result.reused_count += 1

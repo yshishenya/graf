@@ -434,8 +434,9 @@ def test_result_import_treats_null_diarization_as_an_empty_internal_collection()
 def test_ready_result_without_requested_diarization_is_terminal_contract_evidence() -> None:
     result = MediaScribeResult(
         external_job_id="job_without_requested_diarization",
+        transcript_status=ProcessingAvailabilityStatus.AVAILABLE,
         transcript=[
-            MediaScribeSegment(sequence=0, start_seconds=0, end_seconds=1, text="hello")
+            MediaScribeTranscriptSegment(sequence=0, start_seconds=0, end_seconds=1, text="hello")
         ],
         diarization=None,
     )

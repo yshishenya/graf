@@ -73,9 +73,7 @@
 
 Если автоматическое ожидание достигло watchdog deadline, пользователь видит,
 что результат ещё не подтверждён, может запустить ручную проверку, а GRAF
-использует тот же MediaScribe job/idempotency key и не создаёт вторую provider
-job. Если исход POST неизвестен, exact multipart может быть повторён с тем же
-ключом согласно контракту MediaScribe.
+использует тот же MediaScribe job и не создаёт дубликат multipart-загрузки.
 
 **Independent Test**: Довести workflow до watchdog deadline, проверить отдельное
 recoverable состояние, ручную проверку и отсутствие новой provider job.
@@ -171,8 +169,7 @@ artifact при включённом архиве.
   technical failure, watchdog timeout/stuck state, and local processing failure
   in durable reason/status projection.
 - **FR-006**: Manual check MUST reconcile the same provider job or idempotency
-  key. An ambiguous POST MAY be replayed only as the exact same multipart
-  request with that durable key and MUST NOT create a second provider job.
+  key and MUST NOT issue a duplicate multipart upload.
 - **FR-007**: The UI MUST show transcript only when diarization is available;
   summary readiness remains independently represented.
 - **FR-008**: The UI MUST show a clear pending/retry/watchdog state, countdown
@@ -247,11 +244,12 @@ artifact при включённом архиве.
   zero preliminary full source decodes, one tolerant transcode with `-t 14401`,
   one output probe, and one strict generated-output decode; non-manual paths keep
   their existing pass counts.
-- **SC-007**: In covered manual-upload scenarios, MediaScribe receives exactly
-  one POST whose bytes and SHA match the validated canonical artifact; the
+- **SC-007**: In covered manual-upload scenarios, MediaScribe creates exactly one
+  provider job whose bytes and SHA match the validated canonical artifact. A
+  lost POST response may cause multiple exact same-key HTTP attempts; the
   original source is never submitted.
 - **SC-008**: Crash tests at normalization publication, processing start, and
-  provider submission boundaries recover without a duplicate provider POST.
+  provider submission boundaries recover without a duplicate provider job.
 - **SC-009**: `archive_audio=false` scenarios expose no player, consume no
   retained storage quota, and purge both source and canonical audio within the
   existing transient deadlines.

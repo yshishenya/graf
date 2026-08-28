@@ -5,8 +5,11 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0083_processing_recovery"
-down_revision: str | None = "0082_mediascribe_words"
+# 0083_result_workflow_lineage is already the production schema head. This
+# migration was created on a feature branch and must remain append-only after
+# that head rather than creating a second 0083 branch.
+revision: str = "0084_processing_recovery"
+down_revision: str | None = "0083_result_workflow_lineage"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -22,7 +25,6 @@ PREVIOUS_OPERATIONS = (
     "prompt_optimization",
     "outcome_dispatch_reconciliation",
     "deletion_purge_reconciliation",
-    "processing_legacy_lineage_reconciliation",
     "outcome_initial_baseline_reconciliation",
     "billing_reconciliation",
     "billing_notification_reconciliation",
@@ -166,7 +168,7 @@ def downgrade() -> None:
                       and reason_code = 'storage_capacity_exceeded'
                 ) then
                     raise exception using
-                        message = '0083 downgrade blocked: resolve storage_capacity_exceeded normalization jobs first';
+                        message = '0084 downgrade blocked: resolve storage_capacity_exceeded normalization jobs first';
                 end if;
             end
             $$
