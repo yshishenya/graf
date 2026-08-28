@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 import pytest
+
 from twobrain_rec_server.outcomes.prompt_bundle import (
     ROOT_BUNDLE_PROMPT_NAME,
     ROOT_BUNDLE_SCHEMA_VERSION,
@@ -108,7 +109,9 @@ def test_build_root_bundle_document_pins_exact_child_hashes() -> None:
     }
 
 
-def test_root_bundle_promotion_bootstraps_when_production_label_is_absent() -> None:
+def test_root_bundle_promotion_bootstraps_when_production_label_is_absent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     bundle = _bundle()
 
     class NotFoundError(Exception):
@@ -163,7 +166,7 @@ def test_root_bundle_promotion_bootstraps_when_production_label_is_absent() -> N
 
     module = types.ModuleType("langfuse.api.commons.errors.not_found_error")
     module.NotFoundError = NotFoundError
-    sys.modules[module.__name__] = module
+    monkeypatch.setitem(sys.modules, module.__name__, module)
 
     promoted = promote_root_bundle_label(
         Client(),

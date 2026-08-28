@@ -279,3 +279,18 @@ generation выключена, текущий результат остался 
 является успешным real-record Temporal → LiteLLM → Langfuse → publication run.
 Такой egress остаётся blocked до отдельного согласования включения generation,
 candidate-root promotion и runtime deploy.
+
+## Current root-bound provider smoke
+
+Дата: 2026-08-29
+
+- После root read-back и promotion выполнен smoke на production-labelled root
+  `v1`, который зафиксировал 10 child snapshots `v23` и route-binding hash
+  `702f726862738ab8a97510ac11a5e98e3f942a1634ace26e60eacd96ee061a7a`.
+- Все `9/9` встроенных форматов прошли exact snapshot fetch, request compile,
+  реальный LiteLLM вызов, strict JSON schema и source-reference validation.
+- Для всех успешных вызовов подтверждены `gpt-5.6-luna` и `openai`; provider
+  route failures и schema/source-reference failures: `0`.
+- Synthetic smoke не содержит private transcript и не закрывает T031: нет
+  human usefulness/pairwise gate и version-bound Temporal/private real-record
+  publication run.

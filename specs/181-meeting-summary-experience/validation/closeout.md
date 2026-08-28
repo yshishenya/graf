@@ -453,3 +453,33 @@ root-bundle, включать generation или запускать private real-
 - Production data, Langfuse project state и сохранённые встречи не изменялись;
   real-record generation, prompt promotion, release и deploy остаются
   заблокированными project/runtime gates.
+
+## Latest continuation: root promotion and provider smoke
+
+Дата: 2026-08-29
+
+- LiteLLM positive/negative route smoke: положительный запрос вернул HTTP 200,
+  `gpt-5.6-luna`, `openai`, JSON и тот же route-binding hash; неверный hash
+  получил HTTP 403. Запрос с `temperature=0` отклонён самим provider route как
+  неподдерживаемый для этой модели; рабочий контракт использует default `1`.
+- В Langfuse создан и прочитан unlabelled root candidate `v1`: 10 exact child
+  snapshots `v23`, bundle hash
+  `1b4251ac4b0604c7ed49ec6f0437a73537a8881c678e61481104b94d0dda2b53` и тот же
+  route-binding hash. После проверки root `v1` переведён в `production` и
+  подтверждён повторным read-back.
+- Production-root provider smoke на всех 9 форматах: `9/9` strict schema и
+  source-reference valid; фактическая модель/provider во всех вызовах
+  `gpt-5.6-luna`/`openai`; token cap `4048`/`4096` не отправлялся.
+- `104` focused PostgreSQL tests и `infra/scripts/ci-local.sh --fast`:
+  `1342 passed`, lint/compile/legacy-audio guard PASS. Fast lane не включает
+  macOS Swift и не заменяет release full gate.
+- Test-only compatibility fix: Langfuse NotFoundError mock теперь изолирован
+  через pytest monkeypatch, чтобы v4 SDK-класс не утекал между тестами.
+- Авторизованный production UI read-only проверен на двух реальных готовых
+  записях: вкладки Итоги/Расшифровка, current `Авто`, полный каталог из 9
+  форматов, source-jump и доступность обновления. Новая генерация и изменения
+  записей не выполнялись; production runtime всё ещё не привязан к этому SHA.
+
+T031 остаётся открытой: отсутствуют version-bound Temporal/private real-record
+  publication run и human-labelled usefulness/pairwise evidence. Не выполнялись
+  release, deploy и full CI exact-SHA gate.
