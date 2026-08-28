@@ -7,7 +7,7 @@ cd apps/server
 PYTHONPATH=src uv run --extra dev pytest -q \
   tests/contract/test_cabinet_static_assets_contract.py \
   tests/unit/test_cabinet_web_shell.py \
-  -k 'playback or speaker_timeline or rail_ready_state_geometry'
+  -k 'playback or speaker_timeline or rail_ready_state_geometry or profile_menu'
 node --check src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js
 ```
 
@@ -17,6 +17,9 @@ Expected: `13 passed`; contract требует grid-row placement и не доп
 
 ```sh
 GRAF_NODE_MODULES=/path/to/node_modules node \
+  specs/205-playback-panel-layout/evidence/playback-layout-runtime-check.cjs
+
+GRAF_BROWSER=webkit GRAF_NODE_MODULES=/path/to/node_modules node \
   specs/205-playback-panel-layout/evidence/playback-layout-runtime-check.cjs
 ```
 
@@ -29,6 +32,7 @@ Verifier рендерит synthetic meeting через production renderer и п
 2. Desktop embedded: collapsed и expanded rail, включая ширину до 1120px.
 3. Playback: available, preparing/unavailable и увеличенная speaker timeline.
 4. Standalone web без playback и no-JS narrow layout.
+5. Открытое profile menu и правое подменю поверх playback в Chromium и WebKit.
 
 Для каждого состояния сравниваются DOM rectangles по [layout contract](contracts/playback-layout.md): границы main и playback совпадают, `main.bottom == playback.top`, scrollbar не заходит в playback и content достигает конца прокрутки.
 
@@ -64,5 +68,13 @@ infra/scripts/ci-local.sh --fast
 - Repository gate: `git diff --check` — PASS;
   `infra/scripts/ci-local.sh --fast` — `1235 passed`, lint/compile — PASS,
   disposable Postgres удалён.
+- Production regression T006: до исправления runtime contract фиксировал
+  `menuTopLayer=false`; после исправления Chromium и WebKit matrix прошли по 12
+  состояний без ошибок. Для expanded sidebar и длинного email подтверждены
+  `menuTopLayer=true`, `menuTriggerGap=8px`, видимый правый край и подменю внутри
+  viewport; playback не дублируется. Затронутые static/render suites —
+  `148 passed`; повторный fast gate — `1235 passed`, lint/compile — PASS.
+- После переноса diff на актуальный `origin/master` (`84e7cd75`) затронутые
+  suites, обе browser matrix и fast gate повторены с тем же PASS-результатом.
 - Полный CI не запускался по явному ограничению пользователя; это не PASS
   полного CI.

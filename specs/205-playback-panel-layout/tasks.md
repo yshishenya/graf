@@ -27,9 +27,13 @@
 
 - [X] T005 Исправить найденные до merge регрессии: остановить и удалить playback при потере доступа, закрепить именованный region и no-JS grid order, убрать stale bottom reserve со страниц без playback, расширить runtime matrix на preparing/unavailable, увеличенный timeline и реальную meeting-list страницу.
 
+## Phase 5: Production regression remediation
+
+- [X] T006 Поднять profile menu в нативный browser top layer с compatibility fallback и проверить отсутствие clipping/перекрытия в Chromium и WebKit через `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/components/sections.html`, `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css`, `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js` и `specs/205-playback-panel-layout/evidence/playback-layout-runtime-check.cjs`.
+
 ## Dependencies & Execution Order
 
-T001 precedes T002. T003 validates the completed layout. T004 closes the slice after all implementation tasks.
+T001 precedes T002. T003 validates the completed layout. T004 closes the original slice. T006 is a bounded production-regression remediation after T005.
 
 ## Implementation Strategy
 

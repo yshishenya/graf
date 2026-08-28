@@ -29,7 +29,7 @@
 - DOM/focus order playback controls не меняется.
 - Playback является именованным region «Воспроизведение записи».
 - Keyboard resize, focus-visible и reduced-motion contracts сохраняются.
-- Диалоги и profile menu остаются поверх shell rows согласно существующему stacking order.
+- Profile menu открывается в browser top layer: его правый край и подменю остаются поверх sidebar, main и playback и не обрезаются overflow-контейнерами.
 
 ## Access recovery
 

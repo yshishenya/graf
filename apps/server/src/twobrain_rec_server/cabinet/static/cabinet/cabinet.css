@@ -5343,13 +5343,16 @@ html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned
 .sidebar-profile-menu {
   position: fixed;
   z-index: 60;
+  top: auto;
+  right: auto;
   left: 8px;
-  bottom: calc(12px + 48px);
+  bottom: var(--profile-menu-bottom, calc(12px + 48px));
   width: min(248px, max(176px, calc(100vw - var(--app-rail-width) - 24px)));
   max-height: calc(100vh - 24px);
   overflow: visible;
   display: grid;
   gap: 2px;
+  margin: 0;
   padding: 8px;
   border: 1px solid var(--line);
   border-radius: 12px;
