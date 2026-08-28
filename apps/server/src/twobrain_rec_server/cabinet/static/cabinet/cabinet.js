@@ -1727,7 +1727,7 @@
       Date.now(),
       processingServerClockOffset(detail),
     );
-    const delay = remaining === null
+    const delay = document.hidden || remaining === null
       ? 15000
       : Math.min(15000, Math.max(1000, remaining * 1000));
     processingRecoveryPollTimer = window.setTimeout(() => {
@@ -2046,6 +2046,9 @@
       if (processingRecoveryRequest === request) processingRecoveryRequest = null;
       if (detail.isConnected) {
         renderProcessingRecoveryFailure(detail);
+        processingRecoveryPollTimer = window.setTimeout(() => {
+          void refreshProcessingStatus({ force: true, generation: requestGeneration });
+        }, 15000);
       }
       return false;
     } finally {
@@ -2063,7 +2066,7 @@
     ) ? payload : null;
   };
 
-  const runProcessingManualCheck = async (detail, recovery) => {
+  const runProcessingManualCheck = async (detail) => {
     if (processingRecoveryActionRequest !== null) return;
     const generation = ++processingRecoveryGeneration;
     resetProcessingRecoveryCountdown(detail);
@@ -2220,7 +2223,7 @@
     recovery.dataset.processingRecoveryReady = "true";
     updateProcessingExportVisibility(false);
     recovery.querySelector("[data-processing-check]")?.addEventListener("click", () => {
-      void runProcessingManualCheck(detail, recovery);
+      void runProcessingManualCheck(detail);
     });
     recovery.querySelector("[data-processing-new-attempt]")?.addEventListener("click", () => {
       void runProcessingNewAttempt(detail, recovery);

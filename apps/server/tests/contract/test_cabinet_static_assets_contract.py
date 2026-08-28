@@ -142,7 +142,79 @@ def test_processing_recovery_poll_is_not_dropped_while_window_is_hidden() -> Non
         script.index("const processingProjectionFromActionPayload")
     ]
 
-    assert "document.hidden" not in recovery_polling
+    assert "if (!document.hidden)" not in recovery_polling
+    assert "const delay = document.hidden || remaining === null" in recovery_polling
+
+
+def test_processing_status_poll_recovers_after_transient_failure_while_hidden() -> None:
+    script_path = STATIC_DIR / "cabinet.js"
+    harness = r"""
+const fs = require("fs");
+const vm = require("vm");
+const script = fs.readFileSync(process.argv[1], "utf8");
+const source = script.slice(
+  script.indexOf("const refreshProcessingStatus"),
+  script.indexOf("const processingProjectionFromActionPayload"),
+);
+const detail = {
+  dataset: { processingStatusUrl: "/api/v1/meetings/meeting-a/processing" },
+  isConnected: true,
+};
+const recovery = { closest: () => detail };
+const timers = [];
+const responses = [
+  { ok: false, status: 503 },
+  { ok: true, status: 200, json: async () => ({ meeting_id: "meeting-a", state: "failed_terminal" }) },
+];
+let failures = 0;
+let rendered = 0;
+global.document = {
+  hidden: true,
+  querySelector: (selector) => selector === "[data-processing-recovery]" ? recovery : null,
+};
+global.window = {
+  setTimeout(callback, delay) { timers.push({ callback, delay }); return timers.length; },
+};
+global.fetch = async () => responses.shift();
+vm.runInThisContext(`
+  let processingRecoveryGeneration = 0;
+  let processingRecoveryActionRequest = null;
+  let processingRecoveryRequest = null;
+  let processingRecoveryStatusController = null;
+  let processingRecoveryPollTimer = null;
+  const stopProcessingRecoveryPolling = () => {};
+  const abortProcessingRecoveryStatusRequest = () => {};
+  const recoverMeetingDetailFromResponse = async () => false;
+  const processingProjectionMatchesDetail = () => true;
+  const renderProcessingProjection = () => { rendered += 1; return true; };
+  const renderProcessingRecoveryFailure = () => { failures += 1; };
+  ${source}
+  global.refreshProcessingStatus = refreshProcessingStatus;
+`);
+(async () => {
+  await global.refreshProcessingStatus();
+  if (failures !== 1 || timers.length !== 1 || timers[0].delay !== 15000) {
+    throw new Error("transient status failure did not schedule one bounded retry");
+  }
+  timers.shift().callback();
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+  if (rendered !== 1 || responses.length !== 0) {
+    throw new Error("hidden retry did not render the later terminal projection");
+  }
+})().catch((error) => {
+  process.stderr.write(`${error.stack || error}\n`);
+  process.exitCode = 1;
+});
+"""
+    completed = subprocess.run(
+        ["node", "-e", harness, str(script_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
 
 
 def test_processing_list_projection_fences_identity_and_stale_requests() -> None:
