@@ -1615,8 +1615,10 @@ def test_profile_menu_theme_and_disabled_action_contract_is_shared() -> None:
     assert "inset-inline-start: calc(100% + 8px);" in css
     assert ".sidebar-profile-menu__disclosure.is-flipped" in css
     assert ".is-rail-pinned .sidebar-profile-menu" in css
-    assert "left: 8px;" in css
-    assert "bottom: var(--profile-menu-bottom, calc(12px + 48px));" in css
+    assert "inset: auto auto var(--profile-menu-bottom, calc(12px + 48px)) 8px;" in css
+    assert "height: max-content;" in css
+    assert "grid-auto-rows: max-content;" in css
+    assert "align-content: start;" in css
     assert "syncDisclosurePosition" in script
 
 
