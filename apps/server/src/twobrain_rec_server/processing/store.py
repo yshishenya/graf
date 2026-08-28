@@ -1739,6 +1739,9 @@ async def upsert_mediascribe_job(
     meeting_id = workflow.meeting_id
     media_revision_id = workflow.media_revision_id
     processing_workflow_id = workflow.id
+    mic_artifact_id = mic_artifact.id if mic_artifact is not None else None
+    incoming_artifact_id = incoming_artifact.id if incoming_artifact is not None else None
+    source_artifact_id = source_artifact.id if source_artifact is not None else None
     job = await get_mediascribe_job(
         db,
         workspace_id=workspace_id,
@@ -1767,13 +1770,9 @@ async def upsert_mediascribe_job(
                 idempotency_key=idempotency_key,
                 source_fingerprint=effective_source_fingerprint,
                 deletion_epoch_at_start=workflow.deletion_epoch_at_start,
-                mic_track_artifact_id=mic_artifact.id if mic_artifact is not None else None,
-                incoming_track_artifact_id=incoming_artifact.id
-                if incoming_artifact is not None
-                else None,
-                source_track_artifact_id=source_artifact.id
-                if source_artifact is not None
-                else None,
+                mic_track_artifact_id=mic_artifact_id,
+                incoming_track_artifact_id=incoming_artifact_id,
+                source_track_artifact_id=source_artifact_id,
                 status=MediaScribeJobStatus.NOT_SUBMITTED.value,
                 request_mode=request_mode,
                 diarize=diarize,
@@ -1800,11 +1799,9 @@ async def upsert_mediascribe_job(
         if job.request_fingerprint not in {None, request_fingerprint}:
             raise ProcessingLifecycleBlocked("processing_request_fingerprint_conflict")
         job.request_mode = request_mode
-        job.mic_track_artifact_id = mic_artifact.id if mic_artifact is not None else None
-        job.incoming_track_artifact_id = (
-            incoming_artifact.id if incoming_artifact is not None else None
-        )
-        job.source_track_artifact_id = source_artifact.id if source_artifact is not None else None
+        job.mic_track_artifact_id = mic_artifact_id
+        job.incoming_track_artifact_id = incoming_artifact_id
+        job.source_track_artifact_id = source_artifact_id
         job.diarize = diarize
         job.summarize = summarize
         job.speaker_count_mode = speaker_count_mode

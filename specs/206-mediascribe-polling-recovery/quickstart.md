@@ -5,7 +5,9 @@
 ```sh
 cd apps/server
 uv run pytest tests/unit/test_processing_recovery.py tests/unit/test_processing_recovery_contracts.py tests/unit/test_processing_temporal_workflow.py
-uv run pytest tests/integration/test_mediascribe_processing_happy_path.py tests/integration/test_processing_failures.py
+bash scripts/run_local_postgres_tests.sh --focused -q \
+  tests/integration/test_mediascribe_processing_happy_path.py \
+  tests/integration/test_processing_failures.py
 ```
 
 Сценарии: pending job остаётся recoverable; `ready` импортируется без нового
@@ -31,9 +33,9 @@ legacy-lineage inventory больше не запускается; historical co
 
 ```sh
 cd apps/server
-uv run pytest tests/unit/test_processing_temporal_workflow.py \
-  tests/integration/test_playback_normalization_media_matrix.py
+uv run pytest tests/unit/test_processing_temporal_workflow.py
 bash scripts/run_local_postgres_tests.sh --focused -q \
+  tests/integration/test_playback_normalization_media_matrix.py \
   tests/integration/test_manual_media_upload.py \
   tests/integration/test_mediascribe_processing_happy_path.py \
   tests/integration/test_processing_failures.py \
