@@ -50,6 +50,13 @@
   после исчерпания автоматических попыток остаётся доступен оператору.
 - Временная ошибка status/action API больше не останавливает обновление экрана:
   кабинет восстанавливает polling и актуальный серверный countdown.
+- Удалена оставшаяся ссылка worker на устаревший код исчерпания попыток; для
+  terminal recovery используется единый `processing_recovery_attempt_limit_exceeded`.
+- Удалён неиспользуемый legacy-параметр `TWOBRAIN_MEDIASCRIBE_HEALTH_URL`;
+  проверки MediaScribe выполняются через актуальный API-контракт.
+- Удалён оставшийся в production Compose неиспользуемый сервис
+  `rec-reprocess-maintenance` вместе с его deploy/rollback wiring после удаления
+  одноразового legacy-скрипта reprocess.
 
 ### Безопасность
 - Streaming multipart ограничивает число частей, заголовков и их размер до

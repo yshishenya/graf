@@ -601,7 +601,7 @@ restore_previous_services() {
   available_services="$("${compose[@]}" config --services 2>/dev/null || true)"
   rollback_build_services=()
   rollback_up_services=()
-  for service in rec-api rec-db-runtime-bootstrap rec-maintenance rec-reprocess-maintenance rec-prompt-optimization-worker rec-migrate rec-minio-init rec-processing-worker; do
+  for service in rec-api rec-db-runtime-bootstrap rec-maintenance rec-prompt-optimization-worker rec-migrate rec-minio-init rec-processing-worker; do
     if grep -Fxq "$service" <<<"$available_services"; then
       rollback_build_services+=("$service")
     fi
@@ -1006,7 +1006,6 @@ fi
   rec-api \
   rec-db-runtime-bootstrap \
   rec-maintenance \
-  rec-reprocess-maintenance \
   rec-prompt-optimization-worker \
   rec-migrate \
   rec-minio-init \

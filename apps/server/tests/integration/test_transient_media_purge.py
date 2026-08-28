@@ -365,7 +365,7 @@ def test_no_archive_purge_fences_new_attempt_and_recovers_after_delete_failure(
     failing_storage.arm(object_keys[0])
     assert asyncio.run(purge(failing_storage, now)) == 0
 
-    async def load_intermediate() -> tuple[list[str], list[str], list[str]]:
+    async def load_intermediate() -> tuple[list[str], list[str], list[str], list[str]]:
         async with client.app_state["sessionmaker"]() as db:
             artifacts = list(
                 await db.scalars(
@@ -392,13 +392,15 @@ def test_no_archive_purge_fences_new_attempt_and_recovers_after_delete_failure(
             )
             return (
                 [artifact.status for artifact in artifacts],
+                [artifact.source_lifecycle_state for artifact in artifacts],
                 [journal.state for journal in journals],
                 [job.state for job in jobs],
             )
 
-    artifact_states, journal_states, job_states = asyncio.run(load_intermediate())
-    assert set(artifact_states) == {"purge_pending"}
-    assert "pending" in journal_states
+    artifact_states, source_states, journal_states, job_states = asyncio.run(load_intermediate())
+    assert set(artifact_states) == {"stored"}
+    assert set(source_states) == {"not_source", "purge_pending"}
+    assert "retryable_failed" in journal_states
     assert set(job_states) == {"cancelled"}
     assert client.app_state["storage"].object_exists(object_keys[0])
 

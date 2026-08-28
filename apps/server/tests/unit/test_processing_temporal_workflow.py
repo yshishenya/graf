@@ -518,6 +518,8 @@ def test_processing_workflow_has_no_asyncio_sleep_and_worker_bounds_heartbeat_lo
         encoding="utf-8"
     )
     assert "processing_retry_deadline_exceeded" in worker_source
+    assert "MEDIASCRIBE_RETRIES_EXHAUSTED" not in worker_source
+    assert "processing_recovery_attempt_limit_exceeded" in worker_source
     assert "PROCESSING_ACTIVITY_HEARTBEAT_INTERVAL_SECONDS = 15" in worker_source
 
 

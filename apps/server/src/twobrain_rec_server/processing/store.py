@@ -1306,9 +1306,16 @@ async def create_processing_attempt(
             media_revision_id=media_revision.id,
             attempt_ordinal=int(current.attempt_ordinal or 1),
         )
+    recoverable_block = current_status == ProcessingStatus.BLOCKED.value and (
+        current.last_reason_code in {
+            BLOCKED_FREE_PROCESSING_EXHAUSTED,
+            BLOCKED_TEMPORAL_UNAVAILABLE,
+        }
+    )
     if (
         current_status != ProcessingStatus.FAILED_TERMINAL.value
         and not terminal_result_is_terminal
+        and not recoverable_block
     ):
         return ProcessingAttemptCreation(
             result=(

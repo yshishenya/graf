@@ -545,7 +545,6 @@ def test_remote_rollback_discovers_operations_profile_services() -> None:
     assert "compose=(docker compose --profile operations -f infra/docker-compose.yml)" in runtime
     assert '"${compose[@]}" config --services' in runtime
     assert "rec-maintenance" in runtime
-    assert "rec-reprocess-maintenance" in runtime
     assert "maintenance_container" in runtime
     assert "maintenance_restart_count" in runtime
     assert "{{.State.Status}}" in runtime

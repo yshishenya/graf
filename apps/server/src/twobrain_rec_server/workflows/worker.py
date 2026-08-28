@@ -1646,7 +1646,7 @@ async def run_processing_pipeline_activity(
         exhausted = exc.retryable and activity_attempt >= PROCESSING_ACTIVITY_MAX_ATTEMPTS
         if exhausted:
             status = ProcessingStatus.FAILED_TERMINAL
-            reason_code = reasons.MEDIASCRIBE_RETRIES_EXHAUSTED
+            reason_code = "processing_recovery_attempt_limit_exceeded"
         else:
             reason_code = exc.reason_code
         try:

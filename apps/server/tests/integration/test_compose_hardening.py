@@ -68,7 +68,6 @@ def test_production_compose_sets_log_rotation_and_resource_limits_for_services()
         "rec-api",
         "rec-db-runtime-bootstrap",
         "rec-maintenance",
-        "rec-reprocess-maintenance",
         "rec-migrate",
         "rec-postgres",
         "rec-minio",
@@ -255,7 +254,6 @@ def test_generated_runtime_secrets_use_private_deploy_group_mounts() -> None:
         "rec-migrate",
         "rec-db-runtime-bootstrap",
         "rec-maintenance",
-        "rec-reprocess-maintenance",
         "rec-prompt-optimization-worker",
         "rec-minio-init",
     }
@@ -333,7 +331,6 @@ def test_production_runtime_database_roles_are_least_privilege_and_bootstrapped(
     api = services["rec-api"]
     processing = services["rec-processing-worker"]
     maintenance = services["rec-maintenance"]
-    reprocess = services["rec-reprocess-maintenance"]
     media = services["rec-media-worker"]
     migrate = services["rec-migrate"]
     bootstrap = services["rec-db-runtime-bootstrap"]
@@ -341,7 +338,6 @@ def test_production_runtime_database_roles_are_least_privilege_and_bootstrapped(
     assert "//twobrain_rec_app:" in api["environment"]["TWOBRAIN_DATABASE_URL"]
     assert "//twobrain_rec_app:" in processing["environment"]["TWOBRAIN_DATABASE_URL"]
     assert "//twobrain_rec_maintenance:" in maintenance["environment"]["TWOBRAIN_DATABASE_URL"]
-    assert "//twobrain_rec_maintenance:" in reprocess["environment"]["TWOBRAIN_DATABASE_URL"]
     assert "//twobrain_rec_media:" in media["environment"]["TWOBRAIN_DATABASE_URL"]
     assert "//twobrain_rec:" in migrate["environment"]["TWOBRAIN_DATABASE_URL"]
     assert {secret["source"] for secret in api["secrets"]} >= {"twobrain_postgres_app_password"}
@@ -349,9 +345,6 @@ def test_production_runtime_database_roles_are_least_privilege_and_bootstrapped(
         "twobrain_postgres_app_password"
     }
     assert {secret["source"] for secret in maintenance["secrets"]} >= {
-        "twobrain_postgres_maintenance_password"
-    }
-    assert {secret["source"] for secret in reprocess["secrets"]} >= {
         "twobrain_postgres_maintenance_password"
     }
     assert {secret["source"] for secret in media["secrets"]} >= {"twobrain_postgres_media_password"}
@@ -379,7 +372,6 @@ def test_only_api_receives_web_runtime_secret() -> None:
     for service_name in (
         "rec-processing-worker",
         "rec-maintenance",
-        "rec-reprocess-maintenance",
         "rec-media-worker",
         "rec-migrate",
     ):
@@ -436,28 +428,6 @@ def test_maintenance_runtime_is_explicit_hardened_and_has_no_user_runtime_secret
     assert service["environment"]["TWOBRAIN_BILLING_YOOKASSA_WEBHOOK_SECRET_FILE"] == (
         "/run/secrets/twobrain_yookassa_webhook_secret"
     )
-
-
-def test_reprocess_runtime_is_explicit_hardened_and_scoped_to_recovery_secrets() -> None:
-    compose = _compose()
-    service = compose["services"]["rec-reprocess-maintenance"]
-    secret_sources = {secret["source"] for secret in service["secrets"]}
-
-    assert service["profiles"] == ["operations"]
-    assert service["user"] == "twobrain"
-    assert service["read_only"] is True
-    assert service["cap_drop"] == ["ALL"]
-    assert service["security_opt"] == ["no-new-privileges:true"]
-    assert service["networks"] == ["rec-private"]
-    assert secret_sources == {
-        "twobrain_postgres_maintenance_password",
-        "twobrain_minio_api_access_key",
-        "twobrain_minio_api_secret_key",
-        "twobrain_mediascribe_api_key",
-    }
-    assert "twobrain_web_csrf_secret" not in secret_sources
-    assert "twobrain_smoke_credential" not in secret_sources
-    assert "twobrain_support_incident_github_token" not in secret_sources
 
 
 def test_production_temporal_uses_postgres_backend_with_secret_file_wrapper() -> None:

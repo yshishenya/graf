@@ -150,7 +150,6 @@ class Settings(BaseSettings):
     assisted_auto_start_policy_expires_at: datetime | None = None
 
     mediascribe_base_url: AnyUrl | None = None
-    mediascribe_health_url: AnyUrl | None = None
     mediascribe_api_key_file: Path | None = None
     mediascribe_request_timeout_seconds: PositiveInt = Field(default=30)
     mediascribe_diarize: bool = True
@@ -302,7 +301,6 @@ class Settings(BaseSettings):
         "public_base_url",
         "postal_api_url",
         "mediascribe_base_url",
-        "mediascribe_health_url",
         "langfuse_base_url",
         "langfuse_health_url",
         "litellm_base_url",
