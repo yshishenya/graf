@@ -74,6 +74,7 @@ from twobrain_rec_server.normalization.media import (
     RECOVERED_TRANSCODE_MAX_DURATION_LOSS_SECONDS,
     TRANSCODE_MIX_DURATION_TOLERANCE_SECONDS,
     BMFFLayout,
+    FileDigest,
     FullDecodeReceipt,
     MediaPolicyError,
     NormalizationAction,
@@ -1709,11 +1710,11 @@ async def _storage_object_exists(storage: object, object_key: str) -> bool | Non
     return None
 
 
-def _ensure_normalized_output_matches_file(
+async def _ensure_normalized_output_matches_file(
     output_path: Path,
     output: NormalizedOutput,
 ) -> None:
-    digest = hash_regular_file(output_path, max_bytes=MAX_OUTPUT_BYTES)
+    digest = await _hash_regular_file(output_path, max_bytes=MAX_OUTPUT_BYTES)
     if (
         digest.byte_length != output.output_byte_length
         or digest.sha256_hex != output.output_sha256
@@ -1737,7 +1738,7 @@ async def _inspect_bmff(path: Path) -> BMFFLayout:
     return await to_thread.run_sync(inspect_bmff, path)
 
 
-async def _hash_regular_file(path: Path, *, max_bytes: int):
+async def _hash_regular_file(path: Path, *, max_bytes: int) -> FileDigest:
     return await to_thread.run_sync(lambda: hash_regular_file(path, max_bytes=max_bytes))
 
 
@@ -2771,7 +2772,7 @@ async def _execute_normalization_job(
                 prepared.job.source_kind == MediaRevisionSourceKind.MANUAL_UPLOAD.value
             ),
         )
-        _ensure_normalized_output_matches_file(output_path, output)
+        await _ensure_normalized_output_matches_file(output_path, output)
 
         # Fence ownership before storage I/O, then commit to release the
         # lifecycle locks. A deletion may race the upload; the post-upload

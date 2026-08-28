@@ -376,7 +376,8 @@ def test_stale_start_reconciliation_records_scalar_audit_after_rollback(
     )
 
     assert response.status_code == 202
-    assert response.json()["reused_count"] == 1
+    assert response.json()["reused_count"] == 0
+    assert response.json()["blocked_count"] == 1
 
     async def audit_metadata() -> tuple[UUID | None, dict[str, object]]:
         async with client.app_state["sessionmaker"]() as db:

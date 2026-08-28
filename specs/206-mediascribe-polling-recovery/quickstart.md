@@ -56,7 +56,7 @@ bash scripts/run_local_postgres_tests.sh --focused -q \
 - normalization retry → countdown + manual due-now без параллельного transcode;
 - worker restart до Temporal start и после publication → deterministic recovery;
 - ambiguous/running/closed duplicate Temporal start и bounded history → без
-  второго execution, replay current history проходит;
+  второго provider job, replay current history проходит;
 - `archive_audio=false` → нет плеера/storage usage, source и canonical purged;
 - provider input-audio failure → terminal projection, frontend polling stopped;
 - pending → `no_recognizable_speech` → одна отправка и terminal recovery даже

@@ -127,8 +127,9 @@ attempts/workflows revision и самый ранний hard deadline. Processing
 Для crash-gap `ProcessingWorkflow(starting)` → Temporal start добавляется
 bounded reconciler. После quota admission `WORKFLOW_STARTED` фиксируется до
 Temporal RPC; start использует deterministic workflow id и явную
-`REJECT_DUPLICATE` policy. Running conflict переиспользуется, закрытый duplicate
-заменяется новым Temporal execution без смены существующей provider operation,
+`REJECT_DUPLICATE` policy. Running conflict переиспользуется, а для закрытого
+execution создаётся следующий deterministic Temporal execution без смены
+существующей provider operation,
 ambiguous RPC не терминализирует intent. Новая durable сущность, новый workflow
 type и новая task queue не требуются.
 

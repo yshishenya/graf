@@ -1180,8 +1180,7 @@ def _classify_ready_result(
     if (
         result.transcript_status != ProcessingAvailabilityStatus.AVAILABLE
         or not result.transcript
-        or diarization_required
-        and not result.diarization
+        or (diarization_required and not result.diarization)
     ):
         return result.model_copy(
             update={

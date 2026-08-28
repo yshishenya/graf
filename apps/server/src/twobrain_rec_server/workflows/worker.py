@@ -1190,7 +1190,9 @@ async def reconcile_stale_processing_starts(
 ) -> int:
     if limit <= 0:
         return 0
-    missing_limit = 1 if settings.processing_enabled else 0
+    if not settings.processing_enabled:
+        return 0
+    missing_limit = 1
     missing = (
         await store.claim_missing_processing_start_intents(
             db,

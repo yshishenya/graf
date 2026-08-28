@@ -345,7 +345,10 @@ async def pick_up_processing(
                         meeting_id=meeting.id,
                         processing_workflow_id=workflow.id,
                         event_type=event_type,
-                        metadata={"workflow_id": workflow.workflow_id},
+                        metadata={
+                            "workflow_id": workflow.workflow_id,
+                            "reason_code": reason_code,
+                        },
                     )
                     if started.reused:
                         result.reused_count += 1
@@ -355,6 +358,7 @@ async def pick_up_processing(
                     continue
                 except ProcessingLifecycleBlocked:
                     await db.rollback()
+                    result.blocked_count += 1
                 except Exception:
                     await db.rollback()
                     await store.record_processing_audit_event(
@@ -368,7 +372,7 @@ async def pick_up_processing(
                             "reason_code": "temporal_start_reconciliation_unavailable",
                         },
                     )
-                result.reused_count += 1
+                result.blocked_count += 1
                 result.meeting_ids.append(recovery_meeting_id)
                 continue
             result.reused_count += 1
@@ -594,7 +598,10 @@ async def pick_up_processing(
             meeting_id=meeting.id,
             processing_workflow_id=workflow.id,
             event_type=event_type,
-            metadata={"workflow_id": workflow.workflow_id},
+            metadata={
+                "workflow_id": workflow.workflow_id,
+                "reason_code": reason_code,
+            },
         )
         if started.reused:
             result.reused_count += 1
