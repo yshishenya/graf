@@ -1034,48 +1034,14 @@ def test_previous_recurring_readiness_keeps_current_lineaged_transcript_ready() 
     )
 
 
-def test_processing_state_uses_no_speech_and_invalid_audio_copy_from_result() -> None:
-    no_speech = ProcessingResult(
-        id=uuid4(),
-        meeting_id=uuid4(),
-        workspace_id=uuid4(),
-        mediascribe_job_id=uuid4(),
-        status=ProcessingResultStatus.IMPORTED.value,
-        transcript_status=ProcessingAvailabilityStatus.UNAVAILABLE.value,
-        diarization_status=ProcessingAvailabilityStatus.UNAVAILABLE.value,
-        segment_count=0,
-        diarization_segment_count=0,
-        failure_reason="no_recognizable_speech",
-        failure_source="input_audio",
-    )
-    invalid_audio = ProcessingResult(
-        id=uuid4(),
-        meeting_id=uuid4(),
-        workspace_id=uuid4(),
-        mediascribe_job_id=uuid4(),
-        status=ProcessingResultStatus.IMPORTED.value,
-        transcript_status=ProcessingAvailabilityStatus.UNAVAILABLE.value,
-        diarization_status=ProcessingAvailabilityStatus.UNAVAILABLE.value,
-        segment_count=0,
-        diarization_segment_count=0,
-        failure_reason="invalid_audio_payload",
-        failure_source="input_audio",
-    )
-
-    no_speech_state = view_models.processing_state(_meeting(), result=no_speech, workflow=None)
-    invalid_audio_state = view_models.processing_state(
-        _meeting(), result=invalid_audio, workflow=None
-    )
-
-    assert no_speech_state.reason_label == (
+def test_processing_reason_copy_covers_terminal_input_outcomes() -> None:
+    assert view_models.reason_label("no_recognizable_speech") == (
         "MediaScribe обработал запись, но транскрипт не создан: распознаваемая речь не найдена."
     )
     assert (
-        invalid_audio_state.reason_label
+        view_models.reason_label("invalid_audio_payload")
         == "Файл записи не является декодируемым аудио или поврежден."
     )
-    assert no_speech_state.transcript_available is False
-    assert invalid_audio_state.transcript_available is False
 
 
 @pytest.mark.parametrize(

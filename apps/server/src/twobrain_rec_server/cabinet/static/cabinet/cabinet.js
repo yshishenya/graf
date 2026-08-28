@@ -1380,8 +1380,6 @@
     ["mediascribe", "job_failed"].join("_"),
     "blocked_temporal_unavailable",
     "mediascribe_malformed_response",
-    "mediascribe_retries_exhausted",
-    "processing_retry_deadline_exceeded",
     "result_import_failed",
     "no_recognizable_speech",
     "processed_no_transcript",
@@ -1467,10 +1465,10 @@
   const processingProjectionMatchesDetail = (detail, projection) => {
     const meetingId = String(detail.dataset.meetingId || "");
     const responseMeetingId = String(projection?.meeting_id || "");
-    if (meetingId && responseMeetingId && meetingId !== responseMeetingId) return false;
+    if (!meetingId || !responseMeetingId || meetingId !== responseMeetingId) return false;
     const mediaRevisionId = String(detail.dataset.mediaRevisionId || "");
     const responseRevisionId = String(projection?.media_revision_id || "");
-    return !mediaRevisionId || !responseRevisionId || mediaRevisionId === responseRevisionId;
+    return mediaRevisionId ? mediaRevisionId === responseRevisionId : !responseRevisionId;
   };
 
   const processingProjectionIsStale = (detail, projection) => {
@@ -1733,8 +1731,7 @@
     if (processingRecoveryActionRequest !== null) return;
     const transcriptReady = processingTranscriptReady(projection);
     const summaryState = processingSummaryState(projection);
-    const terminalProjection = projection?.retry_class === "terminal"
-      || ["failed_terminal", "blocked", "canceled"].includes(String(projection?.state || "").toLowerCase());
+    const terminalProjection = processingProjectionTerminal(projection);
     const shouldPoll = !terminalProjection && (
       !transcriptReady
       || processingSummaryPending(summaryState)
@@ -1754,6 +1751,14 @@
     processingRecoveryPollTimer = window.setTimeout(() => {
       if (!document.hidden) void refreshProcessingStatus();
     }, delay);
+  };
+
+  const processingProjectionTerminal = (projection) => {
+    const retryClass = String(projection?.retry_class || "none");
+    const state = String(projection?.state || "").toLowerCase();
+    return retryClass === "terminal"
+      || ["failed_terminal", "canceled"].includes(state)
+      || (state === "blocked" && retryClass !== "unknown_outcome");
   };
 
   const renderProcessingProjection = (detail, projection) => {
@@ -1776,11 +1781,9 @@
     const transcriptReady = processingTranscriptReady(projection);
     const statusLabel = detail.querySelector("[data-meeting-status-label]");
     const projectionState = String(projection?.state || "").toLowerCase();
-    const retryClass = String(projection?.retry_class || "none");
     const reason = String(projection?.reason_code || "").toLowerCase();
     if (statusLabel) {
-      statusLabel.textContent = retryClass === "terminal"
-        || ["failed_terminal", "blocked", "canceled"].includes(projectionState)
+      statusLabel.textContent = processingProjectionTerminal(projection)
         ? "Нужна помощь"
         : ["processing_retry_deadline_exceeded", "mediascribe_poll_limit_exceeded"].includes(reason)
         ? "Нужна проверка"
@@ -1795,8 +1798,7 @@
       transcript.hidden = !transcriptVisible;
       transcript.setAttribute("aria-hidden", transcriptVisible ? "false" : "true");
     }
-    const terminalProcessing = retryClass === "terminal"
-      || ["failed_terminal", "blocked", "canceled"].includes(projectionState);
+    const terminalProcessing = processingProjectionTerminal(projection);
     if (pending) pending.hidden = transcriptVisible || terminalTranscript || terminalProcessing;
     updateProcessingExportVisibility(transcriptReady);
     detail.dataset.processingTranscriptVisible = transcriptVisible ? "true" : "false";
@@ -2301,8 +2303,8 @@
     const retryClass = String(projection?.retry_class || "none");
     const state = String(projection?.state || "").toLowerCase();
     if (
-      retryClass === "terminal"
-      || ["processed", "blocked", "failed_terminal", "canceled"].includes(state)
+      state === "processed"
+      || processingProjectionTerminal(projection)
     ) {
       const restoreFocus = row.contains(document.activeElement);
       if (requestMeetingListRefresh({ focusMeetingIds: [rowMeetingId], restoreFocus })) return;

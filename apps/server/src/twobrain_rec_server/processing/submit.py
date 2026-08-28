@@ -29,11 +29,7 @@ from twobrain_rec_server.mediascribe.schemas import MediaScribePollResponse, Med
 from twobrain_rec_server.outcomes.ai_service import ensure_automatic_summary_candidate
 from twobrain_rec_server.outcomes.service import ensure_outcomes_for_processing_result
 from twobrain_rec_server.processing import store
-from twobrain_rec_server.processing.fences import (
-    is_legacy_lineage,
-    lock_meeting_fence,
-    meeting_is_deleted_or_deleting,
-)
+from twobrain_rec_server.processing.fences import lock_meeting_fence, meeting_is_deleted_or_deleting
 from twobrain_rec_server.processing.lifecycle import TERMINAL_PROCESSING_STATUSES
 from twobrain_rec_server.processing.reasons import (
     BLOCKED_AUDIO_TOO_LARGE,
@@ -182,15 +178,6 @@ async def _ensure_processing_fence(
     )
     if current_status in {status.value for status in TERMINAL_PROCESSING_STATUSES}:
         raise ProcessingLifecycleBlocked("processing_workflow_terminal")
-    if is_legacy_lineage(
-        media_revision_id=workflow.media_revision_id,
-        source_fingerprint=workflow.source_fingerprint,
-    ):
-        # Bounded compatibility window for rows created before revision
-        # lineage existed. They retain their NULL source identity and never
-        # update a newer revision's aggregate; an operator can reconcile them
-        # with the legacy backfill command before the window closes.
-        return
     latest_revision = await db.scalar(
         select(MediaRevision)
         .where(
@@ -227,10 +214,6 @@ async def submit_to_mediascribe(
         meeting_id=workflow.meeting_id,
         media_revision_id=workflow.media_revision_id,
         processing_workflow_id=workflow.id,
-    )
-    legacy_lineage = is_legacy_lineage(
-        media_revision_id=workflow.media_revision_id,
-        source_fingerprint=workflow.source_fingerprint,
     )
     if existing_job is not None and existing_job.external_job_id:
         if workflow.status in {
@@ -286,12 +269,6 @@ async def submit_to_mediascribe(
             ProcessingStatus.BLOCKED_UNKNOWN,
             reason_code=BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN,
         )
-    if legacy_lineage:
-        # A legacy row may finish polling an already-submitted provider job,
-        # but it must never submit today's selected revision under a NULL
-        # lineage identity.
-        raise ProcessingLifecycleBlocked("legacy_lineage_unresolved")
-
     require_manual_canonical = bool(
         workflow.archive_audio
         and settings.playback_normalization_enabled

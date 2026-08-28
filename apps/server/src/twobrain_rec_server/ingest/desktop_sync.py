@@ -48,7 +48,10 @@ from twobrain_rec_server.ingest.store import (
 )
 from twobrain_rec_server.processing import store as processing_store
 from twobrain_rec_server.processing.fences import lock_meeting_fence, meeting_is_deleted_or_deleting
-from twobrain_rec_server.processing.results import result_is_terminal_input
+from twobrain_rec_server.processing.results import (
+    effective_processing_result_query,
+    result_is_terminal_input,
+)
 
 
 def _utc_aware(value: datetime) -> datetime:
@@ -276,14 +279,16 @@ async def _latest_processing_result(
     workspace_id: object,
     meeting_id: object,
     media_revision_id: object | None,
+    processing_workflow_id: object,
 ) -> ProcessingResult | None:
     if db is None or media_revision_id is None:
         return None
-    return await processing_store.latest_processing_result(
-        db,
-        workspace_id=workspace_id,
-        meeting_id=meeting_id,
-        media_revision_id=media_revision_id,
+    return await db.scalar(
+        effective_processing_result_query(
+            workspace_id=workspace_id,
+            meeting_id=meeting_id,
+            media_revision_id=media_revision_id,
+        ).where(ProcessingResult.processing_workflow_id == processing_workflow_id)
     )
 
 
@@ -729,6 +734,7 @@ async def get_desktop_recording_sync_state(
         workspace_id=tenant_scope.workspace_id,
         meeting_id=meeting.id,
         media_revision_id=meeting.media_revision_id,
+        processing_workflow_id=review_workflow.id if review_workflow is not None else None,
     )
     terminal_input_result = bool(
         review_workflow is not None

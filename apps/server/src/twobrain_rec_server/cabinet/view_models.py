@@ -2054,8 +2054,6 @@ def _result_lineage_matches(
             and result_lineage_is_current(result, media_revision_id=media_revision_id)
             and result.processing_workflow_id == processing_workflow_id
         )
-    if processing_workflow_id is not None:
-        return result.processing_workflow_id == processing_workflow_id
     return False
 
 
@@ -2116,10 +2114,15 @@ def previous_recurring_meeting_readiness(
     )
     if notes_ready:
         return PreviousRecurringMeetingReadiness.NOTES_READY
-    if transcript_available(
+    if (
+        result is not None
+        and result.meeting_id == meeting.id
+        and result.workspace_id == meeting.workspace_id
+        and transcript_available(
         result,
-        media_revision_id=result.media_revision_id if result is not None else None,
-        processing_workflow_id=result.processing_workflow_id if result is not None else None,
+            media_revision_id=result.media_revision_id,
+            processing_workflow_id=result.processing_workflow_id,
+        )
     ):
         return PreviousRecurringMeetingReadiness.TRANSCRIPT_READY
     if review_status(meeting, result=result, workflow=None) in {
@@ -2633,7 +2636,6 @@ def reason_label(reason_code: str | None) -> str | None:
         "mediascribe_timeout": "Сервис транскрипции не ответил вовремя. Повторная попытка будет выполнена автоматически.",
         "mediascribe_rate_limited": "Сервис транскрипции временно ограничил запросы. Повторите позже.",
         "mediascribe_server_error": "Сервис транскрипции временно недоступен. Повторите позже.",
-        "mediascribe_retries_exhausted": "Сервис транскрипции не восстановился после нескольких попыток. Повторите позже или обратитесь к оператору.",
         "mediascribe_poll_limit_exceeded": "Сервис транскрипции не завершил обработку в отведённое время. Повторите позже или обратитесь к оператору.",
         "mediascribe_submission_in_progress": "Предыдущая отправка ещё выполняется. Подождите завершения и обновите страницу.",
         "mediascribe_result_not_ready": "Сервис транскрипции ещё готовит результат. Повторная проверка будет выполнена автоматически.",

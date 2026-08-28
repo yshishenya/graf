@@ -213,6 +213,7 @@ def test_complete_result_without_workflow_lineage_is_hidden(client) -> None:
 
     assert response.status_code == 200
     payload = response.json()
+    assert payload["state"] == ProcessingStatus.PROCESSED.value
     assert payload["artifacts"]["transcript"]["state"] == "processing"
     assert payload["artifacts"]["diarization"]["state"] == "processing"
     assert payload["artifacts"]["summary"]["state"] == "not_requested"

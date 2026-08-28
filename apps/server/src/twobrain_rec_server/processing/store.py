@@ -73,8 +73,6 @@ from twobrain_rec_server.processing.audit import (
     validate_processing_aggregate_event,
 )
 from twobrain_rec_server.processing.fences import (
-    is_legacy_lineage,
-    legacy_source_fingerprint,
     lock_meeting_fence,
     meeting_is_deleted_or_deleting,
     record_stale_lifecycle_event,
@@ -271,7 +269,7 @@ def _processing_manual_command_id(
         (
             str(workspace_id),
             str(meeting_id),
-            str(media_revision_id) if media_revision_id is not None else "legacy",
+            str(media_revision_id) if media_revision_id is not None else "missing-revision",
             seed,
         )
     )
@@ -549,11 +547,8 @@ async def release_processing_manual_check_claim(
         return False
     workflow.manual_claimed_at = None
     workflow.manual_claimed_by = None
-    unknown_reconciliation = (
-        workflow.retry_class == "unknown_outcome"
-    )
+    unknown_reconciliation = workflow.retry_class == "unknown_outcome"
     workflow.retry_class = "unknown_outcome" if unknown_reconciliation else "retryable"
-    scheduler = schedule_retry_with_settings if settings is not None else schedule_retry
     schedule_kwargs = {
         "now": datetime.now(UTC),
         "retry_count": int(workflow.retry_count or 0),
@@ -562,31 +557,32 @@ async def release_processing_manual_check_claim(
         "source": "manual_dispatch_failure",
     }
     schedule = (
-        scheduler(settings, **schedule_kwargs)
+        schedule_retry_with_settings(settings, respect_max_attempts=False, **schedule_kwargs)
         if settings is not None
-        else scheduler(**schedule_kwargs)
+        else schedule_retry(**schedule_kwargs)
     )
     workflow.next_attempt_at = schedule.next_attempt_at
     workflow.next_attempt_source = schedule.source
     workflow.schedule_generation = schedule.generation
     workflow.retry_count = schedule.retry_count
     if schedule.next_attempt_at is None:
+        workflow.next_attempt_at = None
+        workflow.next_attempt_source = None
         if unknown_reconciliation:
             workflow.retry_class = "unknown_outcome"
             await set_workflow_status(
                 db,
                 workflow,
                 ProcessingStatus.BLOCKED_UNKNOWN,
-                reason_code="processing_recovery_attempt_limit_exceeded",
+                reason_code="processing_retry_deadline_exceeded",
             )
             return True
-        workflow.retry_class = "terminal"
+        workflow.retry_class = "retryable"
         await set_workflow_status(
             db,
             workflow,
-            ProcessingStatus.FAILED_TERMINAL,
-            reason_code="processing_recovery_attempt_limit_exceeded",
-            terminal=True,
+            ProcessingStatus.FAILED_RETRYABLE,
+            reason_code="processing_retry_deadline_exceeded",
         )
         return True
     await set_workflow_status(
@@ -1278,8 +1274,8 @@ async def get_processing_workflow(
         ProcessingWorkflow.purpose == purpose,
     )
     if media_revision_id is None:
-        # A legacy callback may omit its revision id. It must only observe the
-        # legacy NULL lineage, never a newer revision-scoped workflow.
+        # Missing lineage is isolated to NULL rows and can never select a
+        # revision-scoped workflow.
         query = query.where(ProcessingWorkflow.media_revision_id.is_(None))
     else:
         query = query.where(ProcessingWorkflow.media_revision_id == media_revision_id)
@@ -1304,238 +1300,6 @@ async def get_processing_workflow(
     )
 
 
-async def reconcile_legacy_processing_lineage(
-    db: AsyncSession,
-    *,
-    workspace_id: UUID | None = None,
-    limit: int = 500,
-) -> dict[str, int]:
-    """Backfill pre-revision rows without guessing across multiple sources.
-
-    A meeting with exactly one attested accepted revision can be relinked. A
-    row with no attested revision keeps a durable ``legacy:<run-id>`` marker;
-    an active row with multiple possible revisions is blocked for operator
-    reconciliation instead of being attached to the wrong source.
-    """
-    if limit <= 0:
-        return {
-            "scanned": 0,
-            "marked_legacy": 0,
-            "relinked": 0,
-            "jobs_relinked": 0,
-            "results_relinked": 0,
-            "blocked": 0,
-            "unresolved": 0,
-        }
-    query = (
-        select(ProcessingWorkflow)
-        .where(ProcessingWorkflow.media_revision_id.is_(None))
-        .order_by(ProcessingWorkflow.created_at.asc(), ProcessingWorkflow.id.asc())
-        .limit(limit)
-    )
-    if workspace_id is not None:
-        query = query.where(ProcessingWorkflow.workspace_id == workspace_id)
-    candidate_workflows = (await db.scalars(query)).all()
-    grouped_ids: dict[tuple[UUID, UUID], list[UUID]] = {}
-    for candidate in candidate_workflows:
-        grouped_ids.setdefault((candidate.workspace_id, candidate.meeting_id), []).append(
-            candidate.id
-        )
-    workflows: list[ProcessingWorkflow] = []
-    for (candidate_workspace_id, candidate_meeting_id), candidate_ids in sorted(
-        grouped_ids.items(), key=lambda item: tuple(str(value) for value in item[0])
-    ):
-        # Revision acceptance and deletion both use Meeting as the lifecycle
-        # fence. Acquire it before the legacy workflow rows so reconciliation
-        # cannot relink a row against a revision that wins concurrently.
-        meeting = await lock_meeting_fence(
-            db,
-            workspace_id=candidate_workspace_id,
-            meeting_id=candidate_meeting_id,
-        )
-        if meeting is None or meeting_is_deleted_or_deleting(meeting):
-            continue
-        locked_workflows = (
-            await db.scalars(
-                select(ProcessingWorkflow)
-                .where(
-                    ProcessingWorkflow.workspace_id == candidate_workspace_id,
-                    ProcessingWorkflow.meeting_id == candidate_meeting_id,
-                    ProcessingWorkflow.id.in_(candidate_ids),
-                    ProcessingWorkflow.media_revision_id.is_(None),
-                )
-                .order_by(ProcessingWorkflow.created_at.asc(), ProcessingWorkflow.id.asc())
-                .with_for_update()
-                .execution_options(populate_existing=True)
-            )
-        ).all()
-        workflows.extend(locked_workflows)
-    report = {
-        "scanned": len(workflows),
-        "marked_legacy": 0,
-        "relinked": 0,
-        "jobs_relinked": 0,
-        "results_relinked": 0,
-        "blocked": 0,
-        "unresolved": 0,
-    }
-    for workflow in workflows:
-        if not is_legacy_lineage(
-            media_revision_id=workflow.media_revision_id,
-            source_fingerprint=workflow.source_fingerprint,
-        ):
-            workflow.source_fingerprint = legacy_source_fingerprint(workflow.id)
-            report["marked_legacy"] += 1
-        revisions = (
-            await db.scalars(
-                select(MediaRevision)
-                .where(
-                    MediaRevision.workspace_id == workflow.workspace_id,
-                    MediaRevision.meeting_id == workflow.meeting_id,
-                    MediaRevision.status == MediaRevisionStatus.ACCEPTED.value,
-                    MediaRevision.immutable.is_(True),
-                )
-                .order_by(MediaRevision.revision_number.asc(), MediaRevision.id.asc())
-            )
-        ).all()
-        attested = []
-        for revision in revisions:
-            try:
-                fingerprint = source_fingerprint_for_revision(revision)
-            except ValueError:
-                continue
-            attested.append((revision, fingerprint))
-        if len(attested) == 1:
-            revision, fingerprint = attested[0]
-            existing_revision_workflow = await db.scalar(
-                select(ProcessingWorkflow)
-                .where(
-                    ProcessingWorkflow.workspace_id == workflow.workspace_id,
-                    ProcessingWorkflow.meeting_id == workflow.meeting_id,
-                    ProcessingWorkflow.media_revision_id == revision.id,
-                    ProcessingWorkflow.purpose == workflow.purpose,
-                    ProcessingWorkflow.source_fingerprint == fingerprint,
-                    ProcessingWorkflow.status.notin_(TERMINAL_PROCESSING_STATUSES),
-                    ProcessingWorkflow.id != workflow.id,
-                )
-                .with_for_update()
-                .execution_options(populate_existing=True)
-            )
-            if existing_revision_workflow is not None:
-                # A canonical workflow already owns this source. Do not let a
-                # legacy row violate the partial unique index; terminalize it
-                # with an explicit safe reason and leave its historical jobs
-                # and results attached to their legacy lineage.
-                workflow.status = ProcessingStatus.BLOCKED.value
-                workflow.last_reason_code = "legacy_lineage_duplicate"
-                workflow.ended_at = datetime.now(UTC)
-                duplicate_jobs = (
-                    await db.scalars(
-                        select(MediaScribeJob)
-                        .where(
-                            MediaScribeJob.workspace_id == workflow.workspace_id,
-                            MediaScribeJob.processing_workflow_id == workflow.id,
-                            MediaScribeJob.status.notin_(
-                                {
-                                    MediaScribeJobStatus.FAILED.value,
-                                    MediaScribeJobStatus.BLOCKED.value,
-                                }
-                            ),
-                        )
-                        .with_for_update()
-                        .execution_options(populate_existing=True)
-                    )
-                ).all()
-                for job in duplicate_jobs:
-                    job.status = MediaScribeJobStatus.BLOCKED.value
-                    job.failed_at = datetime.now(UTC)
-                    job.last_error_code = "legacy_lineage_duplicate"
-                report["blocked"] += 1
-                continue
-            workflow.media_revision_id = revision.id
-            workflow.source_fingerprint = fingerprint
-            report["relinked"] += 1
-            jobs = (
-                await db.scalars(
-                    select(MediaScribeJob)
-                    .where(
-                        MediaScribeJob.workspace_id == workflow.workspace_id,
-                        MediaScribeJob.processing_workflow_id == workflow.id,
-                        MediaScribeJob.media_revision_id.is_(None),
-                    )
-                    .with_for_update()
-                    .execution_options(populate_existing=True)
-                )
-            ).all()
-            for job in jobs:
-                job.media_revision_id = revision.id
-                job.source_fingerprint = job.source_fingerprint or fingerprint
-                report["jobs_relinked"] += 1
-            job_ids = [job.id for job in jobs]
-            results = (
-                await db.scalars(
-                    select(ProcessingResult)
-                    .where(
-                        ProcessingResult.workspace_id == workflow.workspace_id,
-                        ProcessingResult.media_revision_id.is_(None),
-                        (
-                            (ProcessingResult.processing_workflow_id == workflow.id)
-                            | (
-                                ProcessingResult.processing_workflow_id.is_(None)
-                                & ProcessingResult.mediascribe_job_id.in_(job_ids)
-                            )
-                        ),
-                    )
-                    .with_for_update()
-                    .execution_options(populate_existing=True)
-                )
-            ).all()
-            for result in results:
-                if result.processing_workflow_id not in {None, workflow.id}:
-                    continue
-                result.processing_workflow_id = workflow.id
-                result.media_revision_id = revision.id
-                result.deletion_epoch_at_start = (
-                    result.deletion_epoch_at_start
-                    if result.deletion_epoch_at_start is not None
-                    else workflow.deletion_epoch_at_start
-                )
-                report["results_relinked"] += 1
-            continue
-        if len(attested) == 0:
-            report["unresolved"] += 1
-            continue
-        try:
-            status = ProcessingStatus(workflow.status)
-        except ValueError:
-            status = None
-        if status not in TERMINAL_PROCESSING_STATUSES:
-            workflow.status = ProcessingStatus.BLOCKED.value
-            workflow.last_reason_code = "legacy_lineage_ambiguous"
-            workflow.ended_at = datetime.now(UTC)
-            jobs = (
-                await db.scalars(
-                    select(MediaScribeJob)
-                    .where(
-                        MediaScribeJob.workspace_id == workflow.workspace_id,
-                        MediaScribeJob.processing_workflow_id == workflow.id,
-                        MediaScribeJob.status.notin_(
-                            {MediaScribeJobStatus.FAILED.value, MediaScribeJobStatus.BLOCKED.value}
-                        ),
-                    )
-                    .with_for_update()
-                    .execution_options(populate_existing=True)
-                )
-            ).all()
-            for job in jobs:
-                job.status = MediaScribeJobStatus.BLOCKED.value
-                job.failed_at = datetime.now(UTC)
-                job.last_error_code = "legacy_lineage_ambiguous"
-            report["blocked"] += 1
-    await db.commit()
-    return report
-
-
 async def cancel_stale_revision_workflows(
     db: AsyncSession,
     *,
@@ -1554,12 +1318,8 @@ async def cancel_stale_revision_workflows(
     )
     if latest_revision is None:
         return 0
-    stale_revision = ProcessingWorkflow.media_revision_id.is_not(None) & (
+    stale_revision = ProcessingWorkflow.media_revision_id.is_(None) | (
         ProcessingWorkflow.media_revision_id != latest_revision.id
-    )
-    stale_unmarked_legacy = ProcessingWorkflow.media_revision_id.is_(None) & (
-        ProcessingWorkflow.source_fingerprint.is_(None)
-        | ~ProcessingWorkflow.source_fingerprint.startswith("legacy:")
     )
     stale_workflows = (
         await db.scalars(
@@ -1567,7 +1327,7 @@ async def cancel_stale_revision_workflows(
             .where(
                 ProcessingWorkflow.workspace_id == workspace_id,
                 ProcessingWorkflow.meeting_id == meeting_id,
-                stale_revision | stale_unmarked_legacy,
+                stale_revision,
                 ProcessingWorkflow.status.notin_(
                     {
                         ProcessingStatus.PROCESSED.value,
@@ -1652,8 +1412,6 @@ async def upsert_processing_workflow(
             raise ProcessingLifecycleBlocked("processing_source_fingerprint_conflict")
         else:
             source_fingerprint = attested_fingerprint
-    else:
-        source_fingerprint = source_fingerprint or legacy_source_fingerprint(meeting_id)
     workflow = await get_processing_workflow(
         db,
         workspace_id=workspace_id,
@@ -1991,9 +1749,12 @@ async def upsert_mediascribe_job(
         raise ValueError("dual_track_requires_artifact_pair")
     if request_mode == "single_track" and source_artifact is None:
         raise ValueError("single_track_requires_source_artifact")
+    effective_source_fingerprint = source_fingerprint or workflow.source_fingerprint
+    if workflow.media_revision_id is None or not effective_source_fingerprint:
+        raise ProcessingLifecycleBlocked("processing_source_revision_unavailable")
     request_fingerprint = processing_request_fingerprint(
         request_mode=request_mode,
-        source_fingerprint=source_fingerprint or workflow.source_fingerprint,
+        source_fingerprint=effective_source_fingerprint,
         mic_artifact=mic_artifact,
         incoming_artifact=incoming_artifact,
         source_artifact=source_artifact,
@@ -2022,7 +1783,7 @@ async def upsert_mediascribe_job(
             media_revision_id=media_revision_id,
             processing_workflow_id=processing_workflow_id,
         )
-        idempotency_key = f"mediascribe:{processing_workflow_id}:{source_fingerprint or workflow.source_fingerprint or 'legacy'}"
+        idempotency_key = f"mediascribe:{processing_workflow_id}:{effective_source_fingerprint}"
         if previous_job is not None:
             job = previous_job
         else:
@@ -2032,7 +1793,7 @@ async def upsert_mediascribe_job(
                 media_revision_id=media_revision_id,
                 processing_workflow_id=processing_workflow_id,
                 idempotency_key=idempotency_key,
-                source_fingerprint=source_fingerprint or workflow.source_fingerprint,
+                source_fingerprint=effective_source_fingerprint,
                 deletion_epoch_at_start=workflow.deletion_epoch_at_start,
                 mic_track_artifact_id=mic_artifact.id if mic_artifact is not None else None,
                 incoming_track_artifact_id=incoming_artifact.id
@@ -2522,14 +2283,9 @@ async def persist_processing_result(
         )
         .order_by(MediaRevision.revision_number.desc(), MediaRevision.updated_at.desc())
     )
-    legacy_lineage = is_legacy_lineage(
-        media_revision_id=job.media_revision_id,
-        source_fingerprint=job.source_fingerprint,
-    )
     source_stale = (
-        False
-        if legacy_lineage
-        else (latest_revision.id if latest_revision is not None else None) != job.media_revision_id
+        job.media_revision_id is None
+        or (latest_revision.id if latest_revision is not None else None) != job.media_revision_id
     )
     if latest_revision is not None and not source_stale:
         try:

@@ -100,7 +100,10 @@ from twobrain_rec_server.processing.lifecycle import (
     MEDIA_REVISION_DELETION_SAFE_REASON,
     TERMINAL_PROCESSING_STATUSES,
 )
-from twobrain_rec_server.processing.store import release_processing_usage_reservation
+from twobrain_rec_server.processing.store import (
+    release_processing_usage_reservation,
+    set_workflow_status,
+)
 
 TERMINAL_REQUEST_STATES = {
     DeletionState.COMPLETE.value,
@@ -932,14 +935,16 @@ async def reconcile_transient_media_purges(
         except ValueError:
             workflow_status = None
         if workflow_status not in TERMINAL_PROCESSING_STATUSES:
-            workflow.status = ProcessingStatus.FAILED_TERMINAL.value
             workflow.retry_class = "terminal"
-            workflow.last_reason_code = "audio_purged"
             workflow.next_attempt_at = None
             workflow.next_attempt_source = None
-            workflow.manual_claimed_at = None
-            workflow.manual_claimed_by = None
-            workflow.ended_at = now
+            workflow = await set_workflow_status(
+                db,
+                workflow,
+                ProcessingStatus.FAILED_TERMINAL,
+                reason_code="audio_purged",
+                terminal=True,
+            )
         workflow.transient_state = "purge_due"
         artifacts = list(
             await db.scalars(

@@ -37,9 +37,10 @@ def test_processing_recovery_updates_terminal_header_and_hides_pending_copy() ->
     script = _source(JAVASCRIPT)
 
     assert "data-meeting-status-label" in page
-    assert 'statusLabel.textContent' in script
+    assert "statusLabel.textContent" in script
     assert '"Нужна помощь"' in script
     assert "terminalProcessing" in script
+    assert 'state === "blocked" && retryClass !== "unknown_outcome"' in script
     assert "processing_retry_deadline_exceeded" in script
     assert 'projection?.retry_class === "terminal"' in script
     assert "const shouldPoll = !terminalProjection && (" in script

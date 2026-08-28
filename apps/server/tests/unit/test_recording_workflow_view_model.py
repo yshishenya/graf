@@ -30,11 +30,13 @@ def _meeting(*, status: str, processing_status: str) -> Meeting:
 
 def _result(*, transcript: bool, diarization: bool) -> tuple[ProcessingResult, ProcessingWorkflow]:
     workflow_id = uuid4()
+    media_revision_id = uuid4()
     result = ProcessingResult(
         id=uuid4(),
         meeting_id=uuid4(),
         workspace_id=uuid4(),
         mediascribe_job_id=uuid4(),
+        media_revision_id=media_revision_id,
         processing_workflow_id=workflow_id,
         status=ProcessingResultStatus.IMPORTED.value,
         transcript_status=(
@@ -55,6 +57,7 @@ def _result(*, transcript: bool, diarization: bool) -> tuple[ProcessingResult, P
         id=workflow_id,
         workspace_id=result.workspace_id,
         meeting_id=result.meeting_id,
+        media_revision_id=media_revision_id,
         workflow_id=f"processing/{workflow_id}",
         status=ProcessingStatus.PROCESSED.value,
     )
@@ -74,10 +77,15 @@ def test_one_artifact_specific_lifecycle_projects_without_a_second_queue() -> No
 
     for meeting_status, server_status, processing, expected_state, expected_action in cases:
         result, workflow = processing if processing is not None else (None, None)
+        meeting = _meeting(status=meeting_status, processing_status=server_status)
+        if result is not None and workflow is not None:
+            result.meeting_id = workflow.meeting_id = meeting.id
+            result.workspace_id = workflow.workspace_id = meeting.workspace_id
         state = processing_state(
-            _meeting(status=meeting_status, processing_status=server_status),
+            meeting,
             result=result,
             workflow=workflow,
+            media_revision_id=result.media_revision_id if result is not None else None,
         )
 
         assert state.state == expected_state
@@ -97,19 +105,26 @@ def test_ready_partial_and_failed_are_artifact_independent_human_states() -> Non
         processing_status=ProcessingStatus.PROCESSED.value,
     )
     ready_result, ready_workflow = _result(transcript=True, diarization=True)
+    ready_result.meeting_id = ready_workflow.meeting_id = ready_meeting.id
+    ready_result.workspace_id = ready_workflow.workspace_id = ready_meeting.workspace_id
     ready = processing_state(
         ready_meeting,
         result=ready_result,
         workflow=ready_workflow,
+        media_revision_id=ready_result.media_revision_id,
     )
     partial_result, partial_workflow = _result(transcript=True, diarization=False)
+    partial_meeting = _meeting(
+        status=MeetingStatus.INGESTED_PENDING_PROCESSING.value,
+        processing_status=ProcessingStatus.PROCESSED.value,
+    )
+    partial_result.meeting_id = partial_workflow.meeting_id = partial_meeting.id
+    partial_result.workspace_id = partial_workflow.workspace_id = partial_meeting.workspace_id
     partial = processing_state(
-        _meeting(
-            status=MeetingStatus.INGESTED_PENDING_PROCESSING.value,
-            processing_status=ProcessingStatus.PROCESSED.value,
-        ),
+        partial_meeting,
         result=partial_result,
         workflow=partial_workflow,
+        media_revision_id=partial_result.media_revision_id,
     )
     failed = processing_state(
         _meeting(

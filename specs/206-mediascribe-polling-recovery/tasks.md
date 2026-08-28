@@ -71,3 +71,4 @@ provider jobs. Коммиты, PR, merge, release и deploy остаются о�
 - [X] T025 [P] [US2] Зафиксировать contract/integration checks для `invalid_audio_payload/input_audio`, единого terminal-статуса и остановки frontend polling. (#5890)
 - [X] T026 [US2] Терминализировать новый provider input-audio failure, согласовать legacy `processed` projection, сделать новую попытку текущей во всех проекциях и защитить её canonical no-archive source от purge старой попыткой. (#5892)
 - [X] T027 [US2] Удалить эвристический fallback выбора исторического результата: определять текущую попытку через обязательную цепочку `processing_result → mediascribe_job → processing_workflow`, сохранить принятый outcome по current pointer и не допускать migration hash в новую генерацию.
+- [X] T028 [US2] Удалить runtime legacy-reconciler и локальную terminalization по счётчику попыток; сохранить Temporal replay/data compatibility и согласовать workflow/result/UI projections.

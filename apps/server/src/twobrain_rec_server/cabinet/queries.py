@@ -631,7 +631,11 @@ async def list_shared_with_me_meetings(
                     workspace_id=workspace_id,
                     meeting_id=meeting.id,
                 )
-                processing_state = processing.state if processing is not None else ProcessingStatus.BLOCKED
+                processing_state = (
+                    processing.state
+                    if processing is not None
+                    else ProcessingStatus.PENDING_PROCESSING
+                )
                 status_label = (
                     "Готово"
                     if processing_state == ProcessingStatus.PROCESSED
