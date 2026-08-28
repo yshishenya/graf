@@ -277,6 +277,15 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
                 userMessage: "Тарифы и оплата"
             )
         }
+        if scheme == "https",
+           URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedPath == "/offer" {
+            return DesktopCabinetRouteDecision(
+                route: DesktopCabinetRoute(path: path, kind: .external),
+                decision: .openExternally,
+                reason: .openExternalSafeLink,
+                userMessage: "Открыть оферту в браузере."
+            )
+        }
         if isBrowserOwnedAccountRoute(components) {
             return DesktopCabinetRouteDecision(
                 route: DesktopCabinetRoute(path: path, kind: .external),
