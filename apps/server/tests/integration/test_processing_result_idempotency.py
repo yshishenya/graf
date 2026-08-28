@@ -18,7 +18,7 @@ from twobrain_rec_server.domain.statuses import (
     ProcessingAvailabilityStatus,
     ProcessingStatus,
 )
-from twobrain_rec_server.mediascribe.schemas import MediaScribeResult, MediaScribeSegment
+from twobrain_rec_server.mediascribe.schemas import MediaScribeResult, MediaScribeTranscriptSegment
 from twobrain_rec_server.processing import store
 from twobrain_rec_server.processing.submit import (
     poll_and_import_mediascribe_result,
@@ -33,7 +33,7 @@ def test_result_import_is_idempotent_for_same_normalized_result(client) -> None:
     workspace_id = UUID(finalized["meeting"]["workspace_id"])
     result = MediaScribeResult(
         external_job_id="job_idempotent",
-        transcript=[MediaScribeSegment(sequence=0, start_seconds=0, end_seconds=1, text="hello", source_role="mic")],
+        transcript=[MediaScribeTranscriptSegment(sequence=0, start_seconds=0, end_seconds=1, text="hello", source_role="mic")],
     )
     fake_client = FakeMediaScribeClient(
         external_job_id="job_idempotent",

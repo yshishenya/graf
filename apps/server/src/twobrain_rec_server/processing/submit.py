@@ -269,20 +269,11 @@ async def submit_to_mediascribe(
             ProcessingStatus.BLOCKED_UNKNOWN,
             reason_code=BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN,
         )
-    require_manual_canonical = bool(
-        workflow.archive_audio
-        and settings.playback_normalization_enabled
-        and settings.playback_normalization_automatic_dispatch_enabled
-    )
-    preparation = (
-        await store.load_manual_upload_preparation(
-            db,
-            workspace_id=workflow.workspace_id,
-            meeting_id=workflow.meeting_id,
-            media_revision_id=workflow.media_revision_id,
-        )
-        if require_manual_canonical
-        else None
+    preparation = await store.load_manual_upload_preparation(
+        db,
+        workspace_id=workflow.workspace_id,
+        meeting_id=workflow.meeting_id,
+        media_revision_id=workflow.media_revision_id,
     )
     if preparation is not None and preparation.state == "pending":
         raise ManualUploadNormalizationPending(
@@ -330,17 +321,27 @@ async def submit_to_mediascribe(
         )
         raise RuntimeError(BLOCKED_AUDIO_TOO_LARGE)
 
-    job = await store.upsert_mediascribe_job(
-        db,
-        workflow=workflow,
-        mic_artifact=source.mic_artifact,
-        incoming_artifact=source.incoming_artifact,
-        source_artifact=source.source_artifact,
-        request_mode=source.request_mode,
-        source_fingerprint=workflow.source_fingerprint,
-        diarize=settings.mediascribe_diarize,
-        summarize=settings.mediascribe_summarize,
-    )
+    try:
+        job = await store.upsert_mediascribe_job(
+            db,
+            workflow=workflow,
+            mic_artifact=source.mic_artifact,
+            incoming_artifact=source.incoming_artifact,
+            source_artifact=source.source_artifact,
+            request_mode=source.request_mode,
+            source_fingerprint=workflow.source_fingerprint,
+            diarize=settings.mediascribe_diarize,
+            summarize=settings.mediascribe_summarize,
+        )
+    except ProcessingLifecycleBlocked as exc:
+        await store.set_workflow_status(
+            db,
+            workflow,
+            ProcessingStatus.BLOCKED,
+            reason_code=str(exc),
+            terminal=True,
+        )
+        raise
     claim_token = await store.claim_mediascribe_submission(db, job=job)
     if claim_token is None:
         resolved = await store.wait_for_mediascribe_submission(db, job_id=job.id)

@@ -11,6 +11,7 @@ from sqlalchemy import select
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fakes.auth_contexts import DEVICE_ID, ORG_ID, USER_ID, WORKSPACE_ID
+from tests.fakes.fake_temporal import FakeTemporalClient
 from tests.fixtures.artifacts import track_descriptor
 from tests.fixtures.processing import (
     apply_job_worker_scope,
@@ -22,6 +23,7 @@ from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.db.models import (
     MediaRevision,
     PlaybackNormalizationJob,
+    StorageReservation,
     TrackArtifact,
 )
 from twobrain_rec_server.db.tenant_context import apply_tenant_scope
@@ -213,6 +215,64 @@ def test_finalize_without_candidate_queues_authoritative_source_normalization(
     job = asyncio.run(load_job())
     assert job is not None
     assert job.planned_action == "normalize_source"
+
+
+def test_no_archive_manual_normalization_publishes_without_storage_reservation(
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    client.app.state.settings.playback_normalization_enabled = True
+    client.app.state.settings.processing_enabled = True
+    client.app.state.temporal_client = FakeTemporalClient()
+    response = client.post(
+        "/api/v1/media-uploads",
+        headers=auth_headers(),
+        data={
+            "duration_seconds": "1",
+            "local_recording_id": "normalization-no-archive-manual",
+            "archive_audio": "false",
+        },
+        files={
+            "file": (
+                "meeting.wav",
+                deterministic_canonical_wav_bytes(frame_count=16_000),
+                "audio/wav",
+            )
+        },
+    )
+    assert response.status_code == 202
+    meeting_id = UUID(response.json()["meeting"]["meeting_id"])
+
+    async def execute():
+        async with client.app_state["sessionmaker"]() as db:
+            job = await db.scalar(
+                select(PlaybackNormalizationJob).where(
+                    PlaybackNormalizationJob.meeting_id == meeting_id
+                )
+            )
+            assert job is not None
+            await apply_job_worker_scope(db, job)
+            result = await run_normalization_job(
+                db=db,
+                storage=client.app_state["storage"],
+                job_id=job.id,
+                work_directory=tmp_path,
+                pipeline=_pipeline(),
+            )
+            canonical = await db.get(TrackArtifact, result.canonical_track_artifact_id)
+            reservations = list(
+                await db.scalars(
+                    select(StorageReservation).where(
+                        StorageReservation.workspace_id == job.workspace_id
+                    )
+                )
+            )
+            return canonical, reservations
+
+    canonical, reservations = asyncio.run(execute())
+
+    assert canonical is not None and canonical.status == "stored"
+    assert reservations == []
 
 
 def test_v5_canonical_review_candidate_is_reused_without_touching_asr_wav(

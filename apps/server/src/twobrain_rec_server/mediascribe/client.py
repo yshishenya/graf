@@ -1187,10 +1187,6 @@ def _bounded_id_is_valid(value: Any) -> bool:
     return _safe_opaque_id(value) is not None
 
 
-def _bounded_machine_value_is_valid(value: Any) -> bool:
-    return _safe_machine_value(value) is not None
-
-
 def _safe_int(value: Any, *, default: int) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         return default

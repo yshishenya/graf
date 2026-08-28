@@ -12,3 +12,9 @@
 - [x] Описаны same-job reconciliation и Temporal replay.
 - [x] Границы задачи и зависимости указаны.
 - [x] Для каждой пользовательской истории есть независимая проверка.
+- [x] Canonical M4A ограничена ручной загрузкой; first-party `single_wav_v1`
+  продолжает отправлять canonical WAV, historical dual-track остаётся read-only
+  compatibility.
+- [x] Описаны archive/no-archive custody, quota и purge semantics.
+- [x] Описаны corrupt, terminal, deletion, supersession и crash boundaries.
+- [x] Указаны измеримые pass-count, exact-byte и one-POST критерии.

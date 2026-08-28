@@ -1382,7 +1382,6 @@
     "mediascribe_malformed_response",
     "result_import_failed",
     "no_recognizable_speech",
-    "processed_no_transcript",
     "provider_terminal",
     "provider_request_rejected",
   ]);
@@ -1407,11 +1406,10 @@
     return projection?.[`${name}_available`] === true;
   };
 
-  const processingArtifactState = (projection, name, fallback = "processing") => {
+  const processingArtifactState = (projection, name) => {
     const artifacts = projection?.artifacts;
-    if (processingOwnsField(artifacts, name)) return String(artifacts[name]?.state || fallback);
-    if (name === "summary") return String(projection?.summary_status || fallback);
-    return processingArtifactVisible(projection, name) ? "available" : fallback;
+    if (processingOwnsField(artifacts, name)) return String(artifacts[name]?.state || "processing");
+    return processingArtifactVisible(projection, name) ? "available" : "processing";
   };
 
   const processingTimestamp = (value) => {
@@ -1505,7 +1503,6 @@
         if (submit) submit.disabled = false;
         delete form.dataset.processingNoAvailableScope;
       }
-      form.dataset.processingTranscriptVisible = transcriptVisible ? "true" : "false";
     });
   };
 
@@ -1522,7 +1519,6 @@
     if (!countdown) return;
     countdown.hidden = true;
     countdown.textContent = "";
-    delete countdown.dataset.seconds;
   };
 
   const processingServerClockOffset = (detail) => {
@@ -1552,7 +1548,6 @@
   const updateProcessingStage = (detail, name, state, label) => {
     const item = detail.querySelector(`[data-processing-stage-item="${name}"]`);
     if (!item) return;
-    item.dataset.stageState = state;
     item.classList.toggle("is-ready", state === "ready");
     item.classList.toggle("is-active", state === "active");
     item.classList.toggle("is-unavailable", state === "unavailable");
@@ -1671,16 +1666,6 @@
       };
     }
     if (transcriptReady) return null;
-    if (reason === "no_recognizable_speech") {
-      return {
-          state: "terminal",
-          title: "Речь не распознана",
-          copy: "В записи не найдено распознаваемой речи. Доступные результаты сохранены.",
-          canCheck: false,
-          canStartNewAttempt: processingNewAttemptAllowed(projection),
-          showRefresh: true,
-        };
-    }
     return {
       state: "active",
       title: "Обработка записи",
@@ -1698,7 +1683,6 @@
       if (countdown) {
         countdown.hidden = true;
         countdown.textContent = "";
-        delete countdown.dataset.seconds;
       }
       return null;
     }
@@ -1711,12 +1695,10 @@
       if (seconds === null) {
         countdown.hidden = true;
         countdown.textContent = "";
-        delete countdown.dataset.seconds;
         return null;
       }
       countdown.hidden = false;
       countdown.textContent = processingCountdownCopy(seconds, projection?.next_attempt_source);
-      countdown.dataset.seconds = String(seconds);
       return seconds;
     };
     const seconds = update();
@@ -1745,11 +1727,11 @@
       Date.now(),
       processingServerClockOffset(detail),
     );
-    const delay = remaining === null
+    const delay = document.hidden || remaining === null
       ? 15000
       : Math.min(15000, Math.max(1000, remaining * 1000));
     processingRecoveryPollTimer = window.setTimeout(() => {
-      if (!document.hidden) void refreshProcessingStatus();
+      void refreshProcessingStatus();
     }, delay);
   };
 
@@ -1777,10 +1759,10 @@
     } else {
       delete detail.dataset.processingServerClockOffsetMs;
     }
-    delete detail.dataset.processingRecoveryError;
     const transcriptReady = processingTranscriptReady(projection);
     const statusLabel = detail.querySelector("[data-meeting-status-label]");
     const projectionState = String(projection?.state || "").toLowerCase();
+    detail.dataset.processingTerminal = processingProjectionTerminal(projection) ? "true" : "false";
     const reason = String(projection?.reason_code || "").toLowerCase();
     if (statusLabel) {
       statusLabel.textContent = processingProjectionTerminal(projection)
@@ -1801,9 +1783,7 @@
     const terminalProcessing = processingProjectionTerminal(projection);
     if (pending) pending.hidden = transcriptVisible || terminalTranscript || terminalProcessing;
     updateProcessingExportVisibility(transcriptReady);
-    detail.dataset.processingTranscriptVisible = transcriptVisible ? "true" : "false";
     detail.dataset.processingRetryClass = String(projection?.retry_class || "none");
-    detail.dataset.processingSummaryStatus = processingSummaryState(projection);
 
     const sourceState = String(projection?.state || "").toLowerCase() === "not_submitted"
       ? "active"
@@ -1842,7 +1822,7 @@
       "summary",
       summaryState === "available" ? "ready"
         : ["failed", "unavailable"].includes(summaryState) ? "unavailable"
-        : processingSummaryPending(summaryState) ? "active" : "active",
+        : "active",
       summaryState === "available" ? "Готово"
         : ["failed", "unavailable"].includes(summaryState) ? "Недоступно"
         : summaryState === "not_requested" ? "Не запрошены" : "Готовятся",
@@ -1866,7 +1846,6 @@
       if (countdown) {
         countdown.hidden = true;
         countdown.textContent = "";
-        delete countdown.dataset.seconds;
       }
     }
     const check = recovery.querySelector("[data-processing-check]");
@@ -1931,25 +1910,24 @@
     else focus();
   };
 
-  const setProcessingRecoveryBusy = (detail, busy, action = "check") => {
+  const setProcessingRecoveryBusy = (detail, action = "check") => {
     const recovery = detail.querySelector("[data-processing-recovery]");
     if (!recovery) return;
-    recovery.setAttribute("aria-busy", busy ? "true" : "false");
-    if (busy) recovery.dataset.processingBusyAction = action;
-    else delete recovery.dataset.processingBusyAction;
+    recovery.setAttribute("aria-busy", "true");
+    recovery.dataset.processingBusyAction = action;
     const check = recovery.querySelector("[data-processing-check]");
     const newAttempt = recovery.querySelector("[data-processing-new-attempt]");
     if (check) {
-      if (busy && action === "check") check.hidden = false;
-      check.disabled = busy;
-      check.setAttribute("aria-busy", busy && action === "check" ? "true" : "false");
-      check.textContent = busy && action === "check" ? "Проверяем…" : "Проверить обработку";
+      if (action === "check") check.hidden = false;
+      check.disabled = true;
+      check.setAttribute("aria-busy", action === "check" ? "true" : "false");
+      check.textContent = action === "check" ? "Проверяем…" : "Проверить обработку";
     }
     if (newAttempt) {
-      if (busy && action === "new_attempt") newAttempt.hidden = false;
-      newAttempt.disabled = busy;
-      newAttempt.setAttribute("aria-busy", busy && action === "new_attempt" ? "true" : "false");
-      newAttempt.textContent = busy && action === "new_attempt" ? "Запускаем…" : "Начать обработку заново";
+      if (action === "new_attempt") newAttempt.hidden = false;
+      newAttempt.disabled = true;
+      newAttempt.setAttribute("aria-busy", action === "new_attempt" ? "true" : "false");
+      newAttempt.textContent = action === "new_attempt" ? "Запускаем…" : "Начать обработку заново";
     }
   };
 
@@ -1968,7 +1946,6 @@
     {
       title = "Не удалось обновить статус обработки",
       message = "Обновите страницу или нажмите «Проверить обработку» ещё раз. Расшифровка останется скрытой, пока готовность спикеров не подтверждена.",
-      preserveProjection = false,
       signature = "status-fetch-failed",
       failedAction = "check",
     } = {},
@@ -1978,17 +1955,6 @@
     const recovery = detail.querySelector("[data-processing-recovery]");
     if (!recovery) return;
     delete recovery.dataset.processingBusyAction;
-    if (!preserveProjection) {
-      const transcript = detail.querySelector("[data-playback-transcript]");
-      const pending = detail.querySelector("[data-transcript-pending]");
-      if (transcript) {
-        transcript.hidden = true;
-        transcript.setAttribute("aria-hidden", "true");
-      }
-      if (pending) pending.hidden = detail.dataset.processingTranscriptVisible === "true";
-      updateProcessingExportVisibility(false);
-    }
-    detail.dataset.processingRecoveryError = "true";
     recovery.hidden = false;
     recovery.dataset.state = "unknown";
     recovery.setAttribute("aria-busy", "false");
@@ -2071,7 +2037,7 @@
       const rendered = renderProcessingProjection(detail, projection);
       if (!rendered && requestGeneration === processingRecoveryGeneration) {
         processingRecoveryPollTimer = window.setTimeout(() => {
-          if (!document.hidden) void refreshProcessingStatus({ force: true });
+          void refreshProcessingStatus({ force: true });
         }, 1000);
       }
       return rendered;
@@ -2079,8 +2045,11 @@
       if (error?.name === "AbortError" || requestGeneration !== processingRecoveryGeneration) return false;
       if (processingRecoveryRequest !== null && processingRecoveryRequest !== request) return false;
       if (processingRecoveryRequest === request) processingRecoveryRequest = null;
-      if (detail.isConnected) {
-        renderProcessingRecoveryFailure(detail, { preserveProjection: true });
+      if (detail.isConnected && detail.dataset.processingTerminal !== "true") {
+        renderProcessingRecoveryFailure(detail);
+        processingRecoveryPollTimer = window.setTimeout(() => {
+          void refreshProcessingStatus({ force: true, generation: requestGeneration });
+        }, 15000);
       }
       return false;
     } finally {
@@ -2090,35 +2059,28 @@
   };
 
   const processingProjectionFromActionPayload = (detail, payload) => {
-    const candidates = [payload?.projection, payload?.processing, payload];
-    return candidates.find((candidate) => (
-      candidate
-      && typeof candidate === "object"
-      && (processingOwnsField(candidate, "state")
-        || processingOwnsField(candidate, "retry_class")
-        || processingOwnsField(candidate, "artifacts"))
-      && processingProjectionMatchesDetail(detail, candidate)
-    )) || null;
+    return (
+      payload
+      && typeof payload === "object"
+      && processingOwnsField(payload, "state")
+      && processingProjectionMatchesDetail(detail, payload)
+    ) ? payload : null;
   };
 
-  const runProcessingManualCheck = async (detail, recovery) => {
+  const runProcessingManualCheck = async (detail) => {
     if (processingRecoveryActionRequest !== null) return;
     const generation = ++processingRecoveryGeneration;
     resetProcessingRecoveryCountdown(detail);
     stopProcessingRecoveryPolling();
     abortProcessingRecoveryStatusRequest();
-    const countdown = recovery.querySelector("[data-processing-countdown]");
-    if (countdown) countdown.hidden = true;
-    setProcessingRecoveryBusy(detail, true);
+    setProcessingRecoveryBusy(detail);
     announceProcessingChange(detail, "Проверяем статус обработки.", `manual-check-${generation}`);
-    const checkUrl = detail.dataset.processingCheckUrl
-      || `/api/v1/meetings/${encodeURIComponent(detail.dataset.meetingId || "")}/processing/check`;
+    const checkUrl = detail.dataset.processingCheckUrl;
     if (!csrfToken || !detail.dataset.meetingId || !checkUrl) {
       const [title] = processingRecoveryActionFailureCopy(403);
       renderProcessingRecoveryFailure(detail, {
         title,
         message: "Сессия не подтверждена. Обновите страницу и войдите снова.",
-        preserveProjection: true,
         signature: `manual-check-failed-${generation}`,
       });
       focusProcessingRecovery(detail);
@@ -2169,7 +2131,6 @@
       renderProcessingRecoveryFailure(detail, {
         title,
         message,
-        preserveProjection: true,
         signature: `manual-check-failed-${generation}`,
       });
     } finally {
@@ -2186,15 +2147,13 @@
     resetProcessingRecoveryCountdown(detail);
     stopProcessingRecoveryPolling();
     abortProcessingRecoveryStatusRequest();
-    setProcessingRecoveryBusy(detail, true, "new_attempt");
+    setProcessingRecoveryBusy(detail, "new_attempt");
     announceProcessingChange(detail, "Запускаем новую обработку записи.", `new-attempt-${generation}`);
-    const attemptUrl = detail.dataset.processingAttemptUrl
-      || `/api/v1/meetings/${encodeURIComponent(detail.dataset.meetingId || "")}/processing/attempt`;
+    const attemptUrl = detail.dataset.processingAttemptUrl;
     if (!csrfToken || !detail.dataset.meetingId || !attemptUrl) {
       renderProcessingRecoveryFailure(detail, {
         title: "Не удалось начать обработку заново",
         message: "Сессия не подтверждена. Обновите страницу и войдите снова.",
-        preserveProjection: true,
         signature: `new-attempt-failed-${generation}`,
         failedAction: "new_attempt",
       });
@@ -2242,7 +2201,6 @@
         message: Number(error?.status || 0) === 409
           ? "Новая попытка сейчас недоступна. Обновите страницу, чтобы увидеть актуальный статус."
           : "Новая попытка не запущена. Обновите страницу и попробуйте ещё раз позже.",
-        preserveProjection: true,
         signature: `new-attempt-failed-${generation}`,
         failedAction: "new_attempt",
       });
@@ -2265,9 +2223,8 @@
     if (recovery.dataset.processingRecoveryReady === "true") return;
     recovery.dataset.processingRecoveryReady = "true";
     updateProcessingExportVisibility(false);
-    recovery.querySelector("[data-processing-recovery-copy]")?.setAttribute("id", "processing-recovery-copy");
     recovery.querySelector("[data-processing-check]")?.addEventListener("click", () => {
-      void runProcessingManualCheck(detail, recovery);
+      void runProcessingManualCheck(detail);
     });
     recovery.querySelector("[data-processing-new-attempt]")?.addEventListener("click", () => {
       void runProcessingNewAttempt(detail, recovery);
@@ -2283,12 +2240,6 @@
       });
     }
     void refreshProcessingStatus();
-  };
-
-  const processingListStatusNode = (row) => {
-    const readiness = row.querySelector(".meeting-content-readiness");
-    if (readiness) readiness.dataset.processingListStatus = "true";
-    return readiness;
   };
 
   const renderProcessingListProjection = (row, projection, generation) => {
@@ -2320,13 +2271,11 @@
       : transcriptReady
       ? `Расшифровка готова · ${summaryState === "available" ? "итоги готовы" : processingSummaryPending(summaryState) ? "итоги готовятся" : "итоги недоступны"}`
       : "Спикеры определяются · расшифровка готовится";
-    const node = processingListStatusNode(row);
+    const node = row.querySelector(".meeting-content-readiness");
     if (!node) return;
     const signature = `${row.dataset.meetingId || ""}|${text}|${retryClass}|${transcriptReady}|${summaryState}`;
     const previous = processingListProjectionStates.get(row.dataset.meetingId || "")?.signature;
     node.textContent = text;
-    node.dataset.processingRetryClass = retryClass;
-    row.dataset.processingTranscriptVisible = transcriptReady ? "true" : "false";
     processingListProjectionStates.set(row.dataset.meetingId || "", { signature, projection });
     if (previous && previous !== signature) {
       const announcer = document.querySelector("[data-processing-list-announcer]");

@@ -69,6 +69,7 @@ def test_manual_media_upload_commits_and_starts_normalization_without_processing
             "title": "Manual normalization",
             "duration_seconds": "60",
             "local_recording_id": "manual-normalization-post-commit",
+            "archive_audio": "true",
         },
         files={"file": ("meeting.wav", deterministic_wav_bytes(256), "audio/wav")},
     )
@@ -96,6 +97,26 @@ def test_manual_media_upload_commits_and_starts_normalization_without_processing
     assert job.planned_action == "normalize_source"
     assert job.state == "queued"
     assert job.workflow_id == workflow_id
+
+
+def test_manual_media_upload_rejects_no_archive_when_processing_is_disabled(client) -> None:
+    client.app.state.settings.processing_enabled = False
+    objects_before = dict(client.app_state["storage"].objects)
+
+    response = client.post(
+        "/api/v1/media-uploads",
+        headers=auth_headers(),
+        data={
+            "duration_seconds": "60",
+            "local_recording_id": "manual-no-archive-processing-disabled",
+            "archive_audio": "false",
+        },
+        files={"file": ("meeting.wav", deterministic_wav_bytes(256), "audio/wav")},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["code"] == "transient_processing_unavailable"
+    assert client.app_state["storage"].objects == objects_before
 
 
 def test_manual_media_upload_rejects_empty_file(client) -> None:
