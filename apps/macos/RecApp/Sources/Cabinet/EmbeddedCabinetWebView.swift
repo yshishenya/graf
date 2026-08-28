@@ -1549,7 +1549,9 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 allowExternalAuthProvider: authContinuationActive || isAuthRoute(webView.url)
             )
 
-            let allowExternalPaymentProvider = isBillingCheckoutRoute(webView.url)
+            let allowExternalPaymentProvider = paymentProviderNavigationActive
+                || isBillingCheckoutRoute(webView.url)
+                || isBillingCheckoutRoute(navigationAction.sourceFrame.request.url)
             let decision = routePolicy.decision(
                 for: url,
                 allowExternalAuthProvider: authContinuationActive || isAuthRoute(webView.url),
