@@ -35,6 +35,7 @@ from twobrain_rec_server.db.models import (
     MeetingShareGrant,
     MeetingShareInvitation,
     ProcessingResult,
+    ProcessingWorkflow,
     RecordingCalendarContextLink,
     RegisteredDevice,
     TranscriptSegment,
@@ -42,6 +43,7 @@ from twobrain_rec_server.db.models import (
     Workspace,
     WorkspaceMembership,
 )
+from twobrain_rec_server.domain.statuses import ProcessingStatus
 
 
 def test_summary_only_user_cannot_open_full_meeting_routes(client) -> None:
@@ -213,6 +215,60 @@ def test_summary_only_share_never_discloses_an_unaccepted_candidate(client) -> N
         ).status_code
         == 409
     )
+
+
+def test_summary_only_share_hides_an_outcome_from_a_replaced_processing_attempt(client) -> None:
+    seeds = seed_cabinet_meetings(client)
+    asyncio.run(_seed_external_full_summary(client, seeds.ready_id))
+    add_workspace_user(client)
+    share = client.post(
+        f"/api/v1/cabinet/meetings/{seeds.ready_id}/shares",
+        headers=auth_headers(),
+        json={
+            "audience_type": "user",
+            "audience_id": str(SHARED_USER_ID),
+            "content_scope": "summary_only",
+            "can_download": False,
+            "can_export": False,
+        },
+    )
+    assert share.status_code == 201
+
+    async def replace_attempt() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            result = await db.scalar(
+                select(ProcessingResult).where(ProcessingResult.meeting_id == seeds.ready_id)
+            )
+            assert result is not None
+            current = await db.get(ProcessingWorkflow, result.processing_workflow_id)
+            assert current is not None
+            db.add(
+                ProcessingWorkflow(
+                    workspace_id=result.workspace_id,
+                    meeting_id=result.meeting_id,
+                    media_revision_id=result.media_revision_id,
+                    workflow_id=f"processing/{result.media_revision_id}/shared-replacement",
+                    purpose="transcription",
+                    status=ProcessingStatus.STARTING.value,
+                    attempt_ordinal=current.attempt_ordinal + 1,
+                )
+            )
+            await db.commit()
+
+    asyncio.run(replace_attempt())
+    api_summary = client.get(
+        f"/api/v1/cabinet/meetings/{seeds.ready_id}/shared-summary",
+        headers=auth_headers_for(),
+    )
+    html_summary = client.get(
+        share.json()["share_url"],
+        headers={**auth_headers_for(), "Accept": "text/html"},
+    )
+
+    assert api_summary.status_code == 200
+    assert api_summary.json()["summary_sections"] == []
+    assert html_summary.status_code == 200
+    assert "Сохранённый итог." not in html_summary.text
 
 
 def test_summary_only_recipient_cannot_upgrade_own_share_grant(client) -> None:
@@ -1165,6 +1221,7 @@ async def _seed_external_full_summary(client, meeting_id) -> None:
             source_kind="extractive_generator",
             generator_kind="deterministic_extractive",
             generator_version="fixture-share-egress-v1",
+            source_result_hash=result.source_result_hash,
             content_hash="fixture-share-egress-summary-hash",
             lifecycle_state="active",
             generated_at=datetime.now(UTC),

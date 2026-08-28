@@ -55,6 +55,36 @@ def _meeting(processing_status: ProcessingStatus = ProcessingStatus.PROCESSED) -
     )
 
 
+def _lineaged_context(
+    meeting: Meeting,
+    result: ProcessingResult,
+) -> tuple[MediaRevision, ProcessingWorkflow]:
+    result.meeting_id = meeting.id
+    result.workspace_id = meeting.workspace_id
+    result.media_revision_id = result.media_revision_id or uuid4()
+    result.processing_workflow_id = result.processing_workflow_id or uuid4()
+    return (
+        MediaRevision(
+            id=result.media_revision_id,
+            workspace_id=meeting.workspace_id,
+            meeting_id=meeting.id,
+            local_media_revision_id=f"synthetic-{result.media_revision_id}",
+            revision_number=1,
+            source_kind=MediaRevisionSourceKind.INITIAL_MIXED_RECORDING.value,
+            status="accepted",
+        ),
+        ProcessingWorkflow(
+            id=result.processing_workflow_id,
+            workspace_id=meeting.workspace_id,
+            meeting_id=meeting.id,
+            media_revision_id=result.media_revision_id,
+            workflow_id=f"processing/{result.media_revision_id}",
+            purpose="transcription",
+            status=ProcessingStatus.PROCESSED.value,
+        ),
+    )
+
+
 def _transcript_evidence(rows: list[DiarizationSegment]) -> list[TranscriptSegment]:
     return [
         TranscriptSegment(
@@ -919,9 +949,23 @@ def test_status_mapping_handles_ready_partial_processing_and_failed() -> None:
         segment_count=1,
         diarization_segment_count=0,
     )
+    ready_meeting = _meeting()
+    ready_revision, ready_workflow = _lineaged_context(ready_meeting, ready)
+    partial_meeting = _meeting()
+    partial_revision, partial_workflow = _lineaged_context(partial_meeting, partial)
 
-    assert view_models.review_status(_meeting(), result=ready, workflow=None) == "ready"
-    assert view_models.review_status(_meeting(), result=partial, workflow=None) == "partial"
+    assert view_models.review_status(
+        ready_meeting,
+        result=ready,
+        workflow=ready_workflow,
+        media_revision_id=ready_revision.id,
+    ) == "ready"
+    assert view_models.review_status(
+        partial_meeting,
+        result=partial,
+        workflow=partial_workflow,
+        media_revision_id=partial_revision.id,
+    ) == "partial"
     assert (
         view_models.review_status(_meeting(ProcessingStatus.POLLING), result=None, workflow=None)
         == "processing"
@@ -1036,9 +1080,21 @@ def test_terminal_input_result_is_terminal_for_list_and_detail_projections(
     meeting_id = meeting.id
     result.meeting_id = meeting_id
     result.workspace_id = meeting.workspace_id
+    media_revision, workflow = _lineaged_context(meeting, result)
+    workflow.status = ProcessingStatus.POLLING.value
 
-    assert view_models.review_status(meeting, result=result, workflow=None) == "failed"
-    item = view_models.build_list_item(meeting, result=result, workflow=None)
+    assert view_models.review_status(
+        meeting,
+        result=result,
+        workflow=workflow,
+        media_revision_id=media_revision.id,
+    ) == "failed"
+    item = view_models.build_list_item(
+        meeting,
+        media_revision=media_revision,
+        result=result,
+        workflow=workflow,
+    )
     assert item.status == "failed"
     assert view_models.meeting_list_row_presentation(item, time_basis="meeting").status_label == (
         "Не удалось обработать"
@@ -1073,6 +1129,23 @@ def test_previous_terminal_input_result_does_not_mask_active_attempt() -> None:
         status=ProcessingStatus.POLLING.value,
     )
 
+    assert view_models.review_status(
+        meeting,
+        result=result,
+        workflow=current,
+        media_revision_id=media_revision_id,
+    ) == "processing"
+    result.failure_reason = None
+    result.failure_source = None
+    result.transcript_status = ProcessingAvailabilityStatus.AVAILABLE.value
+    result.diarization_status = ProcessingAvailabilityStatus.AVAILABLE.value
+    result.segment_count = 1
+    result.diarization_segment_count = 1
+    assert not view_models.transcript_available(
+        result,
+        media_revision_id=media_revision_id,
+        processing_workflow_id=current.id,
+    )
     assert view_models.review_status(
         meeting,
         result=result,
@@ -1506,6 +1579,15 @@ def test_manual_upload_review_response_preserves_unknown_without_diarization() -
         source_kind=MediaRevisionSourceKind.MANUAL_UPLOAD.value,
         status="accepted",
     )
+    workflow = ProcessingWorkflow(
+        id=result.processing_workflow_id,
+        workspace_id=meeting.workspace_id,
+        meeting_id=meeting.id,
+        media_revision_id=result.media_revision_id,
+        workflow_id="processing/manual-review-diarization-source",
+        purpose="transcription",
+        status=ProcessingStatus.PROCESSED.value,
+    )
     transcript = [
         TranscriptSegment(
             id=uuid4(),
@@ -1524,7 +1606,7 @@ def test_manual_upload_review_response_preserves_unknown_without_diarization() -
         meeting,
         media_revision=media_revision,
         result=result,
-        workflow=None,
+        workflow=workflow,
         transcript_segments=transcript,
         diarization_segments=[],
         dependency=None,
@@ -1588,12 +1670,21 @@ def test_manual_upload_review_response_uses_diarization_as_transcript_source() -
             source_role="incoming",
         )
     ]
+    workflow = ProcessingWorkflow(
+        id=result.processing_workflow_id,
+        workspace_id=meeting.workspace_id,
+        meeting_id=meeting.id,
+        media_revision_id=result.media_revision_id,
+        workflow_id="processing/manual-review-diarization-source",
+        purpose="transcription",
+        status=ProcessingStatus.PROCESSED.value,
+    )
 
     response = view_models.build_review_response(
         meeting,
         media_revision=media_revision,
         result=result,
-        workflow=None,
+        workflow=workflow,
         transcript_segments=transcript,
         diarization_segments=diarization,
         dependency=None,
@@ -1662,6 +1753,15 @@ def test_normal_recording_and_manual_upload_share_canonical_speaker_projection()
             source_role="mixed",
         ),
     ]
+    workflow = ProcessingWorkflow(
+        id=result.processing_workflow_id,
+        workspace_id=meeting.workspace_id,
+        meeting_id=meeting.id,
+        media_revision_id=media_revision_id,
+        workflow_id="processing/canonical-speaker-projection",
+        purpose="transcription",
+        status=ProcessingStatus.PROCESSED.value,
+    )
 
     def response_for(source_kind: str):
         return view_models.build_review_response(
@@ -1676,7 +1776,7 @@ def test_normal_recording_and_manual_upload_share_canonical_speaker_projection()
                 status="accepted",
             ),
             result=result,
-            workflow=None,
+            workflow=workflow,
             transcript_segments=transcript,
             diarization_segments=diarization,
             dependency=None,
@@ -1749,11 +1849,13 @@ def test_valid_projection_ignores_historical_false_degraded_failure_reason() -> 
             source_role="mixed",
         )
     ]
+    media_revision, workflow = _lineaged_context(meeting, result)
 
     response = view_models.build_review_response(
         meeting,
+        media_revision=media_revision,
         result=result,
-        workflow=None,
+        workflow=workflow,
         transcript_segments=transcript,
         diarization_segments=diarization,
         dependency=None,
@@ -2389,11 +2491,13 @@ def test_us6_calendar_roster_stays_metadata_and_speaker_labels_stay_canonical() 
         )
         for index in range(2)
     ]
+    media_revision, workflow = _lineaged_context(meeting, result)
 
     review = view_models.build_review_response(
         meeting,
+        media_revision=media_revision,
         result=result,
-        workflow=None,
+        workflow=workflow,
         transcript_segments=transcript,
         diarization_segments=diarization,
         dependency=None,

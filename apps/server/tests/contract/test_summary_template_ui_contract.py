@@ -203,6 +203,7 @@ def test_candidate_list_hides_candidates_from_an_older_processing_result(client)
                     meeting_id=meeting_id,
                     media_revision_id=result.media_revision_id,
                     mediascribe_job_id=job.id,
+                    processing_workflow_id=result.processing_workflow_id,
                     result_version=result.result_version + 1,
                     status="imported",
                     transcript_status="available",

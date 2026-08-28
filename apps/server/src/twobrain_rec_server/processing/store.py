@@ -2487,6 +2487,26 @@ async def persist_processing_result(
         )
         await db.commit()
         raise ProcessingLifecycleBlocked("meeting_deleting")
+    current_workflow = await get_processing_workflow(
+        db,
+        workspace_id=job.workspace_id,
+        meeting_id=job.meeting_id,
+        media_revision_id=job.media_revision_id,
+    )
+    if (
+        job.processing_workflow_id is None
+        or current_workflow is None
+        or current_workflow.id != job.processing_workflow_id
+    ):
+        await record_stale_lifecycle_event(
+            db,
+            workspace_id=job.workspace_id,
+            meeting_id=job.meeting_id,
+            event_type="processing_result_blocked_by_superseded_workflow",
+            metadata={"mediascribe_job_id": str(job.id)},
+        )
+        await db.commit()
+        raise ProcessingLifecycleBlocked("processing_workflow_superseded")
     latest_revision = await db.scalar(
         select(MediaRevision)
         .where(
@@ -2753,12 +2773,20 @@ async def latest_processing_result(
     meeting_id: UUID,
     media_revision_id: UUID | None = None,
 ) -> ProcessingResult | None:
+    workflow = await get_processing_workflow(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        media_revision_id=media_revision_id,
+    )
+    if workflow is None:
+        return None
     return await db.scalar(
         effective_processing_result_query(
             workspace_id=workspace_id,
             meeting_id=meeting_id,
             media_revision_id=media_revision_id,
-        )
+        ).where(ProcessingResult.processing_workflow_id == workflow.id)
     )
 
 

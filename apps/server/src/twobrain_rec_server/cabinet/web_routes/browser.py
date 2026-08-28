@@ -35,6 +35,7 @@ from twobrain_rec_server.cabinet.access import (
     share_invitation_preview,
     share_invitation_recipient_address,
 )
+from twobrain_rec_server.cabinet.egress import current_outcome_set
 from twobrain_rec_server.cabinet.queries import (
     get_account_profile_view,
     get_cabinet_meeting_review,
@@ -130,19 +131,25 @@ async def _render_shared_summary_for_grant(
     meeting = await session.get(Meeting, meeting_id)
     if meeting is None or meeting.workspace_id != workspace_id:
         raise ProblemDetail(status=404, code="invitation_not_found", title="Invitation not found")
+    outcome_set = await current_outcome_set(
+        session,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        processing_result_id=None,
+    )
     items = (
         (
             await session.scalars(
                 select(MeetingOutcomeItem)
                 .where(
                     MeetingOutcomeItem.workspace_id == workspace_id,
-                    MeetingOutcomeItem.outcome_set_id == meeting.current_outcome_set_id,
+                    MeetingOutcomeItem.outcome_set_id == outcome_set.id,
                     MeetingOutcomeItem.state == "available",
                 )
                 .order_by(MeetingOutcomeItem.category, MeetingOutcomeItem.sequence)
             )
         ).all()
-        if meeting.current_outcome_set_id is not None
+        if outcome_set is not None
         else []
     )
     projection = narrow_summary_projection(

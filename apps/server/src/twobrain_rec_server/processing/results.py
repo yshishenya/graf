@@ -2,33 +2,18 @@
 
 from __future__ import annotations
 
-from typing import Any
+from hashlib import sha256
 from uuid import UUID
 
-from sqlalchemy import and_, case, false, nullslast, select
+from sqlalchemy import false, nullslast, select
 
 from twobrain_rec_server.db.models import ProcessingResult
-from twobrain_rec_server.domain.statuses import (
-    ProcessingAvailabilityStatus,
-    ProcessingResultStatus,
-)
+from twobrain_rec_server.domain.statuses import ProcessingResultStatus
 from twobrain_rec_server.processing.reasons import (
     FAILURE_SOURCE_INPUT_AUDIO,
     INVALID_AUDIO_PAYLOAD,
     NO_RECOGNIZABLE_SPEECH,
 )
-
-
-def complete_processing_result_clause(model: Any = ProcessingResult) -> Any:
-    """Return the SQL predicate for the first user-usable result milestone."""
-
-    return and_(
-        model.status == ProcessingResultStatus.IMPORTED.value,
-        model.transcript_status == ProcessingAvailabilityStatus.AVAILABLE.value,
-        model.segment_count > 0,
-        model.diarization_status == ProcessingAvailabilityStatus.AVAILABLE.value,
-        model.diarization_segment_count > 0,
-    )
 
 
 def effective_processing_result_query(
@@ -54,7 +39,6 @@ def effective_processing_result_query(
         ProcessingResult.media_revision_id == media_revision_id,
         ProcessingResult.processing_workflow_id.is_not(None),
     ).order_by(
-        case((complete_processing_result_clause(), 1), else_=0).desc(),
         ProcessingResult.result_version.desc(),
         nullslast(ProcessingResult.imported_at.desc()),
         ProcessingResult.created_at.desc(),
@@ -75,6 +59,19 @@ def result_lineage_is_current(
         and getattr(result, "media_revision_id", None) == media_revision_id
         and getattr(result, "processing_workflow_id", None) is not None
     )
+
+
+def result_source_hash_is_attested(result: object | None) -> bool:
+    """Reject hashes synthesized by the historical outcome-lineage migration."""
+
+    if result is None:
+        return False
+    result_id = getattr(result, "id", None)
+    source_hash = getattr(result, "source_result_hash", None)
+    if result_id is None or not source_hash:
+        return False
+    legacy_hash = sha256(f"legacy-processing-result:{result_id}".encode()).hexdigest()
+    return source_hash != legacy_hash
 
 
 def result_is_terminal_input(result: object | None) -> bool:

@@ -6,7 +6,7 @@ from twobrain_rec_server.cabinet.view_models import (
     primary_action_for_status,
     processing_state,
 )
-from twobrain_rec_server.db.models import Meeting, ProcessingResult
+from twobrain_rec_server.db.models import Meeting, ProcessingResult, ProcessingWorkflow
 from twobrain_rec_server.domain.statuses import (
     MeetingStatus,
     ProcessingAvailabilityStatus,
@@ -28,12 +28,14 @@ def _meeting(*, status: str, processing_status: str) -> Meeting:
     )
 
 
-def _result(*, transcript: bool, diarization: bool) -> ProcessingResult:
-    return ProcessingResult(
+def _result(*, transcript: bool, diarization: bool) -> tuple[ProcessingResult, ProcessingWorkflow]:
+    workflow_id = uuid4()
+    result = ProcessingResult(
         id=uuid4(),
         meeting_id=uuid4(),
         workspace_id=uuid4(),
         mediascribe_job_id=uuid4(),
+        processing_workflow_id=workflow_id,
         status=ProcessingResultStatus.IMPORTED.value,
         transcript_status=(
             ProcessingAvailabilityStatus.AVAILABLE.value
@@ -49,6 +51,14 @@ def _result(*, transcript: bool, diarization: bool) -> ProcessingResult:
         segment_count=1 if transcript else 0,
         diarization_segment_count=1 if diarization else 0,
     )
+    workflow = ProcessingWorkflow(
+        id=workflow_id,
+        workspace_id=result.workspace_id,
+        meeting_id=result.meeting_id,
+        workflow_id=f"processing/{workflow_id}",
+        status=ProcessingStatus.PROCESSED.value,
+    )
+    return result, workflow
 
 
 def test_one_artifact_specific_lifecycle_projects_without_a_second_queue() -> None:
@@ -62,11 +72,12 @@ def test_one_artifact_specific_lifecycle_projects_without_a_second_queue() -> No
         (MeetingStatus.FAILED.value, ProcessingStatus.FAILED_RETRYABLE.value, None, "failed", "contact_operator"),
     )
 
-    for meeting_status, server_status, result, expected_state, expected_action in cases:
+    for meeting_status, server_status, processing, expected_state, expected_action in cases:
+        result, workflow = processing if processing is not None else (None, None)
         state = processing_state(
             _meeting(status=meeting_status, processing_status=server_status),
             result=result,
-            workflow=None,
+            workflow=workflow,
         )
 
         assert state.state == expected_state
@@ -85,18 +96,20 @@ def test_ready_partial_and_failed_are_artifact_independent_human_states() -> Non
         status=MeetingStatus.INGESTED_PENDING_PROCESSING.value,
         processing_status=ProcessingStatus.PROCESSED.value,
     )
+    ready_result, ready_workflow = _result(transcript=True, diarization=True)
     ready = processing_state(
         ready_meeting,
-        result=_result(transcript=True, diarization=True),
-        workflow=None,
+        result=ready_result,
+        workflow=ready_workflow,
     )
+    partial_result, partial_workflow = _result(transcript=True, diarization=False)
     partial = processing_state(
         _meeting(
             status=MeetingStatus.INGESTED_PENDING_PROCESSING.value,
             processing_status=ProcessingStatus.PROCESSED.value,
         ),
-        result=_result(transcript=True, diarization=False),
-        workflow=None,
+        result=partial_result,
+        workflow=partial_workflow,
     )
     failed = processing_state(
         _meeting(

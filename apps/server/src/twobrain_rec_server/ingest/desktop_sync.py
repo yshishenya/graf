@@ -48,10 +48,7 @@ from twobrain_rec_server.ingest.store import (
 )
 from twobrain_rec_server.processing import store as processing_store
 from twobrain_rec_server.processing.fences import lock_meeting_fence, meeting_is_deleted_or_deleting
-from twobrain_rec_server.processing.results import (
-    effective_processing_result_query,
-    result_is_terminal_input,
-)
+from twobrain_rec_server.processing.results import result_is_terminal_input
 
 
 def _utc_aware(value: datetime) -> datetime:
@@ -282,12 +279,11 @@ async def _latest_processing_result(
 ) -> ProcessingResult | None:
     if db is None or media_revision_id is None:
         return None
-    return await db.scalar(
-        effective_processing_result_query(
-            workspace_id=workspace_id,
-            meeting_id=meeting_id,
-            media_revision_id=media_revision_id,
-        )
+    return await processing_store.latest_processing_result(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        media_revision_id=media_revision_id,
     )
 
 
@@ -779,7 +775,7 @@ async def get_desktop_recording_sync_state(
         meeting=DesktopSyncMeetingState(
             meeting_id=meeting.id,
             status=meeting.status,
-            processing_status=meeting.processing_status,
+            processing_status=effective_processing_status,
             deletion_state=deletion_state,
             access_state=access_state,
         ),

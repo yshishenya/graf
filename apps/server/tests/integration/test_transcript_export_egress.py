@@ -28,13 +28,16 @@ from twobrain_rec_server.cabinet import egress as egress_module
 from twobrain_rec_server.db.models import (
     DiarizationSegment,
     MediaRevision,
+    MediaScribeJob,
     Meeting,
     MeetingArtifactPolicy,
     MeetingOutcomeItem,
     MeetingOutcomeSet,
     ProcessingResult,
+    ProcessingWorkflow,
     TranscriptSegment,
 )
+from twobrain_rec_server.domain.statuses import MediaScribeJobStatus, ProcessingStatus
 
 
 def test_implicit_content_policy_is_owner_only_and_explicit_deny_stays_disabled(client) -> None:
@@ -922,12 +925,33 @@ def test_export_capability_uses_newest_media_revision_before_summary_acceptance(
             )
             db.add(revision)
             await db.flush()
+            workflow = ProcessingWorkflow(
+                workspace_id=current.workspace_id,
+                meeting_id=current.meeting_id,
+                media_revision_id=revision.id,
+                workflow_id=f"processing/{revision.id}/export-test",
+                purpose="transcription",
+                status=ProcessingStatus.PROCESSED.value,
+                attempt_ordinal=1,
+            )
+            db.add(workflow)
+            await db.flush()
+            job = MediaScribeJob(
+                workspace_id=current.workspace_id,
+                meeting_id=current.meeting_id,
+                media_revision_id=revision.id,
+                processing_workflow_id=workflow.id,
+                external_job_id=f"export-job-{revision.id}",
+                status=MediaScribeJobStatus.READY.value,
+            )
+            db.add(job)
+            await db.flush()
             newer = ProcessingResult(
                 meeting_id=current.meeting_id,
                 media_revision_id=revision.id,
                 workspace_id=current.workspace_id,
-                mediascribe_job_id=current.mediascribe_job_id,
-                processing_workflow_id=current.processing_workflow_id,
+                mediascribe_job_id=job.id,
+                processing_workflow_id=workflow.id,
                 result_version=current.result_version + 1,
                 status="imported",
                 transcript_status="available",
@@ -1241,6 +1265,7 @@ async def _seed_stored_summary(
             source_kind="extractive_generator",
             generator_kind="deterministic_extractive",
             generator_version=generator_version,
+            source_result_hash=result.source_result_hash,
             content_hash=f"fixture-summary-hash-{generator_version}",
             lifecycle_state="active",
             generated_at=datetime.now(UTC) if status in {"available", "partial"} else None,

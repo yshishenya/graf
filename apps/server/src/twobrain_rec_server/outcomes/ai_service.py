@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import and_, nullslast, or_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from twobrain_rec_server.cabinet.speakers import (
@@ -29,7 +29,6 @@ from twobrain_rec_server.db.models import (
 )
 from twobrain_rec_server.db.tenant_context import TenantDatabaseContext, apply_tenant_context
 from twobrain_rec_server.domain.speaker_turns import canonical_speech_available
-from twobrain_rec_server.domain.statuses import ProcessingResultStatus
 from twobrain_rec_server.ingest.media_revisions import source_fingerprint_for_revision
 from twobrain_rec_server.observability.langfuse import (
     GenerationTraceContext,
@@ -69,12 +68,14 @@ from twobrain_rec_server.outcomes.templates import (
     built_in_template_for_version,
     prompt_name_for_template,
 )
+from twobrain_rec_server.processing import store as processing_store
 from twobrain_rec_server.processing.fences import (
     is_expired,
     lock_meeting_fence,
     meeting_is_deleted_or_deleting,
     normalize_db_timestamp,
 )
+from twobrain_rec_server.processing.results import result_source_hash_is_attested
 from twobrain_rec_server.storage.minio_client import get_storage
 from twobrain_rec_server.workflows.outcome_generation_workflow import (
     TranscriptSnapshotError,
@@ -179,33 +180,24 @@ async def create_summary_candidate(
         )
         .order_by(MediaRevision.revision_number.desc(), MediaRevision.updated_at.desc())
     )
-    result_query = select(ProcessingResult).where(
-        ProcessingResult.workspace_id == workspace_id,
-        ProcessingResult.meeting_id == meeting_id,
-        ProcessingResult.status == ProcessingResultStatus.IMPORTED.value,
-    )
-    if latest_revision is not None:
-        result_query = result_query.where(ProcessingResult.media_revision_id == latest_revision.id)
-    else:
-        result_query = result_query.where(ProcessingResult.media_revision_id.is_(None))
-    result = await db.scalar(
-        result_query.order_by(
-            ProcessingResult.result_version.desc(),
-            nullslast(ProcessingResult.imported_at.desc()),
-            ProcessingResult.created_at.desc(),
-            ProcessingResult.id.desc(),
+    result = (
+        await processing_store.latest_processing_result(
+            db,
+            workspace_id=workspace_id,
+            meeting_id=meeting_id,
+            media_revision_id=latest_revision.id,
         )
+        if latest_revision is not None
+        else None
     )
-    if not canonical_speech_available(result):
+    if latest_revision is None or not canonical_speech_available(result):
         raise OutcomeGenerationTerminalError("summary_transcript_unavailable")
-    if result.source_result_hash is None:
+    if not result_source_hash_is_attested(result):
         raise OutcomeGenerationTerminalError("summary_source_revision_unavailable")
-    source_fingerprint = f"result:{result.id}"
-    if latest_revision is not None:
-        try:
-            source_fingerprint = source_fingerprint_for_revision(latest_revision)
-        except ValueError as exc:
-            raise OutcomeGenerationTerminalError("summary_source_revision_unavailable") from exc
+    try:
+        source_fingerprint = source_fingerprint_for_revision(latest_revision)
+    except ValueError as exc:
+        raise OutcomeGenerationTerminalError("summary_source_revision_unavailable") from exc
     speaker_revision = await speaker_attribution_revision(
         db,
         workspace_id=workspace_id,
@@ -802,17 +794,18 @@ def _candidate_idempotency_key(
     generator_config_hash: str,
     speaker_attribution_revision: str,
 ) -> str:
-    source_hash = result.source_result_hash or f"result:{result.id}"
+    if result.media_revision_id is None or not result_source_hash_is_attested(result):
+        raise OutcomeGenerationTerminalError("summary_source_revision_unavailable")
     actor = str(requested_by_user_id) if request_intent.startswith("manual") else "system"
     identity = canonical_json(
         {
             "meeting_id": str(meeting_id),
-            "media_revision_id": str(result.media_revision_id or "legacy"),
+            "media_revision_id": str(result.media_revision_id),
             # A provider retry can legitimately create a second imported row
             # with the same content hash. Bind the candidate request to the
             # durable result row so that lineage cannot reuse the old attempt.
             "source_result_id": str(result.id),
-            "source_hash": source_hash,
+            "source_hash": result.source_result_hash,
             "template_key": template_key,
             "template_version": template_version,
             "generator_config_hash": generator_config_hash,
@@ -1533,8 +1526,8 @@ async def execute_candidate_generation(
             source_kind="litellm",
             generator_kind="litellm",
             generator_version=AI_GENERATOR_VERSION,
-            source_result_hash=attempt.source_result_hash or transcript_hash,
-            source_fingerprint=attempt.source_fingerprint or attempt.source_result_hash,
+            source_result_hash=attempt.source_result_hash,
+            source_fingerprint=attempt.source_fingerprint,
             deletion_epoch_at_start=attempt.deletion_epoch_at_start,
             expires_at=attempt.expires_at,
             content_hash=_content_hash(validated),
@@ -2118,28 +2111,17 @@ async def resolve_summary_candidate(
         )
         .order_by(MediaRevision.revision_number.desc(), MediaRevision.updated_at.desc())
     )
-    latest_result_query = select(ProcessingResult).where(
-        ProcessingResult.workspace_id == workspace_id,
-        ProcessingResult.meeting_id == meeting_id,
-        ProcessingResult.status == ProcessingResultStatus.IMPORTED.value,
+    latest_result = (
+        await processing_store.latest_processing_result(
+            db,
+            workspace_id=workspace_id,
+            meeting_id=meeting_id,
+            media_revision_id=latest_revision.id,
+        )
+        if latest_revision is not None
+        else None
     )
-    if latest_revision is None:
-        latest_result_query = latest_result_query.where(
-            ProcessingResult.media_revision_id.is_(None)
-        )
-    else:
-        latest_result_query = latest_result_query.where(
-            ProcessingResult.media_revision_id == latest_revision.id
-        )
-    latest_result = await db.scalar(
-        latest_result_query.order_by(
-            ProcessingResult.result_version.desc(),
-            nullslast(ProcessingResult.imported_at.desc()),
-            ProcessingResult.created_at.desc(),
-            ProcessingResult.id.desc(),
-        )
-    )
-    current_source_fingerprint = f"result:{source_result.id}" if source_result is not None else None
+    current_source_fingerprint = None
     if source_result is not None and source_result.media_revision_id is not None:
         revision = await db.get(MediaRevision, source_result.media_revision_id)
         if revision is not None:
@@ -2157,7 +2139,7 @@ async def resolve_summary_candidate(
         or outcome_set.processing_result_id != source_result.id
         or outcome_set.media_revision_id != source_result.media_revision_id
         or attempt.source_result_hash is None
-        or source_result.source_result_hash is None
+        or not result_source_hash_is_attested(source_result)
         or source_result.source_result_hash != attempt.source_result_hash
         or attempt.source_fingerprint is None
         or current_source_fingerprint != attempt.source_fingerprint
@@ -2329,36 +2311,22 @@ async def _ensure_candidate_source_fence(
         )
         .order_by(MediaRevision.revision_number.desc(), MediaRevision.updated_at.desc())
     )
-    expected_revision_id = latest_revision.id if latest_revision is not None else None
-    result_query = select(ProcessingResult).where(
-        ProcessingResult.workspace_id == attempt.workspace_id,
-        ProcessingResult.meeting_id == attempt.meeting_id,
-        ProcessingResult.status == ProcessingResultStatus.IMPORTED.value,
-    )
-    if expected_revision_id is None:
-        result_query = result_query.where(ProcessingResult.media_revision_id.is_(None))
-    else:
-        result_query = result_query.where(
-            ProcessingResult.media_revision_id == expected_revision_id
-        )
-    latest_result = await db.scalar(
-        result_query.order_by(
-            ProcessingResult.result_version.desc(),
-            nullslast(ProcessingResult.imported_at.desc()),
-            ProcessingResult.created_at.desc(),
-            ProcessingResult.id.desc(),
-        )
+    if latest_revision is None:
+        raise OutcomeGenerationTerminalError("summary_source_revision_stale")
+    expected_revision_id = latest_revision.id
+    latest_result = await processing_store.latest_processing_result(
+        db,
+        workspace_id=attempt.workspace_id,
+        meeting_id=attempt.meeting_id,
+        media_revision_id=expected_revision_id,
     )
     if latest_result is None:
         raise OutcomeGenerationTerminalError("summary_source_revision_stale")
 
-    if latest_revision is None:
-        expected_source_fingerprint = f"result:{latest_result.id}"
-    else:
-        try:
-            expected_source_fingerprint = source_fingerprint_for_revision(latest_revision)
-        except ValueError as exc:
-            raise OutcomeGenerationTerminalError("summary_source_revision_stale") from exc
+    try:
+        expected_source_fingerprint = source_fingerprint_for_revision(latest_revision)
+    except ValueError as exc:
+        raise OutcomeGenerationTerminalError("summary_source_revision_stale") from exc
 
     speaker_attribution_current = await candidate_speaker_attribution_is_current(db, attempt)
     if (
@@ -2366,7 +2334,7 @@ async def _ensure_candidate_source_fence(
         or attempt.processing_result_id != latest_result.id
         or attempt.source_result_id != latest_result.id
         or attempt.source_result_hash is None
-        or latest_result.source_result_hash is None
+        or not result_source_hash_is_attested(latest_result)
         or attempt.source_result_hash != latest_result.source_result_hash
         or attempt.source_fingerprint != expected_source_fingerprint
         or not speaker_attribution_current

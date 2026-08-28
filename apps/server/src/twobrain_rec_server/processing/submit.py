@@ -168,6 +168,14 @@ async def _ensure_processing_fence(
         or int(meeting.deletion_epoch or 0) != int(workflow.deletion_epoch_at_start or 0)
     ):
         raise ProcessingLifecycleBlocked("meeting_deleting")
+    current_workflow = await store.get_processing_workflow(
+        db,
+        workspace_id=workflow.workspace_id,
+        meeting_id=workflow.meeting_id,
+        media_revision_id=workflow.media_revision_id,
+    )
+    if current_workflow is None or current_workflow.id != workflow.id:
+        raise ProcessingLifecycleBlocked("processing_workflow_superseded")
     if is_legacy_lineage(
         media_revision_id=workflow.media_revision_id,
         source_fingerprint=workflow.source_fingerprint,

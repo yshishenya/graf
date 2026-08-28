@@ -37,7 +37,7 @@ from twobrain_rec_server.auth.dependencies import (
 )
 from twobrain_rec_server.db.models import RecordingCalendarContextLink
 from twobrain_rec_server.db.tenant_context import apply_tenant_scope
-from twobrain_rec_server.domain.statuses import TrackRole
+from twobrain_rec_server.domain.statuses import ProcessingStatus, TrackRole
 from twobrain_rec_server.ingest.desktop_status import upload_session_desktop_status
 from twobrain_rec_server.ingest.desktop_sync import get_desktop_recording_sync_state
 from twobrain_rec_server.ingest.finalize import finalize_upload
@@ -56,6 +56,7 @@ from twobrain_rec_server.ingest.status import get_upload_session_status
 from twobrain_rec_server.normalization.pickup import (
     dispatch_normalization_after_accepted_commit,
 )
+from twobrain_rec_server.processing.status import get_content_safe_processing_status
 from twobrain_rec_server.storage.minio_client import get_storage
 
 PROBLEM_RESPONSES = {
@@ -111,6 +112,8 @@ async def commit_if_available(db: AsyncSession | None) -> None:
 def meeting_response(
     meeting: object,
     calendar_context: RecordingCalendarContextLink | None = None,
+    *,
+    processing_status: ProcessingStatus | str | None = None,
 ) -> MeetingResponse:
     media_revision = MediaRevisionSummary(
         media_revision_id=meeting.media_revision_id,
@@ -128,12 +131,33 @@ def meeting_response(
         title_source=meeting.title_source,
         media_revision=media_revision,
         status=meeting.status,
-        processing_status=meeting.processing_status,
+        processing_status=processing_status or meeting.processing_status,
         started_at=meeting.started_at,
         ended_at=meeting.ended_at,
         recording_display_timezone_offset_minutes=meeting.recording_display_timezone_offset_minutes,
         calendar_context=_meeting_calendar_context_summary(calendar_context),
         created_at=meeting.created_at,
+    )
+
+
+async def content_safe_meeting_response(
+    db: AsyncSession | None,
+    meeting: object,
+    calendar_context: RecordingCalendarContextLink | None = None,
+) -> MeetingResponse:
+    projection = (
+        await get_content_safe_processing_status(
+            db,
+            workspace_id=meeting.workspace_id,
+            meeting_id=meeting.id,
+        )
+        if db is not None
+        else None
+    )
+    return meeting_response(
+        meeting,
+        calendar_context,
+        processing_status=projection.state if projection is not None else None,
     )
 
 
@@ -232,7 +256,7 @@ async def create_meeting(
                 RecordingCalendarContextLink.meeting_id == meeting.id,
             )
         )
-    response = meeting_response(meeting, calendar_context)
+    response = await content_safe_meeting_response(db, meeting, calendar_context)
     await commit_if_available(db)
     return response
 
@@ -271,7 +295,7 @@ async def create_manual_media_upload(
     )
     await commit_if_available(db)
     return ManualMediaUploadResponse(
-        meeting=meeting_response(result.meeting, result.calendar_context),
+        meeting=await content_safe_meeting_response(db, result.meeting, result.calendar_context),
         upload_session=session_response(result.upload_session),
         object_count=result.object_count,
         workflow_started=result.processing.workflow_started,
@@ -498,7 +522,7 @@ async def finalize_session(
     )
     await commit_if_available(db)
     return FinalizeUploadResponse(
-        meeting=meeting_response(meeting),
+        meeting=await content_safe_meeting_response(db, meeting),
         upload_session=session_response(session),
         object_count=len(session.parts),
         workflow_started=processing.workflow_started,

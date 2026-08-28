@@ -40,7 +40,7 @@ from twobrain_rec_server.domain.statuses import (
     ProcessingAvailabilityStatus,
     ProcessingResultStatus,
 )
-from twobrain_rec_server.processing.results import effective_processing_result_query
+from twobrain_rec_server.processing import store as processing_store
 
 ExportScope = Literal["transcript", "summary", "combined"]
 ExportFormat = Literal["txt", "md", "csv", "xlsx", "json", "srt", "vtt"]
@@ -243,12 +243,11 @@ async def build_export_snapshot(
         )
         .order_by(MediaRevision.revision_number.desc(), MediaRevision.updated_at.desc())
     )
-    effective_result = await db.scalar(
-        effective_processing_result_query(
-            workspace_id=meeting.workspace_id,
-            meeting_id=meeting.id,
-            media_revision_id=current_revision.id if current_revision is not None else None,
-        )
+    effective_result = await processing_store.latest_processing_result(
+        db,
+        workspace_id=meeting.workspace_id,
+        meeting_id=meeting.id,
+        media_revision_id=current_revision.id if current_revision is not None else None,
     )
     if (
         result.id != selection.processing_result_id

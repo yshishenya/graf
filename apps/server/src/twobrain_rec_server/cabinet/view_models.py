@@ -2042,21 +2042,21 @@ def _result_lineage_matches(
 ) -> bool:
     """Keep public artifact flags pinned to the current revision lineage.
 
-    The effective result may belong to an older workflow attempt when a newer
-    attempt has only a partial result.  The database selector has already
-    fenced that result to the current media revision; attempt identity is not
-    a reason to hide the previously usable content.
+    A replacement attempt owns the user-visible state. Results from an older
+    attempt stay hidden even when they belong to the same media revision.
     """
 
     if result is None:
         return False
     if media_revision_id is not None:
-        return result_lineage_is_current(result, media_revision_id=media_revision_id)
+        return bool(
+            processing_workflow_id is not None
+            and result_lineage_is_current(result, media_revision_id=media_revision_id)
+            and result.processing_workflow_id == processing_workflow_id
+        )
     if processing_workflow_id is not None:
         return result.processing_workflow_id == processing_workflow_id
-    # Direct pure view-model callers may omit a context. Production database
-    # selectors fail closed before such a row reaches this projection.
-    return True
+    return False
 
 
 def _transcript_artifact_available(
@@ -3365,19 +3365,11 @@ def build_review_response(
     can_rename_speakers: bool = False,
 ) -> MeetingReviewResponse:
     current_media_revision_id = media_revision.id if media_revision is not None else None
-    current_lineage = result_lineage_is_current(
+    current_lineage = _result_lineage_matches(
         result,
         media_revision_id=current_media_revision_id,
+        processing_workflow_id=workflow.id if workflow is not None else None,
     )
-    if not current_lineage and result is not None and workflow is None:
-        # Pure view-model callers historically supplied detached ORM fixtures
-        # without the DB lineage context. Production selectors never do this:
-        # they require an accepted revision and a non-null workflow lineage.
-        current_lineage = (
-            media_revision is None
-            or result.media_revision_id is None
-            or result.media_revision_id == current_media_revision_id
-        )
     safe_result = result if current_lineage else None
     safe_outcome_set = (
         outcome_set
