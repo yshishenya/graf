@@ -481,5 +481,11 @@ root-bundle, включать generation или запускать private real-
   записей не выполнялись; production runtime всё ещё не привязан к этому SHA.
 
 T031 остаётся открытой: отсутствуют version-bound Temporal/private real-record
-  publication run и human-labelled usefulness/pairwise evidence. Не выполнялись
-  release, deploy и full CI exact-SHA gate.
+publication run и human-labelled usefulness/pairwise evidence. Не выполнялись
+release, deploy и full CI exact-SHA gate.
+
+- После validation commit `938d41037` опубликован в
+  `origin/181-meeting-summary-experience`; worktree clean.
+- `infra/scripts/cd-remote.sh --dry-run --branch 181-meeting-summary-experience`
+  завершился exit 0 и перечислил обязательные release/deploy gates для
+  `2brain.dev`; execute не запускался.
