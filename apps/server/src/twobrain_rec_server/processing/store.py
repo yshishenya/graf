@@ -1796,7 +1796,7 @@ async def upsert_mediascribe_job(
                 )
                 if job is None:
                     raise
-    elif job.external_job_id is None:
+    if job.external_job_id is None:
         if job.request_fingerprint not in {None, request_fingerprint}:
             raise ProcessingLifecycleBlocked("processing_request_fingerprint_conflict")
         job.request_mode = request_mode

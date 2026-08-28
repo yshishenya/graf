@@ -164,7 +164,8 @@ const recovery = { closest: () => detail };
 const timers = [];
 const responses = [
   { ok: false, status: 503 },
-  { ok: true, status: 200, json: async () => ({ meeting_id: "meeting-a", state: "failed_terminal" }) },
+  { ok: true, status: 200, json: async () => ({ meeting_id: "meeting-a", state: "failed_terminal", retry_class: "terminal" }) },
+  { ok: false, status: 503 },
 ];
 let failures = 0;
 let rendered = 0;
@@ -186,7 +187,11 @@ vm.runInThisContext(`
   const abortProcessingRecoveryStatusRequest = () => {};
   const recoverMeetingDetailFromResponse = async () => false;
   const processingProjectionMatchesDetail = () => true;
-  const renderProcessingProjection = () => { rendered += 1; return true; };
+  const renderProcessingProjection = (_detail, projection) => {
+    rendered += 1;
+    detail.dataset.processingTerminal = projection.retry_class === "terminal" ? "true" : "false";
+    return true;
+  };
   const renderProcessingRecoveryFailure = () => { failures += 1; };
   ${source}
   global.refreshProcessingStatus = refreshProcessingStatus;
@@ -199,8 +204,12 @@ vm.runInThisContext(`
   timers.shift().callback();
   await new Promise((resolve) => setImmediate(resolve));
   await new Promise((resolve) => setImmediate(resolve));
-  if (rendered !== 1 || responses.length !== 0) {
+  if (rendered !== 1 || responses.length !== 1) {
     throw new Error("hidden retry did not render the later terminal projection");
+  }
+  await global.refreshProcessingStatus({ force: true });
+  if (failures !== 1 || timers.length !== 0 || responses.length !== 0) {
+    throw new Error("terminal projection restarted polling after a transient refresh failure");
   }
 })().catch((error) => {
   process.stderr.write(`${error.stack || error}\n`);

@@ -1762,6 +1762,7 @@
     const transcriptReady = processingTranscriptReady(projection);
     const statusLabel = detail.querySelector("[data-meeting-status-label]");
     const projectionState = String(projection?.state || "").toLowerCase();
+    detail.dataset.processingTerminal = processingProjectionTerminal(projection) ? "true" : "false";
     const reason = String(projection?.reason_code || "").toLowerCase();
     if (statusLabel) {
       statusLabel.textContent = processingProjectionTerminal(projection)
@@ -2044,7 +2045,7 @@
       if (error?.name === "AbortError" || requestGeneration !== processingRecoveryGeneration) return false;
       if (processingRecoveryRequest !== null && processingRecoveryRequest !== request) return false;
       if (processingRecoveryRequest === request) processingRecoveryRequest = null;
-      if (detail.isConnected) {
+      if (detail.isConnected && detail.dataset.processingTerminal !== "true") {
         renderProcessingRecoveryFailure(detail);
         processingRecoveryPollTimer = window.setTimeout(() => {
           void refreshProcessingStatus({ force: true, generation: requestGeneration });

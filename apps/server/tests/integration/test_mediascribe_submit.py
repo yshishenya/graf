@@ -517,6 +517,7 @@ def test_submit_single_track_media_upload_persists_source_and_reuses_existing_jo
 ) -> None:
     client.app.state.settings.playback_normalization_enabled = False
     client.app.state.settings.playback_normalization_automatic_dispatch_enabled = True
+    client.app.state.settings.processing_enabled = True
     client.app.state.temporal_client = FakeTemporalClient()
     source_body = b"manual-media-audio"
     upload = client.post(
@@ -683,6 +684,67 @@ def test_submit_single_track_media_upload_persists_source_and_reuses_existing_jo
         "speaker_count_mode": None,
         "idempotency_key": fake_client.submissions[0]["idempotency_key"],
     }
+
+
+def test_failed_pre_egress_job_conflict_terminalizes_transient_workflow(client) -> None:
+    finalized = create_finalized_meeting(
+        client,
+        "stale-pre-egress-lineage",
+        archive_audio=False,
+    )
+    meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
+    workspace_id = UUID(finalized["meeting"]["workspace_id"])
+    fake_client = FakeMediaScribeClient(external_job_id="must_not_submit")
+
+    async def exercise() -> tuple[str, bool, bool, int]:
+        async with client.app_state["sessionmaker"]() as db:
+            workflow = await store.upsert_processing_workflow(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+                workflow_id=f"processing/{media_revision_id}",
+                status=ProcessingStatus.WORKFLOW_STARTED,
+                archive_audio=False,
+            )
+            microphone = await db.scalar(
+                select(TrackArtifact).where(
+                    TrackArtifact.media_revision_id == media_revision_id,
+                    TrackArtifact.track_role == "microphone",
+                )
+            )
+            assert microphone is not None
+            stale_job = await store.upsert_mediascribe_job(
+                db,
+                workflow=workflow,
+                source_artifact=microphone,
+                request_mode="single_track",
+            )
+            stale_job.status = MediaScribeJobStatus.FAILED.value
+            await db.commit()
+
+            with pytest.raises(
+                ProcessingLifecycleBlocked,
+                match="processing_request_fingerprint_conflict",
+            ):
+                await submit_to_mediascribe(
+                    db=db,
+                    settings=client.app.state.settings,
+                    storage=StagingOnlyStorage(client.app_state["storage"]),
+                    mediascribe_client=fake_client,
+                    workflow=workflow,
+                )
+            await db.refresh(workflow)
+            await db.refresh(stale_job)
+            return (
+                workflow.status,
+                workflow.transient_purge_due_at is not None,
+                stale_job.source_track_artifact_id == microphone.id,
+                len(fake_client.submissions),
+            )
+
+    assert asyncio.run(exercise()) == (ProcessingStatus.BLOCKED.value, True, True, 0)
 
 
 def test_v5_mislabeled_media_is_blocked_before_any_provider_submission(client) -> None:

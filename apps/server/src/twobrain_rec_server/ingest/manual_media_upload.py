@@ -112,6 +112,13 @@ async def accept_manual_media_upload(
         raise ProblemDetail(
             status=413, code="upload_part_bytes_exceeded", title="Upload part byte limit exceeded"
         )
+    if not archive_audio and (not settings.processing_enabled or db is None):
+        file.stream.close()
+        raise ProblemDetail(
+            status=503,
+            code="transient_processing_unavailable",
+            title="Processing without stored audio is unavailable",
+        )
 
     media_sha256 = file.sha256
     recording_id = local_recording_id or f"manual-upload-{media_sha256[:32]}"

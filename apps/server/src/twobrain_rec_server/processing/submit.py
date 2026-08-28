@@ -321,17 +321,27 @@ async def submit_to_mediascribe(
         )
         raise RuntimeError(BLOCKED_AUDIO_TOO_LARGE)
 
-    job = await store.upsert_mediascribe_job(
-        db,
-        workflow=workflow,
-        mic_artifact=source.mic_artifact,
-        incoming_artifact=source.incoming_artifact,
-        source_artifact=source.source_artifact,
-        request_mode=source.request_mode,
-        source_fingerprint=workflow.source_fingerprint,
-        diarize=settings.mediascribe_diarize,
-        summarize=settings.mediascribe_summarize,
-    )
+    try:
+        job = await store.upsert_mediascribe_job(
+            db,
+            workflow=workflow,
+            mic_artifact=source.mic_artifact,
+            incoming_artifact=source.incoming_artifact,
+            source_artifact=source.source_artifact,
+            request_mode=source.request_mode,
+            source_fingerprint=workflow.source_fingerprint,
+            diarize=settings.mediascribe_diarize,
+            summarize=settings.mediascribe_summarize,
+        )
+    except ProcessingLifecycleBlocked as exc:
+        await store.set_workflow_status(
+            db,
+            workflow,
+            ProcessingStatus.BLOCKED,
+            reason_code=str(exc),
+            terminal=True,
+        )
+        raise
     claim_token = await store.claim_mediascribe_submission(db, job=job)
     if claim_token is None:
         resolved = await store.wait_for_mediascribe_submission(db, job_id=job.id)

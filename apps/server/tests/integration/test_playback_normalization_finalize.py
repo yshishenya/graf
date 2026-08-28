@@ -222,7 +222,7 @@ def test_no_archive_manual_normalization_publishes_without_storage_reservation(
     tmp_path: Path,
 ) -> None:
     client.app.state.settings.playback_normalization_enabled = True
-    client.app.state.settings.processing_enabled = False
+    client.app.state.settings.processing_enabled = True
     client.app.state.temporal_client = FakeTemporalClient()
     response = client.post(
         "/api/v1/media-uploads",
