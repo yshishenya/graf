@@ -2,11 +2,12 @@ const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const http = require("node:http");
 const path = require("node:path");
-const { chromium } = require(
+const { chromium, webkit } = require(
   process.env.GRAF_NODE_MODULES
     ? path.join(process.env.GRAF_NODE_MODULES, "playwright")
     : "playwright",
 );
+const browserType = process.env.GRAF_BROWSER === "webkit" ? webkit : chromium;
 
 const root = process.cwd();
 const serverDir = path.join(root, "apps/server");
@@ -21,6 +22,7 @@ from datetime import UTC, datetime
 from tests.unit.test_cabinet_web_shell import _item, _review
 from twobrain_rec_server.api.schemas import MeetingFilterState, MeetingListResponse, PlaybackReviewState
 from twobrain_rec_server.cabinet.rendering import render_meeting_detail_page, render_meeting_list_page
+from twobrain_rec_server.cabinet.view_models import AccountProfileView
 
 available = _review()
 available.playback = PlaybackReviewState(
@@ -50,9 +52,13 @@ meeting_list = MeetingListResponse(
     filters=MeetingFilterState(q=None, status=None, access=None, sort="updated_desc"),
     generated_at=datetime.now(UTC),
 )
+profile = AccountProfileView(
+    display_name="Ян",
+    primary_email="shishenya.ya@professionals4-0.ru",
+)
 print(json.dumps({
     "web": render_meeting_detail_page(available),
-    "embedded": render_meeting_detail_page(available, embedded=True),
+    "embedded": render_meeting_detail_page(available, embedded=True, profile=profile),
     "preparing": render_meeting_detail_page(preparing),
     "unavailable": render_meeting_detail_page(unavailable),
     "list": render_meeting_list_page(meeting_list),
@@ -228,6 +234,65 @@ async function inspectNoJsNarrow(browser, server, html) {
   return { label: "web-no-js-narrow", metrics, failures };
 }
 
+async function inspectProfileMenu(browser, server, html) {
+  const route = "/embedded-profile-menu";
+  server.pages.set(route, preparedHtml(html));
+  const page = await browser.newPage({ viewport: { width: 1000, height: 720 } });
+  await page.goto(`${server.baseUrl}${route}`, { waitUntil: "domcontentloaded" });
+  await page.locator("[data-cabinet-rail-toggle]").click();
+  await page.locator("[data-profile-menu-trigger]").click();
+  await page.locator(".sidebar-profile-menu__disclosure > summary").first().click();
+  await nextLayout(page);
+  const metrics = await page.evaluate(() => {
+    const sidebar = document.querySelector(".sidebar");
+    const menu = document.querySelector("[data-profile-menu]");
+    const trigger = document.querySelector("[data-profile-menu-trigger]");
+    const account = menu?.querySelector(".sidebar-profile-menu__account");
+    const submenu = menu?.querySelector("[data-profile-menu-submenu]");
+    if (!sidebar || !menu || !trigger || !account || !submenu) throw new Error("profile menu surface missing");
+    const sidebarRect = sidebar.getBoundingClientRect();
+    const menuRect = menu.getBoundingClientRect();
+    const triggerRect = trigger.getBoundingClientRect();
+    const accountRect = account.getBoundingClientRect();
+    const submenuRect = submenu.getBoundingClientRect();
+    const mainProbe = document.elementFromPoint(
+      Math.min(window.innerWidth - 2, sidebarRect.right + Math.min(4, (menuRect.right - sidebarRect.right) / 2)),
+      accountRect.top + accountRect.height / 2,
+    );
+    const submenuProbe = document.elementFromPoint(
+      submenuRect.left + Math.min(8, submenuRect.width / 2),
+      submenuRect.top + Math.min(8, submenuRect.height / 2),
+    );
+    return {
+      menuExtendsPastSidebar: menuRect.right - sidebarRect.right,
+      menuTriggerGap: triggerRect.top - menuRect.bottom,
+      menuTopLayer: menu.matches(":popover-open"),
+      menuRightVisible: menu.contains(mainProbe),
+      submenuVisible: submenu.contains(submenuProbe),
+      submenuInsideViewport: submenuRect.left >= 8 && submenuRect.right <= window.innerWidth - 8,
+      playbackCount: document.querySelectorAll(".playback-bar").length,
+    };
+  });
+  const failures = [];
+  if (metrics.menuExtendsPastSidebar <= 1) failures.push("menu does not exercise sidebar clipping boundary");
+  if (metrics.menuTriggerGap < 8) failures.push(`menuTriggerGap=${metrics.menuTriggerGap}`);
+  if (!metrics.menuTopLayer) failures.push("profile menu is not in the browser top layer");
+  if (!metrics.menuRightVisible) failures.push("profile menu is clipped by sidebar");
+  if (!metrics.submenuVisible) failures.push("profile submenu is clipped or covered");
+  if (!metrics.submenuInsideViewport) failures.push("profile submenu leaves viewport");
+  if (metrics.playbackCount !== 1) failures.push(`playbackCount=${metrics.playbackCount}`);
+  if (process.env.GRAF_PLAYBACK_SCREENSHOTS === "1") {
+    const output = path.join(root, "output/playwright");
+    fs.mkdirSync(output, { recursive: true });
+    await page.screenshot({
+      path: path.join(output, `${process.env.GRAF_BROWSER || "chromium"}-embedded-profile-menu.png`),
+      fullPage: false,
+    });
+  }
+  await page.close();
+  return { label: "embedded-profile-menu", metrics, failures };
+}
+
 (async () => {
   const pages = renderPages();
   const pageServer = { pages: new Map(), baseUrl: "" };
@@ -238,9 +303,9 @@ async function inspectNoJsNarrow(browser, server, html) {
   });
   await new Promise((resolve) => httpServer.listen(0, "127.0.0.1", resolve));
   pageServer.baseUrl = `http://127.0.0.1:${httpServer.address().port}`;
-  const browser = await chromium.launch({
+  const browser = await browserType.launch({
     headless: true,
-    ...(fs.existsSync(chromePath) ? { executablePath: chromePath } : {}),
+    ...(browserType === chromium && fs.existsSync(chromePath) ? { executablePath: chromePath } : {}),
   });
   const results = [
     ...(await inspect(browser, pageServer, "web-wide", pages.web, { width: 1440, height: 720 }, { toggle: true })),
@@ -250,6 +315,7 @@ async function inspectNoJsNarrow(browser, server, html) {
     ...(await inspect(browser, pageServer, "web-unavailable", pages.unavailable, { width: 390, height: 720 })),
     ...(await inspect(browser, pageServer, "embedded-wide", pages.embedded, { width: 1000, height: 720 }, { toggle: true })),
     ...(await inspect(browser, pageServer, "embedded-narrow", pages.embedded, { width: 800, height: 620 })),
+    await inspectProfileMenu(browser, pageServer, pages.embedded),
     await inspectWithoutPlayback(browser, pageServer, pages.list),
     await inspectNoJsNarrow(browser, pageServer, pages.web),
   ];

@@ -51,7 +51,7 @@
         <span class="sidebar-profile__icon" aria-hidden="true">{{ icons.icon("users-round") }}</span>
         <span class="sidebar-profile__copy"><strong class="sidebar-profile__name">{{ profile_name }}</strong>{% if profile_email %}<span class="sidebar-profile__email">{{ profile_email }}</span>{% endif %}</span>
       </button>
-      <div class="sidebar-profile-menu" id="cabinet-profile-menu" data-profile-menu hidden>
+      <div class="sidebar-profile-menu" id="cabinet-profile-menu" data-profile-menu popover="manual" hidden>
         <a class="sidebar-profile-menu__account" href="{{ '/desktop/settings/account' if embedded else '/settings/account' }}" data-profile-menu-item="account">
           <span class="sidebar-profile-menu__account-icon" aria-hidden="true">{{ icons.icon("users-round") }}</span>
           <span class="sidebar-profile-menu__account-copy"><strong>{{ profile_name }}</strong>{% if profile_email %}<span>{{ profile_email }}</span>{% endif %}</span>
