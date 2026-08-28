@@ -17,6 +17,7 @@ MEDIA_READ_ONLY_TABLES = (
     "alembic_version",
     "meetings",
     "media_revisions",
+    "upload_sessions",
     "workspace_subscriptions",
     "workspaces",
 )
