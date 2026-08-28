@@ -38,6 +38,9 @@
 ## Implementation Evidence — 2026-08-28
 
 - Reviewed implementation commit: `35acbc862ef09ad09036ec86c69adfbeeaffc8fb`.
+- User authorization: явное «да, коммить и выпускай» получено в текущей задаче
+  после первоначальных focused, build и fast-lane PASS; review-hardening остался
+  в том же подтверждённом scope и повторно прошёл эти проверки на commit выше.
 - RED: `swift test --package-path apps/macos --filter DesktopCabinetBillingHandoffTests` — expected FAIL только нового `/offer` contract (4 failures); negative sibling assertion и 8 прежних тестов PASS.
 - Review-fix RED: trailing-slash variants дали 4 expected failures до проверки исходного `percentEncodedPath`.
 - GREEN: тот же focused suite — 9/9 PASS.

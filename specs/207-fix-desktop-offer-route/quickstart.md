@@ -4,7 +4,7 @@
 
 - Запускать из корня чистого feature worktree.
 - Не запускать реальный или тестовый платёж для этой проверки.
-- Production smoke выполнять только после штатного signed macOS release.
+- Production smoke выполнять только на штатном signed, notarized и stapled macOS release.
 
 ## Focused validation
 
@@ -31,10 +31,10 @@ Expected: server unit suite, lint and compile gates pass. Full CI is deferred to
 ## Production installed-app smoke after release
 
 1. Открыть `/Applications/GRAF.app` и перейти: `Аккаунт и безопасность → Тариф и оплата → Выбрать тариф`.
-2. Нажать ссылку `оферту`.
-3. Подтвердить, что default browser открыл `https://rec.2brain.pro/offer` без query и fragment.
-4. Вернуться в GRAF и подтвердить, что checkout доступен и не показывает `Функция недоступна`.
-5. Проверить, что billing history и статус подписки не изменились, а checkbox
-   согласия сохранил прежнее значение.
+2. Записать исходные billing history, статус подписки и значение checkbox согласия.
+3. Нажать ссылку `оферту`.
+4. Подтвердить, что default browser открыл `https://rec.2brain.pro/offer` без query и fragment.
+5. Вернуться в GRAF и подтвердить, что checkout доступен и не показывает `Функция недоступна`.
+6. Сравнить с baseline: billing history, статус подписки и checkbox согласия не изменились.
 
 Release proof дополнительно включает exact SHA, full CI, Developer ID, notarization, stapling, Gatekeeper, Sparkle feed/archive verification и установленную версию.
