@@ -122,15 +122,13 @@ from twobrain_rec_server.domain.statuses import (
     DeletionState,
     MediaRevisionSourceKind,
     MediaRevisionStatus,
-    ProcessingResultStatus,
+    ProcessingStatus,
     UploadSessionStatus,
 )
 from twobrain_rec_server.outcomes.service import load_outcome_items
 from twobrain_rec_server.outcomes.templates import built_in_template_for_version
-from twobrain_rec_server.processing.results import (
-    effective_processing_result_query,
-    result_lineage_is_current,
-)
+from twobrain_rec_server.processing import store as processing_store
+from twobrain_rec_server.processing.status import get_content_safe_processing_status
 
 WEB_STATUS_FILTER_GROUPS: dict[MeetingReviewStatus, frozenset[MeetingReviewStatus]] = {
     "processing": frozenset({"local_only", "uploading", "processing", "submitted"}),
@@ -628,6 +626,34 @@ async def list_shared_with_me_meetings(
                 )
                 if not decision.can_view:
                     continue
+                processing = await get_content_safe_processing_status(
+                    source_db,
+                    workspace_id=workspace_id,
+                    meeting_id=meeting.id,
+                )
+                processing_state = (
+                    processing.state
+                    if processing is not None
+                    else ProcessingStatus.PENDING_PROCESSING
+                )
+                status_label = (
+                    "Готово"
+                    if processing_state == ProcessingStatus.PROCESSED
+                    and processing is not None
+                    and processing.content_available
+                    else "Готово с замечаниями"
+                    if processing_state == ProcessingStatus.PROCESSED
+                    else "Нужна помощь"
+                    if processing_state
+                    in {
+                        ProcessingStatus.BLOCKED,
+                        ProcessingStatus.BLOCKED_UNKNOWN,
+                        ProcessingStatus.FAILED_RETRYABLE,
+                        ProcessingStatus.FAILED_TERMINAL,
+                        ProcessingStatus.CANCELED,
+                    }
+                    else "В обработке"
+                )
                 rank = (
                     int(decision.can_view_full_meeting),
                     int(decision.can_download),
@@ -642,11 +668,7 @@ async def list_shared_with_me_meetings(
                         time_basis="meeting",
                     ),
                     duration_label=format_duration(meeting.duration_seconds),
-                    status_label=(
-                        "В обработке"
-                        if meeting.processing_status in {"submitted", "processing", "uploading"}
-                        else "Готово"
-                    ),
+                    status_label=status_label,
                     access_label=(
                         "Полный доступ" if decision.can_view_full_meeting else "Только итоги"
                     ),
@@ -1536,16 +1558,12 @@ async def _latest_workflow(
     meeting_id: UUID,
     media_revision_id: UUID | None = None,
 ) -> ProcessingWorkflow | None:
-    query = select(ProcessingWorkflow).where(
-        ProcessingWorkflow.workspace_id == workspace_id,
-        ProcessingWorkflow.meeting_id == meeting_id,
+    return await processing_store.get_processing_workflow(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        media_revision_id=media_revision_id,
     )
-    query = query.where(
-        ProcessingWorkflow.media_revision_id == media_revision_id
-        if media_revision_id is not None
-        else ProcessingWorkflow.media_revision_id.is_(None)
-    )
-    return await db.scalar(query.order_by(ProcessingWorkflow.updated_at.desc()))
 
 
 async def _latest_result(
@@ -1555,12 +1573,11 @@ async def _latest_result(
     meeting_id: UUID,
     media_revision_id: UUID | None = None,
 ) -> ProcessingResult | None:
-    return await db.scalar(
-        effective_processing_result_query(
-            workspace_id=workspace_id,
-            meeting_id=meeting_id,
-            media_revision_id=media_revision_id,
-        )
+    return await processing_store.latest_processing_result(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        media_revision_id=media_revision_id,
     )
 
 
@@ -1569,32 +1586,7 @@ async def _latest_media_revision(
     *,
     workspace_id: UUID,
     meeting_id: UUID,
-    prefer_latest: bool = False,
 ) -> MediaRevision | None:
-    meeting = await db.scalar(
-        select(Meeting).where(
-            Meeting.workspace_id == workspace_id,
-            Meeting.id == meeting_id,
-        )
-    )
-    if not prefer_latest and meeting is not None and meeting.current_outcome_set_id is not None:
-        published_outcome = await current_outcome_set(
-            db,
-            workspace_id=workspace_id,
-            meeting_id=meeting_id,
-            processing_result_id=None,
-        )
-        if published_outcome is None or published_outcome.media_revision_id is None:
-            return None
-        return await db.scalar(
-            select(MediaRevision).where(
-                MediaRevision.id == published_outcome.media_revision_id,
-                MediaRevision.workspace_id == workspace_id,
-                MediaRevision.meeting_id == meeting_id,
-                MediaRevision.status == MediaRevisionStatus.ACCEPTED.value,
-                MediaRevision.immutable.is_(True),
-            )
-        )
     return await db.scalar(
         select(MediaRevision)
         .where(
@@ -1645,44 +1637,14 @@ async def latest_processing_result(
     *,
     workspace_id: UUID,
     meeting_id: UUID,
-    prefer_latest: bool = False,
 ) -> ProcessingResult | None:
-    meeting = await db.scalar(
-        select(Meeting).where(
-            Meeting.workspace_id == workspace_id,
-            Meeting.id == meeting_id,
-        )
-    )
     media_revision = await _latest_media_revision(
         db,
         workspace_id=workspace_id,
         meeting_id=meeting_id,
-        prefer_latest=prefer_latest,
     )
     if media_revision is None:
         return None
-    if not prefer_latest and meeting is not None and meeting.current_outcome_set_id is not None:
-        published_outcome = await current_outcome_set(
-            db,
-            workspace_id=workspace_id,
-            meeting_id=meeting_id,
-            processing_result_id=None,
-        )
-        if published_outcome is None:
-            return None
-        result = await db.scalar(
-            select(ProcessingResult).where(
-                ProcessingResult.id == published_outcome.processing_result_id,
-                ProcessingResult.workspace_id == workspace_id,
-                ProcessingResult.meeting_id == meeting_id,
-                ProcessingResult.status == ProcessingResultStatus.IMPORTED.value,
-            )
-        )
-        return (
-            result
-            if result_lineage_is_current(result, media_revision_id=media_revision.id)
-            else None
-        )
     return await _latest_result(
         db,
         workspace_id=workspace_id,

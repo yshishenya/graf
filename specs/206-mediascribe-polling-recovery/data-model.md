@@ -1,6 +1,7 @@
 # Data Model: MediaScribe polling recovery
 
-Миграция не требуется. Используются существующие поля `ProcessingWorkflow`:
+Новая сущность или колонка не требуется. Используются существующие поля
+`ProcessingWorkflow`:
 
 - `status` — lifecycle state, не смешивать с provider status;
 - `retry_class` — `retryable`, `unknown_outcome`, `terminal` или `none`;
@@ -11,3 +12,9 @@
 
 В `RetrySchedule` добавляется только in-memory `stop_reason`, чтобы вызывающий
 код различал max-attempt stop и deadline stop без изменения БД.
+
+Data-only migration `0083_result_workflow_lineage` заполняет существующий
+`ProcessingResult.processing_workflow_id`, только когда цепочка result →
+MediaScribe job → transcription workflow полностью совпадает по workspace,
+meeting и media revision. Неоднозначные и конфликтующие строки остаются без
+lineage и не участвуют в runtime-проекциях.

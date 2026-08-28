@@ -8,12 +8,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from twobrain_rec_server.api.schemas import ProcessingArtifactProjection, ProcessingStatusResponse
 from twobrain_rec_server.domain.statuses import (
     ProcessingAvailabilityStatus,
-    ProcessingResultStatus,
     ProcessingStatus,
 )
 from twobrain_rec_server.processing import store
-from twobrain_rec_server.processing.reasons import NO_RECOGNIZABLE_SPEECH
-from twobrain_rec_server.processing.results import result_lineage_is_current
+from twobrain_rec_server.processing.results import (
+    result_is_terminal_input,
+    result_lineage_is_current,
+)
 
 
 async def get_content_safe_processing_status(
@@ -27,11 +28,8 @@ async def get_content_safe_processing_status(
         return None
     media_revision = await store.latest_media_revision_for_meeting(db, workspace_id=workspace_id, meeting_id=meeting_id)
     media_revision_id = media_revision.id if media_revision is not None else None
-    workflow = await store.get_processing_workflow(
-        db,
-        workspace_id=workspace_id,
-        meeting_id=meeting_id,
-        media_revision_id=media_revision_id,
+    workflow, result = await store.latest_processing_attempt_snapshot(
+        db, workspace_id=workspace_id, meeting_id=meeting_id, media_revision_id=media_revision_id
     )
     job = await store.get_mediascribe_job(
         db,
@@ -39,12 +37,6 @@ async def get_content_safe_processing_status(
         meeting_id=meeting_id,
         media_revision_id=media_revision_id,
         processing_workflow_id=workflow.id if workflow is not None else None,
-    )
-    result = await store.latest_processing_result(
-        db,
-        workspace_id=workspace_id,
-        meeting_id=meeting_id,
-        media_revision_id=media_revision_id,
     )
     try:
         state = ProcessingStatus(workflow.status) if workflow is not None else ProcessingStatus(meeting.processing_status)
@@ -54,34 +46,38 @@ async def get_content_safe_processing_status(
         result,
         media_revision_id=media_revision_id,
     )
-    safe_result = result if same_result_lineage else None
-    result_terminal_no_speech = bool(
-        safe_result is not None
-        and safe_result.status == ProcessingResultStatus.IMPORTED.value
-        and safe_result.failure_reason == NO_RECOGNIZABLE_SPEECH
+    safe_result = (
+        result
+        if same_result_lineage
+        and workflow is not None
+        and result.processing_workflow_id == workflow.id
+        else None
+    )
+    result_terminal_input = bool(
+        result_is_terminal_input(safe_result)
         and workflow is not None
         and safe_result.processing_workflow_id == workflow.id
     )
-    if result_terminal_no_speech:
+    if result_terminal_input:
         state = ProcessingStatus.FAILED_TERMINAL
     transcript_available = (
-        same_result_lineage
-        and result.transcript_status == ProcessingAvailabilityStatus.AVAILABLE.value
-        and result.segment_count > 0
-        and result.diarization_status == ProcessingAvailabilityStatus.AVAILABLE.value
-        and result.diarization_segment_count > 0
+        safe_result is not None
+        and safe_result.transcript_status == ProcessingAvailabilityStatus.AVAILABLE.value
+        and safe_result.segment_count > 0
+        and safe_result.diarization_status == ProcessingAvailabilityStatus.AVAILABLE.value
+        and safe_result.diarization_segment_count > 0
     )
     diarization_available = (
-        same_result_lineage
-        and result.diarization_status == ProcessingAvailabilityStatus.AVAILABLE.value
-        and result.diarization_segment_count > 0
+        safe_result is not None
+        and safe_result.diarization_status == ProcessingAvailabilityStatus.AVAILABLE.value
+        and safe_result.diarization_segment_count > 0
     )
     updated_at = None
     if workflow is not None:
         updated_at = workflow.updated_at
     elif result is not None:
         updated_at = result.updated_at
-    if result_terminal_no_speech:
+    if result_terminal_input:
         retry_class = "terminal"
     elif state == ProcessingStatus.PROCESSED:
         # A processed workflow may retain a historical retry class. It is no

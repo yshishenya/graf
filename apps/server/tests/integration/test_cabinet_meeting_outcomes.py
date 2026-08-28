@@ -4,6 +4,7 @@ import asyncio
 import importlib
 import re
 from datetime import UTC, datetime
+from hashlib import sha256
 
 from sqlalchemy import select
 
@@ -25,7 +26,9 @@ from twobrain_rec_server.db.models import (
     MeetingOutcomeItem,
     MeetingOutcomeSet,
     ProcessingResult,
+    ProcessingWorkflow,
 )
+from twobrain_rec_server.domain.statuses import ProcessingStatus
 from twobrain_rec_server.outcomes.ai_service import resolve_summary_candidate
 from twobrain_rec_server.outcomes.store import OUTCOME_GENERATOR_VERSION
 
@@ -179,12 +182,48 @@ def test_pointerless_generating_outcome_with_items_is_not_egressable(client) -> 
     assert asyncio.run(read_pointerless_outcome()) is None
 
 
-def test_legacy_current_outcome_without_hash_remains_visible_after_lineage_rollout(client) -> None:
+def test_accepted_outcome_remains_visible_during_a_replacement_attempt(client) -> None:
+    meeting_id = create_outcome_ready_meeting(client, "outcome-replacement-attempt-fence")
+    service = _service_module()
+    asyncio.run(_generate_and_accept(client, meeting_id, service))
+
+    async def replace_attempt() -> object | None:
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.get(Meeting, meeting_id)
+            result = await db.scalar(
+                select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
+            )
+            assert meeting is not None and result is not None
+            current = await db.get(ProcessingWorkflow, result.processing_workflow_id)
+            assert current is not None
+            db.add(
+                ProcessingWorkflow(
+                    workspace_id=meeting.workspace_id,
+                    meeting_id=meeting.id,
+                    media_revision_id=result.media_revision_id,
+                    workflow_id=f"processing/{result.media_revision_id}/replacement",
+                    purpose="transcription",
+                    status=ProcessingStatus.STARTING.value,
+                    attempt_ordinal=current.attempt_ordinal + 1,
+                )
+            )
+            await db.commit()
+            return await current_outcome_set(
+                db,
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                processing_result_id=None,
+            )
+
+    assert asyncio.run(replace_attempt()) is not None
+
+
+def test_migrated_current_outcome_hash_remains_readable_after_lineage_rollout(client) -> None:
     meeting_id = create_outcome_ready_meeting(client, "legacy-outcome-hash-bind")
     service = _service_module()
     asyncio.run(_generate_and_accept(client, meeting_id, service))
 
-    async def clear_legacy_hashes() -> None:
+    async def restore_migrated_legacy_hashes() -> None:
         async with client.app_state["sessionmaker"]() as db:
             meeting = await db.scalar(select(Meeting).where(Meeting.id == meeting_id))
             result = await db.scalar(
@@ -201,11 +240,12 @@ def test_legacy_current_outcome_without_hash_remains_visible_after_lineage_rollo
                 )
             )
             assert outcome is not None
-            result.source_result_hash = None
-            outcome.source_result_hash = None
+            legacy_hash = sha256(f"legacy-processing-result:{result.id}".encode()).hexdigest()
+            result.source_result_hash = legacy_hash
+            outcome.source_result_hash = legacy_hash
             await db.commit()
 
-    asyncio.run(clear_legacy_hashes())
+    asyncio.run(restore_migrated_legacy_hashes())
     response = client.get(f"/api/v1/cabinet/meetings/{meeting_id}", headers=auth_headers())
     assert response.status_code == 200
     assert response.json()["notes_action_truth"]["source_basis"] == "stored_output"
@@ -226,8 +266,79 @@ def test_legacy_current_outcome_without_hash_remains_visible_after_lineage_rollo
             return result.source_result_hash, outcome.source_result_hash
 
     result_hash, outcome_hash = asyncio.run(read_bound_hashes())
-    assert result_hash is None
-    assert outcome_hash is None
+    assert result_hash is not None
+    assert outcome_hash == result_hash
+
+
+def test_accepted_outcome_without_workflow_lineage_is_hidden(client) -> None:
+    meeting_id = create_outcome_ready_meeting(client, "accepted-outcome-without-lineage")
+    service = _service_module()
+    asyncio.run(_generate_and_accept(client, meeting_id, service))
+
+    async def remove_lineage_and_read() -> object | None:
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.get(Meeting, meeting_id)
+            assert meeting is not None and meeting.current_outcome_set_id is not None
+            outcome = await db.get(MeetingOutcomeSet, meeting.current_outcome_set_id)
+            assert outcome is not None
+            result = await db.get(ProcessingResult, outcome.processing_result_id)
+            assert result is not None
+            result.processing_workflow_id = None
+            await db.commit()
+            return await current_outcome_set(
+                db,
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                processing_result_id=None,
+            )
+
+    assert asyncio.run(remove_lineage_and_read()) is None
+
+
+def test_accepted_outcome_with_mismatched_result_hash_is_hidden(client) -> None:
+    meeting_id = create_outcome_ready_meeting(client, "accepted-outcome-hash-mismatch")
+    service = _service_module()
+    asyncio.run(_generate_and_accept(client, meeting_id, service))
+
+    async def replace_outcome_hash_and_read() -> object | None:
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.get(Meeting, meeting_id)
+            assert meeting is not None and meeting.current_outcome_set_id is not None
+            outcome = await db.get(MeetingOutcomeSet, meeting.current_outcome_set_id)
+            assert outcome is not None
+            outcome.source_result_hash = "different-result-hash"
+            await db.commit()
+            return await current_outcome_set(
+                db,
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                processing_result_id=None,
+            )
+
+    assert asyncio.run(replace_outcome_hash_and_read()) is None
+
+
+def test_unaccepted_current_outcome_is_not_a_runtime_fallback(client) -> None:
+    meeting_id = create_outcome_ready_meeting(client, "unaccepted-outcome-runtime-fallback")
+    service = _service_module()
+    asyncio.run(_generate_and_accept(client, meeting_id, service))
+
+    async def clear_revision_state_and_read() -> object | None:
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.get(Meeting, meeting_id)
+            assert meeting is not None and meeting.current_outcome_set_id is not None
+            outcome = await db.get(MeetingOutcomeSet, meeting.current_outcome_set_id)
+            assert outcome is not None
+            outcome.revision_state = None
+            await db.commit()
+            return await current_outcome_set(
+                db,
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                processing_result_id=None,
+            )
+
+    assert asyncio.run(clear_revision_state_and_read()) is None
 
 
 def test_cabinet_embedded_route_renders_stored_outcome_categories(client) -> None:

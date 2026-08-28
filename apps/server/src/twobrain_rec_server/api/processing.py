@@ -209,6 +209,11 @@ async def start_new_processing_attempt(
                 "processing_source_unavailable",
                 "Не удалось подтвердить исходную запись для новой попытки.",
             ),
+            "source_expired": (
+                409,
+                "processing_source_expired",
+                "Срок временного хранения записи истёк. Загрузите файл заново.",
+            ),
             "quota_exceeded": (
                 409,
                 "processing_quota_exceeded",

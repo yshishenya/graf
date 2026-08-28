@@ -11,15 +11,15 @@ from fastapi.responses import (
     Response,
     StreamingResponse,
 )
-from sqlalchemy import nullslast, or_, select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.admin.queries import load_admin_workspace_context
 from twobrain_rec_server.api.ingest import (
     commit_if_available,
+    content_safe_meeting_response,
     get_request_db_session,
     get_request_storage,
-    meeting_response,
     session_response,
 )
 from twobrain_rec_server.api.problems import ProblemDetail
@@ -178,12 +178,14 @@ from twobrain_rec_server.outcomes.templates import (
     BUILT_IN_TEMPLATES,
     built_in_template_for_version,
 )
+from twobrain_rec_server.processing import store as processing_store
 from twobrain_rec_server.processing.fences import (
     is_expired,
     lock_meeting_fence,
     meeting_is_deleted_or_deleting,
     normalize_db_timestamp,
 )
+from twobrain_rec_server.processing.results import result_source_hash_is_attested
 from twobrain_rec_server.workflows.temporal_client import (
     cancel_invitation_delivery_workflow,
     connect_temporal_client,
@@ -537,7 +539,7 @@ async def create_cabinet_manual_media_upload_route(
     )
     await commit_if_available(db)
     return ManualMediaUploadResponse(
-        meeting=meeting_response(result.meeting, result.calendar_context),
+        meeting=await content_safe_meeting_response(db, result.meeting, result.calendar_context),
         upload_session=session_response(result.upload_session),
         object_count=result.object_count,
         workflow_started=result.processing.workflow_started,
@@ -1382,23 +1384,15 @@ async def list_summary_candidates_route(
         )
         .order_by(MediaRevision.revision_number.desc(), MediaRevision.updated_at.desc())
     )
-    result_query = select(ProcessingResult).where(
-        ProcessingResult.workspace_id == tenant_scope.workspace_id,
-        ProcessingResult.meeting_id == meeting_id,
-        ProcessingResult.status == "imported",
-    )
-    result_query = result_query.where(
-        ProcessingResult.media_revision_id == latest_revision.id
-        if latest_revision is not None
-        else ProcessingResult.media_revision_id.is_(None)
-    )
-    latest_result = await db.scalar(
-        result_query.order_by(
-            ProcessingResult.result_version.desc(),
-            nullslast(ProcessingResult.imported_at.desc()),
-            ProcessingResult.created_at.desc(),
-            ProcessingResult.id.desc(),
+    latest_result = (
+        await processing_store.latest_processing_result(
+            db,
+            workspace_id=tenant_scope.workspace_id,
+            meeting_id=meeting_id,
+            media_revision_id=latest_revision.id,
         )
+        if latest_revision is not None
+        else None
     )
     if latest_result is None:
         return SummaryCandidateListResponse(candidates=[])
@@ -2419,14 +2413,20 @@ async def accept_meeting_share_invitation_route(
                 url=(f"/shared-meetings/{meeting.id}?workspace_id={workspace_id}"),
                 status_code=303,
             )
+        outcome_set = await current_outcome_set(
+            db,
+            workspace_id=workspace_id,
+            meeting_id=meeting.id,
+            processing_result_id=None,
+        )
         items = []
-        if meeting.current_outcome_set_id is not None:
+        if outcome_set is not None:
             items = (
                 await db.scalars(
                     select(MeetingOutcomeItem)
                     .where(
                         MeetingOutcomeItem.workspace_id == workspace_id,
-                        MeetingOutcomeItem.outcome_set_id == meeting.current_outcome_set_id,
+                        MeetingOutcomeItem.outcome_set_id == outcome_set.id,
                         MeetingOutcomeItem.state == "available",
                     )
                     .order_by(MeetingOutcomeItem.category, MeetingOutcomeItem.sequence)
@@ -2713,7 +2713,6 @@ async def get_shared_meeting_content_export_capabilities_route(
         db,
         workspace_id=workspace_id,
         meeting_id=meeting_id,
-        prefer_latest=True,
     )
     return await content_export_capabilities(db, meeting=meeting, access=decision, result=result)
 
@@ -2750,7 +2749,6 @@ async def create_shared_meeting_content_export_route(
         db,
         workspace_id=workspace_id,
         meeting_id=meeting_id,
-        prefer_latest=True,
     )
     generated = await create_content_export(
         db,
@@ -2813,7 +2811,6 @@ async def get_meeting_content_export_capabilities_route(
         db,
         workspace_id=tenant_scope.workspace_id,
         meeting_id=meeting_id,
-        prefer_latest=True,
     )
     return await content_export_capabilities(db, meeting=meeting, access=decision, result=result)
 
@@ -2863,7 +2860,6 @@ async def create_meeting_content_export_route(
         db,
         workspace_id=tenant_scope.workspace_id,
         meeting_id=meeting_id,
-        prefer_latest=True,
     )
     generated = await create_content_export(
         db,
@@ -3534,23 +3530,15 @@ async def _summary_candidate_source_is_current(
         )
         .order_by(MediaRevision.revision_number.desc(), MediaRevision.updated_at.desc())
     )
-    result_query = select(ProcessingResult).where(
-        ProcessingResult.workspace_id == attempt.workspace_id,
-        ProcessingResult.meeting_id == attempt.meeting_id,
-        ProcessingResult.status == "imported",
-    )
-    result_query = result_query.where(
-        ProcessingResult.media_revision_id == latest_revision.id
-        if latest_revision is not None
-        else ProcessingResult.media_revision_id.is_(None)
-    )
-    latest_result = await db.scalar(
-        result_query.order_by(
-            ProcessingResult.result_version.desc(),
-            nullslast(ProcessingResult.imported_at.desc()),
-            ProcessingResult.created_at.desc(),
-            ProcessingResult.id.desc(),
+    latest_result = (
+        await processing_store.latest_processing_result(
+            db,
+            workspace_id=attempt.workspace_id,
+            meeting_id=attempt.meeting_id,
+            media_revision_id=latest_revision.id,
         )
+        if latest_revision is not None
+        else None
     )
     speaker_attribution_current = await candidate_speaker_attribution_is_current(db, attempt)
     return (
@@ -3558,10 +3546,8 @@ async def _summary_candidate_source_is_current(
         and attempt.processing_result_id == latest_result.id
         and attempt.media_revision_id
         == (latest_revision.id if latest_revision is not None else None)
-        and (
-            attempt.source_result_hash is None
-            or attempt.source_result_hash == latest_result.source_result_hash
-        )
+        and result_source_hash_is_attested(latest_result)
+        and attempt.source_result_hash == latest_result.source_result_hash
         and speaker_attribution_current
     )
 

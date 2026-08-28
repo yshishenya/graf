@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from uuid import UUID, uuid4
 
-from sqlalchemy import func, nullslast, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from twobrain_rec_server.cabinet.speakers import (
@@ -31,7 +31,6 @@ from twobrain_rec_server.domain.statuses import (
     OutcomeCategoryState,
     OutcomeGenerationAttemptStatus,
     OutcomeSetStatus,
-    ProcessingResultStatus,
 )
 from twobrain_rec_server.ingest.media_revisions import source_fingerprint_for_revision
 from twobrain_rec_server.outcomes.generator import generate_outcomes
@@ -50,7 +49,12 @@ from twobrain_rec_server.processing.fences import (
     lock_meeting_fence,
     meeting_is_deleted_or_deleting,
 )
-from twobrain_rec_server.processing.store import ProcessingLifecycleBlocked
+from twobrain_rec_server.processing.results import result_source_hash_is_attested
+from twobrain_rec_server.processing.store import (
+    ProcessingLifecycleBlocked,
+    get_processing_workflow,
+    latest_processing_result,
+)
 
 BASELINE_TEMPLATE_KEY = "graf-auto-v1"
 
@@ -87,22 +91,13 @@ async def ensure_outcomes_for_meeting(
             )
             .order_by(MediaRevision.revision_number.desc(), MediaRevision.updated_at.desc())
         )
-        result_query = select(ProcessingResult).where(
-            ProcessingResult.meeting_id == meeting_id,
-            ProcessingResult.status == ProcessingResultStatus.IMPORTED.value,
-        )
-        result_query = result_query.where(
-            ProcessingResult.media_revision_id == latest_revision.id
-            if latest_revision is not None
-            else ProcessingResult.media_revision_id.is_(None)
-        )
-        result = await db.scalar(
-            result_query.order_by(
-                ProcessingResult.result_version.desc(),
-                nullslast(ProcessingResult.imported_at.desc()),
-                ProcessingResult.created_at.desc(),
-                ProcessingResult.id.desc(),
-            )
+        if latest_revision is None:
+            return None
+        result = await latest_processing_result(
+            db,
+            workspace_id=latest_revision.workspace_id,
+            meeting_id=meeting_id,
+            media_revision_id=latest_revision.id,
         )
         if result is None:
             return None
@@ -126,6 +121,8 @@ async def ensure_outcomes_for_processing_result(
     )
     if meeting is None or meeting_is_deleted_or_deleting(meeting):
         raise ProcessingLifecycleBlocked("meeting_deleting")
+    if result.media_revision_id is None or result.processing_workflow_id is None:
+        raise ProcessingLifecycleBlocked("summary_source_result_stale")
     # The meeting lock serializes this baseline with revision acceptance. Do
     # not let a result that lost the source race create a new outcome lineage.
     latest_revision = await db.scalar(
@@ -140,22 +137,24 @@ async def ensure_outcomes_for_processing_result(
     )
     if (latest_revision.id if latest_revision is not None else None) != result.media_revision_id:
         raise ProcessingLifecycleBlocked("summary_source_revision_stale")
-    latest_result = await db.scalar(
-        select(ProcessingResult)
-        .where(
-            ProcessingResult.workspace_id == result.workspace_id,
-            ProcessingResult.meeting_id == result.meeting_id,
-            ProcessingResult.media_revision_id == result.media_revision_id,
-            ProcessingResult.status == ProcessingResultStatus.IMPORTED.value,
-        )
-        .order_by(
-            ProcessingResult.result_version.desc(),
-            nullslast(ProcessingResult.imported_at.desc()),
-            ProcessingResult.created_at.desc(),
-            ProcessingResult.id.desc(),
-        )
+    current_workflow = await get_processing_workflow(
+        db,
+        workspace_id=result.workspace_id,
+        meeting_id=result.meeting_id,
+        media_revision_id=result.media_revision_id,
     )
-    if latest_result is None or latest_result.id != result.id:
+    latest_result = await latest_processing_result(
+        db,
+        workspace_id=result.workspace_id,
+        meeting_id=result.meeting_id,
+        media_revision_id=result.media_revision_id,
+    )
+    if (
+        current_workflow is None
+        or current_workflow.id != result.processing_workflow_id
+        or latest_result is None
+        or latest_result.id != result.id
+    ):
         raise ProcessingLifecycleBlocked("summary_source_result_stale")
     if (
         latest_result.source_result_hash is not None
@@ -163,17 +162,12 @@ async def ensure_outcomes_for_processing_result(
         and latest_result.source_result_hash != result.source_result_hash
     ):
         raise ProcessingLifecycleBlocked("summary_source_result_stale")
-    if result.source_result_hash is None:
-        # Legacy imports predate provider result hashes; bind them once to the
-        # immutable result identity so every later candidate has provenance.
-        result.source_result_hash = sha256(
-            f"legacy-processing-result:{result.id}".encode()
-        ).hexdigest()
+    if not result_source_hash_is_attested(result):
+        raise ProcessingLifecycleBlocked("summary_source_revision_unavailable")
     template_key, template_version, generator_config_hash = _baseline_template_provenance()
     existing = await _load_current_outcome_set(
         db, result=result, generator_config_hash=generator_config_hash
     )
-    initial_trusted_baseline = result.media_revision_id is None
     transcript_is_available = canonical_speech_available(result)
     speaker_revision = await speaker_attribution_revision(
         db,
@@ -210,11 +204,10 @@ async def ensure_outcomes_for_processing_result(
         publish_initial_baseline and meeting.current_outcome_set_id is None
     )
     automatic_candidate_id = (
-        None if initial_trusted_baseline or publishable_initial_baseline else uuid4()
+        None if publishable_initial_baseline else uuid4()
     )
     replace_blocked_revision = (
         existing is not None
-        and not initial_trusted_baseline
         and transcript_is_available
         and existing.status == OutcomeSetStatus.BLOCKED.value
     )
@@ -366,11 +359,9 @@ async def ensure_outcomes_for_processing_result(
         return outcome_set
     outcome_set.status = OutcomeSetStatus.AVAILABLE.value
     if outcome_set.revision_state is None:
-        if initial_trusted_baseline or publishable_initial_baseline:
-            # Legacy imports predate immutable media-revision provenance. Keep
-            # their historical auto-publish behavior. A newly imported,
-            # revision-scoped baseline may also publish once when no accepted
-            # outcome exists; later revisions remain candidates.
+        if publishable_initial_baseline:
+            # A newly imported, revision-scoped baseline may publish once when
+            # no accepted outcome exists; later revisions remain candidates.
             outcome_set.revision_state = "accepted"
             meeting.current_outcome_set_id = outcome_set.id
         else:
@@ -490,14 +481,16 @@ async def _accept_initial_outcome_set(
 
 
 def _baseline_idempotency_key(result: ProcessingResult) -> str:
+    if result.media_revision_id is None or not result_source_hash_is_attested(result):
+        raise ProcessingLifecycleBlocked("summary_source_revision_unavailable")
     _template_key, _template_version, generator_config_hash = _baseline_template_provenance()
     return ":".join(
         (
             "baseline",
             str(result.meeting_id),
-            str(result.media_revision_id or "legacy"),
+            str(result.media_revision_id),
             str(result.id),
-            result.source_result_hash or f"result:{result.id}",
+            result.source_result_hash,
             OUTCOME_GENERATOR_VERSION,
             generator_config_hash,
         )
@@ -528,7 +521,7 @@ async def _result_source_fingerprint(
     result: ProcessingResult,
 ) -> str:
     if result.media_revision_id is None:
-        return f"result:{result.id}"
+        raise ProcessingLifecycleBlocked("summary_source_revision_unavailable")
     revision = await db.get(MediaRevision, result.media_revision_id)
     if revision is None:
         raise ProcessingLifecycleBlocked("summary_source_revision_unavailable")

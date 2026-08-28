@@ -97,7 +97,10 @@ from twobrain_rec_server.domain.statuses import (
 )
 from twobrain_rec_server.outcomes.templates import built_in_template_for_version
 from twobrain_rec_server.processing.fences import meeting_is_deleted_or_deleting
-from twobrain_rec_server.processing.results import result_lineage_is_current
+from twobrain_rec_server.processing.results import (
+    result_is_terminal_input,
+    result_lineage_is_current,
+)
 
 if TYPE_CHECKING:
     from twobrain_rec_server.auth.account_closure import AccountCloseView
@@ -2039,30 +2042,19 @@ def _result_lineage_matches(
 ) -> bool:
     """Keep public artifact flags pinned to the current revision lineage.
 
-    The effective result may belong to an older workflow attempt when a newer
-    attempt has only a partial result.  The database selector has already
-    fenced that result to the current media revision; attempt identity is not
-    a reason to hide the previously usable content.
+    A replacement attempt owns the user-visible state. Results from an older
+    attempt stay hidden even when they belong to the same media revision.
     """
 
     if result is None:
         return False
     if media_revision_id is not None:
-        if result_lineage_is_current(result, media_revision_id=media_revision_id):
-            return True
-        # Detached unit/view-model fixtures may carry the revision but omit
-        # the workflow FK. DB selectors remain fail-closed before production
-        # data reaches this pure projection layer.
-        return (
-            processing_workflow_id is None
-            and getattr(result, "processing_workflow_id", None) is None
-            and getattr(result, "media_revision_id", None) in {None, media_revision_id}
+        return bool(
+            processing_workflow_id is not None
+            and result_lineage_is_current(result, media_revision_id=media_revision_id)
+            and result.processing_workflow_id == processing_workflow_id
         )
-    if processing_workflow_id is not None:
-        return result.processing_workflow_id == processing_workflow_id
-    # Direct pure view-model callers may omit a context. Production database
-    # selectors fail closed before such a row reaches this projection.
-    return True
+    return False
 
 
 def _transcript_artifact_available(
@@ -2122,7 +2114,16 @@ def previous_recurring_meeting_readiness(
     )
     if notes_ready:
         return PreviousRecurringMeetingReadiness.NOTES_READY
-    if transcript_available(result):
+    if (
+        result is not None
+        and result.meeting_id == meeting.id
+        and result.workspace_id == meeting.workspace_id
+        and transcript_available(
+        result,
+            media_revision_id=result.media_revision_id,
+            processing_workflow_id=result.processing_workflow_id,
+        )
+    ):
         return PreviousRecurringMeetingReadiness.TRANSCRIPT_READY
     if review_status(meeting, result=result, workflow=None) in {
         "uploading",
@@ -2192,7 +2193,7 @@ def review_status(
     if has_transcript or has_diarization:
         return "partial"
 
-    # An imported provider result with an explicit terminal no-speech outcome
+    # An imported provider result with an explicit terminal input outcome
     # is authoritative even if a stale workflow row still says "processing".
     # This keeps list, detail, and the content-safe status endpoint on the
     # same user-visible terminal state.
@@ -2203,8 +2204,7 @@ def review_status(
             media_revision_id=media_revision_id,
             processing_workflow_id=processing_workflow_id,
         )
-        and result.status == ProcessingResultStatus.IMPORTED.value
-        and result.failure_reason == "no_recognizable_speech"
+        and result_is_terminal_input(result)
     ):
         return "failed"
 
@@ -2636,7 +2636,6 @@ def reason_label(reason_code: str | None) -> str | None:
         "mediascribe_timeout": "Сервис транскрипции не ответил вовремя. Повторная попытка будет выполнена автоматически.",
         "mediascribe_rate_limited": "Сервис транскрипции временно ограничил запросы. Повторите позже.",
         "mediascribe_server_error": "Сервис транскрипции временно недоступен. Повторите позже.",
-        "mediascribe_retries_exhausted": "Сервис транскрипции не восстановился после нескольких попыток. Повторите позже или обратитесь к оператору.",
         "mediascribe_poll_limit_exceeded": "Сервис транскрипции не завершил обработку в отведённое время. Повторите позже или обратитесь к оператору.",
         "mediascribe_submission_in_progress": "Предыдущая отправка ещё выполняется. Подождите завершения и обновите страницу.",
         "mediascribe_result_not_ready": "Сервис транскрипции ещё готовит результат. Повторная проверка будет выполнена автоматически.",
@@ -3371,19 +3370,11 @@ def build_review_response(
     can_rename_speakers: bool = False,
 ) -> MeetingReviewResponse:
     current_media_revision_id = media_revision.id if media_revision is not None else None
-    current_lineage = result_lineage_is_current(
+    current_lineage = _result_lineage_matches(
         result,
         media_revision_id=current_media_revision_id,
+        processing_workflow_id=workflow.id if workflow is not None else None,
     )
-    if not current_lineage and result is not None and workflow is None:
-        # Pure view-model callers historically supplied detached ORM fixtures
-        # without the DB lineage context. Production selectors never do this:
-        # they require an accepted revision and a non-null workflow lineage.
-        current_lineage = (
-            media_revision is None
-            or result.media_revision_id is None
-            or result.media_revision_id == current_media_revision_id
-        )
     safe_result = result if current_lineage else None
     safe_outcome_set = (
         outcome_set

@@ -13,7 +13,7 @@ from openpyxl import Workbook
 from openpyxl.cell import WriteOnlyCell
 from openpyxl.styles import Alignment, Font
 from openpyxl.utils import get_column_letter
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.problems import ProblemDetail
@@ -40,7 +40,7 @@ from twobrain_rec_server.domain.statuses import (
     ProcessingAvailabilityStatus,
     ProcessingResultStatus,
 )
-from twobrain_rec_server.processing.results import effective_processing_result_query
+from twobrain_rec_server.processing import store as processing_store
 
 ExportScope = Literal["transcript", "summary", "combined"]
 ExportFormat = Literal["txt", "md", "csv", "xlsx", "json", "srt", "vtt"]
@@ -243,12 +243,11 @@ async def build_export_snapshot(
         )
         .order_by(MediaRevision.revision_number.desc(), MediaRevision.updated_at.desc())
     )
-    effective_result = await db.scalar(
-        effective_processing_result_query(
-            workspace_id=meeting.workspace_id,
-            meeting_id=meeting.id,
-            media_revision_id=current_revision.id if current_revision is not None else None,
-        )
+    effective_result = await processing_store.latest_processing_result(
+        db,
+        workspace_id=meeting.workspace_id,
+        meeting_id=meeting.id,
+        media_revision_id=current_revision.id if current_revision is not None else None,
     )
     if (
         result.id != selection.processing_result_id
@@ -464,15 +463,8 @@ async def _load_summary_revision(
             MeetingOutcomeSet.meeting_id == meeting.id,
             MeetingOutcomeSet.processing_result_id == result.id,
             MeetingOutcomeSet.lifecycle_state == "active",
-            or_(
-                MeetingOutcomeSet.revision_state.is_(None),
-                MeetingOutcomeSet.revision_state == "accepted",
-            ),
-            (
-                MeetingOutcomeSet.id == meeting.current_outcome_set_id
-                if meeting.current_outcome_set_id is not None
-                else True
-            ),
+            MeetingOutcomeSet.revision_state == "accepted",
+            MeetingOutcomeSet.id == meeting.current_outcome_set_id,
         )
     )
     if outcome_set is None:

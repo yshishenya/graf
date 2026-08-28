@@ -87,6 +87,7 @@ class MediaScribeV1Fixture:
                 headers=headers,
                 json={
                     "job": {"id": self.job_id, "status": "ready"},
+                    "transcript_status": "available",
                     "transcript": [{"start": 0, "end": 1, "text": "fixture", "source_role": "mic"}],
                     "diarization": [{
                         "start": 0,
@@ -96,6 +97,7 @@ class MediaScribeV1Fixture:
                         "words": [{"word": "fixture", "start": 0, "end": 1, "probability": 0.99}],
                     }],
                     "summary": {"status": "running"},
+                    "downloads": {},
                 },
             )
         if request.method == "DELETE" and request.url.path == f"/v1/audio/transcriptions/{self.job_id}":
@@ -130,6 +132,7 @@ def opaque_result_payload(job_id: str = "job_fixture_v1") -> dict[str, Any]:
 
     return {
         "job": {"id": job_id, "status": "ready"},
+        "transcript_status": "available",
         "transcript": [{"start": 0, "end": 1, "text": "fixture", "source_role": "mic"}],
         "diarization": [{
             "start": 0,
@@ -139,4 +142,5 @@ def opaque_result_payload(job_id: str = "job_fixture_v1") -> dict[str, Any]:
             "words": [{"word": "fixture", "start": 0, "end": 1, "probability": 0.99}],
         }],
         "summary": {"status": "running"},
+        "downloads": {},
     }

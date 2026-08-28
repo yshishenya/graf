@@ -698,19 +698,11 @@ def _job_payload_for_response(data: dict[str, Any], *, external_job_id: str) -> 
 
 
 def _normalize_result_payload(data: dict[str, Any], *, external_job_id: str) -> dict[str, Any]:
-    if not any(
-        key in data
-        for key in (
-            "job",
-            "id",
-            "job_id",
-            "external_job_id",
-            "transcript_status",
-            "transcript",
-            "diarization",
-            "summary_status",
-            "summary",
-        )
+    if (
+        not isinstance(data.get("job"), dict)
+        or "transcript" not in data
+        or "transcript_status" not in data
+        or not isinstance(data.get("downloads"), dict)
     ):
         raise _malformed_response_error(egress_state="not_sent")
 
@@ -727,9 +719,7 @@ def _normalize_result_payload(data: dict[str, Any], *, external_job_id: str) -> 
     transcript_payload = _list_payload(data.get("transcript"), field_name="transcript")
     transcript_status = data.get("transcript_status")
     if transcript_status is None:
-        if not transcript_payload or "transcript" not in data:
-            raise _malformed_response_error(egress_state="not_sent")
-        transcript_status = ProcessingAvailabilityStatus.AVAILABLE.value
+        raise _malformed_response_error(egress_state="not_sent")
     if transcript_status not in {
         ProcessingAvailabilityStatus.AVAILABLE.value,
         ProcessingAvailabilityStatus.UNAVAILABLE.value,
@@ -768,7 +758,7 @@ def _normalize_result_payload(data: dict[str, Any], *, external_job_id: str) -> 
     acoustic_turns = _list_payload(data.get("acoustic_speaker_turns"), field_name="acoustic_speaker_turns")
     overlaps = _list_payload(data.get("overlaps"), field_name="overlaps")
     summary_payload = data.get("summary")
-    summary_status = _summary_status_for_payload(data, summary_payload)
+    summary_status = _summary_status_for_payload(summary_payload)
 
     normalized = dict(data)
     normalized.update(
@@ -800,10 +790,8 @@ def _normalize_result_payload(data: dict[str, Any], *, external_job_id: str) -> 
     return normalized
 
 
-def _summary_status_for_payload(data: dict[str, Any], summary_payload: Any) -> SummaryStatus:
-    raw_status = data.get("summary_status")
-    if raw_status is None and isinstance(summary_payload, dict):
-        raw_status = summary_payload.get("status")
+def _summary_status_for_payload(summary_payload: Any) -> SummaryStatus:
+    raw_status = summary_payload.get("status") if isinstance(summary_payload, dict) else None
     return {
         "available": SummaryStatus.AVAILABLE,
         "ready": SummaryStatus.AVAILABLE,

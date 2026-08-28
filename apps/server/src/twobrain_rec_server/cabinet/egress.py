@@ -10,7 +10,7 @@ from hashlib import sha256
 from uuid import UUID
 
 from anyio import to_thread
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -76,9 +76,9 @@ from twobrain_rec_server.normalization.statuses import (
     JobState,
 )
 from twobrain_rec_server.observability.redaction import redact_mapping
+from twobrain_rec_server.processing import store as processing_store
 from twobrain_rec_server.processing.fences import lock_meeting_fence, meeting_is_deleted_or_deleting
 from twobrain_rec_server.processing.results import (
-    effective_processing_result_query,
     result_lineage_is_current,
 )
 
@@ -293,7 +293,14 @@ async def content_export_capabilities(
     if summary_blocked is not None:
         summary = ContentExportReadiness(state="denied", reason=summary_blocked.reason)
     elif outcome_set is None:
-        summary = ContentExportReadiness(state="missing", reason="stored_summary_missing")
+        summary = ContentExportReadiness(
+            state="missing",
+            reason=(
+                "stored_summary_revision_stale"
+                if meeting.current_outcome_set_id is not None
+                else "stored_summary_missing"
+            ),
+        )
     elif not outcome_matches_result:
         summary = ContentExportReadiness(
             state="missing",
@@ -311,17 +318,8 @@ async def content_export_capabilities(
         # content export exposes only a downloadable, immutable result.
         summary = ContentExportReadiness(state="missing", reason="stored_summary_not_publishable")
 
-    result_source_hash = (
-        result.source_result_hash
-        or sha256(f"legacy-processing-result:{result.id}".encode()).hexdigest()
-        if result is not None
-        else None
-    )
-    outcome_source_hash = (
-        outcome_set.source_result_hash or result_source_hash
-        if outcome_set is not None
-        else None
-    )
+    result_source_hash = result.source_result_hash if result is not None else None
+    outcome_source_hash = outcome_set.source_result_hash if outcome_set is not None else None
     summary_matches_transcript = (
         outcome_set is not None
         and result is not None
@@ -336,12 +334,7 @@ async def content_export_capabilities(
         and summary_matches_transcript
         else ContentExportReadiness(state="missing", reason="combined_components_unavailable")
     )
-    published_outcome_set_id = (
-        outcome_set.id
-        if outcome_set is not None
-        and outcome_set.status in {"available", "partial"}
-        else None
-    )
+    published_outcome_set_id = meeting.current_outcome_set_id
     return ContentExportCapabilityResponse(
         processing_result_id=result.id if result else None,
         # Keep the accepted pointer as the UI CAS token even when a newer
@@ -518,7 +511,6 @@ async def create_content_export(
         db,
         meeting=meeting,
         result=result,
-        allow_latest_revision=selection.content_scope == "transcript",
     )
     selected_outcome_current = True
     if selection.outcome_set_id is not None:
@@ -599,61 +591,21 @@ async def current_outcome_set(
     )
     if meeting is None:
         return None
-    legacy_fallback = meeting.current_outcome_set_id is None
-    if not legacy_fallback:
-        outcomes = [
-            await db.scalar(
-                select(MeetingOutcomeSet)
-                .where(
-                    MeetingOutcomeSet.id == meeting.current_outcome_set_id,
-                    MeetingOutcomeSet.workspace_id == workspace_id,
-                    MeetingOutcomeSet.meeting_id == meeting_id,
-                    MeetingOutcomeSet.lifecycle_state == "active",
-                )
-                .execution_options(populate_existing=True)
-            )
-        ]
-    else:
-        # ponytail: keep pre-pointer rows readable during rollout; new accepted
-        # outcomes always set the pointer and never use this fallback.
-        outcome_query = select(MeetingOutcomeSet).where(
+    if meeting.current_outcome_set_id is None:
+        return None
+    outcome = await db.scalar(
+        select(MeetingOutcomeSet)
+        .where(
+            MeetingOutcomeSet.id == meeting.current_outcome_set_id,
             MeetingOutcomeSet.workspace_id == workspace_id,
             MeetingOutcomeSet.meeting_id == meeting_id,
-            MeetingOutcomeSet.candidate_id.is_(None),
             MeetingOutcomeSet.lifecycle_state == "active",
-            or_(
-                MeetingOutcomeSet.revision_state.is_(None),
-                MeetingOutcomeSet.revision_state == "accepted",
-            ),
         )
-        if not include_non_publishable:
-            outcome_query = outcome_query.where(
-                MeetingOutcomeSet.status.in_(
-                    {OutcomeSetStatus.AVAILABLE.value, OutcomeSetStatus.PARTIAL.value}
-                )
-            )
-        outcomes = (
-            await db.scalars(
-                outcome_query
-                .order_by(MeetingOutcomeSet.created_at.desc())
-                .execution_options(populate_existing=True)
-            )
-        ).all()
-        outcomes = sorted(
-            outcomes,
-            key=lambda row: (
-                0
-                if row.status in {OutcomeSetStatus.AVAILABLE.value, OutcomeSetStatus.PARTIAL.value}
-                else 1
-                if row.status in {OutcomeSetStatus.QUEUED.value, OutcomeSetStatus.GENERATING.value}
-                else 2,
-                -(row.generated_at or row.created_at).timestamp(),
-            ),
-        )
-    outcome = outcomes[0] if outcomes else None
+        .execution_options(populate_existing=True)
+    )
     if outcome is None:
         return None
-    if outcome.revision_state not in (None, "accepted"):
+    if outcome.revision_state != "accepted":
         return None
     result = await db.scalar(
         select(ProcessingResult).where(
@@ -669,22 +621,14 @@ async def current_outcome_set(
         return None
     if outcome.media_revision_id != result.media_revision_id:
         return None
-    # Legacy rows may predate the source-result hash. Keep the fallback local:
-    # GET paths must not mutate immutable accepted history or flush synthetic
-    # values as a side effect of rendering/exporting a meeting.
-    result_source_hash = result.source_result_hash or sha256(
-        f"legacy-processing-result:{result.id}".encode()
-    ).hexdigest()
-    outcome_source_hash = outcome.source_result_hash or result_source_hash
-    if outcome_source_hash != result_source_hash:
+    if (
+        result.processing_workflow_id is None
+        or result.source_result_hash is None
+        or outcome.source_result_hash is None
+        or outcome.source_result_hash != result.source_result_hash
+    ):
         return None
-    if not include_non_publishable and meeting.current_outcome_set_id is None:
-        if outcome.status not in {
-            OutcomeSetStatus.AVAILABLE.value,
-            OutcomeSetStatus.PARTIAL.value,
-        }:
-            return None
-    elif not include_non_publishable and outcome.status not in {
+    if not include_non_publishable and outcome.status not in {
         OutcomeSetStatus.AVAILABLE.value,
         OutcomeSetStatus.PARTIAL.value,
     }:
@@ -697,7 +641,6 @@ async def _processing_result_is_current(
     *,
     meeting: Meeting,
     result: ProcessingResult,
-    allow_latest_revision: bool = False,
 ) -> bool:
     latest_revision = await db.scalar(
         select(MediaRevision)
@@ -715,20 +658,11 @@ async def _processing_result_is_current(
         media_revision_id=latest_revision.id,
     ):
         return False
-    if meeting.current_outcome_set_id is not None and not allow_latest_revision:
-        published_outcome = await current_outcome_set(
-            db,
-            workspace_id=meeting.workspace_id,
-            meeting_id=meeting.id,
-            processing_result_id=None,
-        )
-        return published_outcome is not None and published_outcome.processing_result_id == result.id
-    latest_result = await db.scalar(
-        effective_processing_result_query(
-            workspace_id=meeting.workspace_id,
-            meeting_id=meeting.id,
-            media_revision_id=latest_revision.id,
-        ).execution_options(populate_existing=True)
+    latest_result = await processing_store.latest_processing_result(
+        db,
+        workspace_id=meeting.workspace_id,
+        meeting_id=meeting.id,
+        media_revision_id=latest_revision.id,
     )
     return latest_result is not None and latest_result.id == result.id
 
@@ -1086,30 +1020,6 @@ async def _latest_accepted_media_revision(
     workspace_id: UUID,
     meeting_id: UUID,
 ) -> MediaRevision | None:
-    meeting = await db.scalar(
-        select(Meeting).where(
-            Meeting.workspace_id == workspace_id,
-            Meeting.id == meeting_id,
-        )
-    )
-    if meeting is not None and meeting.current_outcome_set_id is not None:
-        current = await current_outcome_set(
-            db,
-            workspace_id=workspace_id,
-            meeting_id=meeting_id,
-            processing_result_id=None,
-        )
-        if current is None or current.media_revision_id is None:
-            return None
-        return await db.scalar(
-            select(MediaRevision).where(
-                MediaRevision.id == current.media_revision_id,
-                MediaRevision.workspace_id == workspace_id,
-                MediaRevision.meeting_id == meeting_id,
-                MediaRevision.status == MediaRevisionStatus.ACCEPTED.value,
-                MediaRevision.immutable.is_(True),
-            )
-        )
     return await db.scalar(
         select(MediaRevision)
         .where(

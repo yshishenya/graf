@@ -21,19 +21,6 @@ class LifecycleFence:
     source_fingerprint: str | None = None
 
 
-LEGACY_SOURCE_PREFIX = "legacy:"
-
-
-def legacy_source_fingerprint(lineage_id: UUID) -> str:
-    return f"{LEGACY_SOURCE_PREFIX}{lineage_id}"
-
-
-def is_legacy_lineage(*, media_revision_id: UUID | None, source_fingerprint: str | None) -> bool:
-    return media_revision_id is None and bool(
-        source_fingerprint and source_fingerprint.startswith(LEGACY_SOURCE_PREFIX)
-    )
-
-
 def meeting_is_deleted_or_deleting(meeting: Meeting) -> bool:
     """Treat a tombstone timestamp as active even if state reconciliation lags."""
 

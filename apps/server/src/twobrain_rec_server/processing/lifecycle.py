@@ -15,7 +15,11 @@ TERMINAL_PROCESSING_STATUSES = {
 MEDIA_REVISION_DELETION_SAFE_REASON = "Media revision identity retained as lifecycle metadata"
 
 ALLOWED_PROCESSING_TRANSITIONS = {
-    ProcessingStatus.NOT_SUBMITTED: {ProcessingStatus.STARTING, ProcessingStatus.BLOCKED},
+    ProcessingStatus.NOT_SUBMITTED: {
+        ProcessingStatus.STARTING,
+        ProcessingStatus.BLOCKED,
+        ProcessingStatus.FAILED_TERMINAL,
+    },
     # A freshly admitted user retry can reach the Temporal activity before
     # the optional workflow-start projection is persisted. The activity's
     # durable first step is submission, so this transition must be valid.
@@ -28,7 +32,13 @@ ALLOWED_PROCESSING_TRANSITIONS = {
         ProcessingStatus.FAILED_TERMINAL,
         ProcessingStatus.CANCELED,
     },
-    ProcessingStatus.WORKFLOW_STARTED: {ProcessingStatus.SUBMITTING, ProcessingStatus.BLOCKED, ProcessingStatus.FAILED_RETRYABLE, ProcessingStatus.BLOCKED_UNKNOWN},
+    ProcessingStatus.WORKFLOW_STARTED: {
+        ProcessingStatus.SUBMITTING,
+        ProcessingStatus.BLOCKED,
+        ProcessingStatus.FAILED_RETRYABLE,
+        ProcessingStatus.FAILED_TERMINAL,
+        ProcessingStatus.BLOCKED_UNKNOWN,
+    },
     ProcessingStatus.SUBMITTING: {ProcessingStatus.SUBMITTED, ProcessingStatus.BLOCKED, ProcessingStatus.FAILED_RETRYABLE, ProcessingStatus.FAILED_TERMINAL, ProcessingStatus.BLOCKED_UNKNOWN, ProcessingStatus.WAITING_RETRY},
     ProcessingStatus.SUBMITTED: {ProcessingStatus.POLLING, ProcessingStatus.BLOCKED, ProcessingStatus.FAILED_RETRYABLE, ProcessingStatus.FAILED_TERMINAL, ProcessingStatus.WAITING_RETRY},
     ProcessingStatus.POLLING: {ProcessingStatus.IMPORTING, ProcessingStatus.PROCESSED, ProcessingStatus.BLOCKED, ProcessingStatus.FAILED_RETRYABLE, ProcessingStatus.FAILED_TERMINAL, ProcessingStatus.WAITING_RETRY, ProcessingStatus.BLOCKED_UNKNOWN},

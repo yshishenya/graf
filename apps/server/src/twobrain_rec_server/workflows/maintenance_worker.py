@@ -15,7 +15,6 @@ from twobrain_rec_server.workflows.worker import (
     run_billing_renewal_reconciler,
     run_deletion_purge_reconciler,
     run_dispatch_reconciler,
-    run_legacy_processing_lineage_reconciler,
 )
 
 logger = logging.getLogger(__name__)
@@ -30,7 +29,6 @@ async def run_maintenance_worker() -> None:
         asyncio.create_task(run_billing_reconciliation_reconciler(settings, temporal_client)),
         asyncio.create_task(run_billing_notification_reconciler(settings)),
         asyncio.create_task(run_deletion_purge_reconciler(settings, temporal_client)),
-        asyncio.create_task(run_legacy_processing_lineage_reconciler(settings)),
         asyncio.create_task(run_calendar_sync_reconciler(settings)),
     ]
     if settings.outcome_generation_enabled:

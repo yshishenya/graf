@@ -2,28 +2,18 @@
 
 from __future__ import annotations
 
-from typing import Any
+from hashlib import sha256
 from uuid import UUID
 
-from sqlalchemy import and_, case, false, nullslast, or_, select
+from sqlalchemy import false, nullslast, select
 
 from twobrain_rec_server.db.models import ProcessingResult
-from twobrain_rec_server.domain.statuses import (
-    ProcessingAvailabilityStatus,
-    ProcessingResultStatus,
+from twobrain_rec_server.domain.statuses import ProcessingResultStatus
+from twobrain_rec_server.processing.reasons import (
+    FAILURE_SOURCE_INPUT_AUDIO,
+    INVALID_AUDIO_PAYLOAD,
+    NO_RECOGNIZABLE_SPEECH,
 )
-
-
-def complete_processing_result_clause(model: Any = ProcessingResult) -> Any:
-    """Return the SQL predicate for the first user-usable result milestone."""
-
-    return and_(
-        model.status == ProcessingResultStatus.IMPORTED.value,
-        model.transcript_status == ProcessingAvailabilityStatus.AVAILABLE.value,
-        model.segment_count > 0,
-        model.diarization_status == ProcessingAvailabilityStatus.AVAILABLE.value,
-        model.diarization_segment_count > 0,
-    )
 
 
 def effective_processing_result_query(
@@ -34,9 +24,8 @@ def effective_processing_result_query(
 ):
     """Build the one result query used by content-safe projections.
 
-    A missing revision is intentionally an empty result set. Results without a
-    workflow lineage are accepted only when they contain the complete,
-    same-revision user milestone; incomplete legacy rows remain hidden.
+    A missing revision is intentionally an empty result set. Results without
+    an explicit workflow lineage are never user-visible.
     """
 
     query = select(ProcessingResult).where(
@@ -48,12 +37,8 @@ def effective_processing_result_query(
         return query.where(false())
     return query.where(
         ProcessingResult.media_revision_id == media_revision_id,
-        or_(
-            ProcessingResult.processing_workflow_id.is_not(None),
-            complete_processing_result_clause(),
-        ),
+        ProcessingResult.processing_workflow_id.is_not(None),
     ).order_by(
-        case((complete_processing_result_clause(), 1), else_=0).desc(),
         ProcessingResult.result_version.desc(),
         nullslast(ProcessingResult.imported_at.desc()),
         ProcessingResult.created_at.desc(),
@@ -72,27 +57,35 @@ def result_lineage_is_current(
         result is not None
         and media_revision_id is not None
         and getattr(result, "media_revision_id", None) == media_revision_id
-        and (
-            getattr(result, "processing_workflow_id", None) is not None
-            or result_is_complete(result)
-        )
+        and getattr(result, "processing_workflow_id", None) is not None
     )
 
 
-def result_is_complete(result: object | None) -> bool:
-    """Mirror ``complete_processing_result_clause`` for in-memory projections."""
+def result_source_hash_is_attested(result: object | None) -> bool:
+    """Reject hashes synthesized by the historical outcome-lineage migration."""
+
+    if result is None:
+        return False
+    result_id = getattr(result, "id", None)
+    source_hash = getattr(result, "source_result_hash", None)
+    if result_id is None or not source_hash:
+        return False
+    legacy_hash = sha256(f"legacy-processing-result:{result_id}".encode()).hexdigest()
+    return source_hash != legacy_hash
+
+
+def result_is_terminal_input(result: object | None) -> bool:
+    """Return whether an imported result proves a terminal input outcome."""
 
     if result is None:
         return False
     status = getattr(result, "status", None)
-    transcript_status = getattr(result, "transcript_status", None)
-    diarization_status = getattr(result, "diarization_status", None)
+    reason = getattr(result, "failure_reason", None)
+    source = getattr(result, "failure_source", None)
     return bool(
         getattr(status, "value", status) == ProcessingResultStatus.IMPORTED.value
-        and getattr(transcript_status, "value", transcript_status)
-        == ProcessingAvailabilityStatus.AVAILABLE.value
-        and int(getattr(result, "segment_count", 0) or 0) > 0
-        and getattr(diarization_status, "value", diarization_status)
-        == ProcessingAvailabilityStatus.AVAILABLE.value
-        and int(getattr(result, "diarization_segment_count", 0) or 0) > 0
+        and (
+            reason == NO_RECOGNIZABLE_SPEECH
+            or (reason == INVALID_AUDIO_PAYLOAD and source == FAILURE_SOURCE_INPUT_AUDIO)
+        )
     )

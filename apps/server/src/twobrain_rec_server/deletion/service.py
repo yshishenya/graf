@@ -8,6 +8,7 @@ from uuid import UUID
 from sqlalchemy import delete, desc, exists, or_, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.api.schemas import (
@@ -83,6 +84,7 @@ from twobrain_rec_server.domain.statuses import (
     DeletionState,
     LifecycleAuditOutcome,
     OutcomeLifecycleState,
+    ProcessingStatus,
     TrackRole,
 )
 from twobrain_rec_server.normalization.audit import add_normalization_audit_event
@@ -94,8 +96,14 @@ from twobrain_rec_server.normalization.statuses import (
     ensure_job_transition,
 )
 from twobrain_rec_server.processing.fences import ensure_deletion_fence
-from twobrain_rec_server.processing.lifecycle import MEDIA_REVISION_DELETION_SAFE_REASON
-from twobrain_rec_server.processing.store import release_processing_usage_reservation
+from twobrain_rec_server.processing.lifecycle import (
+    MEDIA_REVISION_DELETION_SAFE_REASON,
+    TERMINAL_PROCESSING_STATUSES,
+)
+from twobrain_rec_server.processing.store import (
+    release_processing_usage_reservation,
+    set_workflow_status,
+)
 
 TERMINAL_REQUEST_STATES = {
     DeletionState.COMPLETE.value,
@@ -882,6 +890,7 @@ async def reconcile_transient_media_purges(
     """
 
     now = now or datetime.now(UTC)
+    newer_workflow = aliased(ProcessingWorkflow)
     rows = list(
         (
             await db.scalars(
@@ -897,6 +906,20 @@ async def reconcile_transient_media_purges(
                         | (ProcessingWorkflow.transient_purge_due_at.is_not(None)
                            & (ProcessingWorkflow.transient_purge_due_at <= now))
                     ),
+                    # Media is revision-scoped, so only its latest attempt may
+                    # decide when the shared objects are safe to purge.
+                    ~exists(
+                        select(1).where(
+                            newer_workflow.workspace_id == ProcessingWorkflow.workspace_id,
+                            newer_workflow.meeting_id == ProcessingWorkflow.meeting_id,
+                            newer_workflow.media_revision_id.is_not_distinct_from(
+                                ProcessingWorkflow.media_revision_id
+                            ),
+                            newer_workflow.purpose == ProcessingWorkflow.purpose,
+                            newer_workflow.attempt_ordinal
+                            > ProcessingWorkflow.attempt_ordinal,
+                        )
+                    ),
                 )
                 .order_by(ProcessingWorkflow.transient_purge_due_at, ProcessingWorkflow.id)
                 .limit(max(1, min(limit, 100)))
@@ -907,6 +930,21 @@ async def reconcile_transient_media_purges(
     )
     purged = 0
     for workflow in rows:
+        try:
+            workflow_status = ProcessingStatus(workflow.status)
+        except ValueError:
+            workflow_status = None
+        if workflow_status not in TERMINAL_PROCESSING_STATUSES:
+            workflow.retry_class = "terminal"
+            workflow.next_attempt_at = None
+            workflow.next_attempt_source = None
+            workflow = await set_workflow_status(
+                db,
+                workflow,
+                ProcessingStatus.FAILED_TERMINAL,
+                reason_code="audio_purged",
+                terminal=True,
+            )
         workflow.transient_state = "purge_due"
         artifacts = list(
             await db.scalars(

@@ -112,6 +112,7 @@ def test_latest_processing_result_prefers_version_over_import_time(client) -> No
                 workspace_id=current.workspace_id,
                 meeting_id=current.meeting_id,
                 media_revision_id=current.media_revision_id,
+                processing_workflow_id=current.processing_workflow_id,
             )
             store = await latest_store_result(
                 db,
@@ -128,6 +129,36 @@ def test_latest_processing_result_prefers_version_over_import_time(client) -> No
     newer_id, desktop_id, store_id = asyncio.run(run())
     assert desktop_id == newer_id
     assert store_id == newer_id
+
+
+def test_latest_processing_result_uses_one_database_snapshot() -> None:
+    class SnapshotResult:
+        def first(self):
+            return None
+
+    class SnapshotSession:
+        def __init__(self) -> None:
+            self.statements = []
+
+        async def execute(self, statement):
+            self.statements.append(statement)
+            return SnapshotResult()
+
+    async def run():
+        db = SnapshotSession()
+        await latest_store_result(
+            db,
+            workspace_id=uuid4(),
+            meeting_id=uuid4(),
+            media_revision_id=uuid4(),
+        )
+        return db.statements
+
+    statements = asyncio.run(run())
+    assert len(statements) == 1
+    sql = str(statements[0].compile(compile_kwargs={"literal_binds": True}))
+    assert "processing_results.processing_workflow_id = processing_workflows.id" in sql
+    assert "processing_workflows.attempt_ordinal DESC" in sql
 
 
 def test_invalid_pinned_prompt_is_terminal_and_not_retryable() -> None:
@@ -465,6 +496,7 @@ def test_review_reads_the_accepted_pointer_instead_of_the_newest_outcome(client)
                 processing_result_id=result.id,
                 status="available",
                 generator_version="accepted-test-v1",
+                source_result_hash=result.source_result_hash,
                 revision_state="accepted",
             )
             db.add(accepted)
@@ -477,6 +509,7 @@ def test_review_reads_the_accepted_pointer_instead_of_the_newest_outcome(client)
                 processing_result_id=result.id,
                 status="available",
                 generator_version="newer-candidate-test-v1",
+                source_result_hash=result.source_result_hash,
                 revision_state="candidate",
             )
             db.add(candidate)
@@ -1317,6 +1350,7 @@ def test_reject_stale_candidate_closes_it_after_a_new_transcript_result(client) 
                 meeting_id=meeting.id,
                 media_revision_id=source.media_revision_id,
                 mediascribe_job_id=job.id,
+                processing_workflow_id=source.processing_workflow_id,
                 result_version=source.result_version + 1,
                 status="imported",
                 transcript_status="available",
@@ -1516,6 +1550,7 @@ def test_new_source_after_reservation_is_blocked_before_litellm_egress(
                         meeting_id=meeting_id,
                         media_revision_id=current.media_revision_id,
                         mediascribe_job_id=job.id,
+                        processing_workflow_id=current.processing_workflow_id,
                         result_version=current.result_version + 1,
                         status="imported",
                         transcript_status="available",
