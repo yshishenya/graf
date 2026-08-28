@@ -35,6 +35,11 @@
    unhealthy и rollout блокируется.
 3. **Given** production rollout не проходит другой обязательный gate, **When**
    выполняется rollback, **Then** существующая rollback-защита сохраняется.
+4. **Given** remote worktree содержит только старый корневой
+   `twobrain-rec-deploy.lock`, который больше не используется, **When** новый
+   repository-owned deploy начинает bootstrap, **Then** этот один известный
+   legacy-файл не блокирует checkout кандидата, а любое другое изменение
+   продолжает блокировать rollout.
 
 ### Edge Cases
 
@@ -42,6 +47,9 @@
 - Дополнительный budget не должен менять endpoint с readiness на liveness.
 - Неуспешный HTTP status и зависание дольше верхней границы остаются ошибкой.
 - Изменение не должно затрагивать billing, YooKassa, миграции или данные.
+- Исключение clean-worktree guard допустимо только для точного untracked пути
+  `twobrain-rec-deploy.lock`; tracked-изменение или любой соседний путь остаются
+  блокирующими.
 
 ## Requirements *(mandatory)*
 
@@ -59,6 +67,11 @@
 - **FR-006**: Изменение MUST NOT менять API readiness semantics, runtime secrets,
   billing configuration, database schema или rollback policy.
 - **FR-007**: Контрактная проверка MUST фиксировать оба budget и readiness path.
+- **FR-008**: Remote bootstrap MUST игнорировать только точный untracked
+  legacy-путь `twobrain-rec-deploy.lock`, потому что активный lock расположен в
+  `.git/twobrain-rec-deploy.lock`.
+- **FR-009**: Любое другое tracked или untracked изменение remote worktree MUST
+  продолжать блокировать deploy до reset, migration или container mutation.
 
 ## Success Criteria *(mandatory)*
 
@@ -72,6 +85,8 @@
   cutoff.
 - **SC-004**: Production после изменения сохраняет `live=200`, `ready=200` и
   YooKassa test-shop configuration.
+- **SC-005**: Guarded deploy проходит stale legacy-lock bootstrap без ручного
+  удаления файла и по-прежнему останавливается на любом другом dirty path.
 
 ## Assumptions
 
@@ -87,3 +102,4 @@
 - Ослабление rollback, health или deployment gates.
 - Ручная правка production compose вне репозитория.
 - Изменение desktop billing fix, тарифов, промокодов или YooKassa environment.
+- Ручное удаление legacy lock с production host.

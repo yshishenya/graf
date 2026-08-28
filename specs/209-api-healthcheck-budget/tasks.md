@@ -23,6 +23,12 @@
 
 **Checkpoint**: The repository contract and fast gate prove the minimal timeout correction before PR.
 
+### Deployment Bootstrap Follow-up
+
+- [X] T005 [US1] Add a RED deployment contract that pins the exact obsolete untracked root-lock exception, the root ignore entry, and unchanged active `.git` lock semantics in `apps/server/tests/integration/test_deployment_readiness_gates.py`
+- [X] T006 [US1] Permit only `?? twobrain-rec-deploy.lock` before remote checkout and ignore `/twobrain-rec-deploy.lock` after checkout without weakening any other dirty-worktree gate in `infra/scripts/cd-remote.sh` and `.gitignore`
+- [X] T007 [US1] Record the repository-owned legacy-lock bootstrap in `CHANGELOG.md`, run focused deployment contracts, Bash syntax, dry-run, and `infra/scripts/ci-local.sh --fast`
+
 ---
 
 ## Phase 2: Release And Production Proof
@@ -38,18 +44,21 @@
 - T001 must fail against the old `3`/`5s` values before T002.
 - T002 makes T001 green.
 - T003 depends on T001 and T002 and is the PR gate.
-- T004 depends on the reviewed PR being merged into a clean synchronized `master`; any new candidate SHA invalidates earlier full-CI evidence.
+- T005 must fail before T006; T006 makes the deployment contract green.
+- T007 depends on T005 and T006.
+- T004 depends on T005–T007 and the follow-up PR being merged into a clean synchronized `master`; any new candidate SHA invalidates earlier full-CI evidence.
 
 ## Parallel Opportunities
 
-None. The four tasks form one short dependency chain and intentionally touch shared release state serially.
+None. The tasks form one short dependency chain and intentionally touch shared release state serially.
 
 ## Implementation Strategy
 
 1. Add the two assertions to the existing contract and capture RED.
 2. Change only the two timeout values and capture GREEN.
 3. Update the existing release changelog and pass focused, rendered Compose, and fast CI checks.
-4. Merge through PR, then deploy only the exact synchronized master SHA through the guarded full-CI path.
+4. Bootstrap only the obsolete root lock through the same repository-owned guard.
+5. Merge through PR, then deploy only the exact synchronized master SHA through the guarded full-CI path.
 
 ## Notes
 

@@ -7,3 +7,7 @@
 - The runner budget must remain greater than the internal request budget.
 - Interval remains 10 seconds and retries remain 12.
 - `/live` is not an acceptable replacement for this deployment gate.
+- Remote bootstrap may exclude only the exact untracked status line
+  `?? twobrain-rec-deploy.lock`; every other dirty status remains blocking.
+- The active mutual-exclusion lock remains `.git/twobrain-rec-deploy.lock` with
+  non-blocking `flock` acquisition.

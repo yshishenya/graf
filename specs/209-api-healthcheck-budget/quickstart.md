@@ -11,12 +11,14 @@
 ```sh
 cd apps/server
 uv run --extra dev pytest tests/integration/test_compose_hardening.py -q
+uv run --extra dev pytest tests/integration/test_deployment_readiness_gates.py -q
 cd ../..
 docker compose --env-file infra/env/rec.production.env.example -f infra/docker-compose.yml config >/dev/null
 ```
 
 Expected: healthcheck contract pins `/ready`, request timeout 8 seconds and
-runner timeout 10 seconds; compose renders successfully.
+runner timeout 10 seconds; deploy bootstrap permits only the obsolete untracked
+root lock and keeps every other dirty path blocked; compose renders successfully.
 
 ## Repository and release gates
 
