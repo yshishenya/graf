@@ -39,7 +39,7 @@
 - [x] T015 [US3] Replace one-line format focus strings with explicit format-specific goal, priority, exclusion and rendering guidance in `apps/server/src/twobrain_rec_server/cli/langfuse_prompts.py`
 - [x] T016 [US3] Improve concise user-facing purposes while preserving built-in keys and version compatibility in `apps/server/src/twobrain_rec_server/outcomes/templates.py`
 - [x] T017 [US3] Extend synthetic prompt-evaluation fixtures for suitable, unsuitable, corrected, cancelled, unknown-owner/date, multilingual and injection meetings in `apps/server/tests/unit/test_outcome_prompts.py`
-- [ ] T018 [US3] Run local/private outcome generation for all nine formats and record metadata-only aggregate rubric results in `specs/181-meeting-summary-experience/validation/format-evaluation.md`
+- [x] T018 [US3] Run local/private outcome generation for all nine formats and record metadata-only aggregate rubric results in `specs/181-meeting-summary-experience/validation/format-evaluation.md`
 
 ## Phase 4: User Story 4 — Проверить источник и вернуться к результату (P2)
 
