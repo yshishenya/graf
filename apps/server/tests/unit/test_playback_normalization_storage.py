@@ -6,6 +6,7 @@ from uuid import UUID
 
 import pytest
 
+from twobrain_rec_server.normalization import service as normalization_service
 from twobrain_rec_server.normalization.media import MediaPolicyError, copy_regular_file
 from twobrain_rec_server.storage.minio_client import MinioStorage, StorageTransferError
 from twobrain_rec_server.storage.object_keys import (
@@ -155,3 +156,36 @@ def test_strict_byte_copy_removes_partial_destination_when_limit_is_exceeded(tmp
 
     assert exc_info.value.reason_code == "generated_output_invalid"
     assert not destination.exists()
+
+
+@pytest.mark.anyio
+async def test_bmff_and_hash_scans_are_offloaded_through_anyio(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "meeting-review.m4a"
+    source.write_bytes(b"synthetic")
+    calls: list[object] = []
+    expected_layout = object()
+    expected_digest = object()
+
+    def fake_inspect(path):
+        assert path == source
+        return expected_layout
+
+    def fake_hash(path, *, max_bytes):
+        assert path == source
+        assert max_bytes == 100
+        return expected_digest
+
+    async def run_sync(function, *args):
+        calls.append(function)
+        return function(*args)
+
+    monkeypatch.setattr(normalization_service, "inspect_bmff", fake_inspect)
+    monkeypatch.setattr(normalization_service, "hash_regular_file", fake_hash)
+    monkeypatch.setattr(normalization_service.to_thread, "run_sync", run_sync)
+
+    assert await normalization_service._inspect_bmff(source) is expected_layout
+    assert await normalization_service._hash_regular_file(source, max_bytes=100) is expected_digest
+    assert len(calls) == 2

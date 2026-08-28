@@ -131,6 +131,10 @@ ACCOUNT_AUTH_LINKING_MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0073_account_auth_linking.py"
 )
+PROCESSING_RECOVERY_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0084_processing_recovery_maintenance.py"
+)
 PRODUCTION_SMOKE_SETUP_MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0023_production_smoke_setup.py"
@@ -197,6 +201,7 @@ def test_migration_and_contract_share_maintenance_operations() -> None:
         + OUTCOME_BASELINE_MIGRATION.read_text(encoding="utf-8")
         + BILLING_FOUNDATION_MIGRATION.read_text(encoding="utf-8")
         + ACCOUNT_AUTH_LINKING_MIGRATION.read_text(encoding="utf-8")
+        + PROCESSING_RECOVERY_MIGRATION.read_text(encoding="utf-8")
     )
 
     for operation_name in sorted(RLS_ALLOWED_MAINTENANCE_OPERATIONS):

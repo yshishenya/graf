@@ -254,7 +254,7 @@ def test_production_share_head_upgrades_to_regeneration_merge(
         promotion_counter_function,
         promotion_counter_config,
     ) = asyncio.run(inspect_schema())
-    assert versions == ["0083_result_workflow_lineage"]
+    assert versions == ["0084_processing_recovery"]
     assert "public.promotion_campaigns" in promotion_counter_function
     assert "search_path=pg_catalog, pg_temp" in promotion_counter_config
     assert {
@@ -300,7 +300,7 @@ def test_production_share_head_upgrades_to_regeneration_merge(
         for column_name in column_names
     )
     assert "prompt_optimization" in maintenance_helper
-    assert "processing_legacy_lineage_reconciliation" in maintenance_helper
+    assert "processing_legacy_lineage_reconciliation" not in maintenance_helper
 
 
 @pytest.mark.parametrize("legacy_check_exists", [False, True])

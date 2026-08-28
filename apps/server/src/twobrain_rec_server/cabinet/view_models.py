@@ -97,6 +97,7 @@ from twobrain_rec_server.domain.statuses import (
 )
 from twobrain_rec_server.outcomes.templates import built_in_template_for_version
 from twobrain_rec_server.processing.fences import meeting_is_deleted_or_deleting
+from twobrain_rec_server.processing.reasons import MEDIASCRIBE_MALFORMED_RESPONSE
 from twobrain_rec_server.processing.results import (
     result_is_terminal_input,
     result_lineage_is_current,
@@ -2188,15 +2189,10 @@ def review_status(
         media_revision_id=media_revision_id,
         processing_workflow_id=processing_workflow_id,
     )
-    if has_transcript and has_diarization:
-        return "ready"
-    if has_transcript or has_diarization:
-        return "partial"
-
-    # An imported provider result with an explicit terminal input outcome
-    # is authoritative even if a stale workflow row still says "processing".
-    # This keeps list, detail, and the content-safe status endpoint on the
-    # same user-visible terminal state.
+    lifecycle_status = workflow.status if workflow is not None else meeting.processing_status
+    # A terminal provider outcome owns the projection even when a malformed or
+    # partial result still contains artifact rows. Never let those rows turn a
+    # terminal failure into a misleading partial/ready state.
     if (
         result is not None
         and _result_lineage_matches(
@@ -2204,9 +2200,26 @@ def review_status(
             media_revision_id=media_revision_id,
             processing_workflow_id=processing_workflow_id,
         )
-        and result_is_terminal_input(result)
+        and (
+            result_is_terminal_input(result)
+            or (
+                result.status == ProcessingResultStatus.IMPORTED.value
+                and result.failure_reason == MEDIASCRIBE_MALFORMED_RESPONSE
+                and lifecycle_status
+                in {
+                    ProcessingStatus.PROCESSED.value,
+                    ProcessingStatus.BLOCKED.value,
+                    ProcessingStatus.FAILED_TERMINAL.value,
+                    ProcessingStatus.CANCELED.value,
+                }
+            )
+        )
     ):
         return "failed"
+    if has_transcript and has_diarization:
+        return "ready"
+    if has_transcript or has_diarization:
+        return "partial"
 
     if meeting.status == MeetingStatus.DRAFT.value:
         return "local_only"
@@ -2215,7 +2228,6 @@ def review_status(
     if meeting.status in {MeetingStatus.FAILED.value, MeetingStatus.DEGRADED.value}:
         return "failed"
 
-    lifecycle_status = workflow.status if workflow is not None else meeting.processing_status
     if lifecycle_status in PROCESSING_STATUSES:
         return "processing"
     if lifecycle_status == ProcessingStatus.NOT_SUBMITTED.value:

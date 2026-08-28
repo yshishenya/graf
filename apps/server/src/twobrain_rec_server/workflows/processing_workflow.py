@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextlib import suppress
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 try:
     from temporalio import workflow
@@ -11,6 +11,8 @@ except Exception:  # pragma: no cover - import fallback for docs/unit tests with
     ActivityCancellationType = None
 
 PROCESSING_ACTIVITY_MAX_ATTEMPTS = 6
+PROCESSING_WAIT_CONTINUE_AS_NEW_CHECKS = 32
+NORMALIZATION_WAIT_FALLBACK_SECONDS = 900
 
 
 def processing_retry_policy():
@@ -52,11 +54,23 @@ if workflow is not None:
                 )
             step_payload = dict(payload)
             step_payload["single_step"] = "true"
+            bounded_wait_history = workflow.patched("processing-wait-continue-as-new-v1")
             cancellation_type = (
                 ActivityCancellationType.WAIT_CANCELLATION_COMPLETED
                 if workflow.patched("processing-cancellation-v1")
                 else ActivityCancellationType.TRY_CANCEL
             )
+            wait_checks = 0
+
+            def continue_after_wait() -> None:
+                nonlocal wait_checks
+                wait_checks += 1
+                if bounded_wait_history and (
+                    wait_checks >= PROCESSING_WAIT_CONTINUE_AS_NEW_CHECKS
+                    or workflow.info().is_continue_as_new_suggested()
+                ):
+                    workflow.continue_as_new(payload)
+
             while True:
                 # Clear only immediately before the next check. A signal/update
                 # received while the activity is running must wake the next
@@ -71,9 +85,38 @@ if workflow is not None:
                     cancellation_type=cancellation_type,
                 )
                 status = result.get("processing_status")
+                if status == "normalization_pending":
+                    delay = None
+                    next_attempt_at = result.get("next_attempt_at")
+                    if isinstance(next_attempt_at, str):
+                        try:
+                            due_at = datetime.fromisoformat(next_attempt_at)
+                            if due_at.tzinfo is not None:
+                                delay = int((due_at - workflow.now()).total_seconds())
+                        except ValueError:
+                            pass
+                    if delay is None:
+                        try:
+                            delay = int(
+                                result.get(
+                                    "next_poll_seconds",
+                                    str(NORMALIZATION_WAIT_FALLBACK_SECONDS),
+                                )
+                            )
+                        except (TypeError, ValueError):
+                            delay = NORMALIZATION_WAIT_FALLBACK_SECONDS
+                    delay = max(5, min(delay, NORMALIZATION_WAIT_FALLBACK_SECONDS))
+                    with suppress(TimeoutError):
+                        await workflow.wait_condition(
+                            lambda: self._manual_check_requested,
+                            timeout=timedelta(seconds=delay),
+                            timeout_summary="manual upload normalization readiness",
+                        )
+                    continue_after_wait()
+                    continue
                 if status == "blocked_unknown":
                     # A lost upload response is not a terminal workflow. The
-                    # activity schedules a same-key lookup when it is safe;
+                    # activity schedules an exact same-key replay when safe;
                     # manual reconciliation can wake the same durable wait.
                     try:
                         delay = max(5, min(int(result.get("next_poll_seconds", "")), 900))
@@ -85,6 +128,7 @@ if workflow is not None:
                             **({"timeout": timedelta(seconds=delay)} if delay is not None else {}),
                             timeout_summary="manual same-key reconciliation",
                         )
+                    continue_after_wait()
                     continue
                 if status == "failed_retryable" and result.get("reason_code") in {
                     "processing_retry_deadline_exceeded",
@@ -96,6 +140,7 @@ if workflow is not None:
                         lambda: self._manual_check_requested,
                         timeout_summary="manual provider processing check",
                     )
+                    continue_after_wait()
                     continue
                 if status not in {"polling", "waiting_retry", "submitted", "importing"}:
                     return result
@@ -109,6 +154,7 @@ if workflow is not None:
                         timeout=timedelta(seconds=delay),
                         timeout_summary="next provider processing check",
                     )
+                continue_after_wait()
 
 else:
 

@@ -1075,6 +1075,7 @@ def _render_meeting_detail_content(
         playback_poll_active="true" if review.playback.state == "preparing" else "false",
         processing_state=review.processing.state,
         processing_reason_code=review.processing.reason_code or "",
+        processing_reason_label=_ui_text(review.processing.reason_label or ""),
         stored_outcomes_available=review.notes_action_truth.source_basis == "stored_output",
         playback_live_label=review.playback.label,
         top_actions=trusted_component_html(

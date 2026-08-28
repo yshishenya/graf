@@ -4,7 +4,9 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
+from sqlalchemy import select
 
+from tests.fakes.auth_contexts import WORKSPACE_ID
 from twobrain_rec_server.billing.catalog import (
     ADDON_CAPACITY_BYTES,
     PERSONAL_STORAGE_BYTES,
@@ -23,6 +25,9 @@ from twobrain_rec_server.billing.storage import (
     is_chargeable_playback_artifact,
     release_storage,
     reserve_storage,
+)
+from twobrain_rec_server.db.models import (
+    StorageReservation as StorageReservationRow,
 )
 
 
@@ -126,6 +131,59 @@ def test_storage_reservation_rejects_expiry_at_or_before_admission() -> None:
             )
 
     asyncio.run(reserve())
+
+
+@pytest.mark.parametrize("stale_state", ["active", "released"])
+def test_storage_reservation_re_admits_expired_or_released_row(
+    client,
+    stale_state: str,
+) -> None:
+    now = datetime.now(UTC)
+    reservation_key = f"storage-re-admission-{stale_state}"
+
+    async def re_admit() -> tuple[object, object, int, str, datetime | None]:
+        async with client.app_state["sessionmaker"]() as db:
+            stale = StorageReservationRow(
+                workspace_id=WORKSPACE_ID,
+                idempotency_key=reservation_key,
+                declared_bytes=100,
+                state=stale_state,
+                expires_at=(
+                    now - timedelta(seconds=1)
+                    if stale_state == "active"
+                    else now + timedelta(minutes=1)
+                ),
+            )
+            db.add(stale)
+            await db.commit()
+            stale_id = stale.id
+            await reserve_storage(
+                db,
+                workspace_id=WORKSPACE_ID,
+                reservation_key=reservation_key,
+                declared_bytes=120,
+                capacity_bytes=1_000,
+                now=now,
+                expires_at=now + timedelta(minutes=30),
+            )
+            await db.commit()
+            persisted = await db.scalar(
+                select(StorageReservationRow).where(StorageReservationRow.id == stale_id)
+            )
+            assert persisted is not None
+            return (
+                stale_id,
+                persisted.id,
+                persisted.declared_bytes,
+                persisted.state,
+                persisted.expires_at,
+            )
+
+    stale_id, reservation_id, declared_bytes, state, expires_at = asyncio.run(re_admit())
+    assert reservation_id == stale_id
+    assert declared_bytes == 120
+    assert state == "active"
+    assert expires_at is not None and expires_at > now
 
 
 def test_storage_commit_requires_verified_canonical_artifact_and_fresh_reservation() -> None:

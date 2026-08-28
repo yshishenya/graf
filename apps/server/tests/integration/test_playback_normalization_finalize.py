@@ -47,7 +47,15 @@ class NeverCalledNormalizationPipeline:
     ):
         raise AssertionError("source custody must fail before conversion")
 
-    async def derive_single_source(self, _source_path: Path, _output_path: Path):
+    async def derive_single_source(
+        self,
+        _source_path: Path,
+        _output_path: Path,
+        *,
+        tolerant_first: bool = False,
+        expected_duration_seconds: int | None = None,
+    ):
+        del tolerant_first, expected_duration_seconds
         raise AssertionError("source custody must fail before conversion")
 
 

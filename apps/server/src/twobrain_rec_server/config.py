@@ -150,7 +150,6 @@ class Settings(BaseSettings):
     assisted_auto_start_policy_expires_at: datetime | None = None
 
     mediascribe_base_url: AnyUrl | None = None
-    mediascribe_health_url: AnyUrl | None = None
     mediascribe_api_key_file: Path | None = None
     mediascribe_request_timeout_seconds: PositiveInt = Field(default=30)
     mediascribe_diarize: bool = True
@@ -227,7 +226,7 @@ class Settings(BaseSettings):
     playback_normalization_ffmpeg_path: Path = Path("/usr/bin/ffmpeg")
     playback_normalization_ffprobe_path: Path = Path("/usr/bin/ffprobe")
 
-    max_recording_duration_seconds: PositiveInt = Field(default=14_400)
+    max_recording_duration_seconds: PositiveInt = Field(default=14_400, le=14_400)
     max_track_bytes: PositiveInt = Field(default=2_684_354_560)
     max_package_bytes: PositiveInt = Field(default=5_368_709_120)
     max_upload_part_bytes: PositiveInt = Field(default=1_073_741_824)
@@ -302,7 +301,6 @@ class Settings(BaseSettings):
         "public_base_url",
         "postal_api_url",
         "mediascribe_base_url",
-        "mediascribe_health_url",
         "langfuse_base_url",
         "langfuse_health_url",
         "litellm_base_url",
@@ -537,6 +535,8 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_processing_recovery_safety(self) -> "Settings":
+        if self.processing_enabled and not self.mediascribe_diarize:
+            raise ValueError("enabled processing requires MediaScribe diarization")
         if self.processing_recovery_min_delay_seconds > self.processing_recovery_default_delay_seconds:
             raise ValueError(
                 "processing recovery minimum delay must not exceed the default delay"

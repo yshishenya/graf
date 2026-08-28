@@ -284,6 +284,12 @@ def test_upload_session_hard_lifetime_cannot_exceed_24_hours() -> None:
         Settings(upload_session_ttl_seconds=86_401)
 
 
+def test_recording_duration_limit_cannot_exceed_four_hours() -> None:
+    assert Settings().max_recording_duration_seconds == 14_400
+    with pytest.raises(ValidationError, match="max_recording_duration_seconds"):
+        Settings(max_recording_duration_seconds=14_401)
+
+
 def test_database_url_rejects_non_postgresql_async_driver() -> None:
     with pytest.raises(ValidationError, match="PostgreSQL"):
         Settings(database_url="sqli" + "te+aio" + "sqli" + "te:////tmp/rec.db")

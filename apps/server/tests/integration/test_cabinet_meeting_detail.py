@@ -210,6 +210,7 @@ def test_cabinet_processing_failed_and_partial_detail_states_are_truthful(client
 def test_manual_upload_detail_handoff_keeps_processing_truth_separate_from_review_readiness(
     client,
 ) -> None:
+    client.app.state.settings.playback_normalization_enabled = True
     uploaded = client.post(
         "/api/v1/media-uploads",
         headers=auth_headers(),
@@ -240,6 +241,7 @@ def test_manual_upload_detail_handoff_keeps_processing_truth_separate_from_revie
 
 
 def test_manual_upload_ready_playback_reports_uploaded_media_provenance(client) -> None:
+    client.app.state.settings.playback_normalization_enabled = True
     uploaded = client.post(
         "/api/v1/media-uploads",
         headers=auth_headers(),

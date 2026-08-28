@@ -130,7 +130,8 @@ def test_upload_part_limit_rejects_before_storage_write(client) -> None:
     data = deterministic_wav_bytes(4)
     response = client.put(
         f"/api/v1/upload-sessions/{session['session_id']}/tracks/system/parts/0",
-        headers=auth_headers() | {"X-Byte-Offset": "0", "X-Content-SHA256": sha256(data).hexdigest()},
+        headers=auth_headers()
+        | {"X-Byte-Offset": "0", "X-Content-SHA256": sha256(data).hexdigest()},
         content=data,
     )
 
@@ -141,11 +142,15 @@ def test_upload_part_limit_rejects_before_storage_write(client) -> None:
 
 def _multipart_body(boundary: str, file_bytes: bytes) -> bytes:
     return (
-        f"--{boundary}\r\nContent-Disposition: form-data; name=\"duration_seconds\"\r\n\r\n60\r\n"
-        f"--{boundary}\r\nContent-Disposition: form-data; name=\"title\"\r\n\r\nUploaded\r\n"
-        f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"meeting.wav\"\r\n"
-        f"Content-Type: audio/wav\r\n\r\n"
-    ).encode() + file_bytes + f"\r\n--{boundary}--\r\n".encode()
+        (
+            f'--{boundary}\r\nContent-Disposition: form-data; name="duration_seconds"\r\n\r\n60\r\n'
+            f'--{boundary}\r\nContent-Disposition: form-data; name="title"\r\n\r\nUploaded\r\n'
+            f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="meeting.wav"\r\n'
+            f"Content-Type: audio/wav\r\n\r\n"
+        ).encode()
+        + file_bytes
+        + f"\r\n--{boundary}--\r\n".encode()
+    )
 
 
 def test_manual_media_multipart_stream_rejects_declared_oversize_before_streaming() -> None:
@@ -212,5 +217,39 @@ def test_manual_media_multipart_stream_spools_file_without_whole_file_bytes() ->
         assert getattr(upload.file.stream, "_rolled", False) is True
         assert upload.file.stream.read() == data
         upload.file.stream.close()
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    "header",
+    [
+        b"X" * 257 + b": value",
+        b'Content-Disposition: form-data; name="' + b"x" * 8_193 + b'"',
+    ],
+)
+def test_manual_media_multipart_stream_bounds_fragmented_headers(header: bytes) -> None:
+    import asyncio
+
+    from twobrain_rec_server.api.upload_stream import read_manual_media_upload_body
+
+    boundary = "manual"
+    body = b"--manual\r\n" + header + b"\r\n\r\nx\r\n--manual--\r\n"
+
+    async def run() -> None:
+        with pytest.raises(ProblemDetail) as exc:
+            await read_manual_media_upload_body(
+                StreamingRequest(
+                    [body[index : index + 1] for index in range(len(body))],
+                    headers={
+                        "content-type": f"multipart/form-data; boundary={boundary}",
+                        "content-length": str(len(body)),
+                    },
+                ),  # type: ignore[arg-type]
+                max_file_bytes=64,
+                spool_memory_bytes=4,
+            )
+        assert exc.value.status == 400
+        assert exc.value.code == "invalid_multipart_upload"
 
     asyncio.run(run())

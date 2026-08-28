@@ -195,7 +195,6 @@ def test_remote_cd_deploys_processing_runtime_services() -> None:
     assert "rec-temporal" in runtime
     assert "rec-processing-worker" in runtime
     assert "rec-maintenance" in runtime
-    assert "rec-reprocess-maintenance" in runtime
     assert "rec-media-worker" in runtime
     assert 'if [[ "${TWOBRAIN_GOOGLE_CALENDAR_ENABLED:-false}" == "true" ]]' in runtime
     assert 'export TWOBRAIN_GOOGLE_CALENDAR_CLIENT_SECRET_FILE="$disabled_billing_secret"' in runtime

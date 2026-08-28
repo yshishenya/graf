@@ -16,6 +16,7 @@ from tests.fixtures.playback_normalization import (
 )
 from twobrain_rec_server.normalization.media import (
     MediaPolicyError,
+    ProcessResult,
     parse_probe_output,
     select_audio_stream,
 )
@@ -48,6 +49,36 @@ def _pipeline() -> FFmpegNormalizationPipeline:
         probe_timeout_seconds=20,
         process_timeout_seconds=30,
     )
+
+
+class _RecordingPipeline(FFmpegNormalizationPipeline):
+    def __init__(self) -> None:
+        ffmpeg, ffprobe = _media_tools()
+        super().__init__(
+            ffmpeg_path=ffmpeg,
+            ffprobe_path=ffprobe,
+            probe_timeout_seconds=20,
+            process_timeout_seconds=30,
+        )
+        self.events: list[tuple[str, Path | list[str]]] = []
+
+    async def _probe_source(self, source_path: Path):
+        self.events.append(("probe", source_path))
+        return await super()._probe_source(source_path)
+
+    async def _run_ffmpeg(
+        self,
+        argv: list[str],
+        *,
+        cwd: Path,
+        stdout_limit_bytes: int = 0,
+    ) -> ProcessResult:
+        self.events.append(("ffmpeg", argv))
+        return await super()._run_ffmpeg(
+            argv,
+            cwd=cwd,
+            stdout_limit_bytes=stdout_limit_bytes,
+        )
 
 
 def _run_ffmpeg(arguments: list[str]) -> None:
@@ -238,6 +269,8 @@ def _generate_single_source(
     ("case_name", "muxer", "audio_codec", "include_video"),
     [
         ("wav", "wav", "pcm_s16le", False),
+        ("wav-adpcm-ima", "wav", "adpcm_ima_wav", False),
+        ("wav-adpcm-ms", "wav", "adpcm_ms", False),
         ("mp3", "mp3", "libmp3lame", False),
         ("aac", "adts", "aac", False),
         ("flac", "flac", "flac", False),
@@ -277,6 +310,41 @@ def test_supported_audio_video_matrix_is_detected_by_bytes_and_normalized(
     assert result.fragmented is False
     assert result.full_decode_passed is True
     assert output.is_file()
+
+
+def test_tolerant_video_accepts_audio_shorter_than_container_without_padding(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "longer-video.webm"
+    output = tmp_path / "shorter-audio.m4a"
+    _run_ffmpeg(
+        [
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:duration=0.6",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=blue:s=64x64:d=2",
+            "-map",
+            "0:a:0",
+            "-map",
+            "1:v:0",
+            "-c:a",
+            "libopus",
+            "-c:v",
+            "libvpx",
+            "-f",
+            "webm",
+            str(source),
+        ]
+    )
+
+    result = asyncio.run(_pipeline().derive_single_source(source, output, tolerant_first=True))
+
+    assert 500 <= result.output_duration_ms <= 700
+    assert 500 <= result.source_duration_ms <= 700
 
 
 def test_wrong_extension_does_not_override_supported_media_bytes(tmp_path: Path) -> None:
@@ -606,6 +674,87 @@ def test_corrupt_mp3_is_recovered_by_tolerant_first_transcode(tmp_path: Path) ->
     assert candidate_output.is_file()
 
 
+@pytest.mark.parametrize("damage_frame", [False, True])
+def test_explicit_tolerant_first_primitive_has_exact_subprocess_budget(
+    tmp_path: Path,
+    damage_frame: bool,
+) -> None:
+    source = tmp_path / "tolerant-source.mp3"
+    output = tmp_path / "tolerant-output.m4a"
+    _run_ffmpeg(
+        [
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:duration=5",
+            "-c:a",
+            "libmp3lame",
+            "-b:a",
+            "192k",
+            str(source),
+        ]
+    )
+    if damage_frame:
+        payload = bytearray(source.read_bytes())
+        assert len(payload) > 10_700
+        payload[10_700:10_704] = b"\x00\x00\x00\x00"
+        source.write_bytes(payload)
+
+    pipeline = _RecordingPipeline()
+    result = asyncio.run(pipeline.derive_single_source(source, output, tolerant_first=True))
+
+    assert [kind for kind, _ in pipeline.events] == [
+        "probe",
+        "ffmpeg",
+        "probe",
+        "ffmpeg",
+    ]
+    assert pipeline.events[0] == ("probe", source)
+    transcode = pipeline.events[1][1]
+    assert isinstance(transcode, list)
+    assert transcode[transcode.index("-i") + 1] == str(source)
+    assert transcode[transcode.index("-t") + 1] == "14401"
+    assert "-xerror" not in transcode
+    assert pipeline.events[2] == ("probe", output)
+    strict_decode = pipeline.events[3][1]
+    assert isinstance(strict_decode, list)
+    assert strict_decode[strict_decode.index("-i") + 1] == str(output)
+    assert strict_decode[strict_decode.index("-f") + 1 :] == ["null", "-"]
+    assert result.recovered_source is False
+    assert result.output_byte_length == output.stat().st_size
+    assert result.moov_before_mdat is True
+
+
+def test_manual_duration_mismatch_stops_after_probe_before_transcode(tmp_path: Path) -> None:
+    source = tmp_path / "duration-mismatch.mp3"
+    output = tmp_path / "must-not-exist.m4a"
+    _run_ffmpeg(
+        [
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:duration=5",
+            "-c:a",
+            "libmp3lame",
+            str(source),
+        ]
+    )
+    pipeline = _RecordingPipeline()
+
+    with pytest.raises(MediaPolicyError, match="source_mismatch"):
+        asyncio.run(
+            pipeline.derive_single_source(
+                source,
+                output,
+                tolerant_first=True,
+                expected_duration_seconds=30,
+            )
+        )
+
+    assert pipeline.events == [("probe", source)]
+    assert not output.exists()
+
+
 def test_truncated_mp3_is_rejected_against_authoritative_duration(tmp_path: Path) -> None:
     source = tmp_path / "source-with-tail.mp3"
     truncated = tmp_path / "truncated-tail.mp3"
@@ -635,3 +784,36 @@ def test_truncated_mp3_is_rejected_against_authoritative_duration(tmp_path: Path
             expected_duration_seconds=5,
         )
     assert error.value.reason_code == "source_mismatch"
+
+    tolerant_output = tmp_path / "truncated-tail-tolerant.m4a"
+    with pytest.raises(MediaPolicyError, match="generated_output_invalid") as tolerant_error:
+        asyncio.run(
+            _pipeline().derive_single_source(
+                truncated,
+                tolerant_output,
+                tolerant_first=True,
+            )
+        )
+    assert tolerant_error.value.reason_code == "generated_output_invalid"
+
+
+def test_manual_upload_duration_allowance_stays_bounded_for_long_recordings() -> None:
+    _validate_authoritative_source_duration(
+        3_598_750,
+        expected_duration_seconds=3_600,
+        manual_upload=True,
+    )
+
+    with pytest.raises(MediaPolicyError, match="source_mismatch"):
+        _validate_authoritative_source_duration(
+            3_598_749,
+            expected_duration_seconds=3_600,
+            manual_upload=True,
+        )
+
+    # Recovery output uses the wider, duration-relative allowance; the client
+    # declaration does not.
+    _validate_authoritative_source_duration(
+        3_598_749,
+        expected_duration_seconds=3_600,
+    )

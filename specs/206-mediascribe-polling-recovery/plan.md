@@ -80,8 +80,9 @@ apps/server/src/twobrain_rec_server/
 **Structure Decision**: Reuse existing processing, Temporal and cabinet modules;
 no new service, dependency, entity or abstraction. Migration
 `0083_result_workflow_lineage` conservatively backfills the direct workflow
-lineage of revision-scoped processing results; transient purge continues to use
-the existing indexes, journal and maintenance allowlist.
+lineage of revision-scoped processing results. `0084_processing_recovery` is an
+append-only follow-up to the production `0083` head and adds the recovery/purge
+indexes and journal foreign key; it does not create a second migration head.
 
 ## Дополнение: canonical manual-upload pipeline
 
@@ -109,6 +110,10 @@ Gate обходится только после подтверждённого p
 строка job без `external_job_id` остаётся pre-egress и повторно обязана доказать
 exact canonical identity и request fingerprint. После подтверждённого provider
 job workflow продолжает same-job polling и никогда не повторяет multipart upload.
+До получения `external_job_id` неизвестный POST может быть повторён только
+exact тем же multipart envelope и durable idempotency key. HTTP attempts может
+быть несколько, но provider job остаётся один; новый key/job разрешён только
+после подтверждённого terminal provider outcome и явного нового business attempt.
 
 `archive_audio=false` использует тот же canonical artifact временно: единый
 revision policy helper запрещает playback egress и storage reserve/commit, но
@@ -122,9 +127,11 @@ attempts/workflows revision и самый ранний hard deadline. Processing
 Для crash-gap `ProcessingWorkflow(starting)` → Temporal start добавляется
 bounded reconciler. После quota admission `WORKFLOW_STARTED` фиксируется до
 Temporal RPC; start использует deterministic workflow id и явную
-`REJECT_DUPLICATE` policy. Running conflict переиспользуется, закрытый duplicate
-согласуется с DB без нового run, ambiguous RPC не терминализирует intent. Новая
-durable сущность, новый workflow type и новая task queue не требуются.
+`REJECT_DUPLICATE` policy. Running conflict переиспользуется, а для закрытого
+execution создаётся следующий deterministic Temporal execution без смены
+существующей provider operation,
+ambiguous RPC не терминализирует intent. Новая durable сущность, новый workflow
+type и новая task queue не требуются.
 
 Workflow-команда до результата activity не меняется. Ветка
 `normalization_pending` добавляется после существующего activity result; replay

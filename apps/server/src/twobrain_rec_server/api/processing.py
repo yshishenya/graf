@@ -24,11 +24,13 @@ from twobrain_rec_server.auth.dependencies import (
     get_tenant_scope,
     require_web_csrf,
 )
+from twobrain_rec_server.domain.statuses import ProcessingStatus
+from twobrain_rec_server.normalization.pickup import dispatch_normalization_after_accepted_commit
+from twobrain_rec_server.normalization.service import request_normalization_retry_now
 from twobrain_rec_server.processing import store
 from twobrain_rec_server.processing.pickup import pick_up_processing
 from twobrain_rec_server.processing.status import get_content_safe_processing_status
 from twobrain_rec_server.workflows.temporal_client import (
-    cancel_workflow_best_effort,
     connect_temporal_client,
     request_processing_manual_check,
     start_processing_workflow,
@@ -165,7 +167,6 @@ async def start_new_processing_attempt(
         db,
         workspace_id=tenant_scope.workspace_id,
         meeting_id=meeting_id,
-        deadline_seconds=request.app.state.settings.processing_recovery_deadline_seconds,
     )
     if creation.result == "already_in_flight":
         await db.rollback()
@@ -245,11 +246,12 @@ async def start_new_processing_attempt(
             title="Новая попытка временно недоступна",
             detail="Попытка сохранена. После восстановления сервиса запустите обработку заново.",
         )
-    workflow = creation.workflow
-    # The activity must see this row before Temporal can start it.  The
-    # compensating status below prevents an unavailable dispatch from leaving
-    # a durable attempt stuck in ``starting``.
-    await db.commit()
+    workflow = await store.set_workflow_status(
+        db,
+        creation.workflow,
+        ProcessingStatus.WORKFLOW_STARTED,
+        reason_code="user_new_attempt",
+    )
     try:
         started = await start_processing_workflow(
             temporal_client=temporal_client,
@@ -261,13 +263,7 @@ async def start_new_processing_attempt(
             archive_audio=workflow.archive_audio,
             attempt_ordinal=creation.attempt_ordinal,
         )
-        await store.record_processing_attempt_run(
-            db,
-            workflow_id=workflow.id,
-            workflow_run_id=started.run_id,
-        )
     except Exception as exc:
-        await cancel_workflow_best_effort(temporal_client, workflow.workflow_id)
         await store.fail_processing_attempt_dispatch(
             db,
             workflow_id=workflow.id,
@@ -278,6 +274,23 @@ async def start_new_processing_attempt(
             title="Не удалось запустить новую попытку",
             detail="Попытка сохранена, но запуск временно недоступен. Попробуйте начать её заново позже.",
         ) from exc
+
+    dispatch = None
+    if not started.ambiguous:
+        dispatch = "reused" if started.reused else "started"
+        if started.run_id is not None:
+            try:
+                run_persisted = await store.record_processing_attempt_run(
+                    db,
+                    workflow_id=workflow.id,
+                    workflow_run_id=started.run_id,
+                )
+            except Exception:
+                run_persisted = False
+            if not run_persisted:
+                # Temporal may already be running. Keep the committed start
+                # intent open for deterministic stale-start reconciliation.
+                await db.rollback()
 
     latest = await get_content_safe_processing_status(
         db,
@@ -290,7 +303,7 @@ async def start_new_processing_attempt(
             "attempt_result": "created",
             "attempt_ordinal": creation.attempt_ordinal,
             "workflow_id": workflow.workflow_id,
-            "dispatch": "reused" if started.reused else "started",
+            "dispatch": dispatch,
         }
     )
 
@@ -344,6 +357,107 @@ async def check_processing(
         command_key=check.command_id,
         expected_schedule_generation=check.schedule_generation,
     )
+    workflow_id = claim.workflow.id if claim.workflow is not None else None
+    manual_command_version = (
+        int(claim.workflow.manual_command_version or 0)
+        if claim.workflow is not None
+        else 0
+    )
+
+    async def release_claim() -> None:
+        if claim.claimed and workflow_id is not None:
+            await db.rollback()
+            await store.release_processing_manual_check_claim(
+                db,
+                workflow_id=workflow_id,
+                manual_command_version=manual_command_version,
+                settings=getattr(request.app.state, "settings", None),
+            )
+
+    if current.manual_action == "retry_preparation":
+        if claim.request_result == "stale_schedule":
+            await db.commit()
+            latest = await get_content_safe_processing_status(
+                db,
+                workspace_id=tenant_scope.workspace_id,
+                meeting_id=meeting_id,
+            ) or current
+            return _processing_check_response(
+                latest,
+                request_result="stale_schedule",
+                command_id=claim.command_id,
+                same_job_check=False,
+            )
+        try:
+            retry = await request_normalization_retry_now(
+                db,
+                workspace_id=tenant_scope.workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=current.media_revision_id,
+            )
+        except asyncio.CancelledError:
+            await asyncio.shield(release_claim())
+            raise
+        except Exception as exc:
+            await release_claim()
+            raise ProblemDetail(
+                status=503,
+                code="processing_manual_check_unavailable",
+                title="Не удалось запустить повторную подготовку",
+                detail="Попробуйте ещё раз позже.",
+            ) from exc
+        if retry.result not in {"accepted", "already_in_flight"}:
+            await db.rollback()
+            await release_claim()
+            latest = await get_content_safe_processing_status(
+                db,
+                workspace_id=tenant_scope.workspace_id,
+                meeting_id=meeting_id,
+            ) or current
+            return _processing_check_response(
+                latest,
+                request_result="not_safe",
+                command_id=claim.command_id,
+                same_job_check=False,
+            )
+        try:
+            temporal_client = await _get_temporal_client(request)
+            normalization_dispatch = await dispatch_normalization_after_accepted_commit(
+                db=db,
+                settings=request.app.state.settings,
+                tenant_scope=tenant_scope,
+                media_revision_id=current.media_revision_id,
+                temporal_client=temporal_client,
+                lease_owner=f"manual-retry:{claim.command_id}",
+            )
+            # The normalization worker wakes processing after publication.
+            # Do not spend an extra processing cycle while the M4A is pending.
+            if not (normalization_dispatch.started or normalization_dispatch.reused):
+                await release_claim()
+        except asyncio.CancelledError:
+            await asyncio.shield(release_claim())
+            raise
+        except Exception as exc:
+            await release_claim()
+            raise ProblemDetail(
+                status=503,
+                code="processing_manual_check_unavailable",
+                title="Не удалось запустить повторную подготовку",
+                detail="Попробуйте ещё раз позже.",
+            ) from exc
+        latest = await get_content_safe_processing_status(
+            db,
+            workspace_id=tenant_scope.workspace_id,
+            meeting_id=meeting_id,
+        ) or current
+        return _processing_check_response(
+            latest,
+            request_result=(
+                "already_in_flight" if retry.result == "already_in_flight" else "accepted"
+            ),
+            command_id=claim.command_id,
+            same_job_check=False,
+        )
     await db.commit()
     if claim.request_result != "accepted" or not claim.claimed or claim.workflow is None:
         latest = await get_content_safe_processing_status(
@@ -361,22 +475,10 @@ async def check_processing(
     try:
         temporal_client = await _get_temporal_client(request)
     except asyncio.CancelledError:
-        await asyncio.shield(
-            store.release_processing_manual_check_claim(
-                db,
-                workflow_id=claim.workflow.id,
-                manual_command_version=int(claim.workflow.manual_command_version or 0),
-                settings=getattr(request.app.state, "settings", None),
-            )
-        )
+        await asyncio.shield(release_claim())
         raise
     if temporal_client is None:
-        await store.release_processing_manual_check_claim(
-            db,
-            workflow_id=claim.workflow.id,
-            manual_command_version=int(claim.workflow.manual_command_version or 0),
-            settings=getattr(request.app.state, "settings", None),
-        )
+        await release_claim()
         raise ProblemDetail(
             status=503,
             code="processing_temporal_unavailable",
@@ -389,13 +491,11 @@ async def check_processing(
             workflow_id=claim.workflow.workflow_id,
             command_id=claim.command_id,
         )
+    except asyncio.CancelledError:
+        await asyncio.shield(release_claim())
+        raise
     except Exception as exc:
-        await store.release_processing_manual_check_claim(
-            db,
-            workflow_id=claim.workflow.id,
-            manual_command_version=int(claim.workflow.manual_command_version or 0),
-            settings=getattr(request.app.state, "settings", None),
-        )
+        await release_claim()
         raise ProblemDetail(
             status=503,
             code="processing_manual_check_unavailable",

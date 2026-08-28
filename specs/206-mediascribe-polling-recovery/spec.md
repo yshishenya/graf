@@ -62,7 +62,8 @@
 
 1. **Given** MediaScribe сообщил `failed`, **When** GRAF обновляет состояние,
    **Then** показываются понятная ошибка и доступное recovery-действие.
-2. **Given** MediaScribe вернул 429/5xx/timeout или pending status, **When**
+2. **Given** MediaScribe вернул retryable `429`, `502`, `503`, `504`, timeout
+   или pending status (а не terminal `500`), **When**
    GRAF обрабатывает ответ, **Then** запись остаётся временно ожидающей и не
    получает terminal failure.
 3. **Given** ответ провайдера malformed или исходный артефакт недоступен,
@@ -244,11 +245,12 @@ artifact при включённом архиве.
   zero preliminary full source decodes, one tolerant transcode with `-t 14401`,
   one output probe, and one strict generated-output decode; non-manual paths keep
   their existing pass counts.
-- **SC-007**: In covered manual-upload scenarios, MediaScribe receives exactly
-  one POST whose bytes and SHA match the validated canonical artifact; the
+- **SC-007**: In covered manual-upload scenarios, MediaScribe creates exactly one
+  provider job whose bytes and SHA match the validated canonical artifact. A
+  lost POST response may cause multiple exact same-key HTTP attempts; the
   original source is never submitted.
 - **SC-008**: Crash tests at normalization publication, processing start, and
-  provider submission boundaries recover without a duplicate provider POST.
+  provider submission boundaries recover without a duplicate provider job.
 - **SC-009**: `archive_audio=false` scenarios expose no player, consume no
   retained storage quota, and purge both source and canonical audio within the
   existing transient deadlines.

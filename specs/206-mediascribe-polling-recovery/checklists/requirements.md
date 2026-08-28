@@ -17,4 +17,5 @@
   compatibility.
 - [x] Описаны archive/no-archive custody, quota и purge semantics.
 - [x] Описаны corrupt, terminal, deletion, supersession и crash boundaries.
-- [x] Указаны измеримые pass-count, exact-byte и one-POST критерии.
+- [x] Указаны измеримые pass-count, exact-byte и one-provider-job критерии;
+  ambiguous POST может иметь несколько exact same-key HTTP attempts.

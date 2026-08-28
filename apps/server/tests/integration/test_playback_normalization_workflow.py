@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
+from tests.fakes.fake_temporal import FakeTemporalClient
 from tests.fixtures.artifacts import deterministic_wav_bytes
 from tests.fixtures.playback_normalization import synthetic_pcm_wav_bytes
 from tests.fixtures.processing import apply_job_worker_scope
@@ -85,7 +86,12 @@ class FakeManualNormalizationPipeline:
         self,
         source_path: Path,
         output_path: Path,
+        *,
+        tolerant_first: bool = False,
+        expected_duration_seconds: int | None = None,
     ) -> NormalizedOutput:
+        assert tolerant_first is True
+        assert expected_duration_seconds is not None
         self.source_body = source_path.read_bytes()
         body = b"canonical-manual-source"
         output_path.write_bytes(body)
@@ -257,6 +263,8 @@ def test_manual_media_job_uses_the_accepted_media_artifact_and_publishes_canonic
     client: TestClient,
     tmp_path: Path,
 ) -> None:
+    client.app.state.settings.playback_normalization_enabled = True
+    client.app.state.temporal_client = FakeTemporalClient()
     source_body = deterministic_wav_bytes(256)
     response = client.post(
         "/api/v1/media-uploads",

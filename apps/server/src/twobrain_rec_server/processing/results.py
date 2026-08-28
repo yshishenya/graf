@@ -3,17 +3,46 @@
 from __future__ import annotations
 
 from hashlib import sha256
+from typing import Any
 from uuid import UUID
 
-from sqlalchemy import false, nullslast, select
+from sqlalchemy import and_, false, nullslast, select
 
 from twobrain_rec_server.db.models import ProcessingResult
-from twobrain_rec_server.domain.statuses import ProcessingResultStatus
+from twobrain_rec_server.domain.statuses import ProcessingAvailabilityStatus, ProcessingResultStatus
 from twobrain_rec_server.processing.reasons import (
     FAILURE_SOURCE_INPUT_AUDIO,
     INVALID_AUDIO_PAYLOAD,
     NO_RECOGNIZABLE_SPEECH,
 )
+
+
+def complete_processing_result_clause(model: Any = ProcessingResult) -> Any:
+    """Return the predicate for the first user-usable result milestone."""
+
+    return and_(
+        model.status == ProcessingResultStatus.IMPORTED.value,
+        model.transcript_status == ProcessingAvailabilityStatus.AVAILABLE.value,
+        model.segment_count > 0,
+        model.diarization_status == ProcessingAvailabilityStatus.AVAILABLE.value,
+        model.diarization_segment_count > 0,
+    )
+
+
+def result_is_complete(result: object | None) -> bool:
+    """Mirror the complete-result predicate for in-memory projections."""
+
+    if result is None:
+        return False
+    return bool(
+        getattr(result, "status", None) == ProcessingResultStatus.IMPORTED.value
+        and getattr(result, "transcript_status", None)
+        == ProcessingAvailabilityStatus.AVAILABLE.value
+        and int(getattr(result, "segment_count", 0) or 0) > 0
+        and getattr(result, "diarization_status", None)
+        == ProcessingAvailabilityStatus.AVAILABLE.value
+        and int(getattr(result, "diarization_segment_count", 0) or 0) > 0
+    )
 
 
 def effective_processing_result_query(

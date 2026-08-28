@@ -25,14 +25,6 @@ DEFAULT_DEADLINE = timedelta(hours=4)
 
 
 @dataclass(frozen=True, slots=True)
-class RetryDecision:
-    status: ProcessingStatus
-    reason_code: str
-    retryable: bool
-    egress_state: str = "response_received"
-
-
-@dataclass(frozen=True, slots=True)
 class RetrySchedule:
     next_attempt_at: datetime | None
     source: str | None
@@ -60,40 +52,6 @@ def parse_retry_after(value: str | None, *, now: datetime | None = None) -> time
     if not isfinite(seconds) or seconds < 0:
         return None
     return timedelta(seconds=min(seconds, MAX_RETRY_DELAY.total_seconds()))
-
-
-def classify_provider_outcome(
-    *,
-    status_code: int | None,
-    code: str | None = None,
-    retryable: bool | None = None,
-    egress_state: str = "response_received",
-) -> RetryDecision:
-    """Use machine fields first, then HTTP semantics; free-form detail is ignored."""
-
-    normalized = (code or "").strip().lower()
-    if egress_state == "unknown" and status_code not in {None, 400, 401, 413, 422}:
-        return RetryDecision(
-            ProcessingStatus.BLOCKED_UNKNOWN,
-            "blocked_mediascribe_submission_outcome_unknown",
-            False,
-            egress_state,
-        )
-    if retryable is True:
-        return RetryDecision(ProcessingStatus.WAITING_RETRY, normalized or "provider_retryable", True)
-    if retryable is False:
-        return RetryDecision(ProcessingStatus.FAILED_TERMINAL, normalized or "provider_terminal", False)
-    if status_code == 500:
-        return RetryDecision(ProcessingStatus.FAILED_TERMINAL, normalized or "provider_terminal", False)
-    if normalized in {"result_not_ready", "summary_not_ready", "provider_unavailable", "rate_limited"}:
-        return RetryDecision(ProcessingStatus.WAITING_RETRY, normalized, True)
-    if status_code in {408, 425, 429, 502, 503, 504}:
-        return RetryDecision(ProcessingStatus.WAITING_RETRY, normalized or "provider_unavailable", True)
-    if status_code is not None and 400 <= status_code < 500:
-        return RetryDecision(ProcessingStatus.FAILED_TERMINAL, normalized or "provider_request_rejected", False)
-    if status_code is not None and status_code >= 500:
-        return RetryDecision(ProcessingStatus.WAITING_RETRY, normalized or "provider_unavailable", True)
-    return RetryDecision(ProcessingStatus.WAITING_RETRY, normalized or "unknown_dependency_status", True)
 
 
 def schedule_retry(

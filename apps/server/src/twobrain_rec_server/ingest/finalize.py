@@ -16,7 +16,6 @@ from twobrain_rec_server.db.models import Meeting as MeetingModel
 from twobrain_rec_server.db.models import ProcessingPlaceholder
 from twobrain_rec_server.db.models import UploadSession as UploadSessionModel
 from twobrain_rec_server.domain.statuses import (
-    MediaRevisionSourceKind,
     MediaRevisionStatus,
     MeetingStatus,
     ProcessingStatus,
@@ -456,6 +455,7 @@ async def finalize_upload(
     tracks: list[TrackDescriptor],
     storage: object | None = None,
     archive_audio: bool = True,
+    processing_requested: bool = False,
 ) -> tuple[object, object]:
     # Read a stable snapshot for validation/materialization. Final mutation
     # takes Meeting → MediaRevision → UploadSession locks after storage I/O.
@@ -772,10 +772,12 @@ async def finalize_upload(
     previous_archive_audio = session.archive_audio
     try:
         meeting.status = MeetingStatus.INGESTED_PENDING_PROCESSING
-        meeting.processing_status = ProcessingStatus.NOT_SUBMITTED
+        meeting.processing_status = (
+            ProcessingStatus.STARTING if processing_requested else ProcessingStatus.NOT_SUBMITTED
+        )
         meeting.media_revision_status = MediaRevisionStatus.ACCEPTED
         session.status = UploadSessionStatus.FINALIZED
-        session.processing_status = ProcessingStatus.NOT_SUBMITTED
+        session.processing_status = meeting.processing_status
         session.finalized_at = datetime.now(UTC)
         session.archive_audio = archive_audio
         await persist_meeting(db, meeting, commit=False)
@@ -789,10 +791,7 @@ async def finalize_upload(
             finalized_track_object_keys,
             commit=False,
         )
-        if (
-            archive_audio
-            or meeting.media_revision_source_kind is MediaRevisionSourceKind.MANUAL_UPLOAD
-        ):
+        if archive_audio or any(track.track_role == TrackRole.MEDIA for track in tracks):
             await upsert_playback_normalization_job(
                 db,
                 workspace_id=meeting.workspace_id,

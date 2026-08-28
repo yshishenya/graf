@@ -749,6 +749,87 @@ async def test_v1_problem_details_keep_machine_fields_without_using_detail_as_re
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("code", "retryable", "expected_retryable"),
+    [
+        ("result_not_ready", "true", True),
+        ("idempotency_conflict", "false", False),
+    ],
+)
+async def test_v1_header_only_error_classification_uses_generic_error_headers(
+    code: str,
+    retryable: str,
+    expected_retryable: bool,
+) -> None:
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            409,
+            headers={
+                "X-MediaScribe-API-Version": "v1",
+                "X-Error-Code": code,
+                "X-Error-Retryable": retryable,
+            },
+            content=b"not-json",
+        )
+
+    client = MediaScribeClient(
+        base_url="https://mediascribe.test",
+        api_key="server-side-key",
+        transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(MediaScribeClientError) as exc:
+        await client.fetch_result("job_header_only")
+
+    error = exc.value
+    assert error.reason_code == code
+    assert error.retryable is expected_retryable
+    assert error.headers.error_code == code
+    assert error.headers.error_retryable is expected_retryable
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("payload", "headers", "expected_retryable"),
+    [
+        (
+            {"code": "job_failed", "retryable": True},
+            {},
+            False,
+        ),
+        (
+            {},
+            {},
+            False,
+        ),
+        (
+            {},
+            {"X-Error-Code": "summary_not_ready"},
+            True,
+        ),
+    ],
+)
+async def test_v1_409_requires_an_explicit_safe_machine_code(
+    payload: dict[str, object],
+    headers: dict[str, str],
+    expected_retryable: bool,
+) -> None:
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(409, headers=headers, json=payload)
+
+    client = MediaScribeClient(
+        base_url="https://mediascribe.test",
+        api_key="server-side-key",
+        transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(MediaScribeClientError) as exc:
+        await client.fetch_result("job_conflict")
+
+    assert exc.value.retryable is expected_retryable
+
+
+@pytest.mark.asyncio
 async def test_v1_result_preserves_summary_downloads_provenance_and_unknown_fields() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/v1/audio/transcriptions/job_result/result"

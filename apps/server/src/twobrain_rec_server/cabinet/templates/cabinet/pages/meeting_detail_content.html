@@ -27,12 +27,12 @@
   <section class="detail-main">
     {{ calendar_context_chooser }}
     {% if media_revision_id %}
-    <section class="processing-recovery" data-processing-recovery aria-labelledby="processing-recovery-title" aria-busy="true">
+    <section class="processing-recovery" data-processing-recovery data-state="{% if processing_state in ['failed', 'blocked'] %}terminal{% elif processing_state == 'ready' %}ready{% else %}active{% endif %}"{% if processing_state == 'ready' %} hidden{% endif %} aria-labelledby="processing-recovery-title" aria-busy="{{ 'true' if processing_state not in ['ready', 'failed', 'blocked'] else 'false' }}">
       <div class="processing-recovery-header">
         <div>
           <p class="processing-recovery-kicker">Обработка записи</p>
-          <h2 id="processing-recovery-title" data-processing-recovery-title tabindex="-1">Проверяем статус обработки…</h2>
-          <p class="processing-recovery-copy" id="processing-recovery-copy" data-processing-recovery-copy>Спикеры ещё определяются. Расшифровка появится после завершения диаризации.</p>
+          <h2 id="processing-recovery-title" data-processing-recovery-title tabindex="-1">{% if processing_state == 'failed' %}Обработка остановилась{% elif processing_state == 'blocked' %}Обработка требует проверки{% elif processing_state == 'ready' %}Обработка завершена{% else %}Обработка записи{% endif %}</h2>
+          <p class="processing-recovery-copy" id="processing-recovery-copy" data-processing-recovery-copy>{% if processing_reason_label %}{{ processing_reason_label }}{% elif transcript_degraded_reason == 'diarization_pending' %}Спикеры ещё определяются. Расшифровка появится после завершения диаризации.{% elif processing_state in ['processing', 'submitted'] %}GRAF проверяет запись. Спикеры и итоги могут появиться по отдельности.{% elif processing_state == 'failed' %}Проверьте статус обработки или начните новую попытку.{% elif processing_state == 'blocked' %}Проверьте настройки и повторите обработку позже.{% else %}Проверяем статус обработки…{% endif %}</p>
         </div>
         <p class="processing-recovery-countdown" data-processing-countdown aria-live="off" hidden></p>
       </div>
@@ -45,7 +45,8 @@
       <div class="processing-recovery-actions">
         <button type="button" class="button primary" data-processing-check aria-describedby="processing-recovery-copy" aria-busy="true" disabled>Проверить обработку</button>
         <button type="button" class="button primary" data-processing-new-attempt aria-describedby="processing-recovery-copy" aria-busy="false" hidden>Начать обработку заново</button>
-        <button type="button" class="button quiet" data-processing-refresh hidden>Обновить страницу</button>
+        <a class="button primary" href="{{ base_path }}#manual-upload" data-processing-upload-another data-default-href="{{ base_path }}#manual-upload" data-no-archive-href="{{ base_path }}?archive_audio=false#manual-upload" hidden>Загрузить другой файл</a>
+        <button type="button" class="button quiet" data-processing-refresh{% if processing_state not in ['failed', 'blocked'] %} hidden{% endif %}>Обновить страницу</button>
         <a class="button quiet" href="{{ base_path }}">К списку встреч</a>
       </div>
     </section>

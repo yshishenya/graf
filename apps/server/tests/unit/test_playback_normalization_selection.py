@@ -120,6 +120,9 @@ def test_media_commands_are_explicit_file_only_and_metadata_free(tmp_path) -> No
         "-err_detect",
         "ignore_err",
     ]
+    assert tolerant[tolerant.index("-t") + 1] == "14401"
+    assert tolerant.count("-t") == 1
+    assert "-t" not in transcode
     assert "[mix]" in dual
     assert "amix=inputs=2:duration=longest" in " ".join(dual)
     assert "[0:3]" in " ".join(dual)

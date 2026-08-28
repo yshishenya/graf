@@ -1073,7 +1073,14 @@ class ProcessingStatusResponse(BaseModel):
     next_attempt_source: Literal["provider_retry_after", "provider_next_retry_at", "server_fallback", "manual_override"] | None = None
     schedule_generation: int = Field(default=0, ge=0)
     server_time: datetime | None = None
-    manual_action: Literal["none", "check_now", "new_attempt", "contact_support"] = "none"
+    manual_action: Literal[
+        "none",
+        "check_now",
+        "retry_preparation",
+        "new_attempt",
+        "upload_another",
+        "contact_support",
+    ] = "none"
     attempt_in_flight: bool = False
     artifacts: dict[str, ProcessingArtifactProjection] = Field(default_factory=dict)
     updated_at: datetime | None = None
@@ -1270,6 +1277,8 @@ PlaybackPreparationReasonCode = Literal[
     "canonical_artifact_missing",
     "canonical_ready",
     "access_denied",
+    "audio_not_archived",
+    "storage_capacity_exceeded",
     "empty_source",
     "no_audio",
     "ambiguous_audio_tracks",

@@ -15,9 +15,11 @@ from tests.integration.test_playback_normalization_finalize import (
     _accept_first_party_recording,
 )
 from twobrain_rec_server.auth.context import TenantScope
+from twobrain_rec_server.billing.storage import StorageAdmissionError
 from twobrain_rec_server.db.models import (
     PlaybackNormalizationAttempt,
     PlaybackNormalizationJob,
+    StorageReservation,
     TrackArtifact,
 )
 from twobrain_rec_server.db.tenant_context import apply_tenant_scope
@@ -70,7 +72,15 @@ class FailingPipeline:
         del microphone_path, system_path
         return self._fail(output_path)
 
-    async def derive_single_source(self, source_path: Path, output_path: Path):
+    async def derive_single_source(
+        self,
+        source_path: Path,
+        output_path: Path,
+        *,
+        tolerant_first: bool = False,
+        expected_duration_seconds: int | None = None,
+    ):
+        del tolerant_first, expected_duration_seconds
         del source_path
         return self._fail(output_path)
 
@@ -98,7 +108,11 @@ class InvalidReceiptPipeline:
         self,
         source_path: Path,
         output_path: Path,
+        *,
+        tolerant_first: bool = False,
+        expected_duration_seconds: int | None = None,
     ) -> NormalizedOutput:
+        del tolerant_first, expected_duration_seconds
         del source_path
         return self._invalid(output_path)
 
@@ -124,6 +138,53 @@ class InvalidReceiptPipeline:
         )
 
 
+class ValidReceiptPipeline:
+    async def derive_candidate(self, source_path: Path, output_path: Path):
+        del source_path
+        return self._valid(output_path)
+
+    async def derive_dual_source(
+        self,
+        microphone_path: Path,
+        system_path: Path,
+        output_path: Path,
+    ) -> NormalizedOutput:
+        del microphone_path, system_path
+        return self._valid(output_path)
+
+    async def derive_single_source(
+        self,
+        source_path: Path,
+        output_path: Path,
+        *,
+        tolerant_first: bool = False,
+        expected_duration_seconds: int | None = None,
+    ) -> NormalizedOutput:
+        del tolerant_first, expected_duration_seconds, source_path
+        return self._valid(output_path)
+
+    @staticmethod
+    def _valid(output_path: Path) -> NormalizedOutput:
+        body = b"complete-validated-canonical-output"
+        output_path.write_bytes(body)
+        return NormalizedOutput(
+            derivation_kind="dual_source_mix_transcode",
+            selected_stream_index=None,
+            source_stream_count=2,
+            source_audio_stream_count=2,
+            source_duration_ms=60_000,
+            output_duration_ms=60_000,
+            output_byte_length=len(body),
+            output_sha256=sha256(body).hexdigest(),
+            output_audio_bit_rate=64_000,
+            output_sample_rate_hz=48_000,
+            output_channel_count=1,
+            moov_before_mdat=True,
+            fragmented=False,
+            full_decode_passed=True,
+        )
+
+
 async def _apply_worker_scope(db, job: PlaybackNormalizationJob) -> None:
     """Match the production worker's exact database authority for direct calls."""
 
@@ -137,6 +198,57 @@ async def _apply_worker_scope(db, job: PlaybackNormalizationJob) -> None:
         ),
         context_kind="worker",
     )
+
+
+def test_storage_capacity_rejection_happens_before_canonical_put_and_does_not_retry(
+    client,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    meeting, result = _accept_first_party_recording(
+        client,
+        local_recording_id="normalization-storage-capacity",
+        include_playback=False,
+    )
+    assert result["status_code"] == 200
+    meeting_id = UUID(str(meeting["meeting_id"]))
+    source_objects = set(client.app_state["storage"].objects)
+    admission_calls = 0
+
+    async def reject_capacity(*_args, **_kwargs):
+        nonlocal admission_calls
+        admission_calls += 1
+        raise StorageAdmissionError("storage capacity exceeded")
+
+    monkeypatch.setattr(normalization_service, "reserve_storage", reject_capacity)
+
+    async def execute_failure():
+        async with client.app_state["sessionmaker"]() as db:
+            job = await db.scalar(
+                select(PlaybackNormalizationJob).where(
+                    PlaybackNormalizationJob.meeting_id == meeting_id
+                )
+            )
+            assert job is not None
+            await _apply_worker_scope(db, job)
+            with pytest.raises(NormalizationExecutionFailure) as caught:
+                await run_normalization_job(
+                    db=db,
+                    storage=client.app_state["storage"],
+                    job_id=job.id,
+                    work_directory=tmp_path / "storage-capacity",
+                    pipeline=ValidReceiptPipeline(),
+                )
+            return caught.value, await db.get(PlaybackNormalizationJob, job.id)
+
+    caught, job = asyncio.run(execute_failure())
+
+    assert admission_calls == 1
+    assert caught.reason_code is NormalizationReason.STORAGE_CAPACITY_EXCEEDED
+    assert caught.should_retry is False
+    assert job.state == "terminal"
+    assert job.reason_code == NormalizationReason.STORAGE_CAPACITY_EXCEEDED.value
+    assert set(client.app_state["storage"].objects) == source_objects
 
 
 @pytest.mark.parametrize(
@@ -227,8 +339,8 @@ def test_system_resource_and_output_failures_stay_in_automatic_recovery_and_clea
     assert job.state == "retry_wait"
     assert job.reason_code == expected_reason.value
     assert job.next_attempt_at is not None
-    assert attempt.state == "cleaned"
-    assert attempt.cleaned_at is not None
+    assert attempt.state == "cleanup_pending"
+    assert attempt.cleaned_at is None
     assert canonical == []
     assert set(client.app_state["storage"].objects) == source_objects
     assert list(work_directory.iterdir()) == []
@@ -298,7 +410,7 @@ def test_work_capacity_preflight_stops_before_download_and_retries_automatically
     assert caught.should_retry is True
     assert job.state == "retry_wait"
     assert job.reason_code == NormalizationReason.TEMPORARY_STORAGE_UNAVAILABLE.value
-    assert attempt.state == "cleaned"
+    assert attempt.state == "cleanup_pending"
     assert set(client.app_state["storage"].objects) == source_objects
     assert list(work_directory.iterdir()) == []
 
@@ -348,6 +460,62 @@ def test_invalid_output_receipt_cannot_publish_and_cleanup_remains_server_owned(
 
     assert caught.reason_code is NormalizationReason.GENERATED_OUTPUT_INVALID
     assert job.state == "retry_wait"
-    assert attempt.state == "cleaned"
+    assert attempt.state == "cleanup_pending"
     assert set(client.app_state["storage"].objects) == source_objects
     assert list(work_directory.iterdir()) == []
+
+
+def test_failed_canonical_put_releases_pre_admitted_storage_reservation(
+    client,
+    tmp_path: Path,
+) -> None:
+    meeting, result = _accept_first_party_recording(
+        client,
+        local_recording_id="normalization-put-failure-reservation",
+        include_playback=False,
+    )
+    assert result["status_code"] == 200
+    meeting_id = UUID(str(meeting["meeting_id"]))
+    source_objects = set(client.app_state["storage"].objects)
+    client.app_state["storage"].fail_put = True
+
+    async def execute_failure():
+        async with client.app_state["sessionmaker"]() as db:
+            job = await db.scalar(
+                select(PlaybackNormalizationJob).where(
+                    PlaybackNormalizationJob.meeting_id == meeting_id
+                )
+            )
+            assert job is not None
+            await _apply_worker_scope(db, job)
+            with pytest.raises(NormalizationExecutionFailure) as caught:
+                await run_normalization_job(
+                    db=db,
+                    storage=client.app_state["storage"],
+                    job_id=job.id,
+                    work_directory=tmp_path / "put-failure-reservation",
+                    pipeline=ValidReceiptPipeline(),
+                )
+            reservation = await db.scalar(
+                select(StorageReservation).where(
+                    StorageReservation.idempotency_key.like("normalization:%")
+                )
+            )
+            attempt = await db.scalar(
+                select(PlaybackNormalizationAttempt).where(
+                    PlaybackNormalizationAttempt.job_id == job.id
+                )
+            )
+            return caught.value, reservation, attempt
+
+    try:
+        caught, reservation, attempt = asyncio.run(execute_failure())
+    finally:
+        client.app_state["storage"].fail_put = False
+
+    assert caught.reason_code is NormalizationReason.DEPENDENCY_UNAVAILABLE
+    assert caught.should_retry is True
+    assert reservation is not None
+    assert reservation.state == "released"
+    assert attempt.state == "cleanup_pending"
+    assert set(client.app_state["storage"].objects) == source_objects

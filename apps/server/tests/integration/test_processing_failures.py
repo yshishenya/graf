@@ -18,6 +18,7 @@ from twobrain_rec_server.db.models import (
     ProcessingAuditEvent,
     ProcessingResult,
     ProcessingWorkflow,
+    TrackArtifact,
     UsageReservation,
 )
 from twobrain_rec_server.deletion.service import reconcile_transient_media_purges
@@ -601,7 +602,21 @@ def test_replacement_no_archive_attempt_owns_transient_media_purge(client, monke
     meeting_id = UUID(finalized["meeting"]["meeting_id"])
     media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
     workspace_id = UUID(finalized["meeting"]["workspace_id"])
-    source_keys = set(client.app_state["storage"].objects)
+
+    async def load_source_keys() -> set[str]:
+        async with client.app_state["sessionmaker"]() as db:
+            return set(
+                await db.scalars(
+                    select(TrackArtifact.storage_object_key).where(
+                        TrackArtifact.meeting_id == meeting_id,
+                        TrackArtifact.media_revision_id == media_revision_id,
+                        TrackArtifact.track_role.in_({"media", "microphone", "system"}),
+                    )
+                )
+            )
+
+    source_keys = asyncio.run(load_source_keys())
+    assert source_keys
 
     async def run() -> tuple[bool, int, bool, int, bool]:
         async with client.app_state["sessionmaker"]() as db:
@@ -722,7 +737,21 @@ def test_no_archive_hard_deadline_terminalizes_active_attempt_before_purge(clien
     meeting_id = UUID(finalized["meeting"]["meeting_id"])
     media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
     workspace_id = UUID(finalized["meeting"]["workspace_id"])
-    source_keys = set(client.app_state["storage"].objects)
+
+    async def load_source_keys() -> set[str]:
+        async with client.app_state["sessionmaker"]() as db:
+            return set(
+                await db.scalars(
+                    select(TrackArtifact.storage_object_key).where(
+                        TrackArtifact.meeting_id == meeting_id,
+                        TrackArtifact.media_revision_id == media_revision_id,
+                        TrackArtifact.track_role.in_({"media", "microphone", "system"}),
+                    )
+                )
+            )
+
+    source_keys = asyncio.run(load_source_keys())
+    assert source_keys
 
     async def run() -> tuple[int, str, str, str, bool]:
         async with client.app_state["sessionmaker"]() as db:
@@ -746,7 +775,7 @@ def test_no_archive_hard_deadline_terminalizes_active_attempt_before_purge(clien
             assert meeting is not None
             with pytest.raises(
                 store.ProcessingLifecycleBlocked,
-                match="processing_workflow_terminal",
+                match="transient_media_purge_started",
             ):
                 await _ensure_processing_fence(db, workflow)
             return (
@@ -759,9 +788,9 @@ def test_no_archive_hard_deadline_terminalizes_active_attempt_before_purge(clien
 
     assert asyncio.run(run()) == (
         1,
-        "failed_terminal",
+        "canceled",
         "audio_purged",
-        "failed_terminal",
+        "canceled",
         True,
     )
 

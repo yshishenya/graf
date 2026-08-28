@@ -6,8 +6,9 @@ from sqlalchemy import select
 
 from tests.fakes.fake_mediascribe import FakeMediaScribeClient
 from tests.fixtures.processing import create_finalized_meeting
-from twobrain_rec_server.billing.usage import reserve_free_usage
+from twobrain_rec_server.billing.usage import QuotaExceeded, reserve_free_usage
 from twobrain_rec_server.db.models import (
+    DiarizationSegment,
     ProcessingResult,
     TranscriptSegment,
     UsageLedgerEntry,
@@ -18,7 +19,11 @@ from twobrain_rec_server.domain.statuses import (
     ProcessingAvailabilityStatus,
     ProcessingStatus,
 )
-from twobrain_rec_server.mediascribe.schemas import MediaScribeResult, MediaScribeTranscriptSegment
+from twobrain_rec_server.mediascribe.schemas import (
+    MediaScribeDiarizationSegment,
+    MediaScribeResult,
+    MediaScribeTranscriptSegment,
+)
 from twobrain_rec_server.processing import store
 from twobrain_rec_server.processing.submit import (
     poll_and_import_mediascribe_result,
@@ -88,7 +93,9 @@ def test_result_import_is_idempotent_for_same_normalized_result(client) -> None:
     assert asyncio.run(import_twice()) == 1
 
 
-def test_processing_result_persists_contract_transcript_status_without_rows(client) -> None:
+def test_processing_result_persists_empty_result_without_quota_reservation(
+    client, monkeypatch
+) -> None:
     finalized = create_finalized_meeting(client, "processing-authoritative-status")
     meeting_id = UUID(finalized["meeting"]["meeting_id"])
     media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
@@ -101,6 +108,19 @@ def test_processing_result_persists_contract_transcript_status_without_rows(clie
             transcript_status=ProcessingAvailabilityStatus.AVAILABLE,
             transcript=[],
         ),
+    )
+
+    reservation_calls = 0
+
+    async def allow_submit_reservation_only(*_args, **_kwargs) -> bool:
+        nonlocal reservation_calls
+        reservation_calls += 1
+        return reservation_calls == 1
+
+    monkeypatch.setattr(
+        store,
+        "ensure_processing_usage_reservation",
+        allow_submit_reservation_only,
     )
 
     async def import_result() -> tuple[str, int]:
@@ -125,3 +145,85 @@ def test_processing_result_persists_contract_transcript_status_without_rows(clie
             return persisted.transcript_status, persisted.segment_count
 
     assert asyncio.run(import_result()) == ("available", 0)
+    assert reservation_calls == 1
+
+
+def test_quota_failure_does_not_publish_result_or_segments(client, monkeypatch) -> None:
+    finalized = create_finalized_meeting(client, "processing-quota-atomicity")
+    meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
+    workspace_id = UUID(finalized["meeting"]["workspace_id"])
+    result = MediaScribeResult(
+        external_job_id="job_quota_atomicity",
+        transcript_status=ProcessingAvailabilityStatus.AVAILABLE,
+        transcript=[
+            MediaScribeTranscriptSegment(
+                sequence=0,
+                start_seconds=0,
+                end_seconds=10,
+                text="quota fixture",
+                source_role="mic",
+            )
+        ],
+        diarization=[
+            MediaScribeDiarizationSegment(
+                sequence=0,
+                start_seconds=0,
+                end_seconds=10,
+                text="quota fixture",
+                source_role="mic",
+                speaker_label="SPEAKER_00",
+            )
+        ],
+    )
+    fake_client = FakeMediaScribeClient(
+        external_job_id="job_quota_atomicity",
+        status_sequence=[MediaScribeJobStatus.READY],
+        result=result,
+    )
+
+    async def reject_usage_commit(*_args, **_kwargs) -> int:
+        raise QuotaExceeded("processing usage reservation is unavailable")
+
+    monkeypatch.setattr(store, "_commit_processing_usage", reject_usage_commit)
+
+    async def import_result() -> tuple[str, int, int, int]:
+        async with client.app_state["sessionmaker"]() as db:
+            workflow = await store.upsert_processing_workflow(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+                workflow_id=f"processing/{media_revision_id}",
+                status=ProcessingStatus.WORKFLOW_STARTED,
+            )
+            submitted = await submit_to_mediascribe(
+                db=db,
+                settings=client.app.state.settings,
+                storage=client.app_state["storage"],
+                mediascribe_client=fake_client,
+                workflow=workflow,
+            )
+            imported = await poll_and_import_mediascribe_result(
+                db=db,
+                workflow=workflow,
+                job=submitted.job,
+                mediascribe_client=fake_client,
+            )
+            result_count = len(
+                (await db.scalars(select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id))).all()
+            )
+            transcript_count = len(
+                (await db.scalars(select(TranscriptSegment).where(TranscriptSegment.meeting_id == meeting_id))).all()
+            )
+            diarization_count = len(
+                (await db.scalars(select(DiarizationSegment).where(DiarizationSegment.meeting_id == meeting_id))).all()
+            )
+            return (
+                imported.status.value,
+                result_count,
+                transcript_count,
+                diarization_count,
+            )
+
+    assert asyncio.run(import_result()) == (ProcessingStatus.BLOCKED.value, 0, 0, 0)

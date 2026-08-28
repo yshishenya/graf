@@ -17,7 +17,7 @@
 | --- | --- | --- |
 | normalization `queued/running/publishing` | Do not create MediaScribe job; durable bounded wait | Подготавливаем запись |
 | normalization `retry_wait` | Do not submit; expose `next_attempt_at` | Countdown + «Повторить подготовку» |
-| normalization `ready` + exact validated M4A | Stage exact artifact and submit once | Processing starts |
+| normalization `ready` + exact validated M4A | Stage exact artifact and start one provider operation | Processing starts |
 | normalization `terminal` | No provider egress | Clear file/preparation error + upload another file |
 | normalization `cancelled` / deletion / supersession | No provider egress | Deleting/deleted/cancelled |
 | confirmed `external_job_id` | Skip normalization gate; poll/reconcile same job | Provider state |
@@ -26,6 +26,12 @@
 Canonical multipart fields are `Content-Type: audio/mp4` and filename
 `manual-media.m4a`. The original manual upload is not a provider source after
 this contract applies.
+
+One provider operation does not imply one HTTP attempt. If the POST response is
+lost after egress, GRAF may replay the exact same multipart envelope with the
+same canonical bytes, SHA, request fingerprint and `Idempotency-Key`. Such
+replays MUST resolve to one MediaScribe job. A new key/job is allowed only after
+a confirmed terminal provider outcome and an explicit new business attempt.
 
 For `archive_audio=false`, exact canonical bytes are transient provider input,
 not playback and not retained storage usage. A revision policy guard applies to
@@ -40,8 +46,8 @@ inside the new `normalization_pending` branch.
 
 Temporal start uses deterministic workflow id plus `REJECT_DUPLICATE`.
 `WORKFLOW_STARTED` is committed before the start RPC; running duplicate is
-reused, a closed duplicate is reconciled, and ambiguous RPC outcome remains an
-open intent for maintenance recovery.
+reused, a closed execution is replaced without changing the provider operation,
+and ambiguous RPC outcome remains an open intent for maintenance recovery.
 
 Transcript is visible only when the current result has diarization available
 with at least one diarization segment. Summary status is independent and may

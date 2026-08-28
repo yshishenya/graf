@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from typing import Any, BinaryIO
@@ -39,6 +39,7 @@ _SAFE_MACHINE_VALUE_MAX_LENGTH = 128
 _V1_TRANSCRIPTIONS_PATH = "/v1/audio/transcriptions"
 _V1_API_VERSION = "v1"
 _DOWNLOAD_ARTIFACTS = frozenset({"archive", "diarization", "summary", "transcript"})
+_RETRYABLE_CONFLICT_CODES = frozenset({"result_not_ready", "summary_not_ready"})
 
 
 class MediaScribeClientError(RuntimeError):
@@ -73,9 +74,7 @@ class MediaScribeClientError(RuntimeError):
         self.job_id = job_id
         self.error_origin = error_origin
         self.error_code = (
-            problem.code
-            if problem is not None and problem.code is not None
-            else reason_code
+            problem.code if problem is not None and problem.code is not None else reason_code
         )
         self.errors = problem.errors if problem is not None else None
         self.detail = problem.detail if problem is not None else None
@@ -95,9 +94,19 @@ class MediaScribeClient:
     api_key: str
     timeout_seconds: int = 30
     transport: httpx.AsyncBaseTransport | None = None
+    shared_http_client: httpx.AsyncClient | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
 
     @classmethod
-    def from_settings(cls, settings: Settings) -> MediaScribeClient:
+    def from_settings(
+        cls,
+        settings: Settings,
+        *,
+        reuse_connections: bool = False,
+    ) -> MediaScribeClient:
         if settings.mediascribe_base_url is None:
             raise MediaScribeClientError("blocked_config", retryable=False)
         if settings.mediascribe_api_key_file is None:
@@ -108,11 +117,26 @@ class MediaScribeClient:
             raise MediaScribeClientError("blocked_config", retryable=False) from exc
         if not api_key:
             raise MediaScribeClientError("blocked_config", retryable=False)
+        base_url = str(settings.mediascribe_base_url).rstrip("/")
+        timeout_seconds = settings.mediascribe_request_timeout_seconds
         return cls(
-            base_url=str(settings.mediascribe_base_url).rstrip("/"),
+            base_url=base_url,
             api_key=api_key,
-            timeout_seconds=settings.mediascribe_request_timeout_seconds,
+            timeout_seconds=timeout_seconds,
+            shared_http_client=(
+                httpx.AsyncClient(
+                    base_url=base_url,
+                    timeout=httpx.Timeout(timeout_seconds),
+                    headers={"X-API-Key": api_key},
+                )
+                if reuse_connections
+                else None
+            ),
         )
+
+    async def aclose(self) -> None:
+        if self.shared_http_client is not None:
+            await self.shared_http_client.aclose()
 
     async def submit_dual_track(
         self,
@@ -183,7 +207,9 @@ class MediaScribeClient:
         )
         return _parse_submit_response(response)
 
-    async def get_capabilities(self, *, request_id: str | None = None) -> MediaScribeCapabilitiesResponse:
+    async def get_capabilities(
+        self, *, request_id: str | None = None
+    ) -> MediaScribeCapabilitiesResponse:
         response = await self._request_json("GET", "/v1/capabilities", request_id=request_id)
         payload = _require_json_payload(response)
         _require_v1_contract_version(payload)
@@ -221,7 +247,9 @@ class MediaScribeClient:
                 egress_state="not_sent",
             ) from exc
 
-    async def get_job(self, external_job_id: str, *, request_id: str | None = None) -> MediaScribeJobResponse:
+    async def get_job(
+        self, external_job_id: str, *, request_id: str | None = None
+    ) -> MediaScribeJobResponse:
         response = await self._request_json(
             "GET",
             _job_path(external_job_id),
@@ -245,7 +273,9 @@ class MediaScribeClient:
                 egress_state="not_sent",
             ) from exc
 
-    async def poll_job(self, external_job_id: str, *, request_id: str | None = None) -> MediaScribePollResponse:
+    async def poll_job(
+        self, external_job_id: str, *, request_id: str | None = None
+    ) -> MediaScribePollResponse:
         response = await self._request_json(
             "GET",
             _job_path(external_job_id),
@@ -289,7 +319,9 @@ class MediaScribeClient:
             http_status=response.status_code,
         )
 
-    async def fetch_result(self, external_job_id: str, *, request_id: str | None = None) -> MediaScribeResult:
+    async def fetch_result(
+        self, external_job_id: str, *, request_id: str | None = None
+    ) -> MediaScribeResult:
         response = await self._request_json(
             "GET",
             f"{_job_path(external_job_id)}/result",
@@ -316,9 +348,6 @@ class MediaScribeClient:
                 egress_state="not_sent",
             ) from exc
 
-    async def get_result(self, external_job_id: str, *, request_id: str | None = None) -> MediaScribeResult:
-        return await self.fetch_result(external_job_id, request_id=request_id)
-
     async def get_summary(
         self,
         external_job_id: str,
@@ -332,7 +361,9 @@ class MediaScribeClient:
             _provider_job_id=external_job_id,
         )
         payload = _require_json_payload(response)
-        summary_payload = payload.get("summary") if isinstance(payload.get("summary"), dict) else payload
+        summary_payload = (
+            payload.get("summary") if isinstance(payload.get("summary"), dict) else payload
+        )
         try:
             return MediaScribeSummaryResponse.model_validate(
                 {
@@ -360,7 +391,9 @@ class MediaScribeClient:
         cursor: str | None = None,
         request_id: str | None = None,
     ) -> MediaScribeJobListResponse:
-        if cursor is not None and any(value is not None for value in (q, status, diarization, sort)):
+        if cursor is not None and any(
+            value is not None for value in (q, status, diarization, sort)
+        ):
             raise MediaScribeClientError("invalid_cursor_filters", retryable=False)
         if cursor is not None and page != 1:
             raise MediaScribeClientError("invalid_cursor_page", retryable=False)
@@ -444,14 +477,6 @@ class MediaScribeClient:
             http_status=response.status_code,
         )
 
-    async def download_artifact(
-        self,
-        download_url: str,
-        *,
-        request_id: str | None = None,
-    ) -> MediaScribeDownloadResponse:
-        return await self.download(download_url, request_id=request_id)
-
     async def _request_json(
         self,
         method: str,
@@ -514,13 +539,21 @@ class MediaScribeClient:
         if request_id:
             headers["X-Request-ID"] = request_id
         try:
-            async with httpx.AsyncClient(
-                base_url=self.base_url,
-                timeout=timeout,
-                headers=headers,
-                transport=self.transport,
-            ) as client:
-                response = await client.request(method, path, **kwargs)
+            if self.shared_http_client is not None:
+                response = await self.shared_http_client.request(
+                    method,
+                    path,
+                    headers=headers,
+                    **kwargs,
+                )
+            else:
+                async with httpx.AsyncClient(
+                    base_url=self.base_url,
+                    timeout=timeout,
+                    headers=headers,
+                    transport=self.transport,
+                ) as client:
+                    response = await client.request(method, path, **kwargs)
         except httpx.TimeoutException as exc:
             classification = classify_mediascribe_error(None, timeout=True)
             raise MediaScribeClientError(
@@ -668,7 +701,9 @@ def _extract_job_state(
     nested = data.get("job")
     nested_job = nested if isinstance(nested, dict) else {}
     job = {**nested_job, **{key: value for key, value in data.items() if key != "job"}}
-    reported_job_id = data.get("id") or data.get("job_id") or data.get("external_job_id") or nested_job.get("id")
+    reported_job_id = (
+        data.get("id") or data.get("job_id") or data.get("external_job_id") or nested_job.get("id")
+    )
     if reported_job_id is None:
         reported_job_id = expected_job_id
     if not isinstance(reported_job_id, str) or not _bounded_id_is_valid(reported_job_id):
@@ -687,7 +722,9 @@ def _extract_job_state(
 
 
 def _job_payload_for_response(data: dict[str, Any], *, external_job_id: str) -> dict[str, Any]:
-    job_id, raw_status, raw_queue_state, job = _extract_job_state(data, expected_job_id=external_job_id)
+    job_id, raw_status, raw_queue_state, job = _extract_job_state(
+        data, expected_job_id=external_job_id
+    )
     normalized = dict(job)
     normalized["id"] = job_id
     if raw_status is not None:
@@ -706,7 +743,9 @@ def _normalize_result_payload(data: dict[str, Any], *, external_job_id: str) -> 
     ):
         raise _malformed_response_error(egress_state="not_sent")
 
-    job_id, raw_status, raw_queue_state, job = _extract_job_state(data, expected_job_id=external_job_id)
+    job_id, raw_status, raw_queue_state, job = _extract_job_state(
+        data, expected_job_id=external_job_id
+    )
     normalized_job = dict(job)
     normalized_job["id"] = job_id
     normalized_job.setdefault("status", raw_status or MediaScribeProviderStatus.UPLOADED.value)
@@ -732,16 +771,15 @@ def _normalize_result_payload(data: dict[str, Any], *, external_job_id: str) -> 
         raise _malformed_response_error(egress_state="not_sent")
     if transcript_status == ProcessingAvailabilityStatus.UNAVAILABLE.value and (
         transcript_payload
-        or (
-            transcript_reason != "no_recognizable_speech"
-            and not data.get("diarization")
-        )
+        or (transcript_reason != "no_recognizable_speech" and not data.get("diarization"))
     ):
         raise _malformed_response_error(egress_state="not_sent")
 
     diarization_value = data.get("diarization")
     diarization_payload = (
-        None if diarization_value is None and "diarization" in data else _list_payload(diarization_value, field_name="diarization")
+        None
+        if diarization_value is None and "diarization" in data
+        else _list_payload(diarization_value, field_name="diarization")
     )
     normalized_diarization = (
         None
@@ -755,7 +793,9 @@ def _normalize_result_payload(data: dict[str, Any], *, external_job_id: str) -> 
             for index, item in enumerate(diarization_payload)
         ]
     )
-    acoustic_turns = _list_payload(data.get("acoustic_speaker_turns"), field_name="acoustic_speaker_turns")
+    acoustic_turns = _list_payload(
+        data.get("acoustic_speaker_turns"), field_name="acoustic_speaker_turns"
+    )
     overlaps = _list_payload(data.get("overlaps"), field_name="overlaps")
     summary_payload = data.get("summary")
     summary_status = _summary_status_for_payload(summary_payload)
@@ -822,7 +862,12 @@ def _list_payload(value: Any, *, field_name: str) -> list[dict[str, Any]]:
 def _validate_segment_payload(item: dict[str, Any], *, field_name: str) -> None:
     start = item.get("start_seconds", item.get("start"))
     end = item.get("end_seconds", item.get("end"))
-    if not _valid_number(start) or not _valid_number(end) or float(start) < 0 or float(end) <= float(start):
+    if (
+        not _valid_number(start)
+        or not _valid_number(end)
+        or float(start) < 0
+        or float(end) <= float(start)
+    ):
         raise _malformed_response_error(egress_state="not_sent")
     if not isinstance(item.get("text"), str) or not item.get("text", "").strip():
         raise _malformed_response_error(egress_state="not_sent")
@@ -831,7 +876,12 @@ def _validate_segment_payload(item: dict[str, Any], *, field_name: str) -> None:
 def _validate_interval_payload(item: dict[str, Any]) -> None:
     start = item.get("start")
     end = item.get("end")
-    if not _valid_number(start) or not _valid_number(end) or float(start) < 0 or float(end) <= float(start):
+    if (
+        not _valid_number(start)
+        or not _valid_number(end)
+        or float(start) < 0
+        or float(end) <= float(start)
+    ):
         raise _malformed_response_error(egress_state="not_sent")
 
 
@@ -881,15 +931,17 @@ def _normalize_diarization_segment(
         item,
         default_source_role=default_source_role,
     )
-    normalized["speaker_label"] = _safe_provider_token(
-        item.get("speaker_label") or item.get("speaker")
-    ) or ""
+    normalized["speaker_label"] = (
+        _safe_provider_token(item.get("speaker_label") or item.get("speaker")) or ""
+    )
     if "words" in item:
         normalized["words"] = item["words"]
     return normalized
 
 
-def _provider_status(raw_value: str | None, *, default: str | None = None) -> MediaScribeProviderStatus:
+def _provider_status(
+    raw_value: str | None, *, default: str | None = None
+) -> MediaScribeProviderStatus:
     value = raw_value if raw_value is not None else default
     if value is None:
         raise _malformed_response_error(egress_state="not_sent")
@@ -903,7 +955,9 @@ def _provider_queue_state(raw_value: str | None) -> MediaScribeProviderQueueStat
     if raw_value is None:
         return None
     try:
-        return MediaScribeProviderQueueState(_safe_provider_token(raw_value) or "unknown_provider_state")
+        return MediaScribeProviderQueueState(
+            _safe_provider_token(raw_value) or "unknown_provider_state"
+        )
     except ValueError as exc:
         raise _malformed_response_error(egress_state="not_sent") from exc
 
@@ -933,12 +987,12 @@ def _error_from_response(
 ) -> MediaScribeClientError:
     problem = _parse_problem_details(response)
     classification = classify_mediascribe_error(response.status_code)
-    retryable = (
+    provider_retryable = (
         problem.retryable
         if problem is not None and problem.retryable is not None
         else headers.error_retryable
         if headers.error_retryable is not None
-        else classification.retryable
+        else None
     )
     reason_code = (
         _safe_machine_value(problem.code)
@@ -947,8 +1001,20 @@ def _error_from_response(
         if headers.error_code is not None
         else classification.reason_code
     )
+    if response.status_code == 409:
+        # 409 is overloaded by the v1 contract: only explicit not-ready
+        # machine codes are safe to retry. Unknown or terminal conflicts must
+        # fail closed even if a proxy/provider omitted the Problem Details.
+        retryable = (
+            reason_code in _RETRYABLE_CONFLICT_CODES
+            and provider_retryable is not False
+        )
+    else:
+        retryable = classification.retryable and provider_retryable is not False
     request_id = headers.request_id or (problem.request_id if problem is not None else None)
-    job_id = problem.job_id if problem is not None and problem.job_id is not None else fallback_job_id
+    job_id = (
+        problem.job_id if problem is not None and problem.job_id is not None else fallback_job_id
+    )
     error_origin = (
         problem.error_origin
         if problem is not None and problem.error_origin is not None
@@ -985,7 +1051,9 @@ def _parse_problem_details(response: httpx.Response) -> MediaScribeProblemDetail
     candidate: dict[str, Any] = {
         "status": decoded.get("status") if isinstance(decoded.get("status"), int) else None,
         "code": _safe_machine_value(decoded.get("code")),
-        "retryable": decoded.get("retryable") if isinstance(decoded.get("retryable"), bool) else None,
+        "retryable": decoded.get("retryable")
+        if isinstance(decoded.get("retryable"), bool)
+        else None,
         "request_id": _safe_request_id(decoded.get("request_id")),
         "job_id": _safe_opaque_id(decoded.get("job_id")),
         "error_origin": _safe_machine_value(decoded.get("error_origin")),
@@ -1008,9 +1076,13 @@ def _response_headers(response: httpx.Response) -> MediaScribeResponseHeaders:
     location = _safe_provider_location(response.headers.get("Location"))
     job_status = _safe_provider_token(response.headers.get("X-Job-Status"))
     queue_state = _safe_provider_token(response.headers.get("X-Queue-State"))
-    error_code = _safe_machine_value(response.headers.get("X-Job-Error-Code"))
+    error_code = _safe_machine_value(
+        response.headers.get("X-Job-Error-Code") or response.headers.get("X-Error-Code")
+    )
     error_origin = _safe_machine_value(response.headers.get("X-Job-Error-Origin"))
-    error_retryable = _parse_bool_header(response.headers.get("X-Job-Retryable"))
+    error_retryable = _parse_bool_header(
+        response.headers.get("X-Job-Retryable") or response.headers.get("X-Error-Retryable")
+    )
     raw_headers: dict[str, str] = {}
     for header_name in (
         "Location",
@@ -1024,6 +1096,8 @@ def _response_headers(response: httpx.Response) -> MediaScribeResponseHeaders:
         "X-Job-Error-Code",
         "X-Job-Error-Origin",
         "X-Job-Retryable",
+        "X-Error-Code",
+        "X-Error-Retryable",
         "Content-Type",
     ):
         value = response.headers.get(header_name)
@@ -1117,7 +1191,11 @@ def _safe_text(value: Any) -> str | None:
 
 def _safe_machine_value(value: Any) -> str | None:
     candidate = _response_string(value, max_length=_SAFE_MACHINE_VALUE_MAX_LENGTH)
-    return candidate if candidate is not None and _SAFE_PROVIDER_VALUE_RE.fullmatch(candidate) else None
+    return (
+        candidate
+        if candidate is not None and _SAFE_PROVIDER_VALUE_RE.fullmatch(candidate)
+        else None
+    )
 
 
 def _safe_provider_token(value: Any) -> str | None:
@@ -1148,7 +1226,14 @@ def _safe_provider_location(value: Any) -> str | None:
     if not isinstance(value, str) or not value or len(value) > 1024:
         return None
     parsed = urlsplit(value)
-    if parsed.scheme or parsed.netloc or parsed.query or parsed.fragment or parsed.username or parsed.password:
+    if (
+        parsed.scheme
+        or parsed.netloc
+        or parsed.query
+        or parsed.fragment
+        or parsed.username
+        or parsed.password
+    ):
         return None
     path = parsed.path
     if not path.startswith("/v1/"):
@@ -1200,7 +1285,11 @@ def _safe_nonnegative_int(value: Any) -> int | None:
 
 
 def _valid_number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value))
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(float(value))
+    )
 
 
 def _parse_nonnegative_header(value: str | None) -> int | None:
@@ -1263,7 +1352,7 @@ def _read_media_probe(media_file: BinaryIO, max_bytes: int = 64) -> bytes:
 def _safe_media_content_type(content_type: str | None, media_bytes: bytes) -> str:
     if content_type:
         normalized = content_type.split(";", 1)[0].strip().lower()
-        if normalized and normalized != "application/octet-stream":
+        if normalized in _MEDIA_TYPE_EXTENSION_BY_CONTENT_TYPE:
             if normalized in {"audio/x-m4a", "audio/m4a"}:
                 return "audio/mp4"
             return normalized

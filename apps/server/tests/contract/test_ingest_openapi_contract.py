@@ -29,11 +29,7 @@ def test_normalization_remains_internal_to_existing_accepted_ingest_routes(
         "/playback/retry",
     )
 
-    assert not any(
-        fragment in path
-        for path in paths
-        for fragment in forbidden_mutation_fragments
-    )
+    assert not any(fragment in path for path in paths for fragment in forbidden_mutation_fragments)
     assert set(paths["/api/v1/media-uploads"]) == {"post"}
     assert set(paths["/api/v1/upload-sessions/{session_id}/finalize"]) == {"post"}
     assert set(paths["/api/v1/internal/processing/pickup"]) == {"post"}
@@ -67,6 +63,7 @@ def test_v5_integration_document_separates_active_wav_from_historical_dual_drain
     assert "## Historical dual compatibility drain" in document
     assert "`initial_mixed_recording`" in document
     assert "cannot be selected by a new v5 writer" in document
+    assert "GET /jobs/" not in document
 
 
 def test_happy_path_contract_exposes_server_mediated_ingest(client: TestClient) -> None:
@@ -101,7 +98,9 @@ def test_happy_path_contract_exposes_server_mediated_ingest(client: TestClient) 
             content=data,
         )
         assert part_response.status_code == 200
-        uploaded_tracks.append(track_descriptor(role, len(data)) | {"sha256": digest, "byte_length": len(data)})
+        uploaded_tracks.append(
+            track_descriptor(role, len(data)) | {"sha256": digest, "byte_length": len(data)}
+        )
 
     finalize_response = client.post(
         f"/api/v1/upload-sessions/{session['session_id']}/finalize",
@@ -119,6 +118,7 @@ def test_happy_path_contract_exposes_server_mediated_ingest(client: TestClient) 
 
 def test_finalize_contract_exposes_processing_start_when_enabled(client: TestClient) -> None:
     client.app.state.settings.processing_enabled = True
+    client.app.state.settings.playback_normalization_enabled = True
     client.app.state.temporal_client = FakeTemporalClient()
     meeting_response = client.post(
         "/api/v1/meetings",
@@ -149,7 +149,9 @@ def test_finalize_contract_exposes_processing_start_when_enabled(client: TestCli
             content=data,
         )
         assert part_response.status_code == 200
-        uploaded_tracks.append(track_descriptor(role, len(data)) | {"sha256": digest, "byte_length": len(data)})
+        uploaded_tracks.append(
+            track_descriptor(role, len(data)) | {"sha256": digest, "byte_length": len(data)}
+        )
 
     finalize_response = client.post(
         f"/api/v1/upload-sessions/{session['session_id']}/finalize",
@@ -164,7 +166,11 @@ def test_finalize_contract_exposes_processing_start_when_enabled(client: TestCli
     assert finalized["mediascribe_job_created"] is False
 
 
-def test_manual_media_upload_contract_is_server_mediated_without_dependency_leaks(client: TestClient) -> None:
+def test_manual_media_upload_contract_is_server_mediated_without_dependency_leaks(
+    client: TestClient,
+) -> None:
+    client.app.state.settings.playback_normalization_enabled = True
+    client.app.state.settings.playback_normalization_automatic_dispatch_enabled = True
     schema = client.app.openapi()
     media_upload = schema["paths"]["/api/v1/media-uploads"]["post"]
     request_body = media_upload["requestBody"]["content"]
@@ -192,7 +198,9 @@ def test_manual_media_upload_contract_is_server_mediated_without_dependency_leak
     assert "external_job_id" not in str(body)
 
 
-def test_cabinet_manual_media_upload_contract_is_multipart_and_csrf_safe(client: TestClient) -> None:
+def test_cabinet_manual_media_upload_contract_is_multipart_and_csrf_safe(
+    client: TestClient,
+) -> None:
     schema = client.app.openapi()
     operation = schema["paths"]["/api/v1/cabinet/media-uploads"]["post"]
     request_body = operation["requestBody"]["content"]

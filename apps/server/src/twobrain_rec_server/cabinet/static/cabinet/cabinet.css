@@ -699,7 +699,7 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
   background: var(--warning-surface);
 }
 .processing-recovery[data-state="ready"] { border-color: var(--success-border); background: var(--success-surface); }
-.processing-recovery[data-state="unknown"],
+.processing-recovery[data-state="unknown"] { border-color: var(--warning-border); background: var(--warning-surface); }
 .processing-recovery[data-state="terminal"] { border-color: var(--danger-border); background: var(--danger-surface); }
 .processing-recovery-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .processing-recovery-header > div { min-width: 0; }

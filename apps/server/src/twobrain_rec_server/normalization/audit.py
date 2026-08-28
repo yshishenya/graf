@@ -25,6 +25,7 @@ NORMALIZATION_AUDIT_EVENT_TYPES = frozenset(
         "playback_normalization_requested",
         "playback_normalization_started",
         "playback_normalization_retried",
+        "playback_normalization_manual_retry_requested",
         "playback_normalization_retry_cycle_exhausted",
         "playback_normalization_incident_recorded",
         "playback_normalization_legacy_source_unavailable",
@@ -80,6 +81,7 @@ ALLOWED_METADATA_KEYS = frozenset(
         "byte_bucket",
         "full_decode_passed",
         "moov_before_mdat",
+        "normalization_mode",
         "recovered_source",
         "cleanup_result",
     }
@@ -100,6 +102,7 @@ CLEANUP_RESULTS = frozenset(
         "deferred_retry",
     }
 )
+NORMALIZATION_MODES = frozenset({"tolerant"})
 STATE_VALUES = frozenset(state.value for state in JobState) | frozenset(
     state.value for state in BackfillState
 )
@@ -167,6 +170,7 @@ def _safe_value(key: str, value: object) -> str | int | bool:
         "planned_action": frozenset(action.value for action in PlannedAction),
         "duration_bucket": DURATION_BUCKETS,
         "byte_bucket": BYTE_BUCKETS,
+        "normalization_mode": NORMALIZATION_MODES,
         "cleanup_result": CLEANUP_RESULTS,
     }
     if value not in allowed_values[key]:
@@ -187,6 +191,9 @@ def _validate_event_requirements(event_type: str, metadata: Mapping[str, object]
         ),
         "playback_normalization_failed": frozenset({"reason_code"}),
         "playback_normalization_cancelled": frozenset({"reason_code"}),
+        "playback_normalization_manual_retry_requested": frozenset(
+            {"state", "reason_code"}
+        ),
         "playback_normalization_temp_cleaned": frozenset({"cleanup_result"}),
         "playback_normalization_incident_recorded": frozenset(
             {"reason_code", "cooldown_cycle"}
