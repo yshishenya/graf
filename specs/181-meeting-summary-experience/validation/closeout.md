@@ -435,3 +435,21 @@ root-bundle, включать generation или запускать private real-
 - Проверка не меняла Langfuse project state, production data или сохранённые
   встречи; private real-record generation, prompt promotion, release и deploy
   остаются заблокированными указанными выше project/runtime gates.
+
+## Final verification after fresh master sync
+
+Дата: 2026-08-29
+
+- Свежий `origin/master` (`92dd589f`) слит в feature-ветку; конфликты в
+  processing-status test и ingest OpenAPI разрешены с сохранением актуальных
+  контрактов master и Feature 181.
+- Feature 181 focused PostgreSQL suite после merge: `104 passed`, 2 ожидаемых
+  warnings, exit 0; isolated container removed.
+- `infra/scripts/ci-local.sh --fast` после merge: `1340 passed`, server lint и
+  Python compile PASS, legacy audio architecture guard PASS; macOS Swift
+  checks intentionally skipped by the fast lane.
+- `langfuse==4.15.1` импортируется из project environment; `alembic heads`
+  возвращает единственную head `0085_merge_summary_mediascribe_processing_recovery`.
+- Production data, Langfuse project state и сохранённые встречи не изменялись;
+  real-record generation, prompt promotion, release и deploy остаются
+  заблокированными project/runtime gates.

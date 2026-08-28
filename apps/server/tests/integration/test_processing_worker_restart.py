@@ -456,6 +456,7 @@ def test_stale_starting_intent_is_reconciled_on_pickup(client) -> None:
 
 
 def test_stale_start_intent_is_reconciled_without_another_request(client) -> None:
+    client.app.state.settings.processing_enabled = True
     finalized = create_finalized_meeting(client, "worker-restart-maintenance-start")
     meeting_id = UUID(finalized["meeting"]["meeting_id"])
     media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
@@ -714,6 +715,7 @@ def test_superseded_crash_intent_does_not_start_a_newer_disabled_revision(client
 
 
 def test_closed_known_temporal_run_recovers_same_provider_job(client) -> None:
+    client.app.state.settings.processing_enabled = True
     finalized = create_finalized_meeting(client, "worker-restart-closed-known-run")
     meeting_id = UUID(finalized["meeting"]["meeting_id"])
     media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
