@@ -206,6 +206,17 @@ rollback_receipt: backup and restore rehearsal pass; guarded rollback not requir
 | Release closeout inventory | The current repository master is `f0916254`; the deployed production baseline is the already closed `v2026.08.23.6`. The FAQ correction still has no tag, GitHub Release or production receipt. | PARTIAL-METADATA; T070 remains open for the new exact-SHA `v2026.08.23.7` tag, Russian GitHub Release and metadata-only receipts. |
 | Release closeout drafts | Obsolete `v2026.08.23.5` drafts were removed after the master update. The new release notes and production receipt will be written only after the exact candidate SHA, full CI/CD and public readback are proven. | PASS-DOCS locally; T070 remains open and no release claim is made yet. |
 
+## Upcoming event end-boundary revalidation — 2026-08-28
+
+| Check | Result | Interpretation |
+|---|---|---|
+| Server end-boundary regression | `bash apps/server/scripts/run_local_postgres_tests.sh -k calendar -q`: 399 passed, 3142 deselected; disposable PostgreSQL container removed. | PASS-SYNTHETIC; an event remains eligible while `ends_at` is later than the server's current time, and an already-ended event is excluded. This covers the shared upcoming service and the desktop endpoint. |
+| Browser and embedded rendering | Local synthetic runtime `/meetings` and `/desktop/meetings` both rendered the compact upcoming block with visible rows and a metadata-only `data-calendar-upcoming-refresh-at` value. | OBSERVED-RUNTIME local synthetic only; both surfaces use the same server projection and no private event content was retained. |
+| Client refresh behavior | `cabinet.js` parses the server-provided earliest visible `ends_at` and schedules a bounded page reload one second after it. `node --check` and `git diff --check` passed. | PASS-SOURCE; the next page read removes the ended event using server truth. No client-side event mutation or calendar provider call is introduced. |
+| macOS boundary regression | `swift test --package-path apps/macos --disable-swift-testing --filter 'Calendar|DesktopCalendarReminder|DesktopUploadClient|CaptureControl|DesktopCabinet'`: 258 passed, 0 failures. | PASS-SYNTHETIC; native reminders, calendar context and manual Record/Stop boundary remain green. |
+| Fast local lane | `infra/scripts/ci-local.sh --fast`: 1249 passed; lint and Python compile passed. | PASS-FAST; full CI was intentionally not run. |
+| Release identity | The patch is rebased on current `origin/master` `65b30d3cd8ec5eae2b316bcd03b2ed6918381b8c` and remains uncommitted in the isolated release worktree. | PARTIAL-RELEASE; commit, merge and deployment gates are not run, so production behavior is not claimed. |
+
 Never write token values, account email, event title, meeting URL, attendee
 identity, raw API response, audio or transcript into this file.
 
