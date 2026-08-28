@@ -2116,7 +2116,11 @@ def previous_recurring_meeting_readiness(
     )
     if notes_ready:
         return PreviousRecurringMeetingReadiness.NOTES_READY
-    if transcript_available(result):
+    if transcript_available(
+        result,
+        media_revision_id=result.media_revision_id if result is not None else None,
+        processing_workflow_id=result.processing_workflow_id if result is not None else None,
+    ):
         return PreviousRecurringMeetingReadiness.TRANSCRIPT_READY
     if review_status(meeting, result=result, workflow=None) in {
         "uploading",
@@ -2197,7 +2201,6 @@ def review_status(
             media_revision_id=media_revision_id,
             processing_workflow_id=processing_workflow_id,
         )
-        and (workflow is None or result.processing_workflow_id == workflow.id)
         and result_is_terminal_input(result)
     ):
         return "failed"

@@ -644,6 +644,7 @@ async def list_shared_with_me_meetings(
                     in {
                         ProcessingStatus.BLOCKED,
                         ProcessingStatus.BLOCKED_UNKNOWN,
+                        ProcessingStatus.FAILED_RETRYABLE,
                         ProcessingStatus.FAILED_TERMINAL,
                         ProcessingStatus.CANCELED,
                     }

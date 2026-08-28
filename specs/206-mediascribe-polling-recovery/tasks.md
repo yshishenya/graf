@@ -32,7 +32,9 @@
 - T001–T002 → T003 → T004.
 - T005–T006 независимы от T001–T004 по write scope, но интегрируются до closeout.
 - T007–T009 после backend semantics.
-- T010–T012 после всех изменений.
+- T014–T015 дополняют media-recovery после T001–T009.
+- T025 → T026 после backend/status semantics.
+- T010–T012 после T001–T009, T013–T015 и T025–T026.
 
 ## Implementation Strategy
 

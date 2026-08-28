@@ -608,7 +608,7 @@ async def current_outcome_set(
     )
     if outcome is None:
         return None
-    if outcome.revision_state not in (None, "accepted"):
+    if outcome.revision_state != "accepted":
         return None
     result = await db.scalar(
         select(ProcessingResult).where(

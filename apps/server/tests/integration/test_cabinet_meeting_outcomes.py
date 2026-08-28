@@ -272,6 +272,29 @@ def test_unpinned_current_outcome_is_hidden_after_lineage_rollout(client) -> Non
     assert outcome_hash is None
 
 
+def test_unaccepted_current_outcome_is_not_a_runtime_fallback(client) -> None:
+    meeting_id = create_outcome_ready_meeting(client, "unaccepted-outcome-runtime-fallback")
+    service = _service_module()
+    asyncio.run(_generate_and_accept(client, meeting_id, service))
+
+    async def clear_revision_state_and_read() -> object | None:
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.get(Meeting, meeting_id)
+            assert meeting is not None and meeting.current_outcome_set_id is not None
+            outcome = await db.get(MeetingOutcomeSet, meeting.current_outcome_set_id)
+            assert outcome is not None
+            outcome.revision_state = None
+            await db.commit()
+            return await current_outcome_set(
+                db,
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                processing_result_id=None,
+            )
+
+    assert asyncio.run(clear_revision_state_and_read()) is None
+
+
 def test_cabinet_embedded_route_renders_stored_outcome_categories(client) -> None:
     meeting_id = create_outcome_ready_meeting(client)
     service = _service_module()

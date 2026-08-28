@@ -84,6 +84,7 @@ from twobrain_rec_server.domain.statuses import (
     DeletionState,
     LifecycleAuditOutcome,
     OutcomeLifecycleState,
+    ProcessingStatus,
     TrackRole,
 )
 from twobrain_rec_server.normalization.audit import add_normalization_audit_event
@@ -95,7 +96,10 @@ from twobrain_rec_server.normalization.statuses import (
     ensure_job_transition,
 )
 from twobrain_rec_server.processing.fences import ensure_deletion_fence
-from twobrain_rec_server.processing.lifecycle import MEDIA_REVISION_DELETION_SAFE_REASON
+from twobrain_rec_server.processing.lifecycle import (
+    MEDIA_REVISION_DELETION_SAFE_REASON,
+    TERMINAL_PROCESSING_STATUSES,
+)
 from twobrain_rec_server.processing.store import release_processing_usage_reservation
 
 TERMINAL_REQUEST_STATES = {
@@ -923,6 +927,19 @@ async def reconcile_transient_media_purges(
     )
     purged = 0
     for workflow in rows:
+        try:
+            workflow_status = ProcessingStatus(workflow.status)
+        except ValueError:
+            workflow_status = None
+        if workflow_status not in TERMINAL_PROCESSING_STATUSES:
+            workflow.status = ProcessingStatus.FAILED_TERMINAL.value
+            workflow.retry_class = "terminal"
+            workflow.last_reason_code = "audio_purged"
+            workflow.next_attempt_at = None
+            workflow.next_attempt_source = None
+            workflow.manual_claimed_at = None
+            workflow.manual_claimed_by = None
+            workflow.ended_at = now
         workflow.transient_state = "purge_due"
         artifacts = list(
             await db.scalars(

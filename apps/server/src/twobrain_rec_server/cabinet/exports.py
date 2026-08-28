@@ -13,7 +13,7 @@ from openpyxl import Workbook
 from openpyxl.cell import WriteOnlyCell
 from openpyxl.styles import Alignment, Font
 from openpyxl.utils import get_column_letter
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.problems import ProblemDetail
@@ -463,15 +463,8 @@ async def _load_summary_revision(
             MeetingOutcomeSet.meeting_id == meeting.id,
             MeetingOutcomeSet.processing_result_id == result.id,
             MeetingOutcomeSet.lifecycle_state == "active",
-            or_(
-                MeetingOutcomeSet.revision_state.is_(None),
-                MeetingOutcomeSet.revision_state == "accepted",
-            ),
-            (
-                MeetingOutcomeSet.id == meeting.current_outcome_set_id
-                if meeting.current_outcome_set_id is not None
-                else True
-            ),
+            MeetingOutcomeSet.revision_state == "accepted",
+            MeetingOutcomeSet.id == meeting.current_outcome_set_id,
         )
     )
     if outcome_set is None:

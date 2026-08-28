@@ -1008,6 +1008,32 @@ def test_watchdog_status_is_consistent_in_meeting_list_projection() -> None:
     assert row.content_readiness_label == "Результат ещё не подтверждён · откройте встречу для проверки"
 
 
+def test_previous_recurring_readiness_keeps_current_lineaged_transcript_ready() -> None:
+    meeting = _meeting()
+    result = ProcessingResult(
+        id=uuid4(),
+        meeting_id=meeting.id,
+        workspace_id=meeting.workspace_id,
+        media_revision_id=uuid4(),
+        mediascribe_job_id=uuid4(),
+        processing_workflow_id=uuid4(),
+        status=ProcessingResultStatus.IMPORTED.value,
+        transcript_status=ProcessingAvailabilityStatus.AVAILABLE.value,
+        diarization_status=ProcessingAvailabilityStatus.AVAILABLE.value,
+        summary_status="not_requested",
+        segment_count=1,
+        diarization_segment_count=1,
+    )
+    assert (
+        view_models.previous_recurring_meeting_readiness(
+            meeting,
+            result=result,
+            outcome_set=None,
+        ).value
+        == "transcript_ready"
+    )
+
+
 def test_processing_state_uses_no_speech_and_invalid_audio_copy_from_result() -> None:
     no_speech = ProcessingResult(
         id=uuid4(),

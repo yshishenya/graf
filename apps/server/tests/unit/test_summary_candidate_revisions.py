@@ -130,6 +130,32 @@ def test_latest_processing_result_prefers_version_over_import_time(client) -> No
     assert store_id == newer_id
 
 
+def test_latest_processing_result_uses_one_database_snapshot() -> None:
+    class ScalarSession:
+        def __init__(self) -> None:
+            self.statements = []
+
+        async def scalar(self, statement):
+            self.statements.append(statement)
+            return None
+
+    async def run():
+        db = ScalarSession()
+        await latest_store_result(
+            db,
+            workspace_id=uuid4(),
+            meeting_id=uuid4(),
+            media_revision_id=uuid4(),
+        )
+        return db.statements
+
+    statements = asyncio.run(run())
+    assert len(statements) == 1
+    sql = str(statements[0].compile(compile_kwargs={"literal_binds": True}))
+    assert "processing_results.processing_workflow_id = (SELECT processing_workflows.id" in sql
+    assert "processing_workflows.attempt_ordinal DESC" in sql
+
+
 def test_invalid_pinned_prompt_is_terminal_and_not_retryable() -> None:
     attempt = MeetingOutcomeGenerationAttempt(
         prompt_name="graf/meeting-outcome/auto",

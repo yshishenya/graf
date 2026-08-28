@@ -34,6 +34,7 @@ from twobrain_rec_server.processing.fences import (
     lock_meeting_fence,
     meeting_is_deleted_or_deleting,
 )
+from twobrain_rec_server.processing.lifecycle import TERMINAL_PROCESSING_STATUSES
 from twobrain_rec_server.processing.reasons import (
     BLOCKED_AUDIO_TOO_LARGE,
     BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN,
@@ -176,6 +177,11 @@ async def _ensure_processing_fence(
     )
     if current_workflow is None or current_workflow.id != workflow.id:
         raise ProcessingLifecycleBlocked("processing_workflow_superseded")
+    current_status = await db.scalar(
+        select(ProcessingWorkflow.status).where(ProcessingWorkflow.id == current_workflow.id)
+    )
+    if current_status in {status.value for status in TERMINAL_PROCESSING_STATUSES}:
+        raise ProcessingLifecycleBlocked("processing_workflow_terminal")
     if is_legacy_lineage(
         media_revision_id=workflow.media_revision_id,
         source_fingerprint=workflow.source_fingerprint,

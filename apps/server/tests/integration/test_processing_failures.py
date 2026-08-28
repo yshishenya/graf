@@ -29,6 +29,7 @@ from twobrain_rec_server.mediascribe.schemas import MediaScribePollResponse, Med
 from twobrain_rec_server.processing import store
 from twobrain_rec_server.processing.status import get_content_safe_processing_status
 from twobrain_rec_server.processing.submit import (
+    _ensure_processing_fence,
     poll_and_import_mediascribe_result,
     submit_to_mediascribe,
 )
@@ -470,7 +471,7 @@ def test_stale_terminal_completion_cannot_regress_a_replacement_attempt(client) 
     assert asyncio.run(run()) == ("starting", "starting", "active", 0, "1:canceled")
 
 
-def test_desktop_sync_projects_legacy_processed_terminal_input_as_failed(client) -> None:
+def test_desktop_sync_projects_persisted_processed_terminal_input_as_failed(client) -> None:
     local_recording_id = "failure-desktop-sync-terminal-input"
     finalized = create_finalized_meeting(client, local_recording_id)
     meeting_id = UUID(finalized["meeting"]["meeting_id"])
@@ -644,9 +645,10 @@ def test_replacement_no_archive_attempt_owns_transient_media_purge(client, monke
 
             reserve_quota = store._reserve_processing_attempt_quota
 
-            async def expire_while_reserving(*_args, **_kwargs) -> bool:
+            async def expire_while_reserving(*args, **kwargs) -> bool:
+                admitted = await reserve_quota(*args, **kwargs)
                 workflow.transient_hard_deadline = datetime.now(UTC)
-                return True
+                return admitted
 
             monkeypatch.setattr(store, "_reserve_processing_attempt_quota", expire_while_reserving)
             raced_creation = await store.create_processing_attempt(
@@ -655,6 +657,14 @@ def test_replacement_no_archive_attempt_owns_transient_media_purge(client, monke
                 meeting_id=meeting_id,
             )
             assert raced_creation.result == "source_expired"
+            raced_reservation = await db.scalar(
+                select(UsageReservation).where(
+                    UsageReservation.workspace_id == workspace_id,
+                    UsageReservation.idempotency_key == f"processing:{media_revision_id}",
+                )
+            )
+            assert raced_reservation is not None
+            assert raced_reservation.state == "released"
             monkeypatch.setattr(store, "_reserve_processing_attempt_quota", reserve_quota)
             workflow.transient_hard_deadline = datetime.now(UTC) + timedelta(hours=1)
             await db.commit()
@@ -699,6 +709,50 @@ def test_replacement_no_archive_attempt_owns_transient_media_purge(client, monke
             )
 
     assert asyncio.run(run()) == (True, 0, True, 1, True)
+
+
+def test_no_archive_hard_deadline_terminalizes_active_attempt_before_purge(client) -> None:
+    finalized = create_finalized_meeting(
+        client,
+        "failure-no-archive-active-hard-deadline",
+        archive_audio=False,
+    )
+    meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
+    workspace_id = UUID(finalized["meeting"]["workspace_id"])
+    source_keys = set(client.app_state["storage"].objects)
+
+    async def run() -> tuple[int, str, str, bool]:
+        async with client.app_state["sessionmaker"]() as db:
+            workflow, _job = await _submitted_job(
+                db,
+                workspace_id,
+                meeting_id,
+                media_revision_id,
+                archive_audio=False,
+            )
+            deadline = datetime.now(UTC)
+            workflow.transient_hard_deadline = deadline
+            await db.commit()
+            purged = await reconcile_transient_media_purges(
+                db,
+                storage=client.app_state["storage"],
+                now=deadline,
+            )
+            await db.refresh(workflow)
+            with pytest.raises(
+                store.ProcessingLifecycleBlocked,
+                match="processing_workflow_terminal",
+            ):
+                await _ensure_processing_fence(db, workflow)
+            return (
+                purged,
+                workflow.status,
+                workflow.last_reason_code or "",
+                source_keys.isdisjoint(client.app_state["storage"].objects),
+            )
+
+    assert asyncio.run(run()) == (1, "failed_terminal", "audio_purged", True)
 
 
 def test_worker_activity_persists_blocked_config_when_mediascribe_is_unconfigured(client, monkeypatch) -> None:

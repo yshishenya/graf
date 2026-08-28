@@ -1020,6 +1020,12 @@ async def create_processing_attempt(
         and current.transient_hard_deadline is not None
         and current.transient_hard_deadline <= datetime.now(UTC)
     ):
+        await release_processing_usage_reservation(
+            db,
+            workspace_id=workspace_id,
+            media_revision_id=media_revision.id,
+            meeting_id=meeting_id,
+        )
         return ProcessingAttemptCreation(
             result="source_expired",
             workflow=current,
@@ -2773,20 +2779,25 @@ async def latest_processing_result(
     meeting_id: UUID,
     media_revision_id: UUID | None = None,
 ) -> ProcessingResult | None:
-    workflow = await get_processing_workflow(
-        db,
-        workspace_id=workspace_id,
-        meeting_id=meeting_id,
-        media_revision_id=media_revision_id,
+    latest_workflow_id = select(ProcessingWorkflow.id).where(
+        ProcessingWorkflow.workspace_id == workspace_id,
+        ProcessingWorkflow.meeting_id == meeting_id,
+        ProcessingWorkflow.purpose == "transcription",
     )
-    if workflow is None:
-        return None
+    latest_workflow_id = latest_workflow_id.where(
+        ProcessingWorkflow.media_revision_id.is_(None)
+        if media_revision_id is None
+        else ProcessingWorkflow.media_revision_id == media_revision_id
+    ).order_by(
+        ProcessingWorkflow.attempt_ordinal.desc(),
+        ProcessingWorkflow.created_at.desc(),
+    ).limit(1).scalar_subquery()
     return await db.scalar(
         effective_processing_result_query(
             workspace_id=workspace_id,
             meeting_id=meeting_id,
             media_revision_id=media_revision_id,
-        ).where(ProcessingResult.processing_workflow_id == workflow.id)
+        ).where(ProcessingResult.processing_workflow_id == latest_workflow_id)
     )
 
 
