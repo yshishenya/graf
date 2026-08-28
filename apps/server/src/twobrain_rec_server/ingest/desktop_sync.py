@@ -188,6 +188,13 @@ def _status_value(status: object) -> str:
     return str(getattr(status, "value", status))
 
 
+def _processing_status(status: object) -> ProcessingStatus:
+    try:
+        return ProcessingStatus(_status_value(status))
+    except ValueError:
+        return ProcessingStatus.BLOCKED
+
+
 def _transcript_artifact_available(result: ProcessingResult | None) -> bool:
     return bool(
         result is not None
@@ -745,9 +752,9 @@ async def get_desktop_recording_sync_state(
     effective_processing_status = (
         ProcessingStatus.FAILED_TERMINAL
         if terminal_input_result
-        else ProcessingStatus(review_workflow.status)
+        else _processing_status(review_workflow.status)
         if review_workflow is not None
-        else ProcessingStatus(_status_value(meeting.processing_status))
+        else _processing_status(meeting.processing_status)
     )
     processing_conflict = _processing_conflict(effective_processing_status)
     review_status = _desktop_review_status(

@@ -407,17 +407,8 @@ class MediaScribeResult(MediaScribeModel):
             raise ValueError("unsupported_transcript_status")
         return self
 
-    @model_validator(mode="before")
-    @classmethod
-    def infer_legacy_transcript_status(cls, data: Any) -> Any:
-        if not isinstance(data, dict):
-            return data
-        if data.get("transcript_status") is None and data.get("transcript_reason") is None and data.get("transcript"):
-            return {**data, "transcript_status": ProcessingAvailabilityStatus.AVAILABLE}
-        return data
-
     @model_validator(mode="after")
-    def infer_legacy_summary_status(self) -> MediaScribeResult:
+    def derive_summary_status(self) -> MediaScribeResult:
         if self.summary is None or self.summary_status != SummaryStatus.NOT_REQUESTED:
             return self
         mapped = {

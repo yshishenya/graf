@@ -18,6 +18,7 @@ from twobrain_rec_server.processing.audit import safe_audit_metadata
 def test_result_normalization_maps_roles_and_digest_is_stable() -> None:
     result = MediaScribeResult(
         external_job_id="job_result",
+        transcript_status=ProcessingAvailabilityStatus.AVAILABLE,
         transcript=[
             MediaScribeSegment(
                 sequence=0, start_seconds=0, end_seconds=1, text="hello", source_role="microphone"
@@ -80,6 +81,7 @@ def test_word_item_requires_word_and_ignores_provider_extensions() -> None:
 def test_missing_single_track_roles_normalize_to_mixed() -> None:
     result = MediaScribeResult(
         external_job_id="job_single_role",
+        transcript_status=ProcessingAvailabilityStatus.AVAILABLE,
         transcript=[MediaScribeSegment(sequence=0, start_seconds=0, end_seconds=1, text="hello")],
         diarization=[
             MediaScribeDiarizationSegment(
@@ -121,6 +123,7 @@ def test_result_schema_rejects_unbounded_attribution_reason_code() -> None:
 def test_result_normalization_degrades_non_positive_timing() -> None:
     result = MediaScribeResult(
         external_job_id="job_bad",
+        transcript_status=ProcessingAvailabilityStatus.AVAILABLE,
         transcript=[
             MediaScribeSegment(
                 sequence=0, start_seconds=2, end_seconds=1, text="bad", source_role="mic"
@@ -137,6 +140,7 @@ def test_result_normalization_degrades_non_positive_timing() -> None:
 def test_result_normalization_degrades_impossible_provider_chronology() -> None:
     result = MediaScribeResult(
         external_job_id="job_chronology",
+        transcript_status=ProcessingAvailabilityStatus.AVAILABLE,
         transcript=[
             MediaScribeSegment(
                 sequence=0,
@@ -221,6 +225,7 @@ def test_provider_turns_survive_when_raw_transcript_is_unavailable() -> None:
 def test_result_normalization_detects_tiny_unknown_and_duplicate_text() -> None:
     result = MediaScribeResult(
         external_job_id="job_synthetic",
+        transcript_status=ProcessingAvailabilityStatus.AVAILABLE,
         transcript=[
             MediaScribeSegment(
                 sequence=0,
@@ -297,6 +302,7 @@ def test_import_diagnostics_use_persisted_millisecond_precision_at_unknown_thres
 def test_internal_diagnostics_do_not_change_source_result_hash() -> None:
     result = MediaScribeResult(
         external_job_id="job_hash",
+        transcript_status=ProcessingAvailabilityStatus.AVAILABLE,
         transcript=[
             MediaScribeSegment(
                 sequence=0,
@@ -386,6 +392,7 @@ def test_attribution_audit_metadata_rejects_url_and_local_path_values() -> None:
 def test_result_import_projects_unknown_source_role_without_dropping_raw_role_or_extensions() -> None:
     result = MediaScribeResult(
         external_job_id="job_future_role",
+        transcript_status=ProcessingAvailabilityStatus.AVAILABLE,
         transcript=[
             MediaScribeSegment(
                 sequence=0,

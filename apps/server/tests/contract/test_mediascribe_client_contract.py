@@ -165,6 +165,31 @@ async def test_mediascribe_client_rejects_empty_result_payload_as_terminal_malfo
 
 
 @pytest.mark.asyncio
+async def test_mediascribe_client_rejects_result_without_required_transcript_status() -> None:
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "job": {"id": "job_missing_transcript_status", "status": "ready"},
+                "transcript": [{"start": 0, "end": 1, "text": "synthetic"}],
+                "downloads": {},
+            },
+        )
+
+    client = MediaScribeClient(
+        base_url="https://mediascribe.test",
+        api_key="server-side-key",
+        transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(MediaScribeClientError) as exc:
+        await client.fetch_result("job_missing_transcript_status")
+
+    assert exc.value.reason_code == "mediascribe_malformed_response"
+    assert exc.value.retryable
+
+
+@pytest.mark.asyncio
 async def test_mediascribe_client_maps_malformed_success_payloads_to_safe_retryable_error() -> None:
     async def submit_missing_job_id(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"status": "uploaded"})
@@ -196,9 +221,11 @@ async def test_mediascribe_client_maps_invalid_result_payload_to_safe_retryable_
             200,
             json={
                 "job": {"id": "job_bad_result"},
+                "transcript_status": "available",
                 "transcript": [
                     {"start": -1, "end": 2, "text": "bad timing", "source_role": "mic"},
                 ],
+                "downloads": {},
             },
         )
 
@@ -229,6 +256,7 @@ async def test_mediascribe_client_polls_and_maps_live_result_contract_shape() ->
                 200,
                 json={
                     "job": {"id": "job_live"},
+                    "transcript_status": "available",
                     "transcript": [
                         {"start": 0.1, "end": 1.2, "text": "local", "source_role": "mic"},
                         {"start": 1.3, "end": 2.4, "text": "remote", "source_role": "incoming"},
@@ -238,6 +266,7 @@ async def test_mediascribe_client_polls_and_maps_live_result_contract_shape() ->
                         {"start": 1.3, "end": 2.4, "speaker": "REMOTE_00", "text": "remote", "source_role": "incoming"},
                     ],
                     "summary": None,
+                    "downloads": {},
                 },
             )
         return httpx.Response(404, json={"detail": "missing"})
@@ -270,8 +299,10 @@ async def test_mediascribe_client_accepts_contract_segments_without_optional_rol
             200,
             json={
                 "job": {"id": "job_minimal"},
+                "transcript_status": "available",
                 "transcript": [{"start": 0, "end": 1, "text": "hello"}],
                 "diarization": [{"start": 0, "end": 1, "speaker": "SPEAKER_00", "text": "hello"}],
+                "downloads": {},
             },
         )
 
@@ -294,6 +325,7 @@ async def test_mediascribe_client_keeps_v053_words_and_full_text_with_partial_ti
             200,
             json={
                 "job": {"id": "job_words", "source_mode": "single"},
+                "transcript_status": "available",
                 "transcript": [{"start": 0, "end": 1, "text": "hello world"}],
                 "diarization": [
                     {
@@ -307,6 +339,7 @@ async def test_mediascribe_client_keeps_v053_words_and_full_text_with_partial_ti
                         ],
                     }
                 ],
+                "downloads": {},
             },
         )
 
@@ -330,8 +363,10 @@ async def test_mediascribe_client_does_not_guess_missing_dual_track_roles() -> N
             200,
             json={
                 "job": {"id": "job_dual", "source_mode": "dual"},
+                "transcript_status": "available",
                 "transcript": [{"start": 0, "end": 1, "text": "hello"}],
                 "diarization": [{"start": 0, "end": 1, "speaker": "REMOTE_00", "text": "hello"}],
+                "downloads": {},
             },
         )
 
@@ -353,6 +388,7 @@ async def test_mediascribe_client_rejects_word_item_without_required_word() -> N
             200,
             json={
                 "job": {"id": "job_bad_words", "source_mode": "single"},
+                "transcript_status": "available",
                 "transcript": [{"start": 0, "end": 1, "text": "hello"}],
                 "diarization": [
                     {
@@ -363,6 +399,7 @@ async def test_mediascribe_client_rejects_word_item_without_required_word() -> N
                         "words": [{"start": 0, "end": 1}],
                     }
                 ],
+                "downloads": {},
             },
         )
 
@@ -386,10 +423,12 @@ async def test_mediascribe_client_preserves_empty_provider_speaker_key() -> None
             200,
             json={
                 "job": {"id": "job_empty_speaker"},
+                "transcript_status": "available",
                 "transcript": [{"start": 0, "end": 1, "text": "synthetic"}],
                 "diarization": [
                     {"start": 0, "end": 1, "speaker_label": "", "text": "synthetic"}
                 ],
+                "downloads": {},
             },
         )
 
@@ -415,10 +454,12 @@ async def test_mediascribe_client_keeps_text_when_provider_speaker_key_is_absent
             200,
             json={
                 "job": {"id": "job_absent_speaker"},
+                "transcript_status": "available",
                 "transcript": [{"start": 0, "end": 1, "text": "synthetic"}],
                 "diarization": [
                     {"start": 0, "end": 1, "text": "synthetic", **speaker_fields}
                 ],
+                "downloads": {},
             },
         )
 
@@ -481,6 +522,7 @@ async def test_mediascribe_client_accepts_provider_turns_without_raw_transcript(
                         "text": "synthetic",
                     }
                 ],
+                "downloads": {},
             },
         )
 
@@ -508,6 +550,7 @@ async def test_mediascribe_client_rejects_unknown_transcript_reason() -> None:
                 "transcript_status": "unavailable",
                 "transcript_reason": "private meeting words",
                 "transcript": [],
+                "downloads": {},
             },
         )
 
@@ -535,6 +578,7 @@ async def test_mediascribe_client_rejects_unsupported_transcript_status() -> Non
                 "job": {"id": "job_bad_status", "status": "ready"},
                 "transcript_status": "failed",
                 "transcript": [],
+                "downloads": {},
             },
         )
 
