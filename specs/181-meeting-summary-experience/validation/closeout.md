@@ -498,8 +498,9 @@ release, deploy и full CI exact-SHA gate.
   актуализации статических UI-контрактов focused summary quickstart прошёл:
   `104 passed`, а fast lane на точном pushed состоянии прошёл:
   `1342 passed`, lint/compile/legacy-audio guard PASS.
-- Полный baseline на том же состоянии завершился `3697 passed, 19 failed,
-  1 skipped`: macOS Swift `769 passed`, contract validation PASS. Падения
+- Повторный полный baseline на точном текущем SHA `e9bc491d8` завершился
+  `3703 passed, 13 failed, 1 skipped`: macOS Swift `769 passed`, contract
+  validation PASS. Падения
   сосредоточены в master-срезах calendar/media/OpenAPI и processing-list;
   это не release PASS и не должно обходиться через `--skip-local-ci`.
 - Статические summary/cabinet regressions, относящиеся к актуальному JS/CSS,
@@ -509,3 +510,6 @@ release, deploy и full CI exact-SHA gate.
   проверена read-only. Новый Temporal → LiteLLM → Langfuse → publication run
   не выполнялся, потому что удалённый runtime не привязан к этой ветке и
   release gate не пройден.
+- `infra/scripts/cd-remote.sh --dry-run --branch
+  181-meeting-summary-experience` завершился успешно и перечислил полный
+  набор release/deploy gates; execute не запускался.
