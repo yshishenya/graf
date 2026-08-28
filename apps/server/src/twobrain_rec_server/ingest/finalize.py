@@ -16,6 +16,7 @@ from twobrain_rec_server.db.models import Meeting as MeetingModel
 from twobrain_rec_server.db.models import ProcessingPlaceholder
 from twobrain_rec_server.db.models import UploadSession as UploadSessionModel
 from twobrain_rec_server.domain.statuses import (
+    MediaRevisionSourceKind,
     MediaRevisionStatus,
     MeetingStatus,
     ProcessingStatus,
@@ -788,14 +789,17 @@ async def finalize_upload(
             finalized_track_object_keys,
             commit=False,
         )
-        if archive_audio:
+        if (
+            archive_audio
+            or meeting.media_revision_source_kind is MediaRevisionSourceKind.MANUAL_UPLOAD
+        ):
             await upsert_playback_normalization_job(
                 db,
                 workspace_id=meeting.workspace_id,
                 meeting_id=meeting.id,
                 media_revision_id=session.media_revision_id or meeting.media_revision_id,
             )
-        else:
+        if not archive_audio:
             source_object_keys = {
                 track.track_role: (
                     finalized_track_object_keys[track.track_role],

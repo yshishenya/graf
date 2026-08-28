@@ -681,6 +681,8 @@ async def start_processing_workflow(
         )
         if tenant_scope.auth_session_id is not None:
             payload["auth_session_id"] = str(tenant_scope.auth_session_id)
+    from temporalio.common import WorkflowIDReusePolicy
+
     from twobrain_rec_server.workflows.processing_workflow import MediaScribeProcessingWorkflow
 
     try:
@@ -689,6 +691,7 @@ async def start_processing_workflow(
             payload,
             id=workflow_id,
             task_queue=settings.temporal_task_queue,
+            id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
         )
     except Exception as exc:
         exc_name = exc.__class__.__name__.lower()

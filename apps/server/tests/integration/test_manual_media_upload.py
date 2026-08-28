@@ -56,7 +56,11 @@ def test_manual_media_upload_creates_single_media_artifact_and_starts_processing
     assert asyncio.run(load_artifact_roles()) == ["manifest", "media"]
 
 
-def test_manual_media_upload_commits_and_starts_normalization_without_processing(client) -> None:
+@pytest.mark.parametrize("archive_audio", [True, False])
+def test_manual_media_upload_commits_and_starts_normalization_without_processing(
+    client,
+    archive_audio: bool,
+) -> None:
     temporal = CommitObservingTemporalClient(client.app_state["sessionmaker"])
     client.app.state.settings.playback_normalization_enabled = True
     client.app.state.settings.processing_enabled = False
@@ -68,7 +72,8 @@ def test_manual_media_upload_commits_and_starts_normalization_without_processing
         data={
             "title": "Manual normalization",
             "duration_seconds": "60",
-            "local_recording_id": "manual-normalization-post-commit",
+            "local_recording_id": f"manual-normalization-post-commit-{archive_audio}",
+            "archive_audio": str(archive_audio).lower(),
         },
         files={"file": ("meeting.wav", deterministic_wav_bytes(256), "audio/wav")},
     )

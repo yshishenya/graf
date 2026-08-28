@@ -223,14 +223,13 @@ async def accept_manual_media_upload(
             detail=f"{exc.limit_name}={exc.limit_value}, actual={exc.actual_value}",
         ) from exc
 
-    if session.archive_audio:
-        await dispatch_normalization_after_accepted_commit(
-            db=db,
-            settings=settings,
-            tenant_scope=tenant_scope,
-            media_revision_id=session.media_revision_id or meeting.media_revision_id,
-            temporal_client=temporal_client,
-        )
+    await dispatch_normalization_after_accepted_commit(
+        db=db,
+        settings=settings,
+        tenant_scope=tenant_scope,
+        media_revision_id=session.media_revision_id or meeting.media_revision_id,
+        temporal_client=temporal_client,
+    )
     processing = await dispatch_processing_after_finalize(
         db=db,
         settings=settings,

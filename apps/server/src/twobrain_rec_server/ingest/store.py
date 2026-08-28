@@ -201,6 +201,28 @@ async def _finish_write(db: AsyncSession, *, commit: bool) -> None:
         await db.flush()
 
 
+async def archive_audio_for_revision(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+    media_revision_id: UUID,
+) -> bool:
+    """Read the finalized revision custody choice; legacy rows default to archive."""
+
+    archive_audio = await db.scalar(
+        select(UploadSession.archive_audio)
+        .where(
+            UploadSession.workspace_id == workspace_id,
+            UploadSession.meeting_id == meeting_id,
+            UploadSession.media_revision_id == media_revision_id,
+            UploadSession.status == UploadSessionStatus.FINALIZED.value,
+        )
+        .order_by(UploadSession.created_at.desc(), UploadSession.id.desc())
+    )
+    return True if archive_audio is None else bool(archive_audio)
+
+
 async def persist_meeting(db: AsyncSession | None, meeting: MeetingRecord, *, commit: bool = True) -> None:
     if db is None:
         return

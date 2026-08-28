@@ -7,6 +7,7 @@ from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fakes.fake_mediascribe import FakeMediaScribeClient
 from tests.fakes.fake_temporal import FakeTemporalClient
 from tests.fixtures.artifacts import deterministic_wav_bytes
+from tests.fixtures.cabinet_access import add_retained_playback_m4a
 from tests.fixtures.processing import create_finalized_meeting, create_finalized_mixed_recording
 from twobrain_rec_server.db.models import (
     DiarizationSegment,
@@ -415,6 +416,9 @@ def test_normal_recording_and_manual_upload_share_canonical_speaker_projection(c
     )
     assert manual_response.status_code == 202
     manual = manual_response.json()
+    manual_meeting_id = UUID(manual["meeting"]["meeting_id"])
+    manual_revision_id = UUID(manual["meeting"]["media_revision"]["media_revision_id"])
+    add_retained_playback_m4a(client, manual_meeting_id, b"canonical-parity-manual")
 
     sources = (
         (
@@ -425,8 +429,8 @@ def test_normal_recording_and_manual_upload_share_canonical_speaker_projection(c
         ),
         (
             UUID(manual["meeting"]["workspace_id"]),
-            UUID(manual["meeting"]["meeting_id"]),
-            UUID(manual["meeting"]["media_revision"]["media_revision_id"]),
+            manual_meeting_id,
+            manual_revision_id,
             "job_parity_manual",
         ),
     )

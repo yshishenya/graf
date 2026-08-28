@@ -55,7 +55,10 @@ from twobrain_rec_server.ingest.media_revisions import (
     authoritative_track_roles,
     source_fingerprint_sha256,
 )
-from twobrain_rec_server.ingest.store import persist_orphan_cleanup_intents
+from twobrain_rec_server.ingest.store import (
+    archive_audio_for_revision,
+    persist_orphan_cleanup_intents,
+)
 from twobrain_rec_server.normalization.audit import add_normalization_audit_event
 from twobrain_rec_server.normalization.media import (
     MAX_DECODE_PROGRESS_BYTES,
@@ -2964,34 +2967,42 @@ async def publish_uploaded_attempt(
     for artifact in prior_playback:
         _supersede_playback_artifact(artifact)
     publication_time = datetime.now(UTC)
-    await lock_storage_workspace(db, job.workspace_id)
-    subscription = await db.scalar(
-        select(WorkspaceSubscription)
-        .where(WorkspaceSubscription.workspace_id == job.workspace_id)
-    )
-    effective_plan = (
-        effective_plan_code(
-            plan_code=subscription.plan_code,
-            state=subscription.state,
-            now=publication_time,
-            paid_through=subscription.paid_through,
-            trial_ends_at=subscription.trial_ends_at,
-        )
-        if subscription is not None
-        else "free"
-    )
-    storage_reservation = await reserve_storage(
+    archive_audio = await archive_audio_for_revision(
         db,
         workspace_id=job.workspace_id,
-        reservation_key=f"normalization:{attempt.id}",
-        declared_bytes=int(attempt.output_byte_length or 0),
-        capacity_bytes=(
-            subscription.capacity_bytes
-            if subscription is not None and effective_plan in {"trial", "personal"}
-            else FREE_STORAGE_BYTES
-        ),
-        now=publication_time,
+        meeting_id=job.meeting_id,
+        media_revision_id=job.media_revision_id,
     )
+    storage_reservation = None
+    if archive_audio:
+        await lock_storage_workspace(db, job.workspace_id)
+        subscription = await db.scalar(
+            select(WorkspaceSubscription)
+            .where(WorkspaceSubscription.workspace_id == job.workspace_id)
+        )
+        effective_plan = (
+            effective_plan_code(
+                plan_code=subscription.plan_code,
+                state=subscription.state,
+                now=publication_time,
+                paid_through=subscription.paid_through,
+                trial_ends_at=subscription.trial_ends_at,
+            )
+            if subscription is not None
+            else "free"
+        )
+        storage_reservation = await reserve_storage(
+            db,
+            workspace_id=job.workspace_id,
+            reservation_key=f"normalization:{attempt.id}",
+            declared_bytes=int(attempt.output_byte_length or 0),
+            capacity_bytes=(
+                subscription.capacity_bytes
+                if subscription is not None and effective_plan in {"trial", "personal"}
+                else FREE_STORAGE_BYTES
+            ),
+            now=publication_time,
+        )
     canonical = TrackArtifact(
         meeting_id=job.meeting_id,
         media_revision_id=job.media_revision_id,
@@ -3013,20 +3024,21 @@ async def publish_uploaded_attempt(
     )
     db.add(canonical)
     await db.flush()
-    await commit_storage_reservation(
-        db,
-        reservation_id=storage_reservation.id,
-        artifact_id=canonical.id,
-        actual_bytes=canonical.byte_length,
-        now=publication_time,
-    )
-    await mark_source_playback_verified(
-        db,
-        workspace_id=job.workspace_id,
-        meeting_id=job.meeting_id,
-        media_revision_id=job.media_revision_id,
-        verified_at=publication_time,
-    )
+    if storage_reservation is not None:
+        await commit_storage_reservation(
+            db,
+            reservation_id=storage_reservation.id,
+            artifact_id=canonical.id,
+            actual_bytes=canonical.byte_length,
+            now=publication_time,
+        )
+        await mark_source_playback_verified(
+            db,
+            workspace_id=job.workspace_id,
+            meeting_id=job.meeting_id,
+            media_revision_id=job.media_revision_id,
+            verified_at=publication_time,
+        )
     ensure_attempt_transition(AttemptState.UPLOADED, AttemptState.PUBLISHED)
     attempt.state = AttemptState.PUBLISHED.value
     attempt.published_track_artifact_id = canonical.id

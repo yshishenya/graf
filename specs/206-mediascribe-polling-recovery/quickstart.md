@@ -18,9 +18,11 @@ submit; provider `failed` показывает terminal recovery; retryable HTTP
 загрузки: source probe `1`, source full decode `0`, tolerant transcode с
 `-t 14401` `1`, output probe `1`, strict output decode `1`. Входная длительность
 finite/positive/known/≤4h; выявляемое stream/container/revision расхождение и
-потеря хвоста сверх малого явного tolerance отклоняются. MediaScribe получает
-exact canonical M4A один раз; original media не отправляется. Existing capture,
-copy/remux, other single-source и dual-source pass counts не меняются.
+потеря хвоста сверх малого явного tolerance отклоняются. Для `manual_upload`
+MediaScribe получает exact canonical M4A один раз, original media не
+отправляется. First-party mixed capture сохраняет `single_wav_v1` и отправляет
+canonical WAV; historical dual-track остаётся compatibility-only. Existing
+capture, copy/remux и other single-source pass counts не меняются.
 
 Worker-owned DB/sessionmaker/storage/HTTP clients переиспользуются между
 activities и закрываются только после остановки всех sibling workers. Runtime
@@ -43,6 +45,7 @@ bash scripts/run_local_postgres_tests.sh --focused -q \
 Обязательная матрица:
 
 - valid и corrupt-but-recoverable manual input → canonical M4A → один provider POST;
+- first-party `single_wav_v1` → canonical WAV без manual M4A gate;
 - no-audio/truncated/terminal normalization → ноль provider POST;
 - normalization retry → countdown + manual due-now без параллельного transcode;
 - worker restart до Temporal start и после publication → deterministic recovery;

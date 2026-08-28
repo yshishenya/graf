@@ -269,20 +269,11 @@ async def submit_to_mediascribe(
             ProcessingStatus.BLOCKED_UNKNOWN,
             reason_code=BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN,
         )
-    require_manual_canonical = bool(
-        workflow.archive_audio
-        and settings.playback_normalization_enabled
-        and settings.playback_normalization_automatic_dispatch_enabled
-    )
-    preparation = (
-        await store.load_manual_upload_preparation(
-            db,
-            workspace_id=workflow.workspace_id,
-            meeting_id=workflow.meeting_id,
-            media_revision_id=workflow.media_revision_id,
-        )
-        if require_manual_canonical
-        else None
+    preparation = await store.load_manual_upload_preparation(
+        db,
+        workspace_id=workflow.workspace_id,
+        meeting_id=workflow.meeting_id,
+        media_revision_id=workflow.media_revision_id,
     )
     if preparation is not None and preparation.state == "pending":
         raise ManualUploadNormalizationPending(

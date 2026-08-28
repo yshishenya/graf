@@ -22,9 +22,9 @@
 - Single-source normalization выполняет полный strict source decode перед
   transcode, хотя tolerant FFmpeg-команда уже существует.
 - MediaScribe v1 принимает M4A; отдельный persistent WAV не требуется.
-- `archive_audio=false` сейчас не создаёт normalization job; существующий purge
-  привязан к processing workflow и имеет publication/transition/crash race,
-  поэтому не может быть переиспользован без fencing и journal-first semantics.
+- До текущего изменения `archive_audio=false` не создавал normalization job;
+  existing purge уже привязан к revision-scoped processing workflow и после
+  publication fencing удаляет original и canonical artifacts одним lifecycle.
 - `invalid_audio_payload/input_audio` сохраняется как `processed`, поэтому UI
   продолжает polling из-за отсутствующего transcript.
 - MediaScribe client принимает arbitrary codec label как multipart MIME; при

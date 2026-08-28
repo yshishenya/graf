@@ -654,7 +654,10 @@ async def load_manual_upload_preparation(
         )
     )
     if job is None:
-        return None
+        return ManualUploadPreparation(
+            state="pending",
+            reason_code="normalization_queued",
+        )
     if job.state in {
         JobState.QUEUED.value,
         JobState.RUNNING.value,
