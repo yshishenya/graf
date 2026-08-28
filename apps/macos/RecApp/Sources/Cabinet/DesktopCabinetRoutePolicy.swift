@@ -277,7 +277,8 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
                 userMessage: "Тарифы и оплата"
             )
         }
-        if components == ["offer"] {
+        if scheme == "https",
+           URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedPath == "/offer" {
             return DesktopCabinetRouteDecision(
                 route: DesktopCabinetRoute(path: path, kind: .external),
                 decision: .openExternally,

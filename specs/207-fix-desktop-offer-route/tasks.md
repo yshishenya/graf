@@ -37,7 +37,7 @@
 
 ## Implementation Evidence — 2026-08-28
 
-- RED: `swift test --package-path apps/macos --filter DesktopCabinetBillingHandoffTests` — expected FAIL только нового `/offer` contract (4 assertions); 8 прежних тестов PASS.
+- RED: `swift test --package-path apps/macos --filter DesktopCabinetBillingHandoffTests` — expected FAIL только нового `/offer` contract (4 failures); negative sibling assertion и 8 прежних тестов PASS.
 - GREEN: тот же focused suite — 9/9 PASS.
 - Sibling policy: `swift test --package-path apps/macos --filter DesktopCabinetRoutePolicyTests` — 16/16 PASS.
 - Compile: `swift build --package-path apps/macos` — PASS.

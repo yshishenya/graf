@@ -59,12 +59,18 @@ final class DesktopCabinetBillingHandoffTests: XCTestCase {
             policy.sanitizedExternalURL(for: source)?.absoluteString,
             "https://rec.2brain.dev/offer"
         )
-        XCTAssertEqual(
-            policy.decision(
-                for: try XCTUnwrap(URL(string: "https://rec.2brain.dev/offer/extra"))
-            ).decision,
-            .blockWithMessage
+        for path in ["/offer/", "//offer", "/offer//", "/offer/extra"] {
+            let variant = try XCTUnwrap(URL(string: "https://rec.2brain.dev\(path)"))
+            XCTAssertEqual(policy.decision(for: variant).decision, .blockWithMessage, path)
+            XCTAssertNil(policy.sanitizedExternalURL(for: variant), path)
+        }
+
+        let insecurePolicy = DesktopCabinetRoutePolicy(
+            baseURL: try XCTUnwrap(URL(string: "http://rec.2brain.dev"))
         )
+        let insecureOffer = try XCTUnwrap(URL(string: "http://rec.2brain.dev/offer"))
+        XCTAssertEqual(insecurePolicy.decision(for: insecureOffer).decision, .blockWithMessage)
+        XCTAssertNil(insecurePolicy.sanitizedExternalURL(for: insecureOffer))
     }
 
     func testReferralMenuRoutesOpenInTheBrowserWithoutCarryingQueryData() throws {

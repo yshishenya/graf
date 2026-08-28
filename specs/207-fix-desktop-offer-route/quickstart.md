@@ -17,7 +17,7 @@ Expected:
 
 - `/offer` получает external decision.
 - Sanitized URL равен `https://<configured-origin>/offer` и не содержит query/fragment.
-- `/offer/extra` остаётся blocked.
+- `/offer/`, `//offer`, `/offer//`, `/offer/extra` и HTTP-вариант остаются blocked.
 - Existing billing routes and payment-provider allowlist tests pass.
 
 ## Repository gate before PR
@@ -34,6 +34,7 @@ Expected: server unit suite, lint and compile gates pass. Full CI is deferred to
 2. Нажать ссылку `оферту`.
 3. Подтвердить, что default browser открыл `https://rec.2brain.pro/offer` без query и fragment.
 4. Вернуться в GRAF и подтвердить, что checkout доступен и не показывает `Функция недоступна`.
-5. Проверить billing history: новый платёж не создавался.
+5. Проверить, что billing history и статус подписки не изменились, а checkbox
+   согласия сохранил прежнее значение.
 
 Release proof дополнительно включает exact SHA, full CI, Developer ID, notarization, stapling, Gatekeeper, Sparkle feed/archive verification и установленную версию.
