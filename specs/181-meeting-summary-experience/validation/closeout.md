@@ -489,3 +489,23 @@ release, deploy и full CI exact-SHA gate.
 - `infra/scripts/cd-remote.sh --dry-run --branch 181-meeting-summary-experience`
   завершился exit 0 и перечислил обязательные release/deploy gates для
   `2brain.dev`; execute не запускался.
+
+## Latest continuation after pushed branch sync
+
+Дата: 2026-08-29
+
+- После синхронизации production constraints с `langfuse==4.15.1` и
+  актуализации статических UI-контрактов focused summary quickstart прошёл:
+  `104 passed`, а fast lane на точном pushed состоянии прошёл:
+  `1342 passed`, lint/compile/legacy-audio guard PASS.
+- Полный baseline на том же состоянии завершился `3697 passed, 19 failed,
+  1 skipped`: macOS Swift `769 passed`, contract validation PASS. Падения
+  сосредоточены в master-срезах calendar/media/OpenAPI и processing-list;
+  это не release PASS и не должно обходиться через `--skip-local-ci`.
+- Статические summary/cabinet regressions, относящиеся к актуальному JS/CSS,
+  исправлены и отдельно проверены (`68 passed`). Остальные full-CI failures
+  не меняют summary-код и оставлены отдельным master baseline blocker.
+- Production `live` и `ready` отвечают `200`; доступная реальная встреча
+  проверена read-only. Новый Temporal → LiteLLM → Langfuse → publication run
+  не выполнялся, потому что удалённый runtime не привязан к этой ветке и
+  release gate не пройден.
