@@ -179,3 +179,21 @@ def test_smoke_artifact_cleanup_matches_revision_linked_dependencies() -> None:
     assert "media_revision_id in (" in script
     assert "select id from media_revisions where meeting_id=:meeting_id" in script
     assert dependency_delete < revision_delete
+
+
+def test_smoke_artifact_cleanup_locks_revisions_before_dependency_delete() -> None:
+    script = (
+        Path(__file__).resolve().parents[2]
+        / "scripts"
+        / "cleanup_smoke_artifacts.py"
+    ).read_text(encoding="utf-8")
+
+    revision_lock = script.index(
+        '"select id from media_revisions "'
+    )
+    dependency_delete = script.index(
+        'processing_dependency_delete = """',
+        revision_lock,
+    )
+
+    assert revision_lock < dependency_delete
