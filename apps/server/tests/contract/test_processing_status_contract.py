@@ -725,7 +725,7 @@ def test_finalize_autostart_audit_metadata_is_content_safe(client) -> None:
             return event.metadata_json
 
     metadata = asyncio.run(audit_metadata())
-    assert set(metadata) <= {"workflow_id", "started_count"}
+    assert set(metadata) <= {"workflow_id", "reason_code"}
     serialized = str(metadata).lower()
     forbidden = {"transcript", "audio_download_url", "api_key", "signed_url", "/users/"}
     assert all(token not in serialized for token in forbidden)

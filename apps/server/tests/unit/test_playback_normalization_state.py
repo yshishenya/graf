@@ -114,6 +114,7 @@ def test_attempt_and_backfill_state_machines_are_explicit() -> None:
         (AttemptState.UPLOADED, AttemptState.CLEANUP_PENDING),
         (AttemptState.CLEANUP_PENDING, AttemptState.CLEANED),
         (AttemptState.CLEANED, AttemptState.CLEANUP_PENDING),
+        (AttemptState.CLEANED, AttemptState.PURGED),
     ):
         ensure_attempt_transition(current, target)
     with pytest.raises(InvalidNormalizationTransition):

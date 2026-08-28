@@ -505,7 +505,6 @@ def test_terminal_upload_uses_attention_group_without_changing_public_status_fil
 
 def test_cabinet_list_shows_manual_upload_as_normal_meeting_row(client) -> None:
     client.app.state.settings.playback_normalization_enabled = True
-    client.app.state.settings.playback_normalization_automatic_dispatch_enabled = True
     upload = client.post(
         "/api/v1/media-uploads",
         headers=auth_headers(),
