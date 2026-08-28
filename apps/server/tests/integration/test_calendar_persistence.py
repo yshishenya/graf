@@ -438,6 +438,7 @@ def test_desktop_calendar_upcoming_includes_events_overlapping_lookup_window(cli
                 )
             )
             for event_id, starts_at, ends_at in (
+                ("already-ended", now - timedelta(minutes=30), now - timedelta(minutes=1)),
                 ("already-running", now - timedelta(minutes=45), now + timedelta(minutes=15)),
                 ("new-overlap", now - timedelta(minutes=5), now + timedelta(minutes=30)),
             ):
@@ -474,6 +475,7 @@ def test_desktop_calendar_upcoming_includes_events_overlapping_lookup_window(cli
         "already-running",
         "new-overlap",
     }
+    assert "already-ended" not in desktop.text
 
 
 def test_calendar_upcoming_applies_default_preferences_before_limit(client) -> None:

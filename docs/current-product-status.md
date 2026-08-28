@@ -141,6 +141,24 @@ Date: 2026-08-25
 - Подробные receipts: `docs/deployments/2brain-rec/release-v2026.08.21.5.md`
   и `specs/168-calendar-integration-completion/validation/implementation-evidence.md`.
 
+## Revalidation update (2026-08-28) — Feature 168 upcoming end boundary
+
+- На актуальном `origin/master` `65b30d3cd8ec5eae2b316bcd03b2ed6918381b8c`
+  подготовлена минимальная исправляющая дельта: upcoming-проекция включает встречу, пока
+  серверное `ends_at` ещё не наступило, и исключает её после завершения.
+- Browser и embedded `/meetings` используют один серверный projection; главная
+  страница получает безопасное время следующего обновления и перечитывает
+  состояние после окончания ближайшей видимой встречи. Автозапись,
+  auto-join и native Record/Stop этим изменением не затрагиваются.
+- Проверки: календарная PostgreSQL-focused выборка — `399 passed`; focused
+  macOS calendar/reminder/upload/cabinet выборка — `258 passed`; `node --check`
+  и `git diff --check` — PASS; fast lane — `1249 passed`, lint и Python compile
+  — PASS; локальные browser/embedded screenshots и DOM
+  проверены на synthetic data без приватного содержимого.
+- Изменение пока не закоммичено и не выкачено в production. Production behavior
+  и release readiness этим блоком не заявляются; pending gates Feature 168
+  остаются в спецификации.
+
 ## Implementation update (2026-08-15) — Feature 150 workspace clean cut
 
 - Configured login workspace остаётся только внутренним auth-policy/RLS anchor

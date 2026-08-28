@@ -1691,8 +1691,18 @@ def _render_home_upcoming(
             "<p>Когда появится подходящее событие, оно будет показано здесь.</p></div>"
         )
 
+    refresh_at = min(
+        (item.ends_at for item in preview if item.ends_at is not None),
+        default=None,
+    )
+    refresh_attribute = (
+        f' data-calendar-upcoming-refresh-at="{escape(refresh_at.isoformat())}"'
+        if refresh_at is not None
+        else ""
+    )
+
     return f"""
-      <details class="calendar-home-upcoming" open>
+      <details class="calendar-home-upcoming" open{refresh_attribute}>
         <summary>
           <span>Ближайшие встречи</span>
           <small>{escape(state_copy)}</small>
