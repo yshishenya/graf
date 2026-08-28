@@ -277,6 +277,14 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
                 userMessage: "Тарифы и оплата"
             )
         }
+        if components == ["offer"] {
+            return DesktopCabinetRouteDecision(
+                route: DesktopCabinetRoute(path: path, kind: .external),
+                decision: .openExternally,
+                reason: .openExternalSafeLink,
+                userMessage: "Открыть оферту в браузере."
+            )
+        }
         if isBrowserOwnedAccountRoute(components) {
             return DesktopCabinetRouteDecision(
                 route: DesktopCabinetRoute(path: path, kind: .external),

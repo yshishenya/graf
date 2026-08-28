@@ -43,6 +43,30 @@ final class DesktopCabinetBillingHandoffTests: XCTestCase {
         }
     }
 
+    func testOfferRouteOpensExternallyWithoutCarryingQueryData() throws {
+        let policy = DesktopCabinetRoutePolicy(
+            baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev"))
+        )
+        let source = try XCTUnwrap(
+            URL(string: "https://rec.2brain.dev/offer?invoice=INV-2026-0001#payment")
+        )
+
+        let decision = policy.decision(for: source)
+        XCTAssertEqual(decision.decision, .openExternally)
+        XCTAssertEqual(decision.route.kind, .external)
+        XCTAssertEqual(decision.reason, .openExternalSafeLink)
+        XCTAssertEqual(
+            policy.sanitizedExternalURL(for: source)?.absoluteString,
+            "https://rec.2brain.dev/offer"
+        )
+        XCTAssertEqual(
+            policy.decision(
+                for: try XCTUnwrap(URL(string: "https://rec.2brain.dev/offer/extra"))
+            ).decision,
+            .blockWithMessage
+        )
+    }
+
     func testReferralMenuRoutesOpenInTheBrowserWithoutCarryingQueryData() throws {
         let policy = DesktopCabinetRoutePolicy(
             baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev"))
