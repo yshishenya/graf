@@ -80,7 +80,6 @@ from twobrain_rec_server.processing import store as processing_store
 from twobrain_rec_server.processing.fences import lock_meeting_fence, meeting_is_deleted_or_deleting
 from twobrain_rec_server.processing.results import (
     result_lineage_is_current,
-    result_source_hash_is_attested,
 )
 
 ALLOWED_AUDIT_KEYS = {
@@ -307,8 +306,6 @@ async def content_export_capabilities(
             state="missing",
             reason="stored_summary_revision_stale",
         )
-    elif not result_source_hash_is_attested(result) or outcome_set.source_result_hash is None:
-        summary = ContentExportReadiness(state="missing", reason="stored_summary_revision_unpinned")
     elif outcome_set.status in {"available", "partial"} and not outcome_set.content_hash:
         summary = ContentExportReadiness(state="failed", reason="stored_summary_revision_unpinned")
     elif outcome_set.status in {"available", "partial"}:
@@ -626,15 +623,9 @@ async def current_outcome_set(
         return None
     if (
         result.processing_workflow_id is None
-        or not result_source_hash_is_attested(result)
+        or result.source_result_hash is None
         or outcome.source_result_hash is None
         or outcome.source_result_hash != result.source_result_hash
-    ):
-        return None
-    if not await _processing_result_is_current(
-        db,
-        meeting=meeting,
-        result=result,
     ):
         return None
     if not include_non_publishable and outcome.status not in {

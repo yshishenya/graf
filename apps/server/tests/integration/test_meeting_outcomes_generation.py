@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 from datetime import UTC, datetime, timedelta
+from hashlib import sha256
 
 import pytest
 from sqlalchemy import delete, func, select
@@ -514,6 +515,40 @@ def test_old_processing_result_cannot_create_baseline_after_new_revision_is_acce
             )
 
     assert asyncio.run(run()) == 0
+
+
+def test_migration_hash_cannot_create_a_new_baseline(client) -> None:
+    meeting_id = create_outcome_ready_meeting(client, "migration-hash-no-generation")
+    service = _service_module()
+
+    async def run() -> tuple[int, int]:
+        async with client.app_state["sessionmaker"]() as db:
+            result = await db.scalar(
+                select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
+            )
+            assert result is not None
+            result.source_result_hash = sha256(
+                f"legacy-processing-result:{result.id}".encode()
+            ).hexdigest()
+            await db.commit()
+            with pytest.raises(
+                ProcessingLifecycleBlocked,
+                match="summary_source_revision_unavailable",
+            ):
+                await service.ensure_outcomes_for_processing_result(db, result=result)
+            outcome_count = await db.scalar(
+                select(func.count(MeetingOutcomeSet.id)).where(
+                    MeetingOutcomeSet.meeting_id == meeting_id
+                )
+            )
+            attempt_count = await db.scalar(
+                select(func.count(MeetingOutcomeGenerationAttempt.id)).where(
+                    MeetingOutcomeGenerationAttempt.meeting_id == meeting_id
+                )
+            )
+            return int(outcome_count or 0), int(attempt_count or 0)
+
+    assert asyncio.run(run()) == (0, 0)
 
 
 def test_old_result_version_cannot_create_baseline_after_same_revision_retry(client) -> None:

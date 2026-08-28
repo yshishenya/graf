@@ -139,8 +139,8 @@ recoverable состояние, ручную проверку и отсутст�
 - MediaScribe v1 job status and result endpoints remain the source of provider
   truth; no MediaScribe service changes are part of this slice.
 - Existing GRAF database fields for retry schedule and deadlines are reused;
-  no migration is needed unless implementation proves a new durable status is
-  required.
+  no new status is required. A bounded data migration may fill an already
+  existing lineage field when historical rows have one exact source mapping.
 - The existing server-side MediaScribe credential boundary is preserved.
 - Production deployment and reprocessing are out of scope for this coding
   slice; they require a separately approved release gate.

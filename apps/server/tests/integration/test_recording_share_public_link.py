@@ -217,7 +217,7 @@ def test_summary_only_share_never_discloses_an_unaccepted_candidate(client) -> N
     )
 
 
-def test_summary_only_share_hides_an_outcome_from_a_replaced_processing_attempt(client) -> None:
+def test_summary_only_share_keeps_accepted_outcome_during_replacement(client) -> None:
     seeds = seed_cabinet_meetings(client)
     asyncio.run(_seed_external_full_summary(client, seeds.ready_id))
     add_workspace_user(client)
@@ -266,9 +266,9 @@ def test_summary_only_share_hides_an_outcome_from_a_replaced_processing_attempt(
     )
 
     assert api_summary.status_code == 200
-    assert api_summary.json()["summary_sections"] == []
+    assert api_summary.json()["summary_sections"]
     assert html_summary.status_code == 200
-    assert "Сохранённый итог." not in html_summary.text
+    assert "Сохранённый итог." in html_summary.text
 
 
 def test_summary_only_recipient_cannot_upgrade_own_share_grant(client) -> None:

@@ -39,7 +39,9 @@ recovery and user-visible degraded/error UX.
 
 ### After design
 
-- PASS — `RetrySchedule.stop_reason` is in-memory metadata; no migration needed.
+- PASS — `RetrySchedule.stop_reason` is in-memory metadata; no schema change is
+  needed. Migration `0083` only backfills the existing workflow FK through an
+  exact job/workflow relation.
 - PASS — Watchdog uses existing `FAILED_RETRYABLE` and recovery controls, so no
   new status enum or abstraction is introduced.
 - PASS — Manual check wakes a durable workflow signal/update and clears the UI
@@ -74,7 +76,8 @@ apps/server/src/twobrain_rec_server/
 ```
 
 **Structure Decision**: Reuse existing processing, Temporal and cabinet modules;
-no new service, dependency, migration or abstraction.
+no new service, dependency or abstraction. One data-only migration removes the
+historical nullable-lineage compatibility gap.
 
 ## Дополнение: восстановление повреждённого источника
 
@@ -85,8 +88,9 @@ MediaScribe получает authoritative `media`, а canonical M4A испол�
 `discardcorrupt`. Результат публикуется только после строгой проверки output;
 сверка длительности с принятой revision блокирует тихо усечённые файлы.
 
-Recovery не добавляет новую durable-сущность или миграцию. Audit сохраняет
-только boolean `recovered_source`, без байтов аудио, текста или stderr.
+Recovery не добавляет новую durable-сущность. Data-only migration заполняет
+существующий workflow FK; audit сохраняет только boolean `recovered_source`,
+без байтов аудио, текста или stderr.
 
 ## Complexity Tracking
 
