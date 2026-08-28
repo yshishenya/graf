@@ -155,9 +155,10 @@ Date: 2026-08-25
   и `git diff --check` — PASS; fast lane — `1249 passed`, lint и Python compile
   — PASS; локальные browser/embedded screenshots и DOM
   проверены на synthetic data без приватного содержимого.
-- Изменение пока не закоммичено и не выкачено в production. Production behavior
-  и release readiness этим блоком не заявляются; pending gates Feature 168
-  остаются в спецификации.
+- Изменение смёрджено в PR #5917 на exact merge SHA
+  `a0ca712e96e1f50ea03e4179faac74d76f965554`, но ещё не выкачено в production.
+  Production behavior и release readiness этим блоком не заявляются; pending
+  gates Feature 168 остаются в спецификации.
 
 ## Implementation update (2026-08-15) — Feature 150 workspace clean cut
 
