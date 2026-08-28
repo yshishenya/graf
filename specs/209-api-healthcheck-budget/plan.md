@@ -54,8 +54,8 @@ rollback semantics. Изменить одну compose healthcheck и один с
 
 ## Validation Plan
 
-1. RED/GREEN: `pytest apps/server/tests/integration/test_compose_hardening.py -q`.
-2. Rendered config: `docker compose --env-file infra/env/rec.production.env.example config`.
+1. RED/GREEN: `cd apps/server && uv run --extra dev pytest tests/integration/test_compose_hardening.py -q`.
+2. Rendered config: `docker compose --env-file infra/env/rec.production.env.example -f infra/docker-compose.yml config`.
 3. Before PR: `infra/scripts/ci-local.sh --fast`.
 4. After merge: synchronize exact master SHA, run `infra/scripts/ci-local.sh --full`, then `cd-remote.sh --dry-run --branch master` and approved `--execute`.
 5. Verify public live/ready, container health history and bounded YooKassa environment fields only.

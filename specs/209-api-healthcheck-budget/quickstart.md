@@ -10,7 +10,7 @@
 
 ```sh
 cd apps/server
-uv run pytest tests/integration/test_compose_hardening.py -q
+uv run --extra dev pytest tests/integration/test_compose_hardening.py -q
 cd ../..
 docker compose --env-file infra/env/rec.production.env.example -f infra/docker-compose.yml config >/dev/null
 ```
