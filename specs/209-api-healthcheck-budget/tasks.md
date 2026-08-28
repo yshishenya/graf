@@ -35,7 +35,7 @@
 
 **Purpose**: Prove the merged exact SHA through the repository-owned release path.
 
-- [ ] T004 Run full exact-SHA validation, `infra/scripts/cd-remote.sh --dry-run --branch master`, approved `--execute`, and metadata-only production checks for live, ready, container health, rollback status, and YooKassa test-shop configuration according to `specs/209-api-healthcheck-budget/quickstart.md`
+- [X] T004 Run full exact-SHA validation, `infra/scripts/cd-remote.sh --dry-run --branch master`, approved `--execute`, and metadata-only production checks for live, ready, container health, rollback status, and YooKassa test-shop configuration according to `specs/209-api-healthcheck-budget/quickstart.md`
 
 ---
 
@@ -64,4 +64,8 @@ None. The tasks form one short dependency chain and intentionally touch shared r
 
 - Risk / validation lane: high-risk infrastructure and release/deploy blocker.
 - No new helper, abstraction, dependency, endpoint, migration, billing change, or manual production edit is in scope.
-- T004 remains open until production evidence exists; PR closeout must not claim deploy success early.
+- T004 закрыт на exact SHA `c428f7990843cc39c141b25c3d8dfdc8de3d66f2`:
+  full CI, dry-run, guarded execute, backup/restore rehearsal, migrations,
+  smoke/cleanup, `/live`, `/ready`, container health и YooKassa test-shop
+  readback прошли. Metadata-only receipt:
+  `docs/deployments/2brain-rec/release-v2026.08.28.11.md`.
