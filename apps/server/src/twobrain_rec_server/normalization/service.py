@@ -2858,20 +2858,13 @@ async def _execute_normalization_job(
             or attempt is None
             or job is None
         ):
-            late_workspace_id = prepared.job.workspace_id
-            late_meeting_id = prepared.job.meeting_id
-            late_object_key = prepared.attempt.storage_object_key
             await db.rollback()
-            try:
-                await _delete_storage_object(storage, late_object_key)
-            except Exception:
-                await persist_orphan_cleanup_intents(
-                    db,
-                    workspace_id=late_workspace_id,
-                    meeting_id=late_meeting_id,
-                    object_keys=(late_object_key,),
-                    reason="normalization_late_object_cleanup_failed",
-                )
+            await _discard_unowned_attempt(
+                db=db,
+                storage=storage,
+                attempt=prepared.attempt,
+                cleanup_reason=NormalizationReason.MEETING_DELETING.value,
+            )
             raise NormalizationExecutionDeferred(
                 "normalization activity no longer owns the durable attempt"
             )
@@ -2883,20 +2876,13 @@ async def _execute_normalization_job(
             or job.lease_expires_at is None
             or _aware_utc(job.lease_expires_at) <= current_time
         ):
-            late_workspace_id = prepared.job.workspace_id
-            late_meeting_id = prepared.job.meeting_id
-            late_object_key = attempt.storage_object_key
             await db.rollback()
-            try:
-                await _delete_storage_object(storage, late_object_key)
-            except Exception:
-                await persist_orphan_cleanup_intents(
-                    db,
-                    workspace_id=late_workspace_id,
-                    meeting_id=late_meeting_id,
-                    object_keys=(late_object_key,),
-                    reason="normalization_late_object_cleanup_failed",
-                )
+            await _discard_unowned_attempt(
+                db=db,
+                storage=storage,
+                attempt=attempt,
+                cleanup_reason=NormalizationReason.MEETING_DELETING.value,
+            )
             raise NormalizationExecutionDeferred(
                 "normalization activity no longer owns the durable attempt"
             )

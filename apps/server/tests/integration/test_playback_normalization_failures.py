@@ -339,8 +339,8 @@ def test_system_resource_and_output_failures_stay_in_automatic_recovery_and_clea
     assert job.state == "retry_wait"
     assert job.reason_code == expected_reason.value
     assert job.next_attempt_at is not None
-    assert attempt.state == "cleanup_pending"
-    assert attempt.cleaned_at is None
+    assert attempt.state == "cleaned"
+    assert attempt.cleaned_at is not None
     assert canonical == []
     assert set(client.app_state["storage"].objects) == source_objects
     assert list(work_directory.iterdir()) == []
@@ -410,7 +410,8 @@ def test_work_capacity_preflight_stops_before_download_and_retries_automatically
     assert caught.should_retry is True
     assert job.state == "retry_wait"
     assert job.reason_code == NormalizationReason.TEMPORARY_STORAGE_UNAVAILABLE.value
-    assert attempt.state == "cleanup_pending"
+    assert attempt.state == "cleaned"
+    assert attempt.cleaned_at is not None
     assert set(client.app_state["storage"].objects) == source_objects
     assert list(work_directory.iterdir()) == []
 
@@ -460,7 +461,8 @@ def test_invalid_output_receipt_cannot_publish_and_cleanup_remains_server_owned(
 
     assert caught.reason_code is NormalizationReason.GENERATED_OUTPUT_INVALID
     assert job.state == "retry_wait"
-    assert attempt.state == "cleanup_pending"
+    assert attempt.state == "cleaned"
+    assert attempt.cleaned_at is not None
     assert set(client.app_state["storage"].objects) == source_objects
     assert list(work_directory.iterdir()) == []
 
@@ -517,5 +519,6 @@ def test_failed_canonical_put_releases_pre_admitted_storage_reservation(
     assert caught.should_retry is True
     assert reservation is not None
     assert reservation.state == "released"
-    assert attempt.state == "cleanup_pending"
+    assert attempt.state == "cleaned"
+    assert attempt.cleaned_at is not None
     assert set(client.app_state["storage"].objects) == source_objects
