@@ -128,6 +128,16 @@ async def _delete_smoke_meeting_rows(
         "delete from processing_dependency_states where meeting_id=:meeting_id"
     )
     if processing_dependency_has_revision:
+        # Lock the parent rows before deleting children so a concurrent worker
+        # cannot insert a new FK row between the dependency delete and the
+        # media revision delete.
+        await conn.execute(
+            text(
+                "select id from media_revisions "
+                "where meeting_id=:meeting_id for update"
+            ),
+            meeting_params,
+        )
         processing_dependency_delete = """
             delete from processing_dependency_states
             where meeting_id=:meeting_id
