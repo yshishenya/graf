@@ -13,3 +13,9 @@
 - [X] Workflow deterministic и replayable.
 - [X] Focused tests и `infra/scripts/ci-local.sh --fast` пройдены.
 - [X] Production deploy/reprocess выполняются только через отдельный release gate.
+- [X] Удалён только мёртвый runtime legacy; historical dual-track и Temporal replay compatibility сохранены.
+- [X] Provider submit запрещён до exact normalization `ready` artifact.
+- [X] Existing provider job обходит readiness gate и только продолжает polling.
+- [X] No-archive canonical остаётся в existing transient lifecycle без storage quota.
+- [X] Crash до Temporal start восстанавливается deterministic reconciler.
+- [X] Новый workflow type, task queue, persistent WAV и FFmpeg в processing worker не требуются.

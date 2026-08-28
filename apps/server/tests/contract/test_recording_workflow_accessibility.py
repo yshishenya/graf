@@ -199,7 +199,7 @@ def test_processing_recovery_projection_keeps_artifacts_independent_and_refresh_
     ):
         assert marker in script
     assert "fetch(statusUrl" in script
-    assert 'renderProcessingRecoveryFailure(detail, { preserveProjection: true });' in script
+    assert "preserveProjection" not in script
     assert '"Content-Type": "application/json"' in script
     assert "command_id: processingClientCommandId()" in script
     assert "schedule_generation: Number.parseInt(detail.dataset.processingScheduleGeneration" in script

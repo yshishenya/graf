@@ -179,6 +179,7 @@ def test_submission_claim_loss_persists_provider_id_with_blocked_projection(clie
                 workflow=workflow,
                 mic_artifact=await _track_artifact(db, workspace_id, meeting_id, "microphone"),
                 incoming_artifact=await _track_artifact(db, workspace_id, meeting_id, "system"),
+                request_mode="dual_track",
             )
             job.status = MediaScribeJobStatus.SUBMITTING.value
             job.submission_claim_token = "new-owner"

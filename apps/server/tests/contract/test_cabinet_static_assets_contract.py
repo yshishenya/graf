@@ -135,6 +135,16 @@ def test_cabinet_js_keeps_fragment_state_ephemeral() -> None:
     assert "template: activeTemplate" in script
 
 
+def test_processing_recovery_poll_is_not_dropped_while_window_is_hidden() -> None:
+    script = (STATIC_DIR / "cabinet.js").read_text()
+    recovery_polling = script[
+        script.index("const scheduleProcessingRecoveryPolling") :
+        script.index("const processingProjectionFromActionPayload")
+    ]
+
+    assert "document.hidden" not in recovery_polling
+
+
 def test_processing_list_projection_fences_identity_and_stale_requests() -> None:
     script_path = STATIC_DIR / "cabinet.js"
     harness = r"""
@@ -142,7 +152,7 @@ const fs = require("fs");
 const vm = require("vm");
 const script = fs.readFileSync(process.argv[1], "utf8");
 const source = script.slice(
-  script.indexOf("const processingListStatusNode"),
+  script.indexOf("const renderProcessingListProjection"),
   script.indexOf("const initSummaryFormats"),
 );
 class FakeElement {
@@ -164,7 +174,6 @@ const deferred = [];
 const makeRow = (meetingId) => {
   const row = new FakeElement("row", meetingId);
   const status = new FakeElement("status");
-  row.nodes.set("[data-processing-list-status]", status);
   row.nodes.set(".meeting-content-readiness", status);
   rows.push(row);
   return row;
@@ -188,6 +197,7 @@ vm.runInThisContext(`
   const processingTranscriptReady = () => false;
   const processingSummaryState = () => "processing";
   const processingSummaryPending = () => true;
+  const processingProjectionTerminal = (projection) => projection?.retry_class === "terminal";
   ${source}
   global.requestProcessingListProjection = requestProcessingListProjection;
   global.setMeetingListRequestGeneration = (value) => { meetingListRequestGeneration = value; };
@@ -202,10 +212,10 @@ global.list = list;
   deferred.shift().resolve(response({ meeting_id: "meeting-a", retry_class: "retryable" }));
   await new Promise((resolve) => setImmediate(resolve));
   await new Promise((resolve) => setImmediate(resolve));
-  if (rowA.querySelector("[data-processing-list-status]").textContent !== "Обработка временно приостановлена") {
+  if (rowA.querySelector(".meeting-content-readiness").textContent !== "Обработка временно приостановлена") {
     throw new Error("matching projection did not update its own row");
   }
-  if (rowB.querySelector("[data-processing-list-status]").textContent) {
+  if (rowB.querySelector(".meeting-content-readiness").textContent) {
     throw new Error("projection for meeting-a updated meeting-b");
   }
   const detached = makeRow("meeting-detached");
@@ -218,10 +228,10 @@ global.list = list;
   deferred.shift().resolve(response({ meeting_id: "meeting-stale", retry_class: "retryable" }));
   await new Promise((resolve) => setImmediate(resolve));
   await new Promise((resolve) => setImmediate(resolve));
-  if (detached.querySelector("[data-processing-list-status]").textContent) {
+  if (detached.querySelector(".meeting-content-readiness").textContent) {
     throw new Error("detached row accepted a late projection");
   }
-  if (stale.querySelector("[data-processing-list-status]").textContent) {
+  if (stale.querySelector(".meeting-content-readiness").textContent) {
     throw new Error("old list generation accepted a late projection");
   }
 })().catch((error) => {
@@ -246,7 +256,7 @@ const fs = require("fs");
 const vm = require("vm");
 const script = fs.readFileSync(process.argv[1], "utf8");
 const source = script.slice(
-  script.indexOf("const processingListStatusNode"),
+  script.indexOf("const renderProcessingListProjection"),
   script.indexOf("const initSummaryFormats"),
 );
 let now = 100000;
@@ -262,7 +272,6 @@ class FakeElement {
     this.nodes = new Map();
     this.classList = { add() {}, remove() {}, toggle() {} };
   }
-  append(node) { this.nodes.set("[data-processing-list-status]", node); }
   contains(target) { return this.kind === "list" ? rows.includes(target) : false; }
   querySelector(selector) { return this.nodes.get(selector) || null; }
 }
@@ -278,7 +287,6 @@ const makeRow = (meetingId, statusKind, withReadiness) => {
     const readiness = new FakeElement("readiness");
     readiness.textContent = "Спикеры определяются · расшифровка готовится";
     row.nodes.set(".meeting-content-readiness", readiness);
-    row.nodes.set("[data-processing-list-status]", readiness);
   }
   rows.push(row);
   return row;
@@ -320,6 +328,7 @@ vm.runInThisContext(`
   const processingTranscriptReady = () => false;
   const processingSummaryState = () => "processing";
   const processingSummaryPending = () => true;
+  const processingProjectionTerminal = (projection) => projection?.retry_class === "terminal";
   const requestMeetingListRefresh = () => { refreshes += 1; return true; };
   ${source}
   global.initProcessingListProjection = initProcessingListProjection;
@@ -336,7 +345,7 @@ global.rows = rows;
   if (timers.length !== 1 || timers[0].delay !== 15000) {
     throw new Error("active processing projection did not schedule one 15-second tick");
   }
-  if (failedAbove.nodes.has("[data-processing-list-status]") || failedBelow.nodes.has("[data-processing-list-status]")) {
+  if (failedAbove.nodes.has(".meeting-content-readiness") || failedBelow.nodes.has(".meeting-content-readiness")) {
     throw new Error("failed neighbor received a processing status node");
   }
   processing.isConnected = false;
@@ -353,7 +362,7 @@ global.rows = rows;
   await new Promise((resolve) => setImmediate(resolve));
   if (fetches.length !== 2) throw new Error("second active projection tick did not run");
   if (refreshes !== 1) throw new Error(`terminal transition requested ${refreshes} refreshes`);
-  if (failedAbove.nodes.has("[data-processing-list-status]") || failedBelow.nodes.has("[data-processing-list-status]")) {
+  if (failedAbove.nodes.has(".meeting-content-readiness") || failedBelow.nodes.has(".meeting-content-readiness")) {
     throw new Error("terminal transition changed a failed neighbor");
   }
 })().catch((error) => {

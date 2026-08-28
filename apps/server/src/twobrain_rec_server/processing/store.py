@@ -68,10 +68,7 @@ from twobrain_rec_server.normalization.statuses import (
     VALIDATION_VERSION,
     JobState,
 )
-from twobrain_rec_server.processing.audit import (
-    safe_audit_metadata,
-    validate_processing_aggregate_event,
-)
+from twobrain_rec_server.processing.audit import safe_audit_metadata
 from twobrain_rec_server.processing.fences import (
     lock_meeting_fence,
     meeting_is_deleted_or_deleting,
@@ -1152,31 +1149,6 @@ async def fail_processing_attempt_dispatch(
     return False
 
 
-async def load_track_pair(
-    db: AsyncSession,
-    *,
-    workspace_id: UUID,
-    meeting_id: UUID,
-    media_revision_id: UUID | None = None,
-) -> tuple[TrackArtifact | None, TrackArtifact | None]:
-    query = select(TrackArtifact).where(
-        TrackArtifact.workspace_id == workspace_id,
-        TrackArtifact.meeting_id == meeting_id,
-        TrackArtifact.status == "stored",
-    )
-    if media_revision_id is not None:
-        query = query.where(TrackArtifact.media_revision_id == media_revision_id)
-    artifacts = await db.scalars(query)
-    mic: TrackArtifact | None = None
-    incoming: TrackArtifact | None = None
-    for artifact in artifacts:
-        if artifact.track_role == TrackRole.MICROPHONE.value:
-            mic = artifact
-        elif artifact.track_role == TrackRole.SYSTEM.value:
-            incoming = artifact
-    return mic, incoming
-
-
 async def load_processing_source(
     db: AsyncSession,
     *,
@@ -1735,7 +1707,7 @@ async def upsert_mediascribe_job(
     mic_artifact: TrackArtifact | None = None,
     incoming_artifact: TrackArtifact | None = None,
     source_artifact: TrackArtifact | None = None,
-    request_mode: str = "dual_track",
+    request_mode: str,
     source_fingerprint: str | None = None,
     diarize: bool = True,
     summarize: bool = False,
@@ -1966,7 +1938,7 @@ async def release_mediascribe_submission_claim(
     await db.commit()
 
 
-async def _mark_mediascribe_submission_unknown(
+async def mark_mediascribe_submission_unknown(
     db: AsyncSession,
     job: MediaScribeJob,
     *,
@@ -1992,10 +1964,6 @@ async def _mark_mediascribe_submission_unknown(
     current.submission_claim_token = None
     current.submission_claimed_at = None
     await db.commit()
-
-
-mark_mediascribe_submission_unknown = _mark_mediascribe_submission_unknown
-
 
 async def persist_mediascribe_submission(
     db: AsyncSession,
@@ -2606,39 +2574,6 @@ async def record_processing_audit_event(
         actor_user_id=actor_user_id,
         event_type=event_type,
         metadata_json=safe_audit_metadata(metadata or {}),
-    )
-    db.add(event)
-    await db.commit()
-    return event
-
-
-async def record_processing_aggregate_event(
-    db: AsyncSession,
-    *,
-    workspace_id: UUID,
-    event_name: str,
-    window: str,
-    window_started_at: str,
-    window_ended_at: str,
-    surface: str,
-    count: int,
-    dimensions: dict[str, object],
-) -> ProcessingAuditEvent:
-    """Persist one validated rollup without meeting/provider identifiers."""
-
-    payload = validate_processing_aggregate_event(
-        event_name=event_name,
-        window=window,
-        window_started_at=window_started_at,
-        window_ended_at=window_ended_at,
-        surface=surface,
-        count=count,
-        dimensions=dimensions,
-    )
-    event = ProcessingAuditEvent(
-        workspace_id=workspace_id,
-        event_type=event_name,
-        metadata_json=payload,
     )
     db.add(event)
     await db.commit()

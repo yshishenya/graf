@@ -29,7 +29,7 @@ from twobrain_rec_server.domain.statuses import (
 from twobrain_rec_server.mediascribe.schemas import (
     MediaScribeDiarizationSegment,
     MediaScribeResult,
-    MediaScribeSegment,
+    MediaScribeTranscriptSegment,
     MediaScribeWordItem,
 )
 from twobrain_rec_server.processing import store
@@ -51,7 +51,7 @@ def test_processing_happy_path_imports_transcript_and_diarization(client) -> Non
             external_job_id="job_happy",
             transcript_status=ProcessingAvailabilityStatus.AVAILABLE,
             transcript=[
-                MediaScribeSegment(
+                MediaScribeTranscriptSegment(
                     sequence=0, start_seconds=0, end_seconds=1, text="hello", source_role="mic"
                 )
             ],
@@ -138,7 +138,7 @@ def test_pending_provider_status_reaches_ready_without_resubmission(client) -> N
             external_job_id="job_pending_to_ready",
             transcript_status=ProcessingAvailabilityStatus.AVAILABLE,
             transcript=[
-                MediaScribeSegment(
+                MediaScribeTranscriptSegment(
                     sequence=0, start_seconds=0, end_seconds=1, text="hello", source_role="mic"
                 )
             ],
@@ -206,7 +206,7 @@ def test_import_diagnostics_match_persisted_millisecond_rounding(client) -> None
             external_job_id="job_rounding_boundary",
             transcript_status=ProcessingAvailabilityStatus.AVAILABLE,
             transcript=[
-                MediaScribeSegment(
+                MediaScribeTranscriptSegment(
                     sequence=0,
                     start_seconds=0,
                     end_seconds=0.0504,
@@ -304,7 +304,7 @@ def test_v5_mixed_recording_submits_one_canonical_wav_and_imports_one_result(cli
             external_job_id="job_v5_single_wav",
             transcript_status=ProcessingAvailabilityStatus.AVAILABLE,
             transcript=[
-                MediaScribeSegment(
+                MediaScribeTranscriptSegment(
                     sequence=0,
                     start_seconds=0,
                     end_seconds=1,
@@ -444,7 +444,7 @@ def test_normal_recording_and_manual_upload_share_canonical_speaker_projection(c
                 external_job_id=job_id,
                 transcript_status=ProcessingAvailabilityStatus.AVAILABLE,
                 transcript=[
-                    MediaScribeSegment(
+                    MediaScribeTranscriptSegment(
                         sequence=0,
                         start_seconds=0,
                         end_seconds=1,
@@ -561,7 +561,7 @@ def test_processing_e2e_submits_uploaded_track_hashes_and_persists_result_rows(c
             transcript_status=ProcessingAvailabilityStatus.AVAILABLE,
             summary_status=SummaryStatus.AVAILABLE,
             transcript=[
-                MediaScribeSegment(
+                MediaScribeTranscriptSegment(
                     sequence=0,
                     start_seconds=0.0,
                     end_seconds=1.25,
@@ -569,7 +569,7 @@ def test_processing_e2e_submits_uploaded_track_hashes_and_persists_result_rows(c
                     source_role="microphone",
                     source_role_original="microphone",
                 ),
-                MediaScribeSegment(
+                MediaScribeTranscriptSegment(
                     sequence=1,
                     start_seconds=1.25,
                     end_seconds=2.5,
@@ -749,7 +749,7 @@ def test_processing_e2e_submits_uploaded_track_hashes_and_persists_result_rows(c
     assert review_payload["speakers"]["available"] is True
 
 
-def test_ready_unavailable_no_speech_imports_processed_no_transcript_business_outcome(
+def test_pending_then_no_speech_imports_terminal_recovery_without_resubmission(
     client,
 ) -> None:
     finalized = create_finalized_meeting(client, "processing-no-recognizable-speech")
@@ -758,7 +758,7 @@ def test_ready_unavailable_no_speech_imports_processed_no_transcript_business_ou
     workspace_id = UUID(finalized["meeting"]["workspace_id"])
     fake_client = FakeMediaScribeClient(
         external_job_id="job_no_speech",
-        status_sequence=[MediaScribeJobStatus.READY],
+        status_sequence=[MediaScribeJobStatus.TRANSCRIBING, MediaScribeJobStatus.READY],
         result=MediaScribeResult(
             external_job_id="job_no_speech",
             transcript_status=ProcessingAvailabilityStatus.UNAVAILABLE,
@@ -783,6 +783,12 @@ def test_ready_unavailable_no_speech_imports_processed_no_transcript_business_ou
                 storage=client.app_state["storage"],
                 mediascribe_client=fake_client,
                 workflow=workflow,
+            )
+            pending = await poll_and_import_mediascribe_result(
+                db=db,
+                workflow=workflow,
+                job=submitted.job,
+                mediascribe_client=fake_client,
             )
             imported = await poll_and_import_mediascribe_result(
                 db=db,
@@ -813,6 +819,7 @@ def test_ready_unavailable_no_speech_imports_processed_no_transcript_business_ou
                 )
             ).all()
             return {
+                "pending_status": pending.status.value,
                 "import_status": imported.status.value,
                 "workflow_status": persisted_workflow.status,
                 "workflow_reason": persisted_workflow.last_reason_code,
@@ -833,7 +840,10 @@ def test_ready_unavailable_no_speech_imports_processed_no_transcript_business_ou
 
     persisted = asyncio.run(run_pipeline())
 
+    assert len(fake_client.submissions) == 1
+    assert fake_client.poll_count == 2
     assert persisted == {
+        "pending_status": "polling",
         "import_status": "processed",
         "workflow_status": "processed",
         "workflow_reason": "no_recognizable_speech",
@@ -859,3 +869,32 @@ def test_ready_unavailable_no_speech_imports_processed_no_transcript_business_ou
         },
         "transcript_rows": 0,
     }
+
+    projection = client.get(
+        f"/api/v1/meetings/{meeting_id}/processing",
+        headers=auth_headers(),
+    )
+    assert projection.status_code == 200
+    payload = projection.json()
+    assert {
+        key: payload[key]
+        for key in (
+            "state",
+            "reason_code",
+            "retry_class",
+            "manual_action",
+            "attempt_in_flight",
+            "transcript_available",
+            "diarization_available",
+        )
+    } == {
+        "state": "failed_terminal",
+        "reason_code": "no_recognizable_speech",
+        "retry_class": "terminal",
+        "manual_action": "new_attempt",
+        "attempt_in_flight": False,
+        "transcript_available": False,
+        "diarization_available": False,
+    }
+    assert payload["artifacts"]["transcript"] == {"state": "unavailable", "visible": False}
+    assert payload["artifacts"]["diarization"] == {"state": "unavailable", "visible": False}

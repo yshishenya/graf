@@ -116,15 +116,6 @@ class MediaScribeProblemDetails(MediaScribeModel):
     errors: list[dict[str, Any]] | None = None
 
 
-class MediaScribeSubmitRequest(MediaScribeModel):
-    mic_object_key: str
-    incoming_object_key: str
-    diarize: bool = True
-    summarize: bool = False
-    speaker_count_mode: str | None = None
-    num_speakers: int | None = Field(default=None, ge=1)
-
-
 class MediaScribeMediaSource(MediaScribeModel):
     role: str
     filename: str
@@ -453,18 +444,3 @@ class MediaScribeDownloadResponse(MediaScribeModel):
     request_id: str | None = None
     headers: MediaScribeResponseHeaders = Field(default_factory=MediaScribeResponseHeaders)
     http_status: int | None = None
-
-
-# Short aliases keep the adapter API readable while the Response suffixes make
-# the provider DTO boundary explicit for callers and tests.
-MediaScribeCapabilities = MediaScribeCapabilitiesResponse
-MediaScribeVersion = MediaScribeVersionResponse
-MediaScribeJob = MediaScribeJobResponse
-MediaScribeJobList = MediaScribeJobListResponse
-MediaScribeSummary = MediaScribeSummaryResponse
-MediaScribeDeletion = MediaScribeDeletionResponse
-MediaScribeDownload = MediaScribeDownloadResponse
-
-# Existing processing code imports this name. Keep it as an alias while
-# allowing the v1 provider status to carry an unknown future value.
-MediaScribeSegment = MediaScribeTranscriptSegment

@@ -1,6 +1,6 @@
 # Data Model: MediaScribe polling recovery
 
-Новая сущность или колонка не требуется. Используются существующие поля
+Новые сущности и lifecycle-поля не требуются. Используются существующие поля
 `ProcessingWorkflow`:
 
 - `status` — lifecycle state, не смешивать с provider status;
@@ -13,8 +13,37 @@
 В `RetrySchedule` добавляется только in-memory `stop_reason`, чтобы вызывающий
 код различал max-attempt stop и deadline stop без изменения БД.
 
-Data-only migration `0083_result_workflow_lineage` заполняет существующий
-`ProcessingResult.processing_workflow_id`, только когда цепочка result →
-MediaScribe job → transcription workflow полностью совпадает по workspace,
-meeting и media revision. Неоднозначные и конфликтующие строки остаются без
-lineage и не участвуют в runtime-проекциях.
+Для manual-upload canonical gate используются существующие сущности:
+
+- `PlaybackNormalizationJob.state` — `queued/running/publishing/retry_wait`
+  означает внутреннее ожидание; `ready` требует exact
+  `canonical_track_artifact_id`; `terminal/cancelled` запрещает provider egress;
+- `TrackArtifact` canonical M4A — единственный manual-upload provider source;
+  при `archive_audio=true` это также playback source, при `false` — transient и
+  скрытый от playback/storage quota;
+- `ProcessingWorkflow` — создаётся сразу после accepted commit и сохраняет
+  transient lifecycle, processing quota reservation, deterministic workflow id
+  и manual command generation;
+- `MediaScribeJob` — local pre-egress row может существовать до POST, но не
+  обходит gate; только `external_job_id` либо explicit same-key unknown-outcome
+  reconciliation подтверждает provider submission. Canonical artifact identity,
+  SHA, size, profile, validation и lineage входят в неизменный request contract;
+- finalized `UploadSession.archive_audio` — revision-scoped policy source;
+  любой конфликтующий `false` трактуется fail-closed как no-archive, отсутствие
+  session сохраняет legacy archival behavior;
+- `TemporaryUploadObject`, `ProcessingWorkflow.transient_*` и существующий
+  `PurgeJournal` — custody/purge contract. Purge intent/fences фиксируются до
+  object deletion; earliest hard deadline среди revision attempts сохраняется.
+
+Audit добавляет allowlisted `normalization_mode=tolerant` только как policy fact.
+Persisted artifact derivation остаётся существующим `single_source_transcode`,
+a `recovered_source=false`, пока фактическое recovery не доказано. Новое enum
+значение не требуется.
+
+Миграция `0083_result_workflow_lineage` не меняет публичную модель данных. Она
+консервативно заполняет существующий `ProcessingResult.processing_workflow_id`
+только через доказанную цепочку result → MediaScribe job → workflow и не
+угадывает конфликтующую lineage. Bounded transient purge использует уже
+существующие индексы, journal и maintenance allowlist. Если реализация потребует
+новый public status, artifact role или retention entity, работа останавливается
+и plan пересматривается.

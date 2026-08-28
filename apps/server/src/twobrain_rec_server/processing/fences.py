@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -13,46 +12,10 @@ from twobrain_rec_server.db.models import DeletionFence, Meeting, ProcessingAudi
 from twobrain_rec_server.processing.audit import safe_audit_metadata
 
 
-@dataclass(frozen=True, slots=True)
-class LifecycleFence:
-    meeting_id: UUID
-    workspace_id: UUID
-    deletion_epoch: int
-    source_fingerprint: str | None = None
-
-
 def meeting_is_deleted_or_deleting(meeting: Meeting) -> bool:
     """Treat a tombstone timestamp as active even if state reconciliation lags."""
 
     return meeting.deleted_at is not None or (meeting.deletion_state or "none") != "none"
-
-
-def snapshot_fence(meeting: Meeting, *, source_fingerprint: str | None = None) -> LifecycleFence:
-    return LifecycleFence(
-        meeting_id=meeting.id,
-        workspace_id=meeting.workspace_id,
-        deletion_epoch=int(meeting.deletion_epoch or 0),
-        source_fingerprint=source_fingerprint,
-    )
-
-
-def fence_matches(
-    meeting: Meeting,
-    fence: LifecycleFence,
-    *,
-    source_fingerprint: str | None = None,
-) -> bool:
-    return (
-        meeting.id == fence.meeting_id
-        and meeting.workspace_id == fence.workspace_id
-        and int(meeting.deletion_epoch or 0) == fence.deletion_epoch
-        and not meeting_is_deleted_or_deleting(meeting)
-        and (
-            source_fingerprint is None
-            or fence.source_fingerprint is not None
-            and fence.source_fingerprint == source_fingerprint
-        )
-    )
 
 
 def normalize_db_timestamp(value: datetime | None) -> datetime | None:

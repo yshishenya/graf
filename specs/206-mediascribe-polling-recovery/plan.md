@@ -18,10 +18,14 @@ failure останутся terminal.
 **Testing**: pytest, Temporal WorkflowEnvironment, static cabinet contracts
 **Risk / Validation Lane**: high-risk-feature — MediaScribe, Temporal, durable
 recovery and user-visible degraded/error UX.
-**Release Gate**: no deploy in this slice; focused tests and `ci-local.sh --fast`
+**Release Gate**: scoped/current-SHA validation, PR/review/merge/release/deploy and
+production E2E are authorized; do not repeat Full CI, but preserve exact-SHA and
+all repository deployment gates
 **Target Platform**: GRAF server and embedded/web cabinet
 **Project Type**: server-rendered web service with Temporal worker
-**Performance Goals**: no busy polling; bounded provider request delay
+**Performance Goals**: no busy polling; bounded provider request delay; manual
+upload normalization performs one tolerant transcode plus one strict output
+decode and no preliminary full source decode
 **Constraints**: same-job reconciliation, server-only credentials, no content in logs
 **Scale/Scope**: one processing workflow and shared meeting detail/list projection
 
@@ -39,9 +43,7 @@ recovery and user-visible degraded/error UX.
 
 ### After design
 
-- PASS — `RetrySchedule.stop_reason` is in-memory metadata; no schema change is
-  needed. Migration `0083` only backfills the existing workflow FK through an
-  exact job/workflow relation.
+- PASS — `RetrySchedule.stop_reason` is in-memory metadata; no migration needed.
 - PASS — Watchdog uses existing `FAILED_RETRYABLE` and recovery controls, so no
   new status enum or abstraction is introduced.
 - PASS — Manual check wakes a durable workflow signal/update and clears the UI
@@ -76,23 +78,93 @@ apps/server/src/twobrain_rec_server/
 ```
 
 **Structure Decision**: Reuse existing processing, Temporal and cabinet modules;
-no new service, dependency or abstraction. One data-only migration removes the
-historical nullable-lineage compatibility gap.
+no new service, dependency, entity or abstraction. Migration
+`0083_result_workflow_lineage` conservatively backfills the direct workflow
+lineage of revision-scoped processing results; transient purge continues to use
+the existing indexes, journal and maintenance allowlist.
 
-## Дополнение: восстановление повреждённого источника
+## Дополнение: canonical manual-upload pipeline
 
-Для ручных загрузок playback-нормализация остаётся отдельным lifecycle-путём:
-MediaScribe получает authoritative `media`, а canonical M4A используется только
-для проигрывания. Если строгий первый decode обнаруживает повреждение, pipeline
-однократно выполняет bounded tolerant FFmpeg transcode с `ignore_err` и
-`discardcorrupt`. Результат публикуется только после строгой проверки output;
-сверка длительности с принятой revision блокирует тихо усечённые файлы.
+Для каждой ручной загрузки GRAF создаёт normalization job независимо от
+`archive_audio`. Только ветка `manual_upload` включает tolerant-first mode;
+capture и остальные single/dual-source пути сохраняют существующие быстрые
+copy/remux/transcode решения. Media worker выполняет bounded `ffprobe`, затем один tolerant
+FFmpeg transcode с `ignore_err`/`discardcorrupt` и строгую полную проверку только
+готового canonical M4A. Preliminary strict source decode удаляется.
 
-Recovery не добавляет новую durable-сущность. Data-only migration заполняет
-существующий workflow FK; audit сохраняет только boolean `recovered_source`,
-без байтов аудио, текста или stderr.
+Processing workflow по-прежнему стартует после accepted commit, чтобы
+сохранить durable intent, quota/transient lifecycle и пользовательское recovery
+состояние. Существующая single-step activity до первого provider submit
+проверяет normalization job:
+
+- `ready` + exact validated artifact — canonical M4A становится единственным
+  manual-upload source для MediaScribe;
+- `queued/running/publishing/retry_wait` — возвращается внутренний
+  `normalization_pending`, после чего workflow ждёт bounded Temporal timer;
+- `terminal/cancelled` — provider egress запрещён и сохраняется локальная
+  terminal/cancelled причина.
+
+Gate обходится только после подтверждённого provider `external_job_id` либо при
+явном same-idempotency-key reconciliation неизвестного результата POST. Локальная
+строка job без `external_job_id` остаётся pre-egress и повторно обязана доказать
+exact canonical identity и request fingerprint. После подтверждённого provider
+job workflow продолжает same-job polling и никогда не повторяет multipart upload.
+
+`archive_audio=false` использует тот же canonical artifact временно: единый
+revision policy helper запрещает playback egress и storage reserve/commit, но
+оставляет processing usage. Transient owner создаётся в finalize-транзакции.
+Purge сначала фиксирует intent/fences в существующем journal, затем удаляет
+только source/playback objects и после этого согласует DB states. Он блокирует
+Meeting → workflows → normalization jobs → attempts → artifacts, учитывает все
+attempts/workflows revision и самый ранний hard deadline. Processing worker не
+получает FFmpeg и новый WAV не создаётся.
+
+Для crash-gap `ProcessingWorkflow(starting)` → Temporal start добавляется
+bounded reconciler. После quota admission `WORKFLOW_STARTED` фиксируется до
+Temporal RPC; start использует deterministic workflow id и явную
+`REJECT_DUPLICATE` policy. Running conflict переиспользуется, закрытый duplicate
+согласуется с DB без нового run, ambiguous RPC не терминализирует intent. Новая
+durable сущность, новый workflow type и новая task queue не требуются.
+
+Workflow-команда до результата activity не меняется. Ветка
+`normalization_pending` добавляется после существующего activity result; replay
+совместимость подтверждается сохранённой pre-change history перед deploy.
+
+Audit сохраняет policy fact `normalization_mode=tolerant`, проходы, bounded
+reason/outcome и artifact identity; он не утверждает фактическое восстановление
+повреждения без доказательства и не сохраняет audio/content/stderr.
+
+После terminal hardening текущая попытка определяется только обязательной
+цепочкой workflow → MediaScribe job → result. Runtime-эвристики старого result
+контракта и фоновый legacy-lineage reconciler удалены; historical dual-track
+чтение и Temporal patch markers сохранены для старых записей и replay. Detail
+polling остаётся low-frequency и не теряется при скрытом окне до terminal
+projection.
+
+## Performance and capacity
+
+- Initial media-worker concurrency остаётся `1` при CPU limit `1`.
+- Tolerant transcode ограничен 4 часами + 1 секунда и 128 MiB output.
+- Exact manual-upload subprocess budget: один source `ffprobe`, ноль source full
+  decode, один tolerant transcode с `-t 14401`, один output `ffprobe`, один
+  strict output full decode. Generated output может повторно читаться для hash
+  verification до появления измеренного I/O bottleneck.
+- Source probe duration обязана быть finite, positive, known и не больше 4 часов;
+  stream/format и accepted-revision mismatch обрабатываются fail-closed по
+  явному малому tolerance, а не существующему допуску до 60 секунд.
+- Normalization readiness checks используют durable `next_attempt_at` либо
+  bounded fallback timer и не расходуют provider retry/deadline watchdog.
+  Workflow выполняет `continue_as_new` по подсказке Temporal или после
+  фиксированного числа readiness checks, ограничивая history growth.
+- Метрики: normalization queue age, wall duration, outcome и processing gate
+  wait; Task Queue Fairness/дополнительная concurrency добавляются только при
+  измеренном backlog/starvation.
+- Повторное хеширование bounded output и `faststart` не оптимизируются до
+  измеренного I/O bottleneck.
 
 ## Complexity Tracking
 
-Нет нарушений конституции. Watchdog reuses `FAILED_RETRYABLE` and existing
-manual check surface instead of adding a new durable state.
+Нет новых сервисов, таблиц, task queues, WAV-артефактов или workflow types.
+Watchdog reuses `FAILED_RETRYABLE`; normalization readiness остаётся внутренним
+activity result. Trust-boundary output validation, deletion fences и transient
+lifecycle не упрощаются.

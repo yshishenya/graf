@@ -1052,6 +1052,7 @@ def test_result_import_validation_error_is_persisted_as_terminal_safe_reason(cli
                 workflow=workflow,
                 mic_artifact=await _track_artifact(db, workspace_id, meeting_id, "microphone"),
                 incoming_artifact=await _track_artifact(db, workspace_id, meeting_id, "system"),
+                request_mode="dual_track",
             )
             await store.persist_mediascribe_submission(
                 db,
@@ -1248,6 +1249,7 @@ async def _submitted_job(
         workflow=workflow,
         mic_artifact=await _track_artifact(db, workspace_id, meeting_id, "microphone"),
         incoming_artifact=await _track_artifact(db, workspace_id, meeting_id, "system"),
+        request_mode="dual_track",
     )
     await store.persist_mediascribe_submission(
         db,
