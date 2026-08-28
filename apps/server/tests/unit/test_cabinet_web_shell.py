@@ -1598,9 +1598,17 @@ def test_feature_159_download_and_profile_surface_contract_is_surface_aware() ->
 def test_profile_menu_theme_and_disabled_action_contract_is_shared() -> None:
     script = _cabinet_js()
     css = _cabinet_css()
+    sections = (
+        SERVER_ROOT / "cabinet" / "templates" / "cabinet" / "components" / "sections.html"
+    ).read_text()
 
     assert 'form.dataset.accountPreferencesAutoSave === "true"' in script
     assert "form.requestSubmit()" in script
+    assert 'data-profile-menu popover="manual" hidden' in sections
+    assert "menu.showPopover()" in script
+    assert "menu.hidePopover()" in script
+    assert 'menu.matches(":popover-open")' in script
+    assert 'style.setProperty("--profile-menu-bottom"' in script
     assert ".sidebar-profile-menu__item--disabled" in css
     assert ".sidebar-profile-menu__theme-form .theme-picker__options" in css
     assert ".sidebar-profile-menu__submenu" in css
@@ -1608,7 +1616,7 @@ def test_profile_menu_theme_and_disabled_action_contract_is_shared() -> None:
     assert ".sidebar-profile-menu__disclosure.is-flipped" in css
     assert ".is-rail-pinned .sidebar-profile-menu" in css
     assert "left: 8px;" in css
-    assert "bottom: calc(12px + 48px);" in css
+    assert "bottom: var(--profile-menu-bottom, calc(12px + 48px));" in css
     assert "syncDisclosurePosition" in script
 
 

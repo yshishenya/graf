@@ -5326,6 +5326,12 @@
       const menu = root.querySelector("[data-profile-menu]");
       if (!trigger || !menu || root.getAttribute("data-profile-menu-ready") === "true") return;
       root.setAttribute("data-profile-menu-ready", "true");
+      const supportsPopover = typeof menu.showPopover === "function";
+      const popoverOpen = () => supportsPopover && menu.matches(":popover-open");
+      const positionMenu = () => {
+        const triggerTop = trigger.getBoundingClientRect().top;
+        menu.style.setProperty("--profile-menu-bottom", `${Math.max(8, window.innerHeight - triggerTop + 8)}px`);
+      };
       const disclosures = Array.from(menu.querySelectorAll(".sidebar-profile-menu__disclosure"));
       const syncDisclosurePosition = (details) => {
         details.classList.remove("is-flipped");
@@ -5341,12 +5347,20 @@
         details.addEventListener("toggle", () => syncDisclosurePosition(details));
       });
       const setOpen = (open, restoreFocus = false) => {
-        menu.hidden = !open;
+        if (open) {
+          positionMenu();
+          menu.hidden = false;
+          if (supportsPopover && !popoverOpen()) menu.showPopover();
+        } else {
+          if (popoverOpen()) menu.hidePopover();
+          menu.hidden = true;
+        }
         trigger.setAttribute("aria-expanded", open ? "true" : "false");
         if (!open) disclosures.forEach((details) => { details.open = false; syncDisclosurePosition(details); });
         if (!open && restoreFocus) trigger.focus({ preventScroll: true });
       };
-      trigger.addEventListener("click", () => setOpen(menu.hidden));
+      trigger.addEventListener("click", () => setOpen(menu.hidden || (supportsPopover && !popoverOpen())));
+      window.addEventListener("resize", () => { if (!menu.hidden) positionMenu(); });
       document.addEventListener("keydown", (event) => {
         if (event.key === "Escape" && !menu.hidden) setOpen(false, true);
       });

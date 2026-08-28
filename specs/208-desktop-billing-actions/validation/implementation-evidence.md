@@ -23,7 +23,18 @@
 ## Release gate
 
 - Validation lane: high-risk product area / shared billing navigation boundary.
-- Full exact-SHA CI, Developer ID, notarization, stapling, Gatekeeper, Sparkle
-  publication и installed-app smoke остаются открытыми в T004.
-- Релиз не начинается, пока занят единый release/deploy lock; YooKassa остаётся
-  в test-shop.
+- Exact SHA `c428f7990843cc39c141b25c3d8dfdc8de3d66f2` прошёл полный CI:
+  macOS `768/768`, server `3487 passed, 1 skipped`, performance `1 passed`,
+  strict RLS `52 passed, 1 skipped`, lint/compile/Compose/evidence — PASS.
+- `v2026.08.28.11` собран universal, подписан Developer ID
+  Application/Installer, нотариализован Apple, stapled и опубликован через
+  локальный Keychain signer Sparkle. Public ZIP/appcast и переход
+  `2026.08.28.8 -> 2026.08.28.11` прошли `validate-app-updates.sh`.
+- Установленный `/Applications/GRAF.app` обновлён штатным Sparkle до
+  `2026.08.28.11`; codesign, stapler и `spctl` приняли приложение.
+- Installed-app smoke открыл `/billing` и `/billing/checkout` без экрана
+  «Функция недоступна». Promo preview для уже использованного `P4_GRAF`
+  вернул ожидаемый `promo_invalid`; checkout start вернул `already_active` и
+  явно подтвердил, что повторная оплата не создана.
+- YooKassa осталась в test-shop; новый платёж не создавался. Полный receipt:
+  `docs/deployments/2brain-rec/release-v2026.08.28.11.md`.
