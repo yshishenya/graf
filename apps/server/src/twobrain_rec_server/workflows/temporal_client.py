@@ -317,9 +317,9 @@ def processing_worker_identity(hostname: str | None = None) -> str:
 def processing_workflow_id(media_revision_id: UUID, attempt_ordinal: int = 1) -> str:
     """Return the stable Temporal identity for one business attempt.
 
-    Attempt one keeps the historical ID so existing Temporal histories remain
-    addressable. Later attempts get a new ID and therefore can never reuse the
-    completed/failed execution or its provider idempotency lineage.
+    Attempt one uses the canonical revision-scoped ID. Recovery callers may
+    pass the persisted ID to keep an older execution addressable; later
+    attempts get a new ID and therefore cannot reuse a closed execution.
     """
 
     if isinstance(attempt_ordinal, bool) or not isinstance(attempt_ordinal, int):
@@ -680,8 +680,9 @@ async def start_processing_workflow(
     tenant_scope: TenantScope | None = None,
     archive_audio: bool = True,
     attempt_ordinal: int = 1,
+    workflow_id: str | None = None,
 ) -> ProcessingWorkflowStart:
-    workflow_id = processing_workflow_id(media_revision_id, attempt_ordinal)
+    workflow_id = workflow_id or processing_workflow_id(media_revision_id, attempt_ordinal)
     validate_processing_workflow_id(workflow_id)
     payload = {
         "meeting_id": str(meeting_id),

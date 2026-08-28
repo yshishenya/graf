@@ -359,7 +359,8 @@ def test_exhausted_processing_limit_offers_a_later_new_attempt(client) -> None:
     )
 
 
-def test_expired_manual_check_claim_reopens_same_job_action(client) -> None:
+@pytest.mark.parametrize("claim_reason", ["manual_processing_check", "mediascribe_timeout"])
+def test_expired_manual_check_claim_reopens_same_job_action(client, claim_reason) -> None:
     finalized = create_finalized_meeting(client, "processing-status-expired-manual-claim")
     meeting_id = UUID(finalized["meeting"]["meeting_id"])
     media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
@@ -376,7 +377,7 @@ def test_expired_manual_check_claim_reopens_same_job_action(client) -> None:
                 status=ProcessingStatus.POLLING,
             )
             workflow.retry_class = "retryable"
-            workflow.last_reason_code = "manual_processing_check"
+            workflow.last_reason_code = claim_reason
             workflow.manual_claimed_at = datetime.now(UTC) - timedelta(minutes=3)
             workflow.manual_claimed_by = "user"
             db.add(

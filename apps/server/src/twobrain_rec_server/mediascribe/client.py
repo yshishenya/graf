@@ -39,6 +39,7 @@ _SAFE_MACHINE_VALUE_MAX_LENGTH = 128
 _V1_TRANSCRIPTIONS_PATH = "/v1/audio/transcriptions"
 _V1_API_VERSION = "v1"
 _DOWNLOAD_ARTIFACTS = frozenset({"archive", "diarization", "summary", "transcript"})
+_RETRYABLE_CONFLICT_CODES = frozenset({"result_not_ready", "summary_not_ready"})
 
 
 class MediaScribeClientError(RuntimeError):
@@ -993,7 +994,6 @@ def _error_from_response(
         if headers.error_retryable is not None
         else None
     )
-    retryable = classification.retryable and provider_retryable is not False
     reason_code = (
         _safe_machine_value(problem.code)
         if problem is not None and problem.code is not None
@@ -1001,6 +1001,16 @@ def _error_from_response(
         if headers.error_code is not None
         else classification.reason_code
     )
+    if response.status_code == 409:
+        # 409 is overloaded by the v1 contract: only explicit not-ready
+        # machine codes are safe to retry. Unknown or terminal conflicts must
+        # fail closed even if a proxy/provider omitted the Problem Details.
+        retryable = (
+            reason_code in _RETRYABLE_CONFLICT_CODES
+            and provider_retryable is not False
+        )
+    else:
+        retryable = classification.retryable and provider_retryable is not False
     request_id = headers.request_id or (problem.request_id if problem is not None else None)
     job_id = (
         problem.job_id if problem is not None and problem.job_id is not None else fallback_job_id
@@ -1066,9 +1076,13 @@ def _response_headers(response: httpx.Response) -> MediaScribeResponseHeaders:
     location = _safe_provider_location(response.headers.get("Location"))
     job_status = _safe_provider_token(response.headers.get("X-Job-Status"))
     queue_state = _safe_provider_token(response.headers.get("X-Queue-State"))
-    error_code = _safe_machine_value(response.headers.get("X-Job-Error-Code"))
+    error_code = _safe_machine_value(
+        response.headers.get("X-Job-Error-Code") or response.headers.get("X-Error-Code")
+    )
     error_origin = _safe_machine_value(response.headers.get("X-Job-Error-Origin"))
-    error_retryable = _parse_bool_header(response.headers.get("X-Job-Retryable"))
+    error_retryable = _parse_bool_header(
+        response.headers.get("X-Job-Retryable") or response.headers.get("X-Error-Retryable")
+    )
     raw_headers: dict[str, str] = {}
     for header_name in (
         "Location",
@@ -1082,6 +1096,8 @@ def _response_headers(response: httpx.Response) -> MediaScribeResponseHeaders:
         "X-Job-Error-Code",
         "X-Job-Error-Origin",
         "X-Job-Retryable",
+        "X-Error-Code",
+        "X-Error-Retryable",
         "Content-Type",
     ):
         value = response.headers.get(header_name)

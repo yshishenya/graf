@@ -229,8 +229,10 @@ async def get_content_safe_processing_status(
         )
         if manual_claim_expired and workflow.last_reason_code == "manual_processing_check":
             attempt_in_flight = False
-        elif workflow.manual_claimed_by == "user":
+        elif workflow.manual_claimed_by == "user" and not manual_claim_expired:
             attempt_in_flight = True
+        elif manual_claim_expired:
+            attempt_in_flight = False
     manual_action = "none"
     has_external_job_id = bool(
         job is not None

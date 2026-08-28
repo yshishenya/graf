@@ -234,6 +234,63 @@ vm.runInThisContext(`
     assert completed.returncode == 0, completed.stderr
 
 
+def test_processing_status_failure_preserves_ready_transcript_and_export() -> None:
+    script_path = STATIC_DIR / "cabinet.js"
+    harness = r"""
+const fs = require("fs");
+const vm = require("vm");
+const script = fs.readFileSync(process.argv[1], "utf8");
+const source = script.slice(
+  script.indexOf("const renderProcessingRecoveryFailure"),
+  script.indexOf("const abortProcessingRecoveryStatusRequest"),
+);
+const transcript = { hidden: false, setAttribute(_name, value) { this.ariaHidden = value; } };
+const pending = { hidden: true };
+const recovery = {
+  hidden: true,
+  dataset: {},
+  setAttribute() {},
+  querySelector(selector) {
+    if (selector === "[data-processing-recovery-title]") return { textContent: "" };
+    if (selector === "[data-processing-recovery-copy]") return { textContent: "" };
+    if (selector === "[data-processing-check]") return null;
+    if (selector === "[data-processing-new-attempt]") return null;
+    if (selector === "[data-processing-upload-another]") return null;
+    if (selector === "[data-processing-refresh]") return null;
+    return null;
+  },
+};
+const detail = {
+  dataset: { processingTranscriptVisible: "true" },
+  querySelector(selector) {
+    if (selector === "[data-processing-recovery]") return recovery;
+    if (selector === "[data-playback-transcript]") return transcript;
+    if (selector === "[data-transcript-pending]") return pending;
+    return null;
+  },
+};
+const resetProcessingRecoveryCountdown = () => {};
+const stopProcessingRecoveryPolling = () => {};
+let exported = null;
+let announcement = "";
+const updateProcessingExportVisibility = (value) => { exported = value; };
+const announceProcessingChange = (_detail, value) => { announcement = value; };
+vm.runInThisContext(`${source}; global.renderProcessingRecoveryFailure = renderProcessingRecoveryFailure;`);
+global.renderProcessingRecoveryFailure(detail);
+if (transcript.hidden || transcript.ariaHidden !== "false" || pending.hidden !== true || exported !== true) {
+  throw new Error("transient status failure hid ready content");
+}
+if (announcement.includes("null")) throw new Error("recovery announcement contains null");
+"""
+    completed = subprocess.run(
+        ["node", "-e", harness, str(script_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+
+
 def test_processing_list_projection_fences_identity_and_stale_requests() -> None:
     script_path = STATIC_DIR / "cabinet.js"
     harness = r"""
@@ -527,7 +584,7 @@ global.scheduleProcessingRecoveryPolling(detail, {
   remaining: 0,
   summary_status: "unavailable",
 });
-if (scheduled.join(",") !== "360000,15000,15000,15000") {
+    if (scheduled.join(",") !== "360000,15000,15000,1000") {
   throw new Error(`unexpected polling delays: ${scheduled.join(",")}`);
 }
 """
@@ -885,6 +942,17 @@ const cases = [
     title: "Недостаточно места для аудио",
     showRefresh: false,
     uploadWithoutArchive: true,
+  },
+  {
+    projection: {
+      state: "failed_terminal",
+      retry_class: "terminal",
+      manual_action: "new_attempt",
+      reason_code: "processing_retry_deadline_exceeded",
+    },
+    title: "Обработка завершилась без результата",
+    showRefresh: true,
+    canStartNewAttempt: true,
   },
 ];
 for (const testCase of cases) {

@@ -62,7 +62,8 @@
 
 1. **Given** MediaScribe сообщил `failed`, **When** GRAF обновляет состояние,
    **Then** показываются понятная ошибка и доступное recovery-действие.
-2. **Given** MediaScribe вернул 429/5xx/timeout или pending status, **When**
+2. **Given** MediaScribe вернул retryable `429`, `502`, `503`, `504`, timeout
+   или pending status (а не terminal `500`), **When**
    GRAF обрабатывает ответ, **Then** запись остаётся временно ожидающей и не
    получает terminal failure.
 3. **Given** ответ провайдера malformed или исходный артефакт недоступен,

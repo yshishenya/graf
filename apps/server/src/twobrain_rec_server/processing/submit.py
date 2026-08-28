@@ -1299,7 +1299,7 @@ async def _record_import_diagnostic(
         metadata={
             "mediascribe_job_id": job.id,
             "segment_count": len(result.transcript),
-            "diarization_segment_count": len(result.diarization),
+            "diarization_segment_count": len(result.diarization or []),
             "summary_status": result.summary_status.value,
             "transcript_status": result.transcript_status.value,
             "transcript_reason": result.transcript_reason,

@@ -24,7 +24,7 @@ Every new macOS recording has exactly these final package members:
 
 | Purpose | File | Format | Provider behavior |
 |---|---|---|---|
-| ASR source | `meeting-transcription.wav` | PCM s16le, mono, 16 kHz | The only audio sent to MediaScribe. |
+| ASR source | `meeting-transcription.wav` | PCM s16le, mono, 16 kHz | The only audio sent to MediaScribe for a v5 macOS package. |
 | Local/server playback | `meeting-review.m4a` | AAC, mono, 48 kHz | Stored for playback only; never sent to MediaScribe. |
 | Package metadata | `manifest.json` | JSON | Sent to GRAF's upload API, never to MediaScribe. |
 
@@ -76,8 +76,8 @@ timing without trying to reconstruct separate speakers from two recordings.
 ## Polling and result import
 
 ```http
-GET /jobs/{job_id}
-GET /jobs/{job_id}/result
+GET /v1/audio/transcriptions/{job_id}
+GET /v1/audio/transcriptions/{job_id}/result
 X-API-Key: <server-side secret>
 ```
 

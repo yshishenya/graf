@@ -19,7 +19,11 @@ from twobrain_rec_server.domain.statuses import (
     ProcessingAvailabilityStatus,
     ProcessingStatus,
 )
-from twobrain_rec_server.mediascribe.schemas import MediaScribeResult, MediaScribeTranscriptSegment
+from twobrain_rec_server.mediascribe.schemas import (
+    MediaScribeDiarizationSegment,
+    MediaScribeResult,
+    MediaScribeTranscriptSegment,
+)
 from twobrain_rec_server.processing import store
 from twobrain_rec_server.processing.submit import (
     poll_and_import_mediascribe_result,
@@ -159,6 +163,16 @@ def test_quota_failure_does_not_publish_result_or_segments(client, monkeypatch) 
                 end_seconds=10,
                 text="quota fixture",
                 source_role="mic",
+            )
+        ],
+        diarization=[
+            MediaScribeDiarizationSegment(
+                sequence=0,
+                start_seconds=0,
+                end_seconds=10,
+                text="quota fixture",
+                source_role="mic",
+                speaker_label="SPEAKER_00",
             )
         ],
     )

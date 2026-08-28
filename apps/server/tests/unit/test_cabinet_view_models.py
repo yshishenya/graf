@@ -37,6 +37,7 @@ from twobrain_rec_server.domain.statuses import (
     ProcessingAvailabilityStatus,
     ProcessingResultStatus,
     ProcessingStatus,
+    SummaryStatus,
 )
 
 
@@ -1091,6 +1092,41 @@ def test_terminal_input_result_is_terminal_for_list_and_detail_projections(
     assert view_models.meeting_list_row_presentation(item, time_basis="meeting").status_label == (
         "Не удалось обработать"
     )
+
+
+def test_terminal_input_result_cannot_be_promoted_to_partial_by_artifact_rows() -> None:
+    meeting = _meeting(ProcessingStatus.PROCESSED)
+    result = ProcessingResult(
+        id=uuid4(),
+        meeting_id=meeting.id,
+        workspace_id=meeting.workspace_id,
+        media_revision_id=uuid4(),
+        processing_workflow_id=uuid4(),
+        mediascribe_job_id=uuid4(),
+        status=ProcessingResultStatus.IMPORTED.value,
+        transcript_status=ProcessingAvailabilityStatus.UNAVAILABLE.value,
+        diarization_status=ProcessingAvailabilityStatus.AVAILABLE.value,
+        summary_status=SummaryStatus.UNAVAILABLE.value,
+        segment_count=0,
+        diarization_segment_count=1,
+        failure_reason="no_recognizable_speech",
+    )
+    workflow = ProcessingWorkflow(
+        id=result.processing_workflow_id,
+        meeting_id=meeting.id,
+        workspace_id=meeting.workspace_id,
+        media_revision_id=result.media_revision_id,
+        workflow_id="processing/terminal-with-rows",
+        purpose="transcription",
+        status=ProcessingStatus.PROCESSED.value,
+    )
+
+    assert view_models.review_status(
+        meeting,
+        result=result,
+        workflow=workflow,
+        media_revision_id=result.media_revision_id,
+    ) == "failed"
 
 
 def test_previous_terminal_input_result_does_not_mask_active_attempt() -> None:

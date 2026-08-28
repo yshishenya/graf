@@ -114,6 +114,13 @@ class ProcessingStartIntent:
 MEDIASCRIBE_SUBMISSION_WAIT_SECONDS = 35.0
 MEDIASCRIBE_SUBMISSION_CLAIM_STALE_AFTER = timedelta(minutes=2)
 PROCESSING_MANUAL_CHECK_CLAIM_LEASE = timedelta(minutes=2)
+_RESUMABLE_PROVIDER_JOB_REASONS = frozenset(
+    {
+        BLOCKED_FREE_PROCESSING_EXHAUSTED,
+        "processing_retry_deadline_exceeded",
+        "mediascribe_poll_limit_exceeded",
+    }
+)
 _PROVENANCE_TOKEN_RE = re.compile(r"^[A-Za-z0-9_.:+/-]{1,160}$")
 _PROVENANCE_TOKEN_FIELDS = (
     "asr_model_version",
@@ -806,7 +813,7 @@ async def claim_stale_processing_start_intents(
         )
         .order_by(ProcessingWorkflow.updated_at, ProcessingWorkflow.id)
         .limit(limit)
-        .with_for_update(skip_locked=True)
+        .with_for_update(skip_locked=True, of=ProcessingWorkflow)
         .execution_options(populate_existing=True)
     )
     rows = list(await db.scalars(query))
@@ -856,7 +863,7 @@ async def claim_missing_processing_start_intents(
         )
         .order_by(UploadSession.finalized_at, UploadSession.id)
         .limit(limit)
-        .with_for_update(skip_locked=True)
+        .with_for_update(skip_locked=True, of=UploadSession)
         .execution_options(populate_existing=True)
     )
     rows = list(await db.scalars(query))
@@ -943,13 +950,32 @@ async def prepare_closed_workflow_same_job_recovery(
             MediaScribeJob.meeting_id == current.meeting_id,
             MediaScribeJob.media_revision_id == current.media_revision_id,
             MediaScribeJob.processing_workflow_id == current.id,
-            MediaScribeJob.external_job_id.is_not(None),
-            MediaScribeJob.status.not_in(
-                {
-                    MediaScribeJobStatus.FAILED.value,
-                    MediaScribeJobStatus.BLOCKED.value,
-                    MediaScribeJobStatus.DELETING.value,
-                }
+            or_(
+                and_(
+                    MediaScribeJob.external_job_id.is_not(None),
+                    or_(
+                        MediaScribeJob.status.not_in(
+                            {
+                                MediaScribeJobStatus.FAILED.value,
+                                MediaScribeJobStatus.BLOCKED.value,
+                                MediaScribeJobStatus.DELETING.value,
+                            }
+                        ),
+                        and_(
+                            MediaScribeJob.status == MediaScribeJobStatus.BLOCKED.value,
+                            MediaScribeJob.last_error_code
+                            == BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN,
+                        ),
+                    ),
+                ),
+                and_(
+                    MediaScribeJob.external_job_id.is_(None),
+                    MediaScribeJob.idempotency_key.is_not(None),
+                    MediaScribeJob.source_fingerprint == current.source_fingerprint,
+                    MediaScribeJob.status == MediaScribeJobStatus.BLOCKED.value,
+                    MediaScribeJob.last_error_code
+                    == BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN,
+                ),
             ),
         )
         .with_for_update()
@@ -996,7 +1022,7 @@ async def prepare_closed_workflow_same_job_recovery(
             deletion_epoch_at_start=current.deletion_epoch_at_start,
             status=ProcessingStatus.STARTING.value,
             attempt_ordinal=next_ordinal,
-            stage="poll",
+            stage="poll" if job.external_job_id else "submit",
             retry_class="none",
             retry_count=0,
             deadline_at=current.deadline_at,
@@ -1260,10 +1286,7 @@ async def create_processing_attempt(
         media_revision_id=media_revision.id,
     )
     resumable_provider_job = None
-    if (
-        current.last_reason_code == BLOCKED_FREE_PROCESSING_EXHAUSTED
-        and current_result is None
-    ):
+    if current.last_reason_code in _RESUMABLE_PROVIDER_JOB_REASONS and current_result is None:
         resumable_provider_job = await db.scalar(
             select(MediaScribeJob)
             .where(
@@ -2241,10 +2264,15 @@ async def claim_mediascribe_submission(
         current.status == MediaScribeJobStatus.BLOCKED.value
         and current.last_error_code == BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN
     ):
-        raise MediaScribeClientError(
-            BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN,
-            retryable=False,
-        )
+        # The POST outcome is unknown, but the durable idempotency key and
+        # source fingerprint make an exact replay safe. Reclaim the same job;
+        # never create a new key or provider operation.
+        current.status = MediaScribeJobStatus.NOT_SUBMITTED.value
+        current.failed_at = None
+        current.last_error_code = None
+        current.last_error_message = None
+        current.submission_claim_token = None
+        current.submission_claimed_at = None
     now = datetime.now(UTC)
     if current.status == MediaScribeJobStatus.SUBMITTING.value:
         claimed_at = current.submission_claimed_at
@@ -2285,14 +2313,6 @@ async def wait_for_mediascribe_submission(
             raise MediaScribeClientError("mediascribe_job_not_found", retryable=False)
         if current.external_job_id:
             return current
-        if (
-            current.status == MediaScribeJobStatus.BLOCKED.value
-            and current.last_error_code == BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN
-        ):
-            raise MediaScribeClientError(
-                BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN,
-                retryable=False,
-            )
         if current.status != MediaScribeJobStatus.SUBMITTING.value:
             return None
         await db.rollback()
@@ -2772,7 +2792,7 @@ async def persist_processing_result(
     existing.summary_status = result.summary_status.value
     existing.language = result.language
     existing.segment_count = len(result.transcript)
-    existing.diarization_segment_count = len(result.diarization)
+    existing.diarization_segment_count = len(result.diarization or [])
     attribution_diagnostics = result.attribution_diagnostics
     existing.failure_reason = (
         attribution_diagnostics.result_state
@@ -2820,7 +2840,7 @@ async def persist_processing_result(
                 source_role_original=segment.source_role_original,
             )
         )
-    for segment in result.diarization:
+    for segment in result.diarization or []:
         db.add(
             DiarizationSegment(
                 processing_result_id=existing.id,

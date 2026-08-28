@@ -162,6 +162,61 @@ def test_submit_accepts_fresh_temporal_attempt_in_starting_state(client) -> None
     )
 
 
+def test_unknown_submission_replays_the_same_idempotency_key(client) -> None:
+    finalized = create_finalized_meeting(client, "mediascribe-submit-unknown-replay")
+    meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
+    workspace_id = UUID(finalized["meeting"]["workspace_id"])
+    fake_client = FakeMediaScribeClient(external_job_id="job_unknown_replayed")
+
+    async def replay_unknown() -> tuple[str, str, str, int]:
+        async with client.app_state["sessionmaker"]() as db:
+            revision = await db.get(MediaRevision, media_revision_id)
+            assert revision is not None
+            source_fingerprint = source_fingerprint_for_revision(revision)
+            workflow = await store.upsert_processing_workflow(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+                workflow_id=f"processing/{media_revision_id}",
+                status=ProcessingStatus.BLOCKED_UNKNOWN,
+                source_fingerprint=source_fingerprint,
+            )
+            microphone = await _track_artifact(db, workspace_id, meeting_id, "microphone")
+            incoming = await _track_artifact(db, workspace_id, meeting_id, "system")
+            job = await store.upsert_mediascribe_job(
+                db,
+                workflow=workflow,
+                mic_artifact=microphone,
+                incoming_artifact=incoming,
+                request_mode="dual_track",
+                source_fingerprint=source_fingerprint,
+            )
+            original_key = job.idempotency_key or ""
+            job.status = MediaScribeJobStatus.BLOCKED.value
+            job.last_error_code = "blocked_mediascribe_submission_outcome_unknown"
+            await db.commit()
+            submitted = await submit_to_mediascribe(
+                db=db,
+                settings=client.app.state.settings,
+                storage=StagingOnlyStorage(client.app_state["storage"]),
+                mediascribe_client=fake_client,
+                workflow=workflow,
+            )
+            return (
+                original_key,
+                submitted.job.idempotency_key or "",
+                submitted.job.external_job_id or "",
+                len(fake_client.submissions),
+            )
+
+    original_key, replayed_key, external_job_id, submission_count = asyncio.run(replay_unknown())
+    assert replayed_key == original_key
+    assert external_job_id == "job_unknown_replayed"
+    assert submission_count == 1
+
+
 def test_submission_claim_loss_persists_provider_id_with_blocked_projection(client) -> None:
     finalized = create_finalized_meeting(client, "mediascribe-submit-claim-loss")
     meeting_id = UUID(finalized["meeting"]["meeting_id"])

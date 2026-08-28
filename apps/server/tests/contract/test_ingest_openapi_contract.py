@@ -63,6 +63,7 @@ def test_v5_integration_document_separates_active_wav_from_historical_dual_drain
     assert "## Historical dual compatibility drain" in document
     assert "`initial_mixed_recording`" in document
     assert "cannot be selected by a new v5 writer" in document
+    assert "GET /jobs/" not in document
 
 
 def test_happy_path_contract_exposes_server_mediated_ingest(client: TestClient) -> None:

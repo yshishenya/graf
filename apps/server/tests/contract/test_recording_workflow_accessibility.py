@@ -166,7 +166,11 @@ def test_processing_recovery_projection_keeps_artifacts_independent_and_refresh_
     styles = _source(STYLES)
 
     assert "data-processing-status-url" in detail
-    assert 'data-processing-recovery aria-labelledby="processing-recovery-title"' in detail
+    assert 'data-processing-recovery data-state=' in detail
+    assert 'aria-labelledby="processing-recovery-title"' in detail
+    assert 'data-state="{% if processing_state in [\'failed\', \'blocked\'] %}terminal{% elif processing_state == \'ready\' %}ready{% else %}active{% endif %}"' in detail
+    assert "{% if processing_state == 'ready' %} hidden{% endif %}" in detail
+    assert "processing_reason_label" in detail
     assert 'data-processing-check aria-describedby="processing-recovery-copy"' in detail
     assert 'data-processing-attempt-url=' in detail
     assert 'data-processing-new-attempt aria-describedby="processing-recovery-copy"' in detail

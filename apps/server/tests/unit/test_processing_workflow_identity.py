@@ -100,6 +100,25 @@ def test_start_processing_workflow_payload_carries_media_revision_id(test_settin
     )
 
 
+def test_recovery_can_address_persisted_legacy_workflow_id(test_settings) -> None:
+    temporal = FakeTemporalClient()
+    legacy_workflow_id = "processing/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+
+    started = asyncio.run(
+        start_processing_workflow(
+            temporal_client=temporal,
+            settings=test_settings,
+            meeting_id=UUID("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
+            media_revision_id=UUID("cccccccc-cccc-cccc-cccc-cccccccccccc"),
+            workspace_id=UUID("dddddddd-dddd-dddd-dddd-dddddddddddd"),
+            workflow_id=legacy_workflow_id,
+        )
+    )
+
+    assert started.workflow_id == legacy_workflow_id
+    assert list(temporal.starts) == [legacy_workflow_id]
+
+
 def test_start_processing_workflow_reuses_running_duplicate(test_settings) -> None:
     class RunningDuplicateClient:
         async def start_workflow(self, *_args, **_kwargs):

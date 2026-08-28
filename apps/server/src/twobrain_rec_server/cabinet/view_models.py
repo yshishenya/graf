@@ -2190,6 +2190,9 @@ def review_status(
         processing_workflow_id=processing_workflow_id,
     )
     lifecycle_status = workflow.status if workflow is not None else meeting.processing_status
+    # A terminal provider outcome owns the projection even when a malformed or
+    # partial result still contains artifact rows. Never let those rows turn a
+    # terminal failure into a misleading partial/ready state.
     if (
         result is not None
         and _result_lineage_matches(
@@ -2197,36 +2200,26 @@ def review_status(
             media_revision_id=media_revision_id,
             processing_workflow_id=processing_workflow_id,
         )
-        and result.status == ProcessingResultStatus.IMPORTED.value
-        and result.failure_reason == MEDIASCRIBE_MALFORMED_RESPONSE
-        and lifecycle_status
-        in {
-            ProcessingStatus.PROCESSED.value,
-            ProcessingStatus.BLOCKED.value,
-            ProcessingStatus.FAILED_TERMINAL.value,
-            ProcessingStatus.CANCELED.value,
-        }
+        and (
+            result_is_terminal_input(result)
+            or (
+                result.status == ProcessingResultStatus.IMPORTED.value
+                and result.failure_reason == MEDIASCRIBE_MALFORMED_RESPONSE
+                and lifecycle_status
+                in {
+                    ProcessingStatus.PROCESSED.value,
+                    ProcessingStatus.BLOCKED.value,
+                    ProcessingStatus.FAILED_TERMINAL.value,
+                    ProcessingStatus.CANCELED.value,
+                }
+            )
+        )
     ):
         return "failed"
     if has_transcript and has_diarization:
         return "ready"
     if has_transcript or has_diarization:
         return "partial"
-
-    # An imported provider result with an explicit terminal input outcome
-    # is authoritative even if a stale workflow row still says "processing".
-    # This keeps list, detail, and the content-safe status endpoint on the
-    # same user-visible terminal state.
-    if (
-        result is not None
-        and _result_lineage_matches(
-            result,
-            media_revision_id=media_revision_id,
-            processing_workflow_id=processing_workflow_id,
-        )
-        and result_is_terminal_input(result)
-    ):
-        return "failed"
 
     if meeting.status == MeetingStatus.DRAFT.value:
         return "local_only"

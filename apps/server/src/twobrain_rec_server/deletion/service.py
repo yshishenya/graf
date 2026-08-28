@@ -1109,6 +1109,7 @@ async def reconcile_transient_media_purges(
                 journal = PurgeJournal(
                     workspace_id=workflow.workspace_id,
                     meeting_id=workflow.meeting_id,
+                    media_revision_id=workflow.media_revision_id,
                     artifact_class="transient_audio",
                     object_key=object_key,
                     state="pending",

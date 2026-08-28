@@ -132,6 +132,7 @@ async def _start_closed_same_job_recovery(
         tenant_scope=tenant_scope,
         archive_audio=recovered.archive_audio,
         attempt_ordinal=int(recovered.attempt_ordinal or 1),
+        workflow_id=recovered.workflow_id,
     )
     return recovered, started
 
@@ -196,6 +197,7 @@ async def pick_up_processing(
                     meeting_id=meeting.id,
                     media_revision_id=expected_media_revision_id,
                 )
+                await db.commit()
             result.blocked_count += 1
             result.meeting_ids.append(meeting.id)
             continue
@@ -297,6 +299,7 @@ async def pick_up_processing(
                         tenant_scope=recovered_scope,
                         archive_audio=workflow.archive_audio,
                         attempt_ordinal=int(workflow.attempt_ordinal or 1),
+                        workflow_id=workflow.workflow_id,
                     )
                     if started.closed:
                         recovered = await _start_closed_same_job_recovery(
@@ -499,6 +502,7 @@ async def pick_up_processing(
             result.blocked_count += 1
             continue
         try:
+            attempt_ordinal = int(workflow.attempt_ordinal or 1)
             workflow = await store.set_workflow_status(
                 db,
                 workflow,
@@ -518,11 +522,11 @@ async def pick_up_processing(
                 workspace_id=workspace_id,
                 tenant_scope=start_scope,
                 archive_audio=meeting_archive_audio,
-                attempt_ordinal=int(workflow.attempt_ordinal or 1),
+                attempt_ordinal=attempt_ordinal,
             )
         except Exception:
             await cancel_workflow_best_effort(
-                temporal_client, processing_workflow_id(media_revision_id)
+                temporal_client, processing_workflow_id(media_revision_id, attempt_ordinal)
             )
             if usage_admitted:
                 await store.release_processing_usage_reservation(

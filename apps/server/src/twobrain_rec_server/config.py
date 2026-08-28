@@ -226,7 +226,7 @@ class Settings(BaseSettings):
     playback_normalization_ffmpeg_path: Path = Path("/usr/bin/ffmpeg")
     playback_normalization_ffprobe_path: Path = Path("/usr/bin/ffprobe")
 
-    max_recording_duration_seconds: PositiveInt = Field(default=14_400)
+    max_recording_duration_seconds: PositiveInt = Field(default=14_400, le=14_400)
     max_track_bytes: PositiveInt = Field(default=2_684_354_560)
     max_package_bytes: PositiveInt = Field(default=5_368_709_120)
     max_upload_part_bytes: PositiveInt = Field(default=1_073_741_824)

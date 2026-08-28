@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import UUID
 
@@ -36,6 +36,40 @@ async def _apply_worker_context(db) -> None:
         ),
         context_kind="worker",
     )
+
+
+def test_worker_interruption_recovery_may_bypass_stale_activity_backoff(client) -> None:
+    meeting, result = _accept_first_party_recording(
+        client,
+        local_recording_id="normalization-worker-interruption-backoff",
+        include_playback=True,
+    )
+    assert result["status_code"] == 200
+    meeting_id = UUID(str(meeting["meeting_id"]))
+
+    async def exercise() -> bool:
+        async with client.app_state["sessionmaker"]() as db:
+            await _apply_worker_context(db)
+            job = await db.scalar(
+                select(PlaybackNormalizationJob).where(
+                    PlaybackNormalizationJob.meeting_id == meeting_id
+                )
+            )
+            assert job is not None
+            now = datetime(2026, 7, 14, 12, 0, tzinfo=UTC)
+            job.state = "retry_wait"
+            job.reason_code = "worker_interrupted"
+            job.next_attempt_at = now + timedelta(minutes=5)
+            await db.commit()
+            assert not await activate_due_normalization_retry(db, job_id=job.id, now=now)
+            return await activate_due_normalization_retry(
+                db,
+                job_id=job.id,
+                now=now,
+                recover_worker_interruption=True,
+            )
+
+    assert asyncio.run(exercise()) is True
 
 
 def test_success_lifecycle_audit_is_persisted_once_and_ready_reuse_is_silent(

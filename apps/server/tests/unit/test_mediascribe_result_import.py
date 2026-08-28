@@ -419,7 +419,7 @@ def test_result_import_projects_unknown_source_role_without_dropping_raw_role_or
     assert normalized.model_extra["provider_result_extension"] == {"kept": True}
 
 
-def test_result_import_treats_null_diarization_as_an_empty_internal_collection() -> None:
+def test_result_import_preserves_null_diarization_contract() -> None:
     result = MediaScribeResult(
         external_job_id="job_without_diarization",
         transcript=[MediaScribeTranscriptSegment(sequence=0, start_seconds=0, end_seconds=1, text="hello")],
@@ -428,7 +428,7 @@ def test_result_import_treats_null_diarization_as_an_empty_internal_collection()
 
     normalized = normalize_result(result)
 
-    assert normalized.diarization == []
+    assert normalized.diarization is None
 
 
 def test_ready_result_without_requested_diarization_is_terminal_contract_evidence() -> None:
@@ -449,4 +449,4 @@ def test_ready_result_without_requested_diarization_is_terminal_contract_evidenc
     assert classified.failure_reason == MEDIASCRIBE_MALFORMED_RESPONSE
     assert classified.failure_source == FAILURE_SOURCE_MEDIASCRIBE
     assert len(classified.transcript) == 1
-    assert classified.diarization == []
+    assert classified.diarization is None

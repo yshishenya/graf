@@ -1661,11 +1661,11 @@ async def run_processing_pipeline_activity(
                 retry_after_seconds=exc.retry_after_seconds,
                 settings=settings,
             )
-        except ProcessingLifecycleBlocked:
+        except ProcessingLifecycleBlocked as blocked:
             return {
                 "meeting_id": payload.get("meeting_id", meeting_ref),
                 "processing_status": ProcessingStatus.CANCELED.value,
-                "reason_code": "meeting_deleting",
+                "reason_code": str(blocked),
             }
         status = ProcessingStatus(persisted.status)
         reason_code = persisted.last_reason_code or reason_code
@@ -1710,11 +1710,11 @@ async def run_processing_pipeline_activity(
                 reason_code=reason_code,
                 settings=settings,
             )
-        except ProcessingLifecycleBlocked:
+        except ProcessingLifecycleBlocked as blocked:
             return {
                 "meeting_id": payload.get("meeting_id", meeting_ref),
                 "processing_status": ProcessingStatus.CANCELED.value,
-                "reason_code": "meeting_deleting",
+                "reason_code": str(blocked),
             }
         status = ProcessingStatus(persisted.status)
         reason_code = persisted.last_reason_code or reason_code

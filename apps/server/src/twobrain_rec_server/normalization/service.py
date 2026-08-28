@@ -26,8 +26,10 @@ from twobrain_rec_server.billing.source_lifecycle import (
     mark_source_playback_verified,
 )
 from twobrain_rec_server.billing.storage import (
+    StorageAdmissionError,
     commit_storage_reservation,
     lock_storage_workspace,
+    release_storage_reservation,
     reserve_storage,
 )
 from twobrain_rec_server.config import Settings
@@ -37,6 +39,7 @@ from twobrain_rec_server.db.models import (
     PlaybackBackfillRun,
     PlaybackNormalizationAttempt,
     PlaybackNormalizationJob,
+    StorageReservation,
     TrackArtifact,
     Workspace,
     WorkspaceSubscription,
@@ -1650,6 +1653,52 @@ async def _delete_storage_object(storage: object, object_key: str) -> None:
     raise RuntimeError("storage_unavailable")
 
 
+async def _reserve_playback_storage(
+    db: AsyncSession,
+    *,
+    job: PlaybackNormalizationJob,
+    attempt: PlaybackNormalizationAttempt,
+    declared_bytes: int,
+    now: datetime,
+) -> object | None:
+    if not await archive_audio_for_revision(
+        db,
+        workspace_id=job.workspace_id,
+        meeting_id=job.meeting_id,
+        media_revision_id=job.media_revision_id,
+    ):
+        return None
+    await lock_storage_workspace(db, job.workspace_id)
+    subscription = await db.scalar(
+        select(WorkspaceSubscription).where(
+            WorkspaceSubscription.workspace_id == job.workspace_id
+        )
+    )
+    effective_plan = (
+        effective_plan_code(
+            plan_code=subscription.plan_code,
+            state=subscription.state,
+            now=now,
+            paid_through=subscription.paid_through,
+            trial_ends_at=subscription.trial_ends_at,
+        )
+        if subscription is not None
+        else "free"
+    )
+    return await reserve_storage(
+        db,
+        workspace_id=job.workspace_id,
+        reservation_key=f"normalization:{attempt.id}",
+        declared_bytes=declared_bytes,
+        capacity_bytes=(
+            subscription.capacity_bytes
+            if subscription is not None and effective_plan in {"trial", "personal"}
+            else FREE_STORAGE_BYTES
+        ),
+        now=now,
+    )
+
+
 async def _storage_object_exists(storage: object, object_key: str) -> bool | None:
     exists_async = getattr(storage, "object_exists_async", None)
     if exists_async is not None:
@@ -1709,6 +1758,10 @@ def normalization_reason_from_exception(exc: BaseException) -> NormalizationReas
         return NormalizationReason.WORKER_INTERRUPTED
     if isinstance(exc, SQLAlchemyError):
         return NormalizationReason.DATABASE_UNAVAILABLE
+    if isinstance(exc, StorageAdmissionError):
+        if str(exc) == "storage capacity exceeded":
+            return NormalizationReason.STORAGE_CAPACITY_EXCEEDED
+        return NormalizationReason.DEPENDENCY_UNAVAILABLE
     if isinstance(exc, TimeoutError):
         return NormalizationReason.NORMALIZATION_TIMEOUT
     if isinstance(exc, OSError):
@@ -1775,6 +1828,16 @@ async def record_normalization_failure(
         ensure_attempt_transition(AttemptState(attempt.state), AttemptState.CLEANUP_PENDING)
         attempt.state = AttemptState.CLEANUP_PENDING.value
         attempt.cleanup_reason = reason_code.value
+        reservation = await db.scalar(
+            select(StorageReservation)
+            .where(
+                StorageReservation.workspace_id == job.workspace_id,
+                StorageReservation.idempotency_key == f"normalization:{attempt.id}",
+            )
+            .with_for_update()
+        )
+        if reservation is not None:
+            await release_storage_reservation(db, reservation_id=reservation.id)
     elif (
         current_state is JobState.RETRY_WAIT
         and job.reason_code is not None
@@ -1795,7 +1858,10 @@ async def record_normalization_failure(
     next_attempt_at: datetime | None = None
     should_temporal_retry = False
     cycle_exhausted = False
-    if classification is ReasonClass.PERMANENT_SOURCE:
+    if classification in {
+        ReasonClass.PERMANENT_SOURCE,
+        ReasonClass.POLICY_BLOCK,
+    }:
         ensure_job_transition(current_state, JobState.TERMINAL, reason_code=reason_code)
         job.state = JobState.TERMINAL.value
         job.reason_code = reason_code.value
@@ -2701,6 +2767,9 @@ async def _execute_normalization_job(
         _validate_authoritative_source_duration(
             output.source_duration_ms,
             expected_duration_seconds=prepared.expected_duration_seconds,
+            manual_upload=(
+                prepared.job.source_kind == MediaRevisionSourceKind.MANUAL_UPLOAD.value
+            ),
         )
         _ensure_normalized_output_matches_file(output_path, output)
 
@@ -2746,6 +2815,13 @@ async def _execute_normalization_job(
             raise NormalizationExecutionDeferred(
                 "normalization activity no longer owns the durable attempt"
             )
+        await _reserve_playback_storage(
+            db,
+            job=job,
+            attempt=attempt,
+            declared_bytes=output.output_byte_length,
+            now=current_time,
+        )
         await db.commit()
         await _upload_verified_output(
             storage,
@@ -3136,42 +3212,13 @@ async def publish_uploaded_attempt(
     for artifact in prior_playback:
         _supersede_playback_artifact(artifact)
     publication_time = datetime.now(UTC)
-    archive_audio = await archive_audio_for_revision(
+    storage_reservation = await _reserve_playback_storage(
         db,
-        workspace_id=job.workspace_id,
-        meeting_id=job.meeting_id,
-        media_revision_id=job.media_revision_id,
+        job=job,
+        attempt=attempt,
+        declared_bytes=int(attempt.output_byte_length or 0),
+        now=publication_time,
     )
-    storage_reservation = None
-    if archive_audio:
-        await lock_storage_workspace(db, job.workspace_id)
-        subscription = await db.scalar(
-            select(WorkspaceSubscription)
-            .where(WorkspaceSubscription.workspace_id == job.workspace_id)
-        )
-        effective_plan = (
-            effective_plan_code(
-                plan_code=subscription.plan_code,
-                state=subscription.state,
-                now=publication_time,
-                paid_through=subscription.paid_through,
-                trial_ends_at=subscription.trial_ends_at,
-            )
-            if subscription is not None
-            else "free"
-        )
-        storage_reservation = await reserve_storage(
-            db,
-            workspace_id=job.workspace_id,
-            reservation_key=f"normalization:{attempt.id}",
-            declared_bytes=int(attempt.output_byte_length or 0),
-            capacity_bytes=(
-                subscription.capacity_bytes
-                if subscription is not None and effective_plan in {"trial", "personal"}
-                else FREE_STORAGE_BYTES
-            ),
-            now=publication_time,
-        )
     canonical = TrackArtifact(
         meeting_id=job.meeting_id,
         media_revision_id=job.media_revision_id,

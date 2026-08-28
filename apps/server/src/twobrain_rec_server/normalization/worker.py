@@ -335,11 +335,8 @@ async def run_playback_normalization_activity(
                     await activate_due_normalization_retry(
                         db,
                         job_id=job.id,
-                        now=(
-                            recovery.next_attempt_at
-                            if recovery.next_attempt_at.tzinfo is not None
-                            else recovery.next_attempt_at.replace(tzinfo=UTC)
-                        ),
+                        now=datetime.now(UTC),
+                        recover_worker_interruption=True,
                     )
             activity.heartbeat({"state": "normalizing", "job_id": str(job_id)})
             heartbeat_task = asyncio.create_task(

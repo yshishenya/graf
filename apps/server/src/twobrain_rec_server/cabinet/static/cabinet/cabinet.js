@@ -1665,7 +1665,7 @@
         showRefresh: false,
       };
     }
-    if (["blocked", "failed_terminal"].includes(projectionState)) {
+    if (projectionState === "blocked" || (projectionState === "failed_terminal" && retryClass !== "terminal")) {
       return {
         state: "terminal",
         title: "Обработка остановлена",
@@ -1812,7 +1812,7 @@
       return seconds;
     };
     const seconds = update();
-    if (seconds !== null) {
+    if (seconds !== null && seconds > 0) {
       processingRecoveryCountdownTimer = window.setInterval(update, 1000);
     }
     return seconds;
@@ -1845,7 +1845,7 @@
       ? 15000
       : remaining > 0
       ? Math.max(1000, remaining * 1000)
-      : 15000;
+      : 1000;
     processingRecoveryPollTimer = window.setTimeout(() => {
       void refreshProcessingStatus();
     }, delay);
@@ -2171,7 +2171,7 @@
     detail,
     {
       title = "Не удалось обновить статус обработки",
-      message = "Обновите страницу или нажмите «Проверить обработку» ещё раз. Расшифровка останется скрытой, пока готовность спикеров не подтверждена.",
+      message = null,
       signature = "status-fetch-failed",
       failedAction = "check",
     } = {},
@@ -2183,12 +2183,13 @@
     delete recovery.dataset.processingBusyAction;
     const transcript = detail.querySelector("[data-playback-transcript]");
     const pending = detail.querySelector("[data-transcript-pending]");
+    const transcriptWasVisible = detail.dataset.processingTranscriptVisible === "true";
     if (transcript) {
-      transcript.hidden = true;
-      transcript.setAttribute("aria-hidden", "true");
+      transcript.hidden = !transcriptWasVisible;
+      transcript.setAttribute("aria-hidden", transcriptWasVisible ? "false" : "true");
     }
-    if (pending) pending.hidden = detail.dataset.processingTranscriptVisible === "true";
-    updateProcessingExportVisibility(false);
+    if (pending) pending.hidden = transcriptWasVisible;
+    updateProcessingExportVisibility(transcriptWasVisible);
     detail.dataset.processingRecoveryError = "true";
     recovery.hidden = false;
     recovery.dataset.state = "unknown";
@@ -2196,7 +2197,12 @@
     const titleNode = recovery.querySelector("[data-processing-recovery-title]");
     const messageNode = recovery.querySelector("[data-processing-recovery-copy]");
     if (titleNode) titleNode.textContent = title;
-    if (messageNode) messageNode.textContent = message;
+    const resolvedMessage = message || (
+      transcriptWasVisible
+        ? "Проверка временно недоступна. Расшифровка и спикеры остаются доступны; попробуйте проверить статус ещё раз позже."
+        : "Обновите страницу или нажмите «Проверить обработку» ещё раз. Расшифровка появится после подтверждения готовности спикеров."
+    );
+    if (messageNode) messageNode.textContent = resolvedMessage;
     const check = recovery.querySelector("[data-processing-check]");
     if (check) {
       check.hidden = failedAction !== "check";
@@ -2226,7 +2232,7 @@
     }
     const refresh = recovery.querySelector("[data-processing-refresh]");
     if (refresh) refresh.hidden = false;
-    announceProcessingChange(detail, `${title}. ${message}`, signature);
+    announceProcessingChange(detail, `${title}. ${resolvedMessage}`, signature);
   };
 
   const abortProcessingRecoveryStatusRequest = () => {
@@ -2511,7 +2517,12 @@
         ? "true"
         : "false";
     }
-    updateProcessingExportVisibility(false);
+    if (detail.dataset.processingTranscriptVisible == null) {
+      detail.dataset.processingTranscriptVisible = transcript && !transcript.hidden
+        ? "true"
+        : "false";
+    }
+    updateProcessingExportVisibility(detail.dataset.processingTranscriptVisible === "true");
     recovery.querySelector("[data-processing-recovery-copy]")?.setAttribute("id", "processing-recovery-copy");
     recovery.querySelector("[data-processing-check]")?.addEventListener("click", () => {
       void runProcessingManualCheck(detail, recovery);

@@ -6,7 +6,6 @@ from random import Random
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.domain.statuses import ProcessingStatus
 from twobrain_rec_server.processing.recovery import (
-    classify_provider_outcome,
     parse_retry_after,
     retry_timer_is_current,
     schedule_retry,
@@ -14,14 +13,11 @@ from twobrain_rec_server.processing.recovery import (
 )
 
 
-def test_retry_after_and_provider_classification_are_machine_first() -> None:
+def test_retry_after_is_safe_for_invalid_provider_hints() -> None:
     now = datetime(2026, 8, 24, 12, 0, tzinfo=UTC)
 
     assert parse_retry_after("30", now=now) == timedelta(seconds=30)
     assert parse_retry_after("not-a-delay", now=now) is None
-    assert classify_provider_outcome(status_code=503, code="provider_unavailable").status == ProcessingStatus.WAITING_RETRY
-    assert classify_provider_outcome(status_code=500, code="internal_error").status == ProcessingStatus.FAILED_TERMINAL
-    assert classify_provider_outcome(status_code=400, code="bad_input").status == ProcessingStatus.FAILED_TERMINAL
 
 
 def test_retry_schedule_is_bounded_and_advances_generation() -> None:

@@ -616,6 +616,7 @@ def test_replacement_no_archive_attempt_owns_transient_media_purge(client, monke
             )
 
     source_keys = asyncio.run(load_source_keys())
+    assert source_keys
 
     async def run() -> tuple[bool, int, bool, int, bool]:
         async with client.app_state["sessionmaker"]() as db:
@@ -750,6 +751,7 @@ def test_no_archive_hard_deadline_terminalizes_active_attempt_before_purge(clien
             )
 
     source_keys = asyncio.run(load_source_keys())
+    assert source_keys
 
     async def run() -> tuple[int, str, str, str, bool]:
         async with client.app_state["sessionmaker"]() as db:

@@ -33,10 +33,186 @@ from twobrain_rec_server.domain.statuses import (
     ProcessingStatus,
     SummaryStatus,
 )
+from twobrain_rec_server.ingest.media_revisions import source_fingerprint_for_revision
 from twobrain_rec_server.mediascribe.client import MediaScribeClientError
 from twobrain_rec_server.processing import store
 from twobrain_rec_server.processing.submit import submit_to_mediascribe
 from twobrain_rec_server.workflows.worker import reconcile_stale_processing_starts
+
+
+def test_closed_temporal_unknown_submission_reuses_same_job_key(client) -> None:
+    finalized = create_finalized_meeting(client, "worker-restart-unknown-submission")
+    meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
+    workspace_id = UUID(finalized["meeting"]["workspace_id"])
+
+    async def recover() -> tuple[str, str, str, str, str, str]:
+        async with client.app_state["sessionmaker"]() as db:
+            revision = await db.get(MediaRevision, media_revision_id)
+            assert revision is not None
+            source_fingerprint = source_fingerprint_for_revision(revision)
+            workflow = await store.upsert_processing_workflow(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+                workflow_id=f"processing/{media_revision_id}",
+                status=ProcessingStatus.BLOCKED_UNKNOWN,
+                source_fingerprint=source_fingerprint,
+            )
+            job = MediaScribeJob(
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+                processing_workflow_id=workflow.id,
+                idempotency_key=f"mediascribe:{workflow.id}:{source_fingerprint}",
+                source_fingerprint=source_fingerprint,
+                status=MediaScribeJobStatus.BLOCKED.value,
+                last_error_code="blocked_mediascribe_submission_outcome_unknown",
+            )
+            db.add(job)
+            await db.commit()
+            original_key = job.idempotency_key or ""
+            replacement = await store.prepare_closed_workflow_same_job_recovery(
+                db,
+                workflow=workflow,
+            )
+            assert replacement is not None
+            await db.refresh(job)
+            await db.refresh(workflow)
+            return (
+                original_key,
+                job.idempotency_key or "",
+                job.processing_workflow_id.hex,
+                replacement.id.hex,
+                workflow.status,
+                replacement.stage,
+            )
+
+    (
+        original_key,
+        recovered_key,
+        job_workflow_id,
+        replacement_id,
+        closed_status,
+        replacement_stage,
+    ) = asyncio.run(recover())
+    assert recovered_key == original_key
+    assert job_workflow_id == replacement_id
+    assert closed_status == ProcessingStatus.CANCELED.value
+    assert replacement_stage == "submit"
+
+
+def test_closed_temporal_unknown_submission_with_provider_job_only_polls(client) -> None:
+    finalized = create_finalized_meeting(client, "worker-restart-known-provider-job")
+    meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
+    workspace_id = UUID(finalized["meeting"]["workspace_id"])
+    fake_client = FakeMediaScribeClient(external_job_id="job_already_accepted")
+
+    async def recover() -> tuple[str, str, bool, int]:
+        async with client.app_state["sessionmaker"]() as db:
+            revision = await db.get(MediaRevision, media_revision_id)
+            assert revision is not None
+            source_fingerprint = source_fingerprint_for_revision(revision)
+            workflow = await store.upsert_processing_workflow(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+                workflow_id=f"processing/{media_revision_id}",
+                status=ProcessingStatus.FAILED_RETRYABLE,
+                source_fingerprint=source_fingerprint,
+            )
+            job = MediaScribeJob(
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+                processing_workflow_id=workflow.id,
+                external_job_id=fake_client.external_job_id,
+                idempotency_key=f"mediascribe:{workflow.id}:{source_fingerprint}",
+                source_fingerprint=source_fingerprint,
+                status=MediaScribeJobStatus.BLOCKED.value,
+                last_error_code="blocked_mediascribe_submission_outcome_unknown",
+            )
+            db.add(job)
+            await db.commit()
+            replacement = await store.prepare_closed_workflow_same_job_recovery(
+                db,
+                workflow=workflow,
+            )
+            assert replacement is not None
+            replacement = await store.set_workflow_status(
+                db,
+                replacement,
+                ProcessingStatus.WORKFLOW_STARTED,
+                reason_code="temporal_execution_closed_same_job_recovery",
+            )
+            submitted = await submit_to_mediascribe(
+                db=db,
+                settings=client.app.state.settings,
+                storage=client.app_state["storage"],
+                mediascribe_client=fake_client,
+                workflow=replacement,
+            )
+            return (
+                replacement.stage,
+                submitted.job.external_job_id or "",
+                submitted.submitted,
+                len(fake_client.submissions),
+            )
+
+    assert asyncio.run(recover()) == ("poll", fake_client.external_job_id, False, 0)
+
+
+def test_terminal_watchdog_attempt_resumes_existing_provider_job(client) -> None:
+    finalized = create_finalized_meeting(client, "worker-restart-watchdog-provider-job")
+    meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
+    workspace_id = UUID(finalized["meeting"]["workspace_id"])
+
+    async def recover() -> tuple[str, str, bool]:
+        async with client.app_state["sessionmaker"]() as db:
+            revision = await db.get(MediaRevision, media_revision_id)
+            assert revision is not None
+            source_fingerprint = source_fingerprint_for_revision(revision)
+            workflow = await store.upsert_processing_workflow(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+                workflow_id=f"processing/{media_revision_id}",
+                status=ProcessingStatus.FAILED_TERMINAL,
+                reason_code="processing_retry_deadline_exceeded",
+                source_fingerprint=source_fingerprint,
+            )
+            workflow.retry_class = "terminal"
+            job = MediaScribeJob(
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+                processing_workflow_id=workflow.id,
+                external_job_id="job_watchdog_still_running",
+                source_fingerprint=source_fingerprint,
+                status=MediaScribeJobStatus.DIARIZING.value,
+            )
+            db.add(job)
+            await db.commit()
+            creation = await store.create_processing_attempt(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+            )
+            assert creation.result == "created"
+            assert creation.workflow is not None
+            await db.refresh(job)
+            return (
+                creation.workflow.stage,
+                job.external_job_id or "",
+                job.processing_workflow_id == creation.workflow.id,
+            )
+
+    assert asyncio.run(recover()) == ("poll", "job_watchdog_still_running", True)
 
 
 async def _seed_no_speech_retry(
