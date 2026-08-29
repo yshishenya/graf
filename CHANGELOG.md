@@ -68,6 +68,8 @@
   синхронизированы с runtime.
 - Продвижение root bundle теперь корректно обрабатывает отсутствие предыдущего
   production label, сохраняя проверку полного bundle и read-back после mutation.
+- Production smoke cleanup теперь сначала обнуляет current outcome pointers в
+  summary slots, поэтому временные outcome-проверки удаляются без FK-конфликта.
 
 ### Безопасность
 - _Пока нет записей._

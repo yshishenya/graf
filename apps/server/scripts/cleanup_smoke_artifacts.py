@@ -202,6 +202,16 @@ async def _delete_smoke_meeting_rows(
             "update meetings set current_outcome_set_id=null where id=:meeting_id",
         ),
         (
+            "meeting_summary_slots",
+            """
+            update meeting_summary_slots
+               set current_outcome_set_id=null,
+                   current_binding_class=null,
+                   legacy_migration_proof_hash=null
+             where meeting_id=:meeting_id
+            """,
+        ),
+        (
             "meeting_outcome_generation_attempts",
             """
             delete from meeting_outcome_generation_attempts
@@ -471,6 +481,7 @@ async def cleanup_smoke_artifacts(
                 "processing_audit_events",
                 "processing_dependency_states",
                 "dispatch_intents",
+                "meeting_summary_slots",
                 "meeting_outcome_generation_attempts",
                 "meeting_outcome_items",
                 "meeting_outcome_sets",

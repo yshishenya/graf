@@ -89,6 +89,7 @@ def test_smoke_artifact_cleanup_deletes_processing_rows_before_meeting() -> None
         '"processing_dependency_states",\n            processing_dependency_delete',
         "delete from dispatch_intents where meeting_id=:meeting_id",
         "update meetings set current_outcome_set_id=null where id=:meeting_id",
+        "update meeting_summary_slots\n               set current_outcome_set_id=null",
         "delete from meeting_outcome_generation_attempts",
         "delete from meeting_outcome_items",
         "delete from meeting_outcome_sets where meeting_id=:meeting_id",
