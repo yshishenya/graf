@@ -1736,7 +1736,7 @@ async def run_processing_pipeline_activity(
             await owned_engine.dispose()
 
 
-async def resolve_outcome_prompt_config_activity(payload: dict[str, str]) -> dict[str, Any]:
+async def resolve_outcome_prompt_config_activity(payload: dict[str, Any]) -> dict[str, Any]:
     settings = get_settings()
     engine = create_engine(settings)
     sessionmaker = create_sessionmaker(engine)

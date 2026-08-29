@@ -35,6 +35,7 @@ from twobrain_rec_server.workflows.temporal_client import (
     outcome_generation_workflow_id,
     start_outcome_generation_workflow,
 )
+from twobrain_rec_server.workflows.worker import resolve_outcome_prompt_config_activity
 
 
 class _AlreadyStartedError(RuntimeError):
@@ -163,6 +164,13 @@ def test_ai_temporal_boundaries_never_annotate_mixed_payload_as_object() -> None
 
     for path in paths:
         assert "payload: dict[str, object]" not in path.read_text(encoding="utf-8")
+
+
+def test_prompt_activity_accepts_nullable_slot_fence() -> None:
+    """First-generation formats have no previous slot pointer yet."""
+    from typing import Any, get_type_hints
+
+    assert get_type_hints(resolve_outcome_prompt_config_activity)["payload"] == dict[str, Any]
 
 
 async def _ready_automatic_candidate(db, meeting_id):
