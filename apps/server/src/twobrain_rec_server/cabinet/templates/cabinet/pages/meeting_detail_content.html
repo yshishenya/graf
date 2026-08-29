@@ -95,7 +95,7 @@
       {{ outcomes }}
     </section>
     <section class="tab-panel{% if not outcomes_selected %} active{% endif %}" role="tabpanel" id="detail-panel-recording" aria-labelledby="detail-tab-recording" data-detail-panel="recording"{% if outcomes_selected %} hidden{% endif %}>
-      {% if media_revision_id and not transcript_available and processing_state in ["processing", "submitted"] and processing_reason_code != "no_recognizable_speech" and transcript_degraded_reason in ["diarization_pending", "processing"] %}
+      {% if media_revision_id and not transcript_available and processing_state in ["processing", "submitted", "partial"] and processing_reason_code != "no_recognizable_speech" and transcript_degraded_reason in ["diarization_pending", "processing"] %}
       <div class="transcript-processing-placeholder" data-transcript-pending>
         <strong>Спикеры ещё определяются</strong>
         <span>Расшифровка появится после завершения диаризации.</span>
