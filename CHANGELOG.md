@@ -70,6 +70,8 @@
   production label, сохраняя проверку полного bundle и read-back после mutation.
 - Production smoke cleanup теперь сначала обнуляет current outcome pointers в
   summary slots, поэтому временные outcome-проверки удаляются без FK-конфликта.
+- Synthetic outcome smoke больше не публикует deterministic baseline перед
+  проверкой автоматического кандидата.
 
 ### Безопасность
 - _Пока нет записей._

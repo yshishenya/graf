@@ -296,10 +296,12 @@ def test_smoke_upload_wrapper_dry_run_uses_internal_smoke_identity(tmp_path: Pat
 
 def test_production_smoke_runs_metadata_only_outcome_value_path() -> None:
     runtime = (REPO_ROOT / "infra/scripts/run-production-smoke.sh").read_text()
+    seeder = (REPO_ROOT / "apps/server/scripts/seed_smoke_outcome.py").read_text()
     assert "seed_smoke_outcome.py" in runtime
     assert "prove_meeting_outcome_live.py" in runtime
     assert 'OUTCOME_SMOKE_ENABLED="${TWOBRAIN_OUTCOME_SMOKE_ENABLED:-false}"' in runtime
     assert 'if [[ "$OUTCOME_SMOKE_ENABLED" == "true" ]]' in runtime
+    assert "publish_initial_baseline=False" in seeder
     assert "summary_state absent" in runtime
     assert "slot_state unpublished" in runtime
 

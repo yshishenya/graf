@@ -196,7 +196,7 @@ async def seed_outcome(settings: Settings, *, run_id: str, meeting_id: UUID, exe
             )
             await db.flush()
             await ensure_outcomes_for_processing_result(
-                db, result=result, publish_initial_baseline=True
+                db, result=result, publish_initial_baseline=False
             )
             candidate = await ensure_automatic_summary_candidate(
                 db, workspace_id=seed.workspace_id, meeting_id=meeting_id
