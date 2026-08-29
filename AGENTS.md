@@ -57,10 +57,16 @@ use the full Spec Kit sequence; `$speckit-constitution` is for governance
 changes. Clarify is mandatory for capture, privacy, auth, backend,
 infrastructure, deletion, diagnostics, and high-risk UX work.
 
+The canonical significant/high-risk GRAF path is `specify → clarify → plan →
+checklist → tasks → analyze → taskstoissues → implement → converge →
+validation/release gates`. The shorter upstream six-step workflow is not a
+complete GRAF path. Custom checklist state is reviewer-owned; implementation
+must read it as a gate and must not mark review items complete.
+
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at specs/181-meeting-summary-experience/plan.md
+at specs/211-spec-kit-workflow-hardening/plan.md
 <!-- SPECKIT END -->
 
 ## Tracking and product gates
@@ -119,8 +125,10 @@ Spec Kit project files expected in git:
 - `specs/` once features are created
 - `docs/agent-guidance/`
 
-Codex skill files are installed globally by the current Spec Kit bootstrap and
-are not expected to be committed under repo-local `.agents/skills/`.
+Generated Spec Kit skills are project-local under `.agents/skills/speckit-*`,
+committed with the repository, recorded in the bootstrap lock, and verified by
+`speckit-bootstrap . --doctor --frozen`. Legacy user-level copies are not the
+project source of truth and must not be deleted automatically.
 
 Keep generated build/cache/secret files out of git through `.gitignore`.
 
@@ -132,6 +140,8 @@ specify version
 specify self check
 specify integration list
 specify extension list
+speckit-bootstrap . --doctor --frozen
+python3 scripts/check_spec_kit_governance.py
 .specify/scripts/bash/check-prerequisites.sh --json --paths-only
 infra/scripts/ci-local.sh
 ./scripts/prepare-release.sh YYYY.MM.DD.N

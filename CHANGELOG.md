@@ -12,7 +12,9 @@
 - _Пока нет записей._
 
 ### Изменено
-- _Пока нет записей._
+- Spec Kit workflow переведён на bootstrap lock schema 3 и project-local skills
+  для immutable Spec Kit v1.0.1; significant/high-risk цикл теперь явно включает
+  issue sync, reviewer-owned checklist, convergence и validation/release gates.
 
 ### Исправлено
 - _Пока нет записей._
@@ -28,6 +30,8 @@
 - Зафиксирована эксплуатационная схема Temporal Web: HTTPS + Basic Auth через
   host Nginx, внутреннее подключение к `rec-temporal:7233` и автоперезапуск
   контейнеров.
+- В fast CI добавлена fail-closed проверка bootstrap integrity и GRAF-specific
+  Spec Kit governance без новых зависимостей и сетевых запросов.
 
 ## [2026.08.29.4] - 2026-08-29
 
@@ -9301,4 +9305,3 @@
 - Added production read-only RLS state verification output for covered-table
   counts, enabled/forced counts, failed tables, deployed commit, and Alembic
   revision (`feature:032`, `T015-T020`, `T028-T037`).
-

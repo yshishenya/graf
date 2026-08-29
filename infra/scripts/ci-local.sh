@@ -23,6 +23,7 @@ run_step() {
 }
 
 run_step "macOS legacy audio architecture guard" sh apps/macos/Scripts/validate-no-legacy-audio-driver.sh
+run_step "Spec Kit governance" python3 scripts/check_spec_kit_governance.py
 
 if [[ "$mode" == "full" && "$(uname -s)" == "Darwin" ]]; then
   run_step "macOS Swift build" swift build --package-path apps/macos
