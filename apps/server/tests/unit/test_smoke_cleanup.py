@@ -217,6 +217,23 @@ def test_smoke_artifact_cleanup_deletes_backfill_in_tenant_context() -> None:
     assert request_context < backfill_delete < maintenance_context
 
 
+def test_smoke_artifact_cleanup_deletes_generation_calls_before_workspace() -> None:
+    script = (
+        Path(__file__).resolve().parents[2]
+        / "scripts"
+        / "cleanup_smoke_artifacts.py"
+    ).read_text(encoding="utf-8")
+
+    generation_calls_delete = script.index(
+        "delete from generation_calls where workspace_id=:workspace_id"
+    )
+    workspace_delete = script.index(
+        "delete from workspaces where id=:workspace_id"
+    )
+
+    assert generation_calls_delete < workspace_delete
+
+
 def test_smoke_artifact_cleanup_matches_revision_linked_dependencies() -> None:
     script = (
         Path(__file__).resolve().parents[2]

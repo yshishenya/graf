@@ -80,6 +80,7 @@
 - Smoke cleanup удаляет workspace-scoped ingest audit events до удаления synthetic workspace.
 - Smoke cleanup теперь удаляет workspace-scoped playback backfill runs до удаления synthetic workspace.
 - Smoke cleanup блокирует synthetic workspace на время discovery и удаляет playback backfill runs в tenant-контексте, чтобы RLS и FK не оставляли остатки.
+- Outcome smoke cleanup удаляет workspace-scoped generation-call ledger до synthetic workspace.
 
 ### Безопасность
 - _Пока нет записей._

@@ -498,6 +498,7 @@ async def cleanup_smoke_artifacts(
                 "meeting_outcome_items",
                 "meeting_outcome_sets",
                 "processing_results",
+                "generation_calls",
                 "mediascribe_jobs",
                 "processing_workflows",
                 "playback_normalization_attempts",
@@ -601,6 +602,10 @@ async def cleanup_smoke_artifacts(
                 (
                     "billing_notification_deliveries",
                     "delete from billing_notification_deliveries where workspace_id=:workspace_id",
+                ),
+                (
+                    "generation_calls",
+                    "delete from generation_calls where workspace_id=:workspace_id",
                 ),
                 (
                     "fair_use_reviews",
