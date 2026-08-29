@@ -5600,7 +5600,8 @@ html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned
   border-radius: 10px;
   background: var(--surface-2);
 }
-.billing-period-switch a {
+.billing-period-switch form { min-width: 0; display: grid; margin: 0; }
+.billing-period-switch :is(a, button) {
   min-width: 0;
   min-height: 40px;
   display: grid;
@@ -5612,11 +5613,14 @@ html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned
   font-weight: 700;
   text-align: center;
   text-decoration: none;
+  border: 0;
+  font: inherit;
+  cursor: pointer;
 }
-.billing-period-switch a span,
-.billing-period-switch a small { color: inherit; font-size: var(--font-size-caption); font-weight: 600; }
-.billing-period-switch a[aria-current="true"] { color: var(--text); background: var(--surface-3); box-shadow: 0 1px 4px rgba(0,0,0,.18); }
-.billing-period-switch a:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.billing-period-switch :is(a, button) span,
+.billing-period-switch :is(a, button) small { color: inherit; font-size: var(--font-size-caption); font-weight: 600; }
+.billing-period-switch :is(a, button)[aria-current="true"] { color: var(--text); background: var(--surface-3); box-shadow: 0 1px 4px rgba(0,0,0,.18); }
+.billing-period-switch :is(a, button):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .billing-plan-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
 .billing-plan-card {
   min-width: 0;
@@ -5706,7 +5710,7 @@ html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned
 }
 @media (max-width: 480px) {
   .billing-period-switch { width: 100%; }
-  .billing-period-switch a { padding-inline: 6px; }
+  .billing-period-switch :is(a, button) { padding-inline: 6px; }
   .billing-inline-facts { display: grid; }
   .billing-actions,
   .billing-actions .button,
@@ -5727,8 +5731,8 @@ html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned
   .billing-period-switch,
   .billing-comparison__table { border-color: CanvasText; background: Canvas; }
   .billing-plan-card--featured,
-  .billing-period-switch a[aria-current="true"] { border-color: Highlight; }
-  .billing-period-switch a[aria-current="true"] { outline: 2px solid Highlight; outline-offset: -2px; }
+  .billing-period-switch :is(a, button)[aria-current="true"] { border-color: Highlight; }
+  .billing-period-switch :is(a, button)[aria-current="true"] { outline: 2px solid Highlight; outline-offset: -2px; }
   .billing-plan-badge { border: 1px solid CanvasText; color: CanvasText; background: Canvas; }
   .billing-feature-list li::before { color: CanvasText; }
 }

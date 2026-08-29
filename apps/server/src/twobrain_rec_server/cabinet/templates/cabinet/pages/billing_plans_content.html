@@ -27,8 +27,8 @@
             <li>Обработка без сохранения аудио при заполненном архиве</li>
           </ul>
           <div class="billing-plan-card__action">
-            {% if item.is_current %}<span class="muted">Подключён сейчас</span>
-            {% elif item.code == "personal" and billing_owner and billing_enabled and item.catalog_ready %}<a class="button" href="/billing/checkout?cycle={{ selected_cycle }}">Выбрать «Личный»</a>
+            {% if item.is_current and billing_owner %}<span class="muted">Подключён сейчас</span>
+            {% elif item.code == "personal" and (billing_owner or billing_role|default(None) == "owner") and billing_enabled and item.catalog_ready %}<a class="button" href="/billing/checkout?cycle={{ selected_cycle }}">{% if item.is_current %}Подтвердить новую оплату{% else %}Выбрать «Личный»{% endif %}</a>
             {% elif item.code == "personal" %}<span class="muted">Цена появится после утверждения версии каталога.</span>
             {% elif item.code == "trial" and billing_owner and trial_state == "eligible" %}<form action="/billing/trial/activate" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<input type="hidden" name="confirmation" value="start_trial"><button class="button quiet" type="submit">Начать 7 дней бесплатно</button></form>
             {% elif item.code == "trial" %}<span class="muted">Пробный период недоступен</span>

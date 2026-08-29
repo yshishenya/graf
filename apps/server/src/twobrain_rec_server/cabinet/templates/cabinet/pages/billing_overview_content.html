@@ -43,6 +43,7 @@
             <span>Доступ до <strong>{{ paid_through_label|default("не ограничен", true) }}</strong></span>
             {% if billing_owner %}<span>Хранилище <strong>{{ storage_used_label|default("0 MB") }} из {{ storage_capacity_label|default("объём уточняется") }}</strong></span>
             {% else %}<span>Хранилище <strong>по условиям пространства</strong></span>{% endif %}
+            {% if bonus_until_label|default(None) %}<span>Бонус до <strong>{{ bonus_until_label }}</strong></span>{% endif %}
             {% if billing_owner and next_charge_label|default(None) %}<span>Следующее списание <strong>{{ next_charge_label }}{% if next_charge_amount_label|default(None) %} · {{ next_charge_amount_label }}{% endif %}</strong></span>{% endif %}
           </div>
         {% endif %}
@@ -57,6 +58,10 @@
           <a class="button" data-billing-primary href="/billing/checkout/status/{{ latest_invoice_summary.safe_number }}">Открыть статус платежа</a>
           {% elif billing_owner and operation_pending %}
           <p class="muted" role="status">Платёж проверяется. Новую оплату пока не предлагаем.</p>
+          {% elif not billing_owner and billing_role == "owner" and billing_enabled and catalog_ready|default(True) %}
+          <a class="button" data-billing-primary href="/billing/plans">Подтвердить новую оплату</a>
+          {% elif not billing_owner and billing_role == "owner" %}
+          <p class="muted" role="status">Смена владельца биллинга временно недоступна.</p>
           {% elif billing_owner and plan_code == "personal" %}
           <a class="button" data-billing-primary href="/billing/subscription">Управлять подпиской</a>
           {% elif billing_owner and billing_enabled and catalog_ready|default(True) %}
@@ -93,7 +98,8 @@
       <section class="billing-section billing-row-section" aria-labelledby="billing-workspace-title">
         <div>
           <h2 id="billing-workspace-title">Пространство и использование</h2>
-          {% if not billing_owner or billing_role in ["member", "corporate_owner"] %}<p>Оплатой управляет владелец пространства. Точные объёмы использования видит владелец биллинга.</p><p class="muted">Способ оплаты и увеличение хранилища доступны только владельцу пространства.</p>
+          {% if not billing_owner and billing_role == "owner" %}<p>Вы владелец пространства, но платёжный аккаунт закреплён за другим пользователем.</p><p class="muted">Чтобы стать владельцем биллинга, подтвердите новую оплату.</p>
+          {% elif not billing_owner or billing_role in ["member", "corporate_owner"] %}<p>Оплатой управляет владелец пространства. Точные объёмы использования видит владелец биллинга.</p><p class="muted">Способ оплаты и увеличение хранилища доступны только владельцу пространства.</p>
           {% else %}<p>Вы управляете тарифом выбранного пространства. Хранилище: <strong>{{ storage_threshold_label|default("Состояние уточняется") }}</strong>.</p>{% endif %}
         </div>
         <div class="billing-row-section__actions">

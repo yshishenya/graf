@@ -1266,9 +1266,13 @@ async def billing_plans_page(
         else "unavailable"
     )
     catalog = await _approved_personal_catalog(db, now=now)
-    selected_cycle = request.query_params.get("cycle", "year")
-    if selected_cycle not in {"month", "year"}:
-        selected_cycle = "year"
+    current_cycle = (
+        subscription.cycle
+        if subscription is not None and subscription.cycle in {"month", "year"}
+        else None
+    )
+    requested_cycle = request.query_params.get("cycle")
+    selected_cycle = requested_cycle if requested_cycle in {"month", "year"} else current_cycle or "year"
     monthly_catalog = catalog.get("month")
     annual_catalog = catalog.get("year")
     catalog_ready = monthly_catalog is not None and annual_catalog is not None
@@ -1297,7 +1301,7 @@ async def billing_plans_page(
                     monthly_amount if catalog_ready or code != "personal" else None,
                     annual_amount if catalog_ready or code != "personal" else None,
                 ),
-                "is_current": code == current_code,
+                "is_current": code == current_code and (code != "personal" or selected_cycle == current_cycle),
                 "catalog_ready": catalog_ready if code == "personal" else True,
             }
         )
@@ -1314,6 +1318,7 @@ async def billing_plans_page(
         plans=plans,
         selected_cycle=selected_cycle,
         current_plan_code=current_code,
+        billing_role=role,
         billing_owner=billing_owner,
         trial_state=trial_state,
         billing_enabled=bool(request.app.state.settings.billing_checkout_enabled),

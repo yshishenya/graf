@@ -19,8 +19,8 @@
 
         {% if billing_enabled and catalog_ready|default(True) and not checkout_blocked %}
         <nav class="billing-period-switch" aria-label="Период оплаты">
-          <a href="/billing/checkout?cycle=month"{% if checkout_cycle == "month" %} aria-current="true"{% endif %}>Месяц<span>{{ monthly_price_label|default("Цена уточняется") }}</span></a>
-          <a href="/billing/checkout?cycle=year"{% if checkout_cycle == "year" %} aria-current="true"{% endif %}>Год<span>{{ annual_price_label|default("Цена уточняется") }}</span>{% if annual_saving_label|default(None) %}<small>{{ annual_saving_label }}</small>{% endif %}</a>
+          <form action="/billing/checkout/preview" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<input type="hidden" name="promo_code" value="{{ checkout_promo_code|default('') }}"><button type="submit" name="cycle" value="month"{% if checkout_cycle == "month" %} aria-current="true"{% endif %}>Месяц<span>{{ monthly_price_label|default("Цена уточняется") }}</span></button></form>
+          <form action="/billing/checkout/preview" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<input type="hidden" name="promo_code" value="{{ checkout_promo_code|default('') }}"><button type="submit" name="cycle" value="year"{% if checkout_cycle == "year" %} aria-current="true"{% endif %}>Год<span>{{ annual_price_label|default("Цена уточняется") }}</span>{% if annual_saving_label|default(None) %}<small>{{ annual_saving_label }}</small>{% endif %}</button></form>
         </nav>
         {% endif %}
 

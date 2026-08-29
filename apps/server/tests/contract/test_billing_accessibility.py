@@ -45,8 +45,8 @@ def test_member_billing_surfaces_do_not_render_workspace_usage_values() -> None:
 
 def test_checkout_uses_amount_specific_yookassa_actions_without_js() -> None:
     html = (TEMPLATE_ROOT / "billing_checkout_content.html").read_text(encoding="utf-8")
-    assert 'href="/billing/checkout?cycle=month"' in html
-    assert 'href="/billing/checkout?cycle=year"' in html
+    assert 'name="cycle" value="month"' in html
+    assert 'name="cycle" value="year"' in html
     assert 'name="cycle" value="{{ checkout_cycle }}"' in html
     assert 'action="/billing/checkout/preview" method="post"' in html
     assert "checkout_preview" in html
@@ -83,8 +83,9 @@ def test_plans_and_checkout_use_named_period_navigation_and_native_coupon_disclo
     assert 'href="/billing/plans?cycle=month"' in plans
     assert 'href="/billing/plans?cycle=year"' in plans
     assert 'aria-label="Период оплаты"' in checkout
-    assert 'href="/billing/checkout?cycle=month"' in checkout
-    assert 'href="/billing/checkout?cycle=year"' in checkout
+    assert 'action="/billing/checkout/preview" method="post"' in checkout
+    assert 'name="cycle" value="month"' in checkout
+    assert 'name="cycle" value="year"' in checkout
     assert '<details class="billing-coupon"' in checkout
     assert '<summary' in checkout
     assert checkout.count("data-billing-primary") == 1
@@ -99,7 +100,7 @@ def test_billing_css_scopes_reflow_and_forced_color_contracts() -> None:
     assert ".billing-checkout-card" in css
     assert "@media (max-width: 760px)" in css
     assert "@media (forced-colors: active)" in css
-    assert '.billing-period-switch a[aria-current="true"] { outline: 2px solid Highlight;' in css
+    assert '.billing-period-switch :is(a, button)[aria-current="true"] { outline: 2px solid Highlight;' in css
 
 
 def test_checkout_renders_server_calculated_promo_amounts() -> None:
@@ -135,7 +136,9 @@ def test_checkout_renders_server_calculated_promo_amounts() -> None:
     assert "−79 ₽ (10%)" in html
     assert "711 ₽" in html
     assert 'Оплатить 711 ₽ в YooKassa — месяц' in html
-    assert 'href="/billing/checkout?cycle=year"' in html
+    assert 'action="/billing/checkout/preview"' in html
+    assert 'name="promo_code" value="SAVE10"' in html
+    assert 'name="cycle" value="year"' in html
     assert "Следующее списание" in html
     assert "referral" not in html.lower()
 

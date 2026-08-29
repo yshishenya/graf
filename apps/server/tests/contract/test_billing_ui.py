@@ -111,6 +111,75 @@ async def test_invoice_receipt_link_requires_registered_receipt(
     assert invoice_context["receipt_label"] == receipt_label(_receipt_registration_state(registration))
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("query", "selected_cycle", "is_current"), ((b"", "month", True), (b"cycle=year", "year", False)))
+async def test_plans_default_to_current_personal_cycle_without_mislabeling_other_period(
+    monkeypatch: pytest.MonkeyPatch,
+    query: bytes,
+    selected_cycle: str,
+    is_current: bool,
+) -> None:
+    principal = SimpleNamespace(user_id=UUID(int=1), session_id=None, auth_via_session=False)
+    subscription = SimpleNamespace(
+        plan_code="personal",
+        state="active",
+        paid_through=datetime(2026, 9, 30, tzinfo=UTC),
+        trial_ends_at=None,
+        cycle="month",
+        billing_owner_id=principal.user_id,
+    )
+
+    class FakeSession:
+        async def scalar(self, _statement: object) -> object:
+            return subscription
+
+    async def owner_role(*_args: object, **_kwargs: object) -> str:
+        return "owner"
+
+    async def empty_catalog(*_args: object, **_kwargs: object) -> dict[str, object]:
+        return {}
+
+    captured: dict[str, object] = {}
+
+    def capture_page(_title: str, **context: object) -> str:
+        captured.update(context)
+        return "plans"
+
+    monkeypatch.setattr(billing_routes, "_billing_role", owner_role)
+    monkeypatch.setattr(billing_routes, "_approved_personal_catalog", empty_catalog)
+    monkeypatch.setattr(billing_routes, "_page_shell", capture_page)
+    monkeypatch.setattr(billing_routes, "_csrf_token_for_principal", lambda *_a, **_k: "csrf")
+    monkeypatch.setattr(billing_routes, "build_request_browser_provider_context", lambda *_a, **_k: {})
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "scheme": "https",
+            "server": ("graf.test", 443),
+            "path": "/billing/plans",
+            "headers": [],
+            "query_string": query,
+            "app": SimpleNamespace(
+                state=SimpleNamespace(
+                    settings=SimpleNamespace(billing_checkout_enabled=True, billing_support_email=None)
+                )
+            ),
+        }
+    )
+
+    response = await billing_routes.billing_plans_page(
+        request,
+        tenant_scope=SimpleNamespace(workspace_id=UUID(int=2), device_id=UUID(int=3)),
+        principal=principal,
+        db=FakeSession(),
+    )
+
+    assert response.status_code == 200
+    assert captured["selected_cycle"] == selected_cycle
+    personal = next(item for item in captured["plans"] if item["code"] == "personal")
+    assert personal["is_current"] is is_current
+
+
 def test_billing_keeps_legacy_account_alias_on_canonical_surface() -> None:
     paths = {route.path for route in billing_router.routes}
     assert "/settings/billing" in paths
@@ -438,6 +507,7 @@ def test_billing_overview_uses_reference_hierarchy_and_one_primary_action() -> N
         storage_capacity_label="250 MB",
         storage_threshold="normal",
         storage_threshold_label="В норме",
+        bonus_until_label="15.09.2026, 12:00 (МСК)",
         latest_invoice_summary=None,
         latest_operation_state=None,
     )
@@ -456,6 +526,8 @@ def test_billing_overview_uses_reference_hierarchy_and_one_primary_action() -> N
     )
     assert html.count("data-billing-primary") == 1
     assert 'href="/billing/plans"' in html
+    assert "Бонус до" in html
+    assert "15.09.2026, 12:00 (МСК)" in html
 
 
 def test_billing_overview_never_presents_missing_paid_price_as_free() -> None:
@@ -590,6 +662,62 @@ def test_non_owner_billing_overview_hides_invoice_and_exact_storage() -> None:
     assert "2 GB" not in html
     assert "29.09.2026" not in html
     assert "Платёжные данные доступны владельцу пространства" in html
+
+
+def test_workspace_owner_can_start_guarded_billing_takeover() -> None:
+    overview = render_template(
+        "cabinet/pages/billing_overview_content.html",
+        embedded=False,
+        settings_navigation=settings_category_navigation(active="billing"),
+        settings_active="billing",
+        plan=plan_descriptor("personal"),
+        plan_code="personal",
+        current_price_label="790 ₽",
+        current_cycle_label="в месяц",
+        billing_data_available=True,
+        billing_enabled=True,
+        catalog_ready=True,
+        billing_owner=False,
+        billing_role="owner",
+        processing_used_label="30 мин 0 сек",
+        processing_threshold="normal",
+        storage_threshold="normal",
+        storage_threshold_label="В норме",
+        latest_invoice_summary=None,
+        latest_operation_state=None,
+    )
+    plans = render_template(
+        "cabinet/pages/billing_plans_content.html",
+        embedded=False,
+        settings_navigation=settings_category_navigation(active="billing"),
+        settings_active="billing",
+        csrf_token="synthetic-csrf",
+        plans=(
+            {
+                "code": "personal",
+                "label": "Личный",
+                "processing_mode": "unlimited",
+                "processing_label": "Без лимита",
+                "storage_label": "2 GB",
+                "monthly_amount_label": "790 ₽",
+                "annual_amount_label": "7 900 ₽",
+                "annual_saving_label": None,
+                "is_current": True,
+                "catalog_ready": True,
+            },
+        ),
+        selected_cycle="month",
+        billing_role="owner",
+        billing_owner=False,
+        billing_enabled=True,
+        catalog_ready=True,
+        trial_state="unavailable",
+    )
+
+    assert "платёжный аккаунт закреплён за другим пользователем" in overview
+    assert 'data-billing-primary href="/billing/plans"' in overview
+    assert 'href="/billing/checkout?cycle=month"' in plans
+    assert "Подтвердить новую оплату" in plans
 
 
 def test_checkout_keeps_coupon_collapsed_until_promo_interaction() -> None:
