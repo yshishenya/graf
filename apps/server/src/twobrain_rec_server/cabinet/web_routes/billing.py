@@ -1779,6 +1779,17 @@ async def activate_billing_trial(
     if confirmation != "start_trial":
         return RedirectResponse("/billing?trial=confirmation_required", status_code=303)
     await lock_storage_workspace(db, tenant_scope.workspace_id)
+    blocking_checkout = await db.scalar(
+        select(BillingOperation.id)
+        .where(
+            BillingOperation.workspace_id == tenant_scope.workspace_id,
+            BillingOperation.kind == "initial_checkout",
+            BillingOperation.state.in_(CHECKOUT_BLOCKING_STATES),
+        )
+        .limit(1)
+    )
+    if blocking_checkout is not None:
+        return RedirectResponse("/billing?trial=pending", status_code=303)
     eligibility_state = await _trial_eligibility_state(
         db,
         tenant_scope=tenant_scope,

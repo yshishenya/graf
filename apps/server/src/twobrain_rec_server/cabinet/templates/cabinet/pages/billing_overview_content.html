@@ -84,6 +84,7 @@
         {% if plan_code == "free" and processing_threshold|default("normal") == "approaching" %}<p class="notice" role="status" aria-live="polite">Использовано 80% месячного лимита обработки. Осталось {{ processing_remaining_label }} до сброса {{ processing_reset_at_label }}.</p>
         {% elif plan_code == "free" and processing_threshold|default("normal") == "exhausted" %}<p class="notice" role="status" aria-live="polite">Лимит обработки исчерпан до {{ processing_reset_at_label }}. Новая обработка станет доступна после сброса лимита; обработка без сохранения аудио также недоступна до этого момента.</p>{% endif %}
         {% if trial_result|default(None) == "activated" %}<p role="status" aria-live="polite">Пробный период активирован на 7 дней.</p>
+        {% elif trial_result|default(None) == "pending" %}<p role="status" aria-live="polite">Платёж уже проверяется. Пробный период пока не запускаем.</p>
         {% elif trial_result|default(None) == "already" or trial_state == "already" %}<p role="status" aria-live="polite">Пробный период уже использован.</p>
         {% elif trial_result|default(None) == "verification_required" or trial_state == "verification_required" %}<p role="alert">Подтвердите email, чтобы начать 7 дней бесплатно. <a href="/account/security">Открыть аккаунт и безопасность</a>.</p>
         {% elif trial_result|default(None) == "confirmation_required" %}<p role="alert">Подтвердите запуск пробного периода кнопкой ещё раз.</p>{% endif %}

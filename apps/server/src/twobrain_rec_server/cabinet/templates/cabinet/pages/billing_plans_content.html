@@ -34,7 +34,7 @@
             {% elif item.code == "personal" and not item.catalog_ready %}<span class="muted">Цена появится после утверждения версии каталога.</span>
             {% elif item.code == "personal" and not billing_enabled %}<span class="muted">Оплата временно недоступна: магазин не включён.</span>
             {% elif item.code == "personal" %}<span class="muted">Оплата временно недоступна.</span>
-            {% elif item.code == "trial" and billing_owner and trial_state == "eligible" %}<form action="/billing/trial/activate" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<input type="hidden" name="confirmation" value="start_trial"><button class="button quiet" type="submit">Начать 7 дней бесплатно</button></form>
+            {% elif item.code == "trial" and billing_owner and trial_state == "eligible" and not operation_pending|default(False) %}<form action="/billing/trial/activate" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<input type="hidden" name="confirmation" value="start_trial"><button class="button quiet" type="submit">Начать 7 дней бесплатно</button></form>
             {% elif item.code == "trial" %}<span class="muted">Пробный период недоступен</span>
             {% else %}<span class="muted">Доступен без оплаты</span>{% endif %}
           </div>
