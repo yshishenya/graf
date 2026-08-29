@@ -4,12 +4,12 @@
 
 **Decision**: Выполнить один обычный `speckit-bootstrap .` без `--frozen` после dry-run.
 
-**Rationale**: Опубликованный `speckit-bootstrap v0.8.0` прямо определяет этот путь миграции, сохраняет legacy user-level skills и переводит integrity state на project-local skills.
+**Rationale**: Опубликованный `speckit-bootstrap v0.8.1` сохраняет schema 2 → 3 migration path, legacy user-level skills и project-local integrity state, а также закрывает bytecode drift после Python-backed extension commands.
 
 **Alternatives considered**:
 
 - Редактировать lock JSON вручную — отклонено: hashes и immutable refs должны вычисляться bootstrap.
-- Оставить schema 2 — отклонено: `doctor` v0.8.0 fail closed и не может подтвердить состояние.
+- Оставить schema 2 — отклонено: актуальный `doctor` fail closed и не может подтвердить legacy state.
 
 ## Decision 2: Не форкать upstream Full SDD Cycle
 
@@ -54,18 +54,34 @@
 
 ## Decision 6: Source checkout bootstrap только fast-forward
 
-**Decision**: Обновить чистый `/Users/yshishenya/Documents/speckit-bootstrap` через `git merge --ff-only origin/main` до опубликованного `v0.8.0`, не создавая там новый diff.
+**Decision**: Обновить чистый `/Users/yshishenya/Documents/speckit-bootstrap` через reviewed PR до опубликованного `v0.8.1`, затем оставить checkout на чистом `main == origin/main == v0.8.1^{}`.
 
-**Rationale**: Локальный checkout отстаёт на 22 commits, а installed executable уже byte-identical опубликованному tag. Source repository нужно синхронизировать, но менять bootstrap implementation для этой feature не требуется.
+**Rationale**: Первичная синхронизация до `v0.8.0` открыла общий integrity bug: issue-canon command создавал `.pyc` внутри locked tree. Минимальный bootstrap regression потребовал patch release и совместимого extension pin.
 
 **Alternatives considered**:
 
-- Патчить bootstrap source — отклонено: project-specific guidance не является общей обязанностью reusable bootstrap.
+- Исправить только GRAF lock — отклонено: будущие bootstrap consumers снова получили бы тот же дрейф.
 - Оставить source checkout устаревшим — отклонено: project guidance называет его source of truth для будущих generated-tool changes.
 
 **Validation evidence (2026-08-30)**:
 
-- Source checkout fast-forwarded from `1974e64e08283ec271032b6b1bd8522082427a6a` to `6019b1b4267292d415c78c9325f2e95555fba9c5`.
-- `origin/main` and dereferenced tag `v0.8.0^{}` both resolve to `6019b1b4267292d415c78c9325f2e95555fba9c5`.
-- Source and installed executable SHA-256 are identical: `9761c3615d1f506c729053641b0946a2f1d0f8aa5c6a617f01110add8202151a`.
-- Checkout remains clean after `git merge --ff-only origin/main`.
+- PR [speckit-bootstrap#20](https://github.com/yshishenya/speckit-bootstrap/pull/20) merged as `0b4dd20c055724fe131bb840f06a2e5d9ae1030b`; stable release [v0.8.1](https://github.com/yshishenya/speckit-bootstrap/releases/tag/v0.8.1) points to the same commit.
+- Installed release binary SHA-256 is `d6a702e97bc52a08f2061c764c13bd76d77b62bef1f1be40ce873e8cef601767`.
+- Source checkout is clean on `main == origin/main == v0.8.1^{}`.
+
+## Decision 7: Запретить Python bytecode в locked extension tree у источника
+
+**Decision**: В `github-issue-canon` выставлять `sys.dont_write_bytecode` до импорта shared module во всех трёх command entry points; не исключать `.pyc` из integrity hash.
+
+**Rationale**: Один root-cause fix сохраняет строгую проверку executable tree и закрывает ensure/normalize/validate одновременно. Игнорирование `.pyc` ослабило бы tamper detection.
+
+**Alternatives considered**:
+
+- Исключить `__pycache__`/`.pyc` из hashing — отклонено: executable bytecode останется вне контроля integrity.
+- Чистить bytecode после команды — отклонено: crash/interrupt снова оставит tree dirty.
+
+**Validation evidence (2026-08-30)**:
+
+- PR [github-issue-canon#9](https://github.com/yshishenya/spec-kit-ext-github-issue-canon/pull/9) merged as `344713a3d4d10673d3fd984b611ecfdc2c6ce1c8`; stable release [v0.3.2](https://github.com/yshishenya/spec-kit-ext-github-issue-canon/releases/tag/v0.3.2) points to the same commit.
+- Release archive SHA-256 is `184e31dc14759ae461318c586545922ea4f2c89493d900891907b15781426e67`.
+- GRAF refresh installed `v0.3.2`; validator checked 300 Spec Kit issues, subsequent frozen doctor passed, and no `__pycache__` appeared.

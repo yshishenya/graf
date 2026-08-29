@@ -64,6 +64,7 @@ Maintainer получает короткую автоматическую про
 - Upstream workflow остаётся сокращённым: project guidance продолжает определять более строгий GRAF flow.
 - Локальная конфигурация extension создаёт `local-config.yml`: файл остаётся machine-local и не попадает в Git.
 - Upstream меняет формат templates или bootstrap anchors: проверка должна fail closed с понятным сообщением вместо молчаливого частичного обновления.
+- Python-backed extension command импортирует общий модуль: integrity-managed дерево не должно меняться из-за `__pycache__`/`.pyc`, а следующий frozen `doctor` обязан остаться зелёным.
 
 ## Scope
 
@@ -78,7 +79,7 @@ Maintainer получает короткую автоматическую про
 - Установка необязательных community extensions или presets.
 - Изменение продуктового runtime GRAF, production deployment или новый product release.
 - Удаление legacy user-level skills без отдельного явного решения пользователя.
-- Переписывание upstream GitHub Spec Kit или публикация нового bootstrap release без отдельной необходимости и validation evidence.
+- Переписывание upstream GitHub Spec Kit или дополнительные tooling-релизы за пределами bytecode-safe patch releases, необходимых для закрытия найденного integrity drift.
 
 ## Requirements *(mandatory)*
 
@@ -96,6 +97,7 @@ Maintainer получает короткую автоматическую про
 - **FR-010**: Повторный bootstrap MUST быть идемпотентным для управляемых tracked artifacts либо явно объяснять ожидаемый diff.
 - **FR-011**: Локальный source checkout `speckit-bootstrap` MUST быть fast-forward синхронизирован с опубликованным stable source, если он отстаёт и не содержит локальных изменений.
 - **FR-012**: Изменение MUST обновить `[Unreleased]` changelog и зафиксировать validation evidence без секретов и приватного содержимого.
+- **FR-013**: Запуск Python-backed command из locked extension MUST NOT создавать bytecode внутри integrity-managed дерева; command → frozen doctor MUST оставаться воспроизводимым.
 
 ### Key Entities
 
@@ -113,10 +115,11 @@ Maintainer получает короткую автоматическую про
 - **SC-004**: Focused validation detects 100% of the four protected failure classes: missing convergence stage, missing reviewer ownership, missing project-local skills and unsupported lock schema.
 - **SC-005**: Canonical project guidance contains one unambiguous full GRAF sequence and an explicit boundary for the shorter upstream workflow.
 - **SC-006**: No product runtime, production configuration, deployment state, optional community extension or user-owned legacy skill is changed outside the declared scope.
+- **SC-007**: После импорта каждого Python entry point issue-canon отсутствуют `__pycache__`/`.pyc`, а frozen doctor подтверждает тот же locked tree hash.
 
 ## Assumptions
 
 - `v1.0.1` remains the latest stable upstream release during this change; live resolution is rechecked before migration.
-- The published `speckit-bootstrap v0.8.0` is the current stable source for schema 3 migration.
+- Published `speckit-bootstrap v0.8.1` и `github-issue-canon v0.3.2` являются stable bytecode-safe tooling baseline.
 - Existing GRAF product gates and issue canon remain authoritative and are extended, not replaced.
 - A clean disposable feature worktree is the implementation surface; master and unrelated worktrees remain untouched.

@@ -17,7 +17,8 @@
   issue sync, reviewer-owned checklist, convergence и validation/release gates.
 
 ### Исправлено
-- _Пока нет записей._
+- Locked `github-issue-canon` commands больше не создают Python bytecode внутри
+  integrity-managed extension tree; повторный frozen doctor остаётся чистым.
 
 ### Безопасность
 - _Пока нет записей._
@@ -32,6 +33,8 @@
   контейнеров.
 - В fast CI добавлена fail-closed проверка bootstrap integrity и GRAF-specific
   Spec Kit governance без новых зависимостей и сетевых запросов.
+- GRAF переведён на опубликованные `speckit-bootstrap v0.8.1` и
+  `github-issue-canon v0.3.2` с immutable refs и проверенными checksums.
 
 ## [2026.08.29.4] - 2026-08-29
 

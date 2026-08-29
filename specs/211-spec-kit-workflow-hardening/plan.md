@@ -12,11 +12,11 @@
 
 **Language/Version**: Python 3.12 stdlib для focused guard; Bash orchestration существующего bootstrap/CI
 
-**Primary Dependencies**: `specify-cli v1.0.1`, `speckit-bootstrap v0.8.0`, Git, существующие Spec Kit extensions
+**Primary Dependencies**: `specify-cli v1.0.1`, `speckit-bootstrap v0.8.1`, `github-issue-canon v0.3.2`, Git, существующие Spec Kit extensions
 
 **Storage**: Tracked Markdown/YAML/JSON files и project-local `.agents/skills`; продуктовые хранилища не затрагиваются
 
-**Testing**: Встроенный self-test focused guard, bootstrap frozen doctor, feature quickstart, `infra/scripts/ci-local.sh --fast`
+**Testing**: Встроенный self-test focused guard, issue-canon command → frozen doctor regression, feature quickstart, `infra/scripts/ci-local.sh --fast` и один publication-time `--full` baseline
 
 **Risk / Validation Lane**: `significant-feature` — изменение governance, generated skills, CI gate и воспроизводимости инструментария; продуктовый runtime не меняется
 
@@ -40,18 +40,18 @@
 - **Repository hygiene — PASS**: изменения не содержат credentials, private meeting data, raw audio или secret paths.
 - **Minimal implementation — PASS**: integrity делегируется существующему `speckit-bootstrap --doctor`; новый код защищает только project-specific invariants.
 - **Tracking — PASS**: `tasks.md` остаётся implementation source of truth; issue sync выполняется до implementation.
-- **Release safety — PASS**: release/deploy исключены; validation ограничена quickstart, focused checks и fast lane.
+- **Release safety — PASS**: bytecode-safe patch releases reusable tooling опубликованы с immutable tags/assets; GRAF product release/deploy исключены.
 
 Post-design re-check: PASS — дизайн не вводит продуктовые, privacy, capture, auth, storage или deployment изменения и не ослабляет существующие gates.
 
 ## Validation Plan
 
 1. До изменения: подтвердить latest upstream Spec Kit и stable bootstrap refs, чистый worktree и fast-forward возможность source checkout.
-2. После bootstrap migration: проверить schema 3, immutable ref, project-local skill hashes, managed `.specify/.gitignore` и `speckit-bootstrap . --doctor --frozen`.
+2. После bootstrap migration: проверить schema 3, immutable ref, project-local skill hashes, managed `.specify/.gitignore`; затем выполнить Python-backed issue-canon command и `speckit-bootstrap . --doctor --frozen`, убедившись в отсутствии `__pycache__`/`.pyc`.
 3. Запустить focused guard в штатном режиме и его self-test с четырьмя отрицательными классами.
 4. Повторить bootstrap dry-run/apply и доказать отсутствие необъяснимого tracked drift.
 5. Выполнить сценарии из `quickstart.md`, затем `infra/scripts/ci-local.sh --fast` как PR feedback gate.
-6. Не запускать full CI: это не release candidate и не product runtime change. Full gate остаётся обязательным только для будущего approved release/deploy exact SHA.
+6. По явному запросу владельца выполнить один publication-time `infra/scripts/ci-local.sh --full` на точном чистом commit SHA. Product release preparation, CD dry-run и deploy не выполнять.
 
 ## Project Structure
 
