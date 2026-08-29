@@ -468,6 +468,14 @@ async def cleanup_smoke_artifacts(
     try:
         async with engine.begin() as conn:
             await apply_tenant_context_to_connection(conn, _maintenance_context())
+            # Lock the synthetic parent before discovery/deletion. PostgreSQL
+            # FK inserts take a key-share lock on this row, so a concurrent
+            # playback worker cannot create a new workspace child between the
+            # ordered deletes and workspace removal.
+            await conn.execute(
+                text("select id from workspaces where id=:workspace_id for update"),
+                {"workspace_id": smoke_identity["workspace_id"]},
+            )
             meeting_ids = await _discover_smoke_meetings(conn, smoke_identity)
             sessions_by_meeting = await _discover_upload_sessions(conn, meeting_ids)
             if meeting_id in sessions_by_meeting and session_id:

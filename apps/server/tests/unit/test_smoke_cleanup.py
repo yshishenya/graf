@@ -180,6 +180,21 @@ def test_smoke_artifact_cleanup_deletes_playback_backfill_before_workspace() -> 
     assert backfill_delete < workspace_delete
 
 
+def test_smoke_artifact_cleanup_locks_workspace_before_discovery() -> None:
+    script = (
+        Path(__file__).resolve().parents[2]
+        / "scripts"
+        / "cleanup_smoke_artifacts.py"
+    ).read_text(encoding="utf-8")
+
+    workspace_lock = script.index(
+        'text("select id from workspaces where id=:workspace_id for update")'
+    )
+    discovery = script.index("meeting_ids = await _discover_smoke_meetings")
+
+    assert workspace_lock < discovery
+
+
 def test_smoke_artifact_cleanup_matches_revision_linked_dependencies() -> None:
     script = (
         Path(__file__).resolve().parents[2]
