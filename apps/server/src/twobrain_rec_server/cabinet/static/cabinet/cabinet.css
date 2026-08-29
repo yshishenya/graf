@@ -5728,6 +5728,7 @@ html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned
   .billing-comparison__table { border-color: CanvasText; background: Canvas; }
   .billing-plan-card--featured,
   .billing-period-switch a[aria-current="true"] { border-color: Highlight; }
+  .billing-period-switch a[aria-current="true"] { outline: 2px solid Highlight; outline-offset: -2px; }
   .billing-plan-badge { border: 1px solid CanvasText; color: CanvasText; background: Canvas; }
   .billing-feature-list li::before { color: CanvasText; }
 }

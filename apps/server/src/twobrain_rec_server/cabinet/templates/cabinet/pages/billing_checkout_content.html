@@ -41,7 +41,7 @@
         </dl>{% endif %}
 
         {% if billing_enabled and catalog_ready|default(True) and not checkout_blocked %}
-        <details class="billing-coupon"{% if checkout_preview|default(None) or checkout_result == "promo_invalid" or promo_preview_error|default(None) or checkout_promo_code|default("") %} open{% endif %}>
+        <details class="billing-coupon"{% if checkout_result == "promo_invalid" or promo_preview_error|default(None) or checkout_promo_code|default("") %} open{% endif %}>
           <summary>Добавить промокод</summary>
           <form action="/billing/checkout/preview" method="post" class="billing-coupon__form">
             {{ sections.csrf_field(csrf_token|default(None)) }}

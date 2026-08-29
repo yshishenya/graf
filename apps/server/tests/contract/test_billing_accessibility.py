@@ -99,6 +99,7 @@ def test_billing_css_scopes_reflow_and_forced_color_contracts() -> None:
     assert ".billing-checkout-card" in css
     assert "@media (max-width: 760px)" in css
     assert "@media (forced-colors: active)" in css
+    assert '.billing-period-switch a[aria-current="true"] { outline: 2px solid Highlight;' in css
 
 
 def test_checkout_renders_server_calculated_promo_amounts() -> None:

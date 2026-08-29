@@ -1105,7 +1105,7 @@ async def billing_overview_page(
         if latest_invoice is not None and isinstance(latest_invoice.plan_snapshot, dict)
         else {}
     )
-    if latest_invoice is not None:
+    if billing_owner and latest_invoice is not None:
         latest_invoice_summary = {
             "safe_number": latest_invoice.safe_number,
             "amount_label": _billing_amount_label(latest_invoice.amount_minor, latest_invoice.currency)

@@ -41,8 +41,9 @@
           {% endif %}
           <div class="billing-inline-facts" aria-label="Сводка тарифа">
             <span>Доступ до <strong>{{ paid_through_label|default("не ограничен", true) }}</strong></span>
-            <span>Хранилище <strong>{{ storage_used_label|default("0 MB") }} из {{ storage_capacity_label|default("объём уточняется") }}</strong></span>
-            {% if next_charge_label|default(None) %}<span>Следующее списание <strong>{{ next_charge_label }}{% if next_charge_amount_label|default(None) %} · {{ next_charge_amount_label }}{% endif %}</strong></span>{% endif %}
+            {% if billing_owner %}<span>Хранилище <strong>{{ storage_used_label|default("0 MB") }} из {{ storage_capacity_label|default("объём уточняется") }}</strong></span>
+            {% else %}<span>Хранилище <strong>по условиям пространства</strong></span>{% endif %}
+            {% if billing_owner and next_charge_label|default(None) %}<span>Следующее списание <strong>{{ next_charge_label }}{% if next_charge_amount_label|default(None) %} · {{ next_charge_amount_label }}{% endif %}</strong></span>{% endif %}
           </div>
         {% endif %}
 
@@ -52,8 +53,10 @@
 
         {% if billing_data_available %}
         <div class="billing-actions">
-          {% if operation_pending and latest_invoice_summary %}
+          {% if billing_owner and operation_pending and latest_invoice_summary %}
           <a class="button" data-billing-primary href="/billing/checkout/status/{{ latest_invoice_summary.safe_number }}">Открыть статус платежа</a>
+          {% elif billing_owner and operation_pending %}
+          <p class="muted" role="status">Платёж проверяется. Новую оплату пока не предлагаем.</p>
           {% elif billing_owner and plan_code == "personal" %}
           <a class="button" data-billing-primary href="/billing/subscription">Управлять подпиской</a>
           {% elif billing_owner and billing_enabled and catalog_ready|default(True) %}
@@ -107,8 +110,9 @@
       <section class="billing-section billing-row-section billing-history-preview" aria-labelledby="billing-history-title">
         <div>
           <h2 id="billing-history-title">История счетов</h2>
-          {% if latest_invoice_summary %}<p><a href="/billing/invoices/{{ latest_invoice_summary.safe_number }}">{{ latest_invoice_summary.safe_number }}</a> · {{ latest_invoice_summary.amount_label }} · {{ latest_invoice_summary.status_label }}</p><p class="muted">{{ latest_invoice_summary.created_at_label }}{% if latest_invoice_summary.payment_method_label|default(None) %} · {{ latest_invoice_summary.payment_method_label }}{% endif %}</p>
-          {% else %}<p class="muted">Платежей пока нет.</p>{% endif %}
+          {% if billing_owner and latest_invoice_summary %}<p><a href="/billing/invoices/{{ latest_invoice_summary.safe_number }}">{{ latest_invoice_summary.safe_number }}</a> · {{ latest_invoice_summary.amount_label }} · {{ latest_invoice_summary.status_label }}</p><p class="muted">{{ latest_invoice_summary.created_at_label }}{% if latest_invoice_summary.payment_method_label|default(None) %} · {{ latest_invoice_summary.payment_method_label }}{% endif %}</p>
+          {% elif billing_owner %}<p class="muted">Платежей пока нет.</p>
+          {% else %}<p class="muted">Платёжные данные доступны владельцу пространства.</p>{% endif %}
           <p class="muted">Возврат оформляется только письмом в поддержку; автоматической заявки в продукте нет.</p>
         </div>
         {% if billing_owner %}<a class="button quiet" href="/billing/history">История платежей</a>{% endif %}

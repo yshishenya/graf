@@ -137,6 +137,7 @@ def test_billing_hub_uses_exact_free_copy_and_external_refund_boundary() -> None
         processing_threshold="normal",
         processing_threshold_label="В норме",
         billing_enabled=False,
+        billing_owner=True,
         trial_result=None,
     )
     assert "0 мин 0 сек" in html
@@ -145,9 +146,9 @@ def test_billing_hub_uses_exact_free_copy_and_external_refund_boundary() -> None
     assert "250 000 000 байт" not in html
     assert "только письмом" in html
     assert "автоматической заявки" in html
-    assert "Способ оплаты и увеличение хранилища доступны только владельцу" in html
-    assert 'href="/billing/payment-method"' not in html
-    assert 'href="/billing/storage"' not in html
+    assert "Вы управляете тарифом выбранного пространства" in html
+    assert 'href="/billing/payment-method"' in html
+    assert 'href="/billing/storage"' in html
 
 
 def test_subscription_and_usage_surfaces_keep_no_grace_and_unlimited_copy() -> None:
@@ -520,6 +521,105 @@ def test_pending_billing_overview_exposes_status_without_competing_checkout() ->
     assert 'href="/billing/checkout"' not in html
     assert 'href="/billing/plans"' not in html
     assert html.count("data-billing-primary") == 1
+
+
+def test_pending_billing_without_invoice_suppresses_new_checkout() -> None:
+    html = render_template(
+        "cabinet/pages/billing_overview_content.html",
+        embedded=False,
+        settings_navigation=settings_category_navigation(active="billing"),
+        settings_active="billing",
+        plan=plan_descriptor("free"),
+        plan_code="free",
+        billing_data_available=True,
+        billing_enabled=True,
+        catalog_ready=True,
+        billing_owner=True,
+        billing_role="owner",
+        billing_result="pending",
+        processing_used_label="0 мин 0 сек",
+        free_processing_limit_label="300 минут",
+        processing_threshold="normal",
+        storage_used_label="0 MB",
+        storage_capacity_label="250 MB",
+        storage_threshold="normal",
+        storage_threshold_label="В норме",
+        latest_invoice_summary=None,
+        latest_operation_state="provider_pending",
+    )
+
+    assert "Новую оплату пока не предлагаем" in html
+    assert 'href="/billing/plans"' not in html
+    assert "data-billing-primary" not in html
+
+
+def test_non_owner_billing_overview_hides_invoice_and_exact_storage() -> None:
+    html = render_template(
+        "cabinet/pages/billing_overview_content.html",
+        embedded=False,
+        settings_navigation=settings_category_navigation(active="billing"),
+        settings_active="billing",
+        plan=plan_descriptor("personal"),
+        plan_code="personal",
+        current_price_label="790 ₽",
+        current_cycle_label="в месяц",
+        billing_data_available=True,
+        billing_enabled=True,
+        billing_owner=False,
+        billing_role="member",
+        processing_used_label="30 мин 0 сек",
+        processing_threshold="normal",
+        storage_used_label="1.5 GB",
+        storage_capacity_label="2 GB",
+        storage_threshold="normal",
+        storage_threshold_label="В норме",
+        latest_invoice_summary={
+            "safe_number": "INV-PRIVATE1",
+            "amount_label": "790 ₽",
+            "created_at_label": "29.08.2026, 12:00 (МСК)",
+            "status_label": "Оплачен",
+            "payment_method_label": "•••• 4242",
+        },
+        next_charge_label="29.09.2026",
+        next_charge_amount_label="790 ₽",
+    )
+
+    assert "INV-PRIVATE1" not in html
+    assert "•••• 4242" not in html
+    assert "1.5 GB" not in html
+    assert "2 GB" not in html
+    assert "29.09.2026" not in html
+    assert "Платёжные данные доступны владельцу пространства" in html
+
+
+def test_checkout_keeps_coupon_collapsed_until_promo_interaction() -> None:
+    html = render_template(
+        "cabinet/pages/billing_checkout_content.html",
+        embedded=False,
+        settings_navigation=settings_category_navigation(active="billing"),
+        settings_active="billing",
+        csrf_token="synthetic-csrf",
+        plan=plan_descriptor("personal"),
+        billing_enabled=True,
+        catalog_ready=True,
+        checkout_idempotency_key="synthetic-key",
+        monthly_price_label="790 ₽",
+        annual_price_label="7 900 ₽",
+        checkout_result=None,
+        checkout_promo_code="",
+        checkout_cycle="month",
+        checkout_preview={
+            "cycle_label": "месяц",
+            "list_amount_label": "790 ₽",
+            "discount_label": "0 ₽",
+            "payable_amount_label": "790 ₽",
+            "next_amount_label": "790 ₽",
+        },
+        promo_preview_error=None,
+    )
+
+    assert '<details class="billing-coupon">' in html
+    assert '<details class="billing-coupon" open>' not in html
 
 
 def test_plan_comparison_keeps_server_selected_cycle_and_real_checkout_links() -> None:
