@@ -457,6 +457,34 @@ def test_billing_overview_uses_reference_hierarchy_and_one_primary_action() -> N
     assert 'href="/billing/plans"' in html
 
 
+def test_billing_overview_never_presents_missing_paid_price_as_free() -> None:
+    html = render_template(
+        "cabinet/pages/billing_overview_content.html",
+        embedded=False,
+        settings_navigation=settings_category_navigation(active="billing"),
+        settings_active="billing",
+        plan=plan_descriptor("personal"),
+        plan_code="personal",
+        current_price_label=None,
+        current_cycle_label="период уточняется",
+        billing_data_available=True,
+        billing_enabled=False,
+        billing_owner=True,
+        processing_used_label="0 мин 0 сек",
+        free_processing_limit_label="300 минут",
+        processing_threshold="normal",
+        storage_used_label="0 MB",
+        storage_capacity_label="250 MB",
+        storage_threshold="normal",
+        storage_threshold_label="В норме",
+        latest_invoice_summary=None,
+        latest_operation_state=None,
+    )
+
+    assert "Сумма уточняется" in html
+    assert "<strong>0 ₽</strong>" not in html
+
+
 def test_pending_billing_overview_exposes_status_without_competing_checkout() -> None:
     html = render_template(
         "cabinet/pages/billing_overview_content.html",

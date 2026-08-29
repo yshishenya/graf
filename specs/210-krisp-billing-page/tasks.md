@@ -49,7 +49,7 @@
 - [X] T015 Запустить focused macOS route/workspace/zoom/accessibility и новый billing runtime suite из `specs/210-krisp-billing-page/quickstart.md`
 - [X] T016 Выполнить Browser QA на пяти viewport, dark/light, keyboard, no-JS и 200% zoom; записать metadata-only fidelity ledger в `specs/210-krisp-billing-page/validation/implementation-evidence.md`
 - [ ] T017 Проверить локальный exact-build GRAF через Computer Use на minimum/standard/fullscreen и inspector collapsed/expanded без финальной оплаты; дополнить `specs/210-krisp-billing-page/validation/implementation-evidence.md`
-- [X] T018 Запустить `git diff --check` и `infra/scripts/ci-local.sh --fast`, затем сверить задачи/issues с evidence в `specs/210-krisp-billing-page/tasks.md`
+- [ ] T018 Запустить `git diff --check` и `infra/scripts/ci-local.sh --fast`, затем сверить задачи/issues с evidence в `specs/210-krisp-billing-page/tasks.md`
 
 ## Dependencies
 

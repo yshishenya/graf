@@ -40,7 +40,7 @@ empty payment method/history, validation/provider error), confirm:
 - truthful amount/cycle/next charge and no competing checkout while pending;
 - no DOM/main/section horizontal overflow;
 - no clipped amount, focus ring, disclosure, consent or primary action;
-- keyboard order, Escape/focus return for disclosures, named errors/live regions;
+- keyboard reachability, visible focus, named errors and live regions;
 - no relevant browser console error/warn;
 - usable links/forms with JavaScript disabled.
 

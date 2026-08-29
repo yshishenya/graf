@@ -1130,6 +1130,7 @@ async def billing_overview_page(
         "0 ₽"
         if plan_code in {"free", "trial"}
         else _billing_amount_label(current_catalog.amount_minor if current_catalog is not None else None)
+        or "Сумма уточняется"
     )
     current_cycle_label = (
         "без оплаты"

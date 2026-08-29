@@ -82,7 +82,7 @@ presentation-поля в GET context.
 
    ```sh
    swift test --package-path apps/macos \
-     --filter 'DesktopCabinetBillingHandoffTests|DesktopCabinetRoutePolicyTests|CabinetSidebarRuntimeTests'
+     --filter 'DesktopCabinetBillingHandoffTests|DesktopCabinetRoutePolicyTests|CabinetSidebarRuntimeTests|CabinetBillingRuntimeTests'
    swift build --package-path apps/macos
    ```
 
@@ -110,12 +110,12 @@ specs/210-krisp-billing-page/
 ├── data-model.md
 ├── quickstart.md
 ├── contracts/
-│   ├── billing-presentation.md
-│   └── reference-fidelity-ledger.md
+│   ├── desktop-web-parity.md
+│   └── ui-contract.md
 ├── checklists/
 │   ├── requirements.md
 │   ├── ux.md
-│   └── financial-safety.md
+│   └── security.md
 └── tasks.md
 ```
 

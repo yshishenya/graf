@@ -20,7 +20,7 @@
             <span class="settings-scope-badge">Текущий тариф</span>
             <h2 id="billing-summary-title">{{ plan.label if billing_data_available else "Данные временно недоступны" }}</h2>
           </div>
-          {% if billing_data_available %}<p class="billing-price"><strong>{{ current_price_label|default("0 ₽") }}</strong><span>{{ current_cycle_label|default("без оплаты") }}</span></p>{% endif %}
+          {% if billing_data_available %}<p class="billing-price"><strong>{{ current_price_label|default("Сумма уточняется", true) }}</strong><span>{{ current_cycle_label|default("без оплаты") }}</span></p>{% endif %}
         </div>
 
         {% if not billing_data_available %}
