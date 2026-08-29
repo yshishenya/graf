@@ -1,3 +1,4 @@
+import importlib.util
 import json
 import os
 import subprocess
@@ -334,6 +335,21 @@ def test_outcome_live_proof_dry_run_is_metadata_safe(tmp_path: Path) -> None:
     assert payload["cleanup_state"] == "deferred"
     assert "bearer" not in result.stdout.lower()
     assert "cookie" not in result.stdout.lower()
+
+
+def test_outcome_live_proof_reads_result_state_from_catalog_entry() -> None:
+    script = REPO_ROOT / "apps/server/scripts/prove_meeting_outcome_live.py"
+    scripts_dir = str(script.parent)
+    if scripts_dir not in sys.path:
+        sys.path.insert(0, scripts_dir)
+    module_spec = importlib.util.spec_from_file_location("prove_meeting_outcome_live", script)
+    assert module_spec is not None and module_spec.loader is not None
+    module = importlib.util.module_from_spec(module_spec)
+    sys.modules[module_spec.name] = module
+    module_spec.loader.exec_module(module)
+
+    assert module._summary_result_state({"catalog_entry": {"result_state": "absent"}}) == "absent"
+    assert module._summary_result_state({"result_state": "ready"}) == "ready"
 
 
 def test_outcome_prompt_manifest_is_versioned_and_hash_only() -> None:

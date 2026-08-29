@@ -48,6 +48,13 @@ def _safe_json(payload: dict[str, object]) -> str:
     return serialized
 
 
+def _summary_result_state(payload: dict[str, object]) -> str:
+    catalog_entry = payload.get("catalog_entry")
+    if isinstance(catalog_entry, dict):
+        return str(catalog_entry.get("result_state") or payload.get("result_state") or "unknown")
+    return str(payload.get("result_state") or "unknown")
+
+
 def _proof(
     origin: str,
     run_id: str,
@@ -100,7 +107,7 @@ def _proof(
             failure_code=code or "summary_read_unavailable",
         )
 
-    summary_state = str(payload.get("result_state") or "unknown")
+    summary_state = _summary_result_state(payload)
     slot_state = "current" if payload.get("outcome_set_id") else "unpublished"
     return OutcomeLiveProof(
         proof_id,
