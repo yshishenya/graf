@@ -40,10 +40,10 @@
           <p class="billing-summary__description">Обработка: <strong>Без лимита по минутам и встречам</strong>. Учтено: <strong>{{ processing_used_label }}</strong>{% if processing_usage_freshness|default("fresh") != "fresh" %} (данные могут быть устаревшими){% endif %}.</p>
           {% endif %}
           <div class="billing-inline-facts" aria-label="Сводка тарифа">
-            <span>Доступ до <strong>{{ paid_through_label|default("не ограничен", true) }}</strong></span>
+            {% if billing_owner %}<span>Доступ до <strong>{{ paid_through_label|default("не ограничен", true) }}</strong></span>{% endif %}
             {% if billing_owner %}<span>Хранилище <strong>{{ storage_used_label|default("0 MB") }} из {{ storage_capacity_label|default("объём уточняется") }}</strong></span>
             {% else %}<span>Хранилище <strong>по условиям пространства</strong></span>{% endif %}
-            {% if bonus_until_label|default(None) %}<span>Бонус до <strong>{{ bonus_until_label }}</strong></span>{% endif %}
+            {% if billing_owner and bonus_until_label|default(None) %}<span>Бонус до <strong>{{ bonus_until_label }}</strong></span>{% endif %}
             {% if billing_owner and next_charge_label|default(None) %}<span>Следующее списание <strong>{{ next_charge_label }}{% if next_charge_amount_label|default(None) %} · {{ next_charge_amount_label }}{% endif %}</strong></span>{% endif %}
           </div>
         {% endif %}

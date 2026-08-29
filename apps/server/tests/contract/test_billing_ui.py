@@ -655,6 +655,8 @@ def test_non_owner_billing_overview_hides_invoice_and_exact_storage() -> None:
             "status_label": "Оплачен",
             "payment_method_label": "•••• 4242",
         },
+        paid_through_label="28.09.2026",
+        bonus_until_label="15.09.2026",
         next_charge_label="29.09.2026",
         next_charge_amount_label="790 ₽",
     )
@@ -663,6 +665,8 @@ def test_non_owner_billing_overview_hides_invoice_and_exact_storage() -> None:
     assert "•••• 4242" not in html
     assert "1.5 GB" not in html
     assert "2 GB" not in html
+    assert "28.09.2026" not in html
+    assert "15.09.2026" not in html
     assert "29.09.2026" not in html
     assert "Платёжные данные доступны владельцу пространства" in html
 
