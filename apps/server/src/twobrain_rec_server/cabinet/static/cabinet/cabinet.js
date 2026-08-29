@@ -1593,9 +1593,18 @@
     ],
   }[String(state || "").toLowerCase()] || null);
 
+  const processingTerminalReasonCopy = {
+    invalid_audio_payload: "Файл записи не является декодируемым аудио или поврежден.",
+    mediascribe_validation_failed: "Сервис транскрипции отклонил файл: проверьте формат и повторите обработку.",
+    mediascribe_payload_too_large: "Файл записи превышает допустимый размер.",
+    mediascribe_auth_failed: "Сервис транскрипции отклонил доступ; повторить можно после проверки настройки сервера.",
+    mediascribe_malformed_response: "Сервис транскрипции вернул некорректный ответ. Повторите обработку; если ошибка повторится, обратитесь к оператору.",
+  };
+
   const processingRecoveryCopy = (projection, transcriptReady) => {
     const retryClass = String(projection?.retry_class || "none");
     const reason = String(projection?.reason_code || "").toLowerCase();
+    const reasonCopy = processingTerminalReasonCopy[reason] || "";
     const projectionState = String(projection?.state || "").toLowerCase();
     const inFlight = projection?.attempt_in_flight === true;
     if (projection?.manual_action === "retry_preparation") {
@@ -1617,6 +1626,8 @@
         title: storageFull ? "Недостаточно места для аудио" : "Не удалось подготовить запись",
         copy: storageFull
           ? "Загрузите запись без сохранения аудио — расшифровка и итоги останутся доступны. Освободить или увеличить хранилище можно позже."
+          : reasonCopy
+          ? `${reasonCopy} Загрузите другую копию или файл в другом формате.`
           : "Этот файл не удалось обработать. Загрузите другую копию или файл в другом формате.",
         canCheck: false,
         canStartNewAttempt: false,
@@ -1634,9 +1645,9 @@
       return {
         state: "terminal",
         title: accessFailure ? "Сервис расшифровки временно недоступен" : "Нужна помощь с обработкой",
-        copy: accessFailure
+        copy: reasonCopy || (accessFailure
           ? "GRAF не может продолжить из-за настройки доступа к сервису расшифровки. Запись сохранена; вернитесь позже или к списку встреч."
-          : "Автоматическое продолжение недоступно. Запись сохранена; обновите статус позже или вернитесь к списку встреч.",
+          : "Автоматическое продолжение недоступно. Запись сохранена; обновите статус позже или вернитесь к списку встреч."),
         canCheck: false,
         canStartNewAttempt: false,
         showRefresh: true,
@@ -1669,7 +1680,7 @@
       return {
         state: "terminal",
         title: "Обработка остановлена",
-        copy: "Автоматическое продолжение недоступно. Обновите страницу или вернитесь к списку встреч.",
+        copy: reasonCopy || "Автоматическое продолжение недоступно. Обновите страницу или вернитесь к списку встреч.",
         canCheck: false,
         canStartNewAttempt: false,
         showRefresh: true,
@@ -1700,7 +1711,9 @@
       return {
         state: "terminal",
         title: "Обработка завершилась без результата",
-        copy: canStartNewAttempt
+        copy: reasonCopy
+          ? `${reasonCopy}${canStartNewAttempt ? " Если нужно, начните обработку заново кнопкой ниже." : ""}`
+          : canStartNewAttempt
           ? "Доступные результаты сохранены. Если нужно, начните обработку заново кнопкой ниже."
           : "Автоматический перезапуск недоступен. Обновите страницу позже или вернитесь к списку встреч.",
         canCheck: false,
@@ -1724,7 +1737,7 @@
         return {
           state: "retryable",
           title: "Результат ещё не подтверждён",
-          copy: "MediaScribe не сообщил об ошибке. Автоматическое ожидание остановлено; проверьте обработку вручную.",
+          copy: reasonCopy || "MediaScribe не сообщил об ошибке. Автоматическое ожидание остановлено; проверьте обработку вручную.",
           canCheck: projection?.manual_action === "check_now" && !inFlight,
           canStartNewAttempt: false,
           showRefresh: true,

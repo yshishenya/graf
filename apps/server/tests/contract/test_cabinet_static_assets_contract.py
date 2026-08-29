@@ -897,7 +897,7 @@ const fs = require("fs");
 const vm = require("vm");
 const script = fs.readFileSync(process.argv[1], "utf8");
 const source = script.slice(
-  script.indexOf("const processingRecoveryCopy"),
+  script.indexOf("const processingTerminalReasonCopy"),
   script.indexOf("const renderProcessingCountdown"),
 );
 const processingNewAttemptAllowed = (projection) => (
@@ -955,6 +955,18 @@ const cases = [
     showRefresh: true,
     canStartNewAttempt: true,
   },
+  {
+    projection: {
+      state: "failed_terminal",
+      retry_class: "terminal",
+      manual_action: "new_attempt",
+      reason_code: "invalid_audio_payload",
+    },
+    title: "Обработка завершилась без результата",
+    copyIncludes: "Файл записи не является декодируемым аудио или поврежден.",
+    showRefresh: true,
+    canStartNewAttempt: true,
+  },
 ];
 for (const testCase of cases) {
   const copy = global.processingRecoveryCopy(testCase.projection, false);
@@ -965,6 +977,7 @@ for (const testCase of cases) {
     || copy?.uploadWithoutArchive !== testCase.uploadWithoutArchive
     || ("canStartNewAttempt" in testCase
       && copy?.canStartNewAttempt !== testCase.canStartNewAttempt)
+    || ("copyIncludes" in testCase && !copy.copy.includes(testCase.copyIncludes))
   ) {
     throw new Error(`terminal projection used wrong copy: ${JSON.stringify({ copy, testCase })}`);
   }
@@ -1000,7 +1013,7 @@ const vm = require("vm");
 const script = fs.readFileSync(process.argv[1], "utf8");
 const source = [
   script.slice(
-    script.indexOf("const processingRecoveryCopy"),
+    script.indexOf("const processingTerminalReasonCopy"),
     script.indexOf("const renderProcessingCountdown"),
   ),
   script.slice(

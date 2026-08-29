@@ -1178,6 +1178,19 @@ def test_terminal_no_speech_detail_does_not_render_processing_transcript_placeho
     assert 'data-processing-reason-code="no_recognizable_speech"' in page
 
 
+def test_partial_transcript_detail_renders_diarization_placeholder() -> None:
+    review = _review()
+    review.provenance = review.provenance.model_copy(update={"media_revision_id": uuid4()})
+    review.processing = review.processing.model_copy(update={"state": "partial"})
+    review.transcript = review.transcript.model_copy(update={"degraded_reason": "diarization_pending"})
+
+    page = render_meeting_detail_page(review)
+
+    assert 'data-transcript-pending' in page
+    assert "Спикеры ещё определяются" in page
+    assert 'data-playback-transcript hidden aria-hidden="true"' in page
+
+
 def test_processing_summary_copy_can_distinguish_stored_output_from_not_requested() -> None:
     review = _review()
     review.notes_action_truth = review.notes_action_truth.model_copy(
