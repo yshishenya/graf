@@ -163,6 +163,23 @@ def test_smoke_artifact_cleanup_deletes_billing_children_before_workspace() -> N
         previous_position = position
 
 
+def test_smoke_artifact_cleanup_deletes_playback_backfill_before_workspace() -> None:
+    script = (
+        Path(__file__).resolve().parents[2]
+        / "scripts"
+        / "cleanup_smoke_artifacts.py"
+    ).read_text(encoding="utf-8")
+
+    backfill_delete = script.index(
+        "delete from playback_backfill_runs where workspace_id=:workspace_id"
+    )
+    workspace_delete = script.index(
+        "delete from workspaces where id=:workspace_id"
+    )
+
+    assert backfill_delete < workspace_delete
+
+
 def test_smoke_artifact_cleanup_matches_revision_linked_dependencies() -> None:
     script = (
         Path(__file__).resolve().parents[2]

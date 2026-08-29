@@ -78,6 +78,7 @@
 - Synthetic outcome smoke использует самый новый номер результата ревизии,
   чтобы асинхронное завершение обычной обработки не помечало его источник как stale.
 - Smoke cleanup удаляет workspace-scoped ingest audit events до удаления synthetic workspace.
+- Smoke cleanup теперь удаляет workspace-scoped playback backfill runs до удаления synthetic workspace.
 
 ### Безопасность
 - _Пока нет записей._
