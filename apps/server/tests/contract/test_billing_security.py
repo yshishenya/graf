@@ -11,6 +11,7 @@ from twobrain_rec_server.billing.audit import metadata_only
 from twobrain_rec_server.billing.yookassa import YooKassaClient, YooKassaConfigurationError
 from twobrain_rec_server.cabinet.web_routes.billing import (
     _billing_owner_subscription,
+    activate_billing_trial,
     billing_checkout_return_url,
     start_billing_checkout,
 )
@@ -71,6 +72,15 @@ def test_checkout_persists_operation_before_invoice_foreign_key() -> None:
 
     assert operation_add < operation_flush
     assert operation_flush < source.index("invoice = BillingInvoice")
+
+
+def test_trial_serializes_with_checkout_before_checking_payment_operations() -> None:
+    source = inspect.getsource(activate_billing_trial)
+
+    assert source.index("select(Workspace)") < source.index(
+        "_blocking_payment_operation_query"
+    )
+    assert ".with_for_update()" in source
 
 
 def test_subscription_mutations_share_personal_owner_gate() -> None:

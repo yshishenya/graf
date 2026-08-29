@@ -680,6 +680,7 @@ def test_pending_billing_overview_exposes_status_without_competing_checkout() ->
             "created_at_label": "29.08.2026, 12:00 (МСК)",
             "status_label": "Проверяем оплату",
         },
+        pending_invoice_summary={"safe_number": "INV-PENDING1"},
         latest_operation_state="provider_pending",
         latest_operation_label="Ожидаем подтверждение",
     )

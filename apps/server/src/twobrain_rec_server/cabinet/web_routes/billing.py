@@ -1041,6 +1041,7 @@ async def billing_overview_page(
     processing_reserved = 0
     latest_invoice = None
     latest_operation = None
+    pending_invoice = None
     payment_method = None
     bonus_until = None
     window = None
@@ -1077,19 +1078,15 @@ async def billing_overview_page(
             .order_by(BillingInvoice.created_at.desc())
             .limit(1)
         )
-        if latest_invoice is not None:
-            latest_operation = await db.scalar(
-                select(BillingOperation).where(
-                    BillingOperation.workspace_id == tenant_scope.workspace_id,
-                    BillingOperation.id == latest_invoice.operation_id,
+        latest_operation = await db.scalar(
+            _blocking_payment_operation_query(tenant_scope.workspace_id).limit(1)
+        )
+        if latest_operation is not None:
+            pending_invoice = await db.scalar(
+                select(BillingInvoice).where(
+                    BillingInvoice.workspace_id == tenant_scope.workspace_id,
+                    BillingInvoice.operation_id == latest_operation.id,
                 )
-            )
-        else:
-            latest_operation = await db.scalar(
-                select(BillingOperation)
-                .where(BillingOperation.workspace_id == tenant_scope.workspace_id)
-                .order_by(BillingOperation.created_at.desc())
-                .limit(1)
             )
         bonus_until = await db.scalar(
             select(func.max(TimeCreditLedgerEntry.applied_end)).where(
@@ -1113,6 +1110,7 @@ async def billing_overview_page(
     )
     approved_catalog = await _approved_personal_catalog(db, now=now)
     latest_invoice_summary = None
+    pending_invoice_summary = None
     latest_snapshot = (
         latest_invoice.plan_snapshot
         if latest_invoice is not None and isinstance(latest_invoice.plan_snapshot, dict)
@@ -1131,6 +1129,8 @@ async def billing_overview_page(
                 else None
             ),
         }
+    if billing_owner and pending_invoice is not None:
+        pending_invoice_summary = {"safe_number": pending_invoice.safe_number}
     current_cycle = (
         subscription.cycle
         if subscription is not None and subscription.cycle in {"month", "year"}
@@ -1240,6 +1240,7 @@ async def billing_overview_page(
         payment_method_label=payment_method.masked_label if payment_method is not None else None,
         latest_invoice=latest_invoice,
         latest_invoice_summary=latest_invoice_summary,
+        pending_invoice_summary=pending_invoice_summary,
         latest_invoice_status_label=(
             _invoice_status_label(latest_invoice.status) if latest_invoice is not None else None
         ),
@@ -1785,6 +1786,9 @@ async def activate_billing_trial(
     if confirmation != "start_trial":
         return RedirectResponse("/billing?trial=confirmation_required", status_code=303)
     await lock_storage_workspace(db, tenant_scope.workspace_id)
+    workspace = await db.scalar(
+        select(Workspace).where(Workspace.id == tenant_scope.workspace_id).with_for_update()
+    )
     blocking_checkout = await db.scalar(
         _blocking_payment_operation_query(tenant_scope.workspace_id).limit(1)
     )
@@ -1814,7 +1818,6 @@ async def activate_billing_trial(
             WorkspaceMembership.status == "active",
         )
     )
-    workspace = await db.get(Workspace, tenant_scope.workspace_id)
     subscription = await db.scalar(
         select(WorkspaceSubscription)
         .where(WorkspaceSubscription.workspace_id == tenant_scope.workspace_id)
