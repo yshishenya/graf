@@ -10,6 +10,7 @@ from temporalio.converter import DataConverter
 
 from twobrain_rec_server.workflows import outcome_generation_workflow as workflow_module
 from twobrain_rec_server.workflows import temporal_client
+from twobrain_rec_server.workflows import worker as worker_module
 
 
 def test_child_completion_result_uses_temporal_compatible_type_hint() -> None:
@@ -28,6 +29,31 @@ def test_child_completion_result_uses_temporal_compatible_type_hint() -> None:
     payload = DataConverter.default.payload_converter.to_payloads([result])
     assert DataConverter.default.payload_converter.from_payloads(payload, [return_hint]) == [
         result
+    ]
+
+
+def test_transcript_metadata_activity_accepts_nullable_slot_identity() -> None:
+    """Temporal must decode the first-generation payload with no current slot."""
+    payload_hint = get_type_hints(
+        worker_module.snapshot_outcome_transcript_metadata_activity
+    )["payload"]
+    assert payload_hint == dict[str, Any]
+
+    payload = {
+        "candidate_id": "candidate",
+        "meeting_id": "meeting",
+        "workspace_id": "workspace",
+        "source_result_id": "result",
+        "template_key": "graf-outline-v1",
+        "template_version": "1",
+        "prompt_name": "graf/meeting-outcome/outline",
+        "summary_slot_id": "slot",
+        "expected_current_outcome_set_id": None,
+    }
+    encoded = DataConverter.default.payload_converter.to_payloads([payload])
+
+    assert DataConverter.default.payload_converter.from_payloads(encoded, [payload_hint]) == [
+        payload
     ]
 
 

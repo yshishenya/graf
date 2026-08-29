@@ -1761,7 +1761,7 @@ async def resolve_outcome_prompt_config_activity(payload: dict[str, Any]) -> dic
 
 
 async def snapshot_outcome_transcript_metadata_activity(
-    payload: dict[str, str],
+    payload: dict[str, Any],
 ) -> dict[str, Any]:
     settings = get_settings()
     engine = create_engine(settings)
