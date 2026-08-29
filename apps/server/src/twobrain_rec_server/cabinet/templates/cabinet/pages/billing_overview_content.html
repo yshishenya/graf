@@ -58,6 +58,10 @@
           <a class="button" data-billing-primary href="/billing/checkout/status/{{ latest_invoice_summary.safe_number }}">Открыть статус платежа</a>
           {% elif billing_owner and operation_pending %}
           <p class="muted" role="status">Платёж проверяется. Новую оплату пока не предлагаем.</p>
+          {% elif not billing_owner and billing_role == "owner" and operation_pending %}
+          <p class="muted" role="status">Платёж проверяется. Новую оплату пока не предлагаем.</p>
+          {% elif not billing_owner and billing_role == "owner" and plan_code == "personal" %}
+          <p class="muted" role="status">Активным тарифом управляет текущий владелец биллинга; новую оплату не создаём.</p>
           {% elif not billing_owner and billing_role == "owner" and billing_enabled and catalog_ready|default(True) %}
           <a class="button" data-billing-primary href="/billing/plans">Подтвердить новую оплату</a>
           {% elif not billing_owner and billing_role == "owner" %}

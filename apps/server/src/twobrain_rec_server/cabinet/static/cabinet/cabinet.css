@@ -5610,11 +5610,11 @@ html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned
   padding: 7px 12px;
   border-radius: 7px;
   color: var(--muted);
+  font: inherit;
   font-weight: 700;
   text-align: center;
   text-decoration: none;
   border: 0;
-  font: inherit;
   cursor: pointer;
 }
 .billing-period-switch :is(a, button) span,

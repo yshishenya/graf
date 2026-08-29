@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from uuid import UUID
 
@@ -123,15 +123,18 @@ async def test_plans_default_to_current_personal_cycle_without_mislabeling_other
     subscription = SimpleNamespace(
         plan_code="personal",
         state="active",
-        paid_through=datetime(2026, 9, 30, tzinfo=UTC),
+        paid_through=datetime.now(UTC) + timedelta(days=1),
         trial_ends_at=None,
         cycle="month",
         billing_owner_id=principal.user_id,
     )
 
     class FakeSession:
+        def __init__(self) -> None:
+            self.results = iter((subscription, None))
+
         async def scalar(self, _statement: object) -> object:
-            return subscription
+            return next(self.results)
 
     async def owner_role(*_args: object, **_kwargs: object) -> str:
         return "owner"
@@ -670,15 +673,16 @@ def test_workspace_owner_can_start_guarded_billing_takeover() -> None:
         embedded=False,
         settings_navigation=settings_category_navigation(active="billing"),
         settings_active="billing",
-        plan=plan_descriptor("personal"),
-        plan_code="personal",
-        current_price_label="790 ₽",
-        current_cycle_label="в месяц",
+        plan=plan_descriptor("free"),
+        plan_code="free",
+        current_price_label="0 ₽",
+        current_cycle_label="без оплаты",
         billing_data_available=True,
         billing_enabled=True,
         catalog_ready=True,
         billing_owner=False,
         billing_role="owner",
+        free_processing_limit_label="300 минут",
         processing_used_label="30 мин 0 сек",
         processing_threshold="normal",
         storage_threshold="normal",
@@ -702,13 +706,15 @@ def test_workspace_owner_can_start_guarded_billing_takeover() -> None:
                 "monthly_amount_label": "790 ₽",
                 "annual_amount_label": "7 900 ₽",
                 "annual_saving_label": None,
-                "is_current": True,
+                "is_current": False,
                 "catalog_ready": True,
             },
         ),
         selected_cycle="month",
+        current_plan_code="free",
         billing_role="owner",
         billing_owner=False,
+        operation_pending=False,
         billing_enabled=True,
         catalog_ready=True,
         trial_state="unavailable",
@@ -717,7 +723,31 @@ def test_workspace_owner_can_start_guarded_billing_takeover() -> None:
     assert "платёжный аккаунт закреплён за другим пользователем" in overview
     assert 'data-billing-primary href="/billing/plans"' in overview
     assert 'href="/billing/checkout?cycle=month"' in plans
-    assert "Подтвердить новую оплату" in plans
+    assert "Выбрать «Личный»" in plans
+
+    active_overview = render_template(
+        "cabinet/pages/billing_overview_content.html",
+        embedded=False,
+        settings_navigation=settings_category_navigation(active="billing"),
+        settings_active="billing",
+        plan=plan_descriptor("personal"),
+        plan_code="personal",
+        current_price_label="790 ₽",
+        current_cycle_label="в месяц",
+        billing_data_available=True,
+        billing_enabled=True,
+        catalog_ready=True,
+        billing_owner=False,
+        billing_role="owner",
+        processing_used_label="30 мин 0 сек",
+        processing_threshold="normal",
+        storage_threshold="normal",
+        storage_threshold_label="В норме",
+        latest_invoice_summary=None,
+        latest_operation_state=None,
+    )
+    assert "Активным тарифом управляет текущий владелец биллинга" in active_overview
+    assert 'href="/billing/plans"' not in active_overview
 
 
 def test_checkout_keeps_coupon_collapsed_until_promo_interaction() -> None:
@@ -795,6 +825,52 @@ def test_plan_comparison_keeps_server_selected_cycle_and_real_checkout_links() -
     assert 'href="/billing/checkout?cycle=year"' in html
     assert 'href="/billing/checkout?cycle=month"' not in html
     assert "7 900 ₽" in html
+
+
+def test_plan_comparison_explains_pending_and_disabled_checkout_states() -> None:
+    common = {
+        "embedded": False,
+        "settings_navigation": settings_category_navigation(active="billing"),
+        "settings_active": "billing",
+        "csrf_token": "synthetic-csrf",
+        "plans": (
+            {
+                "code": "personal",
+                "label": "Личный",
+                "processing_mode": "unlimited",
+                "processing_label": "Без лимита",
+                "storage_label": "2 GB",
+                "monthly_amount_label": "790 ₽",
+                "annual_amount_label": "7 900 ₽",
+                "annual_saving_label": None,
+                "is_current": False,
+                "catalog_ready": True,
+            },
+        ),
+        "selected_cycle": "month",
+        "current_plan_code": "free",
+        "billing_role": "owner",
+        "billing_owner": True,
+        "catalog_ready": True,
+        "trial_state": "already",
+    }
+    pending = render_template(
+        "cabinet/pages/billing_plans_content.html",
+        **common,
+        billing_enabled=True,
+        operation_pending=True,
+    )
+    disabled = render_template(
+        "cabinet/pages/billing_plans_content.html",
+        **common,
+        billing_enabled=False,
+        operation_pending=False,
+    )
+
+    assert "Платёж проверяется" in pending
+    assert 'href="/billing/checkout' not in pending
+    assert "магазин не включён" in disabled
+    assert "Цена появится после утверждения" not in disabled
 
 
 def test_usage_surface_localizes_processing_reservation_and_threshold() -> None:

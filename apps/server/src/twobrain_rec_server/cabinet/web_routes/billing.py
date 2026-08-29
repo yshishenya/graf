@@ -1260,6 +1260,20 @@ async def billing_plans_page(
     billing_owner = _can_manage_billing(role=role, subscription=subscription, principal=principal)
     if role != "owner":
         return RedirectResponse("/billing?result=personal_only", status_code=303)
+    operation_pending = False
+    if db is not None:
+        operation_pending = (
+            await db.scalar(
+                select(BillingOperation.id)
+                .where(
+                    BillingOperation.workspace_id == tenant_scope.workspace_id,
+                    BillingOperation.kind == "initial_checkout",
+                    BillingOperation.state.in_(CHECKOUT_BLOCKING_STATES),
+                )
+                .limit(1)
+            )
+            is not None
+        )
     trial_state = (
         await _trial_eligibility_state(db, tenant_scope=tenant_scope, principal=principal)
         if current_code == "free" and billing_owner
@@ -1320,6 +1334,7 @@ async def billing_plans_page(
         current_plan_code=current_code,
         billing_role=role,
         billing_owner=billing_owner,
+        operation_pending=operation_pending,
         trial_state=trial_state,
         billing_enabled=bool(request.app.state.settings.billing_checkout_enabled),
         catalog_ready=catalog_ready,
