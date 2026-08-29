@@ -4579,6 +4579,13 @@ async def test_production_smoke_cleanup_discovers_partial_upload_and_normalizati
                     ),
                 ]
             )
+            db.add(
+                IngestAuditEvent(
+                    workspace_id=seed.workspace_id,
+                    event_type="workspace_only_smoke_audit",
+                    metadata_json={"scope": "workspace"},
+                )
+            )
             await db.commit()
     finally:
         await app_engine.dispose()

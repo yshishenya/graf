@@ -583,6 +583,10 @@ async def cleanup_smoke_artifacts(
                     "delete from fair_use_reviews where workspace_id=:workspace_id",
                 ),
                 (
+                    "ingest_audit_events",
+                    "delete from ingest_audit_events where workspace_id=:workspace_id",
+                ),
+                (
                     "billing_audit_events",
                     "delete from billing_audit_events where workspace_id=:workspace_id",
                 ),
