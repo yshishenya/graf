@@ -33,7 +33,7 @@
         {% elif checkout_result == "pending" %}<p class="notice" role="status" aria-live="polite">Платёж уже создан. Повторную оплату не начинаем; откройте историю платежей.</p>
         {% elif checkout_result == "promo_invalid" %}<p id="billing-checkout-error" role="alert" class="notice">Промокод недействителен, не подходит для выбранного периода или уже использован. Проверьте код и отправьте форму ещё раз.</p>{% endif %}
 
-        {% if checkout_available %}<dl class="billing-order-summary">
+        {% if checkout_available and not checkout_blocked %}<dl class="billing-order-summary">
           {% if checkout_preview|default(None) %}<div><dt>Цена по каталогу</dt><dd>{{ checkout_preview.list_amount_label }}</dd></div><div><dt>Скидка</dt><dd>{{ checkout_preview.discount_label }}</dd></div>{% endif %}
           <div class="billing-order-summary__total"><dt>К оплате сегодня</dt><dd><strong>{{ selected_price_label }}</strong></dd></div>
           <div><dt>Следующее списание</dt><dd>{% if checkout_preview|default(None) %}{{ checkout_preview.next_amount_label }} за {{ checkout_preview.cycle_label }}{% else %}{{ selected_price_label }} за {% if checkout_cycle == "year" %}год{% else %}месяц{% endif %}{% endif %}, пока автопродление не отключено</dd></div>

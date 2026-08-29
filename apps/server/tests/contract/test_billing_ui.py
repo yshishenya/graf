@@ -391,6 +391,25 @@ def test_checkout_offer_consent_error_is_explicit() -> None:
     assert "billing-personal-v1" in html
 
 
+def test_pending_checkout_hides_recomputed_order_total() -> None:
+    html = render_template(
+        "cabinet/pages/billing_checkout_content.html",
+        embedded=False,
+        settings_navigation=settings_category_navigation(active="billing"),
+        settings_active="billing",
+        plan=plan_descriptor("personal"),
+        billing_enabled=True,
+        catalog_ready=True,
+        checkout_result="pending",
+        checkout_cycle="month",
+        monthly_price_label="790 ₽",
+        annual_price_label="7 900 ₽",
+    )
+
+    assert "Платёж уже создан" in html
+    assert 'class="billing-order-summary"' not in html
+
+
 def test_checkout_result_redirect_keeps_promo_out_of_url_and_uses_short_lived_cookie() -> None:
     request = Request(
         {
@@ -1166,9 +1185,18 @@ def test_manual_checkout_recovery_offers_continue_instead_of_noop_refresh() -> N
         can_continue_payment=False,
         can_refresh_payment=True,
     )
+    processing_html = render_template(
+        "cabinet/pages/billing_operation_status_content.html",
+        **common,
+        operation_state="processing",
+        can_continue_payment=False,
+        can_refresh_payment=False,
+    )
 
     assert "Продолжить оплату" in recovery_html
     assert "/continue" in recovery_html
     assert "Проверить статус" not in recovery_html
     assert "Проверить статус" in pending_html
     assert "Продолжить оплату" not in pending_html
+    assert "Новую оплату не создаём" in processing_html
+    assert "Операция не найдена" not in processing_html
