@@ -544,6 +544,17 @@ async def cleanup_smoke_artifacts(
                     available_tables=available_tables,
                     processing_dependency_has_revision=processing_dependency_has_revision,
                 )
+            # Playback normalization tables use a dedicated RLS policy that
+            # permits tenant-scoped request/worker writes, not the generic
+            # maintenance cleanup context. The meeting-scoped jobs are gone
+            # above, so remove their workspace-scoped backfill parent here.
+            removed_rows += await _delete_statement(
+                conn,
+                available_tables,
+                "playback_backfill_runs",
+                "delete from playback_backfill_runs where workspace_id=:workspace_id",
+                {"workspace_id": smoke_identity["workspace_id"]},
+            )
 
             await apply_tenant_context_to_connection(conn, _maintenance_context())
             identity_deletes = (
@@ -594,10 +605,6 @@ async def cleanup_smoke_artifacts(
                 (
                     "fair_use_reviews",
                     "delete from fair_use_reviews where workspace_id=:workspace_id",
-                ),
-                (
-                    "playback_backfill_runs",
-                    "delete from playback_backfill_runs where workspace_id=:workspace_id",
                 ),
                 (
                     "ingest_audit_events",

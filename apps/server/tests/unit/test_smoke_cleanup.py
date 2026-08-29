@@ -195,6 +195,28 @@ def test_smoke_artifact_cleanup_locks_workspace_before_discovery() -> None:
     assert workspace_lock < discovery
 
 
+def test_smoke_artifact_cleanup_deletes_backfill_in_tenant_context() -> None:
+    script = (
+        Path(__file__).resolve().parents[2]
+        / "scripts"
+        / "cleanup_smoke_artifacts.py"
+    ).read_text(encoding="utf-8")
+
+    request_context = script.index(
+        "context_kind=\"request\"",
+        script.index("TenantDatabaseContext("),
+    )
+    backfill_delete = script.index(
+        "delete from playback_backfill_runs where workspace_id=:workspace_id"
+    )
+    maintenance_context = script.index(
+        "await apply_tenant_context_to_connection(conn, _maintenance_context())",
+        request_context,
+    )
+
+    assert request_context < backfill_delete < maintenance_context
+
+
 def test_smoke_artifact_cleanup_matches_revision_linked_dependencies() -> None:
     script = (
         Path(__file__).resolve().parents[2]
