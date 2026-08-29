@@ -13,6 +13,7 @@ from twobrain_rec_server.cabinet.view_models import settings_category_navigation
 from twobrain_rec_server.cabinet.web_routes import billing as billing_routes
 from twobrain_rec_server.cabinet.web_routes.billing import (
     _billing_amount_label,
+    _blocking_payment_operation_query,
     _checkout_result_redirect,
     _processing_threshold_label,
     _receipt_registration_state,
@@ -28,6 +29,18 @@ def test_billing_labels_are_localized_for_user_surfaces() -> None:
     assert _processing_threshold_label("normal") == "В норме"
     assert _processing_threshold_label("approaching") == "Приближается к лимиту"
     assert _processing_threshold_label("exhausted") == "Лимит исчерпан"
+
+
+def test_new_money_mutations_block_initial_checkout_and_renewal_operations() -> None:
+    statement = str(
+        _blocking_payment_operation_query(UUID(int=2)).compile(
+            compile_kwargs={"literal_binds": True}
+        )
+    )
+
+    assert "kind IN ('initial_checkout', 'renewal')" in statement
+    for state in ("scheduled", "sent", "processing", "unknown"):
+        assert f"'{state}'" in statement
 
 
 def test_billing_receipt_registration_uses_provider_status_mapping() -> None:
@@ -181,6 +194,65 @@ async def test_plans_default_to_current_personal_cycle_without_mislabeling_other
     assert captured["selected_cycle"] == selected_cycle
     personal = next(item for item in captured["plans"] if item["code"] == "personal")
     assert personal["is_current"] is is_current
+
+
+@pytest.mark.asyncio
+async def test_checkout_page_blocks_a_persisted_renewal_operation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal = SimpleNamespace(user_id=UUID(int=1), session_id=None, auth_via_session=False)
+    blocker = SimpleNamespace(kind="renewal", state="processing")
+
+    class FakeSession:
+        def __init__(self) -> None:
+            self.results = iter((blocker, None))
+
+        async def scalar(self, _statement: object) -> object:
+            return next(self.results)
+
+    async def owner_role(*_args: object, **_kwargs: object) -> str:
+        return "owner"
+
+    async def empty_catalog(*_args: object, **_kwargs: object) -> dict[str, object]:
+        return {}
+
+    captured: dict[str, object] = {}
+
+    def capture_page(_title: str, **context: object) -> str:
+        captured.update(context)
+        return "checkout"
+
+    monkeypatch.setattr(billing_routes, "_billing_role", owner_role)
+    monkeypatch.setattr(billing_routes, "_approved_personal_catalog", empty_catalog)
+    monkeypatch.setattr(billing_routes, "_page_shell", capture_page)
+    monkeypatch.setattr(billing_routes, "_csrf_token_for_principal", lambda *_a, **_k: "csrf")
+    monkeypatch.setattr(billing_routes, "build_request_browser_provider_context", lambda *_a, **_k: {})
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "scheme": "https",
+            "server": ("graf.test", 443),
+            "path": "/billing/checkout",
+            "headers": [],
+            "query_string": b"cycle=month",
+            "app": SimpleNamespace(
+                state=SimpleNamespace(
+                    settings=SimpleNamespace(billing_checkout_enabled=True)
+                )
+            ),
+        }
+    )
+
+    response = await billing_routes.billing_checkout_page(
+        request,
+        tenant_scope=SimpleNamespace(workspace_id=UUID(int=2), device_id=UUID(int=3)),
+        principal=principal,
+        db=FakeSession(),
+    )
+
+    assert response.status_code == 200
+    assert captured["checkout_result"] == "pending"
 
 
 def test_billing_keeps_legacy_account_alias_on_canonical_surface() -> None:
@@ -626,6 +698,42 @@ def test_pending_billing_without_invoice_suppresses_new_checkout() -> None:
     assert "Новую оплату пока не предлагаем" in html
     assert 'href="/billing/plans"' not in html
     assert "data-billing-primary" not in html
+
+
+def test_scheduled_renewal_keeps_subscription_cancellation_reachable() -> None:
+    html = render_template(
+        "cabinet/pages/billing_overview_content.html",
+        embedded=False,
+        settings_navigation=settings_category_navigation(active="billing"),
+        settings_active="billing",
+        plan=plan_descriptor("personal"),
+        plan_code="personal",
+        current_price_label="790 ₽",
+        current_cycle_label="в месяц",
+        billing_data_available=True,
+        billing_enabled=True,
+        catalog_ready=True,
+        billing_owner=True,
+        billing_role="owner",
+        processing_used_label="30 мин 0 сек",
+        processing_usage_freshness="fresh",
+        processing_threshold="normal",
+        storage_used_label="1 GB",
+        storage_capacity_label="2 GB",
+        storage_threshold="normal",
+        storage_threshold_label="В норме",
+        latest_invoice_summary={
+            "safe_number": "INV-RNW-SCHEDULED",
+            "amount_label": "790 ₽",
+            "status_label": "Запланирован",
+            "created_at_label": "30.08.2026, 00:00 (МСК)",
+        },
+        latest_operation_kind="renewal",
+        latest_operation_state="scheduled",
+    )
+
+    assert 'href="/billing/subscription"' in html
+    assert 'href="/billing/checkout/status/INV-RNW-SCHEDULED"' not in html
 
 
 def test_non_owner_billing_overview_hides_invoice_and_exact_storage() -> None:

@@ -291,6 +291,19 @@ def _checkout_status_location(safe_number: str, *, result: str | None = None) ->
     return f"{location}?{urlencode({'result': result})}" if result else location
 
 
+def _blocking_payment_operation_query(workspace_id: UUID):
+    """Find unresolved charges before any new checkout or trial mutation."""
+    return (
+        select(BillingOperation)
+        .where(
+            BillingOperation.workspace_id == workspace_id,
+            BillingOperation.kind.in_(("initial_checkout", "renewal")),
+            BillingOperation.state.in_(CHECKOUT_BLOCKING_STATES),
+        )
+        .order_by(BillingOperation.created_at.desc())
+    )
+
+
 def _initial_checkout_can_continue(
     operation: BillingOperation,
     *,
@@ -1231,6 +1244,7 @@ async def billing_overview_page(
             _invoice_status_label(latest_invoice.status) if latest_invoice is not None else None
         ),
         latest_operation_label=_operation_state_label(latest_operation.state if latest_operation is not None else None),
+        latest_operation_kind=latest_operation.kind if latest_operation is not None else None,
         latest_operation_state=latest_operation.state if latest_operation is not None else None,
     )
     return cabinet_html_response(content)
@@ -1263,15 +1277,7 @@ async def billing_plans_page(
     operation_pending = False
     if db is not None:
         operation_pending = (
-            await db.scalar(
-                select(BillingOperation.id)
-                .where(
-                    BillingOperation.workspace_id == tenant_scope.workspace_id,
-                    BillingOperation.kind == "initial_checkout",
-                    BillingOperation.state.in_(CHECKOUT_BLOCKING_STATES),
-                )
-                .limit(1)
-            )
+            await db.scalar(_blocking_payment_operation_query(tenant_scope.workspace_id).limit(1))
             is not None
         )
     trial_state = (
@@ -1780,13 +1786,7 @@ async def activate_billing_trial(
         return RedirectResponse("/billing?trial=confirmation_required", status_code=303)
     await lock_storage_workspace(db, tenant_scope.workspace_id)
     blocking_checkout = await db.scalar(
-        select(BillingOperation.id)
-        .where(
-            BillingOperation.workspace_id == tenant_scope.workspace_id,
-            BillingOperation.kind == "initial_checkout",
-            BillingOperation.state.in_(CHECKOUT_BLOCKING_STATES),
-        )
-        .limit(1)
+        _blocking_payment_operation_query(tenant_scope.workspace_id).limit(1)
     )
     if blocking_checkout is not None:
         return RedirectResponse("/billing?trial=pending", status_code=303)
@@ -2378,6 +2378,11 @@ async def billing_checkout_page(
     if await _billing_role(db, tenant_scope=tenant_scope, principal=principal) != "owner":
         return RedirectResponse("/billing?result=owner_only", status_code=303)
     settings = request.app.state.settings
+    checkout_result = request.query_params.get("result")
+    if db is not None and await db.scalar(
+        _blocking_payment_operation_query(tenant_scope.workspace_id).limit(1)
+    ) is not None:
+        checkout_result = "pending"
     checkout_promo_code = request.cookies.get(_CHECKOUT_PROMO_COOKIE, "")
     checkout_cycle = request.query_params.get("cycle", "month")
     if checkout_cycle not in {"month", "year"}:
@@ -2467,7 +2472,7 @@ async def billing_checkout_page(
         catalog_storage_label=_capacity_label(catalog_storage),
         offer_version_label=offer_version,
         checkout_idempotency_key=f"web-{principal.user_id}-{uuid4().hex}",
-        checkout_result=request.query_params.get("result"),
+        checkout_result=checkout_result,
         checkout_promo_code=checkout_promo_code,
         checkout_cycle=checkout_cycle,
         checkout_preview=checkout_preview_data,
@@ -2762,23 +2767,16 @@ async def start_billing_checkout(
             provider_floor_minor=settings.billing_provider_floor_minor,
             catalog_snapshot=catalog_snapshot,
         )
-        unresolved_checkout = await db.scalar(
-            select(BillingOperation)
-            .where(
-                BillingOperation.workspace_id == tenant_scope.workspace_id,
-                BillingOperation.kind == "initial_checkout",
-                BillingOperation.state.in_(CHECKOUT_BLOCKING_STATES),
-            )
-            .order_by(BillingOperation.created_at.desc())
-            .with_for_update()
+        unresolved_payment = await db.scalar(
+            _blocking_payment_operation_query(tenant_scope.workspace_id).with_for_update()
         )
-        if unresolved_checkout is not None:
-            confirmation_url = unresolved_checkout.request_snapshot.get("confirmation_url")
+        if unresolved_payment is not None:
+            confirmation_url = unresolved_payment.request_snapshot.get("confirmation_url")
             if is_allowed_confirmation_url(confirmation_url):
                 return RedirectResponse(confirmation_url, status_code=303)
             unresolved_invoice = await db.scalar(
                 select(BillingInvoice).where(
-                    BillingInvoice.operation_id == unresolved_checkout.id
+                    BillingInvoice.operation_id == unresolved_payment.id
                 )
             )
             if unresolved_invoice is not None:
