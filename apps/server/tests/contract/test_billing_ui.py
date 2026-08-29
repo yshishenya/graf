@@ -408,6 +408,7 @@ def test_pending_checkout_hides_recomputed_order_total() -> None:
 
     assert "Платёж уже создан" in html
     assert 'class="billing-order-summary"' not in html
+    assert "790 ₽" not in html
 
 
 def test_checkout_result_redirect_keeps_promo_out_of_url_and_uses_short_lived_cookie() -> None:

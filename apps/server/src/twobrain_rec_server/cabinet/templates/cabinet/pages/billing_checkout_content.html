@@ -13,7 +13,7 @@
       <section class="billing-checkout-card" aria-labelledby="billing-checkout-title">
         <div class="billing-checkout-card__heading">
           <div><span class="settings-scope-badge">Тариф</span><h2 id="billing-checkout-title">{{ plan.label }}</h2></div>
-          {% if checkout_available %}<p class="billing-price"><strong>{{ selected_price_label }}</strong><span>{% if checkout_cycle == "year" %}в год{% else %}в месяц{% endif %}</span></p>{% endif %}
+          {% if checkout_available and not checkout_blocked %}<p class="billing-price"><strong>{{ selected_price_label }}</strong><span>{% if checkout_cycle == "year" %}в год{% else %}в месяц{% endif %}</span></p>{% endif %}
         </div>
         <p class="muted">Без лимита по минутам и встречам · {{ catalog_storage_label|default("утверждённая ёмкость") }} хранения.</p>
 
