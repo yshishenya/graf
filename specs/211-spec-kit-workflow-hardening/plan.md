@@ -16,7 +16,7 @@
 
 **Storage**: Tracked Markdown/YAML/JSON files и project-local `.agents/skills`; продуктовые хранилища не затрагиваются
 
-**Testing**: Встроенный self-test focused guard, issue-canon command → frozen doctor regression, feature quickstart, `infra/scripts/ci-local.sh --fast` и один publication-time `--full` baseline
+**Testing**: Встроенный self-test focused guard, issue-canon command → frozen doctor regression, feature quickstart и `infra/scripts/ci-local.sh --fast`
 
 **Risk / Validation Lane**: `significant-feature` — изменение governance, generated skills, CI gate и воспроизводимости инструментария; продуктовый runtime не меняется
 
@@ -51,7 +51,7 @@ Post-design re-check: PASS — дизайн не вводит продуктов
 3. Запустить focused guard в штатном режиме и его self-test с четырьмя отрицательными классами.
 4. Повторить bootstrap dry-run/apply и доказать отсутствие необъяснимого tracked drift.
 5. Выполнить сценарии из `quickstart.md`, затем `infra/scripts/ci-local.sh --fast` как PR feedback gate.
-6. По явному запросу владельца выполнить один publication-time `infra/scripts/ci-local.sh --full` на точном чистом commit SHA. Product release preparation, CD dry-run и deploy не выполнять.
+6. Full CI не требуется: product runtime не менялся. Product release preparation, CD dry-run и deploy не выполнять.
 
 ## Project Structure
 

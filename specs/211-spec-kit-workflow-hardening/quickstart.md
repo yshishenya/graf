@@ -52,10 +52,9 @@ Expected: second apply creates no unexplained tracked diff and governance check 
 
 ```sh
 infra/scripts/ci-local.sh --fast
-infra/scripts/ci-local.sh --full
 ```
 
-Expected: fast lane includes the focused governance check; one owner-requested full baseline passes on the exact final commit. Product release preparation and deployment are not executed.
+Expected: fast lane includes the focused governance check and is the final repository gate for this governance/tooling-only change. Full CI, product release preparation and deployment are not executed.
 
 ## Validation Evidence — 2026-08-30
 
@@ -91,4 +90,4 @@ Expected: fast lane includes the focused governance check; one owner-requested f
 - Ponytail review found one self-test fixture simplification, which was applied
   and revalidated. Final `$speckit-converge` found no remaining missing,
   partial, contradictory or unrequested work and appended no tasks.
-- Publication-time full CI is owner-requested; product release preparation and deployment remain intentionally out of scope.
+- Full CI was explicitly stopped because product runtime was not changed; the interrupted run is not PASS and is not used as evidence. Product release preparation and deployment remain intentionally out of scope.
