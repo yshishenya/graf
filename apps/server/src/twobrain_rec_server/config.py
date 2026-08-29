@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
@@ -163,6 +164,7 @@ class Settings(BaseSettings):
     langfuse_release: str | None = None
 
     outcome_generation_enabled: bool = False
+    outcome_prompt_label: str = "production"
     litellm_base_url: AnyUrl | None = None
     litellm_api_key_file: Path | None = None
     litellm_request_timeout_seconds: PositiveInt = Field(default=120)
@@ -563,6 +565,13 @@ class Settings(BaseSettings):
             )
         if not (self.outcome_generation_enabled or self.prompt_optimization_enabled):
             return self
+        prompt_label = self.outcome_prompt_label.strip()
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", prompt_label):
+            raise ValueError("outcome prompt label is invalid")
+        if prompt_label == "latest":
+            raise ValueError("outcome prompt label must pin an explicit deployment label")
+        if self.env == "production" and prompt_label != "production":
+            raise ValueError("production outcome generation requires the production prompt label")
         capability = (
             "outcome generation" if self.outcome_generation_enabled else "prompt optimization"
         )

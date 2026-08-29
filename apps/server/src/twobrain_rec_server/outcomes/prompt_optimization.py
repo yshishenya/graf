@@ -1003,13 +1003,16 @@ class PromptOptimizationAdapter:
             variables=variables,
             snapshot=snapshot,
         )
-        max_tokens = int(snapshot.config["max_completion_tokens"])
+        # The provider request is intentionally uncapped. The optimizer still
+        # reserves an equal share of its run-level token budget for accounting
+        # and retry safety; this is not sent to LiteLLM as max_completion_tokens.
+        token_ceiling = max(1, self.budget.max_tokens // max(self.budget.max_calls, 1))
         reservation = self.ledger.reserve(
             call_key=call_key,
             phase=phase,
             activity_attempt=self.activity_attempt,
             now=now,
-            token_ceiling=max_tokens,
+            token_ceiling=token_ceiling,
             # Reserve a conservative equal share per possible call. Reserving the
             # entire run ceiling for each call would make every second call fail.
             cost_ceiling=self.budget.max_cost / self.budget.max_calls,
@@ -3507,8 +3510,9 @@ def _publish_optimization_observation(
             },
             model=str(value.get("actual_model") or snapshot.model),
             model_parameters={
-                "temperature": snapshot.config["temperature"],
-                "max_completion_tokens": snapshot.config["max_completion_tokens"],
+                key: snapshot.config[key]
+                for key in ("temperature", "max_completion_tokens")
+                if key in snapshot.config
             },
             prompt=linked_prompt,
             usage_details=usage_details or None,

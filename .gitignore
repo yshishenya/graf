@@ -98,3 +98,4 @@ out/
 # real account names, meeting titles, transcripts, local paths, or screenshots.
 specs/**/reference/private-appshots/
 docs/evidence/**/private-appshots/
+.playwright-cli/

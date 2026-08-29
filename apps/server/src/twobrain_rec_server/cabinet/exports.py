@@ -13,7 +13,7 @@ from openpyxl import Workbook
 from openpyxl.cell import WriteOnlyCell
 from openpyxl.styles import Alignment, Font
 from openpyxl.utils import get_column_letter
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.problems import ProblemDetail
@@ -27,6 +27,7 @@ from twobrain_rec_server.db.models import (
     MeetingOutcomeItem,
     MeetingOutcomeSet,
     MeetingSpeakerName,
+    MeetingSummarySlot,
     ProcessingResult,
     TranscriptSegment,
 )
@@ -40,7 +41,11 @@ from twobrain_rec_server.domain.statuses import (
     ProcessingAvailabilityStatus,
     ProcessingResultStatus,
 )
-from twobrain_rec_server.processing import store as processing_store
+from twobrain_rec_server.outcomes.service import (
+    load_egress_default_outcome,
+    load_pinned_egress_outcome,
+)
+from twobrain_rec_server.processing.results import effective_processing_result_query
 
 ExportScope = Literal["transcript", "summary", "combined"]
 ExportFormat = Literal["txt", "md", "csv", "xlsx", "json", "srt", "vtt"]
@@ -229,6 +234,7 @@ async def build_export_snapshot(
     meeting: Meeting,
     result: ProcessingResult,
     selection: ExportSelection,
+    pinned_summary_revision: tuple[str, UUID] | None = None,
 ) -> ExportSnapshot:
     validate_export_selection(selection)
     selection = _effective_export_selection(selection)
@@ -243,11 +249,12 @@ async def build_export_snapshot(
         )
         .order_by(MediaRevision.revision_number.desc(), MediaRevision.updated_at.desc())
     )
-    effective_result = await processing_store.latest_processing_result(
-        db,
-        workspace_id=meeting.workspace_id,
-        meeting_id=meeting.id,
-        media_revision_id=current_revision.id if current_revision is not None else None,
+    effective_result = await db.scalar(
+        effective_processing_result_query(
+            workspace_id=meeting.workspace_id,
+            meeting_id=meeting.id,
+            media_revision_id=current_revision.id if current_revision is not None else None,
+        )
     )
     if (
         result.id != selection.processing_result_id
@@ -349,6 +356,7 @@ async def build_export_snapshot(
         result=result,
         outcome_set_id=selection.outcome_set_id,
         turns=turns,
+        pinned_summary_revision=pinned_summary_revision,
     )
     return ExportSnapshot(
         selection=selection,
@@ -453,20 +461,59 @@ async def _load_summary_revision(
     result: ProcessingResult,
     outcome_set_id: UUID | None,
     turns: tuple[CanonicalExportTurn, ...],
+    pinned_summary_revision: tuple[str, UUID] | None = None,
 ) -> SummaryExportRevision | None:
     if outcome_set_id is None:
         return None
-    outcome_set = await db.scalar(
-        select(MeetingOutcomeSet).where(
-            MeetingOutcomeSet.id == outcome_set_id,
-            MeetingOutcomeSet.workspace_id == meeting.workspace_id,
-            MeetingOutcomeSet.meeting_id == meeting.id,
-            MeetingOutcomeSet.processing_result_id == result.id,
-            MeetingOutcomeSet.lifecycle_state == "active",
-            MeetingOutcomeSet.revision_state == "accepted",
-            MeetingOutcomeSet.id == meeting.current_outcome_set_id,
+    if pinned_summary_revision is not None:
+        template_key, pinned_outcome_id = pinned_summary_revision
+        if pinned_outcome_id != outcome_set_id:
+            raise _stale_selection()
+        outcome_set = await load_pinned_egress_outcome(
+            db,
+            meeting=meeting,
+            template_key=template_key,
+            outcome_set_id=pinned_outcome_id,
         )
-    )
+        if outcome_set is None:
+            raise _stale_selection()
+        default_slot = None
+        current_pointer_id = outcome_set.id
+    else:
+        default_slot = await db.scalar(
+            select(MeetingSummarySlot).where(
+                MeetingSummarySlot.workspace_id == meeting.workspace_id,
+                MeetingSummarySlot.meeting_id == meeting.id,
+                MeetingSummarySlot.is_meeting_default.is_(True),
+            )
+        )
+        if default_slot is not None:
+            current_pointer_id = default_slot.current_outcome_set_id
+        else:
+            current_pointer_id = None
+        if current_pointer_id != outcome_set_id:
+            raise _stale_selection()
+        if default_slot is not None:
+            pinned_outcome = await load_egress_default_outcome(
+                db,
+                meeting=meeting,
+                slot=default_slot,
+            )
+            if pinned_outcome is None or pinned_outcome.id != outcome_set_id:
+                raise _stale_selection()
+        outcome_set = await db.scalar(
+            select(MeetingOutcomeSet).where(
+                MeetingOutcomeSet.id == outcome_set_id,
+                MeetingOutcomeSet.workspace_id == meeting.workspace_id,
+                MeetingOutcomeSet.meeting_id == meeting.id,
+                MeetingOutcomeSet.processing_result_id == result.id,
+                MeetingOutcomeSet.lifecycle_state == "active",
+                or_(
+                    MeetingOutcomeSet.revision_state.is_(None),
+                    MeetingOutcomeSet.revision_state == "accepted",
+                ),
+            )
+        )
     if outcome_set is None:
         raise _stale_selection()
     rows = list(

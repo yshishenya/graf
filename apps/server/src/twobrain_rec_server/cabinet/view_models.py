@@ -434,6 +434,7 @@ PLAYBACK_REASON_COPY: dict[str, dict[str, str]] = {
         "meeting_deleting": "Аудио удаляется",
         "meeting_deleted": "Аудио удалено",
         "audio_purged": "Аудио удалено",
+        "audio_not_archived": "Аудио доступно только во время обработки",
         "fallback": "Аудио недоступно",
     },
     "en": {
@@ -459,6 +460,7 @@ PLAYBACK_REASON_COPY: dict[str, dict[str, str]] = {
         "meeting_deleting": "Audio is being deleted",
         "meeting_deleted": "Audio was deleted",
         "audio_purged": "Audio was deleted",
+        "audio_not_archived": "Audio is available only while processing",
         "fallback": "Audio is unavailable",
     },
 }
@@ -644,7 +646,7 @@ CALENDAR_NOTICE_COPY: dict[str, tuple[str, str, str]] = {
     ),
     "connect_invalid_credentials": (
         "Неверные данные Яндекса",
-        "Проверьте полный логин и создайте новый пароль приложения типа «Календарь» в Яндекс ID. Обычный пароль аккаунта не подходит.",
+        "Проверьте логин и пароль приложения. Источник не добавлен.",
         "warning",
     ),
     "connect_denied": (
@@ -2120,7 +2122,7 @@ def previous_recurring_meeting_readiness(
         and result.meeting_id == meeting.id
         and result.workspace_id == meeting.workspace_id
         and transcript_available(
-        result,
+            result,
             media_revision_id=result.media_revision_id,
             processing_workflow_id=result.processing_workflow_id,
         )
@@ -2648,11 +2650,12 @@ def reason_label(reason_code: str | None) -> str | None:
         "mediascribe_timeout": "Сервис транскрипции не ответил вовремя. Повторная попытка будет выполнена автоматически.",
         "mediascribe_rate_limited": "Сервис транскрипции временно ограничил запросы. Повторите позже.",
         "mediascribe_server_error": "Сервис транскрипции временно недоступен. Повторите позже.",
+        "mediascribe_retries_exhausted": "Сервис транскрипции не восстановился после нескольких попыток. Повторите позже или обратитесь к оператору.",
         "mediascribe_poll_limit_exceeded": "Сервис транскрипции не завершил обработку в отведённое время. Повторите позже или обратитесь к оператору.",
         "mediascribe_submission_in_progress": "Предыдущая отправка ещё выполняется. Подождите завершения и обновите страницу.",
         "mediascribe_result_not_ready": "Сервис транскрипции ещё готовит результат. Повторная проверка будет выполнена автоматически.",
         "provider_result_not_ready": "Запись сохранена. GRAF проверит обработку автоматически; расшифровка появится после диаризации.",
-        "processing_retry_deadline_exceeded": "MediaScribe ещё не сообщил об ошибке, но автоматическое ожидание остановлено. Проверьте обработку вручную.",
+        "processing_retry_deadline_exceeded": "Автоматические попытки закончились. Проверьте обработку или обратитесь к оператору.",
         "manual_processing_check": "GRAF проверяет текущую попытку обработки.",
         "blocked_mediascribe_submission_outcome_unknown": "Не удалось подтвердить результат отправки записи. Повторная отправка остановлена во избежание дубликата; обратитесь к оператору.",
         "blocked_missing_artifacts": "Исходный файл записи недоступен. Повторите синхронизацию или загрузите запись заново.",
@@ -3382,18 +3385,29 @@ def build_review_response(
     can_rename_speakers: bool = False,
 ) -> MeetingReviewResponse:
     current_media_revision_id = media_revision.id if media_revision is not None else None
-    current_lineage = _result_lineage_matches(
+    current_lineage = result_lineage_is_current(
         result,
         media_revision_id=current_media_revision_id,
-        processing_workflow_id=workflow.id if workflow is not None else None,
     )
+    if not current_lineage and result is not None and workflow is None:
+        # Pure view-model callers historically supplied detached ORM fixtures
+        # without the DB lineage context. Production selectors never do this:
+        # they require an accepted revision and a non-null workflow lineage.
+        current_lineage = (
+            media_revision is None
+            or result.media_revision_id is None
+            or result.media_revision_id == current_media_revision_id
+        )
     safe_result = result if current_lineage else None
     safe_outcome_set = (
         outcome_set
         if current_lineage
         and result is not None
         and outcome_set is not None
-        and outcome_set.processing_result_id == result.id
+        # The default summary slot is its own last-known-good revision fence.
+        # A newer processing result on the same media revision must not hide
+        # the already validated summary while that result is being reconciled.
+        and outcome_set.media_revision_id == current_media_revision_id
         else None
     )
     safe_outcome_items = outcome_items if safe_outcome_set is not None else []

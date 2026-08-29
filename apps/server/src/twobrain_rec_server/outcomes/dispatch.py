@@ -25,6 +25,26 @@ DISPATCH_LEASE = timedelta(seconds=60)
 DISPATCH_START_TIMEOUT_SECONDS = 45.0
 
 
+def _workflow_slot_identity(
+    attempt: MeetingOutcomeGenerationAttempt | None,
+) -> tuple[UUID, UUID | None] | None:
+    if attempt is None:
+        return None
+    metadata = attempt.metadata_json or {}
+    raw_slot_id = metadata.get("summary_slot_id")
+    if not isinstance(raw_slot_id, str) or not raw_slot_id:
+        return None
+    if "expected_current_outcome_set_id" not in metadata:
+        return None
+    raw_expected = metadata.get("expected_current_outcome_set_id")
+    try:
+        slot_id = UUID(raw_slot_id)
+        expected_id = UUID(raw_expected) if isinstance(raw_expected, str) and raw_expected else None
+    except (AttributeError, TypeError, ValueError):
+        return None
+    return slot_id, expected_id
+
+
 async def ensure_dispatch_intent(
     db: AsyncSession,
     *,
@@ -364,6 +384,7 @@ async def reconcile_dispatch_intent(
     if current_intent is None:
         return False
     intent = current_intent
+    workflow_slot_identity = _workflow_slot_identity(attempt)
     if (
         intent.state in {"started", "dispatching"}
         and intent.lease_expires_at is not None
@@ -376,6 +397,7 @@ async def reconcile_dispatch_intent(
         or attempt.candidate_id is None
         or attempt.source_result_id is None
         or attempt.template_key is None
+        or workflow_slot_identity is None
     ):
         await mark_dispatch_failure(
             db,
@@ -442,6 +464,7 @@ async def reconcile_dispatch_intent(
     intent.lease_expires_at = datetime.now(UTC) + DISPATCH_LEASE
     await db.commit()
     try:
+        summary_slot_id, expected_current_outcome_set_id = workflow_slot_identity
         started = await asyncio.wait_for(
             start_outcome_generation_workflow(
                 temporal_client=temporal_client,
@@ -454,6 +477,8 @@ async def reconcile_dispatch_intent(
                 template_version=attempt.template_version or 1,
                 prompt_name=attempt.prompt_name or "graf-summary",
                 requested_by_user_id=attempt.requested_by_user_id,
+                summary_slot_id=summary_slot_id,
+                expected_current_outcome_set_id=expected_current_outcome_set_id,
             ),
             timeout=DISPATCH_START_TIMEOUT_SECONDS,
         )

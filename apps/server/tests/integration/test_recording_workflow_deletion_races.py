@@ -223,7 +223,13 @@ async def _seed_race_rows(client, meeting_id: UUID) -> _SeededRows:
             generator_version="outcomes-ai-v1",
             prompt_name="graf/meeting-outcome/auto",
             prompt_version=1,
-            prompt_source="langfuse_production",
+            # This fixture stores the exact prompt body on the attempt and is
+            # intentionally independent of a live Langfuse bundle. A
+            # langfuse_production snapshot must carry the root-bundle binding;
+            # use the verified local snapshot source for this observability
+            # delivery test instead of creating an invalid production-shaped
+            # row.
+            prompt_source="verified_promoted_snapshot",
             prompt_definition=prompt_definition,
             prompt_config=prompt_config,
             prompt_hash=prompt_snapshot_hash(

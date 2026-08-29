@@ -69,6 +69,13 @@ _OPENAI_USAGE_FIELDS = {
     "prompt_tokens_details",
     "completion_tokens_details",
 }
+_OPENAI_PROMPT_TOKEN_DETAIL_FIELDS = {"cached_tokens", "audio_tokens"}
+_OPENAI_COMPLETION_TOKEN_DETAIL_FIELDS = {
+    "accepted_prediction_tokens",
+    "audio_tokens",
+    "reasoning_tokens",
+    "rejected_prediction_tokens",
+}
 
 
 class CompletedGenerationCall(Protocol):
@@ -250,12 +257,14 @@ def workflow_dispatch_observation(
         yield observation
 
 
-def fetch_production_prompt(client: Any, *, name: str, prompt_type: str) -> Any:
+def fetch_prompt_by_label(
+    client: Any, *, name: str, prompt_type: str, label: str = "production"
+) -> Any:
     if prompt_type not in {"chat", "text"}:
         raise ValueError("unsupported Langfuse prompt type")
     return client.get_prompt(
         name,
-        label="production",
+        label=label,
         type=prompt_type,
         cache_ttl_seconds=60,
         max_retries=0,
@@ -390,10 +399,16 @@ def _usage_details(value: Mapping[str, object] | None) -> dict[str, Any]:
         normalized: dict[str, Any] = _integer_mapping(
             {key: value[key] for key in _OPENAI_USAGE_FIELDS & set(value)}
         )
-        for key in ("prompt_tokens_details", "completion_tokens_details"):
+        detail_fields = {
+            "prompt_tokens_details": _OPENAI_PROMPT_TOKEN_DETAIL_FIELDS,
+            "completion_tokens_details": _OPENAI_COMPLETION_TOKEN_DETAIL_FIELDS,
+        }
+        for key, allowed_fields in detail_fields.items():
             details = value.get(key)
             if isinstance(details, Mapping):
-                normalized[key] = _integer_mapping(details)
+                normalized[key] = _integer_mapping(
+                    {field: details[field] for field in allowed_fields & set(details)}
+                )
         return normalized
     return _integer_mapping(value)
 
@@ -411,5 +426,5 @@ def _float_mapping(value: Mapping[str, object] | None) -> dict[str, float]:
 def _model_parameters(request: object) -> dict[str, str | int | float | bool | list[str] | None]:
     if not isinstance(request, Mapping):
         return {}
-    allowed = {"temperature", "max_completion_tokens"}
+    allowed = {"temperature"}
     return {key: value for key, value in request.items() if key in allowed}  # type: ignore[return-value]

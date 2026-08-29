@@ -2435,7 +2435,7 @@ paths:
       - processing
       summary: Get Processing Status
       operationId: get_processing_status_api_v1_meetings__meeting_id__processing_get
-      parameters: &processing_parameters
+      parameters:
       - name: meeting_id
         in: path
         required: true
@@ -2496,13 +2496,129 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/meetings/{meeting_id}/processing/attempt:
+    post:
+      tags:
+      - processing
+      summary: Start New Processing Attempt
+      description: Create and dispatch one fresh attempt after a confirmed terminal
+        failure.
+      operationId: start_new_processing_attempt_api_v1_meetings__meeting_id__processing_attempt_post
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProcessingAttemptResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/meetings/{meeting_id}/processing/check:
     post:
       tags:
       - processing
       summary: Check Processing
       operationId: check_processing_api_v1_meetings__meeting_id__processing_check_post
-      parameters: *processing_parameters
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
       requestBody:
         content:
           application/json:
@@ -2518,27 +2634,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ProcessingCheckResponse'
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-  /api/v1/meetings/{meeting_id}/processing/attempt:
-    post:
-      tags:
-      - processing
-      summary: Start New Processing Attempt
-      description: Create and dispatch one fresh attempt after a confirmed terminal failure.
-      operationId: start_new_processing_attempt_api_v1_meetings__meeting_id__processing_attempt_post
-      parameters: *processing_parameters
-      responses:
-        '202':
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ProcessingAttemptResponse'
         '422':
           description: Validation Error
           content:
@@ -6657,6 +6752,314 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/meetings/{meeting_id}/summary-types:
+    get:
+      tags:
+      - cabinet
+      summary: List Meeting Summary Types Route
+      operationId: listMeetingSummaryTypes
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SummaryTypeCatalogResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/meetings/{meeting_id}/summaries/{template_key}:
+    get:
+      tags:
+      - cabinet
+      summary: Get Meeting Summary Type Route
+      operationId: getMeetingSummaryType
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: template_key
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Template Key
+      - name: If-None-Match
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: If-None-Match
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SummaryTypeReadResponse'
+        '304':
+          description: Summary state is current
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/meetings/{meeting_id}/summaries/{template_key}/ensure:
+    post:
+      tags:
+      - cabinet
+      summary: Ensure Meeting Summary Type Route
+      operationId: ensureMeetingSummaryType
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: template_key
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Template Key
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EnsureSummaryTypeRequest'
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SummaryTypeReadResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/meetings/{meeting_id}/summaries/{template_key}/refresh:
+    post:
+      tags:
+      - cabinet
+      summary: Refresh Meeting Summary Type Route
+      operationId: refreshMeetingSummaryType
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: template_key
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Template Key
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshSummaryTypeRequest'
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SummaryTypeReadResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/cabinet/summary-templates:
     get:
       tags:
@@ -7256,80 +7659,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-  /api/v1/cabinet/meetings/{meeting_id}/summary-candidates/{candidate_id}/preview:
-    get:
-      tags:
-      - cabinet
-      summary: Preview Summary Candidate Route
-      operationId: previewSummaryCandidate
-      parameters:
-      - name: meeting_id
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-          title: Meeting Id
-      - name: candidate_id
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-          title: Candidate Id
-      - name: X-User-Id
-        in: header
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: X-User-Id
-      - name: X-Organization-Id
-        in: header
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: X-Organization-Id
-      - name: X-Workspace-Id
-        in: header
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: X-Workspace-Id
-      - name: X-Device-Id
-        in: header
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: X-Device-Id
-      - name: X-Client-Version
-        in: header
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: X-Client-Version
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SummaryCandidatePreviewResponse'
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/cabinet/meetings/{meeting_id}/summary-candidates/{candidate_id}:
     get:
       tags:
@@ -7404,12 +7733,13 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-  /api/v1/cabinet/meetings/{meeting_id}/summary-candidates/{candidate_id}/accept:
-    post:
+  /api/v1/cabinet/meetings/{meeting_id}/summary-candidates/{candidate_id}/preview:
+    get:
       tags:
       - cabinet
-      summary: Accept Summary Candidate Route
-      operationId: acceptSummaryCandidate
+      summary: Deprecated Preview Summary Candidate Route
+      operationId: deprecatedPreviewSummaryCandidate
+      deprecated: true
       parameters:
       - name: meeting_id
         in: path
@@ -7465,19 +7795,86 @@ paths:
           - type: string
           - type: 'null'
           title: X-Client-Version
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ResolveSummaryCandidateRequest'
       responses:
         '200':
           description: Successful Response
           content:
             application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
               schema:
-                $ref: '#/components/schemas/SummaryCandidateResponse'
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/meetings/{meeting_id}/summary-candidates/{candidate_id}/accept:
+    post:
+      tags:
+      - cabinet
+      summary: Deprecated Accept Summary Candidate Route
+      operationId: deprecatedAcceptSummaryCandidate
+      deprecated: true
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: candidate_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Candidate Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
         '422':
           description: Validation Error
           content:
@@ -7488,8 +7885,9 @@ paths:
     post:
       tags:
       - cabinet
-      summary: Reject Summary Candidate Route
-      operationId: rejectSummaryCandidate
+      summary: Deprecated Reject Summary Candidate Route
+      operationId: deprecatedRejectSummaryCandidate
+      deprecated: true
       parameters:
       - name: meeting_id
         in: path
@@ -7545,19 +7943,12 @@ paths:
           - type: string
           - type: 'null'
           title: X-Client-Version
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ResolveSummaryCandidateRequest'
       responses:
         '200':
           description: Successful Response
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/SummaryCandidateResponse'
+              schema: {}
         '422':
           description: Validation Error
           content:
@@ -9726,10 +10117,6 @@ components:
       title: AuthPolicyUpdateRequest
     AuthProvidersResponse:
       properties:
-        workspace_id:
-          type: string
-          format: uuid
-          title: Workspace Id
         providers:
           items:
             $ref: '#/components/schemas/_ProviderEntry'
@@ -9744,6 +10131,10 @@ components:
           title: Consent Version
         consent:
           $ref: '#/components/schemas/_ConsentCopy'
+        workspace_id:
+          type: string
+          format: uuid
+          title: Workspace Id
       type: object
       required:
       - providers
@@ -9753,30 +10144,6 @@ components:
       - consent
       - workspace_id
       title: AuthProvidersResponse
-    PublicAuthProvidersResponse:
-      properties:
-        providers:
-          items:
-            $ref: '#/components/schemas/_ProviderEntry'
-          type: array
-          title: Providers
-        residency:
-          $ref: '#/components/schemas/_ResidencyState'
-        enrollment:
-          $ref: '#/components/schemas/_EnrollmentState'
-        consent_version:
-          type: string
-          title: Consent Version
-        consent:
-          $ref: '#/components/schemas/_ConsentCopy'
-      type: object
-      required:
-      - providers
-      - residency
-      - enrollment
-      - consent_version
-      - consent
-      title: PublicAuthProvidersResponse
     AuthStartRequest:
       properties:
         workspace_return_url:
@@ -11518,6 +11885,23 @@ components:
           default: server_ranges_authoritative
       type: object
       title: DesktopSyncUploadSessionState
+    EnsureSummaryTypeRequest:
+      properties:
+        schema_version:
+          type: integer
+          const: 1
+          title: Schema Version
+          default: 1
+        idempotency_key:
+          type: string
+          maxLength: 200
+          minLength: 16
+          title: Idempotency Key
+      additionalProperties: false
+      type: object
+      required:
+      - idempotency_key
+      title: EnsureSummaryTypeRequest
     ExportPackageExclusion:
       properties:
         artifact_class:
@@ -14231,6 +14615,356 @@ components:
       - retry_class
       - normal_user_action
       title: ProblemCustodyExtension
+    ProcessingArtifactProjection:
+      properties:
+        state:
+          type: string
+          title: State
+          default: not_requested
+        visible:
+          type: boolean
+          title: Visible
+          default: false
+      type: object
+      title: ProcessingArtifactProjection
+    ProcessingAttemptResponse:
+      properties:
+        meeting_id:
+          type: string
+          format: uuid
+          title: Meeting Id
+        media_revision_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Media Revision Id
+        workspace_id:
+          type: string
+          format: uuid
+          title: Workspace Id
+        state:
+          $ref: '#/components/schemas/ProcessingStatus'
+        archive_audio:
+          type: boolean
+          title: Archive Audio
+          default: true
+        transient_state:
+          type: string
+          title: Transient State
+          default: not_applicable
+        transient_purge_due_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Transient Purge Due At
+        reason_code:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason Code
+        workflow_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Workflow Id
+        attempt_ordinal:
+          type: integer
+          minimum: 1.0
+          title: Attempt Ordinal
+          default: 1
+        mediascribe_job_id_present:
+          type: boolean
+          title: Mediascribe Job Id Present
+          default: false
+        content_available:
+          type: boolean
+          title: Content Available
+          default: false
+        transcript_available:
+          type: boolean
+          title: Transcript Available
+          default: false
+        diarization_available:
+          type: boolean
+          title: Diarization Available
+          default: false
+        summary_status:
+          type: string
+          title: Summary Status
+          default: not_requested
+        retry_class:
+          type: string
+          enum:
+          - none
+          - retryable
+          - unknown_outcome
+          - terminal
+          title: Retry Class
+          default: none
+        next_attempt_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Next Attempt At
+        next_attempt_source:
+          anyOf:
+          - type: string
+            enum:
+            - provider_retry_after
+            - provider_next_retry_at
+            - server_fallback
+            - manual_override
+          - type: 'null'
+          title: Next Attempt Source
+        schedule_generation:
+          type: integer
+          minimum: 0.0
+          title: Schedule Generation
+          default: 0
+        server_time:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Server Time
+        manual_action:
+          type: string
+          enum:
+          - none
+          - check_now
+          - retry_preparation
+          - new_attempt
+          - upload_another
+          - contact_support
+          title: Manual Action
+          default: none
+        attempt_in_flight:
+          type: boolean
+          title: Attempt In Flight
+          default: false
+        artifacts:
+          additionalProperties:
+            $ref: '#/components/schemas/ProcessingArtifactProjection'
+          type: object
+          title: Artifacts
+        updated_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Updated At
+        attempt_result:
+          type: string
+          enum:
+          - created
+          - already_in_flight
+          title: Attempt Result
+        dispatch:
+          anyOf:
+          - type: string
+            enum:
+            - started
+            - reused
+          - type: 'null'
+          title: Dispatch
+      type: object
+      required:
+      - meeting_id
+      - workspace_id
+      - state
+      - attempt_result
+      title: ProcessingAttemptResponse
+      description: Result of an explicitly authorized new business attempt admission.
+    ProcessingCheckRequest:
+      properties:
+        command_id:
+          anyOf:
+          - type: string
+            maxLength: 240
+            pattern: ^[^\x00-\x1f\x7f]+$
+          - type: 'null'
+          title: Command Id
+        schedule_generation:
+          anyOf:
+          - type: integer
+            minimum: 0.0
+          - type: 'null'
+          title: Schedule Generation
+      additionalProperties: false
+      type: object
+      title: ProcessingCheckRequest
+      description: 'Optional client fence for a same-job manual processing check.
+
+
+        The value is never echoed or persisted as supplied.  The API derives a
+
+        bounded command identifier from it before sending anything to Temporal.'
+    ProcessingCheckResponse:
+      properties:
+        meeting_id:
+          type: string
+          format: uuid
+          title: Meeting Id
+        media_revision_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Media Revision Id
+        workspace_id:
+          type: string
+          format: uuid
+          title: Workspace Id
+        state:
+          $ref: '#/components/schemas/ProcessingStatus'
+        archive_audio:
+          type: boolean
+          title: Archive Audio
+          default: true
+        transient_state:
+          type: string
+          title: Transient State
+          default: not_applicable
+        transient_purge_due_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Transient Purge Due At
+        reason_code:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason Code
+        workflow_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Workflow Id
+        attempt_ordinal:
+          type: integer
+          minimum: 1.0
+          title: Attempt Ordinal
+          default: 1
+        mediascribe_job_id_present:
+          type: boolean
+          title: Mediascribe Job Id Present
+          default: false
+        content_available:
+          type: boolean
+          title: Content Available
+          default: false
+        transcript_available:
+          type: boolean
+          title: Transcript Available
+          default: false
+        diarization_available:
+          type: boolean
+          title: Diarization Available
+          default: false
+        summary_status:
+          type: string
+          title: Summary Status
+          default: not_requested
+        retry_class:
+          type: string
+          enum:
+          - none
+          - retryable
+          - unknown_outcome
+          - terminal
+          title: Retry Class
+          default: none
+        next_attempt_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Next Attempt At
+        next_attempt_source:
+          anyOf:
+          - type: string
+            enum:
+            - provider_retry_after
+            - provider_next_retry_at
+            - server_fallback
+            - manual_override
+          - type: 'null'
+          title: Next Attempt Source
+        schedule_generation:
+          type: integer
+          minimum: 0.0
+          title: Schedule Generation
+          default: 0
+        server_time:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Server Time
+        manual_action:
+          type: string
+          enum:
+          - none
+          - check_now
+          - retry_preparation
+          - new_attempt
+          - upload_another
+          - contact_support
+          title: Manual Action
+          default: none
+        attempt_in_flight:
+          type: boolean
+          title: Attempt In Flight
+          default: false
+        artifacts:
+          additionalProperties:
+            $ref: '#/components/schemas/ProcessingArtifactProjection'
+          type: object
+          title: Artifacts
+        updated_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Updated At
+        request_result:
+          type: string
+          enum:
+          - accepted
+          - already_in_flight
+          - stale_schedule
+          - duplicate_suppressed
+          - not_safe
+          title: Request Result
+          default: accepted
+        command_id:
+          type: string
+          pattern: ^processing-check-[0-9a-f]{32}$
+          title: Command Id
+        same_job_check:
+          type: boolean
+          title: Same Job Check
+          default: false
+        dispatch:
+          anyOf:
+          - type: string
+            enum:
+            - update
+            - signal
+          - type: 'null'
+          title: Dispatch
+      type: object
+      required:
+      - meeting_id
+      - workspace_id
+      - state
+      - command_id
+      title: ProcessingCheckResponse
+      description: Content-safe projection plus the result of the manual command claim.
     ProcessingPickupRequest:
       properties:
         meeting_id:
@@ -14368,20 +15102,8 @@ components:
       - failed_terminal
       - canceled
       title: ProcessingStatus
-    ProcessingArtifactProjection:
-      properties:
-        state:
-          type: string
-          title: State
-          default: not_requested
-        visible:
-          type: boolean
-          title: Visible
-          default: false
-      type: object
-      title: ProcessingArtifactProjection
     ProcessingStatusResponse:
-      properties: &processing_status_properties
+      properties:
         meeting_id:
           type: string
           format: uuid
@@ -14449,7 +15171,11 @@ components:
           default: not_requested
         retry_class:
           type: string
-          enum: [none, retryable, unknown_outcome, terminal]
+          enum:
+          - none
+          - retryable
+          - unknown_outcome
+          - terminal
           title: Retry Class
           default: none
         next_attempt_at:
@@ -14461,7 +15187,11 @@ components:
         next_attempt_source:
           anyOf:
           - type: string
-            enum: [provider_retry_after, provider_next_retry_at, server_fallback, manual_override]
+            enum:
+            - provider_retry_after
+            - provider_next_retry_at
+            - server_fallback
+            - manual_override
           - type: 'null'
           title: Next Attempt Source
         schedule_generation:
@@ -14477,7 +15207,13 @@ components:
           title: Server Time
         manual_action:
           type: string
-          enum: [none, check_now, retry_preparation, new_attempt, upload_another, contact_support]
+          enum:
+          - none
+          - check_now
+          - retry_preparation
+          - new_attempt
+          - upload_another
+          - contact_support
           title: Manual Action
           default: none
         attempt_in_flight:
@@ -14501,72 +15237,6 @@ components:
       - workspace_id
       - state
       title: ProcessingStatusResponse
-    ProcessingCheckRequest:
-      properties:
-        command_id:
-          anyOf:
-          - type: string
-            maxLength: 240
-            pattern: ^[^\x00-\x1f\x7f]+$
-          - type: 'null'
-          title: Command Id
-        schedule_generation:
-          anyOf:
-          - type: integer
-            minimum: 0.0
-          - type: 'null'
-          title: Schedule Generation
-      additionalProperties: false
-      type: object
-      title: ProcessingCheckRequest
-      description: |-
-        Optional client fence for a same-job manual processing check.
-
-        The value is never echoed or persisted as supplied.  The API derives a
-        bounded command identifier from it before sending anything to Temporal.
-    ProcessingCheckResponse:
-      properties:
-        <<: *processing_status_properties
-        request_result:
-          type: string
-          enum: [accepted, already_in_flight, stale_schedule, duplicate_suppressed, not_safe]
-          title: Request Result
-          default: accepted
-        command_id:
-          type: string
-          pattern: ^processing-check-[0-9a-f]{32}$
-          title: Command Id
-        same_job_check:
-          type: boolean
-          title: Same Job Check
-          default: false
-        dispatch:
-          anyOf:
-          - type: string
-            enum: [update, signal]
-          - type: 'null'
-          title: Dispatch
-      type: object
-      required: [meeting_id, workspace_id, state, command_id]
-      title: ProcessingCheckResponse
-      description: Content-safe projection plus the result of the manual command claim.
-    ProcessingAttemptResponse:
-      properties:
-        <<: *processing_status_properties
-        attempt_result:
-          type: string
-          enum: [created, already_in_flight]
-          title: Attempt Result
-        dispatch:
-          anyOf:
-          - type: string
-            enum: [started, reused]
-          - type: 'null'
-          title: Dispatch
-      type: object
-      required: [meeting_id, workspace_id, state, attempt_result]
-      title: ProcessingAttemptResponse
-      description: Result of an explicitly authorized new business attempt admission.
     ProductAnalyticsEventRequest:
       properties:
         event_name:
@@ -14642,6 +15312,30 @@ components:
       - provider
       - link_state_id
       title: ProviderLinkStartResponse
+    PublicAuthProvidersResponse:
+      properties:
+        providers:
+          items:
+            $ref: '#/components/schemas/_ProviderEntry'
+          type: array
+          title: Providers
+        residency:
+          $ref: '#/components/schemas/_ResidencyState'
+        enrollment:
+          $ref: '#/components/schemas/_EnrollmentState'
+        consent_version:
+          type: string
+          title: Consent Version
+        consent:
+          $ref: '#/components/schemas/_ConsentCopy'
+      type: object
+      required:
+      - providers
+      - residency
+      - enrollment
+      - consent_version
+      - consent
+      title: PublicAuthProvidersResponse
     PublicShareSummaryResponse:
       properties:
         meeting_label:
@@ -14713,6 +15407,51 @@ components:
       required:
       - status
       title: ReadyResponse
+    RefreshSummaryTypeRequest:
+      properties:
+        schema_version:
+          type: integer
+          const: 1
+          title: Schema Version
+          default: 1
+        idempotency_key:
+          type: string
+          maxLength: 200
+          minLength: 16
+          title: Idempotency Key
+        expected_current_outcome_set_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Expected Current Outcome Set Id
+        template_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Template Id
+        template_version:
+          type: integer
+          minimum: 1.0
+          title: Template Version
+        generation_options:
+          additionalProperties:
+            anyOf:
+            - type: string
+            - type: integer
+            - type: number
+            - type: boolean
+            - type: 'null'
+          type: object
+          maxProperties: 16
+          title: Generation Options
+      additionalProperties: false
+      type: object
+      required:
+      - idempotency_key
+      - template_version
+      title: RefreshSummaryTypeRequest
     ResolveRecordingCalendarContextRequest:
       properties:
         recording_started_at:
@@ -14775,17 +15514,6 @@ components:
       - matcher_version
       - expires_at
       title: ResolveRecordingCalendarContextResponse
-    ResolveSummaryCandidateRequest:
-      properties:
-        expected_current_outcome_set_id:
-          anyOf:
-          - type: string
-            format: uuid
-          - type: 'null'
-          title: Expected Current Outcome Set Id
-      additionalProperties: false
-      type: object
-      title: ResolveSummaryCandidateRequest
     RetentionRunRequest:
       properties:
         limit:
@@ -15248,77 +15976,6 @@ components:
           title: Candidates
       type: object
       title: SummaryCandidateListResponse
-    SummaryCandidatePreviewItem:
-      properties:
-        category:
-          type: string
-          enum:
-          - summary
-          - key_points
-          - decisions
-          - action_items
-          - followups
-          - risks
-          - questions
-          - evidence
-          title: Category
-        sequence:
-          type: integer
-          minimum: 0.0
-          title: Sequence
-          default: 0
-        text:
-          type: string
-          title: Text
-          default: ''
-        owner_text:
-          type: string
-          title: Owner Text
-          default: ''
-        due_date_text:
-          type: string
-          title: Due Date Text
-          default: ''
-        truth_label:
-          type: string
-          title: Truth Label
-          default: ''
-        source_refs:
-          items:
-            $ref: '#/components/schemas/OutcomeSourceReferenceView'
-          type: array
-          maxItems: 8
-          title: Source Refs
-      type: object
-      required:
-      - category
-      title: SummaryCandidatePreviewItem
-    SummaryCandidatePreviewResponse:
-      properties:
-        candidate_id:
-          type: string
-          format: uuid
-          title: Candidate Id
-        outcome_set_id:
-          type: string
-          format: uuid
-          title: Outcome Set Id
-        template_key:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Template Key
-        items:
-          items:
-            $ref: '#/components/schemas/SummaryCandidatePreviewItem'
-          type: array
-          maxItems: 200
-          title: Items
-      type: object
-      required:
-      - candidate_id
-      - outcome_set_id
-      title: SummaryCandidatePreviewResponse
     SummaryCandidateProvenance:
       properties:
         source_result_id:
@@ -15487,11 +16144,6 @@ components:
             format: date-time
           - type: 'null'
           title: Expires At
-        preview:
-          items:
-            $ref: '#/components/schemas/SummaryCandidatePreviewItem'
-          type: array
-          title: Preview
         provenance:
           anyOf:
           - $ref: '#/components/schemas/SummaryCandidateProvenance'
@@ -15502,6 +16154,46 @@ components:
       - state
       - poll_url
       title: SummaryCandidateResponse
+    SummaryCopyCapabilityV1:
+      properties:
+        kind:
+          type: string
+          const: summary
+          title: Kind
+          default: summary
+        authorized:
+          type: boolean
+          title: Authorized
+          default: true
+        outcome_set_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Outcome Set Id
+        outcome_content_hash:
+          anyOf:
+          - type: string
+            maxLength: 128
+            minLength: 1
+          - type: 'null'
+          title: Outcome Content Hash
+        displayed_revision:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Displayed Revision
+        reason_code:
+          anyOf:
+          - type: string
+            maxLength: 80
+            minLength: 1
+          - type: 'null'
+          title: Reason Code
+      additionalProperties: false
+      type: object
+      title: SummaryCopyCapabilityV1
     SummaryTemplateListResponse:
       properties:
         default_template_key:
@@ -15608,6 +16300,357 @@ components:
       - version
       - status
       title: SummaryTemplateView
+    SummaryTypeAttemptStateV1:
+      properties:
+        attempt_id:
+          type: string
+          format: uuid
+          title: Attempt Id
+        generation_state:
+          type: string
+          enum:
+          - idle
+          - preparing
+          - updating
+          - blocked
+          - deferred
+          - error
+          - ambiguous
+          - no_supported_content
+          title: Generation State
+        reason_code:
+          anyOf:
+          - type: string
+            maxLength: 80
+            minLength: 1
+          - type: 'null'
+          title: Reason Code
+        retryable:
+          type: boolean
+          title: Retryable
+          default: false
+        next_action:
+          anyOf:
+          - type: string
+            enum:
+            - wait
+            - retry_safe
+            - switch_type
+            - open_transcript
+            - correct_transcript_language
+          - type: 'null'
+          title: Next Action
+        poll_after_ms:
+          anyOf:
+          - type: integer
+            maximum: 120000.0
+            minimum: 100.0
+          - type: 'null'
+          title: Poll After Ms
+      additionalProperties: false
+      type: object
+      required:
+      - attempt_id
+      - generation_state
+      title: SummaryTypeAttemptStateV1
+    SummaryTypeCatalogEntryV1:
+      properties:
+        catalog_version:
+          type: string
+          maxLength: 64
+          minLength: 1
+          title: Catalog Version
+        template_key:
+          type: string
+          maxLength: 120
+          minLength: 1
+          title: Template Key
+        template_version:
+          type: integer
+          minimum: 1.0
+          title: Template Version
+        resolved_locale:
+          type: string
+          maxLength: 35
+          minLength: 1
+          title: Resolved Locale
+        localized_name:
+          type: string
+          maxLength: 120
+          minLength: 1
+          title: Localized Name
+        localized_description:
+          type: string
+          maxLength: 240
+          minLength: 1
+          title: Localized Description
+        catalog_group:
+          type: string
+          enum:
+          - personal
+          - built_in
+          - additional
+          title: Catalog Group
+        group_rank:
+          type: integer
+          maximum: 65535.0
+          minimum: 0.0
+          title: Group Rank
+        category:
+          type: string
+          enum:
+          - personal
+          - general
+          - team_project
+          - people_learning
+          - customer_revenue
+          - high_stakes
+          title: Category
+        quick_rank:
+          anyOf:
+          - type: integer
+            maximum: 65535.0
+            minimum: 0.0
+          - type: 'null'
+          title: Quick Rank
+        full_rank:
+          type: integer
+          maximum: 65535.0
+          minimum: 0.0
+          title: Full Rank
+        availability_state:
+          type: string
+          enum:
+          - available
+          - unavailable
+          - retired
+          title: Availability State
+        provenance:
+          $ref: '#/components/schemas/SummaryTypeProvenanceV1'
+        deviation_codes:
+          items:
+            type: string
+            enum:
+            - accessibility
+            - localization
+            - privacy
+            - security
+            - deletion_truth
+            - reference_defect
+            - rights
+            - graf_extension
+          type: array
+          maxItems: 8
+          title: Deviation Codes
+        result_state:
+          type: string
+          enum:
+          - ready
+          - absent
+          title: Result State
+        generation_state:
+          type: string
+          enum:
+          - idle
+          - preparing
+          - updating
+          - blocked
+          - deferred
+          - error
+          - ambiguous
+          - no_supported_content
+          title: Generation State
+        source_state:
+          type: string
+          enum:
+          - not_ready
+          - transcript_failed
+          - empty
+          - current
+          - stale
+          title: Source State
+        current_outcome_set_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Current Outcome Set Id
+        attempt_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Attempt Id
+        reason_code:
+          anyOf:
+          - type: string
+            maxLength: 80
+            minLength: 1
+          - type: 'null'
+          title: Reason Code
+        retryable:
+          type: boolean
+          title: Retryable
+          default: false
+        next_action:
+          anyOf:
+          - type: string
+            enum:
+            - wait
+            - retry_safe
+            - switch_type
+            - open_transcript
+            - correct_transcript_language
+          - type: 'null'
+          title: Next Action
+      additionalProperties: false
+      type: object
+      required:
+      - catalog_version
+      - template_key
+      - template_version
+      - resolved_locale
+      - localized_name
+      - localized_description
+      - catalog_group
+      - group_rank
+      - category
+      - full_rank
+      - availability_state
+      - provenance
+      - result_state
+      - generation_state
+      - source_state
+      title: SummaryTypeCatalogEntryV1
+    SummaryTypeCatalogResponse:
+      properties:
+        catalog_version:
+          type: string
+          maxLength: 64
+          minLength: 1
+          title: Catalog Version
+        resolved_locale:
+          type: string
+          maxLength: 35
+          minLength: 1
+          title: Resolved Locale
+        entries:
+          items:
+            $ref: '#/components/schemas/SummaryTypeCatalogEntryV1'
+          type: array
+          maxItems: 128
+          title: Entries
+      additionalProperties: false
+      type: object
+      required:
+      - catalog_version
+      - resolved_locale
+      title: SummaryTypeCatalogResponse
+    SummaryTypeProvenanceV1:
+      properties:
+        source:
+          type: string
+          enum:
+          - observed_reference
+          - graf_extension
+          - user_owned
+          title: Source
+        evidence_id:
+          anyOf:
+          - type: string
+            maxLength: 128
+            minLength: 1
+          - type: 'null'
+          title: Evidence Id
+        rights_state:
+          type: string
+          enum:
+          - not_applicable
+          - cleared
+          - replacement_required
+          - blocked
+          title: Rights State
+      additionalProperties: false
+      type: object
+      required:
+      - source
+      - rights_state
+      title: SummaryTypeProvenanceV1
+    SummaryTypeReadResponse:
+      properties:
+        schema_version:
+          type: integer
+          const: 1
+          title: Schema Version
+          default: 1
+        event_id:
+          type: string
+          format: uuid
+          title: Event Id
+        meeting_id:
+          type: string
+          format: uuid
+          title: Meeting Id
+        template_key:
+          type: string
+          maxLength: 120
+          minLength: 1
+          title: Template Key
+        attempt_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Attempt Id
+        state_version:
+          type: integer
+          maximum: 9.223372036854776e+18
+          minimum: 1.0
+          title: State Version
+        current_outcome_set_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Current Outcome Set Id
+        catalog_entry:
+          $ref: '#/components/schemas/SummaryTypeCatalogEntryV1'
+        copy_capability:
+          oneOf:
+          - $ref: '#/components/schemas/SummaryCopyCapabilityV1'
+          - $ref: '#/components/schemas/TranscriptCopyCapabilityV1'
+          title: Copy Capability
+          discriminator:
+            propertyName: kind
+            mapping:
+              summary: '#/components/schemas/SummaryCopyCapabilityV1'
+              transcript: '#/components/schemas/TranscriptCopyCapabilityV1'
+        outcome_set_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Outcome Set Id
+        items:
+          items:
+            $ref: '#/components/schemas/OutcomeItemView'
+          type: array
+          maxItems: 256
+          title: Items
+        attempt:
+          anyOf:
+          - $ref: '#/components/schemas/SummaryTypeAttemptStateV1'
+          - type: 'null'
+      additionalProperties: false
+      type: object
+      required:
+      - event_id
+      - meeting_id
+      - template_key
+      - state_version
+      - catalog_entry
+      - copy_capability
+      title: SummaryTypeReadResponse
     SupportIncidentReportRequest:
       properties:
         schema_version:
@@ -15749,6 +16792,47 @@ components:
       - manifest
       - playback
       title: TrackRole
+    TranscriptCopyCapabilityV1:
+      properties:
+        kind:
+          type: string
+          const: transcript
+          title: Kind
+          default: transcript
+        authorized:
+          type: boolean
+          title: Authorized
+          default: true
+        source_revision:
+          anyOf:
+          - type: integer
+            minimum: 1.0
+          - type: 'null'
+          title: Source Revision
+        transcript_content_hash:
+          anyOf:
+          - type: string
+            maxLength: 128
+            minLength: 1
+          - type: 'null'
+          title: Transcript Content Hash
+        displayed_revision:
+          anyOf:
+          - type: string
+            maxLength: 128
+            minLength: 1
+          - type: 'null'
+          title: Displayed Revision
+        reason_code:
+          anyOf:
+          - type: string
+            maxLength: 80
+            minLength: 1
+          - type: 'null'
+          title: Reason Code
+      additionalProperties: false
+      type: object
+      title: TranscriptCopyCapabilityV1
     TranscriptReviewState:
       properties:
         available:

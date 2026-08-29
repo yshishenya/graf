@@ -2661,7 +2661,8 @@
       const listbox = controls.querySelector("[data-summary-format-listbox]");
       const pendingLabel = controls.querySelector("[data-summary-pending-format-label]");
       const status = document.querySelector("[data-summary-candidate-status]");
-      const preview = document.querySelector("[data-summary-candidate-preview]");
+      const statusLive = status?.querySelector("[data-summary-candidate-live]");
+      const statusActions = status?.querySelector("[data-summary-candidate-actions]");
       const dialog = document.querySelector("[data-summary-format-dialog]");
       const meetingId = controls.dataset.meetingId || "";
       const candidateStorageKey = `graf-summary-candidate-${meetingId}`;
@@ -2675,6 +2676,7 @@
       let activeRequestIntentId = null;
       let candidateRequestGeneration = 0;
       let candidateRequestInFlightGeneration = null;
+      const acceptedFocusKey = `graf-summary-focus-${meetingId}`;
       if (!button || !listbox) return;
       controls.dataset.summaryFormatReady = "true";
       const options = () => Array.from(listbox.querySelectorAll('[role="option"]'));
@@ -2694,31 +2696,30 @@
         if (refreshButton) refreshButton.disabled = busy;
         controls.setAttribute("aria-busy", busy ? "true" : "false");
       };
+      const reloadAfterSummaryChange = () => {
+        window.sessionStorage.setItem(acceptedFocusKey, "current");
+        window.location.reload();
+      };
       const showStatus = (message, state = "generating", actions = []) => {
-        if (!status) return;
+        if (!status || !statusLive || !statusActions) return;
         status.hidden = false;
         status.dataset.state = state;
-        status.replaceChildren();
-        const copy = document.createElement("span");
-        copy.textContent = message;
-        status.append(copy);
+        statusLive.textContent = message;
+        statusActions.replaceChildren();
         const validActions = actions.filter((item) => (
           item
           && typeof item.text === "string"
           && typeof item.action === "function"
         ));
         if (!validActions.length) return;
-        const actionRow = document.createElement("div");
-        actionRow.className = "summary-candidate-actions";
         validActions.forEach(({ text, action, primary = false }) => {
           const actionButton = document.createElement("button");
           actionButton.type = "button";
           actionButton.textContent = text;
           if (primary) actionButton.className = "button";
           actionButton.addEventListener("click", action);
-          actionRow.append(actionButton);
+          statusActions.append(actionButton);
         });
-        status.append(actionRow);
       };
       const candidateErrorCopy = (code) => ({
         summary_transcript_too_large: "Расшифровка слишком большая для этого действия.",
@@ -2729,7 +2730,8 @@
         summary_transcript_snapshot_invalid: "Расшифровка изменилась. Обновите страницу и попробуйте снова.",
         summary_transcript_changed: "Расшифровка изменилась. Обновите страницу и запросите новый вариант.",
         outcome_transcript_changed: "Расшифровка изменилась. Обновите страницу и запросите новый вариант.",
-        summary_generation_unavailable: "Новый вариант сейчас недоступен. Текущие итоги сохранены.",
+        summary_dependency_unavailable: "Сервис генерации временно недоступен. Текущие итоги сохранены.",
+        summary_generation_unavailable: "Сервис генерации временно недоступен. Текущие итоги сохранены.",
         summary_prompt_resolution_conflict: "Настройки формата изменились. Обновите страницу и попробуйте снова.",
         summary_prompt_invalid: "Настройки выбранного формата недоступны. Выберите другой формат.",
         summary_prompt_snapshot_corrupt: "Настройки выбранного формата недоступны. Выберите другой формат.",
@@ -2869,10 +2871,16 @@
         }
         return null;
       };
+      const focusCurrentDialogFormat = () => {
+        const current = dialog?.querySelector(
+          '[data-summary-format-current], [data-summary-format-option][aria-current="true"]'
+        );
+        (current || dialog?.querySelector("[data-summary-format-option]"))?.focus({ preventScroll: true });
+      };
       const openFormatPicker = () => {
         if (dialog instanceof HTMLDialogElement) {
           dialog.showModal();
-          dialog.querySelector("[data-summary-format-option]")?.focus({ preventScroll: true });
+          focusCurrentDialogFormat();
         } else {
           open();
         }
@@ -2905,7 +2913,7 @@
         pollDeadline = Date.now() + 5 * 60 * 1000;
         pollDelay = 1500;
         setBusy(true);
-        showStatus("Проверяем новый вариант. Текущие итоги остаются на месте.");
+        showStatus("Проверяем новую версию. Текущие итоги остаются доступны.");
         schedulePoll(candidate, generation);
       };
       const mutate = async (url, method, body) => {
@@ -2930,148 +2938,14 @@
         }
         return payload;
       };
-      const clearPreview = () => {
-        if (!preview) return;
-        preview.hidden = true;
-        preview.replaceChildren();
-      };
-      const loadPreview = async (candidate, generation = candidateRequestGeneration) => {
-        if (generation !== candidateRequestGeneration) return null;
-        clearPreview();
-        if (candidate.state !== "ready") return null;
-        try {
-          const response = await fetch(
-            `/api/v1/cabinet/meetings/${meetingId}/summary-candidates/${candidate.candidate_id}/preview`,
-            { credentials: "same-origin", cache: "no-store" }
-          );
-          if (!response.ok) return null;
-          const body = await response.json();
-          if (generation !== candidateRequestGeneration) return null;
-          const items = Array.isArray(body.items)
-            ? body.items.filter((item) => item && typeof item === "object").slice(0, 24)
-            : [];
-          return items.length ? items : null;
-        } catch (_error) {
-          return null;
-        }
-      };
-      const resolveCandidate = async (candidate, accept, generation = candidateRequestGeneration) => {
-        if (generation !== candidateRequestGeneration) return;
-        setBusy(true);
-        try {
-          const resolved = await mutate(
-            `/api/v1/cabinet/meetings/${meetingId}/summary-candidates/${candidate.candidate_id}/${accept ? "accept" : "reject"}`,
-            "POST",
-            { expected_current_outcome_set_id: currentOutcomeSetId }
-          );
-          if (generation !== candidateRequestGeneration) return;
-          currentOutcomeSetId = resolved.current_outcome_set_id || currentOutcomeSetId;
-          if (accept) window.location.reload();
-          else {
-            if (status) status.hidden = true;
-            clearPreview();
-          }
-        } catch (error) {
-          if (isMeetingDetailRecoveredError(error)) return;
-          if (generation !== candidateRequestGeneration) return;
-          const code = error instanceof Error ? error.message : "";
-          if (code === "summary_source_revision_stale") clearPreview();
-          showStatus(candidateErrorCopy(code), "failed", [retryCandidateAction(code)]);
-        } finally {
-          if (generation === candidateRequestGeneration) setBusy(false);
-        }
-      };
-      const candidateSections = [
-        ["summary", "Кратко"],
-        ["action_items", "Действия"],
-        ["decisions", "Решения"],
-        ["key_points", "Ключевые пункты"],
-        ["followups", "Следующие шаги"],
-        ["risks", "Риски"],
-        ["questions", "Вопросы"],
-        ["evidence", "Подтверждения"]
-      ];
-      const renderCandidateItem = (item) => {
-        const article = document.createElement("article");
-        article.className = "outcome-item";
-        const text = document.createElement("p");
-        text.className = "outcome-item-text";
-        text.textContent = item.text || "Без текста";
-        article.append(text);
-        const metadata = [
-          ["Ответственный", item.owner_text],
-          ["Срок", item.due_date_text]
-        ].filter(([, value]) => typeof value === "string" && value.trim());
-        if (metadata.length) {
-          const row = document.createElement("div");
-          row.className = "notes-item-meta-row";
-          metadata.forEach(([label, value]) => {
-            const meta = document.createElement("span");
-            meta.className = "notes-item-meta";
-            meta.textContent = `${label}: ${value.trim()}`;
-            row.append(meta);
-          });
-          article.append(row);
-        }
-        const refs = Array.isArray(item.source_refs)
-          ? item.source_refs.filter((ref) => (
-              ref?.seekable && Number.isFinite(Number.parseFloat(ref.start_seconds))
-            ))
-          : [];
-        if (refs.length && document.querySelector("[data-transcript-turn]")) {
-          const sources = document.createElement("div");
-          sources.className = "notes-item-sources";
-          const label = document.createElement("span");
-          label.className = "notes-source-label";
-          label.textContent = "Источник:";
-          sources.append(label);
-          const appendSource = (host, ref) => {
-            const seconds = Number.parseFloat(ref.start_seconds);
-            const source = document.createElement("button");
-            source.type = "button";
-            source.className = "notes-source-link";
-            source.textContent = formatTime(seconds);
-            source.dataset.seekSeconds = String(seconds);
-            source.dataset.sourceSegment = ref.transcript_segment_id || "";
-            source.setAttribute("aria-label", `Открыть источник ${formatTime(seconds)} в расшифровке`);
-            host.append(source);
-          };
-          refs.slice(0, 2).forEach((ref) => appendSource(sources, ref));
-          const overflow = refs.slice(2);
-          if (overflow.length) {
-            const more = document.createElement("details");
-            more.className = "notes-source-more";
-            const summary = document.createElement("summary");
-            summary.textContent = `Ещё ${overflow.length}`;
-            const sourceNoun = overflow.length === 1
-              ? "источник"
-              : overflow.length < 5 ? "источника" : "источников";
-            summary.setAttribute("aria-label", `Показать ещё ${overflow.length} ${sourceNoun}`);
-            more.append(summary);
-            overflow.forEach((ref) => appendSource(more, ref));
-            sources.append(more);
-          }
-          if (sources.childElementCount > 1) article.append(sources);
-        }
-        return article;
-      };
-      const appendCandidateSections = (host, entries) => {
-        entries.forEach(([key, label, items]) => {
-          const section = document.createElement("section");
-          section.className = "summary-candidate-section";
-          const heading = document.createElement("h4");
-          heading.textContent = label;
-          const list = document.createElement("div");
-          list.className = "summary-candidate-items";
-          items.forEach((item) => list.append(renderCandidateItem(item)));
-          section.append(heading, list);
-          host.append(section);
-        });
+      const dismissStatus = () => {
+        setBusy(false);
+        if (status) status.hidden = true;
+        button.focus({ preventScroll: true });
       };
       const renderCandidate = (candidate, generation = candidateRequestGeneration) => {
         if (generation !== candidateRequestGeneration) return false;
         if (candidate.state === "generating") {
-          clearPreview();
           if (candidate.reason_code === "temporary_unavailable") {
             window.clearTimeout(pollingTimer);
             pollingTimer = null;
@@ -3096,7 +2970,7 @@
               ? `Готовим вариант: ${activeTemplate.name}`
               : "Готовим новый вариант";
           }
-          showStatus(`Готовим формат «${candidate.format_name || activeTemplate?.name || "итогов"}». Текущие итоги остаются на месте.`);
+          showStatus(`Готовим формат «${candidate.format_name || activeTemplate?.name || "итогов"}». Текущие итоги остаются доступны.`);
           return;
         }
         window.clearTimeout(pollingTimer);
@@ -3104,89 +2978,24 @@
         pollingTimer = null;
         setBusy(false);
         if (pendingLabel) pendingLabel.hidden = true;
-        const renderPreview = () => {
-          if (!preview) return;
-          preview.hidden = false;
-          preview.replaceChildren();
-          preview.setAttribute("aria-label", "Предпросмотр нового варианта итогов");
-          const heading = document.createElement("h3");
-          heading.textContent = "Новый вариант";
-          const source = document.createElement("p");
-          source.className = "summary-candidate-source";
-          const sourceLabel = candidate?.provenance?.source_revision_label
-            ? `Источник: ${candidate.provenance.source_revision_label}`
-            : "Источник: текущая расшифровка";
-          source.textContent = candidate?.provenance?.source_result_id
-            ? sourceLabel
-            : "Источник: подтверждённая расшифровка недоступна";
-          const previewItems = Array.isArray(candidate.preview) ? candidate.preview.slice(0, 24) : [];
-          if (previewItems.length) {
-            const grouped = candidateSections
-              .map(([key, label]) => [
-                key,
-                label,
-                previewItems.filter((item) => item.category === key)
-              ])
-              .filter(([, , items]) => items.length);
-            const primary = grouped.filter(([key]) => ["summary", "action_items", "decisions"].includes(key));
-            const secondary = grouped.filter(([key]) => !["summary", "action_items", "decisions"].includes(key));
-            preview.append(heading, source);
-            appendCandidateSections(preview, primary);
-            if (secondary.length) {
-              const more = document.createElement("details");
-              more.className = "summary-candidate-more";
-              const summary = document.createElement("summary");
-              summary.textContent = `Ещё разделы · ${secondary.length}`;
-              more.append(summary);
-              appendCandidateSections(more, secondary);
-              preview.append(more);
-            }
-          } else {
-            const empty = document.createElement("p");
-            empty.textContent = "Предпросмотр недоступен для этого варианта.";
-            preview.append(heading, source, empty);
-          }
-        };
         if (candidate.state === "ready") {
-          const previewItems = Array.isArray(candidate.preview) ? candidate.preview.slice(0, 24) : [];
-          if (!previewItems.length) {
-            clearPreview();
-            setBusy(true);
-            showStatus(
-              `Вариант «${candidate.format_name || activeTemplate?.name || "итогов"}» готов. Загружаем предпросмотр…`,
-              "generating",
-            );
-            void loadPreview(candidate, generation).then((loadedPreview) => {
-              if (generation !== candidateRequestGeneration) return;
-              setBusy(false);
-              if (!loadedPreview?.length) {
-                showStatus(
-                  "Предпросмотр пока недоступен. Текущие итоги сохранены.",
-                  "failed",
-                  [{ text: "Обновить страницу", action: () => window.location.reload(), primary: true }],
-                );
-                return;
-              }
-              renderCandidate({ ...candidate, preview: loadedPreview }, generation);
-            });
-            return;
-          }
-          showStatus(`Вариант «${candidate.format_name || activeTemplate?.name || "итогов"}» готов. Текущие итоги сохранены.`, "ready", [
-            { text: "Оставить текущие", action: () => resolveCandidate(candidate, false, generation) },
-            { text: "Использовать", action: () => resolveCandidate(candidate, true, generation), primary: true }
-          ]);
-          renderPreview();
+          showStatus(
+            `Новая версия «${candidate.format_name || activeTemplate?.name || "итогов"}» проверена. Обновите экран, чтобы увидеть результат.`,
+            "ready",
+            [{ text: "Обновить экран", action: reloadAfterSummaryChange, primary: true }],
+          );
           return;
         }
         if (candidate.state === "accepted") {
-          window.location.reload();
+          showStatus("Итоги обновлены. Обновляем экран.", "ready");
+          window.setTimeout(reloadAfterSummaryChange, 0);
           return;
         }
         if (candidate.state === "expired") {
           const retry = retryCandidateAction(candidate) || {
             text: "Обновить страницу", action: () => window.location.reload(), primary: true
           };
-          showStatus("Вариант устарел. Текущие итоги сохранены — запустите генерацию ещё раз.", "failed", [
+          showStatus("Новая версия устарела. Текущие итоги сохранены — запустите обновление ещё раз.", "failed", [
             retry
           ]);
           return;
@@ -3195,7 +3004,7 @@
           const retry = retryCandidateAction(candidate) || {
             text: "Обновить страницу", action: () => window.location.reload(), primary: true
           };
-          showStatus("Расшифровка изменилась, поэтому вариант закрыт. Текущие итоги сохранены.", "failed", [
+          showStatus("Расшифровка изменилась, поэтому новая версия закрыта. Текущие итоги сохранены.", "failed", [
             retry
           ]);
           return;
@@ -3238,10 +3047,10 @@
         if (document.hidden || pollAttempts >= 40 || (pollDeadline && Date.now() >= pollDeadline)) {
           if (pollAttempts >= 40 || (pollDeadline && Date.now() >= pollDeadline)) {
             setBusy(false);
-            showStatus("Генерация занимает больше обычного. Текущие итоги сохранены.", "failed", [
-              { text: "Проверить снова", action: () => resumeCandidatePolling(candidate, generation), primary: true },
-              { text: "Оставить текущие", action: () => { if (status) status.hidden = true; } }
-            ]);
+          showStatus("Генерация занимает больше обычного. Текущие итоги сохранены.", "slow", [
+            { text: "Проверить снова", action: () => resumeCandidatePolling(candidate, generation), primary: true },
+            { text: "Закрыть", action: dismissStatus }
+          ]);
           }
           return;
         }
@@ -3305,9 +3114,7 @@
               ? "Не удалось обновить новый вариант. Текущие итоги сохранены."
               : candidateErrorCopy(code),
             "failed",
-            [retry, ...(transientPollFailure
-              ? [{ text: "Оставить текущие", action: () => { if (status) status.hidden = true; } }]
-              : [])]
+            retry ? [retry] : []
           );
         }
       };
@@ -3346,7 +3153,7 @@
           pendingLabel.hidden = false;
           pendingLabel.textContent = `Готовим вариант: ${template.name}`;
         }
-        showStatus(`Готовим формат «${template.name}». Текущие итоги остаются на месте.`);
+          showStatus(`Готовим формат «${template.name}». Текущие итоги остаются доступны.`);
         const body = {
           template_key: template.key,
           template_id: template.id || null,
@@ -3413,6 +3220,99 @@
         }
         return { id: controls.dataset.currentTemplateId || null, key, version, name };
       };
+       const pollSummaryRefresh = async (template, generation) => {
+        if (generation !== candidateRequestGeneration) return;
+        if (Date.now() > pollDeadline) {
+          pollingTimer = null;
+          candidateRequestInFlightGeneration = null;
+          setBusy(false);
+          showStatus("Не удалось дождаться обновления. Текущие итоги сохранены.", "failed", [
+            { text: "Обновить страницу", action: () => window.location.reload(), primary: true }
+          ]);
+          return;
+        }
+        try {
+          const response = await fetch(
+            `/api/v1/cabinet/meetings/${meetingId}/summaries/${encodeURIComponent(template.key)}`,
+            { credentials: "same-origin", cache: "no-store" }
+          );
+          if (await recoverMeetingDetailFromResponse(response, { actionProblemCodes: summaryActionProblemCodes })) {
+            throw meetingDetailRecoveredError();
+          }
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            const error = new Error(payload.code || "summary_poll_unavailable");
+            error.status = response.status;
+            throw error;
+          }
+          if (generation !== candidateRequestGeneration) return;
+          const previousOutcomeSetId = currentOutcomeSetId;
+          currentOutcomeSetId = payload.current_outcome_set_id || currentOutcomeSetId;
+          const state = payload.catalog_entry?.generation_state;
+          if (["preparing", "updating", "blocked", "deferred", "ambiguous"].includes(state)) {
+            showStatus("Обновляем итоги. Текущие итоги остаются доступны.");
+            pollingTimer = window.setTimeout(() => pollSummaryRefresh(template, generation), 1200);
+            return;
+          }
+          pollingTimer = null;
+          candidateRequestInFlightGeneration = null;
+          setBusy(false);
+          if (payload.current_outcome_set_id && payload.current_outcome_set_id !== previousOutcomeSetId && state === "idle") {
+            showStatus("Итоги обновлены. Обновляем экран.", "ready");
+            window.setTimeout(reloadAfterSummaryChange, 0);
+          } else {
+            showStatus("Обновление не завершено. Текущие итоги сохранены.", "failed", [
+              { text: "Обновить страницу", action: () => window.location.reload(), primary: true }
+            ]);
+          }
+        } catch (error) {
+          if (isMeetingDetailRecoveredError(error) || generation !== candidateRequestGeneration) return;
+          pollingTimer = null;
+          candidateRequestInFlightGeneration = null;
+          setBusy(false);
+          const code = error instanceof Error ? error.message : "summary_poll_unavailable";
+          showStatus(candidateErrorCopy(code), "failed", [
+            { text: "Обновить страницу", action: () => window.location.reload(), primary: true }
+          ]);
+        }
+      };
+      const requestSummaryRefresh = async (template, requestIntentId, generation) => {
+        if (!template?.key || generation !== candidateRequestGeneration) return;
+        activeTemplate = template;
+        activeRequestIntent = "manual_refresh";
+        activeRequestIntentId = requestIntentId;
+        setBusy(true);
+        showStatus("Обновляем итоги. Текущие итоги остаются доступны.");
+        try {
+          const payload = await mutate(
+            `/api/v1/cabinet/meetings/${meetingId}/summaries/${encodeURIComponent(template.key)}/refresh`,
+            "POST",
+            {
+              schema_version: 1,
+              idempotency_key: requestIntentId,
+              expected_current_outcome_set_id: currentOutcomeSetId,
+              template_id: template.id || null,
+              template_version: template.version,
+              generation_options: {}
+            }
+          );
+          if (generation !== candidateRequestGeneration) return;
+          currentOutcomeSetId = payload.current_outcome_set_id || currentOutcomeSetId;
+          pollAttempts = 0;
+          pollDeadline = Date.now() + 5 * 60 * 1000;
+          pollDelay = 1200;
+          showStatus("Обновляем итоги. Текущие итоги остаются доступны.");
+          pollingTimer = window.setTimeout(() => pollSummaryRefresh(template, generation), pollDelay);
+        } catch (error) {
+          if (isMeetingDetailRecoveredError(error) || generation !== candidateRequestGeneration) return;
+          setBusy(false);
+          candidateRequestInFlightGeneration = null;
+          const code = error instanceof Error ? error.message : "summary_request_unavailable";
+          showStatus(candidateErrorCopy(code), "failed", [
+            { text: "Обновить страницу", action: () => window.location.reload(), primary: true }
+          ]);
+        }
+       };
       const requestCurrentRefresh = async () => {
         // Invalidate an in-flight history load before resolving the current template.
         const refreshGeneration = ++candidateRequestGeneration;
@@ -3424,10 +3324,7 @@
           openFormatPicker();
           return;
         }
-        await requestCandidate(template, {
-          requestIntent: "manual_refresh",
-          requestIntentId: newRequestIntentId()
-        });
+        await requestSummaryRefresh(template, newRequestIntentId(), refreshGeneration);
       };
       const newRequestIntentId = () => typeof window.crypto?.randomUUID === "function"
           ? window.crypto.randomUUID()
@@ -3504,6 +3401,55 @@
         version: Number(option.dataset.templateVersion || "1"),
         name: option.dataset.templateName || option.textContent.trim()
       });
+      const candidateSectionLabels = new Map([
+        ["summary", "Кратко"],
+        ["action_items", "Действия"],
+        ["decisions", "Решения"],
+        ["key_points", "Ключевые пункты"],
+        ["followups", "Следующие шаги"],
+        ["risks", "Риски"],
+        ["questions", "Вопросы"],
+        ["evidence", "Подтверждения"]
+      ]);
+      const personalFormatOption = (template) => {
+        const option = document.createElement("button");
+        const safeName = typeof template.name === "string" && template.name.trim()
+          ? template.name.trim()
+          : "Личный формат";
+        const sections = Array.isArray(template.sections)
+          ? template.sections
+              .filter((section) => typeof section === "string" && section.trim())
+              .map((section) => candidateSectionLabels.get(section) || section)
+          : [];
+        option.type = "button";
+        option.dataset.summaryFormatOption = "";
+        option.dataset.templateId = template.template_id || "";
+        option.dataset.templateKey = template.template_key || "";
+        option.dataset.templateVersion = String(Number(template.version) || 1);
+        option.dataset.templateName = safeName;
+        const name = document.createElement("strong");
+        name.textContent = safeName;
+        const purpose = document.createElement("span");
+        purpose.textContent = typeof template.purpose === "string" && template.purpose.trim()
+          ? template.purpose.trim()
+          : "Назначение личного формата не указано.";
+        const expectedSections = document.createElement("small");
+        expectedSections.textContent = `Ожидаемые разделы: ${sections.length ? sections.join(", ") : "не указаны"}`;
+        option.append(name, purpose, expectedSections);
+        const isCurrent = option.dataset.templateKey === (controls.dataset.currentSummaryFormatKey || "")
+          && option.dataset.templateId === (controls.dataset.currentSummaryFormatTemplateId || "")
+          && Number(option.dataset.templateVersion)
+            === Number(controls.dataset.currentSummaryFormatVersion || "0");
+        option.setAttribute("aria-current", isCurrent ? "true" : "false");
+        if (isCurrent) {
+          option.dataset.summaryFormatCurrent = "";
+          const marker = document.createElement("small");
+          marker.className = "summary-format-current";
+          marker.textContent = "Текущий формат";
+          option.append(marker);
+        }
+        return option;
+      };
       const applyServerCandidate = (candidate) => {
         currentOutcomeSetId = candidate.current_outcome_set_id || currentOutcomeSetId;
         activeTemplate = templateFromCandidate(candidate);
@@ -3561,7 +3507,7 @@
         close({ restoreFocus: false });
         if (!(dialog instanceof HTMLDialogElement)) return;
         dialog.showModal();
-        dialog.querySelector("[data-summary-format-option]")?.focus({ preventScroll: true });
+        focusCurrentDialogFormat();
         const personalHost = dialog.querySelector("[data-summary-personal-options]");
         try {
           const response = await fetch("/api/v1/cabinet/summary-templates", { credentials: "same-origin", cache: "no-store" });
@@ -3569,17 +3515,8 @@
           const templates = await response.json();
           if (!personalHost || !templates.personal?.length) return;
           personalHost.hidden = false;
-          personalHost.replaceChildren(...templates.personal.map((template) => {
-            const option = document.createElement("button");
-            option.type = "button";
-            option.dataset.summaryFormatOption = "";
-            option.dataset.templateId = template.template_id;
-            option.dataset.templateKey = template.template_key;
-            option.dataset.templateVersion = String(template.version);
-            option.dataset.templateName = template.name;
-            option.textContent = template.name;
-            return option;
-          }));
+          personalHost.replaceChildren(...templates.personal.map(personalFormatOption));
+          if (dialog.open) focusCurrentDialogFormat();
         } catch (_error) {
           // Built-in formats remain usable when the optional personal list cannot refresh.
         }
@@ -3624,11 +3561,16 @@
         pollDeadline = Number(resumed.pollDeadline || (Date.now() + 5 * 60 * 1000));
         pollDelay = Number(resumed.pollDelay || 1500);
         setBusy(true);
-        showStatus("Проверяем новый вариант. Текущие итоги остаются на месте.");
+        showStatus("Проверяем новую версию. Текущие итоги остаются доступны.");
         pollCandidate({ poll_url: resumed.poll_url });
         return true;
       };
       const initialCandidateLoadGeneration = candidateRequestGeneration;
+      const showCandidateHistoryFailure = () => showStatus(
+        "Не удалось проверить сохранённые варианты. Текущие итоги доступны.",
+        "attention",
+        [{ text: "Повторить", action: () => window.location.reload(), primary: true }]
+      );
       fetch(`/api/v1/cabinet/meetings/${meetingId}/summary-candidates`, {
         credentials: "same-origin",
         cache: "no-store"
@@ -3656,10 +3598,18 @@
           applyServerCandidate(latestFailure);
           return;
         }
-        resumeCachedCandidate();
+        if (!resumeCachedCandidate() && payload === null) {
+          showCandidateHistoryFailure();
+        }
       }).catch(() => {
-        resumeCachedCandidate();
+        if (!resumeCachedCandidate()) {
+          showCandidateHistoryFailure();
+        }
       });
+      if (window.sessionStorage.getItem(acceptedFocusKey) === "current") {
+        window.sessionStorage.removeItem(acceptedFocusKey);
+        window.requestAnimationFrame(() => document.querySelector("[data-summary-current-result]")?.focus({ preventScroll: false }));
+      }
     });
   };
 
@@ -3797,9 +3747,20 @@
       const loadTemplates = async () => {
         try {
           const payload = await request(endpoint);
-          renderTemplates(payload.personal || []);
+          const personal = payload.personal || [];
+          renderTemplates(personal);
           if (defaultSelect) {
             canManageDefault = payload.can_manage_default === true;
+            defaultSelect.querySelectorAll("option[data-personal-template]").forEach((option) => option.remove());
+            personal.forEach((template) => {
+              const option = document.createElement("option");
+              option.value = template.template_key;
+              option.textContent = `${template.name} — личный`;
+              option.dataset.personalTemplate = "";
+              option.dataset.templateId = template.template_id;
+              option.dataset.templateVersion = String(template.version);
+              defaultSelect.append(option);
+            });
             defaultSelect.value = payload.default_template_key;
             defaultSelect.disabled = !canManageDefault;
           }
@@ -4045,13 +4006,37 @@
   const initSourceNavigation = () => {
     if (document.body.dataset.sourceNavigationReady === "true") return;
     document.body.dataset.sourceNavigationReady = "true";
+    const returnButton = document.querySelector("[data-source-return]");
+    let sourceReturnTarget = null;
+    const clearSourceReturn = () => {
+      sourceReturnTarget = null;
+      if (returnButton) returnButton.hidden = true;
+    };
+    document.querySelectorAll("[data-detail-tab]").forEach((tab) => {
+      tab.addEventListener("click", clearSourceReturn);
+      tab.addEventListener("keydown", (event) => {
+        if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+          clearSourceReturn();
+        }
+      });
+    });
+    returnButton?.addEventListener("click", () => {
+      const target = sourceReturnTarget;
+      activateDetailTab("outcomes");
+      clearSourceReturn();
+      window.requestAnimationFrame(() => target?.focus({ preventScroll: true }));
+    });
     document.addEventListener("click", (event) => {
       const control = event.target.closest?.("[data-seek-seconds]");
       if (!control) return;
       const seconds = Number.parseFloat(control.dataset.seekSeconds || "0");
       if (!Number.isFinite(seconds)) return;
       const sourceJump = control.hasAttribute("data-source-segment");
-      if (sourceJump) activateDetailTab("recording");
+      if (sourceJump) {
+        sourceReturnTarget = control;
+        if (returnButton) returnButton.hidden = false;
+        activateDetailTab("recording");
+      }
       const player = document.querySelector("[data-playback-player]");
       if (player) {
         try {

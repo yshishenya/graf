@@ -1,0 +1,13 @@
+{
+  "alias": "gpt-5.6-luna",
+  "allowed_provider_models": [
+    {
+      "model": "gpt-5.6-luna",
+      "provider": "openai"
+    }
+  ],
+  "binding_hash": "702f726862738ab8a97510ac11a5e98e3f942a1634ace26e60eacd96ee061a7a",
+  "binding_version": "graf-litellm-route-v1",
+  "request_compiler_hash": "060cdfb8b57edad75d96d88de2923ce0310d52486e2122d7b0fea1e39ed1fab6",
+  "request_compiler_version": "graf-chat-compiler-v1"
+}

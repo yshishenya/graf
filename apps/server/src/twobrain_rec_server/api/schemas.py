@@ -388,10 +388,10 @@ class MeetingTargetBrowserServicePattern(BaseModel):
     host_category: Literal["first_party", "enterprise_domain", "unknown"] = Field(
         alias="hostCategory"
     )
-    pattern_class: Literal["meeting_room", "join_intent", "landing", "settings", "unsupported"] = (
-        Field(
-            alias="patternClass",
-        )
+    pattern_class: Literal[
+        "meeting_room", "join_intent", "landing", "settings", "unsupported"
+    ] = Field(
+        alias="patternClass",
     )
 
 
@@ -733,9 +733,9 @@ class CalendarRosterSnapshotItem(BaseModel):
     display_name: Annotated[SafeClientText, Field(max_length=240)] | None = None
     email_present: bool = False
     workspace_relation: Annotated[SafeClientText, Field(min_length=1, max_length=80)] = "unknown"
-    recipient_candidate_class: Annotated[SafeClientText, Field(min_length=1, max_length=80)] = (
-        "unknown"
-    )
+    recipient_candidate_class: Annotated[
+        SafeClientText, Field(min_length=1, max_length=80)
+    ] = "unknown"
 
 
 class CalendarContextRosterView(BaseModel):
@@ -1340,6 +1340,58 @@ SummaryTemplateKind = Literal["builtin", "personal"]
 SummaryTemplateStatus = Literal["active", "archived", "deleted"]
 SummaryDetailLevel = Literal["brief", "standard", "detailed"]
 SummaryOutputLanguage = Literal["ru", "en"]
+SummaryTypeCatalogGroup = Literal["personal", "built_in", "additional"]
+SummaryTypeCategory = Literal[
+    "personal",
+    "general",
+    "team_project",
+    "people_learning",
+    "customer_revenue",
+    "high_stakes",
+]
+SummaryTypeAvailabilityState = Literal["available", "unavailable", "retired"]
+SummaryTypeResultState = Literal["ready", "absent"]
+SummaryTypeGenerationState = Literal[
+    "idle",
+    "preparing",
+    "updating",
+    "blocked",
+    "deferred",
+    "error",
+    "ambiguous",
+    "no_supported_content",
+]
+SummaryTypeSourceState = Literal[
+    "not_ready",
+    "transcript_failed",
+    "empty",
+    "current",
+    "stale",
+]
+SummaryTypeNextAction = Literal[
+    "wait",
+    "retry_safe",
+    "switch_type",
+    "open_transcript",
+    "correct_transcript_language",
+]
+SummaryTypeProvenanceSource = Literal["observed_reference", "graf_extension", "user_owned"]
+SummaryTypeRightsState = Literal[
+    "not_applicable",
+    "cleared",
+    "replacement_required",
+    "blocked",
+]
+SummaryTypeDeviationCode = Literal[
+    "accessibility",
+    "localization",
+    "privacy",
+    "security",
+    "deletion_truth",
+    "reference_defect",
+    "rights",
+    "graf_extension",
+]
 SummarySection = Literal[
     "summary",
     "key_points",
@@ -1471,6 +1523,195 @@ class SummaryTemplateListResponse(BaseModel):
     personal: list[SummaryTemplateView] = Field(default_factory=list, max_length=100)
 
 
+class SummaryTypeProvenanceV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source: SummaryTypeProvenanceSource
+    evidence_id: str | None = Field(default=None, min_length=1, max_length=128)
+    rights_state: SummaryTypeRightsState
+
+
+class SummaryTypeCatalogEntryV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    catalog_version: str = Field(min_length=1, max_length=64)
+    template_key: str = Field(min_length=1, max_length=120)
+    template_version: int = Field(ge=1)
+    resolved_locale: str = Field(min_length=1, max_length=35)
+    localized_name: str = Field(min_length=1, max_length=120)
+    localized_description: str = Field(min_length=1, max_length=240)
+    catalog_group: SummaryTypeCatalogGroup
+    group_rank: int = Field(ge=0, le=65535)
+    category: SummaryTypeCategory
+    quick_rank: int | None = Field(default=None, ge=0, le=65535)
+    full_rank: int = Field(ge=0, le=65535)
+    availability_state: SummaryTypeAvailabilityState
+    provenance: SummaryTypeProvenanceV1
+    deviation_codes: list[SummaryTypeDeviationCode] = Field(default_factory=list, max_length=8)
+    result_state: SummaryTypeResultState
+    generation_state: SummaryTypeGenerationState
+    source_state: SummaryTypeSourceState
+    current_outcome_set_id: UUID | None = None
+    attempt_id: UUID | None = None
+    reason_code: str | None = Field(default=None, min_length=1, max_length=80)
+    retryable: bool = False
+    next_action: SummaryTypeNextAction | None = None
+
+
+class SummaryTypeCatalogResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    catalog_version: str = Field(min_length=1, max_length=64)
+    resolved_locale: str = Field(min_length=1, max_length=35)
+    entries: list[SummaryTypeCatalogEntryV1] = Field(default_factory=list, max_length=128)
+
+    @model_validator(mode="after")
+    def validate_snapshot_order(self) -> Self:
+        if any(entry.catalog_version != self.catalog_version for entry in self.entries):
+            raise ValueError("summary type entries must use the response catalog version")
+        if any(entry.resolved_locale != self.resolved_locale for entry in self.entries):
+            raise ValueError("summary type entries must use the response locale")
+        full_order = sorted(
+            self.entries,
+            key=lambda entry: (
+                entry.group_rank,
+                entry.full_rank,
+                entry.template_key.encode("utf-8"),
+            ),
+        )
+        if self.entries != full_order:
+            raise ValueError("summary type entries are not in canonical full-catalog order")
+        full_ranks = [(entry.catalog_group, entry.full_rank) for entry in self.entries]
+        if len(full_ranks) != len(set(full_ranks)):
+            raise ValueError("summary type full ranks must be unique inside each group")
+        quick_entries = [entry for entry in self.entries if entry.quick_rank is not None]
+        if len({entry.quick_rank for entry in quick_entries}) != len(quick_entries):
+            raise ValueError("summary type quick ranks must be unique")
+        if quick_entries != sorted(
+            quick_entries,
+            key=lambda entry: (entry.quick_rank, entry.template_key.encode("utf-8")),
+        ):
+            raise ValueError("summary type quick entries are not in canonical order")
+        return self
+
+
+class EnsureSummaryTypeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal[1] = 1
+    idempotency_key: str = Field(min_length=16, max_length=200)
+
+    @field_validator("idempotency_key")
+    @classmethod
+    def require_ascii_idempotency_key(cls, value: str) -> str:
+        if not value.isascii() or any(ord(char) < 0x20 or ord(char) == 0x7F for char in value):
+            raise ValueError("idempotency_key must contain printable ASCII")
+        return value
+
+
+class RefreshSummaryTypeRequest(EnsureSummaryTypeRequest):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_current_outcome_set_id: UUID | None = None
+    template_id: UUID | None = None
+    template_version: int = Field(ge=1)
+    generation_options: dict[str, str | int | float | bool | None] = Field(
+        default_factory=dict,
+        max_length=16,
+    )
+
+
+class SummaryTypeAttemptStateV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    attempt_id: UUID
+    generation_state: SummaryTypeGenerationState
+    reason_code: str | None = Field(default=None, min_length=1, max_length=80)
+    retryable: bool = False
+    next_action: SummaryTypeNextAction | None = None
+    poll_after_ms: int | None = Field(default=None, ge=100, le=120000)
+
+
+class SummaryCopyCapabilityV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["summary"] = "summary"
+    authorized: bool = True
+    outcome_set_id: UUID | None = None
+    outcome_content_hash: str | None = Field(default=None, min_length=1, max_length=128)
+    displayed_revision: UUID | None = None
+    reason_code: str | None = Field(default=None, min_length=1, max_length=80)
+
+    @model_validator(mode="after")
+    def validate_binding(self) -> Self:
+        if self.authorized and not (
+            self.outcome_set_id and self.outcome_content_hash and self.displayed_revision
+        ):
+            raise ValueError("authorized summary copy must bind an exact result")
+        if not self.authorized and (
+            not self.reason_code
+            or self.outcome_set_id is not None
+            or self.outcome_content_hash is not None
+            or self.displayed_revision is not None
+        ):
+            raise ValueError("disabled summary copy must contain only a bounded reason")
+        return self
+
+
+class TranscriptCopyCapabilityV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["transcript"] = "transcript"
+    authorized: bool = True
+    source_revision: int | None = Field(default=None, ge=1)
+    transcript_content_hash: str | None = Field(default=None, min_length=1, max_length=128)
+    displayed_revision: str | None = Field(default=None, min_length=1, max_length=128)
+    reason_code: str | None = Field(default=None, min_length=1, max_length=80)
+
+    @model_validator(mode="after")
+    def validate_binding(self) -> Self:
+        if self.authorized and not (
+            self.source_revision and self.transcript_content_hash and self.displayed_revision
+        ):
+            raise ValueError("authorized transcript copy must bind an exact source")
+        if not self.authorized and (
+            not self.reason_code
+            or self.source_revision is not None
+            or self.transcript_content_hash is not None
+            or self.displayed_revision is not None
+        ):
+            raise ValueError("disabled transcript copy must contain only a bounded reason")
+        return self
+
+
+CopyCapabilityV1 = Annotated[
+    SummaryCopyCapabilityV1 | TranscriptCopyCapabilityV1,
+    Field(discriminator="kind"),
+]
+
+
+class SummaryStateEventV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal[1] = 1
+    event_id: UUID
+    meeting_id: UUID
+    template_key: str = Field(min_length=1, max_length=120)
+    attempt_id: UUID | None = None
+    state_version: int = Field(ge=1, le=9223372036854775807)
+    current_outcome_set_id: UUID | None = None
+    catalog_entry: SummaryTypeCatalogEntryV1
+    copy_capability: CopyCapabilityV1
+
+
+class SummaryTypeReadResponse(SummaryStateEventV1):
+    model_config = ConfigDict(extra="forbid")
+
+    outcome_set_id: UUID | None = None
+    items: list["OutcomeItemView"] = Field(default_factory=list, max_length=256)
+    attempt: SummaryTypeAttemptStateV1 | None = None
+
+
 class UpdateDefaultSummaryTemplateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -1516,16 +1757,6 @@ class SummaryCandidateProvenance(BaseModel):
     generator_version: Annotated[SafeClientText, Field(max_length=120)] | None = None
 
 
-class SummaryCandidatePreviewItem(BaseModel):
-    category: SummarySection
-    sequence: int = Field(default=0, ge=0)
-    text: str = ""
-    owner_text: str = ""
-    due_date_text: str = ""
-    truth_label: str = ""
-    source_refs: list["OutcomeSourceReferenceView"] = Field(default_factory=list, max_length=8)
-
-
 class SummaryCandidateResponse(BaseModel):
     candidate_id: UUID
     state: SummaryCandidateProjectionState
@@ -1541,25 +1772,11 @@ class SummaryCandidateResponse(BaseModel):
     next_action: SummaryCandidateNextAction | None = None
     format_name: Annotated[SafeClientText, Field(max_length=120)] | None = None
     expires_at: datetime | None = None
-    preview: list["SummaryCandidatePreviewItem"] = Field(default_factory=list)
     provenance: SummaryCandidateProvenance | None = None
 
 
 class SummaryCandidateListResponse(BaseModel):
     candidates: list[SummaryCandidateResponse] = Field(default_factory=list, max_length=8)
-
-
-class SummaryCandidatePreviewResponse(BaseModel):
-    candidate_id: UUID
-    outcome_set_id: UUID
-    template_key: str | None = None
-    items: list[SummaryCandidatePreviewItem] = Field(default_factory=list, max_length=200)
-
-
-class ResolveSummaryCandidateRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    expected_current_outcome_set_id: UUID | None = None
 
 
 class CreateScopedShareGrantRequest(BaseModel):
@@ -2041,9 +2258,9 @@ class TranscriptSegmentView(BaseModel):
     source_role: SourceRoleView
     text: str
     speaker_key: str = ""
-    attribution_state: Literal["confirmed", "unconfirmed", "unknown", "mixed", "uncertain"] = (
-        "unknown"
-    )
+    attribution_state: Literal[
+        "confirmed", "unconfirmed", "unknown", "mixed", "uncertain"
+    ] = "unknown"
     result_state: Literal["accepted", "degraded_provider_result"] = "accepted"
     provider_speaker_key: str | None = None
     processing_result_id: UUID | None = None
@@ -2063,9 +2280,9 @@ class TranscriptSpeakerTurnView(BaseModel):
     source_role: SourceRoleView
     text: str
     speaker_key: str = ""
-    attribution_state: Literal["confirmed", "unconfirmed", "unknown", "mixed", "uncertain"] = (
-        "unknown"
-    )
+    attribution_state: Literal[
+        "confirmed", "unconfirmed", "unknown", "mixed", "uncertain"
+    ] = "unknown"
     result_state: Literal["accepted", "degraded_provider_result"] = "accepted"
     provider_speaker_key: str | None = None
     processing_result_id: UUID | None = None

@@ -21,7 +21,7 @@
 
 - [X] T007 [US1] Preserve the last matching processing projection and its 15-second throttle across upload/playback progress swaps in `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`
 - [X] T008 [US1] Add a mixed processing + progress-swap lifecycle regression in `apps/server/tests/contract/test_cabinet_static_assets_contract.py`
-- [X] T009 [US2] Run `specs/202-fix-processing-list-flicker/quickstart.md` and `infra/scripts/ci-local.sh --fast`, review the follow-up diff, merge it, and reconcile PR/issue evidence
+- [ ] T009 [US2] Run `specs/202-fix-processing-list-flicker/quickstart.md` and `infra/scripts/ci-local.sh --fast`, review the follow-up diff, merge it, and reconcile PR/issue evidence
 
 ## Dependencies
 

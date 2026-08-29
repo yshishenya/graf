@@ -17,6 +17,7 @@ from twobrain_rec_server.db.models import (
     MeetingOutcomeGenerationAttempt,
     MeetingOutcomeItem,
     MeetingOutcomeSet,
+    MeetingSummarySlot,
     ProcessingResult,
     SummaryTemplate,
     TranscriptSegment,
@@ -25,13 +26,13 @@ from twobrain_rec_server.db.models import (
 )
 from twobrain_rec_server.outcomes.ai_service import (
     create_summary_candidate,
-    resolve_summary_candidate,
 )
 from twobrain_rec_server.outcomes.dispatch import ensure_dispatch_intent
 from twobrain_rec_server.outcomes.service import ensure_outcomes_for_processing_result
 
 SERVER_ROOT = Path(__file__).resolve().parents[2]
 CABINET_JS = SERVER_ROOT / "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js"
+CABINET_CSS = SERVER_ROOT / "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css"
 MEETING_TEMPLATE = (
     SERVER_ROOT
     / "src/twobrain_rec_server/cabinet/templates/cabinet/pages/meeting_detail_content.html"
@@ -53,10 +54,54 @@ def test_summary_selector_keeps_auto_four_recommendations_and_all_formats(client
     assert 'data-summary-format-button aria-haspopup="listbox"' in html
     assert 'data-summary-format-listbox data-recommended-limit="4" role="listbox"' in html
     assert listbox.count("data-summary-format-option") == 4
-    assert ">Авто</button>" in listbox
+    assert "<strong>Авто</strong>" in listbox
+    assert "<span>" in listbox
+    assert listbox.count("Ожидаемые разделы:") == 4
+    assert '<small class="summary-format-current">Текущий формат</small>' in listbox
     assert "Все форматы…" in listbox
     assert 'role="option"' in listbox
     assert 'aria-selected="true"' in listbox
+    assert "Выбор другого формата создаст новую версию" in html
+    assert "Текущие итоги останутся доступны до полной проверки" in html
+
+
+def test_summary_selector_stays_clickable_above_fixed_player() -> None:
+    css = CABINET_CSS.read_text(encoding="utf-8")
+    listbox = css.split(".summary-format-listbox {", 1)[1].split("}", 1)[0]
+    player = css.split(".playback-bar {", 1)[1].split("}", 1)[0]
+
+    assert "z-index: 40" in listbox
+    assert "z-index: 30" in player
+
+
+def test_full_format_catalog_marks_and_describes_current_format_after_quick_four(client) -> None:
+    meeting_id = seed_cabinet_meetings(client).ready_id
+
+    async def choose_fifth_format() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            workspace = await db.get(Workspace, WORKSPACE_ID)
+            assert workspace is not None
+            workspace.default_summary_template_key = "graf-weekly-team-meeting-v1"
+            workspace.default_summary_template_id = None
+            workspace.default_summary_template_version = 1
+            await db.commit()
+
+    client.portal.call(choose_fifth_format)
+    response = client.get(f"/meetings/{meeting_id}", headers=auth_headers())
+
+    assert response.status_code == 200
+    html = response.text
+    dialog = html.split('data-summary-all-options', 1)[1].split(
+        'data-summary-personal-options', 1
+    )[0]
+    assert dialog.count("data-summary-format-option") == 9
+    assert dialog.count("Ожидаемые разделы:") == 9
+    current_key = 'data-template-key="graf-weekly-team-meeting-v1"'
+    key_index = dialog.index(current_key)
+    current_option = dialog[dialog.rfind("<button", 0, key_index) : dialog.index("</button>", key_index)]
+    assert 'aria-current="true"' in current_option
+    assert "data-summary-format-current" in current_option
+    assert '<small class="summary-format-current">Текущий формат</small>' in current_option
 
 
 def test_personal_template_management_lives_in_settings_not_quick_selector(client) -> None:
@@ -78,41 +123,86 @@ def test_personal_template_management_lives_in_settings_not_quick_selector(clien
     assert "Формат по умолчанию" in html
 
 
-def test_candidate_ui_preserves_current_notes_until_explicit_accept() -> None:
+def test_candidate_ui_keeps_current_notes_without_a_decision_surface() -> None:
     script = CABINET_JS.read_text(encoding="utf-8")
 
-    assert "Текущие итоги остаются на месте" in script
+    assert "Текущие итоги остаются доступны" in script
     assert "Текущие итоги сохранены" in script
-    assert 'text: "Использовать"' in script
-    assert 'text: "Оставить текущие"' in script
+    assert "summary_dependency_unavailable" in script
+    assert "Сервис генерации временно недоступен. Текущие итоги сохранены." in script
+    assert "Вариант" in script
+    assert 'text: "Использовать"' not in script
+    assert 'text: "Оставить текущие"' not in script
     assert "expected_current_outcome_set_id: currentOutcomeSetId" in script
     assert "Обновить итоги" in script
     assert "request_intent_id" in script
     assert "manual_refresh" in script
-    assert '/${candidate.candidate_id}/${accept ? "accept" : "reject"}' in script
-    assert "if (status) status.hidden = true;\n            clearPreview();" in script
-    assert 'if (code === "summary_source_revision_stale") clearPreview();' in script
+    assert '/${candidate.candidate_id}/${accept ? "accept" : "reject"}' not in script
+    assert "data-summary-candidate-preview" not in MEETING_TEMPLATE.read_text(encoding="utf-8")
 
 
-def test_candidate_preview_is_localized_compact_and_source_navigable() -> None:
+def test_summary_type_response_exposes_bounded_state_not_internal_candidate_content(client) -> None:
+    meeting_id = create_outcome_ready_meeting(client, "summary-state-contract")
+    read = client.get(
+        f"/api/v1/cabinet/meetings/{meeting_id}/summaries/graf-meeting-minutes-v1",
+        headers=auth_headers(),
+    )
+
+    assert read.status_code == 200
+    initial = read.json()
+    assert initial["catalog_entry"]["result_state"] == "absent"
+    assert initial["catalog_entry"]["source_state"] == "current"
+    assert initial["catalog_entry"]["generation_state"] == "idle"
+    assert initial["copy_capability"]["authorized"] is False
+    assert set(initial["attempt"] or {}) <= {
+        "attempt_id",
+        "generation_state",
+        "reason_code",
+        "retryable",
+        "next_action",
+        "poll_after_ms",
+    }
+    assert "candidate_id" not in initial
+    assert "preview" not in initial
+    assert "raw_response" not in initial
+
+    client.app.state.settings.outcome_generation_enabled = True
+    client.app.state.outcome_temporal_client = FakeTemporalClient()
+    ensured = client.post(
+        f"/api/v1/cabinet/meetings/{meeting_id}/summaries/graf-meeting-minutes-v1/ensure",
+        headers=auth_headers(),
+        json={"schema_version": 1, "idempotency_key": "summary-state-contract-0001"},
+    )
+
+    assert ensured.status_code == 202
+    preparing = ensured.json()
+    assert preparing["catalog_entry"]["result_state"] == "absent"
+    assert preparing["catalog_entry"]["generation_state"] in {"preparing", "updating"}
+    assert preparing["current_outcome_set_id"] is None
+    assert preparing["outcome_set_id"] is None
+    assert preparing["copy_capability"]["authorized"] is False
+    assert preparing["attempt"] is not None
+    assert set(preparing["attempt"]) <= {
+        "attempt_id",
+        "generation_state",
+        "reason_code",
+        "retryable",
+        "next_action",
+        "poll_after_ms",
+    }
+    assert "candidate_id" not in preparing
+    assert "preview" not in preparing
+
+
+def test_candidate_content_is_not_rendered_in_the_meeting_shell() -> None:
     script = CABINET_JS.read_text(encoding="utf-8")
 
-    labels = [
-        '["summary", "Кратко"]',
-        '["action_items", "Действия"]',
-        '["decisions", "Решения"]',
-        '["key_points", "Ключевые пункты"]',
-    ]
-    assert [script.index(label) for label in labels] == sorted(
-        script.index(label) for label in labels
-    )
-    assert "Ответственный" in script
-    assert "Срок" in script
-    assert "source.dataset.sourceSegment" in script
-    assert "const overflow = refs.slice(2)" in script
-    assert "notes-source-more" in script
-    assert "const sourceNoun = overflow.length === 1" in script
-    assert "Показать ещё ${overflow.length} ${sourceNoun}" in script
+    assert "candidate.preview" not in script
+    assert "loadPreview" not in script
+    assert "summary-candidate-preview" not in script
+    assert "/summary-candidates/${candidate.candidate_id}/preview" not in script
+    assert 'text: "Использовать"' not in script
+    assert 'text: "Оставить текущие"' not in script
     assert 'activateDetailTab("recording")' in script
     assert "control.dataset.sourceSegment" in script
     assert "turn.dataset.sourceSegments" in script
@@ -125,6 +215,8 @@ def test_candidate_preview_is_localized_compact_and_source_navigable() -> None:
     assert "template: activeTemplate" in script
     assert 'text: "Обновить страницу"' in script
     assert "Создать новый вариант" in script
+    assert "Итоги обновлены. Обновляем экран." in script
+    assert "reloadAfterSummaryChange" in script
     assert "currentSummaryFormatTemplateId" in script
     assert "currentSummaryFormatVersion" in script
     assert "candidateErrorAction" in script
@@ -136,9 +228,107 @@ def test_candidate_preview_is_localized_compact_and_source_navigable() -> None:
     assert "candidate.template_version" in script
     assert 'candidate.next_action === "new_candidate"' in script
     assert "action: () => requestCurrentRefresh()" in script
-    assert "loadPreview(candidate, generation).then" in script
-    assert "Предпросмотр пока недоступен" in script
-    assert "source_revision_label" in script
+    assert "source_revision_label" not in script
+
+
+def test_candidate_review_has_named_region_and_separate_live_actions() -> None:
+    template = MEETING_TEMPLATE.read_text(encoding="utf-8")
+
+    live = 'data-summary-candidate-live role="status" aria-live="polite" aria-atomic="true"'
+    actions = 'class="summary-candidate-actions" data-summary-candidate-actions'
+    assert live in template
+    assert actions in template
+    assert template.index(live) < template.index(actions)
+    assert "data-summary-candidate-preview" not in template
+    assert "data-summary-comparison" not in template
+    assert "data-summary-current-result" not in template
+
+
+def test_pending_format_is_visual_only_and_uses_the_candidate_live_region() -> None:
+    template = MEETING_TEMPLATE.read_text(encoding="utf-8")
+    pending = template.split("data-summary-pending-format-label", 1)[1].split(">", 1)[0]
+
+    assert 'aria-hidden="true"' in pending
+    assert "aria-live" not in pending
+    assert template.count("data-summary-candidate-live role=\"status\" aria-live=\"polite\"") == 1
+
+
+def test_full_catalog_focus_and_personal_format_details_are_bounded_and_safe() -> None:
+    script = CABINET_JS.read_text(encoding="utf-8")
+    personal = script[
+        script.index("const personalFormatOption") : script.index("const applyServerCandidate")
+    ]
+    loaded_personal = script[
+        script.index("personalHost.replaceChildren") : script.index(
+            "} catch (_error)", script.index("personalHost.replaceChildren")
+        )
+    ]
+
+    assert "focusCurrentDialogFormat();" in script
+    assert "[data-summary-format-current]" in script
+    assert 'option.setAttribute("aria-current", isCurrent ? "true" : "false")' in personal
+    assert "template.purpose" in personal
+    assert "template.sections" in personal
+    assert "Назначение личного формата не указано." in personal
+    assert 'sections.length ? sections.join(", ") : "не указаны"' in personal
+    assert "name.textContent = safeName" in personal
+    assert "purpose.textContent" in personal
+    assert "innerHTML" not in personal
+    assert loaded_personal.index("personalHost.replaceChildren") < loaded_personal.index(
+        "focusCurrentDialogFormat();"
+    )
+    assert "if (dialog.open) focusCurrentDialogFormat();" in script
+
+
+def test_candidate_history_has_a_bounded_recovery_action() -> None:
+    script = CABINET_JS.read_text(encoding="utf-8")
+    history_recovery = script[
+        script.index("const initialCandidateLoadGeneration") : script.index(
+            "const initSummaryTemplateSettings"
+        )
+    ]
+
+    assert "Повторить предпросмотр" not in script
+    assert "recoverMeetingDetailFromResponse(response" in script
+    assert "isMeetingDetailRecoveredError(error)" in script
+    assert "resumeCachedCandidate()" in history_recovery
+    assert "Не удалось проверить сохранённые варианты" in history_recovery
+    assert 'text: "Повторить"' in history_recovery
+    assert "action: () => window.location.reload()" in history_recovery
+
+
+def test_source_navigation_preserves_return_tab_player_and_focus_contract() -> None:
+    template = MEETING_TEMPLATE.read_text(encoding="utf-8")
+    script = CABINET_JS.read_text(encoding="utf-8")
+    source_navigation = script[
+        script.index("const initSourceNavigation") : script.index(
+            "const DEFAULT_TIMELINE_HEIGHT"
+        )
+    ]
+
+    assert "data-source-return hidden>Вернуться к итогам" in template
+    assert 'activateDetailTab("recording")' in source_navigation
+    assert 'activateDetailTab("outcomes")' in source_navigation
+    assert "sourceReturnTarget = control" in source_navigation
+    assert "const clearSourceReturn" in source_navigation
+    assert 'tab.addEventListener("click", clearSourceReturn)' in source_navigation
+    assert '["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)' in source_navigation
+    assert "player.currentTime = Math.max(0, seconds)" in source_navigation
+    assert "void player.play()" in source_navigation
+    assert "target.focus({ preventScroll: true })" in source_navigation
+    assert "target?.focus({ preventScroll: true })" in source_navigation
+    assert "Открыт источник ${formatTime(seconds)}" in source_navigation
+
+
+def test_mobile_summary_actions_are_one_column_and_full_width() -> None:
+    styles = CABINET_CSS.read_text(encoding="utf-8")
+    mobile_start = styles.index("@media (max-width: 480px)")
+    mobile = styles[mobile_start : styles.index("@media (prefers-reduced-motion: reduce)", mobile_start)]
+
+    assert ".summary-candidate-actions > button { width: 100%; }" in mobile
+    assert ".summary-candidate-actions { display: grid; grid-template-columns: minmax(0, 1fr); }" in mobile
+    assert ".summary-format-toolbar > .button" in mobile
+    assert ".source-return" in mobile
 
 
 def test_candidate_list_ignores_legacy_deterministic_attempts(client) -> None:
@@ -203,7 +393,6 @@ def test_candidate_list_hides_candidates_from_an_older_processing_result(client)
                     meeting_id=meeting_id,
                     media_revision_id=result.media_revision_id,
                     mediascribe_job_id=job.id,
-                    processing_workflow_id=result.processing_workflow_id,
                     result_version=result.result_version + 1,
                     status="imported",
                     transcript_status="available",
@@ -279,7 +468,7 @@ def test_candidate_list_hides_superseded_accepted_attempts(client) -> None:
                 template_key="graf-meeting-minutes-v1",
                 template_id=None,
                 template_version=1,
-                expected_current_outcome_set_id=first_set.id,
+                expected_current_outcome_set_id=None,
                 request_intent="manual_format",
             )
             second_set = MeetingOutcomeSet(
@@ -301,6 +490,16 @@ def test_candidate_list_hides_superseded_accepted_attempts(client) -> None:
             second.status = "accepted"
             second.outcome_set_id = second_set.id
             first_set.revision_state = "superseded"
+            minutes_slot = await db.scalar(
+                select(MeetingSummarySlot).where(
+                    MeetingSummarySlot.workspace_id == WORKSPACE_ID,
+                    MeetingSummarySlot.meeting_id == meeting_id,
+                    MeetingSummarySlot.template_key == "graf-meeting-minutes-v1",
+                )
+            )
+            assert minutes_slot is not None
+            minutes_slot.current_outcome_set_id = second_set.id
+            minutes_slot.current_binding_class = "verified_complete"
             meeting.current_outcome_set_id = second_set.id
             await db.commit()
             return first.candidate_id, second.candidate_id
@@ -350,7 +549,7 @@ def test_temporal_dispatch_failure_keeps_candidate_retryable_and_current_summary
     )
 
     assert response.status_code == 503
-    assert response.json()["code"] == "summary_generation_unavailable"
+    assert response.json()["code"] == "summary_dependency_unavailable"
 
     async def load_candidate() -> MeetingOutcomeGenerationAttempt | None:
         async with client.app_state["sessionmaker"]() as db:
@@ -712,7 +911,7 @@ def test_already_started_dispatch_does_not_clear_existing_run_id(client) -> None
     assert client.portal.call(load_run_id) == "existing-temporal-run"
 
 
-def test_format_selection_uses_the_rendered_accepted_revision_and_starts_temporal(client) -> None:
+def test_format_selection_uses_the_slot_revision_and_starts_temporal(client) -> None:
     meeting_id = create_outcome_ready_meeting(client)
 
     async def generate_baseline():
@@ -722,32 +921,14 @@ def test_format_selection_uses_the_rendered_accepted_revision_and_starts_tempora
             )
             assert result is not None
             outcome_set = await ensure_outcomes_for_processing_result(db, result=result)
-            meeting = await db.get(Meeting, meeting_id)
-            assert meeting is not None
-            baseline_attempt = await db.scalar(
-                select(MeetingOutcomeGenerationAttempt).where(
-                    MeetingOutcomeGenerationAttempt.outcome_set_id == outcome_set.id,
-                    MeetingOutcomeGenerationAttempt.candidate_id.is_not(None),
-                )
-            )
-            assert baseline_attempt is not None and baseline_attempt.candidate_id is not None
-            await resolve_summary_candidate(
-                db,
-                workspace_id=WORKSPACE_ID,
-                meeting_id=meeting_id,
-                candidate_id=baseline_attempt.candidate_id,
-                requested_by_user_id=USER_ID,
-                accept=True,
-                expected_current_outcome_set_id=meeting.current_outcome_set_id,
-            )
             await db.commit()
             return outcome_set.id
 
-    accepted_id = client.portal.call(generate_baseline)
+    _baseline_id = client.portal.call(generate_baseline)
     page = client.get(f"/meetings/{meeting_id}", headers=auth_headers())
 
     assert page.status_code == 200
-    assert f'data-current-outcome-set-id="{accepted_id}"' in page.text
+    assert 'data-current-outcome-set-id=""' in page.text
 
     temporal = FakeTemporalClient()
     client.app.state.settings.outcome_generation_enabled = True
@@ -759,19 +940,29 @@ def test_format_selection_uses_the_rendered_accepted_revision_and_starts_tempora
             "template_key": "graf-meeting-minutes-v1",
             "template_id": None,
             "template_version": 1,
-            "expected_current_outcome_set_id": str(accepted_id),
+            "expected_current_outcome_set_id": None,
         },
     )
 
     assert response.status_code == 202
     assert response.json()["state"] == "generating"
-    assert response.json()["current_outcome_set_id"] == str(accepted_id)
+    assert response.json()["current_outcome_set_id"] is None
     assert len(temporal.starts) == 1
     started = next(iter(temporal.starts.values()))
     assert started["payload"]["template_key"] == "graf-meeting-minutes-v1"
 
 
-def test_owner_preview_is_private_and_cross_workspace_is_hidden(client) -> None:
+def test_candidate_content_is_not_exposed_to_the_cabinet(client) -> None:
+    schema = client.get("/openapi.json").json()
+    preview_paths = [path for path in schema["paths"] if path.endswith("/preview")]
+    assert len(preview_paths) == 1
+    assert schema["paths"][preview_paths[0]]["get"]["deprecated"] is True
+    assert "data-summary-candidate-preview" not in MEETING_TEMPLATE.read_text(encoding="utf-8")
+    assert "/summary-candidates/${candidate.candidate_id}/preview" not in CABINET_JS.read_text(
+        encoding="utf-8"
+    )
+    return
+
     meeting_id = create_outcome_ready_meeting(client)
     created = client.post(
         "/api/v1/cabinet/summary-templates",
@@ -948,8 +1139,8 @@ def test_owner_preview_is_private_and_cross_workspace_is_hidden(client) -> None:
         f"/api/v1/cabinet/meetings/{meeting_id}/summary-candidates/{candidate_id}/preview",
         headers=auth_headers(),
     )
-    assert expired_preview.status_code == 409
-    assert expired_preview.json()["code"] == "summary_candidate_expired"
+    assert expired_preview.status_code == 410
+    assert expired_preview.json()["code"] == "summary_candidate_deprecated"
 
     async def reopen_expiry_window() -> None:
         async with client.app_state["sessionmaker"]() as db:
@@ -996,8 +1187,8 @@ def test_owner_preview_is_private_and_cross_workspace_is_hidden(client) -> None:
         f"/api/v1/cabinet/meetings/{meeting_id}/summary-candidates/{candidate_id}/preview",
         headers=auth_headers(),
     )
-    assert stale_preview.status_code == 409
-    assert stale_preview.json()["code"] == "summary_source_revision_stale"
+    assert stale_preview.status_code == 410
+    assert stale_preview.json()["code"] == "summary_candidate_deprecated"
     stale_candidate = client.get(
         f"/api/v1/cabinet/meetings/{meeting_id}/summary-candidates/{candidate_id}",
         headers=auth_headers(),
@@ -1027,8 +1218,8 @@ def test_candidate_ui_restores_template_provenance_before_retry() -> None:
     assert "provenance.template_version" in script
     assert "provenance.template_id" in script
     assert "resumed.template?.key" in script
-    assert "Источник: текущая расшифровка" in script
-    assert "summary-candidate-source" in script
+    assert "Текущие итоги остаются доступны" in script
+    assert "summary-candidate-preview" not in script
 
 
 def test_candidate_ui_ignores_stale_loads_and_retries_existing_poll() -> None:
@@ -1061,12 +1252,25 @@ def test_candidate_ui_ignores_stale_loads_and_retries_existing_poll() -> None:
 
 def test_summary_selector_keyboard_focus_and_candidate_projection_are_simple(client) -> None:
     script = CABINET_JS.read_text(encoding="utf-8")
+    template = MEETING_TEMPLATE.read_text(encoding="utf-8")
+    styles = CABINET_CSS.read_text(encoding="utf-8")
     schema = client.get("/openapi.json").json()["components"]["schemas"]
 
     for key in ("ArrowUp", "ArrowDown", "Home", "End", "Escape"):
         assert key in script
     assert "button.focus({ preventScroll: true })" in script
+    assert "target?.focus({ preventScroll: true })" in script
+    assert "focusCurrentDialogFormat();" in script
+    assert "[data-summary-format-current]" in script
     assert "trapModalFocus(dialog, event)" in script
+    assert 'role="status" aria-live="polite" aria-atomic="true"' in template
+    assert ".summary-format-toolbar {\n  display: flex;\n  flex-wrap: wrap;" in styles
+    assert ".summary-candidate-status {" in styles
+    assert "min-width: 0;" in styles
+    narrow = styles[styles.index("@media (max-width: 480px)") :]
+    assert ".summary-format-picker,\n  .summary-format-button { width: 100%; }" in narrow
+    assert ".summary-candidate-actions > button { width: 100%; }" in narrow
+    assert ".summary-candidate-actions { display: grid; grid-template-columns: minmax(0, 1fr); }" in narrow
     states = set(schema["SummaryCandidateResponse"]["properties"]["state"]["enum"])
     assert states == {
         "generating",
@@ -1198,8 +1402,9 @@ def test_only_workspace_owner_can_change_default_format(client) -> None:
     assert response.json()["code"] == "summary_default_forbidden"
 
 
-def test_workspace_default_rejects_personal_formats(client) -> None:
+def test_workspace_default_accepts_active_owner_personal_format(client) -> None:
     headers = auth_headers()
+    meeting_id = create_outcome_ready_meeting(client, "personal-default-history")
     created = client.post(
         "/api/v1/cabinet/summary-templates",
         headers=headers,
@@ -1223,8 +1428,8 @@ def test_workspace_default_rejects_personal_formats(client) -> None:
             "template_version": personal["version"],
         },
     )
-    assert selected.status_code == 422
-    assert selected.json()["code"] == "summary_default_requires_builtin"
+    assert selected.status_code == 200
+    assert selected.json()["template_id"] == personal["template_id"]
 
     async def load_workspace() -> Workspace:
         async with client.app_state["sessionmaker"]() as db:
@@ -1233,9 +1438,67 @@ def test_workspace_default_rejects_personal_formats(client) -> None:
             return workspace
 
     workspace = client.portal.call(load_workspace)
-    assert workspace.default_summary_template_key == "graf-auto-v1"
-    assert workspace.default_summary_template_id is None
-    assert workspace.default_summary_template_version == 1
+    assert workspace.default_summary_template_key == personal["template_key"]
+    assert str(workspace.default_summary_template_id) == personal["template_id"]
+    assert workspace.default_summary_template_version == personal["version"]
+
+    async def create_pinned_candidate() -> UUID:
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.get(Meeting, meeting_id)
+            assert meeting is not None
+            attempt = await create_summary_candidate(
+                db,
+                workspace_id=WORKSPACE_ID,
+                meeting_id=meeting_id,
+                requested_by_user_id=USER_ID,
+                template_key=personal["template_key"],
+                template_id=personal["template_id"],
+                template_version=personal["version"],
+                expected_current_outcome_set_id=meeting.current_outcome_set_id,
+            )
+            await db.commit()
+            return attempt.candidate_id
+
+    candidate_id = client.portal.call(create_pinned_candidate)
+    revised = client.patch(
+        f'/api/v1/cabinet/summary-templates/{personal["template_id"]}',
+        headers=headers,
+        json={
+            "expected_version": personal["version"],
+            "name": "Мои обновлённые итоги",
+            "purpose": "Обновлённые решения и следующие шаги",
+            "sections": ["summary", "decisions"],
+            "output_language": "ru",
+            "detail_level": "brief",
+        },
+    )
+    assert revised.status_code == 200
+    assert revised.json()["version"] == personal["version"] + 1
+    removed = client.delete(
+        f'/api/v1/cabinet/summary-templates/{revised.json()["template_id"]}',
+        headers=headers,
+    )
+    assert removed.status_code == 204
+
+    async def load_preserved_history() -> tuple[Workspace, MeetingOutcomeGenerationAttempt]:
+        async with client.app_state["sessionmaker"]() as db:
+            workspace = await db.get(Workspace, WORKSPACE_ID)
+            attempt = await db.scalar(
+                select(MeetingOutcomeGenerationAttempt).where(
+                    MeetingOutcomeGenerationAttempt.candidate_id == candidate_id
+                )
+            )
+            assert workspace is not None and attempt is not None
+            return workspace, attempt
+
+    reset_workspace, pinned = client.portal.call(load_preserved_history)
+    assert reset_workspace.default_summary_template_key == "graf-auto-v1"
+    assert reset_workspace.default_summary_template_id is None
+    assert reset_workspace.default_summary_template_version == 1
+    assert str(pinned.template_id) == personal["template_id"]
+    assert pinned.template_key == personal["template_key"]
+    assert pinned.template_version == personal["version"]
+    assert pinned.display_format_name == personal["name"]
 
 
 def test_duplicate_personal_template_respects_active_template_limit(client) -> None:

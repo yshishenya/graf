@@ -218,7 +218,7 @@ if workflow is not None:
     @workflow.defn
     class OutcomeObservabilityReconcilerWorkflow:
         @workflow.run
-        async def run(self, payload: dict[str, str]) -> dict[str, Any]:
+        async def run(self, payload: dict[str, Any]) -> dict[str, Any]:
             cycles = 0
             while True:
                 state = await workflow.execute_activity(
@@ -237,7 +237,7 @@ if workflow is not None:
     @workflow.defn
     class OutcomeGenerationWorkflow:
         @workflow.run
-        async def run(self, payload: dict[str, str]) -> dict[str, Any]:
+        async def run(self, payload: dict[str, Any]) -> dict[str, Any]:
             reconciler_enabled = workflow.patched("outcome-observability-reconciler-v1")
             try:
                 if reconciler_enabled:
@@ -326,9 +326,9 @@ if workflow is not None:
 else:
 
     class OutcomeGenerationWorkflow:
-        async def run(self, payload: dict[str, str]) -> dict[str, Any]:
+        async def run(self, payload: dict[str, Any]) -> dict[str, Any]:
             return payload
 
     class OutcomeObservabilityReconcilerWorkflow:
-        async def run(self, payload: dict[str, str]) -> dict[str, Any]:
+        async def run(self, payload: dict[str, Any]) -> dict[str, Any]:
             return payload

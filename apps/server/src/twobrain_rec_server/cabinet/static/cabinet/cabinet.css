@@ -615,8 +615,10 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
 }
 .notes-source-more > summary:hover { color: var(--text); }
 .notes-source-more > summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.source-return { margin-bottom: 12px; }
 .summary-format-toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
@@ -624,6 +626,7 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
   border-bottom: 1px solid var(--line);
 }
 .summary-format-toolbar h2 { margin: 0; font-size: var(--font-size-page-title); }
+.summary-format-help { flex-basis: 100%; margin: -6px 0 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
 .summary-format-picker { position: relative; }
 .summary-format-button {
   min-height: 38px;
@@ -636,7 +639,7 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
 }
 .summary-format-listbox {
   position: absolute;
-  z-index: 20;
+  z-index: 40;
   top: calc(100% + 7px);
   right: 0;
   width: min(280px, calc(100vw - 36px));
@@ -652,11 +655,16 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
 .summary-format-listbox [role="option"] {
   width: 100%;
   min-height: 40px;
-  justify-content: flex-start;
+  display: grid;
+  justify-content: stretch;
+  gap: 3px;
   border: 0;
   background: transparent;
   text-align: left;
 }
+.summary-format-listbox [role="option"] span,
+.summary-format-listbox [role="option"] small { color: var(--muted); font-size: 11px; font-weight: 500; line-height: 1.35; }
+.summary-format-listbox [role="option"] .summary-format-current { color: var(--accent); font-weight: 750; }
 .summary-format-listbox [role="option"][aria-selected="true"] {
   background: rgba(125,107,255,.14);
   color: #e3deff;
@@ -678,17 +686,10 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
 .summary-candidate-status[hidden] { display: none; }
 .summary-candidate-status[data-state="ready"] { border-color: rgba(125,107,255,.6); }
 .summary-candidate-status[data-state="failed"] { border-color: rgba(255,107,107,.6); }
+.summary-candidate-status[data-state="slow"],
+.summary-candidate-status[data-state="attention"] { border-color: rgba(255,193,102,.6); }
+.summary-candidate-status > p { margin: 0; }
 .summary-candidate-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-.summary-candidate-preview { display: grid; gap: 0; margin: 12px 0; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); min-width: 0; }
-.summary-candidate-preview[hidden] { display: none; }
-.summary-candidate-preview h3 { margin: 0; font-size: var(--font-size-section); }
-.summary-candidate-source { margin: 4px 0 0; color: var(--muted); font-size: var(--font-size-label); }
-.summary-candidate-section { min-width: 0; padding: 14px 0; border-top: 1px solid var(--line-soft); }
-.summary-candidate-section h4 { margin: 0; font-size: var(--font-size-label); }
-.summary-candidate-items { display: grid; gap: 10px; margin-top: 10px; min-width: 0; }
-.summary-candidate-more { min-width: 0; border-top: 1px solid var(--line-soft); }
-.summary-candidate-more > summary { padding: 12px 0; color: var(--text); font-size: var(--font-size-body); font-weight: 700; cursor: pointer; }
-.summary-candidate-more > .summary-candidate-section:first-of-type { border-top: 0; }
 .processing-recovery {
   display: grid;
   gap: 16px;
@@ -790,8 +791,10 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
 .summary-format-dialog__header p { margin: 0; }
 .summary-format-dialog__header p { margin-top: 6px; }
 .summary-format-grid,
+.summary-personal-formats,
 .summary-template-list { display: grid; gap: 7px; }
 .summary-format-grid > button,
+.summary-personal-formats > button,
 .summary-template-row {
   min-height: 62px;
   display: flex;
@@ -803,11 +806,27 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
   border-radius: 12px;
   background: var(--surface);
   text-align: left;
+  white-space: normal;
 }
-.summary-format-grid > button { align-items: flex-start; flex-direction: column; white-space: normal; }
+.summary-format-grid > button,
+.summary-personal-formats > button { align-items: flex-start; flex-direction: column; white-space: normal; }
+.summary-format-grid > button { white-space: normal; }
 .summary-format-grid > button span,
+.summary-personal-formats > button span,
 .summary-template-row > div { display: grid; gap: 4px; }
-.summary-format-grid > button span { color: var(--muted); }
+.summary-format-grid > button span,
+.summary-format-grid > button small,
+.summary-personal-formats > button span,
+.summary-personal-formats > button small { color: var(--muted); line-height: 1.4; }
+.summary-format-grid > button small,
+.summary-personal-formats > button small { font-size: 11px; }
+.summary-format-grid > button .summary-format-current,
+.summary-personal-formats > button .summary-format-current { color: var(--accent); font-weight: 750; }
+.summary-format-grid > button[aria-current="true"],
+.summary-personal-formats > button[aria-current="true"] {
+  border-color: rgba(125,107,255,.65);
+  background: rgba(125,107,255,.12);
+}
 .summary-format-settings { align-items: start; }
 .summary-default-template {
   grid-column: 1 / -1;
@@ -4995,6 +5014,13 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
   .summary-format-picker,
   .summary-format-button { width: 100%; }
   .summary-format-listbox { left: 0; right: auto; }
+  .source-return,
+  .summary-format-toolbar > .button,
+  .summary-candidate-actions,
+  .summary-candidate-actions > button { width: 100%; }
+  .summary-candidate-actions { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .summary-format-toolbar > *,
+  .summary-candidate-actions > button { min-width: 0; max-width: none; }
   .summary-template-row { align-items: stretch; flex-direction: column; }
   .summary-template-dialog fieldset,
   .summary-template-options { grid-template-columns: 1fr; }

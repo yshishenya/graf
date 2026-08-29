@@ -58,7 +58,12 @@ from twobrain_rec_server.cabinet.templates import (
 )
 from twobrain_rec_server.deletion.report import BOUNDED_DELETE_COPY
 from twobrain_rec_server.domain.media_filenames import MANUAL_MEDIA_UPLOAD_ACCEPT
-from twobrain_rec_server.outcomes.templates import BUILT_IN_BY_KEY, BUILT_IN_TEMPLATES
+from twobrain_rec_server.outcomes.templates import (
+    BUILT_IN_BY_KEY,
+    BUILT_IN_TEMPLATES,
+    OUTCOME_CATEGORIES,
+    built_in_template_for_version,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -399,20 +404,22 @@ def render_shared_meeting_summary_page(
     )
 
 
+SUMMARY_SECTION_LABELS = {
+    "summary": "Кратко",
+    "action_items": "Действия",
+    "decisions": "Решения",
+    "key_points": "Ключевые пункты",
+    "followups": "Следующие шаги",
+    "risks": "Риски",
+    "questions": "Вопросы",
+    "evidence": "Подтверждения",
+}
+
+
 def _localized_shared_summary_sections(
     rows: list[dict[str, object]],
 ) -> list[dict[str, object]]:
-    labels = {
-        "summary": "Кратко",
-        "action_items": "Действия",
-        "decisions": "Решения",
-        "key_points": "Ключевые пункты",
-        "followups": "Следующие шаги",
-        "risks": "Риски",
-        "questions": "Вопросы",
-        "evidence": "Подтверждения",
-    }
-    grouped: dict[str, list[dict[str, str]]] = {key: [] for key in labels}
+    grouped: dict[str, list[dict[str, str]]] = {key: [] for key in SUMMARY_SECTION_LABELS}
     for row in rows[:100]:
         category = str(row.get("category") or "")
         text = str(row.get("text") or "").strip()
@@ -427,7 +434,7 @@ def _localized_shared_summary_sections(
         )
     return [
         {"label": label, "items": grouped[category]}
-        for category, label in labels.items()
+        for category, label in SUMMARY_SECTION_LABELS.items()
         if grouped[category]
     ]
 
@@ -1016,7 +1023,11 @@ def _render_meeting_detail_content(
             """,
             source="meeting_detail.empty_transcript",
         )
-    outcomes_selected = review.notes_action_truth.summary.state == "available"
+    outcomes_selected = review.notes_action_truth.summary.state == "available" or bool(
+        review.access is not None
+        and review.access.state == "owner"
+        and review.transcript.available
+    )
     content_export_available = review.content_exports is not None and (
         (
             review.transcript.available
@@ -1029,6 +1040,8 @@ def _render_meeting_detail_content(
         )
     )
     meeting_details_available = _meeting_details_available(review) and shared_workspace_id is None
+    summary_lifecycle = _summary_render_lifecycle(review)
+    summary_source_stale = summary_lifecycle["source_state"] == "stale"
     more_actions_available = (
         content_export_available
         or review.governance.download.state == "available"
@@ -1076,6 +1089,8 @@ def _render_meeting_detail_content(
         processing_state=review.processing.state,
         processing_reason_code=review.processing.reason_code or "",
         processing_reason_label=_ui_text(review.processing.reason_label or ""),
+        transcript_available=review.transcript.available,
+        transcript_degraded_reason=review.transcript.degraded_reason or "",
         stored_outcomes_available=review.notes_action_truth.source_basis == "stored_output",
         playback_live_label=review.playback.label,
         top_actions=trusted_component_html(
@@ -1091,6 +1106,9 @@ def _render_meeting_detail_content(
         meeting_details_available=meeting_details_available,
         more_actions_available=more_actions_available,
         meeting_id=review.meeting.meeting_id,
+        summary_lifecycle=summary_lifecycle,
+        summary_source_stale=summary_source_stale,
+        summary_section_labels=SUMMARY_SECTION_LABELS,
         summary_controls_available=bool(
             review.access is not None
             and review.access.state == "owner"
@@ -1121,8 +1139,6 @@ def _render_meeting_detail_content(
             _render_notes_outcomes(review), source="meeting_detail.outcomes"
         ),
         transcript=transcript,
-        transcript_available=review.transcript.available,
-        transcript_degraded_reason=review.transcript.degraded_reason,
         calendar_context_chooser=trusted_component_html(
             _render_calendar_context_chooser(
                 review,
@@ -1203,6 +1219,72 @@ def _meeting_details_available(review: MeetingReviewResponse) -> bool:
         or review.calendar_context
         or review.deletion_truth_copy
     )
+
+
+def _summary_render_lifecycle(review: MeetingReviewResponse) -> dict[str, str]:
+    """Project independent summary dimensions for the server-rendered detail."""
+    summary = review.notes_action_truth.summary
+    result_state = (
+        "ready"
+        if review.notes_action_truth.source_basis == "stored_output"
+        and summary.state in {"available", "not_found", "not_inferable"}
+        else "absent"
+    )
+    export_summary = review.content_exports.summary if review.content_exports else None
+    summary_reason = export_summary.reason if export_summary is not None else None
+
+    if summary_reason == "stored_summary_revision_stale":
+        source_state = "stale"
+        reason_code = "stored_summary_revision_stale"
+    elif review.processing.state in {"failed", "blocked"} and not review.transcript.available:
+        source_state = "transcript_failed"
+        reason_code = "transcript_failed"
+    elif review.processing.state in {"processing", "submitted", "uploading"}:
+        source_state = "not_ready"
+        reason_code = "transcript_not_ready"
+    elif not review.transcript.available and review.processing.state in {"ready", "partial"}:
+        source_state = "empty"
+        reason_code = "source_empty"
+    else:
+        source_state = "current"
+        reason_code = ""
+
+    generation_state = "idle"
+    if summary.state == "processing":
+        generation_state = "updating" if result_state == "ready" else "preparing"
+    elif summary.state == "blocked":
+        generation_state = "blocked"
+    elif summary.state == "deferred":
+        generation_state = "deferred"
+    elif summary.state == "unsafe":
+        generation_state = "ambiguous"
+    elif summary.state in {"not_found", "not_inferable"}:
+        generation_state = "no_supported_content"
+
+    template_key = review.template.reason or ""
+    if review.template.state != "available":
+        availability_state = "unavailable"
+    elif template_key and template_key not in BUILT_IN_BY_KEY and review.template.template_id is None:
+        availability_state = "retired"
+    else:
+        availability_state = "available"
+    if not reason_code:
+        if availability_state == "retired":
+            reason_code = "summary_type_retired"
+        elif availability_state != "available":
+            reason_code = "summary_type_unavailable"
+        elif generation_state != "idle":
+            reason_code = f"summary_{generation_state}"
+        elif summary.state == "unavailable":
+            reason_code = "summary_unavailable"
+
+    return {
+        "result_state": result_state,
+        "generation_state": generation_state,
+        "source_state": source_state,
+        "availability_state": availability_state,
+        "reason_code": reason_code[:80],
+    }
 
 
 def _render_meeting_workspace_actions(
@@ -1635,6 +1717,7 @@ def _render_home_upcoming(
         "/desktop/settings/integrations/calendar" if embedded else "/settings/integrations/calendar"
     )
     preview = calendar_surface.preview[:4]
+    upcoming_refresh_at = min((item.ends_at for item in preview), default=None)
     source_states = {source.sync_health_state for source in calendar_surface.sources}
     credential_issue = bool(source_states & {"credential_failed", "failed_closed"})
     provider_issue = bool(source_states & {"provider_unavailable", "rate_limited"})
@@ -1692,18 +1775,8 @@ def _render_home_upcoming(
             "<p>Когда появится подходящее событие, оно будет показано здесь.</p></div>"
         )
 
-    refresh_at = min(
-        (item.ends_at for item in preview if item.ends_at is not None),
-        default=None,
-    )
-    refresh_attribute = (
-        f' data-calendar-upcoming-refresh-at="{escape(refresh_at.isoformat())}"'
-        if refresh_at is not None
-        else ""
-    )
-
     return f"""
-      <details class="calendar-home-upcoming" open{refresh_attribute}>
+      <details class="calendar-home-upcoming" open{f' data-calendar-upcoming-refresh-at="{escape(upcoming_refresh_at.isoformat())}"' if upcoming_refresh_at is not None else ''}>
         <summary>
           <span>Ближайшие встречи</span>
           <small>{escape(state_copy)}</small>
@@ -2279,18 +2352,28 @@ def _render_revision_status(review: MeetingReviewResponse) -> str:
 
 
 def _render_notes_outcomes(review: MeetingReviewResponse) -> str:
-    primary = [
-        ("summary", "Summary", review.notes_action_truth.summary),
-        ("action_items", "Action Items", review.notes_action_truth.action_items),
-        ("decisions", "Decisions", review.notes_action_truth.decisions),
-    ]
-    secondary = [
-        ("key_points", "Key points", review.notes_action_truth.key_points),
-        ("followups", "Follow-ups", review.notes_action_truth.followups),
-        ("risks", "Risks", review.notes_action_truth.risks),
-        ("questions", "Questions", review.notes_action_truth.questions),
-        ("evidence", "Evidence", review.notes_action_truth.evidence),
-    ]
+    rows = {
+        "summary": ("summary", "Summary", review.notes_action_truth.summary),
+        "key_points": ("key_points", "Key points", review.notes_action_truth.key_points),
+        "decisions": ("decisions", "Decisions", review.notes_action_truth.decisions),
+        "action_items": (
+            "action_items",
+            "Action Items",
+            review.notes_action_truth.action_items,
+        ),
+        "followups": ("followups", "Follow-ups", review.notes_action_truth.followups),
+        "risks": ("risks", "Risks", review.notes_action_truth.risks),
+        "questions": ("questions", "Questions", review.notes_action_truth.questions),
+        "evidence": ("evidence", "Evidence", review.notes_action_truth.evidence),
+    }
+    definition = built_in_template_for_version(
+        review.template.reason,
+        review.template.template_version or 1,
+    )
+    # Personal and historical unknown templates use the stable canonical order.
+    section_order = definition.sections if definition is not None else OUTCOME_CATEGORIES
+    ordered = [rows[category] for category in section_order]
+    primary, secondary = ordered[:4], ordered[4:]
     aggregate_states = {"processing", "blocked", "unavailable", "deferred", "unsafe"}
     aggregate_candidates = [
         state for _, _, state in primary + secondary if state.state in aggregate_states
@@ -2301,8 +2384,27 @@ def _render_notes_outcomes(review: MeetingReviewResponse) -> str:
         key=lambda state: priority.get(state.state, len(priority)),
         default=None,
     )
-    primary = [row for row in primary if row[2].state not in aggregate_states]
-    secondary = [row for row in secondary if row[2].state not in aggregate_states]
+    fully_empty = aggregate is None and all(
+        state.state in {"not_found", "not_inferable"} and not any(
+            item.text for item in state.items
+        )
+        for _, _, state in primary + secondary
+    )
+    if fully_empty:
+        primary = []
+        secondary = []
+    else:
+        hidden_empty_states = aggregate_states | {"not_found", "not_inferable"}
+        primary = [
+            row
+            for row in primary
+            if row[2].state not in hidden_empty_states or bool(row[2].items)
+        ]
+        secondary = [
+            row
+            for row in secondary
+            if row[2].state not in hidden_empty_states or bool(row[2].items)
+        ]
     source_destination_available = review.transcript.available and (
         review.playback.can_play
         or bool(review.transcript.speaker_turns or review.transcript.segments)
@@ -2335,12 +2437,23 @@ def _render_notes_outcomes(review: MeetingReviewResponse) -> str:
     if secondary_count:
         secondary_label += f" ({secondary_count})"
     aggregate_html = ""
-    if aggregate is not None:
+    if fully_empty:
+        aggregate_html = (
+            '<div class="notes-aggregate-state" data-outcome-state="empty" role="status">'
+            "<strong>Полезных итогов не найдено</strong>"
+            "<p>В разговоре нет достаточно подтверждённых решений, действий "
+            "или других результатов для выбранного формата.</p>"
+            "</div>"
+        )
+    elif aggregate is not None:
         reason = _ui_text(aggregate.reason)
+        label = "Итоги готовятся" if aggregate.state == "processing" else _ui_text(
+            aggregate.label
+        )
         aggregate_html = (
             f'<div class="notes-aggregate-state" data-outcome-state="{escape(aggregate.state)}" '
             'role="status">'
-            f"<strong>{escape(_ui_text(aggregate.label))}</strong>"
+            f"<strong>{escape(label)}</strong>"
             + (f"<p>{escape(reason)}</p>" if reason else "")
             + "</div>"
         )

@@ -1,40 +1,44 @@
 <!--
 Sync Impact Report
-Version change: 4.1.0 -> 4.2.0
+Version change: 4.2.0 -> 5.0.0
 Modified principles:
-- Data Boundary And Secret Discipline -> Plaintext Observability For Internal
-  MVP: complete transcript and model content are intentionally retained in
-  Langfuse and the Generation Call ledger, while Temporal History retains the
-  complete transcript, all without application-layer encryption, redaction, or
-  GRAF-managed observability deletion.
-- Deletion Truth And Lifecycle Accounting: meeting deletion remains truthful
-  and complete inside GRAF, while Langfuse observations and Temporal History
-  are explicitly retained under operator-managed platform retention.
-- Visible Consent And User Control: the approved target-scoped automatic
-  recording flow, countdown, opt-in checkbox, and native-app allowlist are
-  preserved product requirements and cannot be removed by a cleanup or UX
-  simplification without an explicit superseding feature decision.
+- External AI Boundaries And Prompt Control: exactly one logical Generation
+  Call remains authoritative, while Langfuse delivery is explicitly at-least-
+  observable rather than falsely claimed exactly-once; ambiguous OTLP delivery
+  never repeats inference or uses duplicate ingest as an upsert.
+- Spec-Driven Delivery With Testable Gates: high-risk reference-fidelity UX
+  replaces the former brand-distance gate and remains subject to accessibility,
+  privacy, security, validation and release evidence.
 Added sections:
-- Public macOS Distribution And Update Integrity: public app and package
-  releases use only Developer ID, Apple notarization, stapling and Gatekeeper;
-  local/self-signed paths are never public release or update paths.
+- Reference-Fidelity Product Design: the product owner explicitly authorizes
+  faithful, including literal, reproduction of observable Krisp UX/UI/IA,
+  including screen composition, navigation, interaction states, control
+  placement and functional visible wording, while requiring independently
+  written code and licensed or GRAF-owned assets.
+- Prompt-control promotion: clarified that expected-source safety is a composed
+  GRAF writer/lock/read-compare/qualification/label-move/read-back/event-binding
+  protocol, not a claimed native Langfuse CAS primitive or bare-digest lookup.
 Removed sections:
-- None.
+- Original-design and first-glance brand-distance requirements.
 Templates requiring updates:
-- ✅ reviewed .specify/templates; no structural change needed.
-- ✅ updated AGENTS.md for the internal-MVP plaintext observability policy.
-- ✅ updated docs/agent-guidance/product-gates.md.
-- ✅ updated docs/prd-voice-layer-final.md AI boundary.
-- ✅ this amendment is propagated to the active recording specification,
-  current product status, and release changelog by Feature 124.
+- ✅ reviewed `.specify/templates`; no brand-distance requirement is embedded.
+- ✅ updated `AGENTS.md`, `docs/agent-guidance/README.md`,
+  `docs/agent-guidance/product-gates.md` and
+  `docs/agent-guidance/spec-kit-flow.md`.
+- ✅ updated `docs/prd-voice-layer-final.md` design and clean-room boundaries.
+- ✅ propagated the decision through Feature 183 program, UX checklist and
+  Krisp parity artifacts; implementation remains a later approved slice.
+- ✅ recorded the amendment in `docs/current-product-status.md` and
+  `CHANGELOG.md` without rewriting historical release evidence.
 Follow-up items:
-- Revisit encryption, redaction, and observability deletion only in a later
-  stabilization feature when the operator chooses to add those controls.
-- Do not remove automatic recording behavior without a new approved feature,
-  migration/compatibility note, and explicit product-owner decision.
-- First migration from a legacy local/self-signed app to Developer ID is a
-  manual notarized-package bootstrap; the live Sparkle feed MUST NOT be
-  replaced until the migration validator proves safe continuity.
+- Before public release, verify the right to use each third-party asset, font,
+  icon, logo and trademark; substitute independently created or licensed assets
+  where that right is absent. Functional UI labels and interaction microcopy
+  are expressly permitted to match the approved reference literally, while
+  GRAF legal, consent, privacy, plan/pricing and marketing claims remain
+  independently truthful.
+- Preserve metadata-only research evidence in git and keep private Krisp
+  screenshots/meeting content in the approved local evidence boundary.
 -->
 # 2brain Rec Constitution
 
@@ -137,18 +141,25 @@ upload tokens, signed-URL secrets, and live credential paths MUST NOT be
 committed, logged, exposed in diagnostics, embedded in images, or shipped to
 clients.
 
-For every completed model call whose response reaches GRAF, exactly one
-Langfuse `generation` observation MUST contain the exact compiled logical model
-request, the complete pinned canonical transcript revision, the raw model
-response, and the locally validated result. The surrounding AI workflow
-observations MAY contain the same plaintext meeting/model content when it makes
-the execution easier to debug. GRAF MUST NOT redact, mask, truncate, encrypt,
-or delete this observability content. Once a completed response is durably
-captured in the retained Generation Call ledger, one sole observability
-publisher MUST keep its deterministic delivery pending and retry until Langfuse
-confirms that observation; candidate readiness MUST NOT wait for confirmation,
-and retry MUST NOT repeat inference. Meeting deletion MUST NOT cancel or suppress
-delivery for a completed retained call. A call that may have left GRAF but
+For every completed model call whose response reaches GRAF, exactly one logical
+Generation Call and one intended Langfuse `generation` delivery identity MUST
+bind the exact compiled logical model request, the complete pinned canonical
+transcript revision, the raw model response, and the locally validated result.
+The surrounding AI workflow observations MAY contain the same plaintext
+meeting/model content when it makes the execution easier to debug. GRAF MUST
+NOT redact, mask, truncate, encrypt, or delete this observability content.
+
+Langfuse/OTLP delivery MUST NOT be represented as an exactly-once guarantee or
+as an idempotent upsert: re-ingesting an accepted span with the same ID may
+create duplicate observations. One sole observability publisher MUST therefore
+record `delivery_pending`, `delivery_confirmed`, or `delivery_ambiguous`; it MAY
+retry only when failure before export is proven. If acceptance may have
+occurred, it MUST preserve the local ledger, reconcile by the stable
+Generation Call identity, and MUST NOT blindly re-export or repeat inference.
+Any physical duplicates are transport defects and MUST be collapsed by
+Generation Call identity before evaluation or annotation. Candidate readiness
+MUST NOT wait for confirmation. Meeting deletion MUST NOT cancel or suppress
+delivery accounting for a completed retained call. A call that may have left GRAF but
 crashes before its response is durably captured MUST be reported as `ambiguous`;
 GRAF MUST NOT fabricate missing content or claim exactly-once provider egress.
 Langfuse MUST NOT become the source of truth for meeting, workflow, acceptance,
@@ -190,8 +201,20 @@ prompt versions and evaluation evidence without a manually assigned deployment
 label, but MUST NOT move production without explicit
 operator approval, held-out validation, privacy review, serialized
 expected-source verification, protected-label plus sole mutation credential
-readiness, and a rollback target. Automated promotion MUST remain disabled when
-that readiness is unavailable. Feature 121 prompt optimization remains
+readiness, and a rollback target. Langfuse label mutation MUST NOT be assumed to
+provide native expected-source compare-and-set. One authorized writer under an
+operator-owned lock MUST read and compare the expected root numeric version,
+validate an immutable candidate-root-bound qualification record, move only the
+protected root label and read back the exact target. Successful read-back MUST
+produce an immutable promotion event and a complete typed artifact binding that
+lets runtime fetch and re-hash that event, its qualification record, target root
+and activation manifest. The qualification/event artifacts MUST remain outside
+the already-hashed candidate root and activation manifest to avoid a digest
+cycle, but their complete binding MUST be carried by runtime calls and
+publication evidence. A bare event hash, current-label lookup, mismatch or
+out-of-band movement MUST fail closed on the integrity-checked last-known-good
+root + activation manifest + successful event binding. Automated promotion MUST remain disabled when that readiness is
+unavailable. Feature 121 prompt optimization remains
 synthetic-only to keep the first version small. Synthetic optimization
 observations and Temporal histories MAY contain complete plaintext inputs,
 outputs, judge feedback, and optimizer state. Using real meetings for
@@ -263,11 +286,49 @@ High-risk features MUST run `$speckit-clarify`, `$speckit-checklist`, and
 `$speckit-analyze` before implementation. High-risk includes capture/audio,
 recording start behavior, privacy, auth, secrets, MediaScribe, Langfuse, MinIO,
 Postgres, Temporal, Docker, retention, deletion, diagnostics, tray/widget,
-onboarding, admin, and brand-distance UX. If lane selection is unclear, choose
+onboarding, admin, and reference-fidelity UX. If lane selection is unclear, choose
 the stricter lane.
 
 Rationale: this product has privacy, capture, and data-lifecycle risk. The work
 must be decomposed into reviewable artifacts before code.
+
+### VII. Reference-Fidelity Product Design
+
+The product owner explicitly authorizes GRAF to reproduce the observable
+Krisp user experience, user interface and information architecture as closely
+as product quality requires. This authorization includes screen composition,
+navigation, hierarchy, interaction sequences, control placement, component
+geometry, loading/error/empty states, visible labels and wording, colors,
+typography and icon treatment observed through ordinary black-box use. A
+first-glance visual difference from Krisp is not a release requirement.
+Literal reproduction of those observable elements and of functional UI labels
+or interaction microcopy is expressly permitted; no paraphrase, redesign or
+brand-distance rewrite is required merely because the result matches Krisp.
+
+Reference fidelity MUST NOT weaken GRAF's own accessibility, localization,
+privacy, consent, security, deletion truth, platform integrity or error-state
+requirements. A documented deviation is required when literal reproduction
+would copy a known defect, create misleading state, violate an applicable GRAF
+gate, or prevent WCAG 2.2 AA and equivalent embedded-macOS operation.
+
+All implementation code MUST be independently written. No competitor source
+code, extracted application assets, binaries, private APIs, protocols, secrets,
+model behavior or private user content may be reused. Screenshots containing
+private data remain outside git and are research evidence, not distributable
+assets. Functional visible labels and interaction microcopy observed through
+ordinary use MAY be reproduced literally under this principle. Logos,
+trademarks, fonts, icons, illustrations and other third-party assets MAY ship
+only when GRAF has a documented right to use them; otherwise the implementation
+MUST recreate the required function and visual role with GRAF-owned or properly
+licensed material. Krisp-specific legal notices, consent/privacy statements,
+plan or pricing terms and marketing claims MUST NOT be copied where they would
+be untrue or inapplicable to GRAF. Ordinary black-box product inspection and
+metadata-only installed-app inspection are permitted; decompilation or
+circumvention remains prohibited.
+
+Rationale: the product decision is to use a proven interaction model instead
+of requiring design novelty for its own sake, while preserving independent
+implementation, legal provenance and all trust-critical product gates.
 
 ## Product And Platform Constraints
 
@@ -315,8 +376,10 @@ must be decomposed into reviewable artifacts before code.
   required.
 - User deletion deletes the whole meeting in MVP; partial artifact deletion is
   deferred unless explicitly specified.
-- UI MUST use an original `2brain Rec` design system and pass brand-distance
-  review before production rollout.
+- UI MAY faithfully and literally reproduce the approved observable Krisp
+  reference, including functional visible wording. Release review verifies
+  reference fidelity, documented deviations, accessibility and third-party
+  asset provenance; it does not require visual or textual brand distance.
 
 ## Development Workflow And Quality Gates
 
@@ -354,8 +417,9 @@ Required quality gates:
 - Data features require artifact lifecycle, retention, deletion, and audit gates.
 - External dependency features require egress, secret, timeout, failure, and
   retention/deletion gates.
-- UI features require visible-state, accessibility, localization, and
-  brand-distance gates.
+- UI features require visible-state, accessibility, localization,
+  reference-fidelity and third-party asset-provenance gates; literal functional
+  reference wording is allowed and is not itself a provenance failure.
 - Deployment features require Docker secrets, health checks, backups, restore,
   rollback, log redaction, and disk-full behavior.
 - Production deployment runs only when a release/deploy gate is explicitly met.
@@ -381,4 +445,4 @@ Amendment procedure:
 - Every implementation review MUST verify that tasks and code preserve the
   applicable constitution gates.
 
-**Version**: 4.2.0 | **Ratified**: 2026-05-27 | **Last Amended**: 2026-07-26
+**Version**: 5.0.0 | **Ratified**: 2026-05-27 | **Last Amended**: 2026-08-23

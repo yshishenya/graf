@@ -2759,7 +2759,7 @@ def test_detail_shell_renders_stored_outcomes_with_long_content_and_playback_spa
     assert 'data-outcome-state="available"' in page
     assert "Синтетический длинный итог встречи" in page
     assert "Источник: 00:12" in page
-    assert "Ключевое" in page
+    assert "Ключевое" not in page
     css = _cabinet_css()
     assert ".notes-more" in css
     assert ".notes-primary-outcomes" in css
@@ -2769,6 +2769,12 @@ def test_detail_shell_renders_stored_outcomes_with_long_content_and_playback_spa
 def test_detail_shell_renders_simple_outcomes_with_metadata_and_sources() -> None:
     review = _review()
     review.transcript = review.transcript.model_copy(update={"available": True, "search_enabled": True})
+    review.template = SlotState(
+        state="available",
+        label="Протокол встречи",
+        reason="graf-meeting-minutes-v1",
+        template_version=1,
+    )
     review.playback = PlaybackReviewState(
         available=True,
         duration_seconds=120,
@@ -2901,9 +2907,11 @@ def test_detail_shell_renders_simple_outcomes_with_metadata_and_sources() -> Non
 
     assert (
         page.index('data-outcome-category="summary"')
-        < page.index('data-outcome-category="action_items"')
         < page.index('data-outcome-category="decisions"')
+        < page.index('data-outcome-category="action_items"')
     )
+    assert 'data-outcome-category="key_points"' not in page
+    assert 'data-outcome-category="followups"' not in page
     assert "Алексей" in page
     assert "до пятницы" in page
     assert "Ответственный не определён" not in page
@@ -2917,7 +2925,7 @@ def test_detail_shell_renders_simple_outcomes_with_metadata_and_sources() -> Non
     assert 'aria-label="Открыть источник 00:12 в расшифровке"' in page
     assert "data-export-dialog-open" in page
     assert 'data-export-scope="summary"' not in page
-    assert 'class="notes-more"' in page
+    assert 'class="notes-more"' not in page
 
 
 def test_detail_shell_hides_source_controls_without_a_valid_destination() -> None:
@@ -3150,9 +3158,10 @@ def test_detail_shell_exposes_active_review_player_timeline_and_mobile_safe_cont
 
     page = render_meeting_detail_page(review)
 
-    assert 'class="tab active" role="tab" id="detail-tab-recording"' in page
-    assert 'aria-selected="true" aria-controls="detail-panel-recording"' in page
-    assert 'data-detail-panel="recording"' in page
+    assert 'class="tab active" role="tab" id="detail-tab-outcomes"' in page
+    assert 'aria-selected="true" aria-controls="detail-panel-outcomes"' in page
+    assert 'data-detail-panel="outcomes"' in page
+    assert "Полезных итогов не найдено" in page
     assert "data-playback-shell" in page
     assert "data-playback-player" in page
     assert "data-playback-progress" in page
@@ -3161,7 +3170,7 @@ def test_detail_shell_exposes_active_review_player_timeline_and_mobile_safe_cont
     assert 'data-speaker-lane="speaker_00"' in page
     assert page.count("data-lane-segment") == 1
     assert 'data-outcome-source-basis="stored_output"' in page
-    assert page.count("data-outcome-category=") == 8
+    assert "data-outcome-category=" not in page
     css = _cabinet_css()
     assert "@media (max-width: 980px)" in css
     assert "@media (max-width: 540px)" in css
