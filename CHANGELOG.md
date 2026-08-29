@@ -21,10 +21,13 @@
 - _Пока нет записей._
 
 ### Документы
-- _Пока нет записей._
+- Добавлен production-runbook Temporal Web с адресом, границей доступа,
+  жизненным циклом Compose и проверками после перезапуска.
 
 ### Операции
-- _Пока нет записей._
+- Зафиксирована эксплуатационная схема Temporal Web: HTTPS + Basic Auth через
+  host Nginx, внутреннее подключение к `rec-temporal:7233` и автоперезапуск
+  контейнеров.
 
 ## [2026.08.29.4] - 2026-08-29
 
@@ -9295,5 +9298,4 @@
 - Added production read-only RLS state verification output for covered-table
   counts, enabled/forced counts, failed tables, deployed commit, and Alembic
   revision (`feature:032`, `T015-T020`, `T028-T037`).
-
 
