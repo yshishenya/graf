@@ -11,7 +11,7 @@ from decimal import Decimal
 from hashlib import sha256
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from twobrain_rec_server.config import Settings
@@ -107,6 +107,13 @@ async def seed_outcome(settings: Settings, *, run_id: str, meeting_id: UUID, exe
             if len(artifacts) < 2:
                 raise RuntimeError("smoke_track_artifacts_unavailable")
             now = datetime.now(UTC)
+            next_result_version = await db.scalar(
+                select(func.coalesce(func.max(ProcessingResult.result_version), 0)).where(
+                    ProcessingResult.workspace_id == seed.workspace_id,
+                    ProcessingResult.meeting_id == meeting_id,
+                    ProcessingResult.media_revision_id == revision.id,
+                )
+            )
             source_fingerprint = source_fingerprint_for_revision(revision)
             workflow = ProcessingWorkflow(
                 workspace_id=seed.workspace_id,
@@ -145,7 +152,10 @@ async def seed_outcome(settings: Settings, *, run_id: str, meeting_id: UUID, exe
                 mediascribe_job_id=job.id,
                 processing_workflow_id=workflow.id,
                 deletion_epoch_at_start=meeting.deletion_epoch,
-                result_version=1,
+                # The upload starts ordinary processing asynchronously. Keep
+                # this metadata-only synthetic source newest even if that
+                # worker finishes after the seeder.
+                result_version=int(next_result_version or 0) + 1,
                 status=ProcessingResultStatus.IMPORTED.value,
                 transcript_status=ProcessingAvailabilityStatus.AVAILABLE.value,
                 diarization_status=ProcessingAvailabilityStatus.UNAVAILABLE.value,

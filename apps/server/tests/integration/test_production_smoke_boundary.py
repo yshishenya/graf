@@ -302,6 +302,8 @@ def test_production_smoke_runs_metadata_only_outcome_value_path() -> None:
     assert 'OUTCOME_SMOKE_ENABLED="${TWOBRAIN_OUTCOME_SMOKE_ENABLED:-false}"' in runtime
     assert 'if [[ "$OUTCOME_SMOKE_ENABLED" == "true" ]]' in runtime
     assert "publish_initial_baseline=False" in seeder
+    assert "func.coalesce(func.max(ProcessingResult.result_version), 0)" in seeder
+    assert "result_version=int(next_result_version or 0) + 1" in seeder
     assert "summary_state absent" in runtime
     assert "slot_state unpublished" in runtime
 
