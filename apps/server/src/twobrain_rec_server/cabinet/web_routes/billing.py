@@ -1099,6 +1099,49 @@ async def billing_overview_page(
         subscription.paid_through if subscription is not None and plan_code == "personal" else subscription.trial_ends_at if subscription is not None and plan_code == "trial" else None
     )
     approved_catalog = await _approved_personal_catalog(db, now=now)
+    latest_invoice_summary = None
+    latest_snapshot = (
+        latest_invoice.plan_snapshot
+        if latest_invoice is not None and isinstance(latest_invoice.plan_snapshot, dict)
+        else {}
+    )
+    if latest_invoice is not None:
+        latest_invoice_summary = {
+            "safe_number": latest_invoice.safe_number,
+            "amount_label": _billing_amount_label(latest_invoice.amount_minor, latest_invoice.currency)
+            or "Сумма недоступна",
+            "created_at_label": _billing_datetime_label(latest_invoice.created_at),
+            "status_label": _invoice_status_label(latest_invoice.status),
+            "payment_method_label": mask_payment_method(
+                latest_snapshot.get("payment_method_label")
+                if isinstance(latest_snapshot.get("payment_method_label"), str)
+                else None
+            ),
+        }
+    current_cycle = (
+        subscription.cycle
+        if subscription is not None and subscription.cycle in {"month", "year"}
+        else latest_snapshot.get("cycle")
+    )
+    if current_cycle not in {"month", "year"}:
+        current_cycle = None
+    current_catalog = approved_catalog.get(current_cycle) if current_cycle is not None else None
+    current_price_label = (
+        "0 ₽"
+        if plan_code in {"free", "trial"}
+        else _billing_amount_label(current_catalog.amount_minor if current_catalog is not None else None)
+    )
+    current_cycle_label = (
+        "без оплаты"
+        if plan_code == "free"
+        else "7 дней"
+        if plan_code == "trial"
+        else "в год"
+        if current_cycle == "year"
+        else "в месяц"
+        if current_cycle == "month"
+        else "период уточняется"
+    )
     recurring_next_charge_label = None
     recurring_next_charge_amount_label = None
     if subscription is not None and plan_code == "personal" and subscription.paid_through and subscription.paid_through > now:
@@ -1129,6 +1172,8 @@ async def billing_overview_page(
         content_template="cabinet/pages/billing_overview_content.html",
         plan=plan,
         plan_code=plan_code,
+        current_price_label=current_price_label,
+        current_cycle_label=current_cycle_label,
         storage_used=storage_used,
         storage_used_label=_capacity_label(storage_used),
         storage_used_exact_label=_exact_bytes_label(storage_used),
@@ -1180,6 +1225,7 @@ async def billing_overview_page(
         next_charge_amount_label=recurring_next_charge_amount_label,
         payment_method_label=payment_method.masked_label if payment_method is not None else None,
         latest_invoice=latest_invoice,
+        latest_invoice_summary=latest_invoice_summary,
         latest_invoice_status_label=(
             _invoice_status_label(latest_invoice.status) if latest_invoice is not None else None
         ),
@@ -1219,6 +1265,9 @@ async def billing_plans_page(
         else "unavailable"
     )
     catalog = await _approved_personal_catalog(db, now=now)
+    selected_cycle = request.query_params.get("cycle", "year")
+    if selected_cycle not in {"month", "year"}:
+        selected_cycle = "year"
     monthly_catalog = catalog.get("month")
     annual_catalog = catalog.get("year")
     catalog_ready = monthly_catalog is not None and annual_catalog is not None
@@ -1262,6 +1311,7 @@ async def billing_plans_page(
         ),
         content_template="cabinet/pages/billing_plans_content.html",
         plans=plans,
+        selected_cycle=selected_cycle,
         current_plan_code=current_code,
         billing_owner=billing_owner,
         trial_state=trial_state,

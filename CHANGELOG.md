@@ -92,6 +92,11 @@
   через immutable `speckit-bootstrap v0.9.7` для Spec Kit v1.0.1;
   significant/high-risk цикл теперь явно включает issue sync, reviewer-owned
   checklist, convergence и validation/release gates.
+- Страница «Тариф и оплата», сравнение тарифов и checkout получили единую
+  компактную иерархию по проверенному reference UX: текущий тариф и цена,
+  одно основное действие, предложение, пространство, способ оплаты и история.
+  Та же server-rendered версия адаптирована для web и встроенного macOS кабинета,
+  узких экранов и увеличения до 200%.
 
 ### Исправлено
 - Locked `github-issue-canon` commands больше не создают Python bytecode внутри
@@ -104,6 +109,30 @@
   risk lane, analyze и task-to-issue ownership; conditional mandatory hooks не
   пропускаются без HookExecutor, а convergence не превращает baseline-код в
   задачи на удаление без provenance текущей фичи.
+
+### Безопасность
+- Generated preset registry, template paths и plan paths теперь fail closed
+  проверяют типы, Python runtime и symlink containment; Git Bash message-file
+  paths нормализуются до единого Windows-формата перед containment check.
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- Опубликован и установлен checksummed `speckit-bootstrap v0.9.7`; GRAF lock
+  обновлён из immutable release asset без продуктового release/deploy.
+
+## [2026.08.31.1] - 2026-08-31
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- Оптимизация и production-генерация итогов теперь используют проверенный
+  route binding LiteLLM и сохраняют его в каждом snapshot/candidate, чтобы
+  все judge- и model-вызовы шли через согласованный маршрут `gpt-5.6-luna`.
+
+### Исправлено
 - Переключение формата итогов теперь проверяет текущую версию выбранного
   type-slot, поэтому новый формат не получает ложный конфликт с версией
   формата «Авто».
@@ -220,7 +249,9 @@
   неподтверждённые пункты не публикуются.
 
 ### Безопасность
-- _Пока нет записей._
+- Визуальное обновление не меняет YooKassa, каталог, промокоды, согласия,
+  идемпотентность и reconciliation: preview остаётся немутирующим, а pending
+  платеж блокирует конкурирующую новую оплату.
 
 ### Документы
 - Добавлен production-runbook Temporal Web с адресом, границей доступа,

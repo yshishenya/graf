@@ -1,59 +1,71 @@
 {% import "cabinet/components/sections.html" as sections %}
-<main id="cabinet-main" class="cabinet-main" tabindex="-1">
+{% set checkout_cycle = checkout_cycle|default("month") %}
+{% set checkout_result = checkout_result|default(None) %}
+{% set checkout_blocked = checkout_result == "pending" %}
+{% set checkout_available = billing_enabled and catalog_ready|default(True) %}
+{% set selected_price_label = annual_price_label|default("Цена недоступна", true) if checkout_cycle == "year" else monthly_price_label|default("Цена недоступна", true) %}
+{% if checkout_preview|default(None) %}{% set selected_price_label = checkout_preview.payable_amount_label %}{% endif %}
+<main id="cabinet-main" class="cabinet-main billing-page billing-checkout-page" tabindex="-1">
   <div class="cabinet-workspace settings-page">
-    <div class="settings-page__content">
-      <header class="cabinet-topbar settings-page__topbar">
-        <div class="page-title"><h1>Выбор тарифа</h1><p class="muted">Оплата откроется на защищённой странице ЮKassa.</p></div>
-      </header>
-      <section class="settings-section cabinet-card" aria-labelledby="billing-checkout-title">
-        <h2 id="billing-checkout-title">{{ plan.label }}</h2>
-        <p>Без лимита по минутам и встречам. В тариф входит {{ catalog_storage_label|default("утверждённая ёмкость") }} хранения; аудиоархив конечен.</p>
-        <dl class="settings-definition-list">
-          <div><dt>Сегодня</dt><dd>{% if checkout_preview|default(None) %}{{ checkout_preview.payable_amount_label }}{% elif billing_enabled %}Выберите период ниже: {{ monthly_price_label|default("цена уточняется") }}/месяц или {{ annual_price_label|default("цена уточняется") }}/год{% else %}Выберите период ниже{% endif %}</dd></div>
-          {% if annual_saving_label|default(None) %}<div><dt>При оплате за год</dt><dd>{{ annual_saving_label }}</dd></div>{% endif %}
-          <div><dt>Следующее списание</dt><dd>{% if checkout_preview|default(None) %}{{ checkout_preview.next_amount_label }} за {{ checkout_preview.cycle_label }} без скидки, пока автопродление не отключено{% else %}Та же сумма в выбранном периоде, пока автопродление не отключено{% endif %}</dd></div>
+    <div class="settings-page__content billing-page__content">
+      <header class="cabinet-topbar settings-page__topbar billing-page__header"><div class="page-title"><h1>Оформление тарифа</h1><p class="muted">Проверьте итог. Оплата откроется на защищённой странице ЮKassa.</p></div></header>
+
+      <section class="billing-checkout-card" aria-labelledby="billing-checkout-title">
+        <div class="billing-checkout-card__heading">
+          <div><span class="settings-scope-badge">Тариф</span><h2 id="billing-checkout-title">{{ plan.label }}</h2></div>
+          {% if checkout_available %}<p class="billing-price"><strong>{{ selected_price_label }}</strong><span>{% if checkout_cycle == "year" %}в год{% else %}в месяц{% endif %}</span></p>{% endif %}
+        </div>
+        <p class="muted">Без лимита по минутам и встречам · {{ catalog_storage_label|default("утверждённая ёмкость") }} хранения.</p>
+
+        {% if billing_enabled and catalog_ready|default(True) and not checkout_blocked %}
+        <nav class="billing-period-switch" aria-label="Период оплаты">
+          <a href="/billing/checkout?cycle=month"{% if checkout_cycle == "month" %} aria-current="true"{% endif %}>Месяц<span>{{ monthly_price_label|default("Цена уточняется") }}</span></a>
+          <a href="/billing/checkout?cycle=year"{% if checkout_cycle == "year" %} aria-current="true"{% endif %}>Год<span>{{ annual_price_label|default("Цена уточняется") }}</span>{% if annual_saving_label|default(None) %}<small>{{ annual_saving_label }}</small>{% endif %}</a>
+        </nav>
+        {% endif %}
+
+        {% if promo_preview_error|default(None) %}<p id="billing-checkout-error" role="alert" class="notice">{{ promo_preview_error }}</p>
+        {% elif checkout_result == "owner_only" %}<p class="notice" role="alert">Оплатить тариф может только владелец пространства.</p>
+        {% elif checkout_result == "offer_required" %}<p class="notice" role="alert">Откройте и примите оферту версии {{ offer_version_label|default("billing-personal-v1") }}.</p>
+        {% elif checkout_result == "consent_required" %}<p class="notice" role="alert">Подтвердите согласие на регулярное списание или отмените оплату.</p>
+        {% elif checkout_result == "catalog_not_approved" %}<p class="notice" role="alert">Оплата временно недоступна: действующая версия тарифа ещё не утверждена.</p>
+        {% elif checkout_result == "unavailable" %}<p class="notice" role="alert">Оплата временно недоступна. Повторите попытку позже.</p>
+        {% elif checkout_result == "pending" %}<p class="notice" role="status" aria-live="polite">Платёж уже создан. Повторную оплату не начинаем; откройте историю платежей.</p>
+        {% elif checkout_result == "promo_invalid" %}<p id="billing-checkout-error" role="alert" class="notice">Промокод недействителен, не подходит для выбранного периода или уже использован. Проверьте код и отправьте форму ещё раз.</p>{% endif %}
+
+        {% if checkout_available %}<dl class="billing-order-summary">
+          {% if checkout_preview|default(None) %}<div><dt>Цена по каталогу</dt><dd>{{ checkout_preview.list_amount_label }}</dd></div><div><dt>Скидка</dt><dd>{{ checkout_preview.discount_label }}</dd></div>{% endif %}
+          <div class="billing-order-summary__total"><dt>К оплате сегодня</dt><dd><strong>{{ selected_price_label }}</strong></dd></div>
+          <div><dt>Следующее списание</dt><dd>{% if checkout_preview|default(None) %}{{ checkout_preview.next_amount_label }} за {{ checkout_preview.cycle_label }}{% else %}{{ selected_price_label }} за {% if checkout_cycle == "year" %}год{% else %}месяц{% endif %}{% endif %}, пока автопродление не отключено</dd></div>
           {% if receipt_contact_label|default(None) %}<div><dt>Чек отправится на</dt><dd>{{ receipt_contact_label }}</dd></div>{% endif %}
-          <div><dt>Дополнительное хранилище</dt><dd>Не выбрано; варианты 5/20/100/500 GB доступны отдельным действием после утверждения цены</dd></div>
-          <div><dt>Возврат</dt><dd>Только письмом в поддержку после оплаты; автоматической заявки в продукте нет</dd></div>
-        </dl>
-        {% if checkout_preview|default(None) %}<dl class="settings-definition-list" aria-label="Расчёт промокода"><div><dt>Цена по каталогу</dt><dd>{{ checkout_preview.list_amount_label }}</dd></div><div><dt>Скидка</dt><dd>{{ checkout_preview.discount_label }}</dd></div><div><dt>К оплате сегодня</dt><dd><strong>{{ checkout_preview.payable_amount_label }}</strong></dd></div></dl><p class="muted" role="status">Применяется только одна скидка. Если доступна более выгодная реферальная скидка, при оплате будет выбрана она.</p>{% endif %}
-        {% if promo_preview_error|default(None) %}<p id="billing-checkout-error" role="alert">{{ promo_preview_error }}</p>{% elif checkout_result == "owner_only" %}<p role="alert">Оплатить тариф может только владелец пространства.</p>{% elif checkout_result == "offer_required" %}<p role="alert">Откройте и примите оферту версии {{ offer_version_label|default("billing-personal-v1") }}.</p>{% elif checkout_result == "consent_required" %}<p role="alert">Подтвердите согласие на регулярное списание или отмените оплату.</p>{% elif checkout_result == "catalog_not_approved" %}<p role="alert">Оплата временно недоступна: действующая версия тарифа ещё не утверждена.</p>{% elif checkout_result == "unavailable" %}<p role="alert">Оплата временно недоступна. Повторите попытку позже.</p>{% elif checkout_result == "pending" %}<p role="status">Платёж уже создан. Проверьте историю платежей.</p>{% elif checkout_result == "promo_invalid" %}<p id="billing-checkout-error" role="alert">Промокод недействителен, не подходит для выбранного периода или уже использован. Проверьте код и отправьте форму ещё раз.</p>{% endif %}
-        {% if billing_enabled and catalog_ready|default(true) %}
-        <form action="/billing/checkout/preview" method="post">
-          {{ sections.csrf_field(csrf_token|default(None)) }}
-          <fieldset class="billing-cycle-choice">
-            <legend>Проверить скидку до оплаты</legend>
-            <label for="billing-preview-cycle">Период</label>
-            <select id="billing-preview-cycle" name="cycle">
-              <option value="month"{% if checkout_cycle|default("month") == "month" %} selected{% endif %}>Месяц — {{ monthly_price_label|default("цена уточняется") }}</option>
-              <option value="year"{% if checkout_cycle|default("month") == "year" %} selected{% endif %}>Год — {{ annual_price_label|default("цена уточняется") }}</option>
-            </select>
-            <label for="billing-promo">Промокод <span class="muted">(если у вас есть действующий код)</span></label>
+        </dl>{% endif %}
+
+        {% if billing_enabled and catalog_ready|default(True) and not checkout_blocked %}
+        <details class="billing-coupon"{% if checkout_preview|default(None) or checkout_result == "promo_invalid" or promo_preview_error|default(None) or checkout_promo_code|default("") %} open{% endif %}>
+          <summary>Добавить промокод</summary>
+          <form action="/billing/checkout/preview" method="post" class="billing-coupon__form">
+            {{ sections.csrf_field(csrf_token|default(None)) }}
+            <input type="hidden" name="cycle" value="{{ checkout_cycle }}">
+            <label for="billing-promo">Промокод</label>
             <input id="billing-promo" name="promo_code" type="text" inputmode="latin" autocomplete="off" maxlength="48" value="{{ checkout_promo_code|default('') }}"{% if checkout_result == "promo_invalid" or promo_preview_error|default(None) %} aria-describedby="billing-checkout-error" aria-invalid="true"{% endif %}>
-            <button class="button quiet" type="submit">Рассчитать скидку</button>
-          </fieldset>
-        </form>
-        {% set monthly_checkout_label = monthly_price_label|default("цена тарифа") %}
-        {% set annual_checkout_label = annual_price_label|default("цена тарифа") %}
-        {% if checkout_preview|default(None) and checkout_cycle|default("month") == "month" %}{% set monthly_checkout_label = checkout_preview.payable_amount_label %}{% elif checkout_preview|default(None) and checkout_cycle|default("month") == "year" %}{% set annual_checkout_label = checkout_preview.payable_amount_label %}{% endif %}
-        <form action="/billing/checkout/start" method="post">
+            <button class="button quiet" type="submit">Применить</button>
+          </form>
+          {% if checkout_preview|default(None) %}<p class="muted" role="status">Применяется только одна скидка. Итог повторно проверится перед оплатой.</p>{% endif %}
+        </details>
+
+        <form action="/billing/checkout/start" method="post" class="billing-checkout-form">
           {{ sections.csrf_field(csrf_token|default(None)) }}
           <input type="hidden" name="idempotency_key" value="{{ checkout_idempotency_key }}">
           <input type="hidden" name="promo_code" value="{{ checkout_promo_code|default('') }}">
-          <fieldset class="billing-cycle-choice">
-            <legend>Период оплаты</legend>
-            {% if billing_enabled %}<div class="settings-actions">
-              <button class="button" type="submit" name="cycle" value="month">Оплатить {{ monthly_checkout_label }} в YooKassa — месяц</button>
-              <button class="button" type="submit" name="cycle" value="year">Оплатить {{ annual_checkout_label }} в YooKassa — год</button>
-            </div>{% else %}<p role="status">Магазин пока не включён: цена и переход к оплате появятся после включения биллинга.</p>{% endif %}
-          </fieldset>
-          <label><input type="checkbox" name="offer_consent" value="true" required{% if not billing_enabled %} disabled{% endif %}> Принимаю <a href="/offer" target="_blank" rel="noopener">оферту</a> версии {{ offer_version_label|default("billing-personal-v1") }}.</label>
-          <label><input type="checkbox" name="recurring_consent" value="true" required{% if not billing_enabled %} disabled{% endif %}> Согласен на регулярное списание до отключения автопродления.</label>
+          <input type="hidden" name="cycle" value="{{ checkout_cycle }}">
+          <label class="billing-consent"><input type="checkbox" name="offer_consent" value="true" required> <span>Принимаю <a href="/offer" target="_blank" rel="noopener">оферту</a> версии {{ offer_version_label|default("billing-personal-v1") }}.</span></label>
+          <label class="billing-consent"><input type="checkbox" name="recurring_consent" value="true" required> <span>Согласен на регулярное списание до отключения автопродления.</span></label>
+          <button class="button billing-checkout-form__submit" data-billing-primary type="submit">Оплатить {{ selected_price_label }} в YooKassa — {% if checkout_cycle == "year" %}год{% else %}месяц{% endif %}</button>
         </form>
-        {% elif not billing_enabled %}<p role="status">Оплата пока недоступна: магазин не включён.</p>{% else %}<p role="status">Оплата пока недоступна: версия тарифа ещё не утверждена.</p>{% endif %}
+        {% elif not billing_enabled %}<p role="status">Оплата пока недоступна: магазин не включён.</p>
+        {% elif not catalog_ready|default(True) %}<p role="status">Оплата пока недоступна: версия тарифа ещё не утверждена.</p>{% endif %}
       </section>
-      <p><a class="button quiet" href="/billing/plans">Назад к тарифам</a></p>
-      <p class="billing-help"><a class="button quiet" href="/billing/history">Нужна помощь с оплатой?</a></p>
+      <div class="billing-page__footer"><a class="button quiet" href="/billing/plans">Назад к тарифам</a><a class="button quiet" href="/billing/history">Нужна помощь с оплатой?</a></div>
     </div>
   </div>
 </main>

@@ -411,6 +411,136 @@ def test_billing_disabled_does_not_render_recovery_checkout_cta() -> None:
     assert 'href="/billing/checkout"' not in html
 
 
+def test_billing_overview_uses_reference_hierarchy_and_one_primary_action() -> None:
+    html = render_template(
+        "cabinet/pages/billing_overview_content.html",
+        embedded=False,
+        settings_navigation=settings_category_navigation(active="billing"),
+        settings_active="billing",
+        csrf_token="synthetic-csrf",
+        plan=plan_descriptor("free"),
+        plan_code="free",
+        current_price_label="0 ₽",
+        current_cycle_label="без оплаты",
+        billing_data_available=True,
+        billing_enabled=True,
+        catalog_ready=True,
+        billing_owner=True,
+        billing_role="owner",
+        trial_state="already",
+        processing_used_label="0 мин 0 сек",
+        processing_remaining_label="300 мин 0 сек",
+        processing_reset_at_label="01.09.2026, 00:00 (МСК)",
+        free_processing_limit_label="300 минут",
+        processing_threshold="normal",
+        storage_used_label="0 MB",
+        storage_capacity_label="250 MB",
+        storage_threshold="normal",
+        storage_threshold_label="В норме",
+        latest_invoice_summary=None,
+        latest_operation_state=None,
+    )
+
+    assert 'class="cabinet-main billing-page billing-overview"' in html
+    section_ids = (
+        "billing-summary-title",
+        "billing-offer-title",
+        "billing-workspace-title",
+        "billing-method-title",
+        "billing-history-title",
+    )
+    assert all(section_id in html for section_id in section_ids)
+    assert [html.index(section_id) for section_id in section_ids] == sorted(
+        html.index(section_id) for section_id in section_ids
+    )
+    assert html.count("data-billing-primary") == 1
+    assert 'href="/billing/plans"' in html
+
+
+def test_pending_billing_overview_exposes_status_without_competing_checkout() -> None:
+    html = render_template(
+        "cabinet/pages/billing_overview_content.html",
+        embedded=False,
+        settings_navigation=settings_category_navigation(active="billing"),
+        settings_active="billing",
+        plan=plan_descriptor("free"),
+        plan_code="free",
+        billing_data_available=True,
+        billing_enabled=True,
+        catalog_ready=True,
+        billing_owner=True,
+        billing_role="owner",
+        billing_result="pending",
+        processing_used_label="0 мин 0 сек",
+        free_processing_limit_label="300 минут",
+        processing_threshold="normal",
+        storage_used_label="0 MB",
+        storage_capacity_label="250 MB",
+        storage_threshold="normal",
+        storage_threshold_label="В норме",
+        latest_invoice_summary={
+            "safe_number": "INV-PENDING1",
+            "amount_label": "790 ₽",
+            "created_at_label": "29.08.2026, 12:00 (МСК)",
+            "status_label": "Проверяем оплату",
+        },
+        latest_operation_state="provider_pending",
+        latest_operation_label="Ожидаем подтверждение",
+    )
+
+    assert 'href="/billing/checkout/status/INV-PENDING1"' in html
+    assert 'href="/billing/checkout"' not in html
+    assert 'href="/billing/plans"' not in html
+    assert html.count("data-billing-primary") == 1
+
+
+def test_plan_comparison_keeps_server_selected_cycle_and_real_checkout_links() -> None:
+    html = render_template(
+        "cabinet/pages/billing_plans_content.html",
+        embedded=False,
+        settings_navigation=settings_category_navigation(active="billing"),
+        settings_active="billing",
+        csrf_token="synthetic-csrf",
+        plans=(
+            {
+                "code": "free",
+                "label": "Free",
+                "processing_mode": "limited",
+                "processing_label": "300 минут",
+                "storage_label": "250 MB",
+                "monthly_amount_label": "0 ₽",
+                "annual_amount_label": "0 ₽",
+                "annual_saving_label": None,
+                "is_current": True,
+                "catalog_ready": True,
+            },
+            {
+                "code": "personal",
+                "label": "Личный",
+                "processing_mode": "unlimited",
+                "processing_label": "Без лимита",
+                "storage_label": "2 GB",
+                "monthly_amount_label": "790 ₽",
+                "annual_amount_label": "7 900 ₽",
+                "annual_saving_label": "Экономия 1 580 ₽ (17%)",
+                "is_current": False,
+                "catalog_ready": True,
+            },
+        ),
+        selected_cycle="year",
+        billing_owner=True,
+        billing_enabled=True,
+        catalog_ready=True,
+        trial_state="already",
+    )
+
+    assert 'class="billing-period-switch"' in html
+    assert 'href="/billing/plans?cycle=year" aria-current="true"' in html
+    assert 'href="/billing/checkout?cycle=year"' in html
+    assert 'href="/billing/checkout?cycle=month"' not in html
+    assert "7 900 ₽" in html
+
+
 def test_usage_surface_localizes_processing_reservation_and_threshold() -> None:
     html = render_template(
         "cabinet/pages/billing_usage_content.html",
