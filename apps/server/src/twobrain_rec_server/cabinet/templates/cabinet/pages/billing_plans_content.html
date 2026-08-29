@@ -27,7 +27,8 @@
             <li>Обработка без сохранения аудио при заполненном архиве</li>
           </ul>
           <div class="billing-plan-card__action">
-            {% if item.code == "personal" and current_plan_code|default(None) == "personal" %}<span class="muted">Подключён сейчас{% if not billing_owner %}; оплатой управляет текущий владелец биллинга{% endif %}</span>
+            {% if item.code == "personal" and item.is_current %}<span class="muted">Подключён сейчас{% if not billing_owner %}; оплатой управляет текущий владелец биллинга{% endif %}</span>
+            {% elif item.code == "personal" and current_plan_code|default(None) == "personal" %}<span class="muted">Другой период оплаты; текущие условия не изменятся без отдельного подтверждения.</span>
             {% elif item.code == "personal" and operation_pending|default(False) %}<span class="muted">Платёж проверяется; новую оплату пока не предлагаем.</span>
             {% elif item.is_current and billing_owner %}<span class="muted">Подключён сейчас</span>
             {% elif item.code == "personal" and (billing_owner or billing_role|default(None) == "owner") and billing_enabled and item.catalog_ready %}<a class="button" href="/billing/checkout?cycle={{ selected_cycle }}">Выбрать «Личный»</a>

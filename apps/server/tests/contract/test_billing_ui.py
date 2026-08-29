@@ -601,6 +601,7 @@ def test_billing_overview_uses_reference_hierarchy_and_one_primary_action() -> N
     )
     assert html.count("data-billing-primary") == 1
     assert 'href="/billing/plans"' in html
+    assert 'href="/billing/discounts"' in html
     assert "Бонус до" in html
     assert "15.09.2026, 12:00 (МСК)" in html
 
@@ -937,6 +938,41 @@ def test_plan_comparison_keeps_server_selected_cycle_and_real_checkout_links() -
     assert 'href="/billing/checkout?cycle=year"' in html
     assert 'href="/billing/checkout?cycle=month"' not in html
     assert "7 900 ₽" in html
+
+
+def test_plan_comparison_does_not_label_another_cycle_as_connected() -> None:
+    html = render_template(
+        "cabinet/pages/billing_plans_content.html",
+        embedded=False,
+        settings_navigation=settings_category_navigation(active="billing"),
+        settings_active="billing",
+        csrf_token="synthetic-csrf",
+        plans=(
+            {
+                "code": "personal",
+                "label": "Личный",
+                "processing_mode": "unlimited",
+                "processing_label": "Без лимита",
+                "storage_label": "2 GB",
+                "monthly_amount_label": "790 ₽",
+                "annual_amount_label": "7 900 ₽",
+                "annual_saving_label": None,
+                "is_current": False,
+                "catalog_ready": True,
+            },
+        ),
+        selected_cycle="year",
+        current_plan_code="personal",
+        billing_owner=True,
+        billing_enabled=True,
+        catalog_ready=True,
+        operation_pending=False,
+        trial_state="already",
+    )
+
+    assert "Другой период оплаты" in html
+    assert "Подключён сейчас" not in html
+    assert 'href="/billing/checkout' not in html
 
 
 def test_plan_comparison_explains_pending_and_disabled_checkout_states() -> None:

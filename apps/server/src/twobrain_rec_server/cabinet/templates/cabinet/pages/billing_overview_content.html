@@ -96,8 +96,10 @@
           <h2 id="billing-offer-title">Больше встреч без лимита обработки</h2>
           <p>{% if plan_code == "personal" %}Тариф уже подключён. Здесь можно проверить условия, скидки и хранение.{% else %}Сравните Free, пробный период и «Личный» — только с реальными условиями GRAF.{% endif %}</p>
         </div>
-        {% if billing_owner and billing_enabled and catalog_ready|default(True) and plan_code != "personal" and not operation_pending %}<a class="button quiet" href="/billing/plans">Посмотреть возможности</a>
-        {% elif billing_owner %}<a class="button quiet" href="/billing/discounts">Промокоды и скидки</a>{% endif %}
+        {% if billing_owner %}<div class="billing-row-section__actions">
+          {% if billing_enabled and catalog_ready|default(True) and plan_code != "personal" and not operation_pending %}<a class="button quiet" href="/billing/plans">Посмотреть возможности</a>{% endif %}
+          <a class="button quiet" href="/billing/discounts">Промокоды и скидки</a>
+        </div>{% endif %}
       </section>
 
       <section class="billing-section billing-row-section" aria-labelledby="billing-workspace-title">
