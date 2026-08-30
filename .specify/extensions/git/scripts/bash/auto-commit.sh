@@ -38,14 +38,18 @@ while [ $# -gt 0 ]; do
                 echo "[specify] Error: message file '$_message_file' not found" >&2
                 exit 1
             fi
-            GENERATED_MESSAGE="$(cat "$_message_file")"
-            # The message file is a transport-only artifact: its content is
-            # now captured above, so remove it immediately. Otherwise, if it
-            # was written inside the worktree, it would be picked up as an
-            # untracked change by both the "any changes?" check below and by
-            # `git add .`, polluting the commit or defeating the no-changes
-            # short-circuit even when nothing else changed.
-            rm -f "$_message_file"
+            _message_dir="$(CDPATH="" cd "$(dirname "$_message_file")" && pwd -P)"
+            _message_file="$_message_dir/$(basename "$_message_file")"
+            if ! command -v python3 >/dev/null 2>&1; then
+                echo "[specify] Error: python3 is required to validate --message-file" >&2
+                exit 1
+            fi
+            if ! _resolved_message_file="$(python3 -c 'import sys; from pathlib import Path; print(Path(sys.argv[1]).resolve(strict=True))' "$_message_file")"; then
+                echo "[specify] Error: cannot resolve message file '$_message_file'" >&2
+                exit 1
+            fi
+            GENERATED_MESSAGE="$(cat "$_resolved_message_file")"
+            # Caller owns and cleans up the transport file; never delete it here.
             shift 2
             ;;
         *)
@@ -82,6 +86,16 @@ if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     echo "[specify] Warning: Not a Git repository; skipped auto-commit" >&2
     exit 0
 fi
+
+_worktree_root="$(git rev-parse --show-toplevel)"
+for _message_path in "${_message_file:-}" "${_resolved_message_file:-}"; do
+    case "$_message_path" in
+        "$_worktree_root"|"$_worktree_root"/*)
+            echo "[specify] Error: message file must be outside the Git worktree" >&2
+            exit 1
+            ;;
+    esac
+done
 
 # Read per-command config from git-config.yml
 _config_file="$REPO_ROOT/.specify/extensions/git/git-config.yml"

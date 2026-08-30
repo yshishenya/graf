@@ -138,17 +138,30 @@ def main(argv: list[str]) -> int:
         return 1
     event_name = argv[0]
     generated_message = ""
+    message_file: Path | None = None
+    resolved_message_file: Path | None = None
     if len(argv) == 3:
-        message_file = Path(argv[2])
+        message_file = Path(argv[2]).absolute()
+        resolved_message_file = message_file.resolve()
         try:
             generated_message = message_file.read_text(encoding="utf-8").strip()
-            message_file.unlink()
+            # Caller owns and cleans up the transport file; never delete it here.
         except (OSError, UnicodeDecodeError) as exc:
             print(f"[specify] Error: cannot read message file: {exc}", file=sys.stderr)
             return 1
 
     script_dir = Path(__file__).resolve().parent
-    repo_root = _find_project_root(script_dir) or Path.cwd()
+    repo_root = (_find_project_root(script_dir) or Path.cwd()).resolve()
+    if message_file is not None and resolved_message_file is not None:
+        if any(
+            path == repo_root or repo_root in path.parents
+            for path in (message_file, resolved_message_file)
+        ):
+            print(
+                "[specify] Error: message file must be outside the Git worktree",
+                file=sys.stderr,
+            )
+            return 1
 
     if shutil.which("git") is None:
         print("[specify] Warning: Git not found; skipped auto-commit", file=sys.stderr)
@@ -175,16 +188,6 @@ def main(argv: list[str]) -> int:
     enabled, commit_msg = _parse_auto_commit_config(config_file, event_name)
     if not enabled:
         return 0
-    commit_style = _read_commit_style(config_file)
-    if commit_style == "conventional":
-        if not generated_message:
-            print(
-                "[specify] Error: commit_style is 'conventional' but no generated "
-                "commit message was supplied; pass --message-file <path>",
-                file=sys.stderr,
-            )
-            return 1
-        commit_msg = generated_message
 
     # Check if there are changes to commit
     def _quiet(*args: str) -> bool:
@@ -204,6 +207,17 @@ def main(argv: list[str]) -> int:
     if _quiet("diff", "--quiet", "HEAD") and _quiet("diff", "--cached", "--quiet") and not untracked:
         print(f"[specify] No changes to commit after {event_name}", file=sys.stderr)
         return 0
+
+    commit_style = _read_commit_style(config_file)
+    if commit_style == "conventional":
+        if not generated_message:
+            print(
+                "[specify] Error: commit_style is 'conventional' but no generated "
+                "commit message was supplied; pass --message-file <path>",
+                file=sys.stderr,
+            )
+            return 1
+        commit_msg = generated_message
 
     # Derive a human-readable command name from the event
     # e.g., after_specify -> specify, before_plan -> plan

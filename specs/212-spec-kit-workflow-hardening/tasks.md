@@ -8,7 +8,7 @@
 
 **Purpose**: Начать с проверенных stable источников без изменения master или чужих worktrees.
 
-- [X] T001 Fast-forward clean bootstrap source checkout to published `v0.8.0` in `/Users/yshishenya/Documents/speckit-bootstrap` and record exact source/executable hashes in `specs/212-spec-kit-workflow-hardening/research.md` per FR-011
+- [X] T001 Fast-forward clean bootstrap source checkout through published `v0.9.5` in `/Users/yshishenya/Documents/speckit-bootstrap` and record exact source/executable hashes in `specs/212-spec-kit-workflow-hardening/research.md` per FR-011
 - [X] T002 Run the non-frozen schema 2 → 3 migration in `/Users/yshishenya/.codex/worktrees/e029/crisp/.specify/speckit-bootstrap.lock.json` and review every generated `.agents/skills/` and `.specify/` change without deleting legacy user-level skills per FR-001, FR-002 and FR-003
 
 ---
@@ -48,7 +48,7 @@
 
 **Goal**: Future bootstrap/upstream refresh ломается в focused validation, а не после начала feature work.
 
-**Independent Test**: `python3 scripts/check_spec_kit_governance.py --self-test` доказывает положительный fixture и четыре отрицательных класса; обычный запуск проходит на repository state.
+**Independent Test**: `python3 scripts/check_spec_kit_governance.py --self-test` доказывает положительный fixture и пять отрицательных классов, включая неправильный порядок; обычный запуск проходит на repository state.
 
 - [X] T007 [P] [US3] Implement the stdlib governance validator and its built-in positive/negative self-test in `scripts/check_spec_kit_governance.py` per FR-009 and `contracts/governance-check.md`
 - [X] T008 [US3] Run the governance validator from the fast lane in `infra/scripts/ci-local.sh` without adding a dependency or network requirement per FR-009
@@ -61,8 +61,8 @@
 
 - [X] T009 Update `[Unreleased]` Russian tooling/operations notes in `CHANGELOG.md` and reconcile Feature 212 quickstart evidence in `specs/212-spec-kit-workflow-hardening/quickstart.md` per FR-012
 - [X] T010 Run the governance self-test, repository guard, frozen doctor, Feature 212 quickstart and `infra/scripts/ci-local.sh --fast`; record exact results in `specs/212-spec-kit-workflow-hardening/quickstart.md` per SC-001, SC-002, SC-003, SC-004, SC-005 and SC-006
-- [X] T011 Run Ponytail review and `$speckit-converge`; complete any appended tasks before declaring Feature 212 PR-ready per FR-008
-- [X] T012 Publish bytecode-safe `github-issue-canon v0.3.2` and fail-closed `speckit-bootstrap v0.9.0`, adopt their immutable refs in GRAF, then prove issue-canon command → frozen doctor without `__pycache__` per FR-013 and SC-007
+- [X] T011 Run Ponytail review and `$speckit-converge`, complete any appended tasks, then obtain explicit user approval before the implementation commit per FR-008
+- [X] T012 Publish bytecode-safe `github-issue-canon v0.3.2` and fail-closed `speckit-bootstrap v0.9.5`, record macOS notarization/stapling as `N/A` for the portable shell asset, adopt immutable refs in GRAF, then repeat focused validation and convergence and prove issue-canon command → frozen doctor without `__pycache__` per FR-013 and SC-007
 
 ## Dependencies And Execution Order
 
@@ -70,7 +70,7 @@
 - T002 precedes T003–T005 because lock/project-local skills do not exist before migration.
 - T003 and T004 precede project-specific guidance and guard changes.
 - T006 and T007 may proceed in parallel after T003–T004; T008 depends on T007.
-- T009 follows behavior changes; T010 follows all implementation; T011 is the initial consistency gate; T012 is append-only convergence work discovered by the publication recheck.
+- T009 follows behavior changes; T010 and T011 are the initial closeout gates. T012 is the final tooling adoption discovered by publication recheck and therefore repeats focused T010 evidence plus convergence before the user-approved implementation commit; CI lanes remain excluded by the owner's explicit scope decision.
 
 ## Implementation Strategy
 

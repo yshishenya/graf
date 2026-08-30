@@ -172,10 +172,10 @@ severity, and a short human-readable description with the evidence (the file/are
 
 - **CRITICAL**: violates a constitution MUST principle, or a `missing`/`contradicts` gap
   that blocks baseline functionality of a P1 user story.
-- **HIGH**: a `missing` or `partial` gap on a core functional requirement or acceptance
-  criterion.
-- **MEDIUM**: a `partial` gap on a secondary requirement, or an `unrequested` addition with
-  unclear justification.
+- **HIGH**: a `missing`, `partial`, or `contradicts` gap on a core functional requirement or
+  acceptance criterion.
+- **MEDIUM**: a `missing`, `partial`, or `contradicts` gap on a secondary requirement, or an
+  `unrequested` addition with unclear justification.
 - **LOW**: minor partial gaps, polish, or low-risk `unrequested` additions.
 
 ### 6. Present the In-Session Findings Summary
@@ -230,9 +230,7 @@ Append to the **end** of `tasks.md`, per the append contract:
 
 ### 8. Provide Next Actions (Handoff)
 
-- On `tasks_appended`: state how many tasks were appended under which phase, and recommend
-  running `$speckit-implement` to complete them; note that a follow-up converge
-  run will find fewer or no remaining items.
+- On `tasks_appended`: state how many tasks were appended under which phase. If a GitHub remote exists, run `$speckit-taskstoissues` first so every new executable task has external traceability; then run `$speckit-implement` and follow with another converge pass.
 - On `converged`: require the feature quickstart and selected repository/release validation gates next. Recommend review / opening a PR only after those gates pass. No further implement pass is needed for this feature's specified scope.
 
 ### 9. Check for extension hooks

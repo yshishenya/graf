@@ -13,9 +13,7 @@ Run the appropriate script from the project root:
 - **Bash**: `.specify/extensions/git/scripts/bash/initialize-repo.sh`
 - **PowerShell**: `.specify/extensions/git/scripts/powershell/initialize-repo.ps1`
 
-If the extension scripts are not found, fall back to:
-- **Bash**: `git init && git commit --allow-empty -m "Initial commit from Specify template"`
-- **PowerShell**: `git init; git commit --allow-empty -m "Initial commit from Specify template"`
+If the extension scripts are not found, STOP with a blocking installation error. Do not run an inline fallback: the managed scripts own the Git availability and existing-repository guards.
 
 The script handles all checks internally:
 - Skips if Git is not available

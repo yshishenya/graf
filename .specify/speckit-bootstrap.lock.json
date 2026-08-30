@@ -1,14 +1,14 @@
 {
-  "bootstrap_version": "0.9.0",
+  "bootstrap_version": "0.9.5",
   "extensions": {
     "agent_context": {
       "manifest_hash": "sha256:9a1dc02d2d0139bb03860392ecacef79183be2c442feda2f9ccaa4e5907b1e47",
-      "tree_sha256": "fa22476e7627bc4fac22a16b4a8395a38c23ae173e9401906ed13548fef0735c",
+      "tree_sha256": "ca985bfcddaf81849f767f48ee62dac37a4ad0a777754790ced024258308819b",
       "version": "1.0.0"
     },
     "git": {
       "manifest_hash": "sha256:89711dec9716473fba4afc54f7224bcb28ebd3c55fb5aaa30df854ab02b07a75",
-      "tree_sha256": "4d6d9463cc3c377f9de55c89750cf9d7dc2b36fbb78f42545ca2d8d0c940af4e",
+      "tree_sha256": "6dcb20dc62054439ddb4d8972aedad452f099d2ab767c4b368b819e010abfc17",
       "version": "1.0.0"
     }
   },
@@ -30,23 +30,23 @@
   "project_skills": {
     "speckit-agent-context-update": "20ccb95e06a35b1052fd52757157e86bf8c60f94c28a6d870eaa35909c4c7389",
     "speckit-analyze": "c5d687a82b1864dcbed2362aefe113e3c0563e4265737df0f9693bb8d2171a8c",
-    "speckit-checklist": "398553bbe812c5bd0ca2dd131a84c1e053b76236aa62739c2745783c33085e12",
-    "speckit-clarify": "e8f287bc171486958fa16ed9292d5f7be1cda88d08e10e184e3ea7c560fa1c75",
+    "speckit-checklist": "26e4d7fe1e6ba3cd4c232f9ada3fbd607b28949b4c243f89b56af53ed9d1cf9b",
+    "speckit-clarify": "34576aedb951be8fb8420af744721672fb895b2184a9153532b07e10c501dc90",
     "speckit-constitution": "177e5214d004ee3d51a41535a7b6e08c4cb8c7d8eddc2596735603aa7bf2553e",
-    "speckit-converge": "ca14a83370eda672b16341df0d03bb83879f387d17130d681fc9148014714e6f",
-    "speckit-git-commit": "5534ded3633c977a7c315aece26112a9abadbb9bf82d412827116f63838204ae",
-    "speckit-git-feature": "73315b9f2cd4de4b57c95adaa786f32b0de3b03327a779015bf0f470c4211d00",
-    "speckit-git-initialize": "3b4be55ec7ae3b2d2723af92abc8363f3f8e3eedecbcc380275d7ce99b645fb3",
+    "speckit-converge": "8f055d370784b163e15bbc455d9c442b6ec0957b7809e3025469305790f28939",
+    "speckit-git-commit": "3e819dca354ae8539ed5c889dec539ea7c1c94d65bc2ece29232fb9b5bc47b13",
+    "speckit-git-feature": "56a7c8e893bcd77297a61ffe8125a1a4d206d076b7497f6ae7f704d0601714c7",
+    "speckit-git-initialize": "7972fcc5c60700dc253f8393677267c9375586e3f62d30fa26936f0d788a091c",
     "speckit-git-remote": "eb2e91b04e9d235e8fd35c3cf1bed196b0595bfc6e84d8307525fed9c4d8464a",
     "speckit-git-validate": "bd165d34a5b6f0186915c8e5b71b50ef51ed5003fd73ec2d8e6679d2309db5ea",
     "speckit-github-issue-canon-ensure": "7dca2ed220c7d0324eb3dddba16e0f0a3a84b639aa96292d6c1542fdb579d87a",
     "speckit-github-issue-canon-normalize": "efa1227811028585ad85141dc9d158f0b3f64520bee6bde5277d8a060bcfb597",
     "speckit-github-issue-canon-validate": "873b6a5a33a440f65b90a3cd53d9fe7a20a73361192577e03546cec16a9ccd04",
-    "speckit-implement": "fab24ae9ce6e9fc79ef190ebb2b690e029ea9792c25f79105d24c025a5606b39",
-    "speckit-plan": "42be99711d2f1ff244ecffee65a68614eac23740ef64ab2e055ad5bb5878ec06",
-    "speckit-specify": "4a99504a4bab93a507010154b08c190095f086b1fc5aab82501721dce56f9c76",
-    "speckit-tasks": "f9249a17997575ad61790bbcefebdbd2371c4034811168e29693551962735b8a",
-    "speckit-taskstoissues": "de6cc16040c5dd25b632df7a17336fabce071aff87785237719cb05ef8416503"
+    "speckit-implement": "cd553ea88a9b4164e72dac596ab699f1942286624f70180c0eaeb6425ff493bc",
+    "speckit-plan": "586857de37396259cd73bff33acd91c6f05030216b89da3aab01e164dec59016",
+    "speckit-specify": "b5c68a42fbf43c5c2c4944ec0e2203e911a8c331e88e7c495024e6ffede8bc0b",
+    "speckit-tasks": "3a2fa1946e0770900ed14ef8e5aeefcc28c0f3668abf56f8d037acbfb0917e5f",
+    "speckit-taskstoissues": "bac71296672d4c2761f034607c94b6b615039b8764f3e949b7e3cfb6ce4f35ea"
   },
   "schema_version": 3,
   "spec_kit": {

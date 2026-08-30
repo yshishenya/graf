@@ -22,6 +22,9 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+# Keep dynamically imported managed helpers out of the locked tree.
+sys.dont_write_bytecode = True
+
 SCRIPT_DIR = Path(__file__).resolve().parent
 MAX_BRANCH_LENGTH = 244  # GitHub enforces a 244-byte limit on branch names
 
@@ -608,7 +611,8 @@ def main(argv: list[str]) -> int:
                 f"creation for {branch_name}"
             )
 
-        _err(f"# To persist: {_persist_hint('SPECIFY_FEATURE', branch_name)}")
+        if args.json_mode:
+            _err(f"# To persist in your shell: {_persist_hint('SPECIFY_FEATURE', branch_name)}")
 
     if args.json_mode:
         payload: dict[str, object] = {

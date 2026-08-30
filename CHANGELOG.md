@@ -13,12 +13,16 @@
 
 ### Изменено
 - Spec Kit workflow переведён на bootstrap lock schema 3 и project-local skills
-  для immutable Spec Kit v1.0.1; significant/high-risk цикл теперь явно включает
-  issue sync, reviewer-owned checklist, convergence и validation/release gates.
+  через immutable `speckit-bootstrap v0.9.5` для Spec Kit v1.0.1;
+  significant/high-risk цикл теперь явно включает issue sync, reviewer-owned
+  checklist, convergence и validation/release gates.
 
 ### Исправлено
 - Locked `github-issue-canon` commands больше не создают Python bytecode внутри
   integrity-managed extension tree; повторный frozen doctor остаётся чистым.
+- Bootstrap refresh мигрирует точные промежуточные формы вплоть до `v0.9.4`, но отклоняет
+  mixed, duplicate, surrounding-drift и неизвестные generated states; focused
+  guard отдельно ловит неправильный порядок полного GRAF workflow.
 - Переключение формата итогов теперь проверяет текущую версию выбранного
   type-slot, поэтому новый формат не получает ложный конфликт с версией
   формата «Авто».

@@ -90,7 +90,7 @@ You **MUST** consider the user input before proceeding (if not empty).
 
 2. **IF EXISTS**: Load `.specify/memory/constitution.md` for project principles and governance constraints.
 
-3. **Clarify intent (dynamic)**: Derive up to THREE initial contextual clarifying questions (no pre-baked catalog). They MUST:
+3. **Load minimal question context and clarify intent (dynamic)**: Read the portions of `spec.md`, `plan.md`, and `tasks.md` needed for question generation, then derive up to THREE initial contextual clarifying questions (no pre-baked catalog). They MUST:
    - Be generated from the user's phrasing + extracted signals from spec/plan/tasks
    - Only ask about information that materially changes checklist content
    - Be skipped individually if already unambiguous in `$ARGUMENTS`
@@ -272,7 +272,7 @@ You **MUST** consider the user input before proceeding (if not empty).
 - Simple, memorable filenames that indicate checklist purpose
 - Easy identification and navigation in the `checklists/` folder
 
-To avoid clutter, use descriptive types and clean up obsolete checklists when done.
+To avoid clutter, use descriptive types. Never remove an existing checklist in this command; removal requires a separate, explicit reviewer-authorized action.
 
 ## Example Checklist Types & Sample Items
 

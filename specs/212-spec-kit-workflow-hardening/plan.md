@@ -10,17 +10,17 @@
 
 ## Technical Context
 
-**Language/Version**: Python 3.12 stdlib для focused guard; Bash orchestration существующего bootstrap/CI
+**Language/Version**: Python 3.9+ stdlib для focused guard; Bash orchestration существующего bootstrap/CI
 
-**Primary Dependencies**: `specify-cli v1.0.1`, `speckit-bootstrap v0.9.0`, `github-issue-canon v0.3.2`, Git, существующие Spec Kit extensions
+**Primary Dependencies**: `specify-cli v1.0.1`, `speckit-bootstrap v0.9.5`, `github-issue-canon v0.3.2`, Git, существующие Spec Kit extensions
 
 **Storage**: Tracked Markdown/YAML/JSON files и project-local `.agents/skills`; продуктовые хранилища не затрагиваются
 
-**Testing**: Встроенный self-test focused guard, issue-canon command → frozen doctor regression, feature quickstart и `infra/scripts/ci-local.sh --fast`
+**Testing**: Встроенный self-test focused guard с пятью negative classes, issue-canon command → frozen doctor regression и focused feature quickstart; ранее пройденный fast gate сохраняется как evidence, Full CI не запускается
 
 **Risk / Validation Lane**: `significant-feature` — изменение governance, generated skills, CI gate и воспроизводимости инструментария; продуктовый runtime не меняется
 
-**Release Gate**: `no deploy` — feature завершается PR-ready validation, без product release и production действий
+**Release Gate**: `no deploy` — feature завершается PR-ready validation, без product release и production действий; macOS signing/notarization bootstrap assets — `N/A`, поскольку продуктовая сборка не меняется
 
 **Target Platform**: macOS developer worktree; guard использует переносимый Python stdlib и существующий project bootstrap
 
@@ -30,7 +30,7 @@
 
 **Constraints**: Не удалять legacy user-level skills; не менять master worktree; не устанавливать optional community extensions; не дублировать integrity checks bootstrap doctor
 
-**Scale/Scope**: Один GRAF repository, 17 core/generated Spec Kit skills, три установленных extensions, один upstream workflow и один локальный source checkout bootstrap
+**Scale/Scope**: Один GRAF repository, 19 project-local Spec Kit skills, три установленных extensions, один upstream workflow и один локальный source checkout bootstrap
 
 ## Constitution Check
 
@@ -48,7 +48,7 @@ Post-design re-check: PASS — дизайн не вводит продуктов
 
 1. До изменения: подтвердить latest upstream Spec Kit и stable bootstrap refs, чистый worktree и fast-forward возможность source checkout.
 2. После bootstrap migration: проверить schema 3, immutable ref, project-local skill hashes, managed `.specify/.gitignore`; затем выполнить Python-backed issue-canon command и `speckit-bootstrap . --doctor --frozen`, убедившись в отсутствии `__pycache__`/`.pyc`.
-3. Запустить focused guard в штатном режиме и его self-test с четырьмя отрицательными классами.
+3. Запустить focused guard в штатном режиме и его self-test с пятью отрицательными классами, включая неправильный порядок стадий.
 4. Повторить bootstrap dry-run/apply и доказать отсутствие необъяснимого tracked drift.
 5. Выполнить сценарии из `quickstart.md`, затем `infra/scripts/ci-local.sh --fast` как PR feedback gate.
 6. Full CI не требуется: product runtime не менялся. Product release preparation, CD dry-run и deploy не выполнять.

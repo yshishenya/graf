@@ -22,7 +22,9 @@ This command is invoked as a hook after (or before) core commands. It:
 3. Looks up the specific event key to see if auto-commit is enabled
 4. Falls back to `auto_commit.default` if no event-specific key exists
 5. Determines the commit message based on `commit_style` (see below)
-6. If enabled and there are uncommitted changes, runs `git add .` + `git commit`
+6. Inspects `git status` and STOPS when the worktree contains changes outside the paths owned by the triggering Spec Kit command; auto-commit must never absorb unrelated or secret-bearing files
+7. Requires explicit user confirmation immediately before every state-changing commit; `after_implement` is never auto-committed and remains a manual post-validation commit
+8. Only then, if enabled and there are command-owned changes, runs the configured auto-commit script
 
 ## Commit Message Styles
 
@@ -33,14 +35,14 @@ Controlled by the `commit_style` key in `.specify/extensions/git/git-config.yml`
 
 ## Execution
 
-Determine the event name from the hook that triggered this command, then run the script:
+Determine the event name from the hook that triggered this command. Before invoking a script, inspect `git status --short`, verify every changed path belongs to that command, and obtain explicit user confirmation for the commit. If the event is `after_implement`, do not invoke auto-commit; finish validation and use a manual user-approved implementation commit instead. Then run the script:
 
 - **Bash**: `.specify/extensions/git/scripts/bash/auto-commit.sh <event_name> [--message-file <path>]`
 - **PowerShell**: `.specify/extensions/git/scripts/powershell/auto-commit.ps1 <event_name> [-MessageFile <path>]`
 
 Replace `<event_name>` with the actual hook event (e.g., `after_specify`, `before_plan`, `after_implement`). Only pass a generated message when `commit_style: conventional` is configured — first check `.specify/extensions/git/git-config.yml` for the value of `commit_style`:
 
-- If `conventional`: inspect the diff and generate a Conventional Commit message. **Do not interpolate the generated message directly into a shell command string** — its content is derived from repository changes and may contain characters (quotes, `$(...)`, backticks) that a shell would execute or that would break command quoting. Instead, write the message to a temporary file using your file-editing tool (not a shell `echo`/`printf`), then pass that file's path via `--message-file <path>` (Bash) or `-MessageFile <path>` (PowerShell).
+- If `conventional`: inspect the diff and generate a Conventional Commit message. **Do not interpolate the generated message directly into a shell command string** — its content is derived from repository changes and may contain characters (quotes, `$(...)`, backticks) that a shell would execute or that would break command quoting. Instead, write the message to a temporary file outside the repository using your file-editing tool (not a shell `echo`/`printf`), then pass that file's path via `--message-file <path>` (Bash) or `-MessageFile <path>` (PowerShell). The script reads but never deletes caller-owned message files; the caller cleans up its own temporary file after the command returns.
 - If `fixed` or absent: run the script with just `<event_name>`; it uses the configured/static message.
 
 ## Configuration

@@ -44,7 +44,7 @@ Check `.specify/extensions/git/git-config.yml` for an optional `branch_template`
 - `{number}`: sequential number or timestamp
 - `{slug}`: generated short branch slug
 
-For monorepos, a template such as `{author}/{app}/{number}-{slug}` creates names like `jdoe/web/008-guided-tour` while preserving per-project feature numbering.
+For monorepos, a template such as `{author}/{app}/{number}-{slug}` creates names like `jdoe/web/008-guided-tour`. Numbering is per-project only when each project also uses a distinct specs directory; a shared `specs/` directory still contributes its highest global number.
 
 The script also accepts `branch_prefix` as a shorthand for simple namespaces; it expands to `<branch_prefix>/{number}-{slug}`.
 
@@ -57,10 +57,12 @@ Generate a concise short name (2-4 words) for the branch:
 
 Run the appropriate script based on your platform:
 
-- **Bash**: `.specify/extensions/git/scripts/bash/create-new-feature-branch.sh --json --short-name "<short-name>" "<feature description>"`
-- **Bash (timestamp)**: `.specify/extensions/git/scripts/bash/create-new-feature-branch.sh --json --timestamp --short-name "<short-name>" "<feature description>"`
-- **PowerShell**: `.specify/extensions/git/scripts/powershell/create-new-feature-branch.ps1 -Json -ShortName "<short-name>" "<feature description>"`
-- **PowerShell (timestamp)**: `.specify/extensions/git/scripts/powershell/create-new-feature-branch.ps1 -Json -Timestamp -ShortName "<short-name>" "<feature description>"`
+Use a native argument array/binding; never interpolate the short name or feature description into a shell command string.
+
+- **Bash argv**: `[".specify/extensions/git/scripts/bash/create-new-feature-branch.sh", "--json", "--short-name", short_name, feature_description]`
+- **Bash timestamp argv**: add `"--timestamp"` before `"--short-name"`
+- **PowerShell argv**: `[".specify/extensions/git/scripts/powershell/create-new-feature-branch.ps1", "-Json", "-ShortName", short_name, feature_description]`
+- **PowerShell timestamp argv**: add `"-Timestamp"` before `"-ShortName"`
 
 **IMPORTANT**:
 - Do NOT pass `--number` — the script determines the correct next number automatically

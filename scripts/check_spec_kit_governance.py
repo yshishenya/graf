@@ -11,7 +11,11 @@ import tempfile
 from pathlib import Path
 
 
-STAGES = (
+if sys.version_info < (3, 9):
+    raise SystemExit("spec-kit-governance: Python 3.9 or newer is required")
+
+
+SKILL_STAGES = (
     "specify",
     "clarify",
     "plan",
@@ -22,6 +26,7 @@ STAGES = (
     "implement",
     "converge",
 )
+CLOSEOUT_STAGE = "validation/release gates"
 
 
 def read(path: Path, errors: list[str]) -> str:
@@ -44,10 +49,20 @@ def validate(root: Path, *, run_doctor: bool = True) -> list[str]:
                 check=False,
             )
             if result.returncode:
-                detail = (result.stderr or result.stdout).strip()
-                errors.append(f"bootstrap frozen doctor failed: {detail}")
+                detail = "\n".join(
+                    output.strip()
+                    for output in (result.stdout, result.stderr)
+                    if output.strip()
+                )
+                errors.append(
+                    f"{root / '.specify/speckit-bootstrap.lock.json'}: "
+                    f"bootstrap frozen doctor failed: {detail}"
+                )
         except OSError as exc:
-            errors.append(f"bootstrap frozen doctor failed: {exc}")
+            errors.append(
+                f"{root / '.specify/speckit-bootstrap.lock.json'}: "
+                f"bootstrap frozen doctor failed: {exc}"
+            )
 
     lock_path = root / ".specify/speckit-bootstrap.lock.json"
     try:
@@ -71,10 +86,12 @@ def validate(root: Path, *, run_doctor: bool = True) -> list[str]:
     flow_path = root / "docs/agent-guidance/spec-kit-flow.md"
     agents = " ".join(read(agents_path, errors).split())
     flow = " ".join(read(flow_path, errors).split())
-    sequence = " → ".join(STAGES)
+    sequence = " → ".join((*SKILL_STAGES, CLOSEOUT_STAGE))
     if sequence not in agents:
         errors.append(f"{agents_path}: full GRAF workflow is missing or out of order")
-    skill_sequence = " ".join(f"$speckit-{stage}" for stage in STAGES)
+    skill_sequence = " ".join(
+        (*[f"$speckit-{stage}" for stage in SKILL_STAGES], CLOSEOUT_STAGE)
+    )
     if skill_sequence not in flow:
         errors.append(f"{flow_path}: full GRAF skill sequence is missing or out of order")
 
@@ -87,9 +104,6 @@ def validate(root: Path, *, run_doctor: bool = True) -> list[str]:
         or "significant/high-risk" not in combined
     ):
         errors.append(f"{flow_path}: shortened upstream workflow boundary is missing")
-    if "validation/release gates" not in combined:
-        errors.append(f"{flow_path}: validation/release closeout is missing")
-
     ignore_path = root / ".specify/.gitignore"
     ignored = {
         line.strip()
@@ -109,19 +123,24 @@ def write_fixture(
     reviewer_owned: bool = True,
     schema: int = 3,
     project_skills: bool = True,
+    wrong_order: bool = False,
 ) -> None:
     (root / ".specify").mkdir(parents=True)
     (root / ".agents/skills/speckit-specify").mkdir(parents=True)
     (root / "docs/agent-guidance").mkdir(parents=True)
-    stages = STAGES if converge else STAGES[:-1]
-    sequence = " → ".join(stages) + " → validation/release gates"
+    stages = list(SKILL_STAGES if converge else SKILL_STAGES[:-1])
+    if wrong_order:
+        stages[4], stages[5] = stages[5], stages[4]
+    sequence = " → ".join((*stages, CLOSEOUT_STAGE))
     ownership = "reviewer-owned" if reviewer_owned else "reviewed"
     policy = (
         f"{sequence}. Upstream six-step MUST NOT replace significant/high-risk flow. "
         f"Checklist state is {ownership}; implementation must not mark items complete."
     )
     (root / "AGENTS.md").write_text(policy, encoding="utf-8")
-    skill_sequence = "\n".join(f"$speckit-{stage}" for stage in stages)
+    skill_sequence = "\n".join(
+        (*[f"$speckit-{stage}" for stage in stages], CLOSEOUT_STAGE)
+    )
     (root / "docs/agent-guidance/spec-kit-flow.md").write_text(
         f"{skill_sequence}\n{policy}\n", encoding="utf-8"
     )
@@ -155,13 +174,14 @@ def self_test() -> None:
             ("missing reviewer ownership", {"reviewer_owned": False}),
             ("missing project skills", {"project_skills": False}),
             ("unsupported lock schema", {"schema": 2}),
+            ("wrong workflow order", {"wrong_order": True}),
         )
         for index, (name, options) in enumerate(cases, start=1):
             root = base / f"negative-{index}"
             write_fixture(root, **options)
             if not validate(root, run_doctor=False):
                 raise AssertionError(f"negative fixture was not rejected: {name}")
-    print("spec-kit-governance self-test: OK (positive + 4 negative classes)")
+    print("spec-kit-governance self-test: OK (positive + 5 negative classes)")
 
 
 def main() -> int:

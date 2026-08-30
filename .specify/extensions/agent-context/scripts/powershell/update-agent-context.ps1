@@ -440,9 +440,12 @@ if (-not $PlanPath) {
                 $normRoot = $ProjectRoot.Replace('\', '/').TrimEnd('/') + '/'
                 $cmp = if ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT) { [System.StringComparison]::OrdinalIgnoreCase } else { [System.StringComparison]::Ordinal }
                 if ($fullPath.StartsWith($normRoot, $cmp)) {
-                    $PlanPath = $fullPath.Substring($normRoot.Length)
-                } else {
-                    $PlanPath = $fullPath
+                    $relativeCandidate = $fullPath.Substring($normRoot.Length)
+                    $resolvedCandidate = Resolve-ContextPath -Root $ProjectRoot -RelativePath $relativeCandidate
+                    if (Test-IsSubPath -Root $ProjectRoot -Path $resolvedCandidate) {
+                        $resolvedPath = $resolvedCandidate.Replace('\', '/')
+                        $PlanPath = $resolvedPath.Substring($normRoot.Length)
+                    }
                 }
             }
         } catch {

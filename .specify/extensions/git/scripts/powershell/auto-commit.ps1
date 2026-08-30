@@ -25,23 +25,21 @@ param(
     [string]$MessageFile = ""
 )
 $ErrorActionPreference = 'Stop'
+$messageFilePaths = @()
 
 if ($MessageFile) {
     if (-not (Test-Path $MessageFile -PathType Leaf)) {
         Write-Warning "[specify] Error: message file '$MessageFile' not found"
         exit 1
     }
-    $GeneratedMessage = (Get-Content -Path $MessageFile -Raw)
+    $literalMessageFile = [System.IO.Path]::GetFullPath($MessageFile)
+    $resolvedMessageFile = (Resolve-Path -LiteralPath $MessageFile).Path
+    $messageFilePaths = @($literalMessageFile, $resolvedMessageFile)
+    $GeneratedMessage = (Get-Content -LiteralPath $MessageFile -Raw)
     if ($null -ne $GeneratedMessage) {
         $GeneratedMessage = $GeneratedMessage.TrimEnd("`r", "`n")
     }
-    # The message file is a transport-only artifact: its content is now
-    # captured above, so remove it immediately. Otherwise, if it was written
-    # inside the worktree, it would be picked up as an untracked change by
-    # both the "any changes?" check below and by `git add .`, polluting the
-    # commit or defeating the no-changes short-circuit even when nothing
-    # else changed.
-    Remove-Item -Path $MessageFile -Force -ErrorAction SilentlyContinue
+    # Caller owns and cleans up the transport file; never delete it here.
 }
 
 function Find-ProjectRoot {
@@ -82,6 +80,17 @@ try {
 if (-not $isRepo) {
     Write-Warning "[specify] Warning: Not a Git repository; skipped auto-commit"
     exit 0
+}
+
+$worktreeRoot = [System.IO.Path]::GetFullPath((git rev-parse --show-toplevel).Trim())
+$worktreePrefix = $worktreeRoot.TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar
+$comparison = if ($IsWindows) { [System.StringComparison]::OrdinalIgnoreCase } else { [System.StringComparison]::Ordinal }
+foreach ($messagePath in $messageFilePaths) {
+    $fullMessagePath = [System.IO.Path]::GetFullPath($messagePath)
+    if ($fullMessagePath.Equals($worktreeRoot, $comparison) -or $fullMessagePath.StartsWith($worktreePrefix, $comparison)) {
+        Write-Warning "[specify] Error: message file must be outside the Git worktree"
+        exit 1
+    }
 }
 
 # Read per-command config from git-config.yml

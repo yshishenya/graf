@@ -457,7 +457,17 @@ def priority(value):
 
 ranked = []
 for ext_id, meta in registered.items():
-    if isinstance(ext_id, str) and re.fullmatch(r'[a-z0-9-]+', ext_id) and isinstance(meta, dict) and bool(meta.get('enabled', True)):
+    if not isinstance(ext_id, str) or not re.fullmatch(r'[a-z0-9-]+', ext_id):
+        print('registry_invalid: extension id must match [a-z0-9-]+', file=sys.stderr)
+        sys.exit(1)
+    if not isinstance(meta, dict):
+        print(f'registry_invalid: metadata for {ext_id} must be a mapping', file=sys.stderr)
+        sys.exit(1)
+    enabled = meta.get('enabled', True)
+    if not isinstance(enabled, bool):
+        print(f'registry_invalid: enabled for {ext_id} must be boolean', file=sys.stderr)
+        sys.exit(1)
+    if enabled:
         ranked.append((priority(meta.get('priority')), ext_id))
 for path in root.iterdir():
     if path.is_dir() and re.fullmatch(r'[a-z0-9-]+', path.name) and path.name not in registered:
@@ -469,7 +479,11 @@ for _, ext_id in sorted(ranked):
             printf '%s\n' "$sorted_ids"
             return 0
         else
-            echo "Error: invalid extension registry $ext_dir/.registry" >&2
+            if grep -q '^registry_invalid:' "$py_stderr" 2>/dev/null; then
+                echo "Error: invalid extension registry $ext_dir/.registry: $(sed -n '1s/^registry_invalid: //p' "$py_stderr")" >&2
+            else
+                echo "Error: failed to enumerate extensions in $ext_dir: $(cat "$py_stderr")" >&2
+            fi
             rm -f "$py_stderr"
             return 1
         fi
@@ -771,7 +785,7 @@ except Exception as exc:
                 local declared_file="$manifest_file"
                 if [ -n "$manifest_file" ]; then
                     case "$manifest_file" in
-                        /*|*../*|../*) manifest_file="" ;;
+                        /*|..|../*|*/..|*/../*) manifest_file="" ;;
                     esac
                 fi
                 if [ -n "$manifest_file" ]; then

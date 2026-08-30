@@ -246,9 +246,12 @@ if (Get-Command Get-RepoRoot -ErrorAction SilentlyContinue) {
 
 # Check if git is available
 if (Get-Command Test-HasGit -ErrorAction SilentlyContinue) {
-    # Call without parameters for compatibility with core common.ps1 (no -RepoRoot param)
-    # and git-common.ps1 (has -RepoRoot param with default).
-    $hasGit = Test-HasGit
+    Push-Location $repoRoot
+    try {
+        $hasGit = Test-HasGit
+    } finally {
+        Pop-Location
+    }
 } else {
     try {
         git -C $repoRoot rev-parse --is-inside-work-tree 2>$null | Out-Null

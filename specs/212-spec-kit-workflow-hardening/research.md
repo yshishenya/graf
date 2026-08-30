@@ -4,7 +4,7 @@
 
 **Decision**: Выполнить один обычный `speckit-bootstrap .` без `--frozen` после dry-run.
 
-**Rationale**: Опубликованный `speckit-bootstrap v0.9.0` сохраняет schema 2 → 3 migration path и project-local integrity state, закрывает bytecode drift и fail-closed усиливает generated workflow guards.
+**Rationale**: Опубликованный `speckit-bootstrap v0.9.5` сохраняет schema 2 → 3 migration path и project-local integrity state, мигрирует точные промежуточные формы вплоть до `v0.9.4` и fail closed отклоняет mixed, duplicate, surrounding-drift и неизвестные generated states.
 
 **Alternatives considered**:
 
@@ -54,7 +54,7 @@
 
 ## Decision 6: Source checkout bootstrap только fast-forward
 
-**Decision**: Обновить чистый `/Users/yshishenya/Documents/speckit-bootstrap` через reviewed PR до опубликованного `v0.9.0`, затем оставить checkout на чистом `main == origin/main == v0.9.0^{}`.
+**Decision**: Обновить чистый `/Users/yshishenya/Documents/speckit-bootstrap` через reviewed PR до опубликованного `v0.9.5`, затем оставить checkout на чистом `main == origin/main`, а immutable tag `v0.9.5^{}` — на release merge SHA.
 
 **Rationale**: Первичная синхронизация до `v0.8.0` открыла общий integrity bug: issue-canon command создавал `.pyc` внутри locked tree. Минимальный bootstrap regression потребовал patch release и совместимого extension pin.
 
@@ -65,9 +65,10 @@
 
 **Validation evidence (2026-08-30)**:
 
-- PR [speckit-bootstrap#21](https://github.com/yshishenya/speckit-bootstrap/pull/21) merged as `dfef00fcb4ecd1208919872289f77731207f1ce0`; stable immutable release [v0.9.0](https://github.com/yshishenya/speckit-bootstrap/releases/tag/v0.9.0) points to the same commit.
-- Installed release binary SHA-256 is `6b2c63c965c2b2b401bd1430f3996df496c1bc8469bb1df4b1b66fb39926f689`.
-- Source checkout is clean on `main == origin/main == v0.9.0^{}`.
+- PR [speckit-bootstrap#30](https://github.com/yshishenya/speckit-bootstrap/pull/30) merged as `ae45a7d241921a19c99d797f3447a4f9284f6d88`; stable immutable release [v0.9.5](https://github.com/yshishenya/speckit-bootstrap/releases/tag/v0.9.5) points to the same commit.
+- Release workflow `33322827901` passed package verification and immutable attestations; downloaded binary SHA-256 and installed executable SHA-256 are `b62c8de2b11f8d109710969e1c13a5e8bf2552426012a4c97801eebd04e27a2a`.
+- Source checkout is clean on `main == origin/main` at `ae45a7d241921a19c99d797f3447a4f9284f6d88`; tag `v0.9.5^{}` resolves to the same commit.
+- Apple notarization and stapling are `N/A`: release asset is a portable shell executable, not a GRAF macOS app/package; its publication gate is the immutable annotated tag, checksummed asset and GitHub attestation workflow above.
 
 ## Decision 7: Запретить Python bytecode в locked extension tree у источника
 
