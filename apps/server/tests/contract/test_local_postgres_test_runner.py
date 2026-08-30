@@ -85,6 +85,9 @@ def test_full_runner_keeps_strict_rls_tests_and_uses_a_bounded_parallel_lane() -
     assert "-m \"not strict_rls and not serial_performance\"" in script
     assert "-m \"serial_performance and not strict_rls\"" in script
     assert "if run_phase performance" in script
+    assert 'performance_gate="${GRAF_PERFORMANCE_GATE:-report}"' in script
+    assert 'postgres_test_performance_gate=report result=report_only_fail' in script
+    assert 'postgres_test_performance_gate=required result=fail' in script
     assert "-m strict_rls" in script
     assert "--durations=20" in script
     assert "collection_digest" in script
@@ -106,17 +109,22 @@ def test_runner_exposes_a_fast_unit_lane_without_replacing_full_coverage() -> No
     assert 'postgres_test_result=pass mode=fast' in script
 
 
-def test_local_ci_keeps_full_as_default_and_exposes_fast_explicitly() -> None:
+def test_local_ci_requires_an_explicit_lane_and_exposes_component_selection() -> None:
     script = LOCAL_CI.read_text(encoding="utf-8")
 
-    assert 'mode="full"' in script
-    assert 'usage: $0 [--fast|--full]' in script
-    assert 'bash apps/server/scripts/run_local_postgres_tests.sh "--${mode}" -q' in script
-    assert 'if [[ "$mode" == "full" ]]; then' in script
+    assert 'requested_mode="unselected"' in script
+    assert 'usage: $0 --fast|--full|--help' in script
+    assert 'classify_path()' in script
+    assert 'run_server_tests full' in script
+    assert 'run_server_tests fast' in script
+    assert 'ci_receipt_result=skipped reason=dirty_worktree' in script
 
 
-def test_remote_deploy_requires_the_explicit_full_local_ci_lane() -> None:
+def test_remote_deploy_reuses_only_valid_full_receipt_or_runs_full_fallback() -> None:
     script = REMOTE_CD.read_text(encoding="utf-8")
 
-    assert "local_ci=$([[ \"$SKIP_LOCAL_CI\" == \"1\" ]] && echo skipped || echo full_required)" in script
+    assert "valid_full_receipt_or_full_fallback" in script
+    assert "python3 infra/scripts/ci-receipt.py validate" in script
+    assert "local_ci=receipt_reused" in script
+    assert "local_ci=full_fallback" in script
     assert "infra/scripts/ci-local.sh --full" in script

@@ -13,10 +13,13 @@ infra/scripts/ci-local.sh --fast
 infra/scripts/ci-local.sh --full
 ```
 
-`--full` is the default when no argument is supplied. The fast lane runs the
-server unit suite, lint and compile checks, and skips the longer macOS and
-deployment-readiness checks. It is for iteration and PR feedback, never a
-release gate. Focused tests remain the first check during implementation.
+The lane is mandatory: a bare command exits before tests instead of silently
+choosing evidence strength. `--fast` derives the changed paths from the merge
+base with `origin/master`: known server, macOS and documentation changes run
+only their component checks, while infrastructure, dependencies, migrations,
+contract/integration tests, shared/unknown paths or an unavailable diff expand
+to `--full`. It is for iteration and PR feedback, never a release gate. Focused
+tests remain the first check during implementation.
 
 GitHub Actions are intentionally disabled for this repository. Nothing runs
 automatically on a pull request: the author must run the selected local lane and
@@ -45,8 +48,8 @@ Every change must record one risk/validation lane in the final response or PR.
   lane before closeout/PR; add a full baseline before release when it helps
   resolve risk early.
 - **Release / deploy**: run the CD dry-run and execute only after the release
-  gate is met and approved. `--execute` runs the full lane for the pinned SHA;
-  this is the mandatory full validation boundary.
+  gate is met and approved. The pinned SHA must have one valid full-CI receipt;
+  `--execute` reuses matching evidence or runs the full fallback itself.
 
 Do not rerun full local CI after every small edit inside a slice. Accumulate
 focused checks while developing, use the fast lane for PR feedback, and rely on
@@ -107,14 +110,20 @@ release metadata, or dependency lockfile changes after that run, the full result
 is invalid and must be repeated. Do not use `origin/<branch>` or a moving branch
 as the evidence identity; record and deploy the exact SHA.
 
-There are two supported release paths:
+There are two supported release paths; both finish with exactly one valid full
+receipt for the unchanged candidate:
 
 - **Economical**: run the CD dry-run, obtain approval, then let
-  `cd-remote.sh --execute` perform the mandatory full gate immediately before
-  deployment.
+  `cd-remote.sh --execute` perform the mandatory full fallback immediately
+  before deployment and create the receipt.
 - **Preflighted**: run `ci-local.sh --full` first to find issues before asking
-  for production approval; `--execute` still repeats the full gate on the same
-  SHA as the authoritative boundary.
+  for production approval; `--execute` reuses its fresh exact-input receipt and
+  does not repeat the same full gate.
+
+The receipt is local metadata under the Git worktree metadata directory. It is
+valid for 24 hours only when the commit, tree, CI runner, dependency lockfiles,
+test surface, server collection and toolchain still match. Missing, stale,
+malformed or mismatched evidence never bypasses CI: deploy runs full fallback.
 
 ### 4. Production gate
 
@@ -130,11 +139,12 @@ After explicit production approval, run:
 infra/scripts/cd-remote.sh --execute --branch <branch>
 ```
 
-`--execute` requires a clean, synchronized worktree, pins the SHA, runs
-`ci-local.sh --full`, and only then proceeds to backup, migration, deployment,
-health checks, smoke, and guarded rollback. `--skip-local-ci` is an incident
-exception only: it requires explicit approval and a written reason for the
-accepted risk.
+`--execute` requires a clean tracked-and-untracked worktree, synchronizes and
+pins the SHA, validates the full-CI receipt, and runs `ci-local.sh --full` only
+when that receipt is unavailable or invalid. It then proceeds to the unchanged
+backup, restore rehearsal, migration/RLS, secret, deployment, health, smoke and
+guarded rollback gates. `--skip-local-ci` is an incident exception only: it
+requires explicit approval and a written reason for the accepted risk.
 
 ### 5. Closeout
 
@@ -151,12 +161,15 @@ Use this rule when deciding whether to spend the longer run:
 - local edit: focused check;
 - ready slice or PR: `--fast`;
 - release candidate: `--full`;
-- approved production execution: `--full` is mandatory and is run by
-  `cd-remote.sh --execute`;
+- approved production execution: a valid exact-input full receipt is mandatory;
+  `cd-remote.sh --execute` reuses it or runs `--full` as fallback;
 - new commit after full CI: full CI must be repeated.
 
-An interrupted run is not a passing full-CI result. Focused tests and the fast
-lane must not be counted as full CI in release evidence.
+An interrupted run is not a passing full-CI result and cannot create a receipt.
+Focused tests and the fast lane must not be counted as full CI in release
+evidence. The serial database performance marker is report-only on unrelated
+shared-host runs because it is load-sensitive; calendar matching changes or an
+explicit controlled run set it to required. Functional tests remain hard gates.
 
 ## Public macOS Signing And Migration
 
@@ -214,7 +227,8 @@ For the server app:
 
 Runtime dependency upgrades are significant maintenance when they affect backend
 frameworks, auth, storage, database, infra, or shared behavior. Use the relevant
-Spec Kit lane and finish with `infra/scripts/ci-local.sh` before closeout.
+Spec Kit lane and finish with `infra/scripts/ci-local.sh --fast` before
+closeout; use `--full` for the assembled release candidate.
 
 ## Production Deployment And Smoke
 
@@ -228,7 +242,7 @@ infra/scripts/cd-remote.sh --execute
 Only run `--execute` when the release gate is met. Production deploy/smoke work
 must preserve:
 
-- clean or intentionally accounted working tree;
+- clean tracked-and-untracked working tree;
 - branch/ref sync with the intended remote;
 - pinned commit SHA;
 - backup and restore rehearsal evidence where required;
@@ -242,13 +256,19 @@ Use the exact production sequence:
    synced with `origin/<branch>`.
 2. Run `infra/scripts/cd-remote.sh --dry-run --branch <branch>`.
 3. Obtain explicit user approval for production.
-4. Run `infra/scripts/cd-remote.sh --execute --branch <branch>`. It runs
-   `infra/scripts/ci-local.sh --full` against the pinned commit before remote
-   backup, migration, deployment and smoke checks.
+4. Run `infra/scripts/cd-remote.sh --execute --branch <branch>`. It validates a
+   fresh full receipt for the pinned commit or runs
+   `infra/scripts/ci-local.sh --full` as the safe fallback before remote backup,
+   migration, deployment and smoke checks.
 
 `--skip-local-ci` bypasses the full local CI only; it does not bypass production
 gates. It is reserved for an explicitly approved incident response that names
 the omitted check and accepted risk; it is never a normal speed optimization.
+
+Batch small validated changes into an intentional release candidate when that
+reduces repeated release overhead. Two planned release windows per day are a
+useful operating rhythm, not a hard gate; an explicitly marked hotfix remains
+available when production risk requires it.
 
 ## Changelog
 

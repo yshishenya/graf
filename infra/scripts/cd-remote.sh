@@ -51,7 +51,7 @@ deploy_result=dry_run
 remote_host=$REMOTE_HOST
 remote_path=$REMOTE_PATH
 branch=$BRANCH
-local_ci=$([[ "$SKIP_LOCAL_CI" == "1" ]] && echo skipped || echo full_required)
+local_ci=$([[ "$SKIP_LOCAL_CI" == "1" ]] && echo skipped_incident_only || echo valid_full_receipt_or_full_fallback)
 posthog_stack_handoff=dry_run_metadata_only
 posthog_stack_contract=infra/posthog/docker-compose.posthog.yml
 posthog_stack_runtime_source=official_posthog_hobby_generated_compose_required
@@ -63,7 +63,7 @@ fi
 
 cd "$(dirname "$0")/../.."
 
-if ! git diff --quiet || ! git diff --cached --quiet; then
+if [[ -n "$(git status --porcelain --untracked-files=all)" ]]; then
   echo "deploy_result=blocked"
   echo "reason=dirty_worktree"
   exit 1
@@ -90,7 +90,19 @@ if [[ "$EXPECTED_SHA" != "$ORIGIN_SHA" ]]; then
 fi
 
 if [[ "$SKIP_LOCAL_CI" != "1" ]]; then
-  infra/scripts/ci-local.sh --full
+  if python3 infra/scripts/ci-receipt.py validate; then
+    echo "local_ci=receipt_reused"
+  else
+    echo "local_ci=full_fallback"
+    infra/scripts/ci-local.sh --full
+    if ! python3 infra/scripts/ci-receipt.py validate; then
+      echo "deploy_result=blocked"
+      echo "reason=full_ci_receipt_invalid_after_fallback"
+      exit 1
+    fi
+  fi
+else
+  echo "local_ci=skipped_incident_only"
 fi
 
 remote_script=$(cat <<'SH'

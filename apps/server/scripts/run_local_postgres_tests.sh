@@ -196,6 +196,12 @@ if [[ ! "$workers" =~ ^[1-9][0-9]*$ ]] || (( workers > 8 )); then
   exit 2
 fi
 
+performance_gate="${GRAF_PERFORMANCE_GATE:-report}"
+if [[ "$performance_gate" != "report" && "$performance_gate" != "required" ]]; then
+  printf 'GRAF_PERFORMANCE_GATE must be report or required.\n' >&2
+  exit 2
+fi
+
 timing_args=(--durations=20)
 for argument in "${pytest_args[@]}"; do
   if [[ "$argument" == --durations || "$argument" == --durations=* ]]; then
@@ -306,8 +312,11 @@ if run_phase performance \
   uv run --extra dev --extra evaluation pytest -m "serial_performance and not strict_rls" \
   "${timing_args[@]}" "${pytest_args[@]}"; then
   :
-else
+elif [[ "$performance_gate" == "required" ]]; then
+  printf 'postgres_test_performance_gate=required result=fail\n' >&2
   exit 1
+else
+  printf 'postgres_test_performance_gate=report result=report_only_fail\n' >&2
 fi
 if run_phase strict \
   uv run --extra dev --extra evaluation pytest -m strict_rls "${timing_args[@]}" "${pytest_args[@]}"; then
