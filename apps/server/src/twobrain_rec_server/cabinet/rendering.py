@@ -1127,8 +1127,8 @@ def _render_meeting_detail_content(
             else review.template.label
         ),
         current_outcome_set_id=(
-            str(review.content_exports.outcome_set_id or "")
-            if review.content_exports is not None
+            str(review.template.outcome_set_id or "")
+            if review.template.outcome_set_id is not None
             else ""
         ),
         current_summary_format_template_id=(str(review.template.template_id or "")),

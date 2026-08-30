@@ -586,6 +586,7 @@ async def get_cabinet_meeting_review_route(
         workspace_id=tenant_scope.workspace_id,
         meeting_id=meeting_id,
         viewer_user_id=principal.user_id,
+        selected_summary_template_key=request.query_params.get("summary_format"),
         storage=storage,
         external_invitations_enabled=request.app.state.settings.share_external_invitations_enabled,
         invitation_encryption_key=(

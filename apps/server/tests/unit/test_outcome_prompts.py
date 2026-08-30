@@ -227,6 +227,29 @@ def test_prompt_rejects_remote_ref_wrong_variables_and_modified_schema() -> None
         )
 
 
+def test_prompt_compilation_preserves_placeholder_like_transcript_data() -> None:
+    snapshot = validate_prompt_snapshot(
+        name="graf/meeting-outcome/auto",
+        version=1,
+        prompt_type="chat",
+        prompt=OUTCOME_PROMPT,
+        config=outcome_config(schema_name="graf_meeting_outcome_auto_v1"),
+    )
+    transcript_json = canonical_json(
+        [{"sequence": 0, "text": "Текст {{output_language}} и {{deadline}}"}]
+    )
+
+    compiled = compile_prompt_messages(
+        snapshot,
+        transcript_json=transcript_json,
+        output_language="ru",
+        detail_level="standard",
+        template_sections=("summary",),
+    )
+
+    assert transcript_json in compiled[1]["content"]
+
+
 def test_reflection_and_judges_have_separate_closed_contracts() -> None:
     reflection = (
         "Improve <curr_param> from <side_info>. Return only one unlabelled fence: ```new prompt```"
@@ -422,7 +445,10 @@ def test_outcome_prompt_requires_state_item_and_exact_reference_self_checks() ->
     assert "Copy every source_refs transcript_segment_id and sequence exactly" in system_message
     assert "self-check the closed category set" in system_message
     assert "A decision is only a final, explicitly adopted position" in system_message
+    assert "An agreement to revisit a topic" in system_message
+    assert "'решение не принято' or 'не договорились'" in system_message
     assert "An action item is only an explicit commitment or assignment" in system_message
+    assert "A questions item is allowed only when the transcript contains an explicit question" in system_message
     assert "greetings, agenda-only statements, filler" in system_message
     assert "Generic speaker labels" in system_message
     assert "Use the latest explicitly supported correction" in system_message

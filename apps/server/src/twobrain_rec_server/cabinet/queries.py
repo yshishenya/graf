@@ -1095,6 +1095,7 @@ async def get_cabinet_meeting_review(
     workspace_id: UUID,
     meeting_id: UUID,
     viewer_user_id: UUID,
+    selected_summary_template_key: str | None = None,
     storage: object | None = None,
     include_calendar_correction_candidates: bool = False,
     external_invitations_enabled: bool = False,
@@ -1170,15 +1171,25 @@ async def get_cabinet_meeting_review(
         ).all(),
         result_imported_at=result.imported_at if result is not None else None,
     )
-    outcome_set = await _current_outcome_set(
-        db,
-        workspace_id=workspace_id,
-        meeting_id=meeting_id,
-        # The default slot is the summary's revision fence.  The transcript
-        # may already have a newer imported result; passing that result ID
-        # here would make a valid last-known-good summary disappear.
-        processing_result_id=None,
-    )
+    outcome_set = None
+    if selected_summary_template_key:
+        outcome_set = await _current_outcome_set(
+            db,
+            workspace_id=workspace_id,
+            meeting_id=meeting_id,
+            processing_result_id=None,
+            template_key=selected_summary_template_key,
+        )
+    if outcome_set is None:
+        outcome_set = await _current_outcome_set(
+            db,
+            workspace_id=workspace_id,
+            meeting_id=meeting_id,
+            # The default slot is the summary's revision fence.  The transcript
+            # may already have a newer imported result; passing that result ID
+            # here would make a valid last-known-good summary disappear.
+            processing_result_id=None,
+        )
     outcome_template_name = None
     if outcome_set is not None and outcome_set.template_id is not None:
         outcome_template = await db.scalar(
@@ -1622,12 +1633,14 @@ async def _current_outcome_set(
     workspace_id: UUID,
     meeting_id: UUID,
     processing_result_id: UUID | None,
+    template_key: str | None = None,
 ) -> MeetingOutcomeSet | None:
     accepted = await current_outcome_set(
         db,
         workspace_id=workspace_id,
         meeting_id=meeting_id,
         processing_result_id=processing_result_id,
+        template_key=template_key,
     )
     return accepted
 

@@ -20,6 +20,10 @@ from typing import Any, Literal, Protocol
 from uuid import UUID, uuid4
 from zipfile import ZIP_DEFLATED, ZipFile
 
+from twobrain_rec_server.outcomes.prompt_bundle import (
+    bind_snapshot_from_metadata,
+    snapshot_bundle_metadata,
+)
 from twobrain_rec_server.outcomes.prompts import (
     CONTROL_GATE_CONFIG_KEY,
     JUDGE_VARIABLES,
@@ -1206,13 +1210,19 @@ def validate_candidate_prompt(
         parsed = json.loads(prompt_text)
     except json.JSONDecodeError as exc:
         raise PromptOptimizationError("candidate_prompt_invalid") from exc
-    return validate_prompt_snapshot(
+    candidate = validate_prompt_snapshot(
         name=source.name,
         version=source.version,
         prompt_type=source.prompt_type,
         prompt=parsed,
         config=source.config,
         source=source.source,
+    )
+    bundle_metadata = snapshot_bundle_metadata(source)
+    return (
+        bind_snapshot_from_metadata(candidate, bundle_metadata)
+        if bundle_metadata is not None
+        else candidate
     )
 
 
@@ -2044,7 +2054,7 @@ def persist_prompt_optimization_history(
 
 
 def _snapshot_payload(snapshot: PromptSnapshot) -> dict[str, object]:
-    return {
+    payload = {
         "name": snapshot.name,
         "version": snapshot.version,
         "prompt_type": snapshot.prompt_type,
@@ -2053,6 +2063,10 @@ def _snapshot_payload(snapshot: PromptSnapshot) -> dict[str, object]:
         "source": snapshot.source,
         "canonical_hash": snapshot.canonical_hash,
     }
+    bundle_metadata = snapshot_bundle_metadata(snapshot)
+    if bundle_metadata is not None:
+        payload["bundle_metadata"] = bundle_metadata
+    return payload
 
 
 def _snapshot_from_payload(value: Mapping[str, object]) -> PromptSnapshot:
@@ -2066,6 +2080,12 @@ def _snapshot_from_payload(value: Mapping[str, object]) -> PromptSnapshot:
     )
     if snapshot.canonical_hash != value.get("canonical_hash"):
         raise PromptOptimizationError("optimization_prompt_snapshot_mismatch")
+    bundle_metadata = value.get("bundle_metadata")
+    if bundle_metadata is not None:
+        try:
+            snapshot = bind_snapshot_from_metadata(snapshot, bundle_metadata)
+        except ValueError as exc:
+            raise PromptOptimizationError("optimization_prompt_bundle_invalid") from exc
     return snapshot
 
 
@@ -2360,6 +2380,7 @@ class _ProductionModelExecutor:
             base_url=str(settings.litellm_base_url),
             api_key=settings.litellm_api_key_file.read_text(encoding="utf-8").strip(),
             timeout_seconds=settings.litellm_request_timeout_seconds,
+            require_route_binding=True,
         )
 
     def __call__(
@@ -2499,6 +2520,9 @@ async def resolve_prompt_optimization_contract_activity(
             }
     finally:
         await engine.dispose()
+    root_bundle_binding = run_values["budget"].get("root_bundle_binding")
+    if not isinstance(root_bundle_binding, Mapping):
+        raise PromptOptimizationError("optimization_prompt_bundle_invalid")
     client = create_langfuse_client(settings)
     try:
         source = _fetch_exact_snapshot(
@@ -2507,12 +2531,14 @@ async def resolve_prompt_optimization_contract_activity(
             version=int(run_values["source_prompt_version"]),
             prompt_type="chat",
         )
+        source = bind_snapshot_from_metadata(source, root_bundle_binding)
         reflection = _fetch_exact_snapshot(
             client,
             name=str(run_values["reflection_prompt_name"]),
             version=int(run_values["reflection_prompt_version"]),
             prompt_type="text",
         )
+        reflection = bind_snapshot_from_metadata(reflection, root_bundle_binding)
         judges = {
             str(item["prompt_name"]): _fetch_exact_snapshot(
                 client,
@@ -2521,6 +2547,10 @@ async def resolve_prompt_optimization_contract_activity(
                 prompt_type="chat",
             )
             for item in run_values["judge_prompt_refs"]
+        }
+        judges = {
+            name: bind_snapshot_from_metadata(snapshot, root_bundle_binding)
+            for name, snapshot in judges.items()
         }
     finally:
         shutdown_langfuse(client)
