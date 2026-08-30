@@ -2709,8 +2709,14 @@
         if (refreshButton) refreshButton.disabled = busy;
         controls.setAttribute("aria-busy", busy ? "true" : "false");
       };
-      const reloadAfterSummaryChange = () => {
+      const reloadAfterSummaryChange = (template = activeTemplate) => {
         window.sessionStorage.setItem(acceptedFocusKey, "current");
+        const templateKey = typeof template === "string" ? template : template?.key;
+        if (templateKey) {
+          const url = new URL(window.location.href);
+          url.searchParams.set("summary_format", templateKey);
+          window.history.replaceState(null, "", url);
+        }
         window.location.reload();
       };
       const showStatus = (message, state = "generating", actions = []) => {

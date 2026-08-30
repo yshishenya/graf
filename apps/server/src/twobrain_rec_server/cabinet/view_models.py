@@ -2359,6 +2359,7 @@ def summary_template_slot(
         ),
         reason=template_key,
         template_id=outcome_set.template_id if outcome_set is not None else None,
+        outcome_set_id=outcome_set.id if outcome_set is not None else None,
         version=(
             outcome_set.template_version
             if outcome_set is not None and outcome_set.template_version is not None

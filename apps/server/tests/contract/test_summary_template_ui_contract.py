@@ -65,6 +65,102 @@ def test_summary_selector_keeps_auto_four_recommendations_and_all_formats(client
     assert "Текущие итоги останутся доступны до полной проверки" in html
 
 
+def test_meeting_detail_renders_the_selected_summary_slot_after_reload(client) -> None:
+    meeting_id = create_outcome_ready_meeting(client, "selected-summary-slot")
+
+    async def seed_selected_slot() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.get(Meeting, meeting_id)
+            result = await db.scalar(
+                select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
+            )
+            assert meeting is not None and result is not None
+            auto = await ensure_outcomes_for_processing_result(db, result=result)
+            auto.template_key = "graf-auto-v1"
+            auto.template_version = 1
+            auto.revision_state = "accepted"
+            auto.accepted_at = auto.generated_at or datetime.now(UTC)
+            meeting.current_outcome_set_id = auto.id
+            db.add(
+                MeetingSummarySlot(
+                    workspace_id=meeting.workspace_id,
+                    meeting_id=meeting.id,
+                    template_key="graf-auto-v1",
+                    is_meeting_default=True,
+                    current_outcome_set_id=auto.id,
+                    current_binding_class="verified_complete",
+                    default_resolution_source="explicit_meeting",
+                    default_resolution_version="selected-slot-test-v1",
+                    default_resolved_at=datetime.now(UTC),
+                )
+            )
+            await db.flush()
+            minutes = MeetingOutcomeSet(
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                media_revision_id=result.media_revision_id,
+                processing_result_id=result.id,
+                status="available",
+                summary_state="available",
+                key_points_state="not_found",
+                decisions_state="not_found",
+                action_items_state="not_found",
+                followups_state="not_found",
+                risks_state="not_found",
+                questions_state="not_found",
+                evidence_state="not_found",
+                source_kind="litellm",
+                generator_kind="litellm",
+                generator_version="selected-slot-test-v1",
+                source_result_hash=result.source_result_hash,
+                template_key="graf-meeting-minutes-v1",
+                template_version=1,
+                revision_state="accepted",
+                generated_at=datetime.now(UTC),
+                accepted_at=datetime.now(UTC),
+            )
+            db.add(minutes)
+            await db.flush()
+            db.add(
+                MeetingSummarySlot(
+                    workspace_id=meeting.workspace_id,
+                    meeting_id=meeting.id,
+                    template_key="graf-meeting-minutes-v1",
+                    is_meeting_default=False,
+                    current_outcome_set_id=minutes.id,
+                    current_binding_class="verified_complete",
+                )
+            )
+            db.add(
+                MeetingOutcomeItem(
+                    workspace_id=meeting.workspace_id,
+                    meeting_id=meeting.id,
+                    outcome_set_id=minutes.id,
+                    category="summary",
+                    sequence=0,
+                    state="available",
+                    text="Протокольный результат выбранного формата.",
+                    truth_label="supported",
+                    source_refs_json=[],
+                )
+            )
+            await db.commit()
+            return minutes.id
+
+    selected_outcome_set_id = client.portal.call(seed_selected_slot)
+    response = client.get(
+        f"/meetings/{meeting_id}?summary_format=graf-meeting-minutes-v1",
+        headers=auth_headers(),
+    )
+
+    assert response.status_code == 200
+    html = response.text
+    assert 'data-current-summary-format-key="graf-meeting-minutes-v1"' in html
+    assert '<strong data-summary-format-label>Протокол встречи</strong>' in html
+    assert "Протокольный результат выбранного формата." in html
+    assert f'data-current-outcome-set-id="{selected_outcome_set_id}"' in html
+
+
 def test_summary_selector_stays_clickable_above_fixed_player() -> None:
     css = CABINET_CSS.read_text(encoding="utf-8")
     listbox = css.split(".summary-format-listbox {", 1)[1].split("}", 1)[0]
@@ -134,6 +230,7 @@ def test_candidate_ui_keeps_current_notes_without_a_decision_surface() -> None:
     assert 'text: "Использовать"' not in script
     assert 'text: "Оставить текущие"' not in script
     assert "const currentOutcomeSetIdForTemplate = async (template)" in script
+    assert 'url.searchParams.set("summary_format", templateKey)' in script
     assert "expected_current_outcome_set_id: expectedCurrentOutcomeSetId" in script
     assert "await currentOutcomeSetIdForTemplate(template)" in script
     assert "Обновить итоги" in script
