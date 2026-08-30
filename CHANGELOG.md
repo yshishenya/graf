@@ -156,16 +156,13 @@
   «Итоги не запрошены» и «Создать итоги».
 
 ### Безопасность
-- Generated preset registry, template paths и plan paths теперь fail closed
-  проверяют типы, Python runtime и symlink containment; Git Bash message-file
-  paths нормализуются до единого Windows-формата перед containment check.
+- _Пока нет записей._
 
 ### Документы
 - _Пока нет записей._
 
 ### Операции
-- Опубликован и установлен checksummed `speckit-bootstrap v0.9.7`; GRAF lock
-  обновлён из immutable release asset без продуктового release/deploy.
+- _Пока нет записей._
 
 ## [2026.08.31.2] - 2026-08-31
 
