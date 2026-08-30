@@ -1869,6 +1869,11 @@ async def continue_billing_checkout(
             _checkout_status_location(safe_number, result="unchanged"),
             status_code=303,
         )
+    if "billing_actor_user_id" not in operation.request_snapshot:
+        operation.request_snapshot = {
+            **operation.request_snapshot,
+            "billing_actor_user_id": str(principal.user_id),
+        }
     operation.state = "scheduled"
     invoice.status = "pending"
     await db.commit()

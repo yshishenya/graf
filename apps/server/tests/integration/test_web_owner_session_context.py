@@ -2625,7 +2625,7 @@ def test_personal_owner_continues_existing_checkout_without_second_operation(
     assert len(calls) == 1
     assert calls[0]["idempotence_key"] == "existing-provider-key"
 
-    async def read_result() -> tuple[int, int, str, str | None]:
+    async def read_result() -> tuple[int, int, str, str | None, str | None]:
         async with client.app_state["sessionmaker"]() as db:
             operations = tuple(
                 await db.scalars(
@@ -2646,9 +2646,16 @@ def test_personal_owner_continues_existing_checkout_without_second_operation(
                 len(invoices),
                 operations[0].state,
                 operations[0].provider_id,
+                operations[0].request_snapshot.get("billing_actor_user_id"),
             )
 
-    assert client.portal.call(read_result) == (1, 1, "provider_pending", "payment-recovery-9")
+    assert client.portal.call(read_result) == (
+        1,
+        1,
+        "provider_pending",
+        "payment-recovery-9",
+        str(USER_ID),
+    )
 
     checkout = client.get("/billing/checkout")
     assert checkout.status_code == 200
