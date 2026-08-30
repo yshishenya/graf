@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import json
 import os
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -10,7 +8,6 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[4]
 LOCAL_CI = ROOT / "infra/scripts/ci-local.sh"
-RECEIPT = ROOT / "infra/scripts/ci-receipt.py"
 REMOTE_CD = ROOT / "infra/scripts/cd-remote.sh"
 
 
@@ -34,7 +31,6 @@ run_step() {
   local name="$1"
   if [[ "$name" == "server tests" ]]; then
     printf 'server_test_gate=%s\n' "$4"
-    printf 'collection_count=1 collection_digest=%s\n' "$(printf 'a%.0s' {1..64})" > "$server_log"
   fi
   if [[ "$name" == "$GRAF_TEST_FAIL_STAGE" ]]; then
     printf 'ci_stage=%s status=fail duration_seconds=0\n' "$name"
@@ -53,76 +49,6 @@ main "$2"
         mode,
         env={"GRAF_TEST_CHANGED_FILES": changed_files, "GRAF_TEST_FAIL_STAGE": fail_stage},
     )
-
-
-def git(repo: Path, *args: str) -> None:
-    subprocess.run(("git", *args), cwd=repo, check=True, capture_output=True)
-
-
-def make_receipt_repo(tmp_path: Path) -> tuple[Path, Path]:
-    repo = tmp_path / "repo"
-    paths = (
-        "infra/scripts/ci-local.sh",
-        "infra/scripts/ci-receipt.py",
-        "apps/server/scripts/run_local_postgres_tests.sh",
-        "apps/server/uv.lock",
-        "apps/macos/Package.resolved",
-        "apps/server/tests/unit/test_sample.py",
-        "apps/macos/Tests/SampleTests.swift",
-    )
-    for relative in paths:
-        target = repo / relative
-        target.parent.mkdir(parents=True, exist_ok=True)
-        if relative == "infra/scripts/ci-receipt.py":
-            shutil.copy2(RECEIPT, target)
-        else:
-            target.write_text(f"fixture:{relative}\n", encoding="utf-8")
-    git(repo, "init", "-q")
-    git(repo, "config", "user.email", "ci-contract@example.test")
-    git(repo, "config", "user.name", "CI Contract")
-    git(repo, "add", ".")
-    git(repo, "commit", "-qm", "fixture")
-    helper = repo / "infra/scripts/ci-receipt.py"
-    start_snapshot = tmp_path / "full-ci-start.json"
-    captured = run("python3", str(helper), "snapshot", "--output", str(start_snapshot), cwd=repo)
-    assert captured.returncode == 0, captured.stdout
-    evidence = tmp_path / "full-ci-evidence.tsv"
-    stages = ["macOS legacy audio architecture guard"]
-    if os.uname().sysname == "Darwin":
-        stages.extend(("macOS Swift build", "macOS Swift tests", "macOS contract validation"))
-    stages.extend(
-        (
-            "server tests",
-            "server lint",
-            "python compile",
-            "rls hardening validation boundary",
-            "production compose config",
-            "deployment evidence scan",
-            "active CI documentation consistency",
-        )
-    )
-    evidence.write_text("".join(f"{stage}\tpass\n" for stage in stages), encoding="utf-8")
-    evidence.chmod(0o600)
-    created = run(
-        "python3",
-        str(helper),
-        "create",
-        "--started-at-epoch",
-        "1",
-        "--collection-count",
-        "3",
-        "--collection-digest",
-        "a" * 64,
-        "--evidence-file",
-        str(evidence),
-        "--start-snapshot",
-        str(start_snapshot),
-        cwd=repo,
-    )
-    assert created.returncode == 0, created.stdout
-    path_result = run("python3", str(helper), "path", cwd=repo)
-    assert path_result.returncode == 0
-    return repo, Path(path_result.stdout.strip())
 
 
 def test_local_ci_requires_an_explicit_lane_before_any_stage() -> None:
@@ -241,7 +167,7 @@ def test_fast_calendar_lane_forwards_required_performance_gate() -> None:
     assert "server_test_gate=required" in result.stdout
 
 
-def test_failing_stage_emits_one_final_failure_and_no_receipt() -> None:
+def test_failing_stage_emits_one_final_failure() -> None:
     result = run_stubbed_ci(
         "apps/server/src/twobrain_rec_server/api/app.py",
         "--fast",
@@ -250,162 +176,28 @@ def test_failing_stage_emits_one_final_failure_and_no_receipt() -> None:
 
     assert result.returncode == 17
     assert result.stdout.count("ci_local_result=fail") == 1
-    assert "ci_receipt_result=" not in result.stdout
 
 
-def test_receipt_create_and_validate_for_the_same_clean_inputs(tmp_path: Path) -> None:
-    repo, receipt_path = make_receipt_repo(tmp_path)
-    result = run("python3", "infra/scripts/ci-receipt.py", "validate", cwd=repo)
-
-    assert result.returncode == 0, result.stdout
-    assert "ci_receipt_result=valid" in result.stdout
-    assert receipt_path.is_relative_to(repo / ".git")
-    assert receipt_path.stat().st_mode & 0o777 == 0o600
-    assert str(repo) not in receipt_path.read_text(encoding="utf-8")
-
-
-def test_receipt_rejects_dirty_and_stale_state(tmp_path: Path) -> None:
-    repo, receipt_path = make_receipt_repo(tmp_path)
-    (repo / "untracked.txt").write_text("dirty\n", encoding="utf-8")
-    dirty = run("python3", "infra/scripts/ci-receipt.py", "validate", cwd=repo)
-    assert dirty.returncode == 1
-    assert "reason=dirty_worktree" in dirty.stdout
-    (repo / "untracked.txt").unlink()
-
-    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
-    receipt["started_at_epoch"] = 1
-    receipt["created_at_epoch"] = 2
-    receipt["duration_seconds"] = 1
-    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
-    stale = run(
-        "python3",
-        "infra/scripts/ci-receipt.py",
-        "validate",
-        "--max-age-seconds",
-        "1",
-        cwd=repo,
-    )
-    assert stale.returncode == 1
-    assert "reason=stale" in stale.stdout
-
-
-def test_receipt_create_rejects_incomplete_stage_evidence(tmp_path: Path) -> None:
-    repo, receipt_path = make_receipt_repo(tmp_path)
-    receipt_path.unlink()
-    evidence = tmp_path / "incomplete-evidence.tsv"
-    evidence.write_text("server tests\tpass\n", encoding="utf-8")
-    evidence.chmod(0o600)
-
-    result = run(
-        "python3",
-        "infra/scripts/ci-receipt.py",
-        "create",
-        "--started-at-epoch",
-        "1",
-        "--collection-count",
-        "3",
-        "--collection-digest",
-        "a" * 64,
-        "--evidence-file",
-        str(evidence),
-        "--start-snapshot",
-        str(tmp_path / "full-ci-start.json"),
-        cwd=repo,
-    )
-
-    assert result.returncode == 1
-    assert "reason=evidence_invalid" in result.stdout
-
-
-def test_receipt_create_rejects_a_commit_after_the_start_snapshot(tmp_path: Path) -> None:
-    repo, receipt_path = make_receipt_repo(tmp_path)
-    receipt_path.unlink()
-    (repo / "changed-after-start.txt").write_text("new commit\n", encoding="utf-8")
-    git(repo, "add", "changed-after-start.txt")
-    git(repo, "commit", "-qm", "change after start")
-
-    result = run(
-        "python3",
-        "infra/scripts/ci-receipt.py",
-        "create",
-        "--started-at-epoch",
-        "1",
-        "--collection-count",
-        "3",
-        "--collection-digest",
-        "a" * 64,
-        "--evidence-file",
-        str(tmp_path / "full-ci-evidence.tsv"),
-        "--start-snapshot",
-        str(tmp_path / "full-ci-start.json"),
-        cwd=repo,
-    )
-
-    assert result.returncode == 1
-    assert "reason=snapshot_mismatch" in result.stdout
-
-
-@pytest.mark.parametrize(
-    ("mutator", "reason"),
-    [
-        (lambda value: value.update(version=99), "unsupported_version"),
-        (lambda value: value.update(result="fail"), "not_pass"),
-        (lambda value: value.update(commit_sha="0" * 40), "commit_mismatch"),
-        (lambda value: value.update(tree_sha="0" * 40), "tree_mismatch"),
-        (lambda value: value.update(runner_inputs={}), "runner_mismatch"),
-        (lambda value: value.update(dependency_inputs={}), "dependency_mismatch"),
-        (lambda value: value.update(test_surface_digest="0" * 64), "test_surface_mismatch"),
-        (lambda value: value.update(toolchain={}), "toolchain_mismatch"),
-        (lambda value: value.update(completed_stages=[]), "evidence_invalid"),
-        (lambda value: value.update(server_collection_digest="bad"), "collection_invalid"),
-        (lambda value: value.update(started_at_epoch=value["created_at_epoch"] + 1), "malformed"),
-        (lambda value: value.update(duration_seconds=value["duration_seconds"] + 1), "malformed"),
-        (lambda value: value.update(created_at_epoch=value["created_at_epoch"] + 3600), "malformed"),
-    ],
-)
-def test_receipt_rejects_every_bound_input_mismatch(tmp_path: Path, mutator, reason: str) -> None:
-    repo, receipt_path = make_receipt_repo(tmp_path)
-    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
-    mutator(receipt)
-    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
-
-    result = run("python3", "infra/scripts/ci-receipt.py", "validate", cwd=repo)
-
-    assert result.returncode == 1
-    assert f"reason={reason}" in result.stdout
-
-
-def test_receipt_rejects_missing_and_malformed_files(tmp_path: Path) -> None:
-    repo, receipt_path = make_receipt_repo(tmp_path)
-    receipt_path.unlink()
-    missing = run("python3", "infra/scripts/ci-receipt.py", "validate", cwd=repo)
-    assert missing.returncode == 1
-    assert "reason=missing" in missing.stdout
-
-    receipt_path.parent.mkdir(parents=True, exist_ok=True)
-    receipt_path.write_text("not json", encoding="utf-8")
-    malformed = run("python3", "infra/scripts/ci-receipt.py", "validate", cwd=repo)
-    assert malformed.returncode == 1
-    assert "reason=malformed" in malformed.stdout
-
-
-def test_cd_dry_run_declares_receipt_reuse_or_full_fallback() -> None:
+def test_cd_dry_run_declares_authoritative_full_gate() -> None:
     result = run(str(REMOTE_CD), "--dry-run", "--branch", "211-optimize-ci-cd")
 
     assert result.returncode == 0, result.stdout
-    assert "local_ci=valid_full_receipt_or_full_fallback" in result.stdout
+    assert "local_ci=full_required" in result.stdout
     assert "steps=clean_worktree,branch_sync,pinned_sha,local_ci,remote_fetch,backup" in result.stdout
 
 
-def test_cd_execute_preserves_release_gates_around_receipt_reuse() -> None:
+def test_cd_execute_runs_full_after_sync_and_before_remote_gates() -> None:
     script = REMOTE_CD.read_text(encoding="utf-8")
 
     clean = script.index('git status --porcelain --untracked-files=all')
     sync = script.index('git fetch origin "$BRANCH"')
-    validate = script.index('ci-receipt.py validate')
-    fallback = script.index('ci-local.sh --full')
+    full = script.index('ci-local.sh --full')
+    post_full_sync = script.index('git fetch origin "$BRANCH"', sync + 1)
     remote = script.index('remote_script=$(cat')
-    assert clean < sync < validate < fallback < remote
+    assert clean < sync < full < post_full_sync < remote
+    assert "candidate_changed_during_full" in script
+    assert "local_ci=full_passed" in script
+    assert "ci-receipt" not in script
     assert "--skip-local-ci" in script
     assert "cd-remote-runtime.sh" in script
 

@@ -42,10 +42,8 @@ infra/scripts/ci-local.sh --full
 
 The full lane adds macOS tests and contracts (on macOS), the complete server
 suite, RLS validation, production Compose rendering and the deployment evidence
-scan. A clean successful run writes a 24-hour exact-input receipt beneath the
-Git metadata directory only after its private temporary journal contains every
-required full stage and the clean start snapshot still matches the final
-candidate. Do not run it after every small edit.
+scan. Do not run it after every small edit; the normal production path runs the
+authoritative full inside execute.
 
 ## Local CD
 
@@ -58,8 +56,8 @@ infra/scripts/cd-remote.sh --execute
 
 The execute mode requires a clean tracked-and-untracked local worktree, verifies
 that the current branch matches `origin/<branch>`, pins the deployment to that
-exact commit SHA, then reuses a matching full-CI receipt or runs
-`infra/scripts/ci-local.sh --full` as a safe fallback. On `2brain.dev`, it
+exact commit SHA, runs one `infra/scripts/ci-local.sh --full`, and re-checks the
+clean worktree plus local/remote SHA before SSH. On `2brain.dev`, it
 verifies the remote `origin/<branch>` still resolves to the pinned SHA before reset, then performs backup, restore
 rehearsal, production Compose secret-exposure scan, rebuild/up, runtime
 secret-environment scan, production smoke, and public health checks.

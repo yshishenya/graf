@@ -51,7 +51,7 @@ deploy_result=dry_run
 remote_host=$REMOTE_HOST
 remote_path=$REMOTE_PATH
 branch=$BRANCH
-local_ci=$([[ "$SKIP_LOCAL_CI" == "1" ]] && echo skipped_incident_only || echo valid_full_receipt_or_full_fallback)
+local_ci=$([[ "$SKIP_LOCAL_CI" == "1" ]] && echo skipped_incident_only || echo full_required)
 posthog_stack_handoff=dry_run_metadata_only
 posthog_stack_contract=infra/posthog/docker-compose.posthog.yml
 posthog_stack_runtime_source=official_posthog_hobby_generated_compose_required
@@ -90,17 +90,24 @@ if [[ "$EXPECTED_SHA" != "$ORIGIN_SHA" ]]; then
 fi
 
 if [[ "$SKIP_LOCAL_CI" != "1" ]]; then
-  if python3 infra/scripts/ci-receipt.py validate; then
-    echo "local_ci=receipt_reused"
-  else
-    echo "local_ci=full_fallback"
-    infra/scripts/ci-local.sh --full
-    if ! python3 infra/scripts/ci-receipt.py validate; then
-      echo "deploy_result=blocked"
-      echo "reason=full_ci_receipt_invalid_after_fallback"
-      exit 1
-    fi
+  infra/scripts/ci-local.sh --full
+  if [[ -n "$(git status --porcelain --untracked-files=all)" ]]; then
+    echo "deploy_result=blocked"
+    echo "reason=candidate_changed_during_full"
+    exit 1
   fi
+  POST_CI_SHA="$(git rev-parse HEAD)"
+  git fetch origin "$BRANCH"
+  POST_CI_ORIGIN_SHA="$(git rev-parse "origin/$BRANCH")"
+  if [[ "$POST_CI_SHA" != "$EXPECTED_SHA" || "$POST_CI_ORIGIN_SHA" != "$EXPECTED_SHA" ]]; then
+    echo "deploy_result=blocked"
+    echo "reason=candidate_changed_during_full"
+    echo "expected_sha=$EXPECTED_SHA"
+    echo "local_sha=$POST_CI_SHA"
+    echo "origin_sha=$POST_CI_ORIGIN_SHA"
+    exit 1
+  fi
+  echo "local_ci=full_passed"
 else
   echo "local_ci=skipped_incident_only"
 fi

@@ -122,14 +122,13 @@ def test_local_ci_requires_an_explicit_lane_and_exposes_component_selection() ->
     assert 'classify_path()' in script
     assert 'run_server_tests full' in script
     assert 'run_server_tests fast' in script
-    assert 'ci_receipt_result=skipped reason=dirty_worktree' in script
+    assert "ci-receipt" not in script
 
 
-def test_remote_deploy_reuses_only_valid_full_receipt_or_runs_full_fallback() -> None:
+def test_remote_deploy_runs_one_authoritative_full_gate() -> None:
     script = REMOTE_CD.read_text(encoding="utf-8")
 
-    assert "valid_full_receipt_or_full_fallback" in script
-    assert "python3 infra/scripts/ci-receipt.py validate" in script
-    assert "local_ci=receipt_reused" in script
-    assert "local_ci=full_fallback" in script
+    assert "echo full_required" in script
+    assert "local_ci=full_passed" in script
     assert "infra/scripts/ci-local.sh --full" in script
+    assert "ci-receipt" not in script

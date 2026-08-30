@@ -16,21 +16,21 @@
 
 **Alternatives considered**: Always run the current server unit suite (not component-aware); maintain a complete dependency graph (high upkeep and drift risk); use only filename extensions (unsafe at shared boundaries).
 
-## Decision 3 — Local exact-input receipt
+## Decision 3 — One authoritative full inside deploy
 
-**Decision**: A clean successful full run writes a versioned JSON receipt beneath `git rev-parse --git-path`, using atomic replacement and restrictive permissions. It binds result/times to commit, tree, runner files, lockfiles, test surface, local toolchain, the clean snapshot taken before the first stage and the exact ordered list of platform-required full stages from a private temporary runner journal. Default validity is 24 hours.
+**Decision**: `cd-remote.sh --execute` proves clean `master` and exact `origin/master` SHA, then runs `ci-local.sh --full` once before any remote production action.
 
-**Rationale**: The deploy begins on the same trusted workstation/worktree, so a local receipt removes the duplicate run without introducing a remote service. Input recomputation makes copied or stale evidence fail closed; requiring the complete mode-`0600` stage journal prevents a direct `create` call with only invented collection metadata. A compromised same-user workstation remains outside this local optimization's trust boundary and still requires credential/host incident handling.
+**Rationale**: A local receipt has no independent provenance against another process running as the same user. Executing full at the exact deployment boundary is simpler and gives one clear source of truth without pretending to provide attestation.
 
-**Alternatives considered**: Commit the receipt (self-invalidating/noisy); store in the worktree (breaks clean-tree gate); sign remotely (unneeded infrastructure for a local workflow); trust only SHA (misses runner/toolchain drift).
+**Alternatives considered**: Local JSON receipt (false trust boundary and more code); remote signed attestation (unneeded infrastructure for the current workstation flow); always run preflight plus deploy full (current duplication).
 
-## Decision 4 — Deploy fallback, not receipt hard dependency
+## Decision 4 — Preflight full is diagnostic only
 
-**Decision**: `cd-remote.sh --execute` validates the receipt after clean-tree, branch and remote-SHA checks. Valid means reuse; missing/invalid means run `ci-local.sh --full`, then require the newly created receipt. `--skip-local-ci` remains an explicit incident-only bypass.
+**Decision**: The normal release path does not run full before execute. An operator may run a diagnostic preflight full, but execute intentionally repeats it after synchronization because no independently verified reuse artifact exists. `--skip-local-ci` remains an explicit incident-only bypass.
 
-**Rationale**: Operators keep one robust command. Receipt bugs or cleanup cannot strand a release, while no invalid evidence can silently weaken validation.
+**Rationale**: Operators get one robust production command and one authoritative gate. Diagnostic work is not mislabeled as deployment evidence.
 
-**Alternatives considered**: Block deploy when receipt is missing (less resilient); always repeat full (current waste); accept a manual `--receipt` path (copy/paste and provenance risk).
+**Alternatives considered**: Trust local receipt reuse (unproven); make preflight mandatory (duplicates work); move full after remote mutation (unsafe ordering).
 
 ## Decision 5 — Isolate noisy timing proof
 

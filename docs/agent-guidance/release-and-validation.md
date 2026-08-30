@@ -49,8 +49,8 @@ Every change must record one risk/validation lane in the final response or PR.
   lane before closeout/PR; add a full baseline before release when it helps
   resolve risk early.
 - **Release / deploy**: run the CD dry-run and execute only after the release
-  gate is met and approved. The pinned SHA must have one valid full-CI receipt;
-  `--execute` reuses matching evidence or runs the full fallback itself.
+  gate is met and approved. `--execute` runs one authoritative full after exact
+  SHA synchronization and before remote production actions.
 
 Do not rerun full local CI after every small edit inside a slice. Accumulate
 focused checks while developing, use the fast lane for PR feedback, and rely on
@@ -99,35 +99,18 @@ Review the changelog and release metadata, commit that release-prep change, and
 use the resulting commit as the candidate. The full lane must run after this
 step, because release metadata is part of what will be shipped.
 
-Run the full lane only when a release candidate is assembled or when a broad
-diagnostic is needed:
+Run the full lane directly only for broad diagnosis:
 
 ```sh
 infra/scripts/ci-local.sh --full
 ```
 
-The candidate is the exact commit that passed. If any code, configuration,
-release metadata, or dependency lockfile changes after that run, the full result
-is invalid and must be repeated. Do not use `origin/<branch>` or a moving branch
-as the evidence identity; record and deploy the exact SHA.
-
-There are two supported release paths; both finish with exactly one valid full
-receipt for the unchanged candidate:
-
-- **Economical**: run the CD dry-run, obtain approval, then let
-  `cd-remote.sh --execute` perform the mandatory full fallback immediately
-  before deployment and create the receipt.
-- **Preflighted**: run `ci-local.sh --full` first to find issues before asking
-  for production approval; `--execute` reuses its fresh exact-input receipt and
-  does not repeat the same full gate.
-
-The receipt is local metadata under the Git worktree metadata directory. It is
-valid for 24 hours only when the commit, tree, CI runner, dependency lockfiles,
-test surface, server collection, toolchain and complete ordered full-stage
-journal still match. A clean start snapshot must still match after the last
-stage, so a commit or input change during the run cannot receive a receipt. The
-helper rejects direct creation from collection metadata alone. Missing, stale,
-malformed or mismatched evidence never bypasses CI: deploy runs full fallback.
+The normal release path does not run a separate preflight full. After review and
+merge, run the CD dry-run and let `cd-remote.sh --execute` synchronize and pin
+the exact SHA, perform the one authoritative full, then re-check the unchanged
+worktree/local/remote SHA immediately before remote production actions. A direct preflight full remains available for diagnosis,
+but it is intentionally repeated by execute because no independently attested
+reuse artifact exists.
 
 ### 4. Production gate
 
@@ -144,11 +127,11 @@ infra/scripts/cd-remote.sh --execute --branch <branch>
 ```
 
 `--execute` requires a clean tracked-and-untracked worktree, synchronizes and
-pins the SHA, validates the full-CI receipt, and runs `ci-local.sh --full` only
-when that receipt is unavailable or invalid. It then proceeds to the unchanged
-backup, restore rehearsal, migration/RLS, secret, deployment, health, smoke and
-guarded rollback gates. `--skip-local-ci` is an incident exception only: it
-requires explicit approval and a written reason for the accepted risk.
+pins the SHA, runs `ci-local.sh --full`, re-checks the clean worktree plus local
+and remote SHA, and only then proceeds to the unchanged backup, restore
+rehearsal, migration/RLS, secret, deployment, health, smoke and guarded rollback
+gates. `--skip-local-ci` is an incident exception
+only: it requires explicit approval and a written reason for the accepted risk.
 
 ### 5. Closeout
 
@@ -164,12 +147,12 @@ Use this rule when deciding whether to spend the longer run:
 
 - local edit: focused check;
 - ready slice or PR: `--fast`;
-- release candidate: `--full`;
-- approved production execution: a valid exact-input full receipt is mandatory;
-  `cd-remote.sh --execute` reuses it or runs `--full` as fallback;
-- new commit after full CI: full CI must be repeated.
+- release candidate: reviewed and merged exact SHA;
+- approved production execution: `cd-remote.sh --execute` runs `--full` once
+  after synchronization and before remote actions;
+- direct `--full` before execute: diagnostic only and intentionally repeated.
 
-An interrupted run is not a passing full-CI result and cannot create a receipt.
+An interrupted run is not a passing full-CI result.
 Focused tests and the fast lane must not be counted as full CI in release
 evidence. Only the load-sensitive p95 threshold may become an expected
 report-only result on unrelated shared-host runs; functional assertions,
@@ -262,9 +245,8 @@ Use the exact production sequence:
    synced with `origin/<branch>`.
 2. Run `infra/scripts/cd-remote.sh --dry-run --branch <branch>`.
 3. Obtain explicit user approval for production.
-4. Run `infra/scripts/cd-remote.sh --execute --branch <branch>`. It validates a
-   fresh full receipt for the pinned commit or runs
-   `infra/scripts/ci-local.sh --full` as the safe fallback before remote backup,
+4. Run `infra/scripts/cd-remote.sh --execute --branch <branch>`. It runs
+   `infra/scripts/ci-local.sh --full` on the pinned commit before remote backup,
    migration, deployment and smoke checks.
 
 `--skip-local-ci` bypasses the full local CI only; it does not bypass production

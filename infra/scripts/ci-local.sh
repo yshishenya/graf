@@ -29,7 +29,6 @@ classify_path() {
     apps/server/src/twobrain_rec_server/storage/*|\
     apps/server/src/twobrain_rec_server/support/*|\
     apps/server/src/twobrain_rec_server/workflows/*|\
-    apps/server/src/twobrain_rec_server/db/migrations/*|\
     apps/server/tests/contract/*|apps/server/tests/integration/*|\
     infra/docker-compose.yml|infra/server/*|infra/scripts/*.sh|infra/scripts/*.py|\
     scripts/*|.specify/*|.github/workflows/*|.github/actions/*|\
@@ -100,9 +99,6 @@ run_step() {
     completed_at="$(date +%s)"
     duration_seconds=$((completed_at - started_at))
     printf 'ci_stage=%s status=pass duration_seconds=%s\n' "$name" "$duration_seconds"
-    if [[ -n "${evidence_file:-}" && "$name" != "full CI receipt" ]]; then
-      printf '%s\tpass\n' "$name" >> "$evidence_file"
-    fi
   else
     status=$?
     completed_at="$(date +%s)"
@@ -142,10 +138,8 @@ PY
 run_server_tests() {
   local mode="$1"
   local performance_gate="$2"
-  local log_path="$3"
   env GRAF_TEST_WORKERS="${GRAF_TEST_WORKERS:-4}" GRAF_PERFORMANCE_GATE="$performance_gate" \
-    bash apps/server/scripts/run_local_postgres_tests.sh "--${mode}" -q 2>&1 | tee "$log_path"
-  return "${PIPESTATUS[0]}"
+    bash apps/server/scripts/run_local_postgres_tests.sh "--${mode}" -q
 }
 
 main() (
@@ -158,11 +152,6 @@ main() (
   local pipeline_started
   local pipeline_completed
   local pipeline_duration
-  local temp_dir=""
-  local server_log=""
-  local evidence_file=""
-  local start_snapshot=""
-  local start_status=""
   local changed_list=""
   local has_server=0
   local has_macos=0
@@ -185,9 +174,6 @@ main() (
     else
       printf '\nci_local_result=fail mode=%s requested_mode=%s duration_seconds=%s\n' \
         "$effective_mode" "$requested_mode" "$pipeline_duration" >&2
-    fi
-    if [[ -n "$temp_dir" ]]; then
-      rm -rf "$temp_dir"
     fi
     exit "$exit_status"
   }
@@ -220,18 +206,6 @@ main() (
   esac
 
   cd "$repo_root" || return 1
-  temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/graf-ci.XXXXXX")" || return 1
-  server_log="$temp_dir/server.log"
-  evidence_file="$temp_dir/full-ci-evidence.tsv"
-  : > "$evidence_file"
-  chmod 600 "$evidence_file"
-  if ! start_status="$(git status --porcelain --untracked-files=all)"; then
-    return 1
-  fi
-  if [[ -z "$start_status" ]]; then
-    start_snapshot="$temp_dir/full-ci-start.json"
-    python3 infra/scripts/ci-receipt.py snapshot --output "$start_snapshot" || return $?
-  fi
 
   if ! changed_list="$(changed_files)"; then
     if [[ "$requested_mode" == "full" ]]; then
@@ -317,7 +291,7 @@ main() (
     else
       printf '\n==> macOS Swift validation skipped (requires Darwin)\n'
     fi
-    run_step "server tests" run_server_tests full "$performance_gate" "$server_log" || return $?
+    run_step "server tests" run_server_tests full "$performance_gate" || return $?
     run_step "server lint" bash -c "cd apps/server && PYTHONPATH=src uv run --extra dev ruff check ." || return $?
     run_step "python compile" python3 -m compileall -q apps/server/src apps/server/tests apps/server/scripts || return $?
     run_step "rls hardening validation boundary" bash -c "cd apps/server && PYTHONPATH=src uv run python scripts/verify_rls_hardening.py" || return $?
@@ -336,32 +310,11 @@ main() (
       fi
     fi
     if [[ "$has_server" -eq 1 ]]; then
-      run_step "server tests" run_server_tests fast "$performance_gate" "$server_log" || return $?
+      run_step "server tests" run_server_tests fast "$performance_gate" || return $?
       run_step "server lint" bash -c "cd apps/server && PYTHONPATH=src uv run --extra dev ruff check ." || return $?
       run_step "python compile" python3 -m compileall -q apps/server/src apps/server/tests apps/server/scripts || return $?
     fi
     run_step "active CI documentation consistency" check_active_docs || return $?
-  fi
-
-  if [[ "$effective_mode" == "full" ]]; then
-    local collection_count
-    local collection_digest
-    collection_count="$(sed -n 's/.*collection_count=\([0-9][0-9]*\).*/\1/p' "$server_log" | tail -n 1)"
-    collection_digest="$(sed -n 's/.*collection_digest=\([0-9a-f][0-9a-f]*\).*/\1/p' "$server_log" | tail -n 1)"
-    if [[ -z "$collection_count" || ! "$collection_digest" =~ ^[0-9a-f]{64}$ ]]; then
-      echo "ci_receipt_result=invalid reason=collection_invalid" >&2
-      return 1
-    fi
-    if [[ -n "$(git status --porcelain --untracked-files=all)" || -z "$start_snapshot" ]]; then
-      echo "ci_receipt_result=skipped reason=dirty_worktree"
-    else
-      run_step "full CI receipt" python3 infra/scripts/ci-receipt.py create \
-        --started-at-epoch "$pipeline_started" \
-        --collection-count "$collection_count" \
-        --collection-digest "$collection_digest" \
-        --evidence-file "$evidence_file" \
-        --start-snapshot "$start_snapshot" || return $?
-    fi
   fi
 
   pipeline_result="pass"

@@ -27,46 +27,10 @@ Validation rules:
 - `duration_seconds`: non-negative integer.
 - `reason`: optional stable reason; never raw secret-bearing command output.
 
-## FullCIReceipt (version 2)
-
-- `version`: integer `2`.
-- `result`: exactly `pass`.
-- `created_at_epoch`, `started_at_epoch`, `duration_seconds`.
-- `commit_sha`, `tree_sha`.
-- `start_snapshot`: private temporary exact-input snapshot captured before the
-  first stage and required to equal the final snapshot before issuance.
-- `runner_inputs`: relative path → SHA-256.
-- `dependency_inputs`: relative path → SHA-256.
-- `test_surface_digest`: SHA-256 of ordered tracked test paths and contents.
-- `server_collection_count`, `server_collection_digest`.
-- `completed_stages`: exact ordered platform-required full-stage list, attested
-  by the runner's private temporary mode-`0600` journal.
-- `toolchain`: stable command → normalized version output.
-
-Validation rules:
-
-- Receipt creation requires a clean tracked and untracked worktree at start and
-  finish, unchanged exact inputs, successful full result and complete ordered
-  stage journal; direct caller metadata alone is insufficient.
-- Receipt age must not exceed the configured maximum (default 86,400 seconds).
-- Every current field above is recomputed or strictly checked before reuse.
-- Missing, malformed, unsupported-version, stale or mismatched receipt is invalid.
-- The receipt lives below the Git metadata path, mode `0600`, and is atomically replaced.
-
-State transitions:
-
-```text
-absent/invalid -> full running -> full failed -> invalid
-absent/invalid -> full running -> full passed on dirty tree -> not reusable
-absent/invalid -> full running -> full passed on clean tree -> valid
-valid -> input/toolchain/time/worktree change -> invalid
-valid -> deploy preflight consumes evidence -> remains valid until an input changes/expires
-```
-
 ## ReleaseCandidate
 
 - Exact local commit and tree.
 - Matching `origin/<branch>` SHA.
 - Clean worktree.
-- Valid FullCIReceipt or a successful full fallback.
-- Existing independent production gates remain attached and are not fields in the receipt.
+- Successful authoritative full inside the same execute flow.
+- Existing independent production gates remain attached and follow that full gate.

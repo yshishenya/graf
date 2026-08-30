@@ -30,14 +30,15 @@
 
 
 ### Добавлено
-- Добавлена локальная full-CI receipt, привязанная к exact SHA, дереву,
-  CI-runner, lockfiles, тестовой поверхности, toolchain, clean start snapshot,
-  полному журналу обязательных этапов и сроку 24 часа.
+- _Пока нет записей._
 
 ### Изменено
 - Локальный CI теперь требует явный `--fast` или `--full`; fast lane выбирает
   только reviewed low-risk компоненты и fail-closed расширяется до full для
   high-risk backend/API, deployment evidence, рискованных и неизвестных путей.
+- Production execute после синхронизации `master` запускает один authoritative
+  full на exact SHA; отдельный preflight full в обычном release path больше не
+  нужен.
 
 ### Исправлено
 - _Пока нет записей._
@@ -49,16 +50,15 @@
 - Добавлен production-runbook Temporal Web с адресом, границей доступа,
   жизненным циклом Compose и проверками после перезапуска.
 - CI/CD runbook, Spec Kit lanes, PR template и operational README приведены к
-  фактическому контракту fast/full, receipt reuse и performance gate.
+  фактическому контракту fast/full, одному full внутри deploy и performance gate.
 
 ### Операции
 - Зафиксирована эксплуатационная схема Temporal Web: HTTPS + Basic Auth через
   host Nginx, внутреннее подключение к `rec-temporal:7233` и автоперезапуск
   контейнеров.
-- Production deploy переиспользует валидную exact-input full-CI receipt, а при
-  её отсутствии или расхождении безопасно запускает полный fallback; serial
-  performance остаётся hard gate для calendar matching и report-only для
-  несвязанных изменений на shared host.
+- Production deploy после exact-SHA sync запускает один authoritative full до
+  remote действий; serial performance остаётся hard gate для calendar matching
+  и report-only для несвязанных изменений на shared host.
 
 ## [2026.08.29.4] - 2026-08-29
 

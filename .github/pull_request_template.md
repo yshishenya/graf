@@ -11,7 +11,6 @@
 - Focused-проверки:
 - `infra/scripts/ci-local.sh --fast`: requested/effective lane, components, result, duration:
 - `infra/scripts/ci-local.sh --full`: exact SHA, result, duration, collection count/digest:
-- Full-CI receipt: created / reused / skipped (`dirty_worktree`) / not applicable:
 - `infra/scripts/cd-remote.sh --dry-run`: result / not applicable:
 
 ## Risk / validation lane

@@ -4,7 +4,7 @@
 
 **Created**: 2026-08-30
 
-**Status**: Implemented locally; not committed or released
+**Status**: PR in review; production rollout approved by the user
 
 **Input**: User description: "Упростить CI/CD, убрать повторные полные прогоны для маленьких изменений, ускорить выкладку, сохранить качество и не допускать просачивания дефектов в production; перед внедрением перепроверить процессы, документацию и фактическое поведение."
 
@@ -28,17 +28,17 @@
 
 ### User Story 2 - Один доказанный полный прогон на release candidate (Priority: P1)
 
-Release engineer выполняет полный набор один раз для точного кандидата, получает проверяемую квитанцию и может использовать ее на этапе выкладки без повторения того же полного набора.
+Release engineer выполняет полный набор ровно один раз внутри production deploy после синхронизации `master` и фиксации exact SHA.
 
-**Why this priority**: Убирает наиболее дорогой повторный прогон, сохраняя доказательство того, что выкладывается именно проверенный кандидат.
+**Why this priority**: Убирает наиболее дорогой повторный прогон и не создаёт локальное доказательство, которое тот же пользовательский процесс может подделать.
 
-**Independent Test**: Выполнить полный уровень для чистого точного кандидата, затем проверить dry-run выкладки с этой квитанцией и негативные случаи с другим commit, измененным деревом, входами или просроченной квитанцией.
+**Independent Test**: Проверить, что dry-run объявляет обязательный full, а execute после clean-tree и remote-sync запускает `ci-local.sh --full` до первого remote production шага.
 
 **Acceptance Scenarios**:
 
-1. **Given** успешный полный прогон на чистом exact SHA и неизменных проверяемых входах, **When** запускается выкладка того же кандидата, **Then** валидная квитанция принимается и повторный полный прогон не требуется.
-2. **Given** квитанция отсутствует, просрочена, неуспешна или относится к другому SHA, дереву, runner, зависимостям, toolchain либо составу тестов, **When** запускается выкладка, **Then** она fail-closed выполняет полный уровень и продолжает только после успеха.
-3. **Given** локальное дерево грязное, кандидат расходится с `origin/master` или exact SHA невозможно доказать, **When** начинается release/deploy flow, **Then** существующие защитные блокировки сохраняются и выкладка не использует квитанцию как обход.
+1. **Given** clean synchronized `master`, **When** запускается production execute, **Then** full выполняется один раз на pinned exact SHA, кандидат повторно сверяется после full и только затем начинаются remote gates.
+2. **Given** full завершается ошибкой, **When** выполняется deploy, **Then** production remote steps не начинаются.
+3. **Given** локальное дерево грязное, branch не `master` или SHA расходится с `origin/master`, **When** начинается release/deploy flow, **Then** deploy блокируется до full и remote действий.
 
 ---
 
@@ -74,9 +74,8 @@ Release engineer выполняет полный набор один раз дл
 
 - Изменение одновременно затрагивает несколько известных компонентов: быстрый уровень запускает объединение обязательных проверок без дубликатов.
 - Diff определить нельзя, база сравнения отсутствует или путь не классифицирован: выбор становится fail-closed и не объявляется безопасным fast.
-- Pipeline прерван сигналом или один из этапов падает: частичные данные не превращаются в успешную квитанцию.
-- Квитанция скопирована из другого worktree или создана до изменения script/lockfile/toolchain/test collection: она отклоняется.
-- На deploy передана валидная квитанция, но последующая release-защита не проходит: deploy останавливается; квитанция не заменяет остальные gates.
+- Pipeline прерван сигналом или один из этапов падает: deploy останавливается до remote production steps.
+- До execute уже запускали diagnostic full: execute всё равно запускает authoritative full после синхронизации; обычный release path поэтому не делает preflight full.
 - Performance-порог нестабилен из-за нагрузки хоста: функциональные проверки остаются hard gate, а noisy gate не блокирует несвязанный diff без контролируемой линии.
 - Изменена только документация: проверяется ее консистентность; полный продуктовый набор требуется только если документ меняет исполняемый release/deploy контракт.
 
@@ -88,13 +87,13 @@ Release engineer выполняет полный набор один раз дл
 - **FR-002**: Процесс MUST сохранять три различимых уровня доказательства: focused, fast и full; результат одного уровня MUST не представляться как результат другого.
 - **FR-003**: Fast lane MUST выбирать проверки по затронутым компонентам и MUST fail-closed для shared, unknown, high-risk или неразрешимого diff.
 - **FR-004**: Каждый lane MUST сообщать выбранный состав, причину расширения, результат и длительность pipeline и завершенных этапов, включая ошибочный выход.
-- **FR-005**: Успешный full lane MUST уметь создавать metadata-only квитанцию, однозначно связанную с exact commit, состоянием дерева, версией runner, dependency inputs, toolchain, составом и результатом тестов и временными границами.
-- **FR-006**: Квитанция MUST создаваться только после полного успешного набора и MUST не содержать credentials, private paths, meeting data или иные секреты.
-- **FR-007**: Deploy flow MUST проверять квитанцию до переиспользования; отсутствие или любое расхождение MUST приводить к полному прогону, а не к пропуску проверки.
-- **FR-008**: Переиспользование квитанции MUST не ослаблять проверки clean worktree, синхронизации с remote, exact SHA, backup/restore, migrations/RLS, secrets, health, smoke, cleanup и rollback readiness.
+- **FR-005**: Production execute MUST запускать authoritative full после clean-worktree, branch и exact remote-SHA проверок, повторно подтверждать неизменный worktree/HEAD/remote SHA после full и только затем начинать remote production steps.
+- **FR-006**: Обычный release path MUST не требовать отдельный preflight full; диагностический preflight MUST явно считаться отдельным прогоном и не переиспользоваться как production gate.
+- **FR-007**: Любой hard-stage failure в authoritative full MUST блокировать remote production steps.
+- **FR-008**: Упрощение MUST не ослаблять clean worktree, remote sync, exact SHA, backup/restore, migrations/RLS, secrets, health, smoke, cleanup и rollback readiness.
 - **FR-009**: Проверка времени исполнения, чувствительная к нагрузке общего хоста, MUST быть отделена от универсального hard gate и оставаться обязательной для связанных изменений или контролируемой performance-линии.
-- **FR-010**: Активная документация, quickstart, PR template, release guidance, status и changelog MUST описывать один и тот же явный lane contract и фактический deploy fallback.
-- **FR-011**: Автоматическая contract-проверка MUST покрывать отсутствие режима, каждый режим, component selection, unknown/shared fallback, успешную квитанцию, stale/mismatched квитанцию, deploy reuse/fallback и активную документацию.
+- **FR-010**: Активная документация, quickstart, PR template, release guidance, status и changelog MUST описывать один и тот же явный lane contract и authoritative full внутри deploy.
+- **FR-011**: Автоматическая contract-проверка MUST покрывать отсутствие режима, каждый режим, component selection, unknown/shared fallback, порядок deploy/full/remote gates и активную документацию.
 - **FR-012**: Исторические validation/evidence записи MUST сохраняться как неизменяемые факты и MUST не массово переписываться только ради нового синтаксиса.
 - **FR-013**: Процесс MUST поддерживать объединение нескольких небольших проверенных изменений в осознанный release candidate; плановые окна остаются операционной рекомендацией, а hotfix path не блокируется искусственным расписанием.
 - **FR-014**: Build/push immutable container images и deploy by digest MUST оставаться отдельным архитектурным slice до выбора registry, custody secrets и измерения доли production build; текущая оптимизация MUST не вводить скрытую registry-зависимость.
@@ -102,7 +101,6 @@ Release engineer выполняет полный набор один раз дл
 ### Key Entities
 
 - **Validation Lane**: Явно выбранный уровень проверки, его обязательный состав, причина выбора или расширения и итог.
-- **Full-CI Receipt**: Metadata-only доказательство успешного полного прогона для конкретного неизменного кандидата и проверяемых входов.
 - **Release Candidate**: Точный commit и дерево, которые прошли требуемые gates и рассматриваются для deploy.
 - **Component Classification**: Консервативное отображение измененных путей в обязательный набор быстрых проверок.
 - **Stage Result**: Имя этапа, итог, длительность и доступный безопасный диагностический контекст.
@@ -113,19 +111,19 @@ Release engineer выполняет полный набор один раз дл
 
 - **SC-001**: 100% запусков общего CI entrypoint без явного lane завершаются до выполнения тестов с понятной ошибкой.
 - **SC-002**: Для изменения только одного известного низкорискового компонента fast lane не запускает тесты независимых компонентов и остается fail-closed для всех неизвестных/shared/high-risk путей.
-- **SC-003**: Для одного exact release candidate полный набор выполняется не более одного раза между успешной full-квитанцией и началом deploy при неизменных проверяемых входах.
-- **SC-004**: 100% попыток использовать missing, failed, stale или mismatched receipt запускают full fallback либо останавливаются на более строгой release-защите.
+- **SC-003**: В обычном release path полный набор выполняется ровно один раз внутри execute; worktree/HEAD/remote SHA остаются неизменными до начала remote production steps.
+- **SC-004**: 100% неуспешных authoritative full runs блокируют remote production steps.
 - **SC-005**: Каждый проверенный успешный и ошибочный сценарий показывает итоговую длительность и результаты всех завершенных этапов.
 - **SC-006**: Автоматическая consistency-проверка находит 0 неоднозначных bare CI-команд в активных инструкциях и шаблонах, сохраняя исторические evidence записи.
 - **SC-007**: Существующие security, privacy, migration/RLS, health, smoke, cleanup, rollback и notarization gates не удалены и продолжают блокировать release в своих областях.
-- **SC-008**: Contract tests доказывают положительные и отрицательные пути lane selection, receipt validation и deploy fallback; полный repository CI проходит на финальном кандидате.
+- **SC-008**: Contract tests доказывают положительные и отрицательные пути lane selection и порядок deploy gates; полный repository CI проходит на финальном кандидате.
 - **SC-009**: После внедрения p50 времени feedback loop для малого server-only или macOS-only изменения MUST быть не более 25% исходного full run (`351.59s` от baseline `1406.36s`); измерение выполняется минимум тремя последовательными component-only fast-прогонами.
 
 ## Assumptions
 
-- Основная текущая потеря времени вызвана неявным full по умолчанию и его повтором внутри deploy для того же exact SHA.
-- Existing shell, Git и стандартная библиотека доступного Python достаточны; новая runtime-зависимость не требуется.
-- Receipt является локальным metadata artifact и доказательством входов, но не заменяет подписанный artifact provenance или удаленную CI attestation.
-- Production deployment, release/tag/push и implementation commit требуют отдельного разрешения и не входят в локальное внедрение этого slice.
+- Основная текущая потеря времени вызвана неявным full по умолчанию и ручным preflight full перед тем же deploy.
+- Existing shell и Git достаточны; новая runtime-зависимость не требуется.
+- Локальный receipt не имеет независимого provenance против процесса того же пользователя и поэтому не используется как release gate.
+- Production deployment, release/tag/push и implementation commit явно разрешены пользователем.
 - Immutable-image pipeline может дать дополнительное ускорение, но требует отдельного решения по registry и secrets; он не нужен для устранения текущего дублирования тестов.
 - Плановые release-окна полезны для batching, но остаются рекомендацией; аварийный hotfix должен оставаться доступен.

@@ -8,14 +8,11 @@ Date: 2026-08-30
   component checks только для server unit tests, reviewed calendar/domain
   source, macOS и обычной документации; high-risk backend/API, deployment
   evidence и неизвестные пути fail-closed расширяются до full.
-- Успешный full на чистом exact candidate создаёт локальную metadata-only
-  receipt под Git metadata. Receipt связана с SHA/tree, runner, lockfiles, test
-  surface, toolchain, server collection, clean start snapshot, полным ordered
-  stage journal и сроком 24 часа; dirty, stale и mismatched evidence не
-  переиспользуются.
 - `cd-remote.sh --execute` сохраняет clean-tree, remote-sync, exact-SHA и все
-  production gates: валидная receipt убирает повторный full, а missing/invalid
-  receipt запускает full fallback. `--skip-local-ci` остаётся только явным
+  production gates, затем запускает один authoritative full до remote действий.
+  Обычный release path не делает отдельный preflight full; локальный receipt
+  удалён, потому что не имеет независимого provenance против того же
+  пользовательского процесса. `--skip-local-ci` остаётся только явным
   incident-исключением.
 - Функциональные PostgreSQL-проверки и ошибки performance setup/database всегда
   hard gate. Только p95 threshold становится report-only для несвязанных
