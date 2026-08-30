@@ -42,6 +42,9 @@ def test_new_money_mutations_block_initial_checkout_and_renewal_operations() -> 
     assert "kind IN ('initial_checkout', 'renewal')" in statement
     for state in ("scheduled", "sent", "processing", "unknown", "pending_reconciliation"):
         assert f"'{state}'" in statement
+    assert "CASE WHEN" in statement
+    assert "kind = 'renewal' AND billing_operations.state = 'scheduled'" in statement
+    assert "THEN 1 ELSE 0 END, billing_operations.created_at DESC" in statement
 
 
 def test_in_flight_operation_labels_are_explicit() -> None:
@@ -211,6 +214,89 @@ async def test_plans_default_to_current_personal_cycle_without_mislabeling_other
     assert captured["selected_cycle"] == selected_cycle
     personal = next(item for item in captured["plans"] if item["code"] == "personal")
     assert personal["is_current"] is is_current
+
+
+@pytest.mark.asyncio
+async def test_scheduled_renewal_uses_persisted_invoice_amount(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal = SimpleNamespace(user_id=UUID(int=1), session_id=None, auth_via_session=False)
+    subscription = SimpleNamespace(
+        plan_code="personal",
+        state="active",
+        paid_through=datetime.now(UTC) + timedelta(days=1),
+        trial_ends_at=None,
+        renewal_resolution=None,
+        capacity_bytes=2_000_000_000,
+        cycle="month",
+        billing_owner_id=principal.user_id,
+        recurring_allowed=True,
+    )
+    operation = SimpleNamespace(id=UUID(int=4), kind="renewal", state="scheduled")
+    invoice = SimpleNamespace(
+        safe_number="INV-FROZEN1",
+        operation_id=operation.id,
+        amount_minor=79_000,
+        currency="RUB",
+        created_at=datetime.now(UTC),
+        status="pending",
+        plan_snapshot={"cycle": "month"},
+    )
+
+    class FakeSession:
+        def __init__(self) -> None:
+            self.results = iter((subscription, None, 0, invoice, operation, invoice, None, None))
+
+        async def scalar(self, _statement: object) -> object:
+            return next(self.results)
+
+    async def owner_role(*_args: object, **_kwargs: object) -> str:
+        return "owner"
+
+    async def catalog(*_args: object, **_kwargs: object) -> dict[str, object]:
+        return {"month": SimpleNamespace(amount_minor=99_000)}
+
+    async def storage_projection(*_args: object, **_kwargs: object) -> object:
+        return SimpleNamespace(used_bytes=0)
+
+    captured: dict[str, object] = {}
+
+    def capture_page(_title: str, **context: object) -> str:
+        captured.update(context)
+        return "billing"
+
+    monkeypatch.setattr(billing_routes, "_billing_role", owner_role)
+    monkeypatch.setattr(billing_routes, "_approved_personal_catalog", catalog)
+    monkeypatch.setattr(billing_routes, "project_active_playback_storage", storage_projection)
+    monkeypatch.setattr(billing_routes, "_page_shell", capture_page)
+    monkeypatch.setattr(billing_routes, "_csrf_token_for_principal", lambda *_a, **_k: "csrf")
+    monkeypatch.setattr(
+        billing_routes, "build_request_browser_provider_context", lambda *_a, **_k: {}
+    )
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "scheme": "https",
+            "server": ("graf.test", 443),
+            "path": "/billing",
+            "headers": [],
+            "query_string": b"",
+            "app": SimpleNamespace(
+                state=SimpleNamespace(settings=SimpleNamespace(billing_checkout_enabled=True))
+            ),
+        }
+    )
+
+    response = await billing_routes.billing_overview_page(
+        request,
+        tenant_scope=SimpleNamespace(workspace_id=UUID(int=2), device_id=UUID(int=3)),
+        principal=principal,
+        db=FakeSession(),
+    )
+
+    assert response.status_code == 200
+    assert captured["next_charge_amount_label"] == "790 ₽"
 
 
 @pytest.mark.asyncio
@@ -1099,6 +1185,28 @@ def test_plan_comparison_explains_pending_and_disabled_checkout_states() -> None
     assert 'href="/billing/checkout' not in pending
     assert "магазин не включён" in disabled
     assert "Цена появится после утверждения" not in disabled
+
+
+def test_plan_comparison_hides_owner_only_links_from_takeover_owner() -> None:
+    html = render_template(
+        "cabinet/pages/billing_plans_content.html",
+        embedded=False,
+        settings_navigation=settings_category_navigation(active="billing"),
+        settings_active="billing",
+        csrf_token="synthetic-csrf",
+        plans=(),
+        selected_cycle="month",
+        current_plan_code="personal",
+        billing_role="owner",
+        billing_owner=False,
+        billing_enabled=True,
+        catalog_ready=True,
+        operation_pending=False,
+        trial_state="already",
+    )
+
+    assert 'href="/billing/storage"' not in html
+    assert 'href="/billing/history"' not in html
 
 
 def test_usage_surface_localizes_processing_reservation_and_threshold() -> None:

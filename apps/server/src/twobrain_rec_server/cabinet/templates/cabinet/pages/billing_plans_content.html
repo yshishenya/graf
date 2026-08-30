@@ -55,10 +55,10 @@
 
       <section class="billing-section billing-row-section" aria-labelledby="billing-plan-boundary-title">
         <div><h2 id="billing-plan-boundary-title">Важно о хранении</h2><p>Платная обработка не ограничена по времени, но архив имеет конечную ёмкость. Дополнительное хранилище оплачивается отдельно только после утверждения ценовой версии.</p></div>
-        <a class="button quiet" href="/billing/storage">Настроить хранилище</a>
+        {% if billing_owner %}<a class="button quiet" href="/billing/storage">Настроить хранилище</a>{% endif %}
       </section>
       {% if support_email|default(None) %}<p class="billing-help"><a class="button quiet" href="mailto:{{ support_email|e }}">Связаться с нами</a></p>{% endif %}
-      <p class="billing-help"><a class="button quiet" href="/billing/history">Нужна помощь с оплатой?</a></p>
+      {% if billing_owner %}<p class="billing-help"><a class="button quiet" href="/billing/history">Нужна помощь с оплатой?</a></p>{% endif %}
     </div>
   </div>
 </main>

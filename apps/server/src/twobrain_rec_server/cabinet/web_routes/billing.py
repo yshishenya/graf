@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 import httpx
 from fastapi import APIRouter, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import func, select, update
+from sqlalchemy import case, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -308,7 +308,16 @@ def _blocking_payment_operation_query(workspace_id: UUID):
             BillingOperation.kind.in_(("initial_checkout", "renewal")),
             BillingOperation.state.in_(CHECKOUT_BLOCKING_STATES),
         )
-        .order_by(BillingOperation.created_at.desc())
+        .order_by(
+            case(
+                (
+                    (BillingOperation.kind == "renewal") & (BillingOperation.state == "scheduled"),
+                    1,
+                ),
+                else_=0,
+            ),
+            BillingOperation.created_at.desc(),
+        )
     )
 
 
@@ -1226,9 +1235,22 @@ async def billing_overview_page(
                 if subscription.cycle in {"month", "year"}
                 else snapshot.get("cycle")
             )
-            catalog_entry = approved_catalog.get(cycle)
+            scheduled_renewal_invoice = (
+                pending_invoice
+                if latest_operation is not None
+                and latest_operation.kind == "renewal"
+                and latest_operation.state == "scheduled"
+                else None
+            )
             recurring_next_charge_amount_label = _billing_amount_label(
-                catalog_entry.amount_minor if catalog_entry is not None else None
+                scheduled_renewal_invoice.amount_minor
+                if scheduled_renewal_invoice is not None
+                else approved_catalog[cycle].amount_minor
+                if cycle in approved_catalog
+                else None,
+                scheduled_renewal_invoice.currency
+                if scheduled_renewal_invoice is not None
+                else "RUB",
             )
         else:
             recurring_next_charge_label = "не запланировано"
