@@ -2065,6 +2065,7 @@ class SlotState(BaseModel):
     template_id: UUID | None = None
     version: int | None = Field(default=None, ge=1)
     template_version: int | None = Field(default=None, ge=1)
+    outcome_set_id: UUID | None = None
 
 
 class MeetingFilterState(BaseModel):

@@ -250,6 +250,7 @@ async def embedded_meeting_detail_page(
         workspace_id=tenant_scope.workspace_id,
         meeting_id=parsed_meeting_id,
         viewer_user_id=principal.user_id,
+        selected_summary_template_key=request.query_params.get("summary_format"),
         storage=storage,
         include_calendar_correction_candidates=calendar_context_action == "change",
         external_invitations_enabled=request.app.state.settings.share_external_invitations_enabled,
