@@ -18,9 +18,16 @@ Date: 2026-08-30
   hard gate. Только p95 threshold становится report-only для несвязанных
   shared-host runs; calendar paths, controlled run и synchronized-master full
   требуют его как hard gate.
-- Feature 211 входит в release train `v2026.08.30.1`; production truth нужно
-  подтверждать по exact tag/runtime и deployment evidence, а не выводить из
-  статуса реализации в этом документе.
+- Feature 211 выпущена как `v2026.08.30.1` и была развёрнута на exact SHA
+  `2e7ef275b6fc2e1749201916202870da6d19ef4a`: authoritative full, backup и
+  restore rehearsal, migration/RLS, secrets, readiness, synthetic smoke,
+  cleanup и public health прошли. Metadata-only closeout хранится в
+  [production receipt](deployments/2brain-rec/release-v2026.08.30.1.md).
+- Повторный read-only аудит после следующего release train подтвердил, что
+  текущий production SHA `44e25fccf703d76a485cbe25f156b8561a5206dd`
+  содержит release SHA Feature 211 в своей истории. Worker control прошёл;
+  незавершённых normalization jobs, незавершённых backfill runs и cleanup
+  candidates нет.
 
 ## Release update (2026-08-25) — `v2026.08.25.4`
 
