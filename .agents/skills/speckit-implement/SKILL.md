@@ -23,9 +23,10 @@ You **MUST** consider the user input before proceeding (if not empty).
 - If it exists, read it and look for entries under the `hooks.before_implement` key
 - If the YAML cannot be parsed or is invalid, STOP with a blocking configuration error; do not skip configured hooks
 - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
-- For each remaining hook, do **not** attempt to interpret or evaluate hook `condition` expressions:
+- For each remaining hook, do **not** interpret the `condition` expression yourself:
   - If the hook has no `condition` field, or it is null/empty, treat the hook as executable
-  - If the hook defines a non-empty `condition`, skip the hook and leave condition evaluation to the HookExecutor implementation
+  - If an optional hook defines a non-empty `condition`, skip it and leave evaluation to HookExecutor
+  - If a mandatory hook defines a non-empty `condition`, invoke HookExecutor and wait for its result; if HookExecutor is unavailable, STOP with a blocking error instead of continuing
 - When constructing command invocations from hook command names, replace dots (`.`) with hyphens (`-`). For example, `speckit.git.commit` → `$speckit-git-commit`.
 - For each executable hook, output the following based on its `optional` flag:
   - **Optional hook** (`optional: true`):
@@ -80,7 +81,7 @@ You **MUST** consider the user input before proceeding (if not empty).
      - **FAIL**: One or more checklists have unchecked items
 
    - **If any checklist has unchecked items**:
-     - Display the table with unchecked item counts and read the selected risk/validation lane from `plan.md`
+     - Display the table with unchecked item counts and read the selected risk/validation lane from `plan.md`; treat a missing, unrecognized, or ambiguous lane as high-risk for this gate
      - For a high-risk lane, **STOP** until the reviewer completes the checklist; user risk acceptance cannot bypass this gate
      - For any other lane, **STOP** and ask whether to proceed with an explicit recorded risk acceptance
      - Wait for user response before continuing; proceed only after an explicit yes for a non-high-risk lane
@@ -89,9 +90,9 @@ You **MUST** consider the user input before proceeding (if not empty).
      - Display the table showing all checklists passed
      - Automatically proceed to step 3
 
-3. Verify the analyze gate before implementation: confirm `$speckit-analyze` ran after the current `tasks.md` and met the feature threshold (default: no unresolved critical/high findings). If current evidence is absent or stale, STOP and run `$speckit-analyze` before continuing.
+4. Verify the issue-sync gate before implementation: when the repository has a GitHub remote and project guidance requires implementation tracking, confirm every unique executable task has an open or reconciled owner and current evidence. If ownership is absent, incomplete, or stale, STOP and run `$speckit-taskstoissues`.
 
-4. Load and analyze the implementation context:
+5. Load and analyze the implementation context:
    - **REQUIRED**: Read tasks.md for the complete task list and execution plan
    - **REQUIRED**: Read plan.md for tech stack, architecture, and file structure
    - **IF EXISTS**: Read data-model.md for entities and relationships
@@ -100,7 +101,7 @@ You **MUST** consider the user input before proceeding (if not empty).
    - **IF EXISTS**: Read .specify/memory/constitution.md for governance constraints
    - **IF EXISTS**: Read quickstart.md for integration scenarios
 
-5. **Project Setup Verification**:
+6. **Project Setup Verification**:
    - **REQUIRED**: Inspect ignore files based on actual project setup. Modify an ignore file only when a task explicitly requires it or the user approves that scoped change; never silently add broad patterns that can hide files from review:
 
    **Detection & Creation Logic**:
@@ -144,27 +145,27 @@ You **MUST** consider the user input before proceeding (if not empty).
    - **Terraform**: `.terraform/`, `*.tfstate*`, `*.tfvars`, `.terraform.lock.hcl`
    - **Kubernetes/k8s**: `*.secret.yaml`, `secrets/`, `.kube/`, `kubeconfig*`, `*.key`, `*.crt`
 
-5. Parse tasks.md structure and extract:
+7. Parse tasks.md structure and extract:
    - **Task phases**: Setup, Tests, Core, Integration, Polish
    - **Task dependencies**: Sequential vs parallel execution rules
    - **Task details**: ID, description, file paths, parallel markers [P]
    - **Execution flow**: Order and dependency requirements
 
-6. Execute implementation following the task plan:
+8. Execute implementation following the task plan:
    - **Phase-by-phase execution**: Complete each phase before moving to the next
    - **Respect dependencies**: Run sequential tasks in order, parallel tasks [P] can run together
    - **Follow TDD approach**: Execute test tasks before their corresponding implementation tasks
    - **File-based coordination**: Tasks affecting the same files must run sequentially
    - **Validation checkpoints**: Verify each phase completion before proceeding
 
-7. Implementation execution rules:
+9. Implementation execution rules:
    - **Setup first**: Initialize project structure, dependencies, configuration
    - **Tests before code**: If you need to write tests for contracts, entities, and integration scenarios
    - **Core development**: Implement models, services, CLI commands, endpoints
    - **Integration work**: Database connections, middleware, logging, external services
    - **Polish and validation**: Unit tests, performance optimization, documentation
 
-8. Progress tracking and error handling:
+10. Progress tracking and error handling:
    - Report progress after each completed task
    - Halt execution if any non-parallel task fails
    - For parallel tasks [P], continue with successful tasks, report failed ones
@@ -172,7 +173,7 @@ You **MUST** consider the user input before proceeding (if not empty).
    - Suggest next steps if implementation cannot proceed
    - **IMPORTANT** For completed tasks, make sure to mark the task off as [X] in the tasks file.
 
-9. Completion validation:
+11. Completion validation:
    - Verify all required tasks are completed
    - Check that implemented features match the original specification
    - Validate that tests pass and coverage meets requirements
@@ -189,9 +190,10 @@ Check if `.specify/extensions.yml` exists in the project root.
 - If it exists, read it and look for entries under the `hooks.after_implement` key.
 - If the YAML cannot be parsed or is invalid, STOP with a blocking configuration error; do not skip configured hooks
 - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
-- For each remaining hook, do **not** attempt to interpret or evaluate hook `condition` expressions:
+- For each remaining hook, do **not** interpret the `condition` expression yourself:
   - If the hook has no `condition` field, or it is null/empty, treat the hook as executable
-  - If the hook defines a non-empty `condition`, skip the hook and leave condition evaluation to the HookExecutor implementation
+  - If an optional hook defines a non-empty `condition`, skip it and leave evaluation to HookExecutor
+  - If a mandatory hook defines a non-empty `condition`, invoke HookExecutor and wait for its result; if HookExecutor is unavailable, STOP with a blocking error instead of continuing
 - When constructing command invocations from hook command names, replace dots (`.`) with hyphens (`-`). For example, `speckit.git.commit` → `$speckit-git-commit`.
 - For each executable hook, output the following based on its `optional` flag:
   - **Mandatory hook** (`optional: false`) — **You MUST emit `EXECUTE_COMMAND:` for each mandatory hook**:

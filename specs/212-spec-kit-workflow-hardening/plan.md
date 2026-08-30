@@ -12,11 +12,11 @@
 
 **Language/Version**: Python 3.9+ stdlib для focused guard; Bash orchestration существующего bootstrap/CI
 
-**Primary Dependencies**: `specify-cli v1.0.1`, `speckit-bootstrap v0.9.5`, `github-issue-canon v0.3.2`, Git, существующие Spec Kit extensions
+**Primary Dependencies**: `specify-cli v1.0.1`, `speckit-bootstrap v0.9.7`, `github-issue-canon v0.3.2`, Git, существующие Spec Kit extensions
 
 **Storage**: Tracked Markdown/YAML/JSON files и project-local `.agents/skills`; продуктовые хранилища не затрагиваются
 
-**Testing**: Встроенный self-test focused guard с пятью negative classes, issue-canon command → frozen doctor regression и focused feature quickstart; ранее пройденный fast gate сохраняется как evidence, Full CI не запускается
+**Testing**: Встроенный self-test focused guard с шестью negative classes, включая decoy вне canonical section; issue-canon command → frozen doctor regression и focused feature quickstart; ранее пройденный fast gate сохраняется как evidence, Full CI не запускается
 
 **Risk / Validation Lane**: `significant-feature` — изменение governance, generated skills, CI gate и воспроизводимости инструментария; продуктовый runtime не меняется
 
@@ -48,7 +48,7 @@ Post-design re-check: PASS — дизайн не вводит продуктов
 
 1. До изменения: подтвердить latest upstream Spec Kit и stable bootstrap refs, чистый worktree и fast-forward возможность source checkout.
 2. После bootstrap migration: проверить schema 3, immutable ref, project-local skill hashes, managed `.specify/.gitignore`; затем выполнить Python-backed issue-canon command и `speckit-bootstrap . --doctor --frozen`, убедившись в отсутствии `__pycache__`/`.pyc`.
-3. Запустить focused guard в штатном режиме и его self-test с пятью отрицательными классами, включая неправильный порядок стадий.
+3. Запустить focused guard в штатном режиме и его self-test с шестью отрицательными классами, включая неправильный порядок стадий и decoy вне canonical section.
 4. Повторить bootstrap dry-run/apply и доказать отсутствие необъяснимого tracked drift.
 5. Выполнить сценарии из `quickstart.md`, затем `infra/scripts/ci-local.sh --fast` как PR feedback gate.
 6. Full CI не требуется: product runtime не менялся. Product release preparation, CD dry-run и deploy не выполнять.

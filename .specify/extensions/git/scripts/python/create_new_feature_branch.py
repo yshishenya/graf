@@ -164,9 +164,6 @@ def _load_core_common(project_root: Path | None):
 
 
 def _local_has_git(repo_root: Path) -> bool:
-    git_marker = repo_root / ".git"
-    if not (git_marker.is_dir() or git_marker.is_file()):
-        return False
     if shutil.which("git") is None:
         return False
     return (
@@ -456,14 +453,15 @@ def main(argv: list[str]) -> int:
         except TypeError:
             repo_root = core.get_repo_root()
     else:
-        toplevel = _git_lines(Path.cwd(), "rev-parse", "--show-toplevel")
-        if toplevel:
-            repo_root = Path(toplevel[0])
-        elif project_root is not None:
+        if project_root is not None:
             repo_root = project_root
         else:
-            _err("Error: Could not determine repository root.")
-            return 1
+            toplevel = _git_lines(Path.cwd(), "rev-parse", "--show-toplevel")
+            if toplevel:
+                repo_root = Path(toplevel[0])
+            else:
+                _err("Error: Could not determine repository root.")
+                return 1
     repo_root = Path(repo_root)
 
     has_git_repo = _local_has_git(repo_root)

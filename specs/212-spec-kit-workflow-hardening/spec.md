@@ -93,7 +93,7 @@ Maintainer получает короткую автоматическую про
 - **FR-006**: Custom checklist MUST быть reviewer-owned; генерация оставляет новые пункты unchecked, а implementation читает marker state и не меняет его.
 - **FR-007**: Сокращённый upstream workflow MUST NOT описываться как достаточный для significant/high-risk GRAF lane.
 - **FR-008**: После implementation MUST выполняться append-only convergence loop до результата без оставшихся обязательных задач.
-- **FR-009**: Focused validation MUST fail closed при потере `converge`, неправильном порядке стадий, потере reviewer ownership, project-local skills или поддерживаемой lock schema.
+- **FR-009**: Focused validation MUST fail closed при потере `converge`, неправильном порядке стадий, decoy-последовательности вне канонической workflow-секции, потере reviewer ownership, project-local skills или поддерживаемой lock schema.
 - **FR-010**: Повторный bootstrap MUST быть идемпотентным для управляемых tracked artifacts либо явно объяснять ожидаемый diff.
 - **FR-011**: Локальный source checkout `speckit-bootstrap` MUST быть fast-forward синхронизирован с опубликованным stable source, если он отстаёт и не содержит локальных изменений.
 - **FR-012**: Изменение MUST обновить `[Unreleased]` changelog и зафиксировать validation evidence без секретов и приватного содержимого.
@@ -112,7 +112,7 @@ Maintainer получает короткую автоматическую про
 - **SC-001**: `speckit-bootstrap . --doctor` completes successfully after the one-time migration.
 - **SC-002**: Lock state records schema 3, Spec Kit `v1.0.1`, its immutable ref, and hashes for every project-local Spec Kit skill.
 - **SC-003**: A second bootstrap run followed by `git status --short` produces no unexplained tracked governance drift.
-- **SC-004**: Focused validation detects 100% of the five protected failure classes: missing convergence stage, wrong workflow order, missing reviewer ownership, missing project-local skills and unsupported lock schema.
+- **SC-004**: Focused validation detects 100% of the six protected failure classes: missing convergence stage, wrong workflow order, decoy sequence outside canonical workflow sections, missing reviewer ownership, missing project-local skills and unsupported lock schema.
 - **SC-005**: Canonical project guidance contains one unambiguous full GRAF sequence and an explicit boundary for the shorter upstream workflow.
 - **SC-006**: No product runtime, production configuration, deployment state, optional community extension or user-owned legacy skill is changed outside the declared scope.
 - **SC-007**: После импорта каждого Python entry point issue-canon отсутствуют `__pycache__`/`.pyc`, а frozen doctor подтверждает тот же locked tree hash.
@@ -120,6 +120,6 @@ Maintainer получает короткую автоматическую про
 ## Assumptions
 
 - `v1.0.1` remains the latest stable upstream release during this change; live resolution is rechecked before migration.
-- Published `speckit-bootstrap v0.9.5` и `github-issue-canon v0.3.2` являются stable fail-closed tooling baseline.
+- Published `speckit-bootstrap v0.9.7` и `github-issue-canon v0.3.2` являются stable fail-closed tooling baseline.
 - Existing GRAF product gates and issue canon remain authoritative and are extended, not replaced.
 - A clean disposable feature worktree is the implementation surface; master and unrelated worktrees remain untouched.

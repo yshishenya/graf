@@ -17,7 +17,7 @@ speckit-bootstrap --version
 speckit-bootstrap . --dry-run --json
 ```
 
-Expected: Python is `3.9+`, Spec Kit resolves to stable `v1.0.1`, bootstrap is `v0.9.5`, and dry-run does not mutate files.
+Expected: Python is `3.9+`, Spec Kit resolves to stable `v1.0.1`, bootstrap is `v0.9.7`, and dry-run does not mutate files.
 
 ## Scenario 2: One-time migration
 
@@ -36,7 +36,7 @@ python3 scripts/check_spec_kit_governance.py --self-test
 python3 scripts/check_spec_kit_governance.py
 ```
 
-Expected: self-test proves positive and five protected negative classes, including wrong workflow order; repository check confirms bootstrap integrity and GRAF-specific rules.
+Expected: self-test proves positive and six protected negative classes, including wrong workflow order and a decoy outside canonical workflow sections; repository check confirms bootstrap integrity and GRAF-specific rules.
 
 ## Scenario 4: Idempotence
 
@@ -61,11 +61,14 @@ Expected: fast lane includes the focused governance check and is the final repos
 ## Validation Evidence — 2026-08-30
 
 - Source checkout `speckit-bootstrap` is clean on `main == origin/main` at
-  `2c042cb47a1d737c47e4d38f089be7ccb4e96489` after docs PR #31; immutable
-  `v0.9.5^{}` resolves to release merge `ae45a7d241921a19c99d797f3447a4f9284f6d88`.
+  `434087d0f7d00b8fc10c7300207ef85bbe3f69c4` after installer docs PR #35; immutable
+  `v0.9.7^{}` resolves to release merge `53a08d11d65d75f289e04cd0206c1431bee1fc20`.
   Installed executable SHA-256 is
-  `b62c8de2b11f8d109710969e1c13a5e8bf2552426012a4c97801eebd04e27a2a`.
-- Preflight resolved Specify CLI `1.0.1`, bootstrap `0.9.5`, Spec Kit `v1.0.1`
+  `3e624282b6820d3ad97b59aaad36203b78fa5832e8d4cc803cda3b29dce0bb0e`.
+- Release workflow `33327431411` passed package/checksum/attestation gates for
+  `v0.9.7`; PR #34 and docs PR #35 have green CI, CodeRabbit, CodeQL and zero
+  unresolved threads. Upstream canary `33327363106` also passed before tagging.
+- Preflight resolved Specify CLI `1.0.1`, bootstrap `0.9.7`, Spec Kit `v1.0.1`
   and immutable ref `9118ed15a0ba65053469a94c560ea5d233f75884`.
 - One non-frozen refresh migrated the lock from schema 2 to schema 3, preserved
   legacy user-level skills and recorded 19 project-local skill hashes.
@@ -76,22 +79,21 @@ Expected: fast lane includes the focused governance check and is the final repos
   subsequent frozen doctor passed, and no `__pycache__` appeared.
 - Direct agent-context refresh passed with the Python runtime from the
   installed `specify` shebang; no global PyYAML installation was needed.
-- Repeated `v0.9.5` dry-run/apply preserved the generated-artifact diff digest
-  `e4227937d8f9d1342656a129d4b87953b97c44ec1cb3c80f88d6af3324751680`;
-  dry-run also preserved the status digest
-  `9c64cd483fbf5c8ae901a4eccd07ade8ce4f510c76df4b6b838a91855b8e5d95`.
+- Repeated `v0.9.7` dry-run/apply preserved diff digest
+  `4562eabc619f91b54be912f816647f3305dc0724405f6b77560580ebc8122ffb` and
+  status digest `c275ee8d04dee745d43256de0205c6abb588e38dab3552830ab1c0e7143529e6`.
   Only `installed_at` rotated in the two bootstrap-owned `skip-worktree`
   receipts `.specify/extensions/.registry` and
   `.specify/integrations/codex.manifest.json`; this is expected machine-local
   metadata and creates no tracked governance drift.
 - `python3 scripts/check_spec_kit_governance.py --self-test` passed its positive
-  fixture and all five required negative classes; repository guard, frozen
+  fixture and all six required negative classes; repository guard, frozen
   doctor and `check-prerequisites.sh --json --paths-only` also passed.
 - Issue-canon validation checked 300 issues after the final refresh; bytecode
   count remained `0 → 0`, and the subsequent frozen doctor passed.
 - The earlier PR fast gate passed with governance guard PASS, 1347 server tests,
   server lint and Python compile. It was not rerun for the final generated-only
-  `v0.9.5` refresh; current closeout evidence is the focused command set above.
+  `v0.9.7` refresh; current closeout evidence is the focused command set above.
 - Product app packaging, Developer ID signing, notarization, stapling and appcast assets are `N/A`: Feature 212 changes governance/tooling only and does not publish a GRAF product build.
 - Ponytail review found one self-test fixture simplification, which was applied
   and revalidated. Final `$speckit-converge` found no remaining missing,

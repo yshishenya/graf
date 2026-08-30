@@ -22,4 +22,4 @@ python3 scripts/check_spec_kit_governance.py --self-test
 
 ## Self-test contract
 
-`--self-test` создаёт только temporary fixtures, доказывает положительный сценарий и пять обязательных отрицательных классов, включая неправильный порядок стадий, затем удаляет fixtures. Реальный GRAF repository не изменяется.
+`--self-test` создаёт только temporary fixtures, доказывает положительный сценарий и шесть обязательных отрицательных классов, включая неправильный порядок стадий и decoy вне канонической workflow-секции, затем удаляет fixtures. Реальный GRAF repository не изменяется.

@@ -48,7 +48,7 @@
 
 **Goal**: Future bootstrap/upstream refresh ломается в focused validation, а не после начала feature work.
 
-**Independent Test**: `python3 scripts/check_spec_kit_governance.py --self-test` доказывает положительный fixture и пять отрицательных классов, включая неправильный порядок; обычный запуск проходит на repository state.
+**Independent Test**: `python3 scripts/check_spec_kit_governance.py --self-test` доказывает положительный fixture и шесть отрицательных классов, включая неправильный порядок и decoy вне canonical section; обычный запуск проходит на repository state.
 
 - [X] T007 [P] [US3] Implement the stdlib governance validator and its built-in positive/negative self-test in `scripts/check_spec_kit_governance.py` per FR-009 and `contracts/governance-check.md`
 - [X] T008 [US3] Run the governance validator from the fast lane in `infra/scripts/ci-local.sh` without adding a dependency or network requirement per FR-009
@@ -63,6 +63,7 @@
 - [X] T010 Run the governance self-test, repository guard, frozen doctor, Feature 212 quickstart and `infra/scripts/ci-local.sh --fast`; record exact results in `specs/212-spec-kit-workflow-hardening/quickstart.md` per SC-001, SC-002, SC-003, SC-004, SC-005 and SC-006
 - [X] T011 Run Ponytail review and `$speckit-converge`, complete any appended tasks, then obtain explicit user approval before the implementation commit per FR-008
 - [X] T012 Publish bytecode-safe `github-issue-canon v0.3.2` and fail-closed `speckit-bootstrap v0.9.5`, record macOS notarization/stapling as `N/A` for the portable shell asset, adopt immutable refs in GRAF, then repeat focused validation and convergence and prove issue-canon command → frozen doctor without `__pycache__` per FR-013 and SC-007
+- [X] T013 Publish final review follow-up `speckit-bootstrap v0.9.7`, adopt its immutable asset in GRAF, preserve `v0.9.6 → v0.9.7` refresh compatibility, bind workflow/checklist validation to canonical sections with a decoy regression, repeat focused checks without product CI and close all 16 review threads per FR-009, FR-013 and SC-004–SC-007
 
 ## Dependencies And Execution Order
 
@@ -70,7 +71,7 @@
 - T002 precedes T003–T005 because lock/project-local skills do not exist before migration.
 - T003 and T004 precede project-specific guidance and guard changes.
 - T006 and T007 may proceed in parallel after T003–T004; T008 depends on T007.
-- T009 follows behavior changes; T010 and T011 are the initial closeout gates. T012 is the final tooling adoption discovered by publication recheck and therefore repeats focused T010 evidence plus convergence before the user-approved implementation commit; CI lanes remain excluded by the owner's explicit scope decision.
+- T009 follows behavior changes; T010 and T011 are the initial closeout gates. T012 and T013 are tooling-adoption follow-ups discovered by publication/review rechecks and therefore repeat focused T010 evidence plus convergence before the user-approved implementation commit; CI lanes remain excluded by the owner's explicit scope decision.
 
 ## Implementation Strategy
 

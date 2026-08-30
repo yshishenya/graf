@@ -88,6 +88,11 @@ if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 fi
 
 _worktree_root="$(git rev-parse --show-toplevel)"
+if command -v cygpath >/dev/null 2>&1; then
+    _worktree_root="$(cygpath -am "$_worktree_root")"
+    [ -z "${_message_file:-}" ] || _message_file="$(cygpath -am "$_message_file")"
+    [ -z "${_resolved_message_file:-}" ] || _resolved_message_file="$(cygpath -am "$_resolved_message_file")"
+fi
 for _message_path in "${_message_file:-}" "${_resolved_message_file:-}"; do
     case "$_message_path" in
         "$_worktree_root"|"$_worktree_root"/*)

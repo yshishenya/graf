@@ -24,9 +24,10 @@ You **MUST** consider the user input before proceeding (if not empty).
 - If it exists, read it and look for entries under the `hooks.before_converge` key
 - If the YAML cannot be parsed or is invalid, STOP with a blocking configuration error; do not skip configured hooks
 - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
-- For each remaining hook, do **not** attempt to interpret or evaluate hook `condition` expressions:
+- For each remaining hook, do **not** interpret the `condition` expression yourself:
   - If the hook has no `condition` field, or it is null/empty, treat the hook as executable
-  - If the hook defines a non-empty `condition`, skip the hook and leave condition evaluation to the HookExecutor implementation
+  - If an optional hook defines a non-empty `condition`, skip it and leave evaluation to HookExecutor
+  - If a mandatory hook defines a non-empty `condition`, invoke HookExecutor and wait for its result; if HookExecutor is unavailable, STOP with a blocking error instead of continuing
 - When constructing command invocations from hook command names, replace dots (`.`) with hyphens (`-`). For example, `speckit.git.commit` → `$speckit-git-commit`.
 - For each executable hook, output the following based on its `optional` flag:
   - **Optional hook** (`optional: true`):
@@ -155,9 +156,7 @@ For each item in the intent inventory, inspect the current code in scope and pro
   acceptance criterion / plan decision.
 - **`contradicts`**: the code does something that conflicts with stated intent or a
   constitution MUST principle.
-- **`unrequested`**: the code contains work not called for by the spec, plan, or tasks
-  (surfaced for awareness — converge does **not** delete code, it only appends a task to
-  review/justify or remove it).
+- **`unrequested`**: the code contains work not called for by the spec, plan, or tasks. Emit this finding only when diff/commit/task provenance shows the current feature slice introduced the code; otherwise reconcile it against the merged product baseline and do not append a removal task for pre-existing shared code.
 
 Each `Finding` records: a stable id, the `source-ref` it traces to, the `gap-type`, a
 severity, and a short human-readable description with the evidence (the file/area observed).
@@ -240,9 +239,10 @@ After producing the result, check if `.specify/extensions.yml` exists in the pro
 - If it exists, read it and look for entries under the `hooks.after_converge` key
 - If the YAML cannot be parsed or is invalid, STOP with a blocking configuration error; do not skip configured hooks
 - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
-- For each remaining hook, do **not** attempt to interpret or evaluate hook `condition` expressions:
+- For each remaining hook, do **not** interpret the `condition` expression yourself:
   - If the hook has no `condition` field, or it is null/empty, treat the hook as executable
-  - If the hook defines a non-empty `condition`, skip the hook and leave condition evaluation to the HookExecutor implementation
+  - If an optional hook defines a non-empty `condition`, skip it and leave evaluation to HookExecutor
+  - If a mandatory hook defines a non-empty `condition`, invoke HookExecutor and wait for its result; if HookExecutor is unavailable, STOP with a blocking error instead of continuing
 - Report the convergence outcome (`converged` or `tasks_appended`) in-session before listing
   any hooks, so users can decide whether to run optional follow-up commands.
 - When constructing command invocations from hook command names, replace dots (`.`) with hyphens (`-`). For example, `speckit.git.commit` → `$speckit-git-commit`.

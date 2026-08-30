@@ -13,28 +13,36 @@
 
 ### Изменено
 - Spec Kit workflow переведён на bootstrap lock schema 3 и project-local skills
-  через immutable `speckit-bootstrap v0.9.5` для Spec Kit v1.0.1;
+  через immutable `speckit-bootstrap v0.9.7` для Spec Kit v1.0.1;
   significant/high-risk цикл теперь явно включает issue sync, reviewer-owned
   checklist, convergence и validation/release gates.
 
 ### Исправлено
 - Locked `github-issue-canon` commands больше не создают Python bytecode внутри
   integrity-managed extension tree; повторный frozen doctor остаётся чистым.
-- Bootstrap refresh мигрирует точные промежуточные формы вплоть до `v0.9.4`, но отклоняет
+- Bootstrap refresh мигрирует точные промежуточные формы вплоть до `v0.9.6`, но отклоняет
   mixed, duplicate, surrounding-drift и неизвестные generated states; focused
-  guard отдельно ловит неправильный порядок полного GRAF workflow.
+  guard отдельно ловит неправильный порядок полного GRAF workflow, decoy-текст
+  вне канонической секции и отвязанные от checklist ownership-маркеры.
+- Generated workflow теперь fail closed требует обязательный clarify, известный
+  risk lane, analyze и task-to-issue ownership; conditional mandatory hooks не
+  пропускаются без HookExecutor, а convergence не превращает baseline-код в
+  задачи на удаление без provenance текущей фичи.
 - Переключение формата итогов теперь проверяет текущую версию выбранного
   type-slot, поэтому новый формат не получает ложный конфликт с версией
   формата «Авто».
 
 ### Безопасность
-- _Пока нет записей._
+- Generated preset registry, template paths и plan paths теперь fail closed
+  проверяют типы, Python runtime и symlink containment; Git Bash message-file
+  paths нормализуются до единого Windows-формата перед containment check.
 
 ### Документы
 - _Пока нет записей._
 
 ### Операции
-- _Пока нет записей._
+- Опубликован и установлен checksummed `speckit-bootstrap v0.9.7`; GRAF lock
+  обновлён из immutable release asset без продуктового release/deploy.
 
 ## [2026.08.30.1] - 2026-08-30
 

@@ -30,13 +30,7 @@ function Add-MdcFrontmatter {
     #>
     param([Parameter(Mandatory = $true)][AllowEmptyString()][string]$Content)
 
-    $leading = ''
-    $stripped = $Content
-    $m = [regex]::Match($Content, '^\s*')
-    if ($m.Success) {
-        $leading = $m.Value
-        $stripped = $Content.Substring($m.Length)
-    }
+    $stripped = $Content.TrimStart()
 
     if (-not $stripped.StartsWith('---')) {
         return "---`nalwaysApply: true`n---`n`n" + $Content
@@ -55,7 +49,7 @@ function Add-MdcFrontmatter {
     $newline = if ($opening.Contains("`r`n")) { "`r`n" } else { "`n" }
 
     if ([regex]::IsMatch($fmText, '(?m)^[ \t]*alwaysApply[ \t]*:[ \t]*true[ \t]*(?:#.*)?$')) {
-        return $Content
+        return $stripped
     }
 
     if ([regex]::IsMatch($fmText, '(?m)^[ \t]*alwaysApply[ \t]*:')) {
@@ -67,7 +61,7 @@ function Add-MdcFrontmatter {
         $fmText = 'alwaysApply: true'
     }
 
-    return "$leading$opening$fmText$closing$sep$rest"
+    return "$opening$fmText$closing$sep$rest"
 }
 
 function Get-ConfigValue {
@@ -113,10 +107,16 @@ function Resolve-ContextPath {
     )
 
     $rootFull = [System.IO.Path]::GetFullPath($Root)
-    $segments = $RelativePath -split '/'
+    $segments = [System.Collections.Generic.List[string]]::new()
+    foreach ($segment in ($RelativePath -split '[\\/]')) {
+        $segments.Add($segment)
+    }
     $resolved = $rootFull
+    $linksResolved = 0
 
-    foreach ($segment in $segments) {
+    while ($segments.Count -gt 0) {
+        $segment = $segments[0]
+        $segments.RemoveAt(0)
         if ([string]::IsNullOrWhiteSpace($segment) -or $segment -eq '.') {
             continue
         }
@@ -130,13 +130,22 @@ function Resolve-ContextPath {
                     $target = $target[0]
                 }
                 if ($target) {
-                    if ([System.IO.Path]::IsPathRooted($target)) {
-                        $candidate = [System.IO.Path]::GetFullPath($target)
-                    } else {
-                        $candidate = [System.IO.Path]::GetFullPath(
-                            (Join-Path (Split-Path -Parent $candidate) $target)
-                        )
+                    $linksResolved++
+                    if ($linksResolved -gt 40) {
+                        throw "Too many symbolic links while resolving '$RelativePath'"
                     }
+                    $targetFull = if ([System.IO.Path]::IsPathRooted($target)) {
+                        [System.IO.Path]::GetFullPath($target)
+                    } else {
+                        [System.IO.Path]::GetFullPath((Join-Path (Split-Path -Parent $candidate) $target))
+                    }
+                    $targetRoot = [System.IO.Path]::GetPathRoot($targetFull)
+                    $targetSegments = $targetFull.Substring($targetRoot.Length) -split '[\\/]'
+                    for ($i = $targetSegments.Count - 1; $i -ge 0; $i--) {
+                        $segments.Insert(0, $targetSegments[$i])
+                    }
+                    $resolved = $targetRoot
+                    continue
                 }
             }
         }

@@ -23,9 +23,10 @@ You **MUST** consider the user input before proceeding (if not empty).
 - If it exists, read it and look for entries under the `hooks.before_taskstoissues` key
 - If the YAML cannot be parsed or is invalid, STOP with a blocking configuration error; do not skip configured hooks
 - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
-- For each remaining hook, do **not** attempt to interpret or evaluate hook `condition` expressions:
+- For each remaining hook, do **not** interpret the `condition` expression yourself:
   - If the hook has no `condition` field, or it is null/empty, treat the hook as executable
-  - If the hook defines a non-empty `condition`, skip the hook and leave condition evaluation to the HookExecutor implementation
+  - If an optional hook defines a non-empty `condition`, skip it and leave evaluation to HookExecutor
+  - If a mandatory hook defines a non-empty `condition`, invoke HookExecutor and wait for its result; if HookExecutor is unavailable, STOP with a blocking error instead of continuing
 - When constructing command invocations from hook command names, replace dots (`.`) with hyphens (`-`). For example, `speckit.git.commit` → `$speckit-git-commit`.
 - For each executable hook, output the following based on its `optional` flag:
   - **Optional hook** (`optional: true`):
@@ -66,8 +67,8 @@ git config --get remote.origin.url
 > [!CAUTION]
 > ONLY PROCEED TO NEXT STEPS IF THE REMOTE IS A GITHUB URL
 
-1. **Fetch existing issues for deduplication**: Before creating anything, build the set of task IDs you are about to process from `tasks.md` (each is a `T` followed by **at least** three digits, e.g. `T001` — `$speckit-converge` assigns new IDs with `T{M+1:03d}`, which is a floor rather than a cap, so once a file has more than 999 tasks the IDs are four digits or longer). Then use the GitHub MCP server's `list_issues` tool to look for issues that already cover those IDs. Do not pass a `state` value, since omitting it makes the tool return both open and closed issues. Request `perPage: 100` to keep the number of calls down, and since the tool uses cursor-based pagination, request pages with the `after` parameter (using the `endCursor` from the previous response). For each issue, establish task ownership only from a canonical title containing `T###:` or an explicit body field such as `Spec Kit task IDs: T001, T002`; ordinary dependency, context, or link mentions do not establish ownership. Mark open ownership matches as covered. Track closed ownership matches separately: when `tasks.md` still has that task unchecked, verify closure and implementation evidence, then either reopen the issue with a Russian reconciliation comment or STOP and report the `tasks.md` mismatch when the closure is valid. Never create a duplicate while a closed match is unresolved. Stop paginating only when every task has an open owner or a reconciled closed owner, or when there are no more pages.
-1. For each task in the list, use the GitHub MCP server to create a new issue in the repository that matches the Git remote. First read `docs/agent-guidance/github-issue-canon.md` when it exists. Under that project canon, construct its required feature/priority/area title, Russian outcome, body sections, labels, and traceability; the bare `T001: <description>` title is only a fallback for repositories without a project canon. Strip the leading task checkbox and optional `[P]`/`[US#]` markers before mapping the task.
+1. **Fetch existing issues for deduplication**: Before creating anything, build the set of task IDs you are about to process from `tasks.md` (each is a `T` followed by **at least** three digits, e.g. `T001` — `$speckit-converge` assigns new IDs with `T{M+1:03d}`, which is a floor rather than a cap, so once a file has more than 999 tasks the IDs are four digits or longer). Then use the GitHub MCP server's `list_issues` tool to look for issues that already cover those IDs. Do not pass a `state` value, since omitting it makes the tool return both open and closed issues. Request `perPage: 100` to keep the number of calls down, and since the tool uses cursor-based pagination, request pages with the `after` parameter (using the `endCursor` from the previous response). For each issue, establish task ownership only from a canonical title containing `T###:` or an explicit body field such as `Spec Kit task IDs: T001, T002`; ordinary dependency, context, or link mentions do not establish ownership. Mark open ownership matches as covered. Track closed ownership matches separately: when `tasks.md` still has that task unchecked, verify closure and implementation evidence, then either reopen the issue with a Russian reconciliation comment or STOP and report the `tasks.md` mismatch when the closure is valid. Never create a duplicate while a closed match is unresolved. Deduplicate the task IDs before processing them. Stop paginating only when every unique task ID has an open owner or a reconciled closed owner, or when there are no more pages.
+1. For each task in the list, use the GitHub MCP server to create a new issue in the repository that matches the Git remote. First read `docs/agent-guidance/github-issue-canon.md` when it exists. Under that project canon, construct its required feature/priority/area title, Russian outcome, body sections, labels, and traceability; the bare `T001: <description>` title is only a fallback for repositories without a project canon. Strip the leading task checkbox and optional `[P]`/`[US#]` markers before mapping the task. Iterate each unique task ID once and add a successfully created ID to the covered set before processing the next task.
    - **Skip** any task whose ID is already present in the set of existing issues from the previous step, and report it (for example, `T001 already has an issue, skipping`).
    - Only create issues for tasks that do not yet have a matching issue.
 
@@ -81,9 +82,10 @@ Check if `.specify/extensions.yml` exists in the project root.
 - If it exists, read it and look for entries under the `hooks.after_taskstoissues` key
 - If the YAML cannot be parsed or is invalid, STOP with a blocking configuration error; do not skip configured hooks
 - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
-- For each remaining hook, do **not** attempt to interpret or evaluate hook `condition` expressions:
+- For each remaining hook, do **not** interpret the `condition` expression yourself:
   - If the hook has no `condition` field, or it is null/empty, treat the hook as executable
-  - If the hook defines a non-empty `condition`, skip the hook and leave condition evaluation to the HookExecutor implementation
+  - If an optional hook defines a non-empty `condition`, skip it and leave evaluation to HookExecutor
+  - If a mandatory hook defines a non-empty `condition`, invoke HookExecutor and wait for its result; if HookExecutor is unavailable, STOP with a blocking error instead of continuing
 - When constructing command invocations from hook command names, replace dots (`.`) with hyphens (`-`). For example, `speckit.git.commit` → `$speckit-git-commit`.
 - For each executable hook, output the following based on its `optional` flag:
   - **Optional hook** (`optional: true`):

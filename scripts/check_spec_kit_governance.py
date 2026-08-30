@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -35,6 +36,13 @@ def read(path: Path, errors: list[str]) -> str:
     except OSError as exc:
         errors.append(f"{path}: cannot read: {exc}")
         return ""
+
+
+def markdown_section(text: str, heading: str) -> str:
+    match = re.search(
+        rf"(?ms)^{re.escape(heading)}\s*$\n(.*?)(?=^##\s|\Z)", text
+    )
+    return match.group(1) if match else ""
 
 
 def validate(root: Path, *, run_doctor: bool = True) -> list[str]:
@@ -84,20 +92,39 @@ def validate(root: Path, *, run_doctor: bool = True) -> list[str]:
 
     agents_path = root / "AGENTS.md"
     flow_path = root / "docs/agent-guidance/spec-kit-flow.md"
-    agents = " ".join(read(agents_path, errors).split())
-    flow = " ".join(read(flow_path, errors).split())
+    agents = read(agents_path, errors)
+    flow = read(flow_path, errors)
     sequence = " → ".join((*SKILL_STAGES, CLOSEOUT_STAGE))
-    if sequence not in agents:
-        errors.append(f"{agents_path}: full GRAF workflow is missing or out of order")
-    skill_sequence = " ".join(
-        (*[f"$speckit-{stage}" for stage in SKILL_STAGES], CLOSEOUT_STAGE)
+    agents_sequence = re.search(
+        r"The canonical significant/high-risk GRAF path is\s+`([^`]+)`", agents
     )
-    if skill_sequence not in flow:
+    if not agents_sequence or " ".join(agents_sequence.group(1).split()) != sequence:
+        errors.append(f"{agents_path}: full GRAF workflow is missing or out of order")
+    command_section = markdown_section(flow, "## Command Sequence")
+    command_block = re.search(r"(?ms)```text\s*$\n(.*?)^```", command_section)
+    expected_commands = (
+        "$speckit-constitution",
+        *[f"$speckit-{stage}" for stage in SKILL_STAGES],
+        CLOSEOUT_STAGE,
+    )
+    actual_commands = tuple(
+        line.strip()
+        for line in (command_block.group(1).splitlines() if command_block else ())
+        if line.strip()
+    )
+    if actual_commands != expected_commands:
         errors.append(f"{flow_path}: full GRAF skill sequence is missing or out of order")
 
-    combined = f"{agents}\n{flow}".lower()
-    if "reviewer-owned" not in combined or "must not mark" not in combined:
+    checklist_rule = re.compile(
+        r"custom checklist(?: checkbox)? state is reviewer-owned\b.{0,500}?"
+        r"\bimplementation\b.{0,200}?\bmust not mark\b",
+        re.IGNORECASE | re.DOTALL,
+    )
+    if not checklist_rule.search(agents) or not checklist_rule.search(
+        markdown_section(flow, "## 4. Checklist")
+    ):
         errors.append(f"{flow_path}: reviewer-owned checklist rule is missing")
+    combined = f"{agents}\n{flow}".lower()
     if (
         "upstream six-step" not in combined
         or "must not" not in combined
@@ -124,6 +151,7 @@ def write_fixture(
     schema: int = 3,
     project_skills: bool = True,
     wrong_order: bool = False,
+    decoy_workflow: bool = False,
 ) -> None:
     (root / ".specify").mkdir(parents=True)
     (root / ".agents/skills/speckit-specify").mkdir(parents=True)
@@ -132,17 +160,40 @@ def write_fixture(
     if wrong_order:
         stages[4], stages[5] = stages[5], stages[4]
     sequence = " → ".join((*stages, CLOSEOUT_STAGE))
+    valid_sequence = " → ".join((*SKILL_STAGES, CLOSEOUT_STAGE))
     ownership = "reviewer-owned" if reviewer_owned else "reviewed"
     policy = (
-        f"{sequence}. Upstream six-step MUST NOT replace significant/high-risk flow. "
-        f"Checklist state is {ownership}; implementation must not mark items complete."
+        f"The canonical significant/high-risk GRAF path is `{sequence}`. "
+        "Upstream six-step MUST NOT replace significant/high-risk flow. "
+        f"Custom checklist state is {ownership}; implementation must not mark items complete."
     )
-    (root / "AGENTS.md").write_text(policy, encoding="utf-8")
+    decoy = f"\n\nHistory example: {valid_sequence}." if decoy_workflow else ""
+    (root / "AGENTS.md").write_text(policy + decoy, encoding="utf-8")
     skill_sequence = "\n".join(
-        (*[f"$speckit-{stage}" for stage in stages], CLOSEOUT_STAGE)
+        ("$speckit-constitution", *[f"$speckit-{stage}" for stage in stages], CLOSEOUT_STAGE)
+    )
+    valid_skill_sequence = "\n".join(
+        (
+            "$speckit-constitution",
+            *[f"$speckit-{stage}" for stage in SKILL_STAGES],
+            CLOSEOUT_STAGE,
+        )
+    )
+    decoy = (
+        f"\n## History\n\n```text\n{valid_skill_sequence}\n```\n"
+        if decoy_workflow
+        else ""
     )
     (root / "docs/agent-guidance/spec-kit-flow.md").write_text(
-        f"{skill_sequence}\n{policy}\n", encoding="utf-8"
+        "## Command Sequence\n\n"
+        f"```text\n{skill_sequence}\n```\n\n"
+        "## 4. Checklist\n\n"
+        f"Custom checklist checkbox state is {ownership}; implementation "
+        "must not mark items complete.\n\n"
+        "## Boundary\n\n"
+        "Upstream six-step MUST NOT replace significant/high-risk flow.\n"
+        f"{decoy}",
+        encoding="utf-8",
     )
     (root / ".specify/speckit-bootstrap.lock.json").write_text(
         json.dumps(
@@ -175,13 +226,17 @@ def self_test() -> None:
             ("missing project skills", {"project_skills": False}),
             ("unsupported lock schema", {"schema": 2}),
             ("wrong workflow order", {"wrong_order": True}),
+            (
+                "decoy workflow outside canonical sections",
+                {"converge": False, "decoy_workflow": True},
+            ),
         )
         for index, (name, options) in enumerate(cases, start=1):
             root = base / f"negative-{index}"
             write_fixture(root, **options)
             if not validate(root, run_doctor=False):
                 raise AssertionError(f"negative fixture was not rejected: {name}")
-    print("spec-kit-governance self-test: OK (positive + 5 negative classes)")
+    print("spec-kit-governance self-test: OK (positive + 6 negative classes)")
 
 
 def main() -> int:

@@ -364,7 +364,25 @@ format_speckit_command() {
     command_name="${command_name#speckit-}"
     command_name="${command_name//./$separator}"
 
-    printf '$speckit%s%s\n' "$separator" "$command_name"
+    local prefix="/"
+    local integration_json="$repo_root/.specify/integration.json"
+    local python_spec=""
+    local -a python_cmd=()
+    if [ -f "$integration_json" ] && python_spec=$(_python3_command); then
+        read -r -a python_cmd <<< "$python_spec"
+        if SPECKIT_INTEGRATION="$integration_json" "${python_cmd[@]}" -c "
+import json, os, sys
+with open(os.environ['SPECKIT_INTEGRATION'], encoding='utf-8') as fh:
+    state = json.load(fh)
+key = state.get('default_integration') or state.get('integration')
+entry = state.get('integration_settings', {}).get(key, {})
+sys.exit(0 if entry.get('parsed_options', {}).get('skills') is True else 1)
+" 2>/dev/null; then
+            prefix='$'
+        fi
+    fi
+
+    printf '%s%s%s\n' "$prefix" "speckit$separator" "$command_name"
 }
 
 # Escape a string for safe embedding in a JSON value (fallback when jq is unavailable).
@@ -507,6 +525,38 @@ for _, ext_id in sorted(ranked):
     done
 }
 
+_resolve_preset_candidate() {
+    local presets_dir="$1" preset_id="$2" candidate="$3"
+    [ -f "$candidate" ] || return 1
+    local python_spec=""
+    local -a python_cmd=()
+    if ! python_spec=$(_python3_command); then
+        echo "Error: Python 3 is required to validate preset template paths" >&2
+        return 2
+    fi
+    read -r -a python_cmd <<< "$python_spec"
+    local resolved=""
+    if ! resolved=$(SPECKIT_PRESETS_ROOT="$presets_dir" SPECKIT_PRESET_ID="$preset_id" SPECKIT_PRESET_CANDIDATE="$candidate" "${python_cmd[@]}" -c "
+import os, sys
+from pathlib import Path
+try:
+    presets_root = Path(os.environ['SPECKIT_PRESETS_ROOT']).resolve(strict=True)
+    preset_root = (presets_root / os.environ['SPECKIT_PRESET_ID']).resolve(strict=True)
+    preset_root.relative_to(presets_root)
+    candidate = Path(os.environ['SPECKIT_PRESET_CANDIDATE']).resolve(strict=True)
+    candidate.relative_to(preset_root)
+    if not candidate.is_file():
+        raise ValueError('candidate is not a file')
+    print(candidate)
+except (OSError, ValueError):
+    sys.exit(1)
+" 2>/dev/null); then
+        echo "Error: preset '$preset_id' template escapes its preset directory" >&2
+        return 2
+    fi
+    printf '%s\n' "$resolved"
+}
+
 # Resolve a template name to a file path using the priority stack:
 #   1. .specify/templates/overrides/
 #   2. .specify/presets/<preset-id>/templates/ (sorted by priority from .registry)
@@ -543,6 +593,15 @@ try:
     with open(os.environ['SPECKIT_REGISTRY'], encoding='utf-8') as f:
         data = json.load(f)
     presets = data.get('presets', {})
+    if not isinstance(presets, dict):
+        raise ValueError('preset registry presets must be a mapping')
+    for pid, meta in presets.items():
+        if not isinstance(pid, str) or not re.fullmatch(r'[a-z0-9-]+', pid):
+            raise ValueError('preset id must match [a-z0-9-]+')
+        if not isinstance(meta, dict):
+            raise ValueError(f'preset metadata for {pid} must be a mapping')
+        if not isinstance(meta.get('enabled', True), bool):
+            raise ValueError(f'preset enabled for {pid} must be boolean')
     def priority(meta):
         if not isinstance(meta, dict) or isinstance(meta.get('priority'), bool):
             return 10
@@ -552,7 +611,7 @@ try:
         except (TypeError, ValueError, OverflowError):
             return 10
     for pid, meta in sorted(presets.items(), key=lambda x: (priority(x[1]), x[0])):
-        if isinstance(meta, dict) and bool(meta.get('enabled', True)) and re.fullmatch(r'[a-z0-9-]+', pid):
+        if meta.get('enabled', True):
             print(pid)
 except Exception:
     sys.exit(1)
@@ -561,30 +620,49 @@ except Exception:
                     # python3 succeeded and returned preset IDs — search in priority order
                     while IFS= read -r preset_id; do
                         local candidate="$presets_dir/$preset_id/templates/${template_name}.md"
-                        [ -f "$candidate" ] && echo "$candidate" && return 0
+                        local resolved_candidate=""
+                        if resolved_candidate=$(_resolve_preset_candidate "$presets_dir" "$preset_id" "$candidate"); then
+                            echo "$resolved_candidate"
+                            return 0
+                        elif [ "$?" -eq 2 ]; then
+                            return 2
+                        fi
                         candidate="$presets_dir/$preset_id/${template_name}.md"
-                        [ -f "$candidate" ] && echo "$candidate" && return 0
+                        if resolved_candidate=$(_resolve_preset_candidate "$presets_dir" "$preset_id" "$candidate"); then
+                            echo "$resolved_candidate"
+                            return 0
+                        elif [ "$?" -eq 2 ]; then
+                            return 2
+                        fi
                     done <<< "$sorted_presets"
                 fi
                 # python3 succeeded but registry has no presets — nothing to search
             else
-                # python3 failed (missing, or registry parse error) — fall back to unordered directory scan
-                for preset in "$presets_dir"/*/; do
-                    [ -d "$preset" ] || continue
-                    local candidate="$preset/templates/${template_name}.md"
-                    [ -f "$candidate" ] && echo "$candidate" && return 0
-                    candidate="$preset/${template_name}.md"
-                    [ -f "$candidate" ] && echo "$candidate" && return 0
-                done
+                echo "Error: invalid preset registry $registry_file" >&2
+                return 2
             fi
         else
-            # Fallback: alphabetical directory order (no python3 available)
+            if [ -f "$registry_file" ]; then
+                echo "Error: Python 3 is required to read $registry_file" >&2
+                return 2
+            fi
             for preset in "$presets_dir"/*/; do
                 [ -d "$preset" ] || continue
                 local candidate="$preset/templates/${template_name}.md"
-                [ -f "$candidate" ] && echo "$candidate" && return 0
+                local resolved_candidate=""
+                if resolved_candidate=$(_resolve_preset_candidate "$presets_dir" "$(basename "$preset")" "$candidate"); then
+                    echo "$resolved_candidate"
+                    return 0
+                elif [ "$?" -eq 2 ]; then
+                    return 2
+                fi
                 candidate="$preset/${template_name}.md"
-                [ -f "$candidate" ] && echo "$candidate" && return 0
+                if resolved_candidate=$(_resolve_preset_candidate "$presets_dir" "$(basename "$preset")" "$candidate"); then
+                    echo "$resolved_candidate"
+                    return 0
+                elif [ "$?" -eq 2 ]; then
+                    return 2
+                fi
             done
         fi
     fi
@@ -662,6 +740,15 @@ try:
     with open(os.environ['SPECKIT_REGISTRY'], encoding='utf-8') as f:
         data = json.load(f)
     presets = data.get('presets', {})
+    if not isinstance(presets, dict):
+        raise ValueError('preset registry presets must be a mapping')
+    for pid, meta in presets.items():
+        if not isinstance(pid, str) or not re.fullmatch(r'[a-z0-9-]+', pid):
+            raise ValueError('preset id must match [a-z0-9-]+')
+        if not isinstance(meta, dict):
+            raise ValueError(f'preset metadata for {pid} must be a mapping')
+        if not isinstance(meta.get('enabled', True), bool):
+            raise ValueError(f'preset enabled for {pid} must be boolean')
     def priority(meta):
         if not isinstance(meta, dict) or isinstance(meta.get('priority'), bool):
             return 10
@@ -671,15 +758,22 @@ try:
         except (TypeError, ValueError, OverflowError):
             return 10
     for pid, meta in sorted(presets.items(), key=lambda x: (priority(x[1]), x[0])):
-        if isinstance(meta, dict) and bool(meta.get('enabled', True)) and re.fullmatch(r'[a-z0-9-]+', pid):
+        if meta.get('enabled', True):
             print(pid)
 except Exception:
     sys.exit(1)
 " 2>/dev/null); then
                 registry_parsed=true
+            else
+                echo "Error: invalid preset registry $registry_file" >&2
+                return 2
             fi
         fi
         if [ "$registry_parsed" = false ]; then
+            if [ -f "$registry_file" ] && [ "${#python_cmd[@]}" -eq 0 ]; then
+                echo "Error: Python 3 is required to read $registry_file" >&2
+                return 2
+            fi
             for preset in "$presets_dir"/*/; do
                 [ -d "$preset" ] || continue
                 local fallback_id
@@ -805,6 +899,11 @@ except Exception as exc:
                     fi
                 fi
                 if [ -n "$candidate" ]; then
+                    local resolved_candidate=""
+                    if ! resolved_candidate=$(_resolve_preset_candidate "$presets_dir" "$preset_id" "$candidate"); then
+                        return 2
+                    fi
+                    candidate="$resolved_candidate"
                     layer_paths+=("$candidate")
                     layer_strategies+=("$strategy")
                     if [ "$strategy" = "replace" ]; then

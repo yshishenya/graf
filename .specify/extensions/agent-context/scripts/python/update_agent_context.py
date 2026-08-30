@@ -220,9 +220,7 @@ def ensure_mdc_frontmatter(content: str) -> str:
     ``alwaysApply: true``. Prepend it when missing, or repair the value while
     preserving any existing frontmatter comments/formatting.
     """
-    leading_ws = len(content) - len(content.lstrip())
-    leading = content[:leading_ws]
-    stripped = content[leading_ws:]
+    stripped = content.lstrip()
 
     if not stripped.startswith("---"):
         return "---\nalwaysApply: true\n---\n\n" + content
@@ -239,7 +237,7 @@ def ensure_mdc_frontmatter(content: str) -> str:
     newline = "\r\n" if "\r\n" in opening else "\n"
 
     if re.search(r"(?m)^[ \t]*alwaysApply[ \t]*:[ \t]*true[ \t]*(?:#.*)?$", fm_text):
-        return content
+        return stripped
 
     if re.search(r"(?m)^[ \t]*alwaysApply[ \t]*:", fm_text):
         fm_text = re.sub(
@@ -253,7 +251,7 @@ def ensure_mdc_frontmatter(content: str) -> str:
     else:
         fm_text = "alwaysApply: true"
 
-    return f"{leading}{opening}{fm_text}{closing}{sep}{rest}"
+    return f"{opening}{fm_text}{closing}{sep}{rest}"
 
 
 def _upsert_section(

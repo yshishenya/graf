@@ -23,9 +23,10 @@ You **MUST** consider the user input before proceeding (if not empty).
 - If it exists, read it and look for entries under the `hooks.before_analyze` key
 - If the YAML cannot be parsed or is invalid, STOP with a blocking configuration error; do not skip configured hooks
 - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
-- For each remaining hook, do **not** attempt to interpret or evaluate hook `condition` expressions:
+- For each remaining hook, do **not** interpret the `condition` expression yourself:
   - If the hook has no `condition` field, or it is null/empty, treat the hook as executable
-  - If the hook defines a non-empty `condition`, skip the hook and leave condition evaluation to the HookExecutor implementation
+  - If an optional hook defines a non-empty `condition`, skip it and leave evaluation to HookExecutor
+  - If a mandatory hook defines a non-empty `condition`, invoke HookExecutor and wait for its result; if HookExecutor is unavailable, STOP with a blocking error instead of continuing
 - When constructing command invocations from hook command names, replace dots (`.`) with hyphens (`-`). For example, `speckit.git.commit` → `$speckit-git-commit`.
 - For each executable hook, output the following based on its `optional` flag:
   - **Optional hook** (`optional: true`):
@@ -210,9 +211,10 @@ After reporting, check if `.specify/extensions.yml` exists in the project root.
 - If it exists, read it and look for entries under the `hooks.after_analyze` key
 - If the YAML cannot be parsed or is invalid, STOP with a blocking configuration error; do not skip configured hooks
 - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
-- For each remaining hook, do **not** attempt to interpret or evaluate hook `condition` expressions:
+- For each remaining hook, do **not** interpret the `condition` expression yourself:
   - If the hook has no `condition` field, or it is null/empty, treat the hook as executable
-  - If the hook defines a non-empty `condition`, skip the hook and leave condition evaluation to the HookExecutor implementation
+  - If an optional hook defines a non-empty `condition`, skip it and leave evaluation to HookExecutor
+  - If a mandatory hook defines a non-empty `condition`, invoke HookExecutor and wait for its result; if HookExecutor is unavailable, STOP with a blocking error instead of continuing
 - When constructing command invocations from hook command names, replace dots (`.`) with hyphens (`-`). For example, `speckit.git.commit` → `$speckit-git-commit`.
 - For each executable hook, output the following based on its `optional` flag:
   - **Optional hook** (`optional: true`):
