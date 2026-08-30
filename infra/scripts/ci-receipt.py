@@ -7,16 +7,15 @@ import argparse
 import hashlib
 import json
 import os
-from pathlib import Path
 import platform
 import re
 import subprocess
 import sys
 import tempfile
 import time
+from pathlib import Path
 
-
-VERSION = 1
+VERSION = 2
 DEFAULT_MAX_AGE_SECONDS = 86_400
 RUNNER_INPUTS = (
     "infra/scripts/ci-local.sh",
@@ -29,6 +28,21 @@ DEPENDENCY_INPUTS = (
 )
 TEST_SURFACES = ("apps/server/tests", "apps/macos/Tests")
 HEX_64 = re.compile(r"[0-9a-f]{64}\Z")
+COMMON_FULL_STAGES = (
+    "macOS legacy audio architecture guard",
+    "server tests",
+    "server lint",
+    "python compile",
+    "rls hardening validation boundary",
+    "production compose config",
+    "deployment evidence scan",
+    "active CI documentation consistency",
+)
+DARWIN_FULL_STAGES = (
+    "macOS Swift build",
+    "macOS Swift tests",
+    "macOS contract validation",
+)
 
 
 class ReceiptError(RuntimeError):
@@ -126,6 +140,30 @@ def snapshot(root: Path) -> dict[str, object]:
     }
 
 
+def required_full_stages() -> tuple[str, ...]:
+    return COMMON_FULL_STAGES[:1] + (DARWIN_FULL_STAGES if platform.system() == "Darwin" else ()) + COMMON_FULL_STAGES[1:]
+
+
+def stage_evidence(path: Path, started_at: int, now: int) -> tuple[str, ...]:
+    if path.is_symlink() or not path.is_file():
+        raise ReceiptError("evidence_invalid")
+    metadata = path.stat()
+    if metadata.st_uid != os.getuid() or metadata.st_mode & 0o777 != 0o600:
+        raise ReceiptError("evidence_invalid")
+    if int(metadata.st_mtime) < started_at or int(metadata.st_mtime) > now:
+        raise ReceiptError("evidence_invalid")
+    try:
+        rows = tuple(line.split("\t") for line in path.read_text(encoding="utf-8").splitlines())
+    except (OSError, UnicodeError):
+        raise ReceiptError("evidence_invalid") from None
+    if any(len(row) != 2 or row[1] != "pass" for row in rows):
+        raise ReceiptError("evidence_invalid")
+    stages = tuple(row[0] for row in rows)
+    if stages != required_full_stages():
+        raise ReceiptError("evidence_invalid")
+    return stages
+
+
 def invalid(reason: str) -> int:
     print(f"ci_receipt_result=invalid reason={reason}")
     return 1
@@ -137,6 +175,7 @@ def create(args: argparse.Namespace) -> int:
     root = repo_root()
     require_clean(root)
     now = int(time.time())
+    completed_stages = stage_evidence(Path(args.evidence_file).resolve(), args.started_at_epoch, now)
     receipt = {
         "version": VERSION,
         "result": "pass",
@@ -146,6 +185,7 @@ def create(args: argparse.Namespace) -> int:
         **snapshot(root),
         "server_collection_count": args.collection_count,
         "server_collection_digest": args.collection_digest,
+        "completed_stages": completed_stages,
     }
     destination = receipt_path(root)
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -176,6 +216,8 @@ def validate(args: argparse.Namespace) -> int:
         return invalid("unsupported_version")
     if receipt.get("result") != "pass":
         return invalid("not_pass")
+    if receipt.get("completed_stages") != list(required_full_stages()):
+        return invalid("evidence_invalid")
     count = receipt.get("server_collection_count")
     digest = receipt.get("server_collection_digest")
     if not isinstance(count, int) or count < 1 or not isinstance(digest, str) or not HEX_64.fullmatch(digest):
@@ -223,6 +265,7 @@ def parser() -> argparse.ArgumentParser:
     create_parser.add_argument("--started-at-epoch", type=int, required=True)
     create_parser.add_argument("--collection-count", type=int, required=True)
     create_parser.add_argument("--collection-digest", required=True)
+    create_parser.add_argument("--evidence-file", required=True)
     validate_parser = subparsers.add_parser("validate")
     validate_parser.add_argument(
         "--max-age-seconds",

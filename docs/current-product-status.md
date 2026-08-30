@@ -10,8 +10,8 @@ Date: 2026-08-30
   governance и неизвестных путей.
 - Успешный full на чистом exact candidate создаёт локальную metadata-only
   receipt под Git metadata. Receipt связана с SHA/tree, runner, lockfiles, test
-  surface, toolchain, server collection и сроком 24 часа; dirty, stale и
-  mismatched evidence не переиспользуются.
+  surface, toolchain, server collection, полным ordered stage journal и сроком
+  24 часа; dirty, stale и mismatched evidence не переиспользуются.
 - `cd-remote.sh --execute` сохраняет clean-tree, remote-sync, exact-SHA и все
   production gates: валидная receipt убирает повторный full, а missing/invalid
   receipt запускает full fallback. `--skip-local-ci` остаётся только явным

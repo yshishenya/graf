@@ -18,9 +18,9 @@
 
 ## Decision 3 — Local exact-input receipt
 
-**Decision**: A clean successful full run writes a versioned JSON receipt beneath `git rev-parse --git-path`, using atomic replacement and restrictive permissions. It binds result/times to commit, tree, runner files, lockfiles, test surface and local toolchain. Default validity is 24 hours.
+**Decision**: A clean successful full run writes a versioned JSON receipt beneath `git rev-parse --git-path`, using atomic replacement and restrictive permissions. It binds result/times to commit, tree, runner files, lockfiles, test surface, local toolchain and the exact ordered list of platform-required full stages from a private temporary runner journal. Default validity is 24 hours.
 
-**Rationale**: The deploy begins on the same trusted workstation/worktree, so a local receipt removes the duplicate run without introducing a remote service. Input recomputation makes copied or stale evidence fail closed.
+**Rationale**: The deploy begins on the same trusted workstation/worktree, so a local receipt removes the duplicate run without introducing a remote service. Input recomputation makes copied or stale evidence fail closed; requiring the complete mode-`0600` stage journal prevents a direct `create` call with only invented collection metadata. A compromised same-user workstation remains outside this local optimization's trust boundary and still requires credential/host incident handling.
 
 **Alternatives considered**: Commit the receipt (self-invalidating/noisy); store in the worktree (breaks clean-tree gate); sign remotely (unneeded infrastructure for a local workflow); trust only SHA (misses runner/toolchain drift).
 

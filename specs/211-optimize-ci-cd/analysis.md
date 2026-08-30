@@ -55,6 +55,13 @@ Resolved during the final audit:
 7. The first real gate failed closed on two Ruff findings in the new test. They
    were fixed, focused checks repeated, and both subsequent repository gates
    passed; the failed run is not counted as PASS.
+8. PR review found that fast calendar changes selected `required` but passed a
+   hardcoded `report` to the server runner. The selected gate is now forwarded
+   and covered by an executable contract.
+9. PR review also found that collection count/digest alone could call receipt
+   creation. Version 2 now requires the exact ordered platform full-stage list
+   from the runner's private mode-`0600` temporary journal; incomplete or
+   caller-only evidence fails with `evidence_invalid`.
 
 No production remote step was changed below the local preflight boundary.
 Backup/restore, migration/RLS, secret, runtime readiness, smoke, cleanup, lock,
@@ -64,7 +71,7 @@ script. `--skip-local-ci` remains an explicit incident-only exception.
 ## Validation evidence
 
 - shell syntax, Python compile, Ruff and `git diff --check`: PASS;
-- focused CI/CD contracts: `41 passed`;
+- focused CI/CD contracts after PR review corrections: `44 passed`;
 - active bare CI commands: `0`;
 - fast request on this infrastructure diff: `effective=full`, PASS in `950s`;
 - explicit full before the final path correction: PASS in `1216s`; final full
@@ -79,26 +86,20 @@ script. `--skip-local-ci` remains an explicit incident-only exception.
 - CD dry-run: PASS with `valid_full_receipt_or_full_fallback`; production execute
   was not run.
 
-## Remaining release boundaries
+## Release boundary
 
-- `origin/master` is six commits ahead of the feature HEAD. CI/CD files do not
-  overlap; upstream changelog additions were preserved. Synchronization is still
-  mandatory before any approved commit/PR/release, followed by scoped revalidation
-  and one full run on the exact clean release candidate.
 - The worktree also contains a broad `.specify/.agents` bootstrap/skill diff not
-  named by the Feature 211 implementation tasks. It was preserved, not silently
-  discarded. It must be reviewed and either separated or explicitly included
-  before commit/PR.
-- The feature worktree is intentionally dirty, so it cannot produce a reusable
-  real receipt. That boundary is expected and fail closed; receipt reuse is not
-  claimed for this uncommitted state.
-- GitHub issues `#5977`–`#6001` remain open until reviewed implementation is
-  committed/linked to a PR and closure comments can cite that integration.
+  named by the Feature 211 implementation tasks. It remains preserved in the
+  original worktree and is not part of the clean release branch or PR.
+- PR [#6004](https://github.com/yshishenya/graf/pull/6004) carries the scoped
+  implementation from a clean checkout of synchronized `origin/master`.
+- Exact merge, tag, release, runtime SHA and production gate truth are recorded
+  in the PR/GitHub release/deployment output. This analysis does not infer them
+  from an implementation worktree.
 
 ## Conclusion
 
 The executable contract, active documentation and validation evidence now agree.
 There are no unresolved CRITICAL/HIGH implementation or specification findings.
-Production rollout remains intentionally outside this task and blocked by the
-normal clean-tree, synchronized-master, exact-SHA, receipt and remote release
-gates.
+Any production rollout still requires the normal clean-tree, synchronized-master,
+exact-SHA, full receipt and unchanged remote release gates.

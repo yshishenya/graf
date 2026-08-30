@@ -27,9 +27,9 @@ Validation rules:
 - `duration_seconds`: non-negative integer.
 - `reason`: optional stable reason; never raw secret-bearing command output.
 
-## FullCIReceipt (version 1)
+## FullCIReceipt (version 2)
 
-- `version`: integer `1`.
+- `version`: integer `2`.
 - `result`: exactly `pass`.
 - `created_at_epoch`, `started_at_epoch`, `duration_seconds`.
 - `commit_sha`, `tree_sha`.
@@ -37,11 +37,15 @@ Validation rules:
 - `dependency_inputs`: relative path → SHA-256.
 - `test_surface_digest`: SHA-256 of ordered tracked test paths and contents.
 - `server_collection_count`, `server_collection_digest`.
+- `completed_stages`: exact ordered platform-required full-stage list, attested
+  by the runner's private temporary mode-`0600` journal.
 - `toolchain`: stable command → normalized version output.
 
 Validation rules:
 
-- Receipt creation requires a clean tracked and untracked worktree and successful full result.
+- Receipt creation requires a clean tracked and untracked worktree, successful
+  full result and complete ordered stage journal; direct caller metadata alone
+  is insufficient.
 - Receipt age must not exceed the configured maximum (default 86,400 seconds).
 - Every current field above is recomputed or strictly checked before reuse.
 - Missing, malformed, unsupported-version, stale or mismatched receipt is invalid.

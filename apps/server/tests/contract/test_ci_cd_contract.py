@@ -33,6 +33,7 @@ changed_files() { printf '%s\n' "$GRAF_TEST_CHANGED_FILES"; }
 run_step() {
   local name="$1"
   if [[ "$name" == "server tests" ]]; then
+    printf 'server_test_gate=%s\n' "$4"
     printf 'collection_count=1 collection_digest=%s\n' "$(printf 'a%.0s' {1..64})" > "$server_log"
   fi
   if [[ "$name" == "$GRAF_TEST_FAIL_STAGE" ]]; then
@@ -82,6 +83,23 @@ def make_receipt_repo(tmp_path: Path) -> tuple[Path, Path]:
     git(repo, "add", ".")
     git(repo, "commit", "-qm", "fixture")
     helper = repo / "infra/scripts/ci-receipt.py"
+    evidence = tmp_path / "full-ci-evidence.tsv"
+    stages = ["macOS legacy audio architecture guard"]
+    if os.uname().sysname == "Darwin":
+        stages.extend(("macOS Swift build", "macOS Swift tests", "macOS contract validation"))
+    stages.extend(
+        (
+            "server tests",
+            "server lint",
+            "python compile",
+            "rls hardening validation boundary",
+            "production compose config",
+            "deployment evidence scan",
+            "active CI documentation consistency",
+        )
+    )
+    evidence.write_text("".join(f"{stage}\tpass\n" for stage in stages), encoding="utf-8")
+    evidence.chmod(0o600)
     created = run(
         "python3",
         str(helper),
@@ -92,6 +110,8 @@ def make_receipt_repo(tmp_path: Path) -> tuple[Path, Path]:
         "3",
         "--collection-digest",
         "a" * 64,
+        "--evidence-file",
+        str(evidence),
         cwd=repo,
     )
     assert created.returncode == 0, created.stdout
@@ -176,6 +196,17 @@ def test_explicit_full_requires_related_performance_gate() -> None:
     assert "performance_gate=required" in result.stdout
 
 
+def test_fast_calendar_lane_forwards_required_performance_gate() -> None:
+    result = run_stubbed_ci(
+        "apps/server/src/twobrain_rec_server/calendar/matching.py",
+        "--fast",
+    )
+
+    assert result.returncode == 0, result.stdout
+    assert "performance_gate=required" in result.stdout
+    assert "server_test_gate=required" in result.stdout
+
+
 def test_failing_stage_emits_one_final_failure_and_no_receipt() -> None:
     result = run_stubbed_ci(
         "apps/server/src/twobrain_rec_server/api/app.py",
@@ -224,6 +255,32 @@ def test_receipt_rejects_dirty_and_stale_state(tmp_path: Path) -> None:
     assert "reason=stale" in stale.stdout
 
 
+def test_receipt_create_rejects_incomplete_stage_evidence(tmp_path: Path) -> None:
+    repo, receipt_path = make_receipt_repo(tmp_path)
+    receipt_path.unlink()
+    evidence = tmp_path / "incomplete-evidence.tsv"
+    evidence.write_text("server tests\tpass\n", encoding="utf-8")
+    evidence.chmod(0o600)
+
+    result = run(
+        "python3",
+        "infra/scripts/ci-receipt.py",
+        "create",
+        "--started-at-epoch",
+        "1",
+        "--collection-count",
+        "3",
+        "--collection-digest",
+        "a" * 64,
+        "--evidence-file",
+        str(evidence),
+        cwd=repo,
+    )
+
+    assert result.returncode == 1
+    assert "reason=evidence_invalid" in result.stdout
+
+
 @pytest.mark.parametrize(
     ("mutator", "reason"),
     [
@@ -235,6 +292,7 @@ def test_receipt_rejects_dirty_and_stale_state(tmp_path: Path) -> None:
         (lambda value: value.update(dependency_inputs={}), "dependency_mismatch"),
         (lambda value: value.update(test_surface_digest="0" * 64), "test_surface_mismatch"),
         (lambda value: value.update(toolchain={}), "toolchain_mismatch"),
+        (lambda value: value.update(completed_stages=[]), "evidence_invalid"),
         (lambda value: value.update(server_collection_digest="bad"), "collection_invalid"),
         (lambda value: value.update(started_at_epoch=value["created_at_epoch"] + 1), "malformed"),
         (lambda value: value.update(duration_seconds=value["duration_seconds"] + 1), "malformed"),

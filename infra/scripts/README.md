@@ -42,7 +42,8 @@ infra/scripts/ci-local.sh --full
 The full lane adds macOS tests and contracts (on macOS), the complete server
 suite, RLS validation, production Compose rendering and the deployment evidence
 scan. A clean successful run writes a 24-hour exact-input receipt beneath the
-Git metadata directory. Do not run it after every small edit.
+Git metadata directory only after its private temporary journal contains every
+required full stage. Do not run it after every small edit.
 
 ## Local CD
 

@@ -75,6 +75,9 @@ run_step() {
     completed_at="$(date +%s)"
     duration_seconds=$((completed_at - started_at))
     printf 'ci_stage=%s status=pass duration_seconds=%s\n' "$name" "$duration_seconds"
+    if [[ -n "${evidence_file:-}" && "$name" != "full CI receipt" ]]; then
+      printf '%s\tpass\n' "$name" >> "$evidence_file"
+    fi
   else
     status=$?
     completed_at="$(date +%s)"
@@ -132,6 +135,7 @@ main() (
   local pipeline_duration
   local temp_dir=""
   local server_log=""
+  local evidence_file=""
   local changed_list=""
   local has_server=0
   local has_macos=0
@@ -191,6 +195,9 @@ main() (
   cd "$repo_root" || return 1
   temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/graf-ci.XXXXXX")" || return 1
   server_log="$temp_dir/server.log"
+  evidence_file="$temp_dir/full-ci-evidence.tsv"
+  : > "$evidence_file"
+  chmod 600 "$evidence_file"
 
   if ! changed_list="$(changed_files)"; then
     if [[ "$requested_mode" == "full" ]]; then
@@ -290,7 +297,7 @@ main() (
       fi
     fi
     if [[ "$has_server" -eq 1 ]]; then
-      run_step "server tests" run_server_tests fast report "$server_log" || return $?
+      run_step "server tests" run_server_tests fast "$performance_gate" "$server_log" || return $?
       run_step "server lint" bash -c "cd apps/server && PYTHONPATH=src uv run --extra dev ruff check ." || return $?
       run_step "python compile" python3 -m compileall -q apps/server/src apps/server/tests apps/server/scripts || return $?
     fi
@@ -312,7 +319,8 @@ main() (
       run_step "full CI receipt" python3 infra/scripts/ci-receipt.py create \
         --started-at-epoch "$pipeline_started" \
         --collection-count "$collection_count" \
-        --collection-digest "$collection_digest" || return $?
+        --collection-digest "$collection_digest" \
+        --evidence-file "$evidence_file" || return $?
     fi
   fi
 

@@ -122,8 +122,10 @@ receipt for the unchanged candidate:
 
 The receipt is local metadata under the Git worktree metadata directory. It is
 valid for 24 hours only when the commit, tree, CI runner, dependency lockfiles,
-test surface, server collection and toolchain still match. Missing, stale,
-malformed or mismatched evidence never bypasses CI: deploy runs full fallback.
+test surface, server collection, toolchain and complete ordered full-stage
+journal still match. The helper rejects direct creation from collection metadata
+alone. Missing, stale, malformed or mismatched evidence never bypasses CI:
+deploy runs full fallback.
 
 ### 4. Production gate
 

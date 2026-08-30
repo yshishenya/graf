@@ -26,16 +26,21 @@ Fast classification is fail closed:
 ## `infra/scripts/ci-receipt.py`
 
 ```text
-ci-receipt.py create --started-at-epoch N --collection-count N --collection-digest HEX
+ci-receipt.py create --started-at-epoch N --collection-count N --collection-digest HEX --evidence-file PATH
 ci-receipt.py validate [--max-age-seconds N]
 ci-receipt.py path
 ```
 
-- `create` requires a clean worktree, valid full metadata and writes version 1 JSON atomically beneath the Git metadata path.
+- `create` is called by the full runner only. It requires a clean worktree and a
+  mode-`0600` ordered journal proving every platform-required full stage passed,
+  then writes version 2 JSON atomically beneath the Git metadata path.
 - `validate` exits `0` only for a fresh exact-input match and prints `ci_receipt_result=valid`.
 - Invalid validation exits `1` and prints only `ci_receipt_result=invalid reason=<stable_code>`.
 - CLI syntax errors exit `2`; invalid receipt data exits `1` with a stable reason.
-- Stable invalid reasons include `missing`, `malformed`, `unsupported_version`, `not_pass`, `stale`, `dirty_worktree`, `commit_mismatch`, `tree_mismatch`, `runner_mismatch`, `dependency_mismatch`, `test_surface_mismatch`, `toolchain_mismatch`, and `collection_invalid`.
+- Stable invalid reasons include `missing`, `malformed`, `unsupported_version`,
+  `not_pass`, `stale`, `dirty_worktree`, `commit_mismatch`, `tree_mismatch`,
+  `runner_mismatch`, `dependency_mismatch`, `test_surface_mismatch`,
+  `toolchain_mismatch`, `collection_invalid`, and `evidence_invalid`.
 
 ## `infra/scripts/cd-remote.sh`
 
