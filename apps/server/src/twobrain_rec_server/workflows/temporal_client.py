@@ -689,6 +689,7 @@ async def start_processing_workflow(
     *,
     temporal_client: object,
     settings: Settings,
+    processing_workflow_row_id: UUID,
     meeting_id: UUID,
     media_revision_id: UUID,
     workspace_id: UUID,
@@ -700,6 +701,7 @@ async def start_processing_workflow(
     workflow_id = workflow_id or processing_workflow_id(media_revision_id, attempt_ordinal)
     validate_processing_workflow_id(workflow_id)
     payload = {
+        "processing_workflow_id": str(processing_workflow_row_id),
         "meeting_id": str(meeting_id),
         "media_revision_id": str(media_revision_id),
         "workspace_id": str(workspace_id),

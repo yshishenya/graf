@@ -133,6 +133,43 @@ def test_more_menu_has_complete_keyboard_model_and_visible_return_target() -> No
     assert "min-height: 48px" in css
 
 
+def test_reprocess_confirmation_is_named_traps_focus_and_returns_to_exact_opener() -> None:
+    governance = _source(GOVERNANCE_DIALOG)
+    detail = _source(MEETING_DETAIL)
+    script = _source(JAVASCRIPT)
+
+    assert 'aria-haspopup="dialog"' in governance
+    assert 'aria-controls="processing-reprocess-dialog"' in governance
+    assert 'aria-labelledby="processing-reprocess-dialog-title"' in governance
+    assert 'aria-describedby="processing-reprocess-dialog-copy"' in governance
+    assert 'aria-modal="true"' in governance
+    assert "data-processing-reprocess-cancel" in governance
+    assert 'data-processing-reprocess-error role="alert"' in governance
+    assert 'data-processing-reprocess-open aria-describedby="processing-recovery-copy"' in detail
+    assert 'dialog.addEventListener("cancel"' in script
+    assert "trapModalFocus(dialog, event)" in script
+    assert "processingReprocessReturnFocus" in script
+    assert "restoreProcessingReprocessFocus" in script
+    assert "processingReprocessReturnFocus.focus({ preventScroll: true })" in script
+
+
+def test_reprocess_countdown_stays_out_of_polite_live_region() -> None:
+    detail = _source(MEETING_DETAIL)
+    script = _source(JAVASCRIPT)
+
+    assert 'data-processing-countdown aria-live="off"' in detail
+    assert 'data-processing-live role="status" aria-live="polite" aria-atomic="true"' in detail
+    continuity = detail.split("data-processing-reprocess-continuity", 1)[1].split("</section>", 1)[0]
+    assert "role=\"status\"" not in continuity
+    assert "aria-live" not in continuity
+    assert "countdown.textContent = processingCountdownCopy" in script
+    countdown = script[
+        script.index("const renderProcessingCountdown") :
+        script.index("const scheduleProcessingRecoveryPolling")
+    ]
+    assert "announceProcessingChange" not in countdown
+
+
 def test_format_selector_exposes_one_labelled_listbox_with_bounded_quick_choices() -> None:
     source = _source(RENDERING) + _source(MEETING_DETAIL) + _source(JAVASCRIPT)
 

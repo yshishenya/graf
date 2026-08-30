@@ -10,7 +10,7 @@ from hashlib import sha256
 from uuid import UUID
 
 from anyio import to_thread
-from sqlalchemy import nullslast, select
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -62,7 +62,6 @@ from twobrain_rec_server.db.models import (
     TrackArtifact,
     TranscriptSegment,
 )
-from twobrain_rec_server.domain.speaker_turns import canonical_speech_available
 from twobrain_rec_server.domain.statuses import (
     DeletionState,
     MediaRevisionStatus,
@@ -141,8 +140,11 @@ async def _transcript_visibility_confirmed(
 ) -> bool:
     """Re-check the row-level same-attempt fence before any transcript egress."""
 
+    effective_result = await _effective_complete_result(db, meeting=meeting)
     if (
         result is None
+        or effective_result is None
+        or effective_result.id != result.id
         or result.status != ProcessingResultStatus.IMPORTED.value
         or result.transcript_status != ProcessingAvailabilityStatus.AVAILABLE.value
         or result.segment_count <= 0
@@ -243,6 +245,8 @@ async def content_export_capabilities(
             duration_seconds=max(meeting.duration_seconds, 0),
         )
 
+    result = await _effective_complete_result(db, meeting=meeting)
+
     policy = await resolve_artifact_policy(
         db, workspace_id=meeting.workspace_id, meeting_id=meeting.id
     )
@@ -300,11 +304,6 @@ async def content_export_capabilities(
             template_key=pinned_template_key,
             outcome_set_id=pinned_outcome_id,
         )
-    outcome_matches_result = (
-        outcome_set is not None
-        and result is not None
-        and outcome_set.processing_result_id == result.id
-    )
     summary_blocked = _policy_blocked_state(
         "summary", summary_policy, access, required_action="export"
     )
@@ -312,17 +311,25 @@ async def content_export_capabilities(
         summary = ContentExportReadiness(state="denied", reason=summary_blocked.reason)
     elif outcome_set is None:
         summary = ContentExportReadiness(state="missing", reason="stored_summary_missing")
-    elif not outcome_matches_result:
-        summary = ContentExportReadiness(
-            state="missing",
-            reason="stored_summary_revision_stale",
-        )
     elif outcome_set.status in {"available", "partial"} and not outcome_set.content_hash:
         summary = ContentExportReadiness(state="failed", reason="stored_summary_revision_unpinned")
     elif outcome_set.status in {"available", "partial"}:
+        summary_stale = bool(
+            result is not None
+            and (
+                outcome_set.processing_result_id != result.id
+                or outcome_set.media_revision_id != result.media_revision_id
+            )
+        )
         summary = ContentExportReadiness(
             state="available" if outcome_set.status == "available" else "partial",
-            reason=None if outcome_set.status == "available" else "stored_summary_partial",
+            reason=(
+                "stored_summary_revision_stale"
+                if summary_stale
+                else None
+                if outcome_set.status == "available"
+                else "stored_summary_partial"
+            ),
         )
     else:
         # Non-publishable outcome rows may remain durable for diagnostics, but
@@ -363,8 +370,8 @@ async def content_export_capabilities(
     return ContentExportCapabilityResponse(
         processing_result_id=result.id if result else None,
         # Keep the accepted pointer as the UI CAS token even when a newer
-        # processing result makes the stored summary temporarily stale.
-        # Export readiness remains fail-closed via ``stored_summary_revision_stale``.
+        # processing result makes the stored summary temporarily stale. A
+        # summary-only export remains available; combined export stays fenced.
         outcome_set_id=published_outcome_set_id,
         transcript=transcript,
         summary=summary,
@@ -440,6 +447,7 @@ async def create_content_export(
         raise ProblemDetail(
             status=409, code="meeting_deletion_active", title="Meeting deletion is in progress"
         )
+    result = await _effective_complete_result(db, meeting=meeting)
     if result is None or result.id != selection.processing_result_id:
         await _record_content_export_denied(
             db,
@@ -580,8 +588,7 @@ async def create_content_export(
         db,
         meeting=meeting,
         result=result,
-        allow_latest_revision=selection.content_scope == "transcript",
-    )
+    ) if selection.content_scope != "summary" else True
     selected_outcome_current = True
     if selection.outcome_set_id is not None:
         final_outcome = (
@@ -596,7 +603,9 @@ async def create_content_export(
                 db,
                 workspace_id=meeting.workspace_id,
                 meeting_id=meeting.id,
-                processing_result_id=result.id,
+                processing_result_id=(
+                    result.id if selection.content_scope == "combined" else None
+                ),
             )
         )
         selected_outcome_current = (
@@ -764,8 +773,16 @@ async def _processing_result_is_current(
     *,
     meeting: Meeting,
     result: ProcessingResult,
-    allow_latest_revision: bool = False,
 ) -> bool:
+    effective_result = await _effective_complete_result(db, meeting=meeting)
+    return effective_result is not None and effective_result.id == result.id
+
+
+async def _effective_complete_result(
+    db: AsyncSession,
+    *,
+    meeting: Meeting,
+) -> ProcessingResult | None:
     latest_revision = await db.scalar(
         select(MediaRevision)
         .where(
@@ -777,52 +794,15 @@ async def _processing_result_is_current(
         .order_by(MediaRevision.revision_number.desc(), MediaRevision.updated_at.desc())
         .execution_options(populate_existing=True)
     )
-    if not allow_latest_revision and await db.scalar(
-        select(MeetingSummarySlot.id).where(
-            MeetingSummarySlot.workspace_id == meeting.workspace_id,
-            MeetingSummarySlot.meeting_id == meeting.id,
-            MeetingSummarySlot.is_meeting_default.is_(True),
-        )
-    ) is not None:
-        published_outcome = await current_outcome_set(
-            db,
-            workspace_id=meeting.workspace_id,
-            meeting_id=meeting.id,
-            processing_result_id=None,
-        )
-        if published_outcome is not None:
-            return published_outcome.processing_result_id == result.id
-        return False
     if latest_revision is None:
-        if result.media_revision_id is not None:
-            return False
-        latest_result = await db.scalar(
-            select(ProcessingResult)
-            .where(
-                ProcessingResult.workspace_id == meeting.workspace_id,
-                ProcessingResult.meeting_id == meeting.id,
-                ProcessingResult.media_revision_id.is_(None),
-                ProcessingResult.status == ProcessingResultStatus.IMPORTED.value,
-            )
-            .order_by(
-                ProcessingResult.result_version.desc(),
-                nullslast(ProcessingResult.imported_at.desc()),
-                ProcessingResult.created_at.desc(),
-                ProcessingResult.id.desc(),
-            )
-            .execution_options(populate_existing=True)
-        )
-        return latest_result is not None and latest_result.id == result.id
-    if result.media_revision_id != latest_revision.id:
-        return False
-    latest_result = await db.scalar(
+        return None
+    return await db.scalar(
         effective_processing_result_query(
             workspace_id=meeting.workspace_id,
             meeting_id=meeting.id,
             media_revision_id=latest_revision.id,
         ).execution_options(populate_existing=True)
     )
-    return latest_result is not None and latest_result.id == result.id
 
 
 async def _record_content_export_denied(
@@ -913,6 +893,7 @@ async def artifact_egress_states(
 ) -> list[ArtifactEgressState]:
     if meeting_deletion_active(meeting):
         return _deleted_artifact_states()
+    result = await _effective_complete_result(db, meeting=meeting)
     policy = await resolve_artifact_policy(
         db, workspace_id=meeting.workspace_id, meeting_id=meeting.id
     )
@@ -1368,7 +1349,9 @@ async def download_artifact(
         raise ProblemDetail(
             status=409, code="meeting_deletion_active", title="Meeting deletion is in progress"
         )
-    if artifact_class != "audio" and result is not None and not await _processing_result_is_current(
+    if artifact_class == "transcript":
+        result = await _effective_complete_result(db, meeting=meeting)
+    if artifact_class == "transcript" and result is not None and not await _processing_result_is_current(
         db, meeting=meeting, result=result
     ):
         await _record_content_export_denied(
@@ -2206,20 +2189,23 @@ def _summary_state(
     blocked = _policy_blocked_state("summary", policy_value, access)
     if blocked is not None:
         return blocked
-    if result is not None and outcome_set is not None and canonical_speech_available(result):
-        if outcome_set.processing_result_id != result.id:
-            return ArtifactEgressState(
-                artifact_class="summary",
-                state="missing",
-                label="Summary unavailable",
-                reason="stored_summary_revision_stale",
-                action="disabled",
+    if outcome_set is not None:
+        stale = bool(
+            result is not None
+            and (
+                outcome_set.processing_result_id != result.id
+                or outcome_set.media_revision_id != result.media_revision_id
             )
+        )
         return ArtifactEgressState(
             artifact_class="summary",
             state="available",
             label="Download summary",
-            reason="Summary policy allows server-mediated egress.",
+            reason=(
+                "stored_summary_revision_stale"
+                if stale
+                else "Summary policy allows server-mediated egress."
+            ),
             action="download",
         )
     return ArtifactEgressState(

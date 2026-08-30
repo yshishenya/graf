@@ -1042,11 +1042,15 @@ def _render_meeting_detail_content(
     meeting_details_available = _meeting_details_available(review) and shared_workspace_id is None
     summary_lifecycle = _summary_render_lifecycle(review)
     summary_source_stale = summary_lifecycle["source_state"] == "stale"
+    reprocess_available = bool(
+        shared_workspace_id is None and review.processing.reprocess_available
+    )
     more_actions_available = (
         content_export_available
         or review.governance.download.state == "available"
         or meeting_details_available
         or review.governance.delete.state == "available"
+        or reprocess_available
     )
     current_summary_format_key = review.template.reason or "graf-auto-v1"
     current_summary_format = BUILT_IN_BY_KEY.get(current_summary_format_key)
@@ -1087,6 +1091,9 @@ def _render_meeting_detail_content(
         playback_poll_url=poll_url or "",
         playback_poll_active="true" if review.playback.state == "preparing" else "false",
         processing_state=review.processing.state,
+        processing_workflow_id=review.processing.workflow_id or "",
+        processing_attempt_ordinal=review.processing.attempt_ordinal,
+        reprocess_available=reprocess_available,
         processing_reason_code=review.processing.reason_code or "",
         processing_reason_label=_ui_text(review.processing.reason_label or ""),
         transcript_available=review.transcript.available,

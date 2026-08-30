@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from uuid import UUID
 
+import pytest
 from temporalio.client import WorkflowExecutionStatus
 from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
@@ -12,6 +13,8 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from tests.fakes.fake_temporal import FakeTemporalClient
 from twobrain_rec_server.processing import store
 from twobrain_rec_server.processing.lifecycle import processing_start_reconciliation_due
+from twobrain_rec_server.processing.store import ProcessingLifecycleBlocked
+from twobrain_rec_server.workflows import worker as processing_worker
 from twobrain_rec_server.workflows.temporal_client import (
     processing_workflow_id,
     start_processing_workflow,
@@ -74,6 +77,7 @@ def test_only_stale_start_intents_are_due_for_reconciliation() -> None:
 
 
 def test_start_processing_workflow_payload_carries_media_revision_id(test_settings) -> None:
+    processing_workflow_row_id = UUID("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee")
     meeting_id = UUID("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
     media_revision_id = UUID("cccccccc-cccc-cccc-cccc-cccccccccccc")
     workspace_id = UUID("dddddddd-dddd-dddd-dddd-dddddddddddd")
@@ -83,6 +87,7 @@ def test_start_processing_workflow_payload_carries_media_revision_id(test_settin
         start_processing_workflow(
             temporal_client=temporal,
             settings=test_settings,
+            processing_workflow_row_id=processing_workflow_row_id,
             meeting_id=meeting_id,
             media_revision_id=media_revision_id,
             workspace_id=workspace_id,
@@ -91,6 +96,7 @@ def test_start_processing_workflow_payload_carries_media_revision_id(test_settin
 
     assert started.workflow_id == f"processing/{media_revision_id}"
     payload = temporal.starts[started.workflow_id]["payload"]
+    assert payload["processing_workflow_id"] == str(processing_workflow_row_id)
     assert payload["meeting_id"] == str(meeting_id)
     assert payload["media_revision_id"] == str(media_revision_id)
     assert payload["workspace_id"] == str(workspace_id)
@@ -98,6 +104,86 @@ def test_start_processing_workflow_payload_carries_media_revision_id(test_settin
         temporal.starts[started.workflow_id]["options"]["id_reuse_policy"]
         is WorkflowIDReusePolicy.REJECT_DUPLICATE
     )
+
+
+@pytest.mark.parametrize(
+    ("field_name", "mismatched_value"),
+    [
+        ("workspace_id", UUID("11111111-1111-1111-1111-111111111111")),
+        ("meeting_id", UUID("22222222-2222-2222-2222-222222222222")),
+        ("media_revision_id", UUID("33333333-3333-3333-3333-333333333333")),
+        ("workflow_id", "processing/cccccccc-cccc-cccc-cccc-cccccccccccc/2"),
+    ],
+)
+def test_exact_processing_activity_identity_rejects_lineage_mismatch(
+    field_name: str,
+    mismatched_value: object,
+) -> None:
+    processing_workflow_row_id = UUID("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee")
+    workspace_id = UUID("dddddddd-dddd-dddd-dddd-dddddddddddd")
+    meeting_id = UUID("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+    media_revision_id = UUID("cccccccc-cccc-cccc-cccc-cccccccccccc")
+    temporal_workflow_id = f"processing/{media_revision_id}"
+    workflow = SimpleNamespace(
+        id=processing_workflow_row_id,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        media_revision_id=media_revision_id,
+        workflow_id=temporal_workflow_id,
+    )
+    setattr(workflow, field_name, mismatched_value)
+
+    class FakeDb:
+        async def scalar(self, _query):
+            return workflow
+
+    with pytest.raises(
+        ProcessingLifecycleBlocked,
+        match="processing_workflow_identity_mismatch",
+    ):
+        asyncio.run(
+            processing_worker._load_processing_workflow_for_activity(
+                FakeDb(),
+                processing_workflow_id=processing_workflow_row_id,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+                temporal_workflow_id=temporal_workflow_id,
+                active_only=False,
+            )
+        )
+
+
+def test_legacy_activity_cannot_attach_to_newer_attempt(monkeypatch) -> None:
+    workspace_id = UUID("dddddddd-dddd-dddd-dddd-dddddddddddd")
+    meeting_id = UUID("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+    media_revision_id = UUID("cccccccc-cccc-cccc-cccc-cccccccccccc")
+    newer_workflow = SimpleNamespace(
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        media_revision_id=media_revision_id,
+        workflow_id=f"processing/{media_revision_id}/2",
+    )
+
+    async def get_newer_workflow(*_args, **_kwargs):
+        return newer_workflow
+
+    monkeypatch.setattr(store, "get_processing_workflow", get_newer_workflow)
+    with pytest.raises(
+        ProcessingLifecycleBlocked,
+        match="processing_workflow_identity_mismatch",
+    ):
+        asyncio.run(
+            processing_worker._load_processing_workflow_for_activity(
+                object(),
+                processing_workflow_id=None,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+                temporal_workflow_id=f"processing/{media_revision_id}",
+                active_only=True,
+            )
+        )
 
 
 def test_recovery_can_address_persisted_legacy_workflow_id(test_settings) -> None:
@@ -108,6 +194,7 @@ def test_recovery_can_address_persisted_legacy_workflow_id(test_settings) -> Non
         start_processing_workflow(
             temporal_client=temporal,
             settings=test_settings,
+            processing_workflow_row_id=UUID("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"),
             meeting_id=UUID("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
             media_revision_id=UUID("cccccccc-cccc-cccc-cccc-cccccccccccc"),
             workspace_id=UUID("dddddddd-dddd-dddd-dddd-dddddddddddd"),
@@ -136,6 +223,7 @@ def test_start_processing_workflow_reuses_running_duplicate(test_settings) -> No
         start_processing_workflow(
             temporal_client=RunningDuplicateClient(),
             settings=test_settings,
+            processing_workflow_row_id=UUID("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"),
             meeting_id=UUID("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
             media_revision_id=UUID("cccccccc-cccc-cccc-cccc-cccccccccccc"),
             workspace_id=UUID("dddddddd-dddd-dddd-dddd-dddddddddddd"),
@@ -165,6 +253,7 @@ def test_start_processing_workflow_classifies_closed_duplicate(test_settings) ->
         start_processing_workflow(
             temporal_client=ClosedDuplicateClient(),
             settings=test_settings,
+            processing_workflow_row_id=UUID("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"),
             meeting_id=UUID("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
             media_revision_id=UUID("cccccccc-cccc-cccc-cccc-cccccccccccc"),
             workspace_id=UUID("dddddddd-dddd-dddd-dddd-dddddddddddd"),
@@ -186,6 +275,7 @@ def test_start_processing_workflow_keeps_timeout_outcome_ambiguous(test_settings
         start_processing_workflow(
             temporal_client=AmbiguousClient(),
             settings=test_settings,
+            processing_workflow_row_id=UUID("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"),
             meeting_id=UUID("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
             media_revision_id=UUID("cccccccc-cccc-cccc-cccc-cccccccccccc"),
             workspace_id=UUID("dddddddd-dddd-dddd-dddd-dddddddddddd"),

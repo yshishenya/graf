@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import and_, nullslast, or_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from twobrain_rec_server.cabinet.speakers import (
@@ -31,7 +31,6 @@ from twobrain_rec_server.db.models import (
 )
 from twobrain_rec_server.db.tenant_context import TenantDatabaseContext, apply_tenant_context
 from twobrain_rec_server.domain.speaker_turns import canonical_speech_available
-from twobrain_rec_server.domain.statuses import ProcessingResultStatus
 from twobrain_rec_server.ingest.media_revisions import source_fingerprint_for_revision
 from twobrain_rec_server.observability.langfuse import (
     GenerationTraceContext,
@@ -92,6 +91,7 @@ from twobrain_rec_server.processing.fences import (
     meeting_is_deleted_or_deleting,
     normalize_db_timestamp,
 )
+from twobrain_rec_server.processing.results import effective_processing_result_query
 from twobrain_rec_server.storage.minio_client import get_storage
 from twobrain_rec_server.workflows.outcome_generation_workflow import (
     TranscriptSnapshotError,
@@ -334,22 +334,16 @@ async def create_summary_candidate(
         )
         .order_by(MediaRevision.revision_number.desc(), MediaRevision.updated_at.desc())
     )
-    result_query = select(ProcessingResult).where(
-        ProcessingResult.workspace_id == workspace_id,
-        ProcessingResult.meeting_id == meeting_id,
-        ProcessingResult.status == ProcessingResultStatus.IMPORTED.value,
-    )
-    if latest_revision is not None:
-        result_query = result_query.where(ProcessingResult.media_revision_id == latest_revision.id)
-    else:
-        result_query = result_query.where(ProcessingResult.media_revision_id.is_(None))
-    result = await db.scalar(
-        result_query.order_by(
-            ProcessingResult.result_version.desc(),
-            nullslast(ProcessingResult.imported_at.desc()),
-            ProcessingResult.created_at.desc(),
-            ProcessingResult.id.desc(),
+    result = (
+        await db.scalar(
+            effective_processing_result_query(
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=latest_revision.id,
+            )
         )
+        if latest_revision is not None
+        else None
     )
     if not canonical_speech_available(result):
         raise OutcomeGenerationTerminalError("summary_transcript_unavailable")
@@ -2626,24 +2620,16 @@ async def _current_source_identity(
         .order_by(MediaRevision.revision_number.desc(), MediaRevision.updated_at.desc())
     )
     expected_revision_id = latest_revision.id if latest_revision is not None else None
-    result_query = select(ProcessingResult).where(
-        ProcessingResult.workspace_id == workspace_id,
-        ProcessingResult.meeting_id == meeting_id,
-        ProcessingResult.status == ProcessingResultStatus.IMPORTED.value,
-    )
-    if expected_revision_id is None:
-        result_query = result_query.where(ProcessingResult.media_revision_id.is_(None))
-    else:
-        result_query = result_query.where(
-            ProcessingResult.media_revision_id == expected_revision_id
+    latest_result = (
+        await db.scalar(
+            effective_processing_result_query(
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=expected_revision_id,
+            )
         )
-    latest_result = await db.scalar(
-        result_query.order_by(
-            ProcessingResult.result_version.desc(),
-            nullslast(ProcessingResult.imported_at.desc()),
-            ProcessingResult.created_at.desc(),
-            ProcessingResult.id.desc(),
-        )
+        if expected_revision_id is not None
+        else None
     )
     if latest_result is None:
         return None
@@ -2749,24 +2735,16 @@ async def _ensure_candidate_source_fence(
         .order_by(MediaRevision.revision_number.desc(), MediaRevision.updated_at.desc())
     )
     expected_revision_id = latest_revision.id if latest_revision is not None else None
-    result_query = select(ProcessingResult).where(
-        ProcessingResult.workspace_id == attempt.workspace_id,
-        ProcessingResult.meeting_id == attempt.meeting_id,
-        ProcessingResult.status == ProcessingResultStatus.IMPORTED.value,
-    )
-    if expected_revision_id is None:
-        result_query = result_query.where(ProcessingResult.media_revision_id.is_(None))
-    else:
-        result_query = result_query.where(
-            ProcessingResult.media_revision_id == expected_revision_id
+    latest_result = (
+        await db.scalar(
+            effective_processing_result_query(
+                workspace_id=attempt.workspace_id,
+                meeting_id=attempt.meeting_id,
+                media_revision_id=expected_revision_id,
+            )
         )
-    latest_result = await db.scalar(
-        result_query.order_by(
-            ProcessingResult.result_version.desc(),
-            nullslast(ProcessingResult.imported_at.desc()),
-            ProcessingResult.created_at.desc(),
-            ProcessingResult.id.desc(),
-        )
+        if expected_revision_id is not None
+        else None
     )
     if latest_result is None:
         raise OutcomeGenerationTerminalError("summary_source_revision_stale")

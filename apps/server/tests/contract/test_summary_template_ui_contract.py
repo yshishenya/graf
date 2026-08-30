@@ -519,6 +519,57 @@ def test_candidate_list_hides_candidates_from_an_older_processing_result(client)
     }
 
 
+def test_summary_candidate_uses_effective_complete_result_while_newer_result_is_partial(
+    client,
+) -> None:
+    meeting_id = create_outcome_ready_meeting(client, "effective-summary-candidate-source")
+
+    async def create_candidate_after_partial_import() -> tuple[UUID, UUID]:
+        async with client.app_state["sessionmaker"]() as db:
+            current = await db.scalar(
+                select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
+            )
+            assert current is not None
+            partial = ProcessingResult(
+                workspace_id=current.workspace_id,
+                meeting_id=current.meeting_id,
+                media_revision_id=current.media_revision_id,
+                mediascribe_job_id=current.mediascribe_job_id,
+                processing_workflow_id=current.processing_workflow_id,
+                result_version=current.result_version + 1,
+                status="imported",
+                transcript_status="available",
+                diarization_status="unavailable",
+                summary_status=current.summary_status,
+                language=current.language,
+                segment_count=current.segment_count,
+                diarization_segment_count=0,
+                source_result_hash="partial-result-must-not-drive-summary",
+                imported_at=datetime.now(UTC) + timedelta(seconds=1),
+            )
+            db.add(partial)
+            await db.flush()
+            candidate = await create_summary_candidate(
+                db,
+                workspace_id=WORKSPACE_ID,
+                meeting_id=meeting_id,
+                requested_by_user_id=USER_ID,
+                template_key="graf-auto-v1",
+                template_id=None,
+                template_version=1,
+                expected_current_outcome_set_id=None,
+            )
+            await db.commit()
+            assert candidate.source_result_id is not None
+            return current.id, candidate.source_result_id
+
+    effective_result_id, candidate_source_id = client.portal.call(
+        create_candidate_after_partial_import
+    )
+
+    assert candidate_source_id == effective_result_id
+
+
 def test_candidate_list_hides_superseded_accepted_attempts(client) -> None:
     meeting_id = create_outcome_ready_meeting(client, "superseded-accepted-candidates")
 

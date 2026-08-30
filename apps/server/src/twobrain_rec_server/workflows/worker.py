@@ -180,6 +180,61 @@ def _heartbeat_processing_activity(activity_context: Any, **details: Any) -> Non
         raise asyncio.CancelledError
 
 
+def _processing_activity_temporal_workflow_id(activity_context: Any) -> str | None:
+    try:
+        workflow_id = activity_context.info().workflow_id
+    except RuntimeError:
+        # Direct test callers do not have a Temporal activity context.
+        return None
+    return str(workflow_id) if workflow_id else None
+
+
+async def _load_processing_workflow_for_activity(
+    db: Any,
+    *,
+    processing_workflow_id: UUID | None,
+    workspace_id: UUID,
+    meeting_id: UUID,
+    media_revision_id: UUID | None,
+    temporal_workflow_id: str | None,
+    active_only: bool,
+) -> ProcessingWorkflow:
+    if processing_workflow_id is None:
+        # ponytail: legacy histories omit the row UUID; remove this fallback
+        # after every such execution has closed.
+        workflow = await store.get_processing_workflow(
+            db,
+            workspace_id=workspace_id,
+            meeting_id=meeting_id,
+            media_revision_id=media_revision_id,
+            active_only=active_only,
+        )
+    else:
+        query = select(ProcessingWorkflow).where(ProcessingWorkflow.id == processing_workflow_id)
+        if active_only:
+            query = query.where(
+                ProcessingWorkflow.status.notin_(
+                    {
+                        ProcessingStatus.PROCESSED.value,
+                        ProcessingStatus.BLOCKED.value,
+                        ProcessingStatus.FAILED_TERMINAL.value,
+                        ProcessingStatus.CANCELED.value,
+                    }
+                )
+            )
+        workflow = await db.scalar(query)
+    if workflow is None:
+        raise ProcessingLifecycleBlocked("processing_workflow_missing")
+    if (
+        workflow.workspace_id != workspace_id
+        or workflow.meeting_id != meeting_id
+        or workflow.media_revision_id != media_revision_id
+        or (temporal_workflow_id is not None and workflow.workflow_id != temporal_workflow_id)
+    ):
+        raise ProcessingLifecycleBlocked("processing_workflow_identity_mismatch")
+    return workflow
+
+
 async def _await_processing_operation(
     operation: Any,
     *,
@@ -1338,12 +1393,18 @@ async def run_processing_pipeline_activity(
 
     meeting_ref = payload.get("meeting_id", "unknown")
     media_revision_id: UUID | None = None
+    processing_workflow_row_id: UUID | None = None
     _heartbeat_processing_activity(activity, state="starting", meeting_id=meeting_ref)
+    temporal_workflow_id = _processing_activity_temporal_workflow_id(activity)
     try:
         tenant_scope = tenant_scope_from_processing_payload(payload)
         meeting_id = UUID(payload["meeting_id"])
         if payload.get("media_revision_id"):
             media_revision_id = UUID(payload["media_revision_id"])
+        if payload.get("processing_workflow_id"):
+            processing_workflow_row_id = UUID(payload["processing_workflow_id"])
+            if media_revision_id is None:
+                raise ValueError("exact processing workflow identity requires a revision")
         workspace_id = UUID(payload["workspace_id"])
     except (KeyError, ValueError):
         return {
@@ -1362,11 +1423,13 @@ async def run_processing_pipeline_activity(
         storage = storage or get_storage(settings)
         async with sessionmaker() as db:
             await apply_tenant_scope(db, tenant_scope, context_kind="worker")
-            workflow = await store.get_processing_workflow(
+            workflow = await _load_processing_workflow_for_activity(
                 db,
+                processing_workflow_id=processing_workflow_row_id,
                 workspace_id=workspace_id,
                 meeting_id=meeting_id,
                 media_revision_id=media_revision_id,
+                temporal_workflow_id=temporal_workflow_id,
                 active_only=True,
             )
             if media_revision_id is None:
@@ -1377,8 +1440,6 @@ async def run_processing_pipeline_activity(
                 )
                 if latest_revision is not None:
                     raise ProcessingLifecycleBlocked("processing_source_revision_stale")
-            if workflow is None:
-                raise ProcessingLifecycleBlocked("processing_workflow_missing")
             job = await store.get_mediascribe_job(
                 db,
                 workspace_id=workspace_id,
@@ -1694,9 +1755,11 @@ async def run_processing_pipeline_activity(
         try:
             persisted = await _persist_activity_client_error(
                 sessionmaker,
+                processing_workflow_id=processing_workflow_row_id,
                 workspace_id=workspace_id,
                 meeting_id=meeting_id,
                 media_revision_id=media_revision_id,
+                temporal_workflow_id=temporal_workflow_id,
                 tenant_scope=tenant_scope,
                 status=status,
                 reason_code=reason_code,
@@ -1744,9 +1807,11 @@ async def run_processing_pipeline_activity(
         try:
             persisted = await _persist_activity_client_error(
                 sessionmaker,
+                processing_workflow_id=processing_workflow_row_id,
                 workspace_id=workspace_id,
                 meeting_id=meeting_id,
                 media_revision_id=media_revision_id,
+                temporal_workflow_id=temporal_workflow_id,
                 tenant_scope=tenant_scope,
                 status=status,
                 reason_code=reason_code,
@@ -2470,9 +2535,11 @@ def tenant_scope_from_processing_payload(payload: dict[str, str]) -> TenantScope
 async def _persist_activity_client_error(
     sessionmaker,
     *,
+    processing_workflow_id: UUID | None,
     workspace_id: UUID,
     meeting_id: UUID,
     media_revision_id: UUID | None = None,
+    temporal_workflow_id: str | None,
     tenant_scope: TenantScope | None = None,
     status: ProcessingStatus,
     reason_code: str,
@@ -2482,11 +2549,14 @@ async def _persist_activity_client_error(
     async with sessionmaker() as db:
         if tenant_scope is not None:
             await apply_tenant_scope(db, tenant_scope, context_kind="worker")
-        workflow = await store.get_processing_workflow(
+        workflow = await _load_processing_workflow_for_activity(
             db,
+            processing_workflow_id=processing_workflow_id,
             workspace_id=workspace_id,
             meeting_id=meeting_id,
             media_revision_id=media_revision_id,
+            temporal_workflow_id=temporal_workflow_id,
+            active_only=False,
         )
         if media_revision_id is None:
             latest_revision = await store.latest_media_revision_for_meeting(
@@ -2496,8 +2566,6 @@ async def _persist_activity_client_error(
             )
             if latest_revision is not None:
                 raise ProcessingLifecycleBlocked("processing_source_revision_stale")
-        if workflow is None:
-            raise ProcessingLifecycleBlocked("processing_workflow_missing")
         if status == ProcessingStatus.BLOCKED_UNKNOWN:
             restored = await _restore_unknown_processing_state(
                 db,

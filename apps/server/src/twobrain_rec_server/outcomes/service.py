@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from uuid import UUID, uuid4
 
-from sqlalchemy import func, nullslast, or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -52,6 +52,7 @@ from twobrain_rec_server.processing.fences import (
     lock_meeting_fence,
     meeting_is_deleted_or_deleting,
 )
+from twobrain_rec_server.processing.results import effective_processing_result_query
 from twobrain_rec_server.processing.store import ProcessingLifecycleBlocked
 
 BASELINE_TEMPLATE_KEY = "graf-auto-v1"
@@ -108,21 +109,13 @@ async def ensure_outcomes_for_meeting(
             )
             .order_by(MediaRevision.revision_number.desc(), MediaRevision.updated_at.desc())
         )
-        result_query = select(ProcessingResult).where(
-            ProcessingResult.meeting_id == meeting_id,
-            ProcessingResult.status == ProcessingResultStatus.IMPORTED.value,
-        )
-        result_query = result_query.where(
-            ProcessingResult.media_revision_id == latest_revision.id
-            if latest_revision is not None
-            else ProcessingResult.media_revision_id.is_(None)
-        )
+        if latest_revision is None:
+            return None
         result = await db.scalar(
-            result_query.order_by(
-                ProcessingResult.result_version.desc(),
-                nullslast(ProcessingResult.imported_at.desc()),
-                ProcessingResult.created_at.desc(),
-                ProcessingResult.id.desc(),
+            effective_processing_result_query(
+                workspace_id=latest_revision.workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=latest_revision.id,
             )
         )
         if result is None:
@@ -163,18 +156,10 @@ async def ensure_outcomes_for_processing_result(
     if (latest_revision.id if latest_revision is not None else None) != result.media_revision_id:
         raise ProcessingLifecycleBlocked("summary_source_revision_stale")
     latest_result = await db.scalar(
-        select(ProcessingResult)
-        .where(
-            ProcessingResult.workspace_id == result.workspace_id,
-            ProcessingResult.meeting_id == result.meeting_id,
-            ProcessingResult.media_revision_id == result.media_revision_id,
-            ProcessingResult.status == ProcessingResultStatus.IMPORTED.value,
-        )
-        .order_by(
-            ProcessingResult.result_version.desc(),
-            nullslast(ProcessingResult.imported_at.desc()),
-            ProcessingResult.created_at.desc(),
-            ProcessingResult.id.desc(),
+        effective_processing_result_query(
+            workspace_id=result.workspace_id,
+            meeting_id=result.meeting_id,
+            media_revision_id=result.media_revision_id,
         )
     )
     if latest_result is None or latest_result.id != result.id:
