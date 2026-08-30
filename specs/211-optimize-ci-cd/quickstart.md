@@ -27,6 +27,7 @@ still duplicated all `1351` server unit tests; that duplicate was then removed.
 
 ```sh
 bash -n infra/scripts/ci-local.sh infra/scripts/cd-remote.sh apps/server/scripts/run_local_postgres_tests.sh
+speckit-bootstrap . --doctor --frozen
 set +e
 infra/scripts/ci-local.sh
 status=$?
@@ -36,8 +37,9 @@ infra/scripts/ci-local.sh --help
 git diff --check
 ```
 
-Expected: bare CI performs no stage and exits `2`; help lists only `--fast` and
-`--full`; shell syntax and whitespace pass.
+Expected: frozen bootstrap state matches its lock; bare CI performs no stage
+and exits `2`; help lists only `--fast` and `--full`; shell syntax and
+whitespace pass.
 
 ## 2. Focused contracts and lint
 

@@ -61,6 +61,9 @@
 - Явный `infra/scripts/ci-local.sh --fast` больше не переключается скрыто на
   полный CI для API/auth, contract/integration, infrastructure, unknown или
   unavailable diff.
+- Generated extension/workflow registry синхронизирован с bootstrap lock,
+  поэтому обязательный frozen governance doctor больше не падает на заведомо
+  совпадающих файлах.
 
 ### Безопасность
 - _Пока нет записей._
