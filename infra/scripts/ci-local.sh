@@ -15,6 +15,7 @@ classify_path() {
       echo macos
       ;;
     infra/docker-compose.yml|infra/server/*|infra/scripts/*.sh|infra/scripts/*.py|\
+    docs/deployments/*|\
     scripts/*|.specify/*|.github/workflows/*|.github/actions/*|\
     Dockerfile*|docker-compose*|Makefile|pyproject.toml)
       echo infra
@@ -42,6 +43,10 @@ performance_path() {
       return 1
       ;;
   esac
+}
+
+calendar_performance_test_path() {
+  printf '%s\n' 'tests/integration/test_calendar_auto_context_match.py'
 }
 
 bounded_server_path() {
@@ -183,12 +188,13 @@ main() (
   local has_docs=0
   local has_unknown=0
   local coverage="complete"
-  local next_gate="release_ready"
+  local next_gate="unselected"
   local performance_required=0
   local performance_covered_by_changed_tests=0
   local performance_gate="report"
   local path
   local classification
+  local performance_proof
   pipeline_started="$(date +%s)"
 
   finish_ci() {
@@ -197,11 +203,13 @@ main() (
     pipeline_completed="$(date +%s)"
     pipeline_duration=$((pipeline_completed - pipeline_started))
     if [[ "$exit_status" -eq 0 && "$pipeline_result" == "pass" ]]; then
-      printf '\nci_local_result=pass mode=%s requested_mode=%s duration_seconds=%s\n' \
-        "$effective_mode" "$requested_mode" "$pipeline_duration"
+      [[ "$requested_mode" == "full" ]] && next_gate="release_ready"
+      printf '\nci_local_result=pass mode=%s requested_mode=%s duration_seconds=%s next_gate=%s\n' \
+        "$effective_mode" "$requested_mode" "$pipeline_duration" "$next_gate"
     else
-      printf '\nci_local_result=fail mode=%s requested_mode=%s duration_seconds=%s\n' \
-        "$effective_mode" "$requested_mode" "$pipeline_duration" >&2
+      [[ "$requested_mode" == "full" ]] && next_gate="full_failed"
+      printf '\nci_local_result=fail mode=%s requested_mode=%s duration_seconds=%s next_gate=%s\n' \
+        "$effective_mode" "$requested_mode" "$pipeline_duration" "$next_gate" >&2
     fi
     exit "$exit_status"
   }
@@ -234,6 +242,7 @@ main() (
   esac
 
   cd "$repo_root" || return 1
+  performance_proof="$(calendar_performance_test_path)" || return 1
 
   if ! changed_list="$(changed_files)"; then
     if [[ "$requested_mode" == "full" ]]; then
@@ -330,9 +339,18 @@ main() (
       ;;
   esac
 
+  if [[ "$requested_mode" == "fast" && "$performance_required" -eq 1 && \
+        "$performance_covered_by_changed_tests" -eq 0 && \
+        ! -f "$repo_root/apps/server/$performance_proof" ]]; then
+    coverage="partial"
+    selection_reason="performance_proof_unavailable"
+    printf 'ci_fast_coverage reason=%s path=%s\n' "$selection_reason" "$performance_proof"
+  fi
+
   if [[ "$requested_mode" == "full" ]]; then
     effective_mode="full"
     components="full"
+    next_gate="full_in_progress"
   else
     effective_mode="fast"
     [[ "$coverage" == "complete" ]] && coverage="bounded"
@@ -399,9 +417,10 @@ main() (
         run_step "changed server tests" run_changed_server_tests "$performance_gate" \
           "$changed_server_tests" || return $?
       fi
-      if [[ "$performance_required" -eq 1 && "$performance_covered_by_changed_tests" -eq 0 ]]; then
+      if [[ "$performance_required" -eq 1 && "$performance_covered_by_changed_tests" -eq 0 && \
+            -f "$repo_root/apps/server/$performance_proof" ]]; then
         run_step "calendar performance proof" run_server_tests focused required \
-          tests/integration/test_calendar_auto_context_match.py -m serial_performance || return $?
+          "$performance_proof" -m serial_performance || return $?
       fi
       run_step "server lint" bash -c "cd apps/server && PYTHONPATH=src uv run --extra dev ruff check ." || return $?
       run_step "python compile" python3 -m compileall -q apps/server/src apps/server/tests apps/server/scripts || return $?
@@ -413,6 +432,8 @@ main() (
         tests/contract/test_local_postgres_test_runner.py" || return $?
       run_step "production compose config" bash -c \
         'docker compose -f infra/docker-compose.yml config >/dev/null' || return $?
+      run_step "deployment evidence scan" \
+        infra/scripts/scan-deployment-evidence.sh docs/deployments/2brain-rec || return $?
     fi
     run_step "diff whitespace check" check_diff_whitespace || return $?
     run_step "active CI documentation consistency" check_active_docs || return $?

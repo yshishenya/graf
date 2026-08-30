@@ -37,6 +37,9 @@ changed_files() {
   [[ "$GRAF_TEST_DIFF_AVAILABLE" == "true" ]] || return 9
   printf '%s\n' "$GRAF_TEST_CHANGED_FILES"
 }
+calendar_performance_test_path() {
+  printf '%s\n' "$GRAF_TEST_PERFORMANCE_PROOF"
+}
 run_step() {
   local name="$1"
   if [[ "$name" == "server tests" || "$name" == "calendar performance proof" ]]; then
@@ -62,6 +65,9 @@ main "$2"
             "GRAF_TEST_CHANGED_FILES": changed_files,
             "GRAF_TEST_DIFF_AVAILABLE": str(diff_available).lower(),
             "GRAF_TEST_FAIL_STAGE": fail_stage,
+            "GRAF_TEST_PERFORMANCE_PROOF": (
+                "tests/integration/test_calendar_auto_context_match.py"
+            ),
             **(env or {}),
         },
     )
@@ -98,7 +104,7 @@ def test_local_ci_help_is_explicit_and_runs_no_stage() -> None:
         ("apps/macos/Package.resolved", "macos"),
         ("docs/user-guide.md", "docs"),
         ("docs/agent-guidance/release-and-validation.md", "docs"),
-        ("docs/deployments/2brain-rec/release-v1.md", "docs"),
+        ("docs/deployments/2brain-rec/release-v1.md", "infra"),
         ("infra/scripts/ci-local.sh", "infra"),
         (".specify/extensions.yml", "infra"),
         ("unknown/surface.bin", "unknown"),
@@ -178,6 +184,18 @@ def test_high_risk_and_shared_diffs_report_partial_fast_coverage(changed_file: s
     assert "effective=fast" in result.stdout
     assert "coverage=partial next_gate=full_before_release" in result.stdout
     assert "reason=high_risk_or_shared_path" in result.stdout
+
+
+def test_deployment_evidence_runs_its_bounded_scanner() -> None:
+    result = run_stubbed_ci(
+        "docs/deployments/2brain-rec/release-v2026.08.31.2.md",
+        "--fast",
+    )
+
+    assert result.returncode == 0, result.stdout
+    assert "effective=fast components=infra" in result.stdout
+    assert "coverage=partial next_gate=full_before_release" in result.stdout
+    assert "ci_stage=deployment evidence scan status=pass" in result.stdout
 
 
 def test_changed_contract_and_integration_tests_run_focused_once() -> None:
@@ -304,6 +322,20 @@ def test_fast_calendar_lane_runs_bounded_required_performance_proof() -> None:
     assert "ci_stage=calendar performance proof status=pass" in result.stdout
 
 
+def test_missing_calendar_performance_proof_is_not_passed_to_pytest() -> None:
+    result = run_stubbed_ci(
+        "apps/server/src/twobrain_rec_server/calendar/matching.py\n"
+        "apps/server/tests/integration/test_removed.py",
+        "--fast",
+        env={"GRAF_TEST_PERFORMANCE_PROOF": "tests/integration/test_removed.py"},
+    )
+
+    assert result.returncode == 0, result.stdout
+    assert "ci_stage=server tests status=pass" in result.stdout
+    assert "ci_stage=calendar performance proof" not in result.stdout
+    assert "coverage=partial next_gate=full_before_release" in result.stdout
+
+
 def test_explicit_required_performance_keeps_fast_bounded() -> None:
     result = run_stubbed_ci(
         "apps/server/src/twobrain_rec_server/domain/statuses.py",
@@ -326,6 +358,24 @@ def test_failing_stage_emits_one_final_failure() -> None:
 
     assert result.returncode == 17
     assert result.stdout.count("ci_local_result=fail") == 1
+
+
+def test_full_claims_release_ready_only_after_success() -> None:
+    passed = run_stubbed_ci("", "--full")
+    failed = run_stubbed_ci("", "--full", fail_stage="server tests")
+
+    assert passed.returncode == 0, passed.stdout
+    assert "ci_lane requested=full effective=full" in passed.stdout
+    assert "next_gate=full_in_progress" in passed.stdout
+    assert "ci_local_result=pass mode=full" in passed.stdout
+    assert "next_gate=release_ready" in passed.stdout
+
+    assert failed.returncode == 17
+    assert "ci_lane requested=full effective=full" in failed.stdout
+    assert "next_gate=full_in_progress" in failed.stdout
+    assert "ci_local_result=fail mode=full" in failed.stdout
+    assert "next_gate=full_failed" in failed.stdout
+    assert "release_ready" not in failed.stdout
 
 
 def test_cd_dry_run_declares_authoritative_full_gate() -> None:

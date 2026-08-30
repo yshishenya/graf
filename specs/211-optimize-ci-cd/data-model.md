@@ -12,7 +12,9 @@ No application or production database changes are required. These are local oper
 - `reason`: stable reason code for selection or coverage limitation.
 - `coverage`: `bounded` for reviewed low-risk component fast, `partial` for
   shared/high-risk/unknown/unresolvable fast, or `complete` for full.
-- `next_gate`: `full_before_release` for fast or `release_ready` after full.
+- `next_gate`: `full_before_release` for fast, `full_in_progress` while full is
+  running, `release_ready` only after a passing full, or `full_failed` after a
+  failing full.
 - `result`: `pass` or `fail`.
 - `started_at`, `completed_at`, `duration_seconds`.
 - `stages`: ordered StageResult list.

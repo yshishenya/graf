@@ -12,13 +12,17 @@ ci-local.sh --help
 - `--fast` always prints `effective=fast`, selected components, coverage and the required next gate; it never invokes the full repository suite.
 - `--full` executes the canonical repository gate.
 - Every completed stage emits `ci_stage=<name> status=<status> duration_seconds=<n>`.
-- Every exit emits exactly one `ci_local_result=<pass|fail> mode=<effective> duration_seconds=<n>`.
+- Every exit emits exactly one `ci_local_result=<pass|fail> mode=<effective>
+  duration_seconds=<n> next_gate=<gate>`; full emits `release_ready` only in a
+  passing final result.
 
 Fast classification is bounded and truthful:
 
 - `apps/server/src/**`, dependency metadata and server tests → server fast; changed contract/integration test files are included directly.
 - `apps/macos/**` → macOS build/test/contracts on Darwin plus the legacy architecture guard.
 - infrastructure and CI/release tooling → bounded syntax, contract and configuration checks.
+- deployment evidence → infrastructure checks plus the dedicated
+  secret/verdict scanner.
 - ordinary documentation/spec text → documentation consistency.
 - shared/high-risk/unknown path, missing base or diff failure → bounded
   component/common safety checks plus
@@ -26,6 +30,8 @@ Fast classification is bounded and truthful:
 - multiple known components execute their union once.
 - calendar performance paths run the focused required performance proof without
   changing the effective lane; the full suite remains a separate release gate.
+- if the canonical performance proof was deleted or renamed, fast does not pass
+  the missing file to pytest and reports partial coverage for the release gate.
 - no path classification or environment override may change an explicit fast
   request into `effective=full`.
 

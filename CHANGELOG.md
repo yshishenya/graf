@@ -64,6 +64,9 @@
 - Generated extension/workflow registry синхронизирован с bootstrap lock,
   поэтому обязательный frozen governance doctor больше не падает на заведомо
   совпадающих файлах.
+- Fast сохраняет secret/verdict scan для deployment evidence, не передаёт
+  удалённый calendar performance test в pytest, а full сообщает
+  `release_ready` только после успешного завершения.
 
 ### Безопасность
 - _Пока нет записей._

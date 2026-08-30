@@ -18,7 +18,9 @@ choosing evidence strength. `--fast` derives the changed paths from the merge
 base with `origin/master` and always remains bounded: server, macOS,
 infrastructure/tooling and documentation run their component checks; changed
 server contract/integration files run focused. Calendar performance paths run a
-focused required proof without changing the lane. Shared/high-risk/unknown
+focused required proof without changing the lane; a missing/renamed proof is
+reported as partial instead of being passed to pytest. Deployment evidence runs
+its dedicated secret/verdict scanner in fast. Shared/high-risk/unknown
 paths or an unavailable diff report `coverage=partial` and
 `next_gate=full_before_release` instead of silently starting the full suite.
 Fast is for iteration and PR feedback, never a release gate. Focused tests
