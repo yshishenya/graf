@@ -201,6 +201,11 @@ if [[ "$performance_gate" != "report" && "$performance_gate" != "required" ]]; t
   printf 'GRAF_PERFORMANCE_GATE must be report or required.\n' >&2
   exit 2
 fi
+export GRAF_PERFORMANCE_GATE="$performance_gate"
+if [[ "$mode" == "fast" && "$performance_gate" == "required" ]]; then
+  printf 'refusing --fast with GRAF_PERFORMANCE_GATE=required; use --full\n' >&2
+  exit 2
+fi
 
 timing_args=(--durations=20)
 for argument in "${pytest_args[@]}"; do

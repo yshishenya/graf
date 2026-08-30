@@ -58,7 +58,8 @@
   контейнеров.
 - Production deploy после exact-SHA sync запускает один authoritative full до
   remote действий; serial performance остаётся hard gate для calendar matching
-  и report-only для несвязанных изменений на shared host.
+  paths, controlled runs и synchronized-master full, а для несвязанных
+  изменений на shared host только p95 threshold остаётся report-only.
 
 ## [2026.08.29.4] - 2026-08-29
 

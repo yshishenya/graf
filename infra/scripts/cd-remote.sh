@@ -63,7 +63,12 @@ fi
 
 cd "$(dirname "$0")/../.."
 
-if [[ -n "$(git status --porcelain --untracked-files=all)" ]]; then
+if ! WORKTREE_STATUS="$(git status --porcelain --untracked-files=all)"; then
+  echo "deploy_result=blocked"
+  echo "reason=worktree_status_failed"
+  exit 1
+fi
+if [[ -n "$WORKTREE_STATUS" ]]; then
   echo "deploy_result=blocked"
   echo "reason=dirty_worktree"
   exit 1
@@ -91,7 +96,12 @@ fi
 
 if [[ "$SKIP_LOCAL_CI" != "1" ]]; then
   infra/scripts/ci-local.sh --full
-  if [[ -n "$(git status --porcelain --untracked-files=all)" ]]; then
+  if ! POST_CI_WORKTREE_STATUS="$(git status --porcelain --untracked-files=all)"; then
+    echo "deploy_result=blocked"
+    echo "reason=worktree_status_failed_after_full"
+    exit 1
+  fi
+  if [[ -n "$POST_CI_WORKTREE_STATUS" ]]; then
     echo "deploy_result=blocked"
     echo "reason=candidate_changed_during_full"
     exit 1

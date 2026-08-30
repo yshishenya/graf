@@ -80,7 +80,7 @@ changed_files() {
   local untracked_changes
   git -C "$repo_root" rev-parse --verify "$base_ref^{commit}" >/dev/null 2>&1 || return 1
   merge_base="$(git -C "$repo_root" merge-base HEAD "$base_ref")" || return 1
-  tracked_changes="$(git -C "$repo_root" diff --name-only "$merge_base" --)" || return 1
+  tracked_changes="$(git -C "$repo_root" diff --no-renames --name-only "$merge_base" --)" || return 1
   untracked_changes="$(git -C "$repo_root" ls-files --others --exclude-standard)" || return 1
   printf '%s\n%s\n' "$tracked_changes" "$untracked_changes" | LC_ALL=C sort -u
 }
@@ -219,6 +219,11 @@ main() (
       [[ -z "$path" ]] && continue
       if performance_path "$path"; then
         performance_required=1
+        if [[ "$requested_mode" == "fast" ]]; then
+          requires_full=1
+          selection_reason="performance_path_requires_full"
+          printf 'ci_fast_escalation reason=%s path=%s\n' "$selection_reason" "$path"
+        fi
       fi
       if [[ "$requested_mode" == "full" ]]; then
         continue
@@ -245,6 +250,23 @@ main() (
     fi
   fi
 
+  case "${GRAF_PERFORMANCE_GATE:-auto}" in
+    auto) ;;
+    required)
+      performance_required=1
+      if [[ "$requested_mode" == "fast" ]]; then
+        requires_full=1
+        selection_reason="explicit_performance_requires_full"
+        printf 'ci_fast_escalation reason=%s\n' "$selection_reason"
+      fi
+      ;;
+    report) ;;
+    *)
+      echo "GRAF_PERFORMANCE_GATE must be auto, report or required." >&2
+      return 2
+      ;;
+  esac
+
   if [[ "$requested_mode" == "full" ]]; then
     effective_mode="full"
     components="full"
@@ -268,15 +290,6 @@ main() (
     fi
   fi
 
-  case "${GRAF_PERFORMANCE_GATE:-auto}" in
-    auto) ;;
-    required) performance_required=1 ;;
-    report) ;;
-    *)
-      echo "GRAF_PERFORMANCE_GATE must be auto, report or required." >&2
-      return 2
-      ;;
-  esac
   [[ "$performance_required" -eq 1 ]] && performance_gate="required"
 
   printf 'ci_lane requested=%s effective=%s components=%s reason=%s performance_gate=%s\n' \

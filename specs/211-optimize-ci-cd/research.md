@@ -10,7 +10,7 @@
 
 ## Decision 2 — Conservative component-aware fast lane
 
-**Decision**: Derive changed tracked/untracked paths from the merge base with `origin/master`. Server unit tests plus reviewed calendar/domain source select server fast checks; macOS changes select macOS validation; ordinary documentation selects consistency checks. High-risk backend/API source, deployment evidence, shared infrastructure, dependency, migration, contract/integration-test, unknown, or unresolvable paths escalate to full.
+**Decision**: Derive changed tracked/untracked paths from the merge base with `origin/master`, disabling rename detection so both endpoints are classified. Server unit tests plus reviewed domain source select server fast checks; macOS changes select macOS validation; ordinary documentation selects consistency checks. Calendar performance paths, high-risk backend/API source, deployment evidence, shared infrastructure, dependency, migration, contract/integration-test, unknown, or unresolvable paths escalate to full.
 
 **Rationale**: Known independent components can safely avoid unrelated work. Ambiguous paths must not trade speed for a false green result.
 

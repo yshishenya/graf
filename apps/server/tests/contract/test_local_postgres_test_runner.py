@@ -86,6 +86,8 @@ def test_full_runner_keeps_strict_rls_tests_and_uses_a_bounded_parallel_lane() -
     assert "-m \"serial_performance and not strict_rls\"" in script
     assert "if run_phase performance" in script
     assert 'performance_gate="${GRAF_PERFORMANCE_GATE:-report}"' in script
+    assert 'export GRAF_PERFORMANCE_GATE="$performance_gate"' in script
+    assert "refusing --fast with GRAF_PERFORMANCE_GATE=required; use --full" in script
     assert 'postgres_test_performance_gate=%s result=fail' in script
     assert "report_only_fail" not in script
     performance_test = (

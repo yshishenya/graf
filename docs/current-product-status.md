@@ -5,9 +5,9 @@ Date: 2026-08-30
 ## Implementation update (2026-08-30) — Feature 211 CI/CD optimization
 
 - Локальный CI требует явный `--fast` или `--full`. Fast lane оставляет
-  component checks только для server unit tests, reviewed calendar/domain
-  source, macOS и обычной документации; high-risk backend/API, deployment
-  evidence и неизвестные пути fail-closed расширяются до full.
+  component checks только для server unit tests, reviewed domain source, macOS
+  и обычной документации; calendar performance, high-risk backend/API,
+  deployment evidence и неизвестные пути fail-closed расширяются до full.
 - `cd-remote.sh --execute` сохраняет clean-tree, remote-sync, exact-SHA и все
   production gates, затем запускает один authoritative full до remote действий.
   Обычный release path не делает отдельный preflight full; локальный receipt

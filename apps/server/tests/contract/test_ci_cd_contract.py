@@ -23,7 +23,13 @@ def run(*args: str, cwd: Path = ROOT, env: dict[str, str] | None = None) -> subp
     )
 
 
-def run_stubbed_ci(changed_files: str, mode: str, *, fail_stage: str = "") -> subprocess.CompletedProcess[str]:
+def run_stubbed_ci(
+    changed_files: str,
+    mode: str,
+    *,
+    fail_stage: str = "",
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
     script = r'''
 source "$1"
 changed_files() { printf '%s\n' "$GRAF_TEST_CHANGED_FILES"; }
@@ -47,7 +53,11 @@ main "$2"
         "contract",
         str(LOCAL_CI),
         mode,
-        env={"GRAF_TEST_CHANGED_FILES": changed_files, "GRAF_TEST_FAIL_STAGE": fail_stage},
+        env={
+            "GRAF_TEST_CHANGED_FILES": changed_files,
+            "GRAF_TEST_FAIL_STAGE": fail_stage,
+            **(env or {}),
+        },
     )
 
 
@@ -145,7 +155,7 @@ def test_changed_files_propagates_a_tracked_diff_failure() -> None:
 source "$1"
 git() {
   case "$*" in
-    *"diff --name-only"*) return 9 ;;
+    *diff*--name-only*) return 9 ;;
     *) command git "$@" ;;
   esac
 }
@@ -156,14 +166,35 @@ changed_files
     assert result.returncode != 0
 
 
-def test_fast_calendar_lane_forwards_required_performance_gate() -> None:
+def test_changed_files_disables_rename_detection_for_both_endpoints() -> None:
+    script = LOCAL_CI.read_text(encoding="utf-8")
+
+    assert "diff --no-renames --name-only" in script
+
+
+def test_fast_calendar_lane_escalates_to_required_full() -> None:
     result = run_stubbed_ci(
         "apps/server/src/twobrain_rec_server/calendar/matching.py",
         "--fast",
     )
 
     assert result.returncode == 0, result.stdout
+    assert "reason=performance_path_requires_full" in result.stdout
+    assert "requested=fast effective=full components=full" in result.stdout
     assert "performance_gate=required" in result.stdout
+    assert "server_test_gate=required" in result.stdout
+
+
+def test_explicit_required_performance_escalates_fast_to_full() -> None:
+    result = run_stubbed_ci(
+        "apps/server/src/twobrain_rec_server/domain/statuses.py",
+        "--fast",
+        env={"GRAF_PERFORMANCE_GATE": "required"},
+    )
+
+    assert result.returncode == 0, result.stdout
+    assert "reason=explicit_performance_requires_full" in result.stdout
+    assert "requested=fast effective=full components=full" in result.stdout
     assert "server_test_gate=required" in result.stdout
 
 
@@ -196,6 +227,9 @@ def test_cd_execute_runs_full_after_sync_and_before_remote_gates() -> None:
     remote = script.index('remote_script=$(cat')
     assert clean < sync < full < post_full_sync < remote
     assert "candidate_changed_during_full" in script
+    assert "reason=worktree_status_failed" in script
+    assert "reason=worktree_status_failed_after_full" in script
+    assert '[[ -n "$(git status' not in script
     assert "local_ci=full_passed" in script
     assert "ci-receipt" not in script
     assert "--skip-local-ci" in script

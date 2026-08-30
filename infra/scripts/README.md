@@ -27,8 +27,9 @@ infra/scripts/ci-local.sh --fast
 ```
 
 The lane argument is mandatory. The fast lane uses the diff from
-`origin/master` to run server unit tests plus reviewed calendar/domain source,
-macOS and ordinary documentation components only. High-risk backend/API paths,
+`origin/master` to run server unit tests plus reviewed domain source,
+macOS and ordinary documentation components only. Calendar performance paths,
+high-risk backend/API paths,
 deployment evidence, shared infrastructure, dependencies, migrations,
 contract/integration tests, unknown paths or an unavailable diff expand to
 full. It is the fast feedback lane, not a release gate.

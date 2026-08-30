@@ -15,9 +15,9 @@ infra/scripts/ci-local.sh --full
 
 The lane is mandatory: a bare command exits before tests instead of silently
 choosing evidence strength. `--fast` derives the changed paths from the merge
-base with `origin/master`: server unit tests plus the reviewed calendar/domain
-source surfaces, macOS and ordinary documentation run their component checks.
-High-risk backend/API surfaces, deployment evidence, infrastructure,
+base with `origin/master`: server unit tests plus reviewed domain source, macOS
+and ordinary documentation run their component checks. Calendar performance
+paths, high-risk backend/API surfaces, deployment evidence, infrastructure,
 dependencies, migrations, contract/integration tests, shared/unknown paths or
 an unavailable diff expand to `--full`. It is for iteration and PR feedback,
 never a release gate. Focused tests remain the first check during implementation.
@@ -217,7 +217,8 @@ For the server app:
 Runtime dependency upgrades are significant maintenance when they affect backend
 frameworks, auth, storage, database, infra, or shared behavior. Use the relevant
 Spec Kit lane and finish with `infra/scripts/ci-local.sh --fast` before
-closeout; use `--full` for the assembled release candidate.
+closeout; treat it as a request that dependency/high-risk changes can escalate
+to effective full validation.
 
 ## Production Deployment And Smoke
 

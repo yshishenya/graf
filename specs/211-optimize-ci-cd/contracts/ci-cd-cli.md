@@ -16,19 +16,22 @@ ci-local.sh --help
 
 Fast classification is fail closed:
 
-- `apps/server/tests/unit/**` and reviewed calendar/domain source → server fast.
+- `apps/server/tests/unit/**` and reviewed domain source → server fast.
 - `apps/macos/**` → macOS build/test/contracts on Darwin plus the legacy architecture guard.
 - ordinary documentation/spec text → documentation consistency.
-- high-risk backend/API source, deployment evidence, infrastructure,
+- calendar performance paths, high-risk backend/API source, deployment evidence, infrastructure,
   dependency/lock, migrations, server contract/integration tests, CI/release
   governance, shared root configuration, unknown path, missing base or any diff
   command failure → full.
 - multiple known components execute their union once.
+- calendar performance paths and explicit `GRAF_PERFORMANCE_GATE=required`
+  escalate a requested fast lane to full so the serial performance test really runs.
 
 ## `infra/scripts/cd-remote.sh`
 
 - Dry-run declares `local_ci=full_required` unless the incident bypass is explicitly selected.
-- Execute first proves clean worktree, branch equality and exact `origin/<branch>` SHA.
+- Execute fails closed if the worktree status probe fails, then proves a clean
+  worktree, branch equality and exact `origin/<branch>` SHA.
 - Execute runs `ci-local.sh --full`, re-checks clean worktree plus unchanged local
   and remote SHA, prints `local_ci=full_passed`, and only then starts remote
   production gates. Candidate drift blocks with

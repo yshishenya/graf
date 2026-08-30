@@ -54,8 +54,9 @@ infra/scripts/ci-local.sh --fast
 ```
 
 Expected for this infrastructure slice: fail-closed escalation to effective
-full. For a reviewed server-only or macOS-only change, unrelated component
-checks are skipped.
+full. For a fast-eligible server unit/domain or macOS-only change, unrelated
+component checks are skipped. Calendar performance and other high-risk changes
+run effective full.
 
 ## 4. Diagnostic full
 
