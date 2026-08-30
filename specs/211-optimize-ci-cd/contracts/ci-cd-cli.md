@@ -9,23 +9,35 @@ ci-local.sh --help
 ```
 
 - No argument or any unknown argument exits `2` before tests and prints usage.
-- `--fast` prints requested/effective lane, components and any escalation reason.
+- `--fast` always prints `effective=fast`, selected components, coverage and the required next gate; it never invokes the full repository suite.
 - `--full` executes the canonical repository gate.
 - Every completed stage emits `ci_stage=<name> status=<status> duration_seconds=<n>`.
-- Every exit emits exactly one `ci_local_result=<pass|fail> mode=<effective> duration_seconds=<n>`.
+- Every exit emits exactly one `ci_local_result=<pass|fail> mode=<effective>
+  duration_seconds=<n> next_gate=<gate>`; full emits `release_ready` only in a
+  passing final result.
 
-Fast classification is fail closed:
+Fast classification is bounded and truthful:
 
-- `apps/server/tests/unit/**` and reviewed domain source → server fast.
+- `apps/server/src/**`, dependency metadata and server tests → server fast; changed contract/integration test files are included directly.
 - `apps/macos/**` → macOS build/test/contracts on Darwin plus the legacy architecture guard.
+- infrastructure and CI/release tooling → bounded syntax, contract and configuration checks.
+- deployment evidence → infrastructure checks plus the dedicated
+  secret/verdict scanner.
 - ordinary documentation/spec text → documentation consistency.
-- calendar performance paths, high-risk backend/API source, deployment evidence, infrastructure,
-  dependency/lock, migrations, server contract/integration tests, CI/release
-  governance, shared root configuration, unknown path, missing base or any diff
-  command failure → full.
+- shared governance documents (`AGENTS.md`, PR template, release/Spec Kit
+  guidance) → documentation checks with partial coverage.
+- shared/high-risk/unknown path, missing base or diff failure → bounded
+  component/common safety checks plus
+  `coverage=partial next_gate=full_before_release`.
 - multiple known components execute their union once.
-- calendar performance paths and explicit `GRAF_PERFORMANCE_GATE=required`
-  escalate a requested fast lane to full so the serial performance test really runs.
+- calendar performance paths run the focused required performance proof without
+  changing the effective lane; the full suite remains a separate release gate.
+- if the canonical performance proof was deleted or renamed, fast does not pass
+  the missing file to pytest and reports partial coverage for the release gate.
+- no path classification or environment override may change an explicit fast
+  request into `effective=full`.
+- the common whitespace stage covers both the merge-base diff and untracked
+  files used by component selection.
 
 ## `infra/scripts/cd-remote.sh`
 

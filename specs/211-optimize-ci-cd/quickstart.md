@@ -15,21 +15,34 @@ Pre-change full at SHA `124e96dfff36beadb6d555b3402126ac13bf5a58`:
 Three real component-only server fast runs passed in `86s`, `71s` and `70s`.
 The p50 `71s` is below the SC-009 ceiling `351.59s`.
 
+Post-fix infrastructure/test-only fast on 2026-08-31 passed in `29s` with
+`requested=fast effective=fast components=server,infra,docs`,
+`coverage=partial` and `next_gate=full_before_release`. It ran the changed CI
+contract (`52 passed`) and bounded infrastructure contracts (`60 passed`),
+including deployment-evidence and release-readiness edge cases, without
+starting the server unit or full repository suites. The preceding profiling run
+proved the same no-escalation invariant but took `207s` because it still
+duplicated all `1351` server unit tests; that duplicate was then removed.
+
 ## 1. Static contract
 
 ```sh
-bash -n infra/scripts/ci-local.sh infra/scripts/cd-remote.sh apps/server/scripts/run_local_postgres_tests.sh
+for script in infra/scripts/ci-local.sh infra/scripts/cd-remote.sh apps/server/scripts/run_local_postgres_tests.sh; do
+  bash -n "$script"
+done
+speckit-bootstrap . --doctor --frozen
 set +e
 infra/scripts/ci-local.sh
 status=$?
 set -e
 test "$status" -eq 2
 infra/scripts/ci-local.sh --help
-git diff --check
+git diff --check "$(git merge-base origin/master HEAD)" HEAD
 ```
 
-Expected: bare CI performs no stage and exits `2`; help lists only `--fast` and
-`--full`; shell syntax and whitespace pass.
+Expected: frozen bootstrap state matches its lock; bare CI performs no stage
+and exits `2`; help lists only `--fast` and `--full`; shell syntax and
+whitespace pass.
 
 ## 2. Focused contracts and lint
 
@@ -53,10 +66,11 @@ documentation consistency and clean → sync → full → remote deploy ordering
 infra/scripts/ci-local.sh --fast
 ```
 
-Expected for this infrastructure slice: fail-closed escalation to effective
-full. For a fast-eligible server unit/domain or macOS-only change, unrelated
-component checks are skipped. Calendar performance and other high-risk changes
-run effective full.
+Expected for every diff, including this infrastructure slice:
+`requested=fast effective=fast`. The runner executes bounded checks for the
+selected components, prints coverage and `next_gate=full_before_release`, and
+does not start the repository full suite. Changed server contract/integration
+test files run directly; unrelated components are skipped.
 
 ## 4. Diagnostic full
 

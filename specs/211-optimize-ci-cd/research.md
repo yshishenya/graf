@@ -8,13 +8,13 @@
 
 **Alternatives considered**: Keep `full` default (preserves the problem); default to `fast` (silently weakens old release instructions); infer every lane automatically (hides evidence strength).
 
-## Decision 2 — Conservative component-aware fast lane
+## Decision 2 — Bounded component-aware fast lane
 
-**Decision**: Derive changed tracked/untracked paths from the merge base with `origin/master`, disabling rename detection so both endpoints are classified. Server unit tests plus reviewed domain source select server fast checks; macOS changes select macOS validation; ordinary documentation selects consistency checks. Calendar performance paths, high-risk backend/API source, deployment evidence, shared infrastructure, dependency, migration, contract/integration-test, unknown, or unresolvable paths escalate to full.
+**Decision**: Derive changed tracked/untracked paths from the merge base with `origin/master`, disabling rename detection so both endpoints are classified. Every explicit fast invocation remains fast. Known server, macOS, infrastructure/tooling and documentation paths select bounded component checks. Changed server contract/integration test files are executed directly in addition to the server unit feedback loop. Unknown or unresolvable paths run the common safety checks and emit partial coverage plus `full required before release`; they never start the repository full suite.
 
-**Rationale**: Known independent components can safely avoid unrelated work. Ambiguous paths must not trade speed for a false green result.
+**Rationale**: A command named fast is useful only when its cost is bounded. Safety comes from truthful evidence strength and the mandatory exact-SHA full at release, not from silently replacing developer feedback with a 20-minute release gate.
 
-**Alternatives considered**: Always run the current server unit suite (not component-aware); maintain a complete dependency graph (high upkeep and drift risk); use only filename extensions (unsafe at shared boundaries).
+**Alternatives considered**: Preserve automatic escalation (the reported defect); treat fast as release approval (unsafe); maintain a complete dependency graph (high upkeep and drift risk); add a second CI service (unnecessary).
 
 ## Decision 3 — One authoritative full inside deploy
 

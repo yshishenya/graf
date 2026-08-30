@@ -8,52 +8,27 @@ usage() {
 
 classify_path() {
   case "$1" in
-    apps/server/uv.lock|apps/server/pyproject.toml|apps/server/constraints.txt|\
-    apps/macos/Package.swift|apps/macos/Package.resolved|\
-    apps/server/src/twobrain_rec_server/api/*|\
-    apps/server/src/twobrain_rec_server/admin/*|\
-    apps/server/src/twobrain_rec_server/auth/*|\
-    apps/server/src/twobrain_rec_server/billing/*|\
-    apps/server/src/twobrain_rec_server/cabinet/*|\
-    apps/server/src/twobrain_rec_server/db/*|\
-    apps/server/src/twobrain_rec_server/deletion/*|\
-    apps/server/src/twobrain_rec_server/ingest/*|\
-    apps/server/src/twobrain_rec_server/mediascribe/*|\
-    apps/server/src/twobrain_rec_server/meeting_detection/*|\
-    apps/server/src/twobrain_rec_server/normalization/*|\
-    apps/server/src/twobrain_rec_server/observability/*|\
-    apps/server/src/twobrain_rec_server/outcomes/*|\
-    apps/server/src/twobrain_rec_server/processing/*|\
-    apps/server/src/twobrain_rec_server/product_analytics/*|\
-    apps/server/src/twobrain_rec_server/readiness/*|\
-    apps/server/src/twobrain_rec_server/storage/*|\
-    apps/server/src/twobrain_rec_server/support/*|\
-    apps/server/src/twobrain_rec_server/workflows/*|\
-    apps/server/tests/contract/*|apps/server/tests/integration/*|\
-    infra/docker-compose.yml|infra/server/*|infra/scripts/*.sh|infra/scripts/*.py|\
-    scripts/*|.specify/*|.github/workflows/*|.github/actions/*|\
-    AGENTS.md|.github/pull_request_template.md|docs/deployments/*|\
-    docs/agent-guidance/release-and-validation.md|\
-    docs/agent-guidance/spec-kit-flow.md|infra/scripts/README.md|\
-    Dockerfile*|docker-compose*|Makefile|pyproject.toml)
-      echo full
-      ;;
-    apps/server/src/twobrain_rec_server/calendar/*|\
-    apps/server/src/twobrain_rec_server/domain/*|\
-    apps/server/tests/unit/*)
+    apps/server/*)
       echo server
-      ;;
-    apps/server/src/*)
-      echo full
       ;;
     apps/macos/*)
       echo macos
+      ;;
+    infra/docker-compose.yml|infra/server/*|infra/scripts/*.sh|infra/scripts/*.py|\
+    docs/deployments/*|\
+    scripts/*|.specify/*|.github/workflows/*|.github/actions/*|\
+    Dockerfile*|docker-compose*|Makefile|pyproject.toml)
+      echo infra
+      ;;
+    AGENTS.md|.github/pull_request_template.md|docs/agent-guidance/*|\
+    infra/scripts/README.md)
+      echo governance
       ;;
     CHANGELOG.md|README.md|CONTRIBUTING.md|docs/*|specs/*)
       echo docs
       ;;
     *)
-      echo full
+      echo unknown
       ;;
   esac
 }
@@ -73,13 +48,34 @@ performance_path() {
   esac
 }
 
-changed_files() {
+calendar_performance_test_path() {
+  printf '%s\n' 'tests/integration/test_calendar_auto_context_match.py'
+}
+
+bounded_server_path() {
+  case "$1" in
+    apps/server/src/twobrain_rec_server/calendar/*|\
+    apps/server/src/twobrain_rec_server/domain/*|\
+    apps/server/tests/unit/*)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+merge_base_commit() {
   local base_ref="${GRAF_CI_BASE_REF:-origin/master}"
+  git -C "$repo_root" rev-parse --verify "$base_ref^{commit}" >/dev/null 2>&1 || return 1
+  git -C "$repo_root" merge-base HEAD "$base_ref"
+}
+
+changed_files() {
   local merge_base
   local tracked_changes
   local untracked_changes
-  git -C "$repo_root" rev-parse --verify "$base_ref^{commit}" >/dev/null 2>&1 || return 1
-  merge_base="$(git -C "$repo_root" merge-base HEAD "$base_ref")" || return 1
+  merge_base="$(merge_base_commit)" || return 1
   tracked_changes="$(git -C "$repo_root" diff --no-renames --name-only "$merge_base" --)" || return 1
   untracked_changes="$(git -C "$repo_root" ls-files --others --exclude-standard)" || return 1
   printf '%s\n%s\n' "$tracked_changes" "$untracked_changes" | LC_ALL=C sort -u
@@ -138,8 +134,56 @@ PY
 run_server_tests() {
   local mode="$1"
   local performance_gate="$2"
+  shift 2
   env GRAF_TEST_WORKERS="${GRAF_TEST_WORKERS:-4}" GRAF_PERFORMANCE_GATE="$performance_gate" \
-    bash apps/server/scripts/run_local_postgres_tests.sh "--${mode}" -q
+    bash apps/server/scripts/run_local_postgres_tests.sh "--${mode}" -q "$@"
+}
+
+run_changed_server_tests() {
+  local performance_gate="$1"
+  local changed_test_list="$2"
+  local test_files=()
+  local path
+  while IFS= read -r path; do
+    [[ -n "$path" ]] && test_files+=("${path#apps/server/}")
+  done <<<"$changed_test_list"
+  run_server_tests focused "$performance_gate" "${test_files[@]}"
+}
+
+check_shell_syntax() {
+  local changed_file_list="$1"
+  local shell_files=()
+  local path
+  while IFS= read -r path; do
+    [[ "$path" == *.sh && -f "$repo_root/$path" ]] && shell_files+=("$path")
+  done < <(
+    { git -C "$repo_root" ls-files '*.sh'; printf '%s\n' "$changed_file_list"; } \
+      | LC_ALL=C sort -u
+  )
+  for path in "${shell_files[@]}"; do
+    bash -n "$path" || return $?
+  done
+}
+
+check_diff_whitespace() {
+  local changed_file_list="${1:-}"
+  local merge_base
+  local path
+  local status
+  if merge_base="$(merge_base_commit)"; then
+    git -C "$repo_root" diff --check "$merge_base" -- || return $?
+  else
+    git -C "$repo_root" diff --check || return $?
+  fi
+  while IFS= read -r path; do
+    [[ -n "$path" && -f "$repo_root/$path" ]] || continue
+    if git -C "$repo_root" ls-files --error-unmatch -- "$path" >/dev/null 2>&1; then
+      continue
+    fi
+    git -C "$repo_root" diff --no-index --check -- /dev/null "$path"
+    status=$?
+    [[ "$status" -le 1 ]] || return "$status"
+  done <<<"$changed_file_list"
 }
 
 main() (
@@ -153,14 +197,21 @@ main() (
   local pipeline_completed
   local pipeline_duration
   local changed_list=""
+  local changed_server_tests=""
   local has_server=0
+  local needs_server_unit=0
   local has_macos=0
+  local has_infra=0
   local has_docs=0
-  local requires_full=0
+  local has_unknown=0
+  local coverage="complete"
+  local next_gate="unselected"
   local performance_required=0
+  local performance_covered_by_changed_tests=0
   local performance_gate="report"
   local path
   local classification
+  local performance_proof
   pipeline_started="$(date +%s)"
 
   finish_ci() {
@@ -169,11 +220,13 @@ main() (
     pipeline_completed="$(date +%s)"
     pipeline_duration=$((pipeline_completed - pipeline_started))
     if [[ "$exit_status" -eq 0 && "$pipeline_result" == "pass" ]]; then
-      printf '\nci_local_result=pass mode=%s requested_mode=%s duration_seconds=%s\n' \
-        "$effective_mode" "$requested_mode" "$pipeline_duration"
+      [[ "$requested_mode" == "full" ]] && next_gate="release_ready"
+      printf '\nci_local_result=pass mode=%s requested_mode=%s duration_seconds=%s next_gate=%s\n' \
+        "$effective_mode" "$requested_mode" "$pipeline_duration" "$next_gate"
     else
-      printf '\nci_local_result=fail mode=%s requested_mode=%s duration_seconds=%s\n' \
-        "$effective_mode" "$requested_mode" "$pipeline_duration" >&2
+      [[ "$requested_mode" == "full" ]] && next_gate="full_failed"
+      printf '\nci_local_result=fail mode=%s requested_mode=%s duration_seconds=%s next_gate=%s\n' \
+        "$effective_mode" "$requested_mode" "$pipeline_duration" "$next_gate" >&2
     fi
     exit "$exit_status"
   }
@@ -206,13 +259,16 @@ main() (
   esac
 
   cd "$repo_root" || return 1
+  performance_proof="$(calendar_performance_test_path)" || return 1
 
   if ! changed_list="$(changed_files)"; then
     if [[ "$requested_mode" == "full" ]]; then
       performance_required=1
     else
-      requires_full=1
+      has_unknown=1
+      coverage="partial"
       selection_reason="diff_unavailable"
+      printf 'ci_fast_coverage reason=%s\n' "$selection_reason"
     fi
   elif [[ -n "$changed_list" ]]; then
     while IFS= read -r path; do
@@ -220,9 +276,9 @@ main() (
       if performance_path "$path"; then
         performance_required=1
         if [[ "$requested_mode" == "fast" ]]; then
-          requires_full=1
-          selection_reason="performance_path_requires_full"
-          printf 'ci_fast_escalation reason=%s path=%s\n' "$selection_reason" "$path"
+          has_server=1
+          selection_reason="performance_path_requires_focused_proof"
+          printf 'ci_fast_coverage reason=%s path=%s\n' "$selection_reason" "$path"
         fi
       fi
       if [[ "$requested_mode" == "full" ]]; then
@@ -230,13 +286,52 @@ main() (
       fi
       classification="$(classify_path "$path")"
       case "$classification" in
-        server) has_server=1 ;;
-        macos) has_macos=1 ;;
+        server)
+          has_server=1
+          if ! bounded_server_path "$path"; then
+            coverage="partial"
+            selection_reason="high_risk_or_shared_path"
+            printf 'ci_fast_coverage reason=%s path=%s\n' "$selection_reason" "$path"
+          fi
+          case "$path" in
+            apps/server/tests/contract/*.py|apps/server/tests/integration/*.py)
+              if [[ -f "$repo_root/$path" ]]; then
+                changed_server_tests="${changed_server_tests}${changed_server_tests:+$'\n'}${path}"
+                [[ "$path" == "apps/server/tests/integration/test_calendar_auto_context_match.py" ]] \
+                  && performance_covered_by_changed_tests=1
+              else
+                needs_server_unit=1
+                selection_reason="removed_server_test_path"
+                printf 'ci_fast_coverage reason=%s path=%s\n' "$selection_reason" "$path"
+              fi
+              ;;
+            *) needs_server_unit=1 ;;
+          esac
+          ;;
+        macos)
+          has_macos=1
+          coverage="partial"
+          selection_reason="high_risk_or_shared_path"
+          printf 'ci_fast_coverage reason=%s path=%s\n' "$selection_reason" "$path"
+          ;;
+        infra)
+          has_infra=1
+          coverage="partial"
+          selection_reason="high_risk_or_shared_path"
+          printf 'ci_fast_coverage reason=%s path=%s\n' "$selection_reason" "$path"
+          ;;
+        governance)
+          has_docs=1
+          coverage="partial"
+          selection_reason="high_risk_or_shared_path"
+          printf 'ci_fast_coverage reason=%s path=%s\n' "$selection_reason" "$path"
+          ;;
         docs) has_docs=1 ;;
-        full)
-          requires_full=1
-          selection_reason="high_risk_or_unknown_path"
-          printf 'ci_fast_escalation reason=%s path=%s\n' "$selection_reason" "$path"
+        unknown)
+          has_unknown=1
+          coverage="partial"
+          selection_reason="unknown_path"
+          printf 'ci_fast_coverage reason=%s path=%s\n' "$selection_reason" "$path"
           ;;
       esac
     done <<<"$changed_list"
@@ -255,9 +350,9 @@ main() (
     required)
       performance_required=1
       if [[ "$requested_mode" == "fast" ]]; then
-        requires_full=1
-        selection_reason="explicit_performance_requires_full"
-        printf 'ci_fast_escalation reason=%s\n' "$selection_reason"
+        has_server=1
+        selection_reason="explicit_performance_requires_focused_proof"
+        printf 'ci_fast_coverage reason=%s\n' "$selection_reason"
       fi
       ;;
     report) ;;
@@ -267,33 +362,46 @@ main() (
       ;;
   esac
 
+  if [[ "$requested_mode" == "fast" && "$performance_required" -eq 1 && \
+        "$performance_covered_by_changed_tests" -eq 0 && \
+        ! -f "$repo_root/apps/server/$performance_proof" ]]; then
+    coverage="partial"
+    selection_reason="performance_proof_unavailable"
+    printf 'ci_fast_coverage reason=%s path=%s\n' "$selection_reason" "$performance_proof"
+  fi
+
   if [[ "$requested_mode" == "full" ]]; then
     effective_mode="full"
     components="full"
+    next_gate="full_in_progress"
   else
+    effective_mode="fast"
+    [[ "$coverage" == "complete" ]] && coverage="bounded"
+    next_gate="full_before_release"
     if [[ -z "$changed_list" && "$selection_reason" != "diff_unavailable" ]]; then
       has_docs=1
     fi
-    if [[ "$requires_full" -eq 1 ]]; then
-      effective_mode="full"
-      components="full"
-    else
-      effective_mode="fast"
-      [[ "$selection_reason" == "explicit_full" ]] && selection_reason="component_diff"
-      [[ "$has_server" -eq 1 ]] && components="server"
-      if [[ "$has_macos" -eq 1 ]]; then
-        [[ "$components" == "none" ]] && components="macos" || components="$components,macos"
-      fi
-      if [[ "$has_docs" -eq 1 ]]; then
-        [[ "$components" == "none" ]] && components="docs" || components="$components,docs"
-      fi
+    [[ "$selection_reason" == "explicit_full" ]] && selection_reason="component_diff"
+    [[ "$has_server" -eq 1 ]] && components="server"
+    if [[ "$has_macos" -eq 1 ]]; then
+      [[ "$components" == "none" ]] && components="macos" || components="$components,macos"
+    fi
+    if [[ "$has_infra" -eq 1 ]]; then
+      [[ "$components" == "none" ]] && components="infra" || components="$components,infra"
+    fi
+    if [[ "$has_docs" -eq 1 ]]; then
+      [[ "$components" == "none" ]] && components="docs" || components="$components,docs"
+    fi
+    if [[ "$has_unknown" -eq 1 ]]; then
+      [[ "$components" == "none" ]] && components="unknown" || components="$components,unknown"
     fi
   fi
 
   [[ "$performance_required" -eq 1 ]] && performance_gate="required"
 
-  printf 'ci_lane requested=%s effective=%s components=%s reason=%s performance_gate=%s\n' \
-    "$requested_mode" "$effective_mode" "$components" "$selection_reason" "$performance_gate"
+  printf 'ci_lane requested=%s effective=%s components=%s reason=%s performance_gate=%s coverage=%s next_gate=%s\n' \
+    "$requested_mode" "$effective_mode" "$components" "$selection_reason" "$performance_gate" \
+    "$coverage" "$next_gate"
 
   run_step "Spec Kit governance" python3 scripts/check_spec_kit_governance.py || return $?
 
@@ -325,10 +433,32 @@ main() (
       fi
     fi
     if [[ "$has_server" -eq 1 ]]; then
-      run_step "server tests" run_server_tests fast "$performance_gate" || return $?
+      if [[ "$needs_server_unit" -eq 1 ]]; then
+        run_step "server tests" run_server_tests fast report || return $?
+      fi
+      if [[ -n "$changed_server_tests" ]]; then
+        run_step "changed server tests" run_changed_server_tests "$performance_gate" \
+          "$changed_server_tests" || return $?
+      fi
+      if [[ "$performance_required" -eq 1 && "$performance_covered_by_changed_tests" -eq 0 && \
+            -f "$repo_root/apps/server/$performance_proof" ]]; then
+        run_step "calendar performance proof" run_server_tests focused required \
+          "$performance_proof" -m serial_performance || return $?
+      fi
       run_step "server lint" bash -c "cd apps/server && PYTHONPATH=src uv run --extra dev ruff check ." || return $?
       run_step "python compile" python3 -m compileall -q apps/server/src apps/server/tests apps/server/scripts || return $?
     fi
+    if [[ "$has_infra" -eq 1 ]]; then
+      run_step "shell syntax" check_shell_syntax "$changed_list" || return $?
+      run_step "CI contracts" bash -c "cd apps/server && PYTHONPATH=src uv run --extra dev pytest -q \
+        tests/contract/test_ci_cd_contract.py \
+        tests/contract/test_local_postgres_test_runner.py" || return $?
+      run_step "production compose config" bash -c \
+        'docker compose -f infra/docker-compose.yml config >/dev/null' || return $?
+      run_step "deployment evidence scan" \
+        infra/scripts/scan-deployment-evidence.sh docs/deployments/2brain-rec || return $?
+    fi
+    run_step "diff whitespace check" check_diff_whitespace "$changed_list" || return $?
     run_step "active CI documentation consistency" check_active_docs || return $?
   fi
 

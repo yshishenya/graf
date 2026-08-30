@@ -49,10 +49,19 @@
 - [X] T027 Reconcile the CD dry-run and active docs against executable output
 - [X] T028 Perform final spec/plan/tasks/code/docs/contract analysis and preserve remote production gates
 
+## Phase 7: Production feedback — fast без скрытого full
+
+- [X] T029 [US1] Add failing fast-invariant scenarios for high-risk server, changed contract/integration tests, infrastructure, unknown and unavailable diffs in `apps/server/tests/contract/test_ci_cd_contract.py`
+- [X] T030 [US1] Keep every explicit fast invocation bounded, run changed server test files and infrastructure safety checks, and emit coverage/next-gate truth in `infra/scripts/ci-local.sh`
+- [X] T031 [P] [US4] Reconcile the no-escalation contract in `docs/agent-guidance/release-and-validation.md`, `infra/scripts/README.md`, `docs/current-product-status.md` and `CHANGELOG.md`
+- [X] T032 [US3] Reconcile generated registry metadata with the bootstrap lock, preserve the deployment-evidence scanner, handle a removed calendar performance proof, classify governance docs as partial, include untracked files in whitespace checks, parse every shell script independently, emit release readiness only after a passing full, run the focused contract/static checks and a real infrastructure-diff `infra/scripts/ci-local.sh --fast`, record duration/components, re-run analyze, then preserve the separate full-only release/deploy gate
+
 ## Dependencies and strategy
 
 - T001–T006 establish the contract before behavior changes.
 - US1 precedes US2; US3 and US4 reconcile the final operator surface.
+- T029 must fail before T030; T031 is parallel to implementation after the
+  clarified contract; T032 closes the follow-up only after code and docs agree.
 - Focused checks and fast feedback precede the frozen release candidate.
 - The normal release path does not run preflight full: after review and merge,
   `cd-remote.sh --execute` owns the one authoritative full on synchronized

@@ -49,6 +49,70 @@
 - Опубликован и установлен checksummed `speckit-bootstrap v0.9.7`; GRAF lock
   обновлён из immutable release asset без продуктового release/deploy.
 
+## [2026.08.31.2] - 2026-08-31
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- Явный `infra/scripts/ci-local.sh --fast` больше не переключается скрыто на
+  полный CI для API/auth, contract/integration, infrastructure, unknown или
+  unavailable diff.
+- Generated extension/workflow registry синхронизирован с bootstrap lock,
+  поэтому обязательный frozen governance doctor больше не падает на заведомо
+  совпадающих файлах.
+- Fast сохраняет secret/verdict scan для deployment evidence, не передаёт
+  удалённый calendar performance test в pytest, а full сообщает
+  `release_ready` только после успешного завершения.
+- Governance-документы честно помечаются как partial coverage, а whitespace
+  gate проверяет также новые untracked файлы из classified diff.
+- Shell syntax gate запускает `bash -n` отдельно для каждого script, поэтому
+  ошибка во втором и последующих файлах больше не пропускается.
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- CI/CD runbook, product status и PR evidence приведены к фактическому bounded
+  fast-контракту и отдельному exact-SHA full gate перед release.
+
+### Операции
+- Fast lane запускает ограниченные проверки затронутых компонентов, focused
+  изменённые server tests и честно сообщает coverage/следующий release gate;
+  production execute по-прежнему владеет одним authoritative full.
+
+## [2026.08.31.1] - 2026-08-31
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- Оптимизация и production-генерация итогов теперь используют проверенный
+  route binding LiteLLM и сохраняют его в каждом snapshot/candidate, чтобы
+  все judge- и model-вызовы шли через согласованный маршрут `gpt-5.6-luna`.
+
+### Исправлено
+- Переключение формата итогов теперь проверяет текущую версию выбранного
+  type-slot, поэтому новый формат не получает ложный конфликт с версией
+  формата «Авто».
+- После публикации выбранного формата detail-встреча сохраняет его в URL и
+  после перезагрузки снова показывает тот же type-slot и его содержимое.
+- Компиляция chat-промптов больше не изменяет похожие на placeholders фрагменты
+  расшифровки; production executor читает только файл секрета
+  `TWOBRAIN_LITELLM_API_KEY_FILE`, а фиксированный лимит judge completion удалён.
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
 ## [2026.08.30.1] - 2026-08-30
 
 

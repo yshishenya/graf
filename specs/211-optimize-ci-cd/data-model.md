@@ -6,10 +6,15 @@ No application or production database changes are required. These are local oper
 
 - `name`: `fast` or `full`; focused validation remains a direct feature command.
 - `requested_name`: explicit operator input.
-- `effective_name`: selected lane after conservative escalation.
-- `components`: unique ordered set of `docs`, `server`, `macos`, or `full`.
+- `effective_name`: identical to the explicit operator request; fast never escalates.
+- `components`: unique ordered set of `docs`, `server`, `macos`, `infra`, `unknown`, or `full`.
 - `changed_paths`: metadata-safe repository-relative paths used for classification.
-- `reason`: stable reason code for selection or escalation.
+- `reason`: stable reason code for selection or coverage limitation.
+- `coverage`: `bounded` for reviewed low-risk component fast, `partial` for
+  shared/high-risk/unknown/unresolvable fast, or `complete` for full.
+- `next_gate`: `full_before_release` for fast, `full_in_progress` while full is
+  running, `release_ready` only after a passing full, or `full_failed` after a
+  failing full.
 - `result`: `pass` or `fail`.
 - `started_at`, `completed_at`, `duration_seconds`.
 - `stages`: ordered StageResult list.
@@ -17,7 +22,10 @@ No application or production database changes are required. These are local oper
 Validation rules:
 
 - Missing requested lane is invalid.
-- Unknown/shared/high-risk/unresolvable paths require `effective_name=full`.
+- `requested_name=fast` always requires `effective_name=fast` and
+  `next_gate=full_before_release`.
+- Unknown/shared/high-risk/unresolvable paths add an explicit partial-coverage
+  reason and never claim full evidence.
 - A result is pass only when every hard stage passes.
 
 ## StageResult
