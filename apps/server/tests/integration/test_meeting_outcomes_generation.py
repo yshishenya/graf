@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 from datetime import UTC, datetime, timedelta
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from pydantic import ValidationError
@@ -33,6 +33,7 @@ from twobrain_rec_server.outcomes.ai_service import (
     ensure_automatic_summary_candidate,
     publish_model_generated_outcome,
 )
+from twobrain_rec_server.outcomes.dispatch import reconcile_orphaned_summary_candidates
 from twobrain_rec_server.processing.store import ProcessingLifecycleBlocked
 
 
@@ -434,6 +435,71 @@ def test_automatic_candidate_uses_exact_workspace_builtin_default_once(client) -
     assert status == "queued"
     assert attempt_count == intent_count == 1
     assert intent_state == "created"
+
+
+def test_orphaned_revision_candidate_is_repaired_and_dispatched(client) -> None:
+    """A committed pre-dispatch placeholder must not strand a meeting forever."""
+
+    meeting_id = create_outcome_ready_meeting(client, "orphaned-summary-candidate")
+
+    async def reconcile() -> tuple[int, str, str, str, str]:
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.get(Meeting, meeting_id)
+            result = await db.scalar(
+                select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
+            )
+            assert meeting is not None and result is not None
+            orphan = MeetingOutcomeSet(
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                media_revision_id=result.media_revision_id,
+                processing_result_id=result.id,
+                candidate_id=uuid4(),
+                status="generating",
+                generator_kind="deterministic_extractive",
+                generator_version="outcomes-extractive-v1",
+                source_result_hash=result.source_result_hash,
+                revision_state="candidate",
+            )
+            db.add(orphan)
+            await db.flush()
+
+            repaired = await reconcile_orphaned_summary_candidates(db, limit=10)
+            attempt = await db.scalar(
+                select(MeetingOutcomeGenerationAttempt).where(
+                    MeetingOutcomeGenerationAttempt.meeting_id == meeting_id,
+                    MeetingOutcomeGenerationAttempt.provider_kind == "litellm",
+                )
+            )
+            slot = await db.scalar(
+                select(MeetingSummarySlot).where(
+                    MeetingSummarySlot.meeting_id == meeting_id,
+                    MeetingSummarySlot.template_key == "graf-auto-v1",
+                )
+            )
+            refreshed_orphan = await db.get(MeetingOutcomeSet, orphan.id)
+            dispatch = await db.scalar(
+                select(DispatchIntent).where(
+                    DispatchIntent.meeting_id == meeting_id,
+                    DispatchIntent.candidate_id == attempt.candidate_id,
+                )
+            )
+            assert attempt is not None and slot is not None
+            assert refreshed_orphan is not None and dispatch is not None
+            await db.refresh(attempt)
+            await db.refresh(refreshed_orphan)
+            await db.refresh(dispatch)
+            result = (
+                repaired,
+                attempt.status,
+                refreshed_orphan.revision_state or "",
+                refreshed_orphan.status,
+                dispatch.state,
+            )
+            await db.rollback()
+            return result
+
+    assert asyncio.run(reconcile()) == (1, "queued", "stale", "blocked", "created")
 
 
 def test_automatic_replay_replaces_an_attempt_not_current_in_its_slot(client) -> None:

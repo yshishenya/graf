@@ -36,6 +36,10 @@
 - Компиляция chat-промптов больше не изменяет похожие на placeholders фрагменты
   расшифровки; production executor читает только файл секрета
   `TWOBRAIN_LITELLM_API_KEY_FILE`, а фиксированный лимит judge completion удалён.
+- В maintenance worker добавлено восстановление импортированных итогов, у которых
+  сохранилась пустая AI-заготовка, но не создались попытка генерации и dispatch;
+  восстановление идемпотентно создаёт штатный candidate и повторно ставит его в
+  очередь, а старую заготовку помечает устаревшей.
 
 ### Безопасность
 - Generated preset registry, template paths и plan paths теперь fail closed
