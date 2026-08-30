@@ -300,14 +300,30 @@ async def test_scheduled_renewal_uses_persisted_invoice_amount(
 
 
 @pytest.mark.asyncio
-async def test_checkout_page_blocks_a_persisted_renewal_operation(
+@pytest.mark.parametrize(
+    ("checkout_enabled", "emergency_stop", "billing_actor_user_id", "expected_url"),
+    (
+        (True, False, str(UUID(int=1)), "https://yookassa.test/checkout/existing-payment"),
+        (False, False, str(UUID(int=1)), None),
+        (True, True, str(UUID(int=1)), None),
+        (True, False, str(UUID(int=4)), None),
+    ),
+)
+async def test_checkout_page_only_offers_authorized_persisted_continuation(
     monkeypatch: pytest.MonkeyPatch,
+    checkout_enabled: bool,
+    emergency_stop: bool,
+    billing_actor_user_id: str,
+    expected_url: str | None,
 ) -> None:
     principal = SimpleNamespace(user_id=UUID(int=1), session_id=None, auth_via_session=False)
     blocker = SimpleNamespace(
         kind="initial_checkout",
         state="provider_pending",
-        request_snapshot={"confirmation_url": "https://yookassa.test/checkout/existing-payment"},
+        request_snapshot={
+            "confirmation_url": "https://yookassa.test/checkout/existing-payment",
+            "billing_actor_user_id": billing_actor_user_id,
+        },
     )
 
     class FakeSession:
@@ -346,7 +362,12 @@ async def test_checkout_page_blocks_a_persisted_renewal_operation(
             "headers": [],
             "query_string": b"cycle=month",
             "app": SimpleNamespace(
-                state=SimpleNamespace(settings=SimpleNamespace(billing_checkout_enabled=True))
+                state=SimpleNamespace(
+                    settings=SimpleNamespace(
+                        billing_checkout_enabled=checkout_enabled,
+                        billing_emergency_stop=emergency_stop,
+                    )
+                )
             ),
         }
     )
@@ -361,9 +382,7 @@ async def test_checkout_page_blocks_a_persisted_renewal_operation(
     assert response.status_code == 200
     assert captured["checkout_result"] == "pending"
     assert captured["checkout_blocked"] is True
-    assert captured["checkout_continuation_url"] == (
-        "https://yookassa.test/checkout/existing-payment"
-    )
+    assert captured["checkout_continuation_url"] == expected_url
 
 
 def test_billing_keeps_legacy_account_alias_on_canonical_surface() -> None:

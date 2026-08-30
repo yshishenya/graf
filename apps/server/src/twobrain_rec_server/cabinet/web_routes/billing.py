@@ -1935,6 +1935,9 @@ async def activate_billing_trial(
         return RedirectResponse("/billing?trial=unavailable", status_code=303)
     if confirmation != "start_trial":
         return RedirectResponse("/billing?trial=confirmation_required", status_code=303)
+    identity = await db.scalar(
+        select(UserIdentity).where(UserIdentity.id == principal.user_id).with_for_update()
+    )
     await lock_storage_workspace(db, tenant_scope.workspace_id)
     eligibility_state = await _trial_eligibility_state(
         db,
@@ -1970,9 +1973,6 @@ async def activate_billing_trial(
     )
     if blocking_checkout is not None:
         return RedirectResponse("/billing?trial=pending", status_code=303)
-    identity = await db.scalar(
-        select(UserIdentity).where(UserIdentity.id == principal.user_id).with_for_update()
-    )
     already_used = await trial_used_by_lineage(db, user_id=principal.user_id)
     subscription = await db.scalar(
         select(WorkspaceSubscription)
@@ -2622,6 +2622,10 @@ async def billing_checkout_page(
         if blocking_operation is not None
         and blocking_operation.kind == "initial_checkout"
         and blocking_operation.state == "provider_pending"
+        and blocking_operation.request_snapshot.get("billing_actor_user_id")
+        == str(principal.user_id)
+        and settings.billing_checkout_enabled
+        and not settings.billing_emergency_stop
         else None
     )
     checkout_continuation_url = (

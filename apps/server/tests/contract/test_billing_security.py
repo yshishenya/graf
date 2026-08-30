@@ -75,6 +75,11 @@ def test_checkout_persists_operation_before_invoice_foreign_key() -> None:
 def test_trial_serializes_with_checkout_before_checking_payment_operations() -> None:
     source = inspect.getsource(activate_billing_trial)
 
+    assert source.index("select(UserIdentity)") < source.index("lock_storage_workspace")
+    identity_guard = source[
+        source.index("select(UserIdentity)") : source.index("lock_storage_workspace")
+    ]
+    assert ".with_for_update()" in identity_guard
     assert source.index("select(Workspace)") < source.index("_blocking_payment_operation_query")
     workspace_guard = source[
         source.index("select(Workspace)") : source.index("_blocking_payment_operation_query")
