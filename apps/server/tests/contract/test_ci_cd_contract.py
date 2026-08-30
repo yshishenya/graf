@@ -54,6 +54,7 @@ main "$2"
         str(LOCAL_CI),
         mode,
         env={
+            "GRAF_PERFORMANCE_GATE": "auto",
             "GRAF_TEST_CHANGED_FILES": changed_files,
             "GRAF_TEST_FAIL_STAGE": fail_stage,
             **(env or {}),
