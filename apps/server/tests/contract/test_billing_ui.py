@@ -4,7 +4,6 @@ from uuid import UUID
 
 import pytest
 from starlette.requests import Request
-
 from twobrain_rec_server.billing.catalog import plan_descriptor
 from twobrain_rec_server.billing.receipts import ReceiptState, receipt_label
 from twobrain_rec_server.billing.usage import format_duration
