@@ -498,7 +498,7 @@ def test_cabinet_ready_and_processing_web_detail_shells(client) -> None:
     assert "Все форматы…" in ready.text
     assert "Кратко" in ready.text
     assert "Действия" in ready.text
-    assert "Итоги отложены" in ready.text
+    assert "Итоги не запрошены" in ready.text
     assert "AI notes are reserved for a later feature" not in ready.text
     assert "feature 016" not in ready.text.lower()
     assert "feature:016" not in ready.text.lower()
