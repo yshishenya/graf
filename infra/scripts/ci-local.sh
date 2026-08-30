@@ -44,6 +44,19 @@ performance_path() {
   esac
 }
 
+bounded_server_path() {
+  case "$1" in
+    apps/server/src/twobrain_rec_server/calendar/*|\
+    apps/server/src/twobrain_rec_server/domain/*|\
+    apps/server/tests/unit/*)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 merge_base_commit() {
   local base_ref="${GRAF_CI_BASE_REF:-origin/master}"
   git -C "$repo_root" rev-parse --verify "$base_ref^{commit}" >/dev/null 2>&1 || return 1
@@ -130,11 +143,15 @@ run_changed_server_tests() {
 }
 
 check_shell_syntax() {
+  local changed_file_list="$1"
   local shell_files=()
   local path
   while IFS= read -r path; do
-    [[ "$path" == *.sh ]] && shell_files+=("$path")
-  done < <(git ls-files '*.sh')
+    [[ "$path" == *.sh && -f "$repo_root/$path" ]] && shell_files+=("$path")
+  done < <(
+    { git -C "$repo_root" ls-files '*.sh'; printf '%s\n' "$changed_file_list"; } \
+      | LC_ALL=C sort -u
+  )
   [[ "${#shell_files[@]}" -eq 0 ]] || bash -n "${shell_files[@]}"
 }
 
@@ -245,17 +262,38 @@ main() (
       case "$classification" in
         server)
           has_server=1
+          if ! bounded_server_path "$path"; then
+            coverage="partial"
+            selection_reason="high_risk_or_shared_path"
+            printf 'ci_fast_coverage reason=%s path=%s\n' "$selection_reason" "$path"
+          fi
           case "$path" in
             apps/server/tests/contract/*.py|apps/server/tests/integration/*.py)
-              changed_server_tests="${changed_server_tests}${changed_server_tests:+$'\n'}${path}"
-              [[ "$path" == "apps/server/tests/integration/test_calendar_auto_context_match.py" ]] \
-                && performance_covered_by_changed_tests=1
+              if [[ -f "$repo_root/$path" ]]; then
+                changed_server_tests="${changed_server_tests}${changed_server_tests:+$'\n'}${path}"
+                [[ "$path" == "apps/server/tests/integration/test_calendar_auto_context_match.py" ]] \
+                  && performance_covered_by_changed_tests=1
+              else
+                needs_server_unit=1
+                selection_reason="removed_server_test_path"
+                printf 'ci_fast_coverage reason=%s path=%s\n' "$selection_reason" "$path"
+              fi
               ;;
             *) needs_server_unit=1 ;;
           esac
           ;;
-        macos) has_macos=1 ;;
-        infra) has_infra=1 ;;
+        macos)
+          has_macos=1
+          coverage="partial"
+          selection_reason="high_risk_or_shared_path"
+          printf 'ci_fast_coverage reason=%s path=%s\n' "$selection_reason" "$path"
+          ;;
+        infra)
+          has_infra=1
+          coverage="partial"
+          selection_reason="high_risk_or_shared_path"
+          printf 'ci_fast_coverage reason=%s path=%s\n' "$selection_reason" "$path"
+          ;;
         docs) has_docs=1 ;;
         unknown)
           has_unknown=1
@@ -369,7 +407,7 @@ main() (
       run_step "python compile" python3 -m compileall -q apps/server/src apps/server/tests apps/server/scripts || return $?
     fi
     if [[ "$has_infra" -eq 1 ]]; then
-      run_step "shell syntax" check_shell_syntax || return $?
+      run_step "shell syntax" check_shell_syntax "$changed_list" || return $?
       run_step "CI contracts" bash -c "cd apps/server && PYTHONPATH=src uv run --extra dev pytest -q \
         tests/contract/test_ci_cd_contract.py \
         tests/contract/test_local_postgres_test_runner.py" || return $?

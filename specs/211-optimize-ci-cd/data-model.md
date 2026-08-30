@@ -10,8 +10,8 @@ No application or production database changes are required. These are local oper
 - `components`: unique ordered set of `docs`, `server`, `macos`, `infra`, `unknown`, or `full`.
 - `changed_paths`: metadata-safe repository-relative paths used for classification.
 - `reason`: stable reason code for selection or coverage limitation.
-- `coverage`: `bounded` for known-component fast, `partial` for
-  unknown/unresolvable fast, or `complete` for full.
+- `coverage`: `bounded` for reviewed low-risk component fast, `partial` for
+  shared/high-risk/unknown/unresolvable fast, or `complete` for full.
 - `next_gate`: `full_before_release` for fast or `release_ready` after full.
 - `result`: `pass` or `fail`.
 - `started_at`, `completed_at`, `duration_seconds`.

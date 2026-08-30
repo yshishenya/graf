@@ -20,7 +20,8 @@ Fast classification is bounded and truthful:
 - `apps/macos/**` → macOS build/test/contracts on Darwin plus the legacy architecture guard.
 - infrastructure and CI/release tooling → bounded syntax, contract and configuration checks.
 - ordinary documentation/spec text → documentation consistency.
-- unknown path, missing base or diff failure → common safety checks plus
+- shared/high-risk/unknown path, missing base or diff failure → bounded
+  component/common safety checks plus
   `coverage=partial next_gate=full_before_release`.
 - multiple known components execute their union once.
 - calendar performance paths run the focused required performance proof without

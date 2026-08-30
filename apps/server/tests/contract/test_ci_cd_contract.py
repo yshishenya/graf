@@ -162,6 +162,24 @@ def test_unknown_and_unavailable_diffs_report_partial_fast_coverage() -> None:
     assert "reason=diff_unavailable" in unavailable.stdout
 
 
+@pytest.mark.parametrize(
+    "changed_file",
+    [
+        "apps/server/src/twobrain_rec_server/api/app.py",
+        "apps/server/src/twobrain_rec_server/auth/sessions.py",
+        "apps/macos/Sources/App.swift",
+        "infra/scripts/ci-local.sh",
+    ],
+)
+def test_high_risk_and_shared_diffs_report_partial_fast_coverage(changed_file: str) -> None:
+    result = run_stubbed_ci(changed_file, "--fast")
+
+    assert result.returncode == 0, result.stdout
+    assert "effective=fast" in result.stdout
+    assert "coverage=partial next_gate=full_before_release" in result.stdout
+    assert "reason=high_risk_or_shared_path" in result.stdout
+
+
 def test_changed_contract_and_integration_tests_run_focused_once() -> None:
     result = run_stubbed_ci(
         "apps/server/tests/contract/test_ci_cd_contract.py\n"
@@ -173,6 +191,17 @@ def test_changed_contract_and_integration_tests_run_focused_once() -> None:
     assert result.stdout.count("ci_stage=changed server tests status=pass") == 1
     assert "ci_stage=server tests status=pass" not in result.stdout
     assert "effective=fast components=server" in result.stdout
+
+
+def test_removed_server_test_uses_bounded_unit_fallback() -> None:
+    result = run_stubbed_ci("apps/server/tests/contract/test_removed.py", "--fast")
+
+    assert result.returncode == 0, result.stdout
+    assert "reason=removed_server_test_path" in result.stdout
+    assert "effective=fast components=server" in result.stdout
+    assert "coverage=partial next_gate=full_before_release" in result.stdout
+    assert "ci_stage=server tests status=pass" in result.stdout
+    assert "ci_stage=changed server tests status=pass" not in result.stdout
 
 
 def test_explicit_full_requires_related_performance_gate() -> None:
@@ -240,6 +269,26 @@ def test_whitespace_check_covers_commits_since_the_merge_base(tmp_path: Path) ->
 
     assert result.returncode != 0
     assert "trailing whitespace" in result.stdout
+
+
+def test_shell_syntax_check_includes_untracked_changed_scripts(tmp_path: Path) -> None:
+    script_path = tmp_path / "infra/scripts/new-check.sh"
+    script_path.parent.mkdir(parents=True)
+    script_path.write_text("if then\n", encoding="utf-8")
+    run("git", "init", "-q", cwd=tmp_path)
+
+    result = run(
+        "bash",
+        "-c",
+        'source "$1"; repo_root="$2"; cd "$repo_root"; check_shell_syntax "$3"',
+        "contract",
+        str(LOCAL_CI),
+        str(tmp_path),
+        "infra/scripts/new-check.sh",
+    )
+
+    assert result.returncode != 0
+    assert "syntax error" in result.stdout
 
 
 def test_fast_calendar_lane_runs_bounded_required_performance_proof() -> None:

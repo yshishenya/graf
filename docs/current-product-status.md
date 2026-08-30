@@ -7,9 +7,9 @@ Date: 2026-08-31
 - Локальный CI требует явный `--fast` или `--full`. Fast lane оставляет
   ограниченные component checks для server, macOS, infrastructure/tooling и
   документации; изменённые contract/integration tests запускаются focused.
-  Calendar performance получает focused required proof. High-risk, unknown и
-  unavailable diff больше не меняют явный fast на full: они честно сообщают
-  `coverage=partial` и `next_gate=full_before_release`.
+  Calendar performance получает focused required proof. Shared/high-risk,
+  unknown и unavailable diff больше не меняют явный fast на full: они честно
+  сообщают `coverage=partial` и `next_gate=full_before_release`.
 - `cd-remote.sh --execute` сохраняет clean-tree, remote-sync, exact-SHA и все
   production gates, затем запускает один authoritative full до remote действий.
   Обычный release path не делает отдельный preflight full; локальный receipt
