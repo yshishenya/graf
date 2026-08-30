@@ -711,7 +711,7 @@ async def mark_meeting_default_slot(
             raise SummarySlotDefaultConflict("summary_default_conflict")
         return existing
 
-    return await ensure_summary_slot(
+    slot = await ensure_summary_slot(
         db,
         workspace_id=workspace_id,
         meeting_id=meeting_id,
@@ -721,6 +721,13 @@ async def mark_meeting_default_slot(
         default_resolution_version=resolution_version,
         default_resolved_at=resolved_at,
     )
+    if not slot.is_meeting_default:
+        slot.is_meeting_default = True
+        slot.default_resolution_source = resolution_source
+        slot.default_resolution_version = resolution_version
+        slot.default_resolved_at = resolved_at
+        advance_summary_slot_state_version(slot)
+    return slot
 
 
 async def load_egress_default_outcome(
