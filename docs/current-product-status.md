@@ -1,6 +1,33 @@
 # Текущий статус продукта
 
-Date: 2026-08-25
+Date: 2026-08-30
+
+## Implementation update (2026-08-30) — Feature 211 CI/CD optimization
+
+- Локальный CI требует явный `--fast` или `--full`. Fast lane оставляет
+  component checks только для server unit tests, reviewed domain source, macOS
+  и обычной документации; calendar performance, high-risk backend/API,
+  deployment evidence и неизвестные пути fail-closed расширяются до full.
+- `cd-remote.sh --execute` сохраняет clean-tree, remote-sync, exact-SHA и все
+  production gates, затем запускает один authoritative full до remote действий.
+  Обычный release path не делает отдельный preflight full; локальный receipt
+  удалён, потому что не имеет независимого provenance против того же
+  пользовательского процесса. `--skip-local-ci` остаётся только явным
+  incident-исключением.
+- Функциональные PostgreSQL-проверки и ошибки performance setup/database всегда
+  hard gate. Только p95 threshold становится report-only для несвязанных
+  shared-host runs; calendar paths, controlled run и synchronized-master full
+  требуют его как hard gate.
+- Feature 211 выпущена как `v2026.08.30.1` и была развёрнута на exact SHA
+  `2e7ef275b6fc2e1749201916202870da6d19ef4a`: authoritative full, backup и
+  restore rehearsal, migration/RLS, secrets, readiness, synthetic smoke,
+  cleanup и public health прошли. Metadata-only closeout хранится в
+  [production receipt](deployments/2brain-rec/release-v2026.08.30.1.md).
+- Повторный read-only аудит после следующего release train подтвердил, что
+  текущий production SHA `44e25fccf703d76a485cbe25f156b8561a5206dd`
+  содержит release SHA Feature 211 в своей истории. Worker control прошёл;
+  незавершённых normalization jobs, незавершённых backfill runs и cleanup
+  candidates нет.
 
 ## Release update (2026-08-25) — `v2026.08.25.4`
 

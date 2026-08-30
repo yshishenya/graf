@@ -19,6 +19,35 @@
 ### Исправлено
 - Locked `github-issue-canon` commands больше не создают Python bytecode внутри
   integrity-managed extension tree; повторный frozen doctor остаётся чистым.
+- Переключение формата итогов теперь проверяет текущую версию выбранного
+  type-slot, поэтому новый формат не получает ложный конфликт с версией
+  формата «Авто».
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.08.30.1] - 2026-08-30
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- Локальный CI теперь требует явный `--fast` или `--full`; fast lane выбирает
+  только reviewed low-risk компоненты и fail-closed расширяется до full для
+  high-risk backend/API, deployment evidence, рискованных и неизвестных путей.
+- Production execute после синхронизации `master` запускает один authoritative
+  full на exact SHA; отдельный preflight full в обычном release path больше не
+  нужен.
+
+### Исправлено
+- _Пока нет записей._
 
 ### Безопасность
 - _Пока нет записей._
@@ -26,6 +55,8 @@
 ### Документы
 - Добавлен production-runbook Temporal Web с адресом, границей доступа,
   жизненным циклом Compose и проверками после перезапуска.
+- CI/CD runbook, Spec Kit lanes, PR template и operational README приведены к
+  фактическому контракту fast/full, одному full внутри deploy и performance gate.
 
 ### Операции
 - Зафиксирована эксплуатационная схема Temporal Web: HTTPS + Basic Auth через
@@ -35,6 +66,10 @@
   Spec Kit governance без новых зависимостей и сетевых запросов.
 - GRAF переведён на опубликованные `speckit-bootstrap v0.9.0` и
   `github-issue-canon v0.3.2` с immutable refs и проверенными checksums.
+- Production deploy после exact-SHA sync запускает один authoritative full до
+  remote действий; serial performance остаётся hard gate для calendar matching
+  paths, controlled runs и synchronized-master full, а для несвязанных
+  изменений на shared host только p95 threshold остаётся report-only.
 
 ## [2026.08.29.4] - 2026-08-29
 
@@ -88,6 +123,9 @@
 - Smoke cleanup теперь удаляет workspace-scoped playback backfill runs до удаления synthetic workspace.
 - Smoke cleanup блокирует synthetic workspace на время discovery и удаляет playback backfill runs в tenant-контексте, чтобы RLS и FK не оставляли остатки.
 - Outcome smoke cleanup удаляет workspace-scoped generation-call ledger до synthetic workspace.
+- Запрос обновления итогов теперь подтверждает уже сохранённую попытку (`202`),
+  даже если первый Temporal dispatch временно не удался: пользователь видит
+  честное ожидание и повторную отправку вместо ложной ошибки сервиса.
 
 ### Безопасность
 - _Пока нет записей._

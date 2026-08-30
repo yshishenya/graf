@@ -133,7 +133,9 @@ def test_candidate_ui_keeps_current_notes_without_a_decision_surface() -> None:
     assert "Вариант" in script
     assert 'text: "Использовать"' not in script
     assert 'text: "Оставить текущие"' not in script
-    assert "expected_current_outcome_set_id: currentOutcomeSetId" in script
+    assert "const currentOutcomeSetIdForTemplate = async (template)" in script
+    assert "expected_current_outcome_set_id: expectedCurrentOutcomeSetId" in script
+    assert "await currentOutcomeSetIdForTemplate(template)" in script
     assert "Обновить итоги" in script
     assert "request_intent_id" in script
     assert "manual_refresh" in script
@@ -516,7 +518,7 @@ def test_candidate_list_hides_superseded_accepted_attempts(client) -> None:
     assert str(second_id) in candidate_ids
 
 
-def test_temporal_dispatch_failure_keeps_candidate_retryable_and_current_summary(client) -> None:
+def test_temporal_dispatch_failure_acknowledges_durable_candidate_and_current_summary(client) -> None:
     meeting_id = create_outcome_ready_meeting(client, "temporal-dispatch-retry")
 
     async def generate_baseline():
@@ -548,8 +550,11 @@ def test_temporal_dispatch_failure_keeps_candidate_retryable_and_current_summary
         },
     )
 
-    assert response.status_code == 503
-    assert response.json()["code"] == "summary_dependency_unavailable"
+    assert response.status_code == 202
+    assert response.json()["state"] == "generating"
+    assert response.json()["reason_code"] == "temporary_unavailable"
+    assert response.json()["retryable"] is True
+    assert response.json()["next_action"] == "retry"
 
     async def load_candidate() -> MeetingOutcomeGenerationAttempt | None:
         async with client.app_state["sessionmaker"]() as db:

@@ -88,7 +88,7 @@ third-party asset-provenance review.
 ## Validation and release
 
 Use `release-and-validation.md` for the selected lane and closeout evidence.
-Default anchors are `infra/scripts/ci-local.sh`,
+Default anchors are explicit `infra/scripts/ci-local.sh --fast` / `--full`,
 `infra/scripts/cd-remote.sh --dry-run` before production execution, and
 `./scripts/prepare-release.sh YYYY.MM.DD.N` for product releases.
 
@@ -143,7 +143,8 @@ specify extension list
 speckit-bootstrap . --doctor --frozen
 python3 scripts/check_spec_kit_governance.py
 .specify/scripts/bash/check-prerequisites.sh --json --paths-only
-infra/scripts/ci-local.sh
+infra/scripts/ci-local.sh --fast
+infra/scripts/ci-local.sh --full
 ./scripts/prepare-release.sh YYYY.MM.DD.N
 ```
 

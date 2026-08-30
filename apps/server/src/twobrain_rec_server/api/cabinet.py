@@ -1815,16 +1815,6 @@ async def create_summary_candidate_route(
         temporal_client=temporal_client,
     )
     await db.refresh(attempt)
-    if (
-        dispatch_intent.state == "retryable_failed"
-        and attempt.status == "queued"
-        and attempt.failure_source == "temporal_dispatch"
-    ):
-        raise ProblemDetail(
-            status=503,
-            code="summary_dependency_unavailable",
-            title="Summary generation is temporarily unavailable",
-        )
     current_id = await _summary_slot_current_outcome_set_id(
         db,
         workspace_id=tenant_scope.workspace_id,
@@ -3502,16 +3492,9 @@ async def _dispatch_summary_type_attempt(
     )
     await db.refresh(meeting)
     await db.refresh(attempt)
-    if (
-        dispatch_intent.state == "retryable_failed"
-        and attempt.status == "queued"
-        and attempt.failure_source == "temporal_dispatch"
-    ):
-        raise ProblemDetail(
-            status=503,
-            code="summary_dependency_unavailable",
-            title="Summary generation is temporarily unavailable",
-        )
+    # The candidate and its retryable dispatch are already durable. Return the
+    # accepted async request so the client can keep polling the authoritative
+    # summary state instead of showing a false transport failure.
 
 
 async def _summary_slot_for_type(

@@ -1080,8 +1080,8 @@ def test_started_dispatch_lease_recovers_after_worker_crash(client) -> None:
     assert attempt_state == "failed"
 
 
-def test_slow_temporal_start_is_bounded_and_retryable(client, monkeypatch) -> None:
-    """A stalled SDK start cannot hold a dispatch lease forever."""
+def test_slow_temporal_start_is_bounded_and_reconcilable(client, monkeypatch) -> None:
+    """A stalled SDK start keeps the deterministic workflow recoverable."""
     meeting_id = create_outcome_ready_meeting(client, "dispatch-slow-start")
     import twobrain_rec_server.outcomes.ai_service as ai_service
     import twobrain_rec_server.outcomes.dispatch as dispatch
@@ -1096,6 +1096,17 @@ def test_slow_temporal_start_is_bounded_and_retryable(client, monkeypatch) -> No
         raise AssertionError("the bounded start should time out first")
 
     monkeypatch.setattr(temporal_client, "start_outcome_generation_workflow", slow_start)
+
+    cancelled = False
+
+    class _Handle:
+        async def cancel(self):
+            nonlocal cancelled
+            cancelled = True
+
+    class _TemporalClient:
+        def get_workflow_handle(self, _workflow_id):
+            return _Handle()
 
     async def exercise() -> tuple[str, str, str | None]:
         async with client.app_state["sessionmaker"]() as db:
@@ -1124,7 +1135,7 @@ def test_slow_temporal_start_is_bounded_and_retryable(client, monkeypatch) -> No
                 db,
                 intent=intent,
                 settings=client.app.state.settings,
-                temporal_client=object(),
+                temporal_client=_TemporalClient(),
             )
             persisted_intent = await db.scalar(
                 select(DispatchIntent).where(DispatchIntent.id == intent.id)
@@ -1138,9 +1149,10 @@ def test_slow_temporal_start_is_bounded_and_retryable(client, monkeypatch) -> No
             return persisted_intent.state, persisted_attempt.status, persisted_intent.failure_code
 
     state, attempt_state, failure_code = asyncio.run(exercise())
-    assert state == "retryable_failed"
-    assert attempt_state == "blocked_dependency"
-    assert failure_code == "summary_dispatch_unavailable"
+    assert state == "started"
+    assert attempt_state == "queued"
+    assert failure_code is None
+    assert cancelled is False
     assert isinstance(submitted["summary_slot_id"], UUID)
     assert submitted["expected_current_outcome_set_id"] is None
 

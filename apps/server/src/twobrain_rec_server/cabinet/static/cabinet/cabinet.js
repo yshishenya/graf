@@ -2958,6 +2958,9 @@
       };
       const renderCandidate = (candidate, generation = candidateRequestGeneration) => {
         if (generation !== candidateRequestGeneration) return false;
+        if (Object.prototype.hasOwnProperty.call(candidate, "current_outcome_set_id")) {
+          currentOutcomeSetId = candidate.current_outcome_set_id || null;
+        }
         if (candidate.state === "generating") {
           if (candidate.reason_code === "temporary_unavailable") {
             window.clearTimeout(pollingTimer);
@@ -3166,16 +3169,17 @@
           pendingLabel.hidden = false;
           pendingLabel.textContent = `Готовим вариант: ${template.name}`;
         }
-          showStatus(`Готовим формат «${template.name}». Текущие итоги остаются доступны.`);
-        const body = {
-          template_key: template.key,
-          template_id: template.id || null,
-          template_version: template.version,
-          expected_current_outcome_set_id: currentOutcomeSetId,
-          request_intent: requestIntent
-        };
-        if (requestIntentId) body.request_intent_id = requestIntentId;
+        showStatus(`Готовим формат «${template.name}». Текущие итоги остаются доступны.`);
         try {
+          const expectedCurrentOutcomeSetId = await currentOutcomeSetIdForTemplate(template);
+          const body = {
+            template_key: template.key,
+            template_id: template.id || null,
+            template_version: template.version,
+            expected_current_outcome_set_id: expectedCurrentOutcomeSetId,
+            request_intent: requestIntent
+          };
+          if (requestIntentId) body.request_intent_id = requestIntentId;
           const candidate = await mutate(
             `/api/v1/cabinet/meetings/${meetingId}/summary-candidates`,
             "POST",
@@ -3232,6 +3236,25 @@
           // The picker still provides active alternatives when refresh lookup fails.
         }
         return { id: controls.dataset.currentTemplateId || null, key, version, name };
+      };
+      const currentOutcomeSetIdForTemplate = async (template) => {
+        if (!template?.key) return null;
+        const currentKey = controls.dataset.currentTemplateKey || "";
+        const currentVersion = Number(controls.dataset.currentTemplateVersion || "1");
+        if (template.key === currentKey && template.version === currentVersion) {
+          return currentOutcomeSetId;
+        }
+        const response = await fetch(
+          `/api/v1/cabinet/meetings/${meetingId}/summaries/${encodeURIComponent(template.key)}`,
+          { credentials: "same-origin", cache: "no-store" }
+        );
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          const error = new Error(payload.code || "summary_poll_unavailable");
+          error.status = response.status;
+          throw error;
+        }
+        return payload.current_outcome_set_id || null;
       };
        const pollSummaryRefresh = async (template, generation) => {
         if (generation !== candidateRequestGeneration) return;
@@ -3303,7 +3326,7 @@
             {
               schema_version: 1,
               idempotency_key: requestIntentId,
-              expected_current_outcome_set_id: currentOutcomeSetId,
+              expected_current_outcome_set_id: await currentOutcomeSetIdForTemplate(template),
               template_id: template.id || null,
               template_version: template.version,
               generation_options: {}
