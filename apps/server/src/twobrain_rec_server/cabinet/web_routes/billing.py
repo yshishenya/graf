@@ -1837,6 +1837,12 @@ async def continue_billing_checkout(
             _checkout_status_location(safe_number, result="unavailable"),
             status_code=303,
         )
+    billing_actor_user_id = operation.request_snapshot.get("billing_actor_user_id")
+    if billing_actor_user_id is not None and billing_actor_user_id != str(principal.user_id):
+        return RedirectResponse(
+            _checkout_status_location(safe_number, result="unavailable"),
+            status_code=303,
+        )
     settings = request.app.state.settings
     try:
         require_billing_enabled(
@@ -1852,7 +1858,8 @@ async def continue_billing_checkout(
         confirmation_url = operation.request_snapshot.get("confirmation_url")
         return RedirectResponse(
             confirmation_url
-            if is_allowed_confirmation_url(confirmation_url)
+            if billing_actor_user_id == str(principal.user_id)
+            and is_allowed_confirmation_url(confirmation_url)
             else _checkout_status_location(safe_number, result="unchanged"),
             status_code=303,
         )

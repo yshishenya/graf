@@ -13,6 +13,7 @@ from twobrain_rec_server.cabinet.web_routes.billing import (
     _billing_owner_subscription,
     activate_billing_trial,
     billing_checkout_return_url,
+    continue_billing_checkout,
     start_billing_checkout,
 )
 from twobrain_rec_server.cabinet.web_routes.billing import (
@@ -70,6 +71,15 @@ def test_checkout_persists_operation_before_invoice_foreign_key() -> None:
 
     assert operation_add < operation_flush
     assert operation_flush < source.index("invoice = BillingInvoice")
+
+
+def test_checkout_continuation_rejects_a_different_persisted_actor() -> None:
+    source = inspect.getsource(continue_billing_checkout)
+
+    actor_guard = source.index("billing_actor_user_id != str(principal.user_id)")
+    provider_call = source.index("_create_initial_checkout_payment")
+
+    assert actor_guard < provider_call
 
 
 def test_trial_serializes_with_checkout_before_checking_payment_operations() -> None:
