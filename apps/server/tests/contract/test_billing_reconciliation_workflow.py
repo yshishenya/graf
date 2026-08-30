@@ -1,4 +1,3 @@
-import inspect
 from uuid import UUID
 
 import pytest
@@ -33,10 +32,10 @@ def test_reconciliation_workflow_is_bounded_and_uses_a_dedicated_queue() -> None
     policy = billing_reconciliation_retry_policy()
     assert policy.maximum_attempts == 12
     assert "BillingReconciliationInvalidPayload" in policy.non_retryable_error_types
-    source = inspect.getsource(workflow_worker.run_worker)
-    assert "BillingReconciliationWorkflow" in source
-    assert "BILLING_RECONCILIATION_ACTIVITY_NAME" in source
-    assert "billing_reconciliation_task_queue(settings)" in source
+    worker_names = set(workflow_worker.run_worker.__code__.co_names)
+    assert "BillingReconciliationWorkflow" in worker_names
+    assert "BILLING_RECONCILIATION_ACTIVITY_NAME" in worker_names
+    assert "billing_reconciliation_task_queue" in worker_names
 
 
 @pytest.mark.anyio
