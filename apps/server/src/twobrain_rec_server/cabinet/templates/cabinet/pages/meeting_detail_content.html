@@ -80,8 +80,8 @@
             <button type="button" class="summary-format-all" data-summary-format-all aria-haspopup="dialog" aria-controls="summary-format-dialog">Все форматы…</button>
           </div>
         </div>
-        <button type="button" class="button quiet" data-summary-refresh-button>Обновить итоги</button>
-        <p class="summary-format-help">Выбор другого формата создаст новую версию. Текущие итоги останутся доступны до полной проверки новой версии, после чего она заменит их автоматически.</p>
+        <button type="button" class="button quiet" data-summary-refresh-button>{% if current_outcome_set_id %}Обновить итоги{% else %}Создать итоги{% endif %}</button>
+        <p class="summary-format-help">{% if current_outcome_set_id %}Выбор другого формата создаст новую версию. Текущие итоги останутся доступны до полной проверки новой версии, после чего она заменит их автоматически.{% else %}Расшифровка уже готова. Создайте итоги — после проверки они появятся здесь автоматически.{% endif %}</p>
       </div>
       {% else %}
       <h2 class="sr-only">Итоги</h2>

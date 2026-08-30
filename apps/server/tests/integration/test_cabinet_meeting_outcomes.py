@@ -432,6 +432,35 @@ def test_refresh_current_summary_type_is_slot_scoped_and_idempotent(client) -> N
     assert deprecated.json()["code"] == "summary_candidate_deprecated"
 
 
+def test_refresh_without_saved_summary_starts_first_generation(client) -> None:
+    meeting_id = create_outcome_ready_meeting(client, "summary-type-first-generation")
+    temporal = FakeTemporalClient()
+    client.app.state.settings.outcome_generation_enabled = True
+    client.app.state.outcome_temporal_client = temporal
+    read_url = f"/api/v1/cabinet/meetings/{meeting_id}/summaries/graf-auto-v1"
+    refresh_url = f"{read_url}/refresh"
+
+    response = client.post(
+        refresh_url,
+        headers=auth_headers(),
+        json={
+            "schema_version": 1,
+            "idempotency_key": "refresh-summary-first-generation-0001",
+            "expected_current_outcome_set_id": None,
+            "template_id": None,
+            "template_version": 1,
+            "generation_options": {},
+        },
+    )
+
+    assert response.status_code == 202
+    payload = response.json()
+    assert payload["current_outcome_set_id"] is None
+    assert payload["catalog_entry"]["result_state"] == "absent"
+    assert payload["catalog_entry"]["generation_state"] == "preparing"
+    assert len(temporal.starts) == 1
+
+
 def test_refresh_dispatch_failure_returns_deferred_async_state(client) -> None:
     meeting_id = create_outcome_ready_meeting(client, "summary-type-refresh-dispatch-retry")
     service = _service_module()
@@ -803,7 +832,7 @@ def test_cabinet_preserves_transcript_playback_when_outcomes_are_processing(clie
     assert payload["meeting"]["status"] == "ready"
     assert payload["transcript"]["available"] is True
     assert payload["playback"]["available"] is True
-    assert payload["notes_action_truth"]["source_basis"] == "policy_deferral"
+    assert payload["notes_action_truth"]["source_basis"] == "transcript_only"
     assert payload["notes_action_truth"]["summary"]["state"] == "deferred"
     assert payload["notes_action_truth"]["summary"]["items"] == []
 
@@ -828,7 +857,7 @@ def test_cabinet_blocks_outcome_content_without_hiding_review_when_generation_fa
     payload = response.json()
     assert payload["transcript"]["available"] is True
     assert payload["playback"]["available"] is True
-    assert payload["notes_action_truth"]["source_basis"] == "policy_deferral"
+    assert payload["notes_action_truth"]["source_basis"] == "transcript_only"
     assert payload["notes_action_truth"]["summary"]["state"] == "deferred"
     assert payload["notes_action_truth"]["decisions"]["state"] == "deferred"
     assert payload["notes_action_truth"]["summary"]["items"] == []
@@ -906,15 +935,15 @@ def test_cabinet_web_renders_processing_and_blocked_outcomes_in_russian_without_
     assert blocked.status_code == 200
     processing_notes = _notes_panel(processing.text)
     blocked_notes = _notes_panel(blocked.text)
-    assert 'data-outcome-source-basis="policy_deferral"' in processing_notes
+    assert 'data-outcome-source-basis="transcript_only"' in processing_notes
     assert 'data-outcome-state="deferred"' in processing_notes
     assert 'class="notes-aggregate-state"' in processing_notes
     assert "Ключевые пункты" not in processing_notes
     assert "data-outcome-category" not in processing_notes
-    assert "Источник: отложено политикой" in processing_notes
-    assert 'data-outcome-source-basis="policy_deferral"' in blocked_notes
+    assert "Источник: только расшифровка" in processing_notes
+    assert 'data-outcome-source-basis="transcript_only"' in blocked_notes
     assert 'class="notes-aggregate-state"' in blocked_notes
-    assert "Источник: отложено политикой" in blocked_notes
+    assert "Источник: только расшифровка" in blocked_notes
     assert "Синтетический итог встречи готов." not in blocked_notes
 
 
@@ -936,7 +965,7 @@ def test_no_accepted_outcome_opens_preparing_result_without_transcript_mock(clie
     assert response.status_code == 200
     assert 'id="detail-tab-outcomes" aria-selected="true"' in response.text
     outcomes = _outcomes_panel(response.text)
-    assert "Итоги отложены" in outcomes
+    assert "Итоги не запрошены" in outcomes
     assert "Формат: <strong data-summary-format-label>Авто</strong>" in outcomes
     assert outcomes.count('class="notes-aggregate-state"') == 1
     assert "data-outcome-category" not in outcomes
@@ -1059,7 +1088,7 @@ def test_cabinet_web_and_embedded_routes_render_matching_outcome_truth(client) -
 
     for meeting_id, expected_basis in (
         (ready_id, "stored_output"),
-        (processing_id, "policy_deferral"),
+        (processing_id, "transcript_only"),
     ):
         web = client.get(f"/meetings/{meeting_id}", headers=auth_headers())
         embedded = client.get(f"/desktop/meetings/{meeting_id}", headers=auth_headers())

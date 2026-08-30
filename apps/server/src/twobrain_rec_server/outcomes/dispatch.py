@@ -15,7 +15,9 @@ from twobrain_rec_server.db.models import (
     Meeting,
     MeetingOutcomeGenerationAttempt,
     MeetingOutcomeSet,
+    MeetingSummarySlot,
     ProcessingResult,
+    Workspace,
 )
 from twobrain_rec_server.processing.fences import meeting_is_deleted_or_deleting
 from twobrain_rec_server.workflows.temporal_client import outcome_generation_workflow_id
@@ -130,6 +132,85 @@ async def reconcile_orphaned_summary_candidates(
                 },
             )
     return repaired
+
+
+async def reconcile_unrequested_summary_candidates(
+    db: AsyncSession,
+    *,
+    limit: int = 25,
+) -> int:
+    """Start automatic summaries for ready results imported before AI ran."""
+
+    if limit <= 0:
+        return 0
+    default_slot_has_current = exists(
+        select(MeetingSummarySlot.id).where(
+            MeetingSummarySlot.workspace_id == Workspace.id,
+            MeetingSummarySlot.meeting_id == Meeting.id,
+            MeetingSummarySlot.template_key == Workspace.default_summary_template_key,
+            MeetingSummarySlot.current_outcome_set_id.is_not(None),
+        )
+    )
+    automatic_attempt_exists = exists(
+        select(MeetingOutcomeGenerationAttempt.id).where(
+            MeetingOutcomeGenerationAttempt.workspace_id == ProcessingResult.workspace_id,
+            MeetingOutcomeGenerationAttempt.meeting_id == ProcessingResult.meeting_id,
+            MeetingOutcomeGenerationAttempt.processing_result_id == ProcessingResult.id,
+            MeetingOutcomeGenerationAttempt.request_intent == "automatic_baseline",
+        )
+    )
+    rows = (
+        await db.execute(
+            select(ProcessingResult.workspace_id, ProcessingResult.meeting_id)
+            .join(Meeting, Meeting.id == ProcessingResult.meeting_id)
+            .join(Workspace, Workspace.id == ProcessingResult.workspace_id)
+            .where(
+                ProcessingResult.status == "imported",
+                ProcessingResult.transcript_status == "available",
+                ProcessingResult.summary_status == "not_requested",
+                ProcessingResult.segment_count > 0,
+                ProcessingResult.source_result_hash.is_not(None),
+                Meeting.deleted_at.is_(None),
+                or_(Meeting.deletion_state.is_(None), Meeting.deletion_state == "none"),
+                ~default_slot_has_current,
+                ~automatic_attempt_exists,
+            )
+            .order_by(ProcessingResult.imported_at.asc(), ProcessingResult.id.asc())
+            .limit(max(limit * 2, limit))
+            .with_for_update(skip_locked=True, of=ProcessingResult)
+        )
+    ).all()
+    await db.commit()
+
+    if not rows:
+        return 0
+
+    from twobrain_rec_server.outcomes.ai_service import ensure_automatic_summary_candidate
+
+    selected: set[tuple[UUID, UUID]] = set()
+    backfilled = 0
+    for workspace_id, meeting_id in rows:
+        identity = (workspace_id, meeting_id)
+        if identity in selected or len(selected) >= limit:
+            continue
+        selected.add(identity)
+        try:
+            attempt = await ensure_automatic_summary_candidate(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+            )
+            if attempt is not None:
+                backfilled += 1
+            else:
+                await db.rollback()
+        except Exception:
+            await db.rollback()
+            logger.exception(
+                "unrequested summary candidate reconciliation failed",
+                extra={"workspace_id": str(workspace_id), "meeting_id": str(meeting_id)},
+            )
+    return backfilled
 
 
 def _workflow_slot_identity(
