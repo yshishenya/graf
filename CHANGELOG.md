@@ -75,6 +75,9 @@
   gate проверяет также новые untracked файлы из classified diff.
 - Shell syntax gate запускает `bash -n` отдельно для каждого script, поэтому
   ошибка во втором и последующих файлах больше не пропускается.
+- Billing reconciliation contract больше не зависит от нестабильного
+  `inspect.getsource()` в параллельном Python 3.14 full CI; import order из
+  summary auto-recovery также приведён к обязательному Ruff contract.
 
 ### Безопасность
 - _Пока нет записей._
