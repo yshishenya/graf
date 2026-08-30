@@ -1,5 +1,14 @@
 # Финальный анализ Feature 211
 
+## Follow-up 2026-08-31
+
+Production feedback showed that the conservative v1 classification made most
+real server and infrastructure diffs run full despite an explicit `--fast`.
+The follow-up contract supersedes only that classification rule: fast remains
+bounded and reports `full_before_release`; the authoritative exact-SHA full and
+all production gates remain unchanged. The original release analysis below is
+retained as historical evidence for PR #6004.
+
 **Дата**: 2026-08-30
 **Lane**: high-risk infrastructure / validation governance / production deploy
 **Статус**: PR #6004; production rollout explicitly approved by the user.

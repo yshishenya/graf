@@ -27,12 +27,12 @@ infra/scripts/ci-local.sh --fast
 ```
 
 The lane argument is mandatory. The fast lane uses the diff from
-`origin/master` to run server unit tests plus reviewed domain source,
-macOS and ordinary documentation components only. Calendar performance paths,
-high-risk backend/API paths,
-deployment evidence, shared infrastructure, dependencies, migrations,
-contract/integration tests, unknown paths or an unavailable diff expand to
-full. It is the fast feedback lane, not a release gate.
+`origin/master` to run bounded server, macOS, infrastructure/tooling and
+documentation checks. Changed server contract/integration files run focused;
+calendar performance paths run a focused required proof. Unknown paths or an
+unavailable diff report partial coverage and require full before release, but
+an explicit `--fast` never changes to `effective=full`. It is the fast feedback
+lane, not a release gate.
 
 GitHub Actions are disabled. No pull-request validation runs remotely. For an
 early full baseline, run locally:

@@ -8,52 +8,23 @@ usage() {
 
 classify_path() {
   case "$1" in
-    apps/server/uv.lock|apps/server/pyproject.toml|apps/server/constraints.txt|\
-    apps/macos/Package.swift|apps/macos/Package.resolved|\
-    apps/server/src/twobrain_rec_server/api/*|\
-    apps/server/src/twobrain_rec_server/admin/*|\
-    apps/server/src/twobrain_rec_server/auth/*|\
-    apps/server/src/twobrain_rec_server/billing/*|\
-    apps/server/src/twobrain_rec_server/cabinet/*|\
-    apps/server/src/twobrain_rec_server/db/*|\
-    apps/server/src/twobrain_rec_server/deletion/*|\
-    apps/server/src/twobrain_rec_server/ingest/*|\
-    apps/server/src/twobrain_rec_server/mediascribe/*|\
-    apps/server/src/twobrain_rec_server/meeting_detection/*|\
-    apps/server/src/twobrain_rec_server/normalization/*|\
-    apps/server/src/twobrain_rec_server/observability/*|\
-    apps/server/src/twobrain_rec_server/outcomes/*|\
-    apps/server/src/twobrain_rec_server/processing/*|\
-    apps/server/src/twobrain_rec_server/product_analytics/*|\
-    apps/server/src/twobrain_rec_server/readiness/*|\
-    apps/server/src/twobrain_rec_server/storage/*|\
-    apps/server/src/twobrain_rec_server/support/*|\
-    apps/server/src/twobrain_rec_server/workflows/*|\
-    apps/server/tests/contract/*|apps/server/tests/integration/*|\
-    infra/docker-compose.yml|infra/server/*|infra/scripts/*.sh|infra/scripts/*.py|\
-    scripts/*|.specify/*|.github/workflows/*|.github/actions/*|\
-    AGENTS.md|.github/pull_request_template.md|docs/deployments/*|\
-    docs/agent-guidance/release-and-validation.md|\
-    docs/agent-guidance/spec-kit-flow.md|infra/scripts/README.md|\
-    Dockerfile*|docker-compose*|Makefile|pyproject.toml)
-      echo full
-      ;;
-    apps/server/src/twobrain_rec_server/calendar/*|\
-    apps/server/src/twobrain_rec_server/domain/*|\
-    apps/server/tests/unit/*)
+    apps/server/*)
       echo server
-      ;;
-    apps/server/src/*)
-      echo full
       ;;
     apps/macos/*)
       echo macos
       ;;
-    CHANGELOG.md|README.md|CONTRIBUTING.md|docs/*|specs/*)
+    infra/docker-compose.yml|infra/server/*|infra/scripts/*.sh|infra/scripts/*.py|\
+    scripts/*|.specify/*|.github/workflows/*|.github/actions/*|\
+    Dockerfile*|docker-compose*|Makefile|pyproject.toml)
+      echo infra
+      ;;
+    AGENTS.md|.github/pull_request_template.md|CHANGELOG.md|README.md|\
+    CONTRIBUTING.md|infra/scripts/README.md|docs/*|specs/*)
       echo docs
       ;;
     *)
-      echo full
+      echo unknown
       ;;
   esac
 }
@@ -138,8 +109,29 @@ PY
 run_server_tests() {
   local mode="$1"
   local performance_gate="$2"
+  shift 2
   env GRAF_TEST_WORKERS="${GRAF_TEST_WORKERS:-4}" GRAF_PERFORMANCE_GATE="$performance_gate" \
-    bash apps/server/scripts/run_local_postgres_tests.sh "--${mode}" -q
+    bash apps/server/scripts/run_local_postgres_tests.sh "--${mode}" -q "$@"
+}
+
+run_changed_server_tests() {
+  local performance_gate="$1"
+  local changed_test_list="$2"
+  local test_files=()
+  local path
+  while IFS= read -r path; do
+    [[ -n "$path" ]] && test_files+=("${path#apps/server/}")
+  done <<<"$changed_test_list"
+  run_server_tests focused "$performance_gate" "${test_files[@]}"
+}
+
+check_shell_syntax() {
+  local shell_files=()
+  local path
+  while IFS= read -r path; do
+    [[ "$path" == *.sh ]] && shell_files+=("$path")
+  done < <(git ls-files '*.sh')
+  [[ "${#shell_files[@]}" -eq 0 ]] || bash -n "${shell_files[@]}"
 }
 
 main() (
@@ -153,11 +145,17 @@ main() (
   local pipeline_completed
   local pipeline_duration
   local changed_list=""
+  local changed_server_tests=""
   local has_server=0
+  local needs_server_unit=0
   local has_macos=0
+  local has_infra=0
   local has_docs=0
-  local requires_full=0
+  local has_unknown=0
+  local coverage="complete"
+  local next_gate="release_ready"
   local performance_required=0
+  local performance_covered_by_changed_tests=0
   local performance_gate="report"
   local path
   local classification
@@ -211,8 +209,10 @@ main() (
     if [[ "$requested_mode" == "full" ]]; then
       performance_required=1
     else
-      requires_full=1
+      has_unknown=1
+      coverage="partial"
       selection_reason="diff_unavailable"
+      printf 'ci_fast_coverage reason=%s\n' "$selection_reason"
     fi
   elif [[ -n "$changed_list" ]]; then
     while IFS= read -r path; do
@@ -220,9 +220,9 @@ main() (
       if performance_path "$path"; then
         performance_required=1
         if [[ "$requested_mode" == "fast" ]]; then
-          requires_full=1
-          selection_reason="performance_path_requires_full"
-          printf 'ci_fast_escalation reason=%s path=%s\n' "$selection_reason" "$path"
+          has_server=1
+          selection_reason="performance_path_requires_focused_proof"
+          printf 'ci_fast_coverage reason=%s path=%s\n' "$selection_reason" "$path"
         fi
       fi
       if [[ "$requested_mode" == "full" ]]; then
@@ -230,13 +230,25 @@ main() (
       fi
       classification="$(classify_path "$path")"
       case "$classification" in
-        server) has_server=1 ;;
+        server)
+          has_server=1
+          case "$path" in
+            apps/server/tests/contract/*.py|apps/server/tests/integration/*.py)
+              changed_server_tests="${changed_server_tests}${changed_server_tests:+$'\n'}${path}"
+              [[ "$path" == "apps/server/tests/integration/test_calendar_auto_context_match.py" ]] \
+                && performance_covered_by_changed_tests=1
+              ;;
+            *) needs_server_unit=1 ;;
+          esac
+          ;;
         macos) has_macos=1 ;;
+        infra) has_infra=1 ;;
         docs) has_docs=1 ;;
-        full)
-          requires_full=1
-          selection_reason="high_risk_or_unknown_path"
-          printf 'ci_fast_escalation reason=%s path=%s\n' "$selection_reason" "$path"
+        unknown)
+          has_unknown=1
+          coverage="partial"
+          selection_reason="unknown_path"
+          printf 'ci_fast_coverage reason=%s path=%s\n' "$selection_reason" "$path"
           ;;
       esac
     done <<<"$changed_list"
@@ -255,9 +267,9 @@ main() (
     required)
       performance_required=1
       if [[ "$requested_mode" == "fast" ]]; then
-        requires_full=1
-        selection_reason="explicit_performance_requires_full"
-        printf 'ci_fast_escalation reason=%s\n' "$selection_reason"
+        has_server=1
+        selection_reason="explicit_performance_requires_focused_proof"
+        printf 'ci_fast_coverage reason=%s\n' "$selection_reason"
       fi
       ;;
     report) ;;
@@ -271,29 +283,33 @@ main() (
     effective_mode="full"
     components="full"
   else
+    effective_mode="fast"
+    [[ "$coverage" == "complete" ]] && coverage="bounded"
+    next_gate="full_before_release"
     if [[ -z "$changed_list" && "$selection_reason" != "diff_unavailable" ]]; then
       has_docs=1
     fi
-    if [[ "$requires_full" -eq 1 ]]; then
-      effective_mode="full"
-      components="full"
-    else
-      effective_mode="fast"
-      [[ "$selection_reason" == "explicit_full" ]] && selection_reason="component_diff"
-      [[ "$has_server" -eq 1 ]] && components="server"
-      if [[ "$has_macos" -eq 1 ]]; then
-        [[ "$components" == "none" ]] && components="macos" || components="$components,macos"
-      fi
-      if [[ "$has_docs" -eq 1 ]]; then
-        [[ "$components" == "none" ]] && components="docs" || components="$components,docs"
-      fi
+    [[ "$selection_reason" == "explicit_full" ]] && selection_reason="component_diff"
+    [[ "$has_server" -eq 1 ]] && components="server"
+    if [[ "$has_macos" -eq 1 ]]; then
+      [[ "$components" == "none" ]] && components="macos" || components="$components,macos"
+    fi
+    if [[ "$has_infra" -eq 1 ]]; then
+      [[ "$components" == "none" ]] && components="infra" || components="$components,infra"
+    fi
+    if [[ "$has_docs" -eq 1 ]]; then
+      [[ "$components" == "none" ]] && components="docs" || components="$components,docs"
+    fi
+    if [[ "$has_unknown" -eq 1 ]]; then
+      [[ "$components" == "none" ]] && components="unknown" || components="$components,unknown"
     fi
   fi
 
   [[ "$performance_required" -eq 1 ]] && performance_gate="required"
 
-  printf 'ci_lane requested=%s effective=%s components=%s reason=%s performance_gate=%s\n' \
-    "$requested_mode" "$effective_mode" "$components" "$selection_reason" "$performance_gate"
+  printf 'ci_lane requested=%s effective=%s components=%s reason=%s performance_gate=%s coverage=%s next_gate=%s\n' \
+    "$requested_mode" "$effective_mode" "$components" "$selection_reason" "$performance_gate" \
+    "$coverage" "$next_gate"
 
   run_step "Spec Kit governance" python3 scripts/check_spec_kit_governance.py || return $?
 
@@ -325,10 +341,29 @@ main() (
       fi
     fi
     if [[ "$has_server" -eq 1 ]]; then
-      run_step "server tests" run_server_tests fast "$performance_gate" || return $?
+      if [[ "$needs_server_unit" -eq 1 ]]; then
+        run_step "server tests" run_server_tests fast report || return $?
+      fi
+      if [[ -n "$changed_server_tests" ]]; then
+        run_step "changed server tests" run_changed_server_tests "$performance_gate" \
+          "$changed_server_tests" || return $?
+      fi
+      if [[ "$performance_required" -eq 1 && "$performance_covered_by_changed_tests" -eq 0 ]]; then
+        run_step "calendar performance proof" run_server_tests focused required \
+          tests/integration/test_calendar_auto_context_match.py -m serial_performance || return $?
+      fi
       run_step "server lint" bash -c "cd apps/server && PYTHONPATH=src uv run --extra dev ruff check ." || return $?
       run_step "python compile" python3 -m compileall -q apps/server/src apps/server/tests apps/server/scripts || return $?
     fi
+    if [[ "$has_infra" -eq 1 ]]; then
+      run_step "shell syntax" check_shell_syntax || return $?
+      run_step "CI contracts" bash -c "cd apps/server && PYTHONPATH=src uv run --extra dev pytest -q \
+        tests/contract/test_ci_cd_contract.py \
+        tests/contract/test_local_postgres_test_runner.py" || return $?
+      run_step "production compose config" bash -c \
+        'docker compose -f infra/docker-compose.yml config >/dev/null' || return $?
+    fi
+    run_step "diff whitespace check" git diff --check || return $?
     run_step "active CI documentation consistency" check_active_docs || return $?
   fi
 

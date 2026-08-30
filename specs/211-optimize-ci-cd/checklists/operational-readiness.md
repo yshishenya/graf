@@ -2,6 +2,10 @@
 
 **Created**: 2026-08-30
 
+This checklist records the original `v2026.08.30.1` requirements review.
+CHK002 and CHK011 are superseded for the 2026-08-31 follow-up by
+[`fast-lane.md`](fast-lane.md); the release/deploy full gate is unchanged.
+
 ## Requirement completeness and clarity
 
 - [x] CHK001 Focused, fast and full are distinct evidence levels.

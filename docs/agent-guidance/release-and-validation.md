@@ -15,12 +15,14 @@ infra/scripts/ci-local.sh --full
 
 The lane is mandatory: a bare command exits before tests instead of silently
 choosing evidence strength. `--fast` derives the changed paths from the merge
-base with `origin/master`: server unit tests plus reviewed domain source, macOS
-and ordinary documentation run their component checks. Calendar performance
-paths, high-risk backend/API surfaces, deployment evidence, infrastructure,
-dependencies, migrations, contract/integration tests, shared/unknown paths or
-an unavailable diff expand to `--full`. It is for iteration and PR feedback,
-never a release gate. Focused tests remain the first check during implementation.
+base with `origin/master` and always remains bounded: server, macOS,
+infrastructure/tooling and documentation run their component checks; changed
+server contract/integration files run focused. Calendar performance paths run a
+focused required proof without changing the lane. Unknown paths or an
+unavailable diff report `coverage=partial` and `next_gate=full_before_release`
+instead of silently starting the full suite. Fast is for iteration and PR
+feedback, never a release gate. Focused tests remain the first check during
+implementation.
 
 GitHub Actions are intentionally disabled for this repository. Nothing runs
 automatically on a pull request: the author must run the selected local lane and
@@ -217,8 +219,8 @@ For the server app:
 Runtime dependency upgrades are significant maintenance when they affect backend
 frameworks, auth, storage, database, infra, or shared behavior. Use the relevant
 Spec Kit lane and finish with `infra/scripts/ci-local.sh --fast` before
-closeout; treat it as a request that dependency/high-risk changes can escalate
-to effective full validation.
+closeout. The fast result remains bounded and requires the separate exact-SHA
+full gate before release.
 
 ## Production Deployment And Smoke
 

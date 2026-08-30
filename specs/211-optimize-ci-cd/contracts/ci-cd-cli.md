@@ -9,23 +9,24 @@ ci-local.sh --help
 ```
 
 - No argument or any unknown argument exits `2` before tests and prints usage.
-- `--fast` prints requested/effective lane, components and any escalation reason.
+- `--fast` always prints `effective=fast`, selected components, coverage and the required next gate; it never invokes the full repository suite.
 - `--full` executes the canonical repository gate.
 - Every completed stage emits `ci_stage=<name> status=<status> duration_seconds=<n>`.
 - Every exit emits exactly one `ci_local_result=<pass|fail> mode=<effective> duration_seconds=<n>`.
 
-Fast classification is fail closed:
+Fast classification is bounded and truthful:
 
-- `apps/server/tests/unit/**` and reviewed domain source → server fast.
+- `apps/server/src/**`, dependency metadata and server tests → server fast; changed contract/integration test files are included directly.
 - `apps/macos/**` → macOS build/test/contracts on Darwin plus the legacy architecture guard.
+- infrastructure and CI/release tooling → bounded syntax, contract and configuration checks.
 - ordinary documentation/spec text → documentation consistency.
-- calendar performance paths, high-risk backend/API source, deployment evidence, infrastructure,
-  dependency/lock, migrations, server contract/integration tests, CI/release
-  governance, shared root configuration, unknown path, missing base or any diff
-  command failure → full.
+- unknown path, missing base or diff failure → common safety checks plus
+  `coverage=partial next_gate=full_before_release`.
 - multiple known components execute their union once.
-- calendar performance paths and explicit `GRAF_PERFORMANCE_GATE=required`
-  escalate a requested fast lane to full so the serial performance test really runs.
+- calendar performance paths run the focused required performance proof without
+  changing the effective lane; the full suite remains a separate release gate.
+- no path classification or environment override may change an explicit fast
+  request into `effective=full`.
 
 ## `infra/scripts/cd-remote.sh`
 
