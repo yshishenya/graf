@@ -108,6 +108,7 @@ UI_TEXT: dict[str, str] = {
     "Outcome source": "Источник итогов",
     "Outcomes blocked": "Итоги заблокированы",
     "Outcomes deferred": "Итоги отложены",
+    "Outcomes not requested": "Итоги не запрошены",
     "Outcomes processing": "Итоги готовятся",
     "Outcomes unavailable": "Итоги недоступны",
     "Owner": "Владелец",

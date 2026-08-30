@@ -61,8 +61,8 @@ def test_summary_selector_keeps_auto_four_recommendations_and_all_formats(client
     assert "Все форматы…" in listbox
     assert 'role="option"' in listbox
     assert 'aria-selected="true"' in listbox
-    assert "Выбор другого формата создаст новую версию" in html
-    assert "Текущие итоги останутся доступны до полной проверки" in html
+    assert "Расшифровка уже готова. Создайте итоги" in html
+    assert "после проверки они появятся здесь автоматически" in html
 
 
 def test_meeting_detail_renders_the_selected_summary_slot_after_reload(client) -> None:

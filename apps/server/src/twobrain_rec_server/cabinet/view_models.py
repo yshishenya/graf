@@ -1828,7 +1828,9 @@ def _meeting_list_content_readiness(item: MeetingListItem) -> str | None:
         return "Расшифровка и итоги готовы"
     if transcript_ready:
         outcome_copy = (
-            "итоги готовятся"
+            "итоги не запрошены"
+            if item.notes_action_truth.source_basis == "transcript_only"
+            else "итоги готовятся"
             if item.notes_action_truth.source_basis in {"processing_status", "policy_deferral"}
             else "итоги недоступны"
         )
@@ -3151,13 +3153,24 @@ def notes_action_truth_state(
                 evidence=deferred,
                 source_basis="processing_status",
             )
-        category = _notes_action_category(
-            state="deferred",
-            label="Outcomes deferred",
-            reason="Transcript review is available, but generated meeting outcomes are not part of this stored result.",
-            readiness_impact="keeps_gap_open",
-            copy_key="notes.outcomes.deferred",
-        )
+        if result is not None and result.summary_status == SummaryStatus.NOT_REQUESTED.value:
+            category = _notes_action_category(
+                state="deferred",
+                label="Outcomes not requested",
+                reason="Расшифровка готова. Итоги будут подготовлены автоматически.",
+                readiness_impact="keeps_gap_open",
+                copy_key="notes.outcomes.not_requested",
+            )
+            source_basis = "transcript_only"
+        else:
+            category = _notes_action_category(
+                state="deferred",
+                label="Outcomes deferred",
+                reason="Transcript review is available, but generated meeting outcomes are not part of this stored result.",
+                readiness_impact="keeps_gap_open",
+                copy_key="notes.outcomes.deferred",
+            )
+            source_basis = "policy_deferral"
         return NotesActionTruthState(
             summary=category,
             key_points=category,
@@ -3167,7 +3180,7 @@ def notes_action_truth_state(
             risks=category,
             questions=category,
             evidence=category,
-            source_basis="policy_deferral",
+            source_basis=source_basis,
         )
 
     category = _notes_action_category(

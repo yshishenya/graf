@@ -26,10 +26,10 @@ def _result(*, summary_status: SummaryStatus = SummaryStatus.NOT_REQUESTED) -> P
     )
 
 
-def test_ready_transcript_without_stored_outcomes_is_deferred_not_available() -> None:
+def test_ready_transcript_without_stored_outcomes_is_transcript_only() -> None:
     truth = view_models.notes_action_truth_state(status="ready", result=_result())
 
-    assert truth.source_basis == "policy_deferral"
+    assert truth.source_basis == "transcript_only"
     assert truth.summary.state == "deferred"
     assert truth.decisions.state == "deferred"
     assert truth.action_items.state == "deferred"

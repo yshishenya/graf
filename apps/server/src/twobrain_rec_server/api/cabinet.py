@@ -1211,13 +1211,22 @@ async def refresh_meeting_summary_type_route(
             code="summary_generation_blocked",
             title="Summary generation is not available",
         )
-    if entry.result_state != "ready" or entry.current_outcome_set_id is None:
+    has_current_summary = (
+        entry.result_state == "ready" and entry.current_outcome_set_id is not None
+    )
+    if entry.result_state not in {"ready", "absent"}:
         raise ProblemDetail(
             status=409,
             code="summary_current_revision_missing",
             title="There are no saved summaries to refresh",
         )
-    if payload.expected_current_outcome_set_id != entry.current_outcome_set_id:
+    if has_current_summary and payload.expected_current_outcome_set_id != entry.current_outcome_set_id:
+        raise ProblemDetail(
+            status=409,
+            code="summary_revision_conflict",
+            title="The saved summary changed; refresh the page and try again",
+        )
+    if not has_current_summary and payload.expected_current_outcome_set_id is not None:
         raise ProblemDetail(
             status=409,
             code="summary_revision_conflict",
@@ -1287,7 +1296,9 @@ async def refresh_meeting_summary_type_route(
             template_key=template_key,
             template_id=template_id,
             template_version=payload.template_version,
-            expected_current_outcome_set_id=payload.expected_current_outcome_set_id,
+            expected_current_outcome_set_id=(
+                payload.expected_current_outcome_set_id if has_current_summary else None
+            ),
             request_intent="manual_refresh",
             request_intent_id=uuid5(
                 NAMESPACE_URL,

@@ -33,7 +33,10 @@ from twobrain_rec_server.outcomes.ai_service import (
     ensure_automatic_summary_candidate,
     publish_model_generated_outcome,
 )
-from twobrain_rec_server.outcomes.dispatch import reconcile_orphaned_summary_candidates
+from twobrain_rec_server.outcomes.dispatch import (
+    reconcile_orphaned_summary_candidates,
+    reconcile_unrequested_summary_candidates,
+)
 from twobrain_rec_server.processing.store import ProcessingLifecycleBlocked
 
 
@@ -500,6 +503,37 @@ def test_orphaned_revision_candidate_is_repaired_and_dispatched(client) -> None:
             return result
 
     assert asyncio.run(reconcile()) == (1, "queued", "stale", "blocked", "created")
+
+
+def test_unrequested_ready_result_is_backfilled_once(client) -> None:
+    meeting_id = create_outcome_ready_meeting(client, "unrequested-summary-backfill")
+
+    async def reconcile() -> tuple[int, int, int, str]:
+        async with client.app_state["sessionmaker"]() as db:
+            first = await reconcile_unrequested_summary_candidates(db, limit=10)
+            second = await reconcile_unrequested_summary_candidates(db, limit=10)
+            attempts = await db.scalar(
+                select(func.count())
+                .select_from(MeetingOutcomeGenerationAttempt)
+                .where(MeetingOutcomeGenerationAttempt.meeting_id == meeting_id)
+            )
+            intents = await db.scalar(
+                select(func.count())
+                .select_from(DispatchIntent)
+                .where(DispatchIntent.meeting_id == meeting_id)
+            )
+            attempt = await db.scalar(
+                select(MeetingOutcomeGenerationAttempt).where(
+                    MeetingOutcomeGenerationAttempt.meeting_id == meeting_id,
+                    MeetingOutcomeGenerationAttempt.request_intent == "automatic_baseline",
+                )
+            )
+            assert attempt is not None
+            status = attempt.status
+            await db.rollback()
+            return first, second, int(attempts or 0), int(intents or 0), status
+
+    assert asyncio.run(reconcile()) == (1, 0, 1, 1, "queued")
 
 
 def test_automatic_replay_replaces_an_attempt_not_current_in_its_slot(client) -> None:

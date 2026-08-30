@@ -1509,6 +1509,7 @@ def _notes_source_label(source_basis: str) -> str:
         "blocked": "заблокировано",
         "not_supported": "не поддерживается",
         "policy_deferral": "отложено политикой",
+        "transcript_only": "только расшифровка",
         "processing_status": "статус обработки",
         "stored_output": "сохраненные итоги",
     }.get(source_basis, _ui_text(source_basis))
