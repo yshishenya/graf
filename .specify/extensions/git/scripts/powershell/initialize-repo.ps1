@@ -57,8 +57,7 @@ try {
 try {
     $out = git init -q 2>&1 | Out-String
     if ($LASTEXITCODE -ne 0) { throw "git init failed: $out" }
-    $out = git add . 2>&1 | Out-String
-    if ($LASTEXITCODE -ne 0) { throw "git add failed: $out" }
+    # Existing files remain unstaged until reviewed explicitly.
     $out = git commit --allow-empty -q -m $commitMsg 2>&1 | Out-String
     if ($LASTEXITCODE -ne 0) { throw "git commit failed: $out" }
 } catch {

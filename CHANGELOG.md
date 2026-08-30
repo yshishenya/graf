@@ -12,31 +12,22 @@
 - _Пока нет записей._
 
 ### Изменено
-- _Пока нет записей._
+- Spec Kit workflow переведён на bootstrap lock schema 3 и project-local skills
+  через immutable `speckit-bootstrap v0.9.7` для Spec Kit v1.0.1;
+  significant/high-risk цикл теперь явно включает issue sync, reviewer-owned
+  checklist, convergence и validation/release gates.
 
 ### Исправлено
-- _Пока нет записей._
-
-### Безопасность
-- _Пока нет записей._
-
-### Документы
-- _Пока нет записей._
-
-### Операции
-- _Пока нет записей._
-
-## [2026.08.31.1] - 2026-08-31
-
-### Добавлено
-- _Пока нет записей._
-
-### Изменено
-- Оптимизация и production-генерация итогов теперь используют проверенный
-  route binding LiteLLM и сохраняют его в каждом snapshot/candidate, чтобы
-  все judge- и model-вызовы шли через согласованный маршрут `gpt-5.6-luna`.
-
-### Исправлено
+- Locked `github-issue-canon` commands больше не создают Python bytecode внутри
+  integrity-managed extension tree; повторный frozen doctor остаётся чистым.
+- Bootstrap refresh мигрирует точные промежуточные формы вплоть до `v0.9.6`, но отклоняет
+  mixed, duplicate, surrounding-drift и неизвестные generated states; focused
+  guard отдельно ловит неправильный порядок полного GRAF workflow, decoy-текст
+  вне канонической секции и отвязанные от checklist ownership-маркеры.
+- Generated workflow теперь fail closed требует обязательный clarify, известный
+  risk lane, analyze и task-to-issue ownership; conditional mandatory hooks не
+  пропускаются без HookExecutor, а convergence не превращает baseline-код в
+  задачи на удаление без provenance текущей фичи.
 - Переключение формата итогов теперь проверяет текущую версию выбранного
   type-slot, поэтому новый формат не получает ложный конфликт с версией
   формата «Авто».
@@ -47,13 +38,16 @@
   `TWOBRAIN_LITELLM_API_KEY_FILE`, а фиксированный лимит judge completion удалён.
 
 ### Безопасность
-- _Пока нет записей._
+- Generated preset registry, template paths и plan paths теперь fail closed
+  проверяют типы, Python runtime и symlink containment; Git Bash message-file
+  paths нормализуются до единого Windows-формата перед containment check.
 
 ### Документы
 - _Пока нет записей._
 
 ### Операции
-- _Пока нет записей._
+- Опубликован и установлен checksummed `speckit-bootstrap v0.9.7`; GRAF lock
+  обновлён из immutable release asset без продуктового release/deploy.
 
 ## [2026.08.30.1] - 2026-08-30
 
@@ -85,6 +79,10 @@
 - Зафиксирована эксплуатационная схема Temporal Web: HTTPS + Basic Auth через
   host Nginx, внутреннее подключение к `rec-temporal:7233` и автоперезапуск
   контейнеров.
+- В fast CI добавлена fail-closed проверка bootstrap integrity и GRAF-specific
+  Spec Kit governance без новых зависимостей и сетевых запросов.
+- GRAF переведён на опубликованные `speckit-bootstrap v0.9.0` и
+  `github-issue-canon v0.3.2` с immutable refs и проверенными checksums.
 - Production deploy после exact-SHA sync запускает один authoritative full до
   remote действий; serial performance остаётся hard gate для calendar matching
   paths, controlled runs и synchronized-master full, а для несвязанных

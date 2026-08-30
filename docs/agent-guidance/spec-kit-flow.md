@@ -51,10 +51,18 @@ $speckit-tasks
 $speckit-analyze
 $speckit-taskstoissues
 $speckit-implement
+$speckit-converge
+validation/release gates
 ```
 
 Use the Codex skill names above. Upstream docs may show slash commands such as
 `/speckit.specify`; this repository uses `$speckit-*` skills.
+
+This ordered list is the canonical significant/high-risk GRAF path. The
+upstream six-step `Full SDD Cycle` is a useful generic subset, but MUST NOT be
+treated as a complete GRAF workflow for significant/high-risk work because it
+does not own project checklist review, issue sync, convergence, or GRAF
+validation/release gates.
 
 ## 0. Constitution
 
@@ -123,6 +131,20 @@ The plan must:
 Planning stops when constitution gates fail or important clarifications remain
 unresolved.
 
+If the agent-context hook must be invoked directly, use the Python environment
+from the installed `specify` shebang rather than system Python:
+
+```sh
+specify_bin="$(command -v specify)"
+specify_shebang="$(sed -n '1s/^#!//p' "$specify_bin")"
+PATH="$(dirname "$specify_shebang"):$PATH" \
+  .specify/extensions/agent-context/scripts/bash/update-agent-context.sh \
+  specs/<number>-<slug>/plan.md
+```
+
+The bootstrap already applies this runtime fallback. Do not install PyYAML
+globally to make the hook work.
+
 ## 4. Checklist
 
 Use `$speckit-checklist` after planning for high-risk areas. Checklists are
@@ -144,6 +166,10 @@ Default checklist set:
 Checklist items should ask whether requirements are complete, clear,
 measurable, consistent, and traceable. Avoid implementation-test wording like
 "verify the button works."
+
+Custom checklist checkbox state is reviewer-owned. Generation leaves new items
+unchecked; a reviewer records the result. Implementation MUST read that state
+as a gate and MUST NOT mark reviewer checklist items complete itself.
 
 ## 5. Tasks
 
@@ -246,6 +272,14 @@ Implementation closeout rules:
 - leave issues open when acceptance criteria, validation evidence, or scope
   remain incomplete, and add a Russian status comment explaining what is still
   missing.
+
+## 9. Converge And Validate
+
+Run `$speckit-converge` after implementation and focused validation. Convergence
+is append-only: add any newly discovered work to `tasks.md`, execute it, and
+repeat convergence until no mandatory task remains. Only then run the declared
+repository and release gates. The upstream six-step workflow ending at
+implementation does not satisfy this closeout.
 
 ## Commit Checkpoints
 

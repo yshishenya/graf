@@ -295,6 +295,8 @@ main() (
   printf 'ci_lane requested=%s effective=%s components=%s reason=%s performance_gate=%s\n' \
     "$requested_mode" "$effective_mode" "$components" "$selection_reason" "$performance_gate"
 
+  run_step "Spec Kit governance" python3 scripts/check_spec_kit_governance.py || return $?
+
   if [[ "$effective_mode" == "full" ]]; then
     run_step "macOS legacy audio architecture guard" sh apps/macos/Scripts/validate-no-legacy-audio-driver.sh || return $?
     if [[ "$(uname -s)" == "Darwin" ]]; then
