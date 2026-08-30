@@ -7,7 +7,7 @@
 {% set billing_enabled = billing_enabled|default(False) %}
 {% set latest_invoice_summary = latest_invoice_summary|default(None) %}
 {% set pending_invoice_summary = pending_invoice_summary|default(None) %}
-{% set operation_pending = billing_result == "pending" or (latest_operation_state|default(None) in ["scheduled", "provider_pending", "sent", "processing", "unknown", "method_required", "pending_reconciliation", "reconciliation_gap", "manual_resolution", "provider_key_expired"] and not (latest_operation_kind|default(None) == "renewal" and latest_operation_state == "scheduled" and plan_code == "personal")) %}
+{% set operation_pending = operation_pending|default(False) %}
 <main id="cabinet-main" class="cabinet-main billing-page billing-overview" tabindex="-1">
   <div class="cabinet-workspace settings-page">
     <div class="settings-page__content billing-page__content">

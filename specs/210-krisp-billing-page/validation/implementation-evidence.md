@@ -34,6 +34,9 @@
   `3779 passed, 1 skipped`, performance `1 passed`, strict-RLS `52 passed,
   1 skipped`; Ruff, Python compile, ContractValidation, legacy-audio guard,
   compose и deployment-evidence scan — PASS.
+- После review удалён дублирующий список blocking states из Jinja; route
+  передаёт единый boolean из общей blocking-query. Focused billing regression:
+  `80 passed`, Ruff/format и `git diff --check` — PASS.
 
 ## Browser QA
 

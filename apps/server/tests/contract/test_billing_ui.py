@@ -711,6 +711,7 @@ def test_pending_billing_overview_exposes_status_without_competing_checkout() ->
             "status_label": "Проверяем оплату",
         },
         pending_invoice_summary={"safe_number": "INV-PENDING1"},
+        operation_pending=True,
         latest_operation_state="provider_pending",
         latest_operation_label="Ожидаем подтверждение",
     )
@@ -743,6 +744,7 @@ def test_pending_billing_without_invoice_suppresses_new_checkout() -> None:
         storage_threshold="normal",
         storage_threshold_label="В норме",
         latest_invoice_summary=None,
+        operation_pending=True,
         latest_operation_state="provider_pending",
     )
 
@@ -781,6 +783,7 @@ def test_scheduled_renewal_keeps_subscription_cancellation_reachable() -> None:
         },
         latest_operation_kind="renewal",
         latest_operation_state="scheduled",
+        operation_pending=False,
     )
 
     assert 'href="/billing/subscription"' in html

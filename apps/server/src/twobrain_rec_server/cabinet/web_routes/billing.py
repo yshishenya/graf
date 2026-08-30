@@ -1171,6 +1171,14 @@ async def billing_overview_page(
         }
     if billing_owner and pending_invoice is not None:
         pending_invoice_summary = {"safe_number": pending_invoice.safe_number}
+    operation_pending = billing_result == "pending" or (
+        latest_operation is not None
+        and not (
+            latest_operation.kind == "renewal"
+            and latest_operation.state == "scheduled"
+            and plan_code == "personal"
+        )
+    )
     current_cycle = (
         subscription.cycle
         if subscription is not None and subscription.cycle in {"month", "year"}
@@ -1310,8 +1318,7 @@ async def billing_overview_page(
         latest_operation_label=_operation_state_label(
             latest_operation.state if latest_operation is not None else None
         ),
-        latest_operation_kind=latest_operation.kind if latest_operation is not None else None,
-        latest_operation_state=latest_operation.state if latest_operation is not None else None,
+        operation_pending=operation_pending,
     )
     return cabinet_html_response(content)
 
