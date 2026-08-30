@@ -216,6 +216,32 @@ def test_changed_files_disables_rename_detection_for_both_endpoints() -> None:
     assert "diff --no-renames --name-only" in script
 
 
+def test_whitespace_check_covers_commits_since_the_merge_base(tmp_path: Path) -> None:
+    run("git", "init", "-q", cwd=tmp_path)
+    run("git", "config", "user.email", "ci-contract@example.test", cwd=tmp_path)
+    run("git", "config", "user.name", "CI Contract", cwd=tmp_path)
+    tracked = tmp_path / "tracked.txt"
+    tracked.write_text("clean\n", encoding="utf-8")
+    run("git", "add", "tracked.txt", cwd=tmp_path)
+    run("git", "commit", "-qm", "base", cwd=tmp_path)
+    tracked.write_text("trailing whitespace \n", encoding="utf-8")
+    run("git", "add", "tracked.txt", cwd=tmp_path)
+    run("git", "commit", "-qm", "bad whitespace", cwd=tmp_path)
+
+    result = run(
+        "bash",
+        "-c",
+        'source "$1"; repo_root="$2"; check_diff_whitespace',
+        "contract",
+        str(LOCAL_CI),
+        str(tmp_path),
+        env={"GRAF_CI_BASE_REF": "HEAD~1"},
+    )
+
+    assert result.returncode != 0
+    assert "trailing whitespace" in result.stdout
+
+
 def test_fast_calendar_lane_runs_bounded_required_performance_proof() -> None:
     result = run_stubbed_ci(
         "apps/server/src/twobrain_rec_server/calendar/matching.py",

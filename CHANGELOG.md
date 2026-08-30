@@ -66,8 +66,8 @@
 - _Пока нет записей._
 
 ### Документы
-- CI/CD runbook, product status и PR evidence приведены к фактическому
-  контракту bounded fast и отдельного exact-SHA full перед release.
+- CI/CD runbook, product status и PR evidence приведены к фактическому bounded
+  fast-контракту и отдельному exact-SHA full gate перед release.
 
 ### Операции
 - Fast lane запускает ограниченные проверки затронутых компонентов, focused

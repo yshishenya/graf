@@ -44,13 +44,17 @@ performance_path() {
   esac
 }
 
-changed_files() {
+merge_base_commit() {
   local base_ref="${GRAF_CI_BASE_REF:-origin/master}"
+  git -C "$repo_root" rev-parse --verify "$base_ref^{commit}" >/dev/null 2>&1 || return 1
+  git -C "$repo_root" merge-base HEAD "$base_ref"
+}
+
+changed_files() {
   local merge_base
   local tracked_changes
   local untracked_changes
-  git -C "$repo_root" rev-parse --verify "$base_ref^{commit}" >/dev/null 2>&1 || return 1
-  merge_base="$(git -C "$repo_root" merge-base HEAD "$base_ref")" || return 1
+  merge_base="$(merge_base_commit)" || return 1
   tracked_changes="$(git -C "$repo_root" diff --no-renames --name-only "$merge_base" --)" || return 1
   untracked_changes="$(git -C "$repo_root" ls-files --others --exclude-standard)" || return 1
   printf '%s\n%s\n' "$tracked_changes" "$untracked_changes" | LC_ALL=C sort -u
@@ -132,6 +136,15 @@ check_shell_syntax() {
     [[ "$path" == *.sh ]] && shell_files+=("$path")
   done < <(git ls-files '*.sh')
   [[ "${#shell_files[@]}" -eq 0 ]] || bash -n "${shell_files[@]}"
+}
+
+check_diff_whitespace() {
+  local merge_base
+  if merge_base="$(merge_base_commit)"; then
+    git -C "$repo_root" diff --check "$merge_base" --
+  else
+    git -C "$repo_root" diff --check
+  fi
 }
 
 main() (
@@ -363,7 +376,7 @@ main() (
       run_step "production compose config" bash -c \
         'docker compose -f infra/docker-compose.yml config >/dev/null' || return $?
     fi
-    run_step "diff whitespace check" git diff --check || return $?
+    run_step "diff whitespace check" check_diff_whitespace || return $?
     run_step "active CI documentation consistency" check_active_docs || return $?
   fi
 
