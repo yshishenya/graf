@@ -287,7 +287,7 @@ def test_trial_expiry_projects_free_without_grace_period(client) -> None:
     asyncio.run(expire_trial())
     response = client.get("/billing")
     assert response.status_code == 200
-    assert '<h2 id="billing-plan-title">Free</h2>' in response.text
+    assert '<h2 id="billing-summary-title">Free</h2>' in response.text
     assert "Пробный период активирован" not in response.text
 
 
