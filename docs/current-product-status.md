@@ -1,6 +1,27 @@
 # Текущий статус продукта
 
-Date: 2026-08-25
+Date: 2026-08-30
+
+## Implementation update (2026-08-30) — Feature 211 CI/CD optimization
+
+- Локальный CI требует явный `--fast` или `--full`. Fast lane выбирает server,
+  macOS и documentation checks по diff и fail-closed расширяется до full для
+  infrastructure, dependencies, migrations, contract/integration tests,
+  governance и неизвестных путей.
+- Успешный full на чистом exact candidate создаёт локальную metadata-only
+  receipt под Git metadata. Receipt связана с SHA/tree, runner, lockfiles, test
+  surface, toolchain, server collection и сроком 24 часа; dirty, stale и
+  mismatched evidence не переиспользуются.
+- `cd-remote.sh --execute` сохраняет clean-tree, remote-sync, exact-SHA и все
+  production gates: валидная receipt убирает повторный full, а missing/invalid
+  receipt запускает full fallback. `--skip-local-ci` остаётся только явным
+  incident-исключением.
+- Функциональные PostgreSQL-проверки остаются hard gate. Чувствительная к
+  загрузке serial performance-фаза report-only для несвязанных изменений и
+  required для calendar matching paths или явного controlled run.
+- Feature 211 входит в release train `v2026.08.30.1`; production truth нужно
+  подтверждать по exact tag/runtime и deployment evidence, а не выводить из
+  статуса реализации в этом документе.
 
 ## Release update (2026-08-25) — `v2026.08.25.4`
 
