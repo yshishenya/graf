@@ -61,8 +61,9 @@ Expected: fast lane includes the focused governance check and is the final repos
 ## Validation Evidence — 2026-08-30
 
 - Source checkout `speckit-bootstrap` is clean on `main == origin/main` at
-  `ae45a7d241921a19c99d797f3447a4f9284f6d88`; immutable `v0.9.5^{}` resolves to
-  the same SHA. Installed executable SHA-256 is
+  `2c042cb47a1d737c47e4d38f089be7ccb4e96489` after docs PR #31; immutable
+  `v0.9.5^{}` resolves to release merge `ae45a7d241921a19c99d797f3447a4f9284f6d88`.
+  Installed executable SHA-256 is
   `b62c8de2b11f8d109710969e1c13a5e8bf2552426012a4c97801eebd04e27a2a`.
 - Preflight resolved Specify CLI `1.0.1`, bootstrap `0.9.5`, Spec Kit `v1.0.1`
   and immutable ref `9118ed15a0ba65053469a94c560ea5d233f75884`.
