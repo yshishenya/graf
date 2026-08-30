@@ -21,13 +21,43 @@
 - _Пока нет записей._
 
 ### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.08.30.1] - 2026-08-30
+
+
+### Добавлено
+- Добавлена локальная full-CI receipt, привязанная к exact SHA, дереву,
+  CI-runner, lockfiles, тестовой поверхности, toolchain и сроку 24 часа.
+
+### Изменено
+- Локальный CI теперь требует явный `--fast` или `--full`; fast lane выбирает
+  затронутые компоненты и fail-closed расширяется до full для рискованных и
+  неизвестных путей.
+
+### Исправлено
+- _Пока нет записей._
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
 - Добавлен production-runbook Temporal Web с адресом, границей доступа,
   жизненным циклом Compose и проверками после перезапуска.
+- CI/CD runbook, Spec Kit lanes, PR template и operational README приведены к
+  фактическому контракту fast/full, receipt reuse и performance gate.
 
 ### Операции
 - Зафиксирована эксплуатационная схема Temporal Web: HTTPS + Basic Auth через
   host Nginx, внутреннее подключение к `rec-temporal:7233` и автоперезапуск
   контейнеров.
+- Production deploy переиспользует валидную exact-input full-CI receipt, а при
+  её отсутствии или расхождении безопасно запускает полный fallback; serial
+  performance остаётся hard gate для calendar matching и report-only для
+  несвязанных изменений на shared host.
 
 ## [2026.08.29.4] - 2026-08-29
 
@@ -9301,4 +9331,3 @@
 - Added production read-only RLS state verification output for covered-table
   counts, enabled/forced counts, failed tables, deployed commit, and Alembic
   revision (`feature:032`, `T015-T020`, `T028-T037`).
-
