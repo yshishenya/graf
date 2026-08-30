@@ -196,6 +196,17 @@ if [[ ! "$workers" =~ ^[1-9][0-9]*$ ]] || (( workers > 8 )); then
   exit 2
 fi
 
+performance_gate="${GRAF_PERFORMANCE_GATE:-report}"
+if [[ "$performance_gate" != "report" && "$performance_gate" != "required" ]]; then
+  printf 'GRAF_PERFORMANCE_GATE must be report or required.\n' >&2
+  exit 2
+fi
+export GRAF_PERFORMANCE_GATE="$performance_gate"
+if [[ "$mode" == "fast" && "$performance_gate" == "required" ]]; then
+  printf 'refusing --fast with GRAF_PERFORMANCE_GATE=required; use --full\n' >&2
+  exit 2
+fi
+
 timing_args=(--durations=20)
 for argument in "${pytest_args[@]}"; do
   if [[ "$argument" == --durations || "$argument" == --durations=* ]]; then
@@ -307,6 +318,7 @@ if run_phase performance \
   "${timing_args[@]}" "${pytest_args[@]}"; then
   :
 else
+  printf 'postgres_test_performance_gate=%s result=fail\n' "$performance_gate" >&2
   exit 1
 fi
 if run_phase strict \

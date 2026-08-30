@@ -51,7 +51,7 @@ deploy_result=dry_run
 remote_host=$REMOTE_HOST
 remote_path=$REMOTE_PATH
 branch=$BRANCH
-local_ci=$([[ "$SKIP_LOCAL_CI" == "1" ]] && echo skipped || echo full_required)
+local_ci=$([[ "$SKIP_LOCAL_CI" == "1" ]] && echo skipped_incident_only || echo full_required)
 posthog_stack_handoff=dry_run_metadata_only
 posthog_stack_contract=infra/posthog/docker-compose.posthog.yml
 posthog_stack_runtime_source=official_posthog_hobby_generated_compose_required
@@ -63,7 +63,12 @@ fi
 
 cd "$(dirname "$0")/../.."
 
-if ! git diff --quiet || ! git diff --cached --quiet; then
+if ! WORKTREE_STATUS="$(git status --porcelain --untracked-files=all)"; then
+  echo "deploy_result=blocked"
+  echo "reason=worktree_status_failed"
+  exit 1
+fi
+if [[ -n "$WORKTREE_STATUS" ]]; then
   echo "deploy_result=blocked"
   echo "reason=dirty_worktree"
   exit 1
@@ -91,6 +96,30 @@ fi
 
 if [[ "$SKIP_LOCAL_CI" != "1" ]]; then
   infra/scripts/ci-local.sh --full
+  if ! POST_CI_WORKTREE_STATUS="$(git status --porcelain --untracked-files=all)"; then
+    echo "deploy_result=blocked"
+    echo "reason=worktree_status_failed_after_full"
+    exit 1
+  fi
+  if [[ -n "$POST_CI_WORKTREE_STATUS" ]]; then
+    echo "deploy_result=blocked"
+    echo "reason=candidate_changed_during_full"
+    exit 1
+  fi
+  POST_CI_SHA="$(git rev-parse HEAD)"
+  git fetch origin "$BRANCH"
+  POST_CI_ORIGIN_SHA="$(git rev-parse "origin/$BRANCH")"
+  if [[ "$POST_CI_SHA" != "$EXPECTED_SHA" || "$POST_CI_ORIGIN_SHA" != "$EXPECTED_SHA" ]]; then
+    echo "deploy_result=blocked"
+    echo "reason=candidate_changed_during_full"
+    echo "expected_sha=$EXPECTED_SHA"
+    echo "local_sha=$POST_CI_SHA"
+    echo "origin_sha=$POST_CI_ORIGIN_SHA"
+    exit 1
+  fi
+  echo "local_ci=full_passed"
+else
+  echo "local_ci=skipped_incident_only"
 fi
 
 remote_script=$(cat <<'SH'

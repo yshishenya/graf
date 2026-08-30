@@ -26,8 +26,13 @@ PR, run the fast lane:
 infra/scripts/ci-local.sh --fast
 ```
 
-It runs the server unit suite, Ruff and Python compile checks. It is the fast
-feedback lane, not a release gate.
+The lane argument is mandatory. The fast lane uses the diff from
+`origin/master` to run server unit tests plus reviewed domain source,
+macOS and ordinary documentation components only. Calendar performance paths,
+high-risk backend/API paths,
+deployment evidence, shared infrastructure, dependencies, migrations,
+contract/integration tests, unknown paths or an unavailable diff expand to
+full. It is the fast feedback lane, not a release gate.
 
 GitHub Actions are disabled. No pull-request validation runs remotely. For an
 early full baseline, run locally:
@@ -38,8 +43,8 @@ infra/scripts/ci-local.sh --full
 
 The full lane adds macOS tests and contracts (on macOS), the complete server
 suite, RLS validation, production Compose rendering and the deployment evidence
-scan. Do not run it after every small edit: `cd-remote.sh --execute` runs this
-full lane automatically for the exact commit that will be deployed.
+scan. Do not run it after every small edit; the normal production path runs the
+authoritative full inside execute.
 
 ## Local CD
 
@@ -50,10 +55,11 @@ infra/scripts/cd-remote.sh --dry-run
 infra/scripts/cd-remote.sh --execute
 ```
 
-The execute mode requires a clean local worktree, verifies that the current
-branch matches `origin/<branch>`, pins the deployment to that exact commit SHA,
-then runs `infra/scripts/ci-local.sh --full`. On `2brain.dev`, it verifies the remote `origin/<branch>`
-still resolves to the pinned SHA before reset, then performs backup, restore
+The execute mode requires a clean tracked-and-untracked local worktree, verifies
+that the current branch matches `origin/<branch>`, pins the deployment to that
+exact commit SHA, runs one `infra/scripts/ci-local.sh --full`, and re-checks the
+clean worktree plus local/remote SHA before SSH. On `2brain.dev`, it
+verifies the remote `origin/<branch>` still resolves to the pinned SHA before reset, then performs backup, restore
 rehearsal, production Compose secret-exposure scan, rebuild/up, runtime
 secret-environment scan, production smoke, and public health checks.
 

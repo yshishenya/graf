@@ -85,6 +85,16 @@ def test_full_runner_keeps_strict_rls_tests_and_uses_a_bounded_parallel_lane() -
     assert "-m \"not strict_rls and not serial_performance\"" in script
     assert "-m \"serial_performance and not strict_rls\"" in script
     assert "if run_phase performance" in script
+    assert 'performance_gate="${GRAF_PERFORMANCE_GATE:-report}"' in script
+    assert 'export GRAF_PERFORMANCE_GATE="$performance_gate"' in script
+    assert "refusing --fast with GRAF_PERFORMANCE_GATE=required; use --full" in script
+    assert 'postgres_test_performance_gate=%s result=fail' in script
+    assert "report_only_fail" not in script
+    performance_test = (
+        ROOT / "apps/server/tests/integration/test_calendar_auto_context_match.py"
+    ).read_text(encoding="utf-8")
+    assert 'os.environ.get("GRAF_PERFORMANCE_GATE", "required") == "report"' in performance_test
+    assert "pytest.xfail" in performance_test
     assert "-m strict_rls" in script
     assert "--durations=20" in script
     assert "collection_digest" in script
@@ -106,17 +116,21 @@ def test_runner_exposes_a_fast_unit_lane_without_replacing_full_coverage() -> No
     assert 'postgres_test_result=pass mode=fast' in script
 
 
-def test_local_ci_keeps_full_as_default_and_exposes_fast_explicitly() -> None:
+def test_local_ci_requires_an_explicit_lane_and_exposes_component_selection() -> None:
     script = LOCAL_CI.read_text(encoding="utf-8")
 
-    assert 'mode="full"' in script
-    assert 'usage: $0 [--fast|--full]' in script
-    assert 'bash apps/server/scripts/run_local_postgres_tests.sh "--${mode}" -q' in script
-    assert 'if [[ "$mode" == "full" ]]; then' in script
+    assert 'requested_mode="unselected"' in script
+    assert 'usage: $0 --fast|--full|--help' in script
+    assert 'classify_path()' in script
+    assert 'run_server_tests full' in script
+    assert 'run_server_tests fast' in script
+    assert "ci-receipt" not in script
 
 
-def test_remote_deploy_requires_the_explicit_full_local_ci_lane() -> None:
+def test_remote_deploy_runs_one_authoritative_full_gate() -> None:
     script = REMOTE_CD.read_text(encoding="utf-8")
 
-    assert "local_ci=$([[ \"$SKIP_LOCAL_CI\" == \"1\" ]] && echo skipped || echo full_required)" in script
+    assert "echo full_required" in script
+    assert "local_ci=full_passed" in script
     assert "infra/scripts/ci-local.sh --full" in script
+    assert "ci-receipt" not in script

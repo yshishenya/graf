@@ -21,13 +21,45 @@
 - _Пока нет записей._
 
 ### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.08.30.1] - 2026-08-30
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- Локальный CI теперь требует явный `--fast` или `--full`; fast lane выбирает
+  только reviewed low-risk компоненты и fail-closed расширяется до full для
+  high-risk backend/API, deployment evidence, рискованных и неизвестных путей.
+- Production execute после синхронизации `master` запускает один authoritative
+  full на exact SHA; отдельный preflight full в обычном release path больше не
+  нужен.
+
+### Исправлено
+- _Пока нет записей._
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
 - Добавлен production-runbook Temporal Web с адресом, границей доступа,
   жизненным циклом Compose и проверками после перезапуска.
+- CI/CD runbook, Spec Kit lanes, PR template и operational README приведены к
+  фактическому контракту fast/full, одному full внутри deploy и performance gate.
 
 ### Операции
 - Зафиксирована эксплуатационная схема Temporal Web: HTTPS + Basic Auth через
   host Nginx, внутреннее подключение к `rec-temporal:7233` и автоперезапуск
   контейнеров.
+- Production deploy после exact-SHA sync запускает один authoritative full до
+  remote действий; serial performance остаётся hard gate для calendar matching
+  paths, controlled runs и synchronized-master full, а для несвязанных
+  изменений на shared host только p95 threshold остаётся report-only.
 
 ## [2026.08.29.4] - 2026-08-29
 
@@ -9301,4 +9333,3 @@
 - Added production read-only RLS state verification output for covered-table
   counts, enabled/forced counts, failed tables, deployed commit, and Alembic
   revision (`feature:032`, `T015-T020`, `T028-T037`).
-
