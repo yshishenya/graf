@@ -444,6 +444,12 @@ final class SystemAudioCaptureServiceTests: XCTestCase {
         XCTAssertEqual(second.sessionId, "second")
         XCTAssertLessThan(elapsed, 1)
         XCTAssertEqual(firstRuntime.startCount, 1)
+        for _ in 0..<50 {
+            if firstRuntime.stopCount >= 1 {
+                break
+            }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
         XCTAssertGreaterThanOrEqual(firstRuntime.stopCount, 1)
         XCTAssertTrue(secondRuntime.didStart)
 
