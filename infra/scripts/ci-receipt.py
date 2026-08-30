@@ -144,7 +144,7 @@ def required_full_stages() -> tuple[str, ...]:
     return COMMON_FULL_STAGES[:1] + (DARWIN_FULL_STAGES if platform.system() == "Darwin" else ()) + COMMON_FULL_STAGES[1:]
 
 
-def stage_evidence(path: Path, started_at: int, now: int) -> tuple[str, ...]:
+def require_private_evidence(path: Path, started_at: int, now: int) -> None:
     if path.is_symlink() or not path.is_file():
         raise ReceiptError("evidence_invalid")
     metadata = path.stat()
@@ -152,6 +152,10 @@ def stage_evidence(path: Path, started_at: int, now: int) -> tuple[str, ...]:
         raise ReceiptError("evidence_invalid")
     if int(metadata.st_mtime) < started_at or int(metadata.st_mtime) > now:
         raise ReceiptError("evidence_invalid")
+
+
+def stage_evidence(path: Path, started_at: int, now: int) -> tuple[str, ...]:
+    require_private_evidence(path, started_at, now)
     try:
         rows = tuple(line.split("\t") for line in path.read_text(encoding="utf-8").splitlines())
     except (OSError, UnicodeError):
@@ -162,6 +166,48 @@ def stage_evidence(path: Path, started_at: int, now: int) -> tuple[str, ...]:
     if stages != required_full_stages():
         raise ReceiptError("evidence_invalid")
     return stages
+
+
+def write_private_json(destination: Path, payload: dict[str, object], prefix: str) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        "w", encoding="utf-8", dir=destination.parent, prefix=prefix, delete=False
+    ) as temporary:
+        json.dump(payload, temporary, sort_keys=True, separators=(",", ":"))
+        temporary.write("\n")
+        temporary_path = Path(temporary.name)
+    os.chmod(temporary_path, 0o600)
+    temporary_path.replace(destination)
+
+
+def capture_snapshot(args: argparse.Namespace) -> int:
+    root = repo_root()
+    require_clean(root)
+    destination = Path(args.output).resolve()
+    if destination.is_relative_to(root):
+        raise ReceiptError("evidence_invalid")
+    payload = {"version": 1, "captured_at_epoch": int(time.time()), **snapshot(root)}
+    write_private_json(destination, payload, "full-ci-start.")
+    print("ci_snapshot_result=created")
+    return 0
+
+
+def validate_start_snapshot(
+    path: Path, started_at: int, now: int, current: dict[str, object]
+) -> None:
+    require_private_evidence(path, started_at, now)
+    try:
+        captured = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        raise ReceiptError("evidence_invalid") from None
+    if not isinstance(captured, dict) or captured.get("version") != 1:
+        raise ReceiptError("evidence_invalid")
+    captured_at = captured.pop("captured_at_epoch", None)
+    captured.pop("version", None)
+    if not isinstance(captured_at, int) or not started_at <= captured_at <= now:
+        raise ReceiptError("evidence_invalid")
+    if captured != current:
+        raise ReceiptError("snapshot_mismatch")
 
 
 def invalid(reason: str) -> int:
@@ -175,6 +221,8 @@ def create(args: argparse.Namespace) -> int:
     root = repo_root()
     require_clean(root)
     now = int(time.time())
+    current = snapshot(root)
+    validate_start_snapshot(Path(args.start_snapshot).resolve(), args.started_at_epoch, now, current)
     completed_stages = stage_evidence(Path(args.evidence_file).resolve(), args.started_at_epoch, now)
     receipt = {
         "version": VERSION,
@@ -182,21 +230,12 @@ def create(args: argparse.Namespace) -> int:
         "created_at_epoch": now,
         "started_at_epoch": args.started_at_epoch,
         "duration_seconds": max(0, now - args.started_at_epoch),
-        **snapshot(root),
+        **current,
         "server_collection_count": args.collection_count,
         "server_collection_digest": args.collection_digest,
         "completed_stages": completed_stages,
     }
-    destination = receipt_path(root)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(
-        "w", encoding="utf-8", dir=destination.parent, prefix="full-receipt.", delete=False
-    ) as temporary:
-        json.dump(receipt, temporary, sort_keys=True, separators=(",", ":"))
-        temporary.write("\n")
-        temporary_path = Path(temporary.name)
-    os.chmod(temporary_path, 0o600)
-    temporary_path.replace(destination)
+    write_private_json(receipt_path(root), receipt, "full-receipt.")
     print(f"ci_receipt_result=created commit_sha={receipt['commit_sha']}")
     return 0
 
@@ -266,6 +305,7 @@ def parser() -> argparse.ArgumentParser:
     create_parser.add_argument("--collection-count", type=int, required=True)
     create_parser.add_argument("--collection-digest", required=True)
     create_parser.add_argument("--evidence-file", required=True)
+    create_parser.add_argument("--start-snapshot", required=True)
     validate_parser = subparsers.add_parser("validate")
     validate_parser.add_argument(
         "--max-age-seconds",
@@ -273,6 +313,8 @@ def parser() -> argparse.ArgumentParser:
         default=int(os.environ.get("GRAF_FULL_CI_RECEIPT_MAX_AGE_SECONDS", DEFAULT_MAX_AGE_SECONDS)),
     )
     subparsers.add_parser("path")
+    snapshot_parser = subparsers.add_parser("snapshot")
+    snapshot_parser.add_argument("--output", required=True)
     return result
 
 
@@ -285,6 +327,8 @@ def main() -> int:
             if args.max_age_seconds < 0:
                 raise ReceiptError("malformed")
             return validate(args)
+        if args.command == "snapshot":
+            return capture_snapshot(args)
         print(receipt_path(repo_root()))
         return 0
     except ReceiptError as error:

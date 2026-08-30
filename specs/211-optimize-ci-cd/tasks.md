@@ -62,8 +62,8 @@
 **Independent Test**: Successful and failing stubbed stages produce one final result plus stage durations; ordinary unrelated full reports a performance-only miss without false functional failure, while related/controlled runs require it.
 
 - [X] T015 [US3] Add stable requested/effective lane, component, reason, per-stage and total-duration output contracts in `infra/scripts/ci-local.sh`
-- [X] T016 [US3] Make serial performance failure report-only by default and hard-required when selected in `apps/server/scripts/run_local_postgres_tests.sh`
-- [X] T017 [US3] Select the hard performance gate for related calendar paths and allow explicit controlled-run override in `infra/scripts/ci-local.sh`
+- [X] T016 [US3] Keep performance setup/database/functional failures hard while making only the load-sensitive p95 threshold report-only by default in `apps/server/scripts/run_local_postgres_tests.sh` and the marked test
+- [X] T017 [US3] Select the hard performance threshold for related calendar paths, explicit controlled runs and synchronized-master full fallback in `infra/scripts/ci-local.sh`
 - [X] T018 [US3] Add timing, failure-trap and performance-gate contract assertions in `apps/server/tests/contract/test_ci_cd_contract.py`
 
 **Checkpoint**: Timing diagnostics cannot generate a passing receipt after any hard-stage failure.

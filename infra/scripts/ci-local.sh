@@ -10,18 +10,42 @@ classify_path() {
   case "$1" in
     apps/server/uv.lock|apps/server/pyproject.toml|apps/server/constraints.txt|\
     apps/macos/Package.swift|apps/macos/Package.resolved|\
+    apps/server/src/twobrain_rec_server/api/*|\
+    apps/server/src/twobrain_rec_server/admin/*|\
+    apps/server/src/twobrain_rec_server/auth/*|\
+    apps/server/src/twobrain_rec_server/billing/*|\
+    apps/server/src/twobrain_rec_server/cabinet/*|\
+    apps/server/src/twobrain_rec_server/db/*|\
+    apps/server/src/twobrain_rec_server/deletion/*|\
+    apps/server/src/twobrain_rec_server/ingest/*|\
+    apps/server/src/twobrain_rec_server/mediascribe/*|\
+    apps/server/src/twobrain_rec_server/meeting_detection/*|\
+    apps/server/src/twobrain_rec_server/normalization/*|\
+    apps/server/src/twobrain_rec_server/observability/*|\
+    apps/server/src/twobrain_rec_server/outcomes/*|\
+    apps/server/src/twobrain_rec_server/processing/*|\
+    apps/server/src/twobrain_rec_server/product_analytics/*|\
+    apps/server/src/twobrain_rec_server/readiness/*|\
+    apps/server/src/twobrain_rec_server/storage/*|\
+    apps/server/src/twobrain_rec_server/support/*|\
+    apps/server/src/twobrain_rec_server/workflows/*|\
     apps/server/src/twobrain_rec_server/db/migrations/*|\
     apps/server/tests/contract/*|apps/server/tests/integration/*|\
     infra/docker-compose.yml|infra/server/*|infra/scripts/*.sh|infra/scripts/*.py|\
     scripts/*|.specify/*|.github/workflows/*|.github/actions/*|\
-    AGENTS.md|.github/pull_request_template.md|\
+    AGENTS.md|.github/pull_request_template.md|docs/deployments/*|\
     docs/agent-guidance/release-and-validation.md|\
     docs/agent-guidance/spec-kit-flow.md|infra/scripts/README.md|\
     Dockerfile*|docker-compose*|Makefile|pyproject.toml)
       echo full
       ;;
-    apps/server/src/*|apps/server/tests/unit/*)
+    apps/server/src/twobrain_rec_server/calendar/*|\
+    apps/server/src/twobrain_rec_server/domain/*|\
+    apps/server/tests/unit/*)
       echo server
+      ;;
+    apps/server/src/*)
+      echo full
       ;;
     apps/macos/*)
       echo macos
@@ -53,12 +77,13 @@ performance_path() {
 changed_files() {
   local base_ref="${GRAF_CI_BASE_REF:-origin/master}"
   local merge_base
+  local tracked_changes
+  local untracked_changes
   git -C "$repo_root" rev-parse --verify "$base_ref^{commit}" >/dev/null 2>&1 || return 1
   merge_base="$(git -C "$repo_root" merge-base HEAD "$base_ref")" || return 1
-  {
-    git -C "$repo_root" diff --name-only "$merge_base" --
-    git -C "$repo_root" ls-files --others --exclude-standard
-  } | LC_ALL=C sort -u
+  tracked_changes="$(git -C "$repo_root" diff --name-only "$merge_base" --)" || return 1
+  untracked_changes="$(git -C "$repo_root" ls-files --others --exclude-standard)" || return 1
+  printf '%s\n%s\n' "$tracked_changes" "$untracked_changes" | LC_ALL=C sort -u
 }
 
 run_step() {
@@ -136,6 +161,8 @@ main() (
   local temp_dir=""
   local server_log=""
   local evidence_file=""
+  local start_snapshot=""
+  local start_status=""
   local changed_list=""
   local has_server=0
   local has_macos=0
@@ -198,6 +225,13 @@ main() (
   evidence_file="$temp_dir/full-ci-evidence.tsv"
   : > "$evidence_file"
   chmod 600 "$evidence_file"
+  if ! start_status="$(git status --porcelain --untracked-files=all)"; then
+    return 1
+  fi
+  if [[ -z "$start_status" ]]; then
+    start_snapshot="$temp_dir/full-ci-start.json"
+    python3 infra/scripts/ci-receipt.py snapshot --output "$start_snapshot" || return $?
+  fi
 
   if ! changed_list="$(changed_files)"; then
     if [[ "$requested_mode" == "full" ]]; then
@@ -227,9 +261,14 @@ main() (
           ;;
       esac
     done <<<"$changed_list"
-  elif [[ "$requested_mode" == "fast" ]]; then
-    has_docs=1
-    selection_reason="no_changes"
+  else
+    if [[ "$requested_mode" == "fast" ]]; then
+      has_docs=1
+      selection_reason="no_changes"
+    else
+      performance_required=1
+      selection_reason="synchronized_full_requires_performance"
+    fi
   fi
 
   if [[ "$requested_mode" == "full" ]]; then
@@ -313,14 +352,15 @@ main() (
       echo "ci_receipt_result=invalid reason=collection_invalid" >&2
       return 1
     fi
-    if [[ -n "$(git status --porcelain --untracked-files=all)" ]]; then
+    if [[ -n "$(git status --porcelain --untracked-files=all)" || -z "$start_snapshot" ]]; then
       echo "ci_receipt_result=skipped reason=dirty_worktree"
     else
       run_step "full CI receipt" python3 infra/scripts/ci-receipt.py create \
         --started-at-epoch "$pipeline_started" \
         --collection-count "$collection_count" \
         --collection-digest "$collection_digest" \
-        --evidence-file "$evidence_file" || return $?
+        --evidence-file "$evidence_file" \
+        --start-snapshot "$start_snapshot" || return $?
     fi
   fi
 

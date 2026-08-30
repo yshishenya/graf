@@ -33,6 +33,8 @@ Validation rules:
 - `result`: exactly `pass`.
 - `created_at_epoch`, `started_at_epoch`, `duration_seconds`.
 - `commit_sha`, `tree_sha`.
+- `start_snapshot`: private temporary exact-input snapshot captured before the
+  first stage and required to equal the final snapshot before issuance.
 - `runner_inputs`: relative path → SHA-256.
 - `dependency_inputs`: relative path → SHA-256.
 - `test_surface_digest`: SHA-256 of ordered tracked test paths and contents.
@@ -43,9 +45,9 @@ Validation rules:
 
 Validation rules:
 
-- Receipt creation requires a clean tracked and untracked worktree, successful
-  full result and complete ordered stage journal; direct caller metadata alone
-  is insufficient.
+- Receipt creation requires a clean tracked and untracked worktree at start and
+  finish, unchanged exact inputs, successful full result and complete ordered
+  stage journal; direct caller metadata alone is insufficient.
 - Receipt age must not exceed the configured maximum (default 86,400 seconds).
 - Every current field above is recomputed or strictly checked before reuse.
 - Missing, malformed, unsupported-version, stale or mismatched receipt is invalid.

@@ -312,11 +312,9 @@ if run_phase performance \
   uv run --extra dev --extra evaluation pytest -m "serial_performance and not strict_rls" \
   "${timing_args[@]}" "${pytest_args[@]}"; then
   :
-elif [[ "$performance_gate" == "required" ]]; then
-  printf 'postgres_test_performance_gate=required result=fail\n' >&2
-  exit 1
 else
-  printf 'postgres_test_performance_gate=report result=report_only_fail\n' >&2
+  printf 'postgres_test_performance_gate=%s result=fail\n' "$performance_gate" >&2
+  exit 1
 fi
 if run_phase strict \
   uv run --extra dev --extra evaluation pytest -m strict_rls "${timing_args[@]}" "${pytest_args[@]}"; then

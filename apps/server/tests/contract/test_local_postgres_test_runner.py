@@ -86,8 +86,13 @@ def test_full_runner_keeps_strict_rls_tests_and_uses_a_bounded_parallel_lane() -
     assert "-m \"serial_performance and not strict_rls\"" in script
     assert "if run_phase performance" in script
     assert 'performance_gate="${GRAF_PERFORMANCE_GATE:-report}"' in script
-    assert 'postgres_test_performance_gate=report result=report_only_fail' in script
-    assert 'postgres_test_performance_gate=required result=fail' in script
+    assert 'postgres_test_performance_gate=%s result=fail' in script
+    assert "report_only_fail" not in script
+    performance_test = (
+        ROOT / "apps/server/tests/integration/test_calendar_auto_context_match.py"
+    ).read_text(encoding="utf-8")
+    assert 'os.environ.get("GRAF_PERFORMANCE_GATE", "required") == "report"' in performance_test
+    assert "pytest.xfail" in performance_test
     assert "-m strict_rls" in script
     assert "--durations=20" in script
     assert "collection_digest" in script

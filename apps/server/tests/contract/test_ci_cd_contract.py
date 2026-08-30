@@ -83,6 +83,9 @@ def make_receipt_repo(tmp_path: Path) -> tuple[Path, Path]:
     git(repo, "add", ".")
     git(repo, "commit", "-qm", "fixture")
     helper = repo / "infra/scripts/ci-receipt.py"
+    start_snapshot = tmp_path / "full-ci-start.json"
+    captured = run("python3", str(helper), "snapshot", "--output", str(start_snapshot), cwd=repo)
+    assert captured.returncode == 0, captured.stdout
     evidence = tmp_path / "full-ci-evidence.tsv"
     stages = ["macOS legacy audio architecture guard"]
     if os.uname().sysname == "Darwin":
@@ -112,6 +115,8 @@ def make_receipt_repo(tmp_path: Path) -> tuple[Path, Path]:
         "a" * 64,
         "--evidence-file",
         str(evidence),
+        "--start-snapshot",
+        str(start_snapshot),
         cwd=repo,
     )
     assert created.returncode == 0, created.stdout
@@ -139,11 +144,16 @@ def test_local_ci_help_is_explicit_and_runs_no_stage() -> None:
 @pytest.mark.parametrize(
     ("path", "expected"),
     [
-        ("apps/server/src/twobrain_rec_server/api/app.py", "server"),
+        ("apps/server/src/twobrain_rec_server/api/app.py", "full"),
+        ("apps/server/src/twobrain_rec_server/calendar/matching.py", "server"),
+        ("apps/server/src/twobrain_rec_server/domain/statuses.py", "server"),
+        ("apps/server/src/twobrain_rec_server/auth/sessions.py", "full"),
+        ("apps/server/src/twobrain_rec_server/api/auth.py", "full"),
         ("apps/server/tests/unit/test_sample.py", "server"),
         ("apps/macos/Sources/App.swift", "macos"),
         ("docs/user-guide.md", "docs"),
         ("docs/agent-guidance/release-and-validation.md", "full"),
+        ("docs/deployments/2brain-rec/release-v1.md", "full"),
         ("apps/macos/Package.resolved", "full"),
         ("infra/scripts/ci-local.sh", "full"),
         ("apps/server/tests/integration/test_sample.py", "full"),
@@ -166,7 +176,7 @@ def test_fast_component_classification_is_fail_closed(path: str, expected: str) 
 
 def test_fast_lane_runs_the_union_of_known_components_once() -> None:
     result = run_stubbed_ci(
-        "apps/server/src/twobrain_rec_server/api/app.py\napps/macos/Sources/App.swift\ndocs/user-guide.md",
+        "apps/server/src/twobrain_rec_server/domain/statuses.py\napps/macos/Sources/App.swift\ndocs/user-guide.md",
         "--fast",
     )
 
@@ -194,6 +204,30 @@ def test_explicit_full_requires_related_performance_gate() -> None:
     assert result.returncode == 0, result.stdout
     assert "ci_lane requested=full effective=full components=full" in result.stdout
     assert "performance_gate=required" in result.stdout
+
+
+def test_synchronized_full_requires_performance_when_the_diff_is_empty() -> None:
+    result = run_stubbed_ci("", "--full")
+
+    assert result.returncode == 0, result.stdout
+    assert "reason=synchronized_full_requires_performance" in result.stdout
+    assert "performance_gate=required" in result.stdout
+
+
+def test_changed_files_propagates_a_tracked_diff_failure() -> None:
+    script = r'''
+source "$1"
+git() {
+  case "$*" in
+    *"diff --name-only"*) return 9 ;;
+    *) command git "$@" ;;
+  esac
+}
+changed_files
+'''
+    result = run("bash", "-c", script, "contract", str(LOCAL_CI))
+
+    assert result.returncode != 0
 
 
 def test_fast_calendar_lane_forwards_required_performance_gate() -> None:
@@ -274,11 +308,41 @@ def test_receipt_create_rejects_incomplete_stage_evidence(tmp_path: Path) -> Non
         "a" * 64,
         "--evidence-file",
         str(evidence),
+        "--start-snapshot",
+        str(tmp_path / "full-ci-start.json"),
         cwd=repo,
     )
 
     assert result.returncode == 1
     assert "reason=evidence_invalid" in result.stdout
+
+
+def test_receipt_create_rejects_a_commit_after_the_start_snapshot(tmp_path: Path) -> None:
+    repo, receipt_path = make_receipt_repo(tmp_path)
+    receipt_path.unlink()
+    (repo / "changed-after-start.txt").write_text("new commit\n", encoding="utf-8")
+    git(repo, "add", "changed-after-start.txt")
+    git(repo, "commit", "-qm", "change after start")
+
+    result = run(
+        "python3",
+        "infra/scripts/ci-receipt.py",
+        "create",
+        "--started-at-epoch",
+        "1",
+        "--collection-count",
+        "3",
+        "--collection-digest",
+        "a" * 64,
+        "--evidence-file",
+        str(tmp_path / "full-ci-evidence.tsv"),
+        "--start-snapshot",
+        str(tmp_path / "full-ci-start.json"),
+        cwd=repo,
+    )
+
+    assert result.returncode == 1
+    assert "reason=snapshot_mismatch" in result.stdout
 
 
 @pytest.mark.parametrize(

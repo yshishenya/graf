@@ -17,30 +17,36 @@ ci-local.sh --help
 
 Fast classification is fail closed:
 
-- `apps/server/src/**` and `apps/server/tests/unit/**` → server fast.
+- `apps/server/tests/unit/**` and reviewed calendar/domain source → server fast.
 - `apps/macos/**` → macOS build/test/contracts on Darwin plus the legacy architecture guard.
 - ordinary documentation/spec text → documentation consistency.
-- infrastructure, dependency/lock, migrations, server contract/integration tests, CI/release governance, shared root configuration, unknown path, missing base or classification failure → full.
+- high-risk backend/API source, deployment evidence, infrastructure,
+  dependency/lock, migrations, server contract/integration tests, CI/release
+  governance, shared root configuration, unknown path, missing base or any diff
+  command failure → full.
 - multiple known components execute their union once.
 
 ## `infra/scripts/ci-receipt.py`
 
 ```text
-ci-receipt.py create --started-at-epoch N --collection-count N --collection-digest HEX --evidence-file PATH
+ci-receipt.py snapshot --output PATH
+ci-receipt.py create --started-at-epoch N --collection-count N --collection-digest HEX --evidence-file PATH --start-snapshot PATH
 ci-receipt.py validate [--max-age-seconds N]
 ci-receipt.py path
 ```
 
 - `create` is called by the full runner only. It requires a clean worktree and a
-  mode-`0600` ordered journal proving every platform-required full stage passed,
-  then writes version 2 JSON atomically beneath the Git metadata path.
+  mode-`0600` ordered journal proving every platform-required full stage passed.
+  The clean snapshot captured before the first stage must still match, then the
+  helper writes version 2 JSON atomically beneath the Git metadata path.
 - `validate` exits `0` only for a fresh exact-input match and prints `ci_receipt_result=valid`.
 - Invalid validation exits `1` and prints only `ci_receipt_result=invalid reason=<stable_code>`.
 - CLI syntax errors exit `2`; invalid receipt data exits `1` with a stable reason.
 - Stable invalid reasons include `missing`, `malformed`, `unsupported_version`,
   `not_pass`, `stale`, `dirty_worktree`, `commit_mismatch`, `tree_mismatch`,
   `runner_mismatch`, `dependency_mismatch`, `test_surface_mismatch`,
-  `toolchain_mismatch`, `collection_invalid`, and `evidence_invalid`.
+  `toolchain_mismatch`, `collection_invalid`, `evidence_invalid`, and
+  `snapshot_mismatch`.
 
 ## `infra/scripts/cd-remote.sh`
 

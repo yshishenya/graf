@@ -62,6 +62,12 @@ Resolved during the final audit:
    creation. Version 2 now requires the exact ordered platform full-stage list
    from the runner's private mode-`0600` temporary journal; incomplete or
    caller-only evidence fails with `evidence_invalid`.
+10. Follow-up review bound receipt issuance to the clean snapshot captured
+    before the first stage, made synchronized-master full runs require the
+    performance threshold, and stopped masking non-timing performance failures.
+11. Deployment evidence and high-risk backend/API paths now escalate to full,
+    while any tracked-diff command failure propagates into the documented
+    `diff_unavailable` fallback.
 
 No production remote step was changed below the local preflight boundary.
 Backup/restore, migration/RLS, secret, runtime readiness, smoke, cleanup, lock,
@@ -71,7 +77,7 @@ script. `--skip-local-ci` remains an explicit incident-only exception.
 ## Validation evidence
 
 - shell syntax, Python compile, Ruff and `git diff --check`: PASS;
-- focused CI/CD contracts after PR review corrections: `44 passed`;
+- focused CI/CD contracts after follow-up review corrections: `52 passed`;
 - active bare CI commands: `0`;
 - fast request on this infrastructure diff: `effective=full`, PASS in `950s`;
 - explicit full before the final path correction: PASS in `1216s`; final full

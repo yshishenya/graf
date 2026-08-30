@@ -4,21 +4,23 @@ Date: 2026-08-30
 
 ## Implementation update (2026-08-30) — Feature 211 CI/CD optimization
 
-- Локальный CI требует явный `--fast` или `--full`. Fast lane выбирает server,
-  macOS и documentation checks по diff и fail-closed расширяется до full для
-  infrastructure, dependencies, migrations, contract/integration tests,
-  governance и неизвестных путей.
+- Локальный CI требует явный `--fast` или `--full`. Fast lane оставляет
+  component checks только для server unit tests, reviewed calendar/domain
+  source, macOS и обычной документации; high-risk backend/API, deployment
+  evidence и неизвестные пути fail-closed расширяются до full.
 - Успешный full на чистом exact candidate создаёт локальную metadata-only
   receipt под Git metadata. Receipt связана с SHA/tree, runner, lockfiles, test
-  surface, toolchain, server collection, полным ordered stage journal и сроком
-  24 часа; dirty, stale и mismatched evidence не переиспользуются.
+  surface, toolchain, server collection, clean start snapshot, полным ordered
+  stage journal и сроком 24 часа; dirty, stale и mismatched evidence не
+  переиспользуются.
 - `cd-remote.sh --execute` сохраняет clean-tree, remote-sync, exact-SHA и все
   production gates: валидная receipt убирает повторный full, а missing/invalid
   receipt запускает full fallback. `--skip-local-ci` остаётся только явным
   incident-исключением.
-- Функциональные PostgreSQL-проверки остаются hard gate. Чувствительная к
-  загрузке serial performance-фаза report-only для несвязанных изменений и
-  required для calendar matching paths или явного controlled run.
+- Функциональные PostgreSQL-проверки и ошибки performance setup/database всегда
+  hard gate. Только p95 threshold становится report-only для несвязанных
+  shared-host runs; calendar paths, controlled run и synchronized-master full
+  требуют его как hard gate.
 - Feature 211 входит в release train `v2026.08.30.1`; production truth нужно
   подтверждать по exact tag/runtime и deployment evidence, а не выводить из
   статуса реализации в этом документе.

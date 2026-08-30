@@ -29,7 +29,7 @@ Pre-change drift inventory found `115` standalone bare `infra/scripts/ci-local.s
 Focused static/contract evidence:
 
 - Bash 3.2 syntax, Python compile and `git diff --check`: PASS;
-- CI/CD contract suites after PR review corrections: `44 passed`, 2 dependency
+- CI/CD contract suites after follow-up review corrections: `52 passed`, 2 dependency
   deprecation warnings;
 - bare shared runner: exit `2` before stages; `--help`: exit `0`;
 - active operator guidance: `0` ambiguous CI commands;
@@ -73,13 +73,14 @@ macOS `769/769`, parallel `3753 passed, 1 skipped` (`600s`), performance
 `1 passed` (`10s`), strict RLS `52 passed, 1 skipped` (`26s`), and every
 post-test gate PASS. No runtime file changed after this run.
 
-PR review then found two release-path gaps before merge: fast calendar changes
-did not forward the selected `required` performance gate, and receipt `create`
-accepted collection metadata without the runner's stage journal. Both are fixed.
-The focused suite now has `44 passed`; receipt version 2 requires the exact
-ordered platform full-stage journal in addition to the existing exact inputs.
-Any clean receipt created before these corrections is invalid for the new commit
-and schema and must be replaced by a successful full run.
+PR review then found release-path gaps before merge. The fixes forward the
+selected calendar performance gate; require receipt version 2's exact ordered
+stage journal and matching clean start snapshot; keep performance
+setup/database/functional failures hard while isolating only the p95 threshold;
+require that threshold on synchronized-master full; escalate deployment evidence
+and high-risk backend/API paths; and propagate tracked-diff failures. The focused
+suite now has `52 passed`. Any clean receipt created before these corrections is
+invalid for the new commit/schema and must be replaced by a successful full run.
 
 For SC-009, a disposable clean clone of this exact implementation was committed
 locally, then given one untracked server-unit probe so the real runner selected

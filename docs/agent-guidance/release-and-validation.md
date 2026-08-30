@@ -15,11 +15,12 @@ infra/scripts/ci-local.sh --full
 
 The lane is mandatory: a bare command exits before tests instead of silently
 choosing evidence strength. `--fast` derives the changed paths from the merge
-base with `origin/master`: known server, macOS and documentation changes run
-only their component checks, while infrastructure, dependencies, migrations,
-contract/integration tests, shared/unknown paths or an unavailable diff expand
-to `--full`. It is for iteration and PR feedback, never a release gate. Focused
-tests remain the first check during implementation.
+base with `origin/master`: server unit tests plus the reviewed calendar/domain
+source surfaces, macOS and ordinary documentation run their component checks.
+High-risk backend/API surfaces, deployment evidence, infrastructure,
+dependencies, migrations, contract/integration tests, shared/unknown paths or
+an unavailable diff expand to `--full`. It is for iteration and PR feedback,
+never a release gate. Focused tests remain the first check during implementation.
 
 GitHub Actions are intentionally disabled for this repository. Nothing runs
 automatically on a pull request: the author must run the selected local lane and
@@ -123,9 +124,10 @@ receipt for the unchanged candidate:
 The receipt is local metadata under the Git worktree metadata directory. It is
 valid for 24 hours only when the commit, tree, CI runner, dependency lockfiles,
 test surface, server collection, toolchain and complete ordered full-stage
-journal still match. The helper rejects direct creation from collection metadata
-alone. Missing, stale, malformed or mismatched evidence never bypasses CI:
-deploy runs full fallback.
+journal still match. A clean start snapshot must still match after the last
+stage, so a commit or input change during the run cannot receive a receipt. The
+helper rejects direct creation from collection metadata alone. Missing, stale,
+malformed or mismatched evidence never bypasses CI: deploy runs full fallback.
 
 ### 4. Production gate
 
@@ -169,9 +171,11 @@ Use this rule when deciding whether to spend the longer run:
 
 An interrupted run is not a passing full-CI result and cannot create a receipt.
 Focused tests and the fast lane must not be counted as full CI in release
-evidence. The serial database performance marker is report-only on unrelated
-shared-host runs because it is load-sensitive; calendar matching changes or an
-explicit controlled run set it to required. Functional tests remain hard gates.
+evidence. Only the load-sensitive p95 threshold may become an expected
+report-only result on unrelated shared-host runs; functional assertions,
+collection/setup/database/import failures always remain hard. Calendar matching
+changes, an explicit controlled run, or a synchronized-master full fallback set
+the timing threshold to required.
 
 ## Public macOS Signing And Migration
 

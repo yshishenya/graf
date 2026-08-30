@@ -10,7 +10,7 @@
 
 ## Decision 2 — Conservative component-aware fast lane
 
-**Decision**: Derive changed tracked/untracked paths from the merge base with `origin/master`. Server source/unit-only changes select server fast checks; macOS changes select macOS validation; documentation selects consistency checks. Shared infrastructure, dependency, migration, contract/integration-test, unknown, or unresolvable paths escalate to full.
+**Decision**: Derive changed tracked/untracked paths from the merge base with `origin/master`. Server unit tests plus reviewed calendar/domain source select server fast checks; macOS changes select macOS validation; ordinary documentation selects consistency checks. High-risk backend/API source, deployment evidence, shared infrastructure, dependency, migration, contract/integration-test, unknown, or unresolvable paths escalate to full.
 
 **Rationale**: Known independent components can safely avoid unrelated work. Ambiguous paths must not trade speed for a false green result.
 
@@ -18,7 +18,7 @@
 
 ## Decision 3 — Local exact-input receipt
 
-**Decision**: A clean successful full run writes a versioned JSON receipt beneath `git rev-parse --git-path`, using atomic replacement and restrictive permissions. It binds result/times to commit, tree, runner files, lockfiles, test surface, local toolchain and the exact ordered list of platform-required full stages from a private temporary runner journal. Default validity is 24 hours.
+**Decision**: A clean successful full run writes a versioned JSON receipt beneath `git rev-parse --git-path`, using atomic replacement and restrictive permissions. It binds result/times to commit, tree, runner files, lockfiles, test surface, local toolchain, the clean snapshot taken before the first stage and the exact ordered list of platform-required full stages from a private temporary runner journal. Default validity is 24 hours.
 
 **Rationale**: The deploy begins on the same trusted workstation/worktree, so a local receipt removes the duplicate run without introducing a remote service. Input recomputation makes copied or stale evidence fail closed; requiring the complete mode-`0600` stage journal prevents a direct `create` call with only invented collection metadata. A compromised same-user workstation remains outside this local optimization's trust boundary and still requires credential/host incident handling.
 
@@ -34,7 +34,7 @@
 
 ## Decision 5 — Isolate noisy timing proof
 
-**Decision**: Keep functional tests hard. Mark the existing serial performance phase report-only on ordinary shared-host full runs, but hard-required when calendar matching/performance paths change or the operator selects the controlled performance gate.
+**Decision**: Keep the performance test's setup, database operations and functional assertions hard. Only its final load-sensitive p95 threshold becomes an expected report-only xfail on ordinary shared-host runs. The threshold is hard-required when calendar matching/performance paths change, the operator selects the controlled gate, or a synchronized-master full has no diff from which to recover relatedness.
 
 **Rationale**: The 50 ms database timing proof has repeatedly failed only under host load and passed alone. It should measure performance, not randomly block unrelated releases.
 
