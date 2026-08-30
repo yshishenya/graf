@@ -5,7 +5,7 @@ Automatically commit changes after a Spec Kit command completes.
 Python port of ``auto-commit.sh`` / ``auto-commit.ps1``.
 Checks per-command config keys in git-config.yml before committing.
 
-Usage: auto_commit.py <event_name>
+Usage: auto_commit.py <event_name> [--message-file <path>]
   e.g.: auto_commit.py after_specify
 """
 
@@ -66,10 +66,7 @@ def _parse_auto_commit_config(
         # Unreadable or non-UTF-8 config is treated like a missing one:
         # auto-commit stays disabled instead of crashing with a traceback.
         return False, ""
-    for record in content.splitlines(keepends=True):
-        if not record.endswith("\n"):
-            break
-        line = record[:-1]
+    for line in content.splitlines():
         if line.startswith("auto_commit:"):
             in_auto_commit = True
             in_event = False
@@ -114,11 +111,41 @@ def _parse_auto_commit_config(
     return enabled, commit_msg
 
 
+def _read_commit_style(config_file: Path) -> str:
+    try:
+        lines = config_file.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return "fixed"
+    for line in lines:
+        if line.startswith("commit_style:"):
+            value = _strip_quotes(_value_after_colon(line)).lower()
+            if value in {"fixed", "conventional"}:
+                return value
+            print(
+                f"[specify] Warning: unknown commit_style '{value}'; defaulting to 'fixed'",
+                file=sys.stderr,
+            )
+            break
+    return "fixed"
+
+
 def main(argv: list[str]) -> int:
-    event_name = argv[0] if argv else ""
-    if not event_name:
-        print(f"Usage: {Path(sys.argv[0]).name} <event_name>", file=sys.stderr)
+    if not argv or (len(argv) != 1 and not (len(argv) == 3 and argv[1] == "--message-file")):
+        print(
+            f"Usage: {Path(sys.argv[0]).name} <event_name> [--message-file <path>]",
+            file=sys.stderr,
+        )
         return 1
+    event_name = argv[0]
+    generated_message = ""
+    if len(argv) == 3:
+        message_file = Path(argv[2])
+        try:
+            generated_message = message_file.read_text(encoding="utf-8").strip()
+            message_file.unlink()
+        except (OSError, UnicodeDecodeError) as exc:
+            print(f"[specify] Error: cannot read message file: {exc}", file=sys.stderr)
+            return 1
 
     script_dir = Path(__file__).resolve().parent
     repo_root = _find_project_root(script_dir) or Path.cwd()
@@ -148,6 +175,16 @@ def main(argv: list[str]) -> int:
     enabled, commit_msg = _parse_auto_commit_config(config_file, event_name)
     if not enabled:
         return 0
+    commit_style = _read_commit_style(config_file)
+    if commit_style == "conventional":
+        if not generated_message:
+            print(
+                "[specify] Error: commit_style is 'conventional' but no generated "
+                "commit message was supplied; pass --message-file <path>",
+                file=sys.stderr,
+            )
+            return 1
+        commit_msg = generated_message
 
     # Check if there are changes to commit
     def _quiet(*args: str) -> bool:

@@ -86,6 +86,11 @@ EOF
     shift
 done
 
+if [[ -n "$TEMPLATE_NAME" && "$PATHS_ONLY" == true ]]; then
+    echo "ERROR: --template cannot be combined with --paths-only" >&2
+    exit 1
+fi
+
 # Source common functions
 SCRIPT_DIR="$(CDPATH="" cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/common.sh"

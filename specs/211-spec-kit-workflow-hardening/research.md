@@ -4,7 +4,7 @@
 
 **Decision**: Выполнить один обычный `speckit-bootstrap .` без `--frozen` после dry-run.
 
-**Rationale**: Опубликованный `speckit-bootstrap v0.8.1` сохраняет schema 2 → 3 migration path, legacy user-level skills и project-local integrity state, а также закрывает bytecode drift после Python-backed extension commands.
+**Rationale**: Опубликованный `speckit-bootstrap v0.9.0` сохраняет schema 2 → 3 migration path и project-local integrity state, закрывает bytecode drift и fail-closed усиливает generated workflow guards.
 
 **Alternatives considered**:
 
@@ -54,7 +54,7 @@
 
 ## Decision 6: Source checkout bootstrap только fast-forward
 
-**Decision**: Обновить чистый `/Users/yshishenya/Documents/speckit-bootstrap` через reviewed PR до опубликованного `v0.8.1`, затем оставить checkout на чистом `main == origin/main == v0.8.1^{}`.
+**Decision**: Обновить чистый `/Users/yshishenya/Documents/speckit-bootstrap` через reviewed PR до опубликованного `v0.9.0`, затем оставить checkout на чистом `main == origin/main == v0.9.0^{}`.
 
 **Rationale**: Первичная синхронизация до `v0.8.0` открыла общий integrity bug: issue-canon command создавал `.pyc` внутри locked tree. Минимальный bootstrap regression потребовал patch release и совместимого extension pin.
 
@@ -65,9 +65,9 @@
 
 **Validation evidence (2026-08-30)**:
 
-- PR [speckit-bootstrap#20](https://github.com/yshishenya/speckit-bootstrap/pull/20) merged as `0b4dd20c055724fe131bb840f06a2e5d9ae1030b`; stable release [v0.8.1](https://github.com/yshishenya/speckit-bootstrap/releases/tag/v0.8.1) points to the same commit.
-- Installed release binary SHA-256 is `d6a702e97bc52a08f2061c764c13bd76d77b62bef1f1be40ce873e8cef601767`.
-- Source checkout is clean on `main == origin/main == v0.8.1^{}`.
+- PR [speckit-bootstrap#21](https://github.com/yshishenya/speckit-bootstrap/pull/21) merged as `dfef00fcb4ecd1208919872289f77731207f1ce0`; stable immutable release [v0.9.0](https://github.com/yshishenya/speckit-bootstrap/releases/tag/v0.9.0) points to the same commit.
+- Installed release binary SHA-256 is `6b2c63c965c2b2b401bd1430f3996df496c1bc8469bb1df4b1b66fb39926f689`.
+- Source checkout is clean on `main == origin/main == v0.9.0^{}`.
 
 ## Decision 7: Запретить Python bytecode в locked extension tree у источника
 

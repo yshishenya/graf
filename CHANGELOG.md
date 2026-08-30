@@ -33,7 +33,7 @@
   контейнеров.
 - В fast CI добавлена fail-closed проверка bootstrap integrity и GRAF-specific
   Spec Kit governance без новых зависимостей и сетевых запросов.
-- GRAF переведён на опубликованные `speckit-bootstrap v0.8.1` и
+- GRAF переведён на опубликованные `speckit-bootstrap v0.9.0` и
   `github-issue-canon v0.3.2` с immutable refs и проверенными checksums.
 
 ## [2026.08.29.4] - 2026-08-29

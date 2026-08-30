@@ -71,7 +71,7 @@ def main() -> int:
 
     steps = [
         (["git", "init", "-q"], "git init"),
-        (["git", "add", "."], "git add"),
+        # Existing files remain unstaged until reviewed explicitly.
         (["git", "commit", "--allow-empty", "-q", "-m", commit_msg], "git commit"),
     ]
     for cmd, label in steps:

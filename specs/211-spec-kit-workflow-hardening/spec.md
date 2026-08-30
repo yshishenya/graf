@@ -120,6 +120,6 @@ Maintainer получает короткую автоматическую про
 ## Assumptions
 
 - `v1.0.1` remains the latest stable upstream release during this change; live resolution is rechecked before migration.
-- Published `speckit-bootstrap v0.8.1` и `github-issue-canon v0.3.2` являются stable bytecode-safe tooling baseline.
+- Published `speckit-bootstrap v0.9.0` и `github-issue-canon v0.3.2` являются stable fail-closed tooling baseline.
 - Existing GRAF product gates and issue canon remain authoritative and are extended, not replaced.
 - A clean disposable feature worktree is the implementation surface; master and unrelated worktrees remain untouched.

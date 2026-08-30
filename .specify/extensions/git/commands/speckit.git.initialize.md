@@ -14,13 +14,13 @@ Run the appropriate script from the project root:
 - **PowerShell**: `.specify/extensions/git/scripts/powershell/initialize-repo.ps1`
 
 If the extension scripts are not found, fall back to:
-- **Bash**: `git init && git add . && git commit -m "Initial commit from Specify template"`
-- **PowerShell**: `git init; git add .; git commit -m "Initial commit from Specify template"`
+- **Bash**: `git init && git commit --allow-empty -m "Initial commit from Specify template"`
+- **PowerShell**: `git init; git commit --allow-empty -m "Initial commit from Specify template"`
 
 The script handles all checks internally:
 - Skips if Git is not available
 - Skips if already inside a Git repository
-- Runs `git init`, `git add .`, and `git commit` with an initial commit message
+- Runs `git init` and creates an empty initial commit; existing project files remain unstaged for review
 
 ## Customization
 
@@ -44,6 +44,6 @@ If Git is not installed:
 - Skip repository initialization
 - The project continues to function without Git (specs can still be created under `specs/`)
 
-If Git is installed but `git init`, `git add .`, or `git commit` fails:
+If Git is installed but `git init` or `git commit` fails:
 - Surface the error to the user
 - Stop this command rather than continuing with a partially initialized repository

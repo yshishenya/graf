@@ -62,7 +62,7 @@
 - [X] T009 Update `[Unreleased]` Russian tooling/operations notes in `CHANGELOG.md` and reconcile Feature 211 quickstart evidence in `specs/211-spec-kit-workflow-hardening/quickstart.md` per FR-012
 - [X] T010 Run the governance self-test, repository guard, frozen doctor, Feature 211 quickstart and `infra/scripts/ci-local.sh --fast`; record exact results in `specs/211-spec-kit-workflow-hardening/quickstart.md` per SC-001, SC-002, SC-003, SC-004, SC-005 and SC-006
 - [X] T011 Run Ponytail review and `$speckit-converge`; complete any appended tasks before declaring Feature 211 PR-ready per FR-008
-- [X] T012 Publish bytecode-safe `github-issue-canon v0.3.2` and `speckit-bootstrap v0.8.1`, adopt their immutable refs in GRAF, then prove issue-canon command → frozen doctor without `__pycache__` per FR-013 and SC-007
+- [X] T012 Publish bytecode-safe `github-issue-canon v0.3.2` and fail-closed `speckit-bootstrap v0.9.0`, adopt their immutable refs in GRAF, then prove issue-canon command → frozen doctor without `__pycache__` per FR-013 and SC-007
 
 ## Dependencies And Execution Order
 

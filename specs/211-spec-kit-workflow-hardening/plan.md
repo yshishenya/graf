@@ -12,7 +12,7 @@
 
 **Language/Version**: Python 3.12 stdlib для focused guard; Bash orchestration существующего bootstrap/CI
 
-**Primary Dependencies**: `specify-cli v1.0.1`, `speckit-bootstrap v0.8.1`, `github-issue-canon v0.3.2`, Git, существующие Spec Kit extensions
+**Primary Dependencies**: `specify-cli v1.0.1`, `speckit-bootstrap v0.9.0`, `github-issue-canon v0.3.2`, Git, существующие Spec Kit extensions
 
 **Storage**: Tracked Markdown/YAML/JSON files и project-local `.agents/skills`; продуктовые хранилища не затрагиваются
 

@@ -15,7 +15,7 @@ speckit-bootstrap --version
 speckit-bootstrap . --dry-run --json
 ```
 
-Expected: Spec Kit resolves to stable `v1.0.1`, bootstrap is `v0.8.1`, dry-run does not mutate files.
+Expected: Spec Kit resolves to stable `v1.0.1`, bootstrap is `v0.9.0`, dry-run does not mutate files.
 
 ## Scenario 2: One-time migration
 
@@ -58,10 +58,10 @@ Expected: fast lane includes the focused governance check and is the final repos
 
 ## Validation Evidence — 2026-08-30
 
-- Source checkout `speckit-bootstrap` is clean on `main == origin/main == v0.8.1^{}`
-  at `0b4dd20c055724fe131bb840f06a2e5d9ae1030b`; installed executable SHA-256 is
-  `d6a702e97bc52a08f2061c764c13bd76d77b62bef1f1be40ce873e8cef601767`.
-- Preflight resolved Specify CLI `1.0.1`, bootstrap `0.8.1`, Spec Kit `v1.0.1`
+- Source checkout `speckit-bootstrap` is clean on `main == origin/main == v0.9.0^{}`
+  at `dfef00fcb4ecd1208919872289f77731207f1ce0`; installed executable SHA-256 is
+  `6b2c63c965c2b2b401bd1430f3996df496c1bc8469bb1df4b1b66fb39926f689`.
+- Preflight resolved Specify CLI `1.0.1`, bootstrap `0.9.0`, Spec Kit `v1.0.1`
   and immutable ref `9118ed15a0ba65053469a94c560ea5d233f75884`.
 - One non-frozen refresh migrated the lock from schema 2 to schema 3, preserved
   legacy user-level skills and recorded 19 project-local skill hashes.

@@ -16,7 +16,7 @@
   - User's specific checklist request
   - Feature requirements from spec.md
   - Technical context from plan.md
-  - Implementation details from tasks.md
+  - Relevant constraints from plan.md, research.md, and contracts/ when present
 
   DO NOT keep these sample items in the generated checklist file.
   ============================================================================
