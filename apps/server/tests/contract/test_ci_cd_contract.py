@@ -103,7 +103,9 @@ def test_local_ci_help_is_explicit_and_runs_no_stage() -> None:
         ("apps/macos/Sources/App.swift", "macos"),
         ("apps/macos/Package.resolved", "macos"),
         ("docs/user-guide.md", "docs"),
-        ("docs/agent-guidance/release-and-validation.md", "docs"),
+        ("docs/agent-guidance/release-and-validation.md", "governance"),
+        ("AGENTS.md", "governance"),
+        (".github/pull_request_template.md", "governance"),
         ("docs/deployments/2brain-rec/release-v1.md", "infra"),
         ("infra/scripts/ci-local.sh", "infra"),
         (".specify/extensions.yml", "infra"),
@@ -175,6 +177,8 @@ def test_unknown_and_unavailable_diffs_report_partial_fast_coverage() -> None:
         "apps/server/src/twobrain_rec_server/auth/sessions.py",
         "apps/macos/Sources/App.swift",
         "infra/scripts/ci-local.sh",
+        "AGENTS.md",
+        "docs/agent-guidance/release-and-validation.md",
     ],
 )
 def test_high_risk_and_shared_diffs_report_partial_fast_coverage(changed_file: str) -> None:
@@ -307,6 +311,26 @@ def test_shell_syntax_check_includes_untracked_changed_scripts(tmp_path: Path) -
 
     assert result.returncode != 0
     assert "syntax error" in result.stdout
+
+
+def test_whitespace_check_includes_untracked_non_shell_files(tmp_path: Path) -> None:
+    run("git", "init", "-q", cwd=tmp_path)
+    untracked = tmp_path / "docs/new-guide.md"
+    untracked.parent.mkdir(parents=True)
+    untracked.write_text("trailing whitespace \n", encoding="utf-8")
+
+    result = run(
+        "bash",
+        "-c",
+        'source "$1"; repo_root="$2"; check_diff_whitespace "$3"',
+        "contract",
+        str(LOCAL_CI),
+        str(tmp_path),
+        "docs/new-guide.md",
+    )
+
+    assert result.returncode != 0
+    assert "trailing whitespace" in result.stdout
 
 
 def test_fast_calendar_lane_runs_bounded_required_performance_proof() -> None:

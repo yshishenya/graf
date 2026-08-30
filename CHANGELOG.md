@@ -67,6 +67,8 @@
 - Fast сохраняет secret/verdict scan для deployment evidence, не передаёт
   удалённый calendar performance test в pytest, а full сообщает
   `release_ready` только после успешного завершения.
+- Governance-документы честно помечаются как partial coverage, а whitespace
+  gate проверяет также новые untracked файлы из classified diff.
 
 ### Безопасность
 - _Пока нет записей._

@@ -34,7 +34,9 @@ renamed proof reports partial coverage without invoking a deleted path.
 Deployment evidence also runs its dedicated secret/verdict scanner.
 Shared/high-risk, unknown or unavailable diffs report partial coverage and
 require full before release, but an explicit `--fast` never changes to `effective=full`.
-It is the fast feedback lane, not a release gate.
+Release/Spec Kit governance documents also report partial coverage. The common
+whitespace check covers the merge-base diff and selected untracked files. It is
+the fast feedback lane, not a release gate.
 
 GitHub Actions are disabled. No pull-request validation runs remotely. For an
 early full baseline, run locally:

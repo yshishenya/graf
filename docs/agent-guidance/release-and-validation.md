@@ -23,6 +23,8 @@ reported as partial instead of being passed to pytest. Deployment evidence runs
 its dedicated secret/verdict scanner in fast. Shared/high-risk/unknown
 paths or an unavailable diff report `coverage=partial` and
 `next_gate=full_before_release` instead of silently starting the full suite.
+Shared governance documents use the same partial marker, and the whitespace
+stage covers both committed/working-tree changes and selected untracked files.
 Fast is for iteration and PR feedback, never a release gate. Focused tests
 remain the first check during implementation.
 

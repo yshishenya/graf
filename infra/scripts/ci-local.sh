@@ -20,8 +20,11 @@ classify_path() {
     Dockerfile*|docker-compose*|Makefile|pyproject.toml)
       echo infra
       ;;
-    AGENTS.md|.github/pull_request_template.md|CHANGELOG.md|README.md|\
-    CONTRIBUTING.md|infra/scripts/README.md|docs/*|specs/*)
+    AGENTS.md|.github/pull_request_template.md|docs/agent-guidance/*|\
+    infra/scripts/README.md)
+      echo governance
+      ;;
+    CHANGELOG.md|README.md|CONTRIBUTING.md|docs/*|specs/*)
       echo docs
       ;;
     *)
@@ -161,12 +164,24 @@ check_shell_syntax() {
 }
 
 check_diff_whitespace() {
+  local changed_file_list="${1:-}"
   local merge_base
+  local path
+  local status
   if merge_base="$(merge_base_commit)"; then
-    git -C "$repo_root" diff --check "$merge_base" --
+    git -C "$repo_root" diff --check "$merge_base" -- || return $?
   else
-    git -C "$repo_root" diff --check
+    git -C "$repo_root" diff --check || return $?
   fi
+  while IFS= read -r path; do
+    [[ -n "$path" && -f "$repo_root/$path" ]] || continue
+    if git -C "$repo_root" ls-files --error-unmatch -- "$path" >/dev/null 2>&1; then
+      continue
+    fi
+    git -C "$repo_root" diff --no-index --check -- /dev/null "$path"
+    status=$?
+    [[ "$status" -le 1 ]] || return "$status"
+  done <<<"$changed_file_list"
 }
 
 main() (
@@ -303,6 +318,12 @@ main() (
           selection_reason="high_risk_or_shared_path"
           printf 'ci_fast_coverage reason=%s path=%s\n' "$selection_reason" "$path"
           ;;
+        governance)
+          has_docs=1
+          coverage="partial"
+          selection_reason="high_risk_or_shared_path"
+          printf 'ci_fast_coverage reason=%s path=%s\n' "$selection_reason" "$path"
+          ;;
         docs) has_docs=1 ;;
         unknown)
           has_unknown=1
@@ -435,7 +456,7 @@ main() (
       run_step "deployment evidence scan" \
         infra/scripts/scan-deployment-evidence.sh docs/deployments/2brain-rec || return $?
     fi
-    run_step "diff whitespace check" check_diff_whitespace || return $?
+    run_step "diff whitespace check" check_diff_whitespace "$changed_list" || return $?
     run_step "active CI documentation consistency" check_active_docs || return $?
   fi
 

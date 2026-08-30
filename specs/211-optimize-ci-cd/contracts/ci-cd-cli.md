@@ -24,6 +24,8 @@ Fast classification is bounded and truthful:
 - deployment evidence → infrastructure checks plus the dedicated
   secret/verdict scanner.
 - ordinary documentation/spec text → documentation consistency.
+- shared governance documents (`AGENTS.md`, PR template, release/Spec Kit
+  guidance) → documentation checks with partial coverage.
 - shared/high-risk/unknown path, missing base or diff failure → bounded
   component/common safety checks plus
   `coverage=partial next_gate=full_before_release`.
@@ -34,6 +36,8 @@ Fast classification is bounded and truthful:
   the missing file to pytest and reports partial coverage for the release gate.
 - no path classification or environment override may change an explicit fast
   request into `effective=full`.
+- the common whitespace stage covers both the merge-base diff and untracked
+  files used by component selection.
 
 ## `infra/scripts/cd-remote.sh`
 

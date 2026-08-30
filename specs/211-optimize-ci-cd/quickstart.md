@@ -15,10 +15,10 @@ Pre-change full at SHA `124e96dfff36beadb6d555b3402126ac13bf5a58`:
 Three real component-only server fast runs passed in `86s`, `71s` and `70s`.
 The p50 `71s` is below the SC-009 ceiling `351.59s`.
 
-Post-fix infrastructure/test-only fast on 2026-08-31 passed in `16s` with
+Post-fix infrastructure/test-only fast on 2026-08-31 passed in `29s` with
 `requested=fast effective=fast components=server,infra,docs`,
 `coverage=partial` and `next_gate=full_before_release`. It ran the changed CI
-contract (`47 passed`) and bounded infrastructure contracts (`55 passed`),
+contract (`52 passed`) and bounded infrastructure contracts (`60 passed`),
 including deployment-evidence and release-readiness edge cases, without
 starting the server unit or full repository suites. The preceding profiling run
 proved the same no-escalation invariant but took `207s` because it still
