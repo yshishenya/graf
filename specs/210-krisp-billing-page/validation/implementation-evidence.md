@@ -1,6 +1,6 @@
 # Feature 210: implementation evidence
 
-Дата: 2026-08-29.
+Дата: 2026-08-31.
 
 ## Scope и границы
 
@@ -16,7 +16,9 @@
 
 ## Automated evidence
 
-- Focused server billing contract/accessibility/usability: `55 passed`.
+- Focused server billing/security/authority/renewal: `106 passed`.
+- PostgreSQL regression для one-trial-per-identity после owner/pending guards:
+  `1 passed` в disposable container.
 - Ruff для изменённых Python/tests: PASS.
 - Focused macOS route/workspace/zoom/accessibility/runtime: `95 passed`.
 - `CabinetBillingRuntimeTests` проверил WKWebView widths 390, 768, 1024, 1280 и
@@ -26,9 +28,12 @@
 - GitHub issue canon: PASS, 300 Spec Kit issues checked; Feature 210 tasks
   связаны с #5945–#5962.
 - `git diff --check`: PASS.
-- `infra/scripts/ci-local.sh --fast`: PASS; server unit `1342 passed`, Ruff,
-  Python compile и legacy-audio guard — PASS. Fast lane штатно пропустил macOS
-  Swift validation; focused macOS evidence приведён выше.
+- Exact feature SHA: `8a0c9be7d5a0411d503b95f7db0af2288b7bdaf4`.
+- `infra/scripts/ci-local.sh --fast` штатно эскалировал в full из-за high-risk
+  billing paths и завершился PASS: macOS `770 passed`, server parallel
+  `3779 passed, 1 skipped`, performance `1 passed`, strict-RLS `52 passed,
+  1 skipped`; Ruff, Python compile, ContractValidation, legacy-audio guard,
+  compose и deployment-evidence scan — PASS.
 
 ## Browser QA
 
@@ -84,7 +89,9 @@ management, реальные GRAF plans/limits вместо KRISP catalog, YooKa
 
 ## Closeout boundary
 
-- Commit, PR, merge, реальная оплата, release и deploy не выполнялись.
+- Реальная оплата и изменение подписки не выполнялись.
+- Изменения закоммичены и отправлены в PR #5963; merge, release и deploy на
+  момент этой записи не выполнялись.
 - Production/test-shop configuration не менялась.
 - Evidence содержит только synthetic/local metadata; credentials, payment
   identifiers, transcript/meeting content и reference screenshots в git не
