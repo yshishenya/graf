@@ -432,6 +432,40 @@ def test_refresh_current_summary_type_is_slot_scoped_and_idempotent(client) -> N
     assert deprecated.json()["code"] == "summary_candidate_deprecated"
 
 
+def test_refresh_dispatch_failure_returns_deferred_async_state(client) -> None:
+    meeting_id = create_outcome_ready_meeting(client, "summary-type-refresh-dispatch-retry")
+    service = _service_module()
+    asyncio.run(_generate_and_store(client, meeting_id, service))
+
+    class FailingTemporalClient:
+        async def start_workflow(self, *_args, **_kwargs):
+            raise RuntimeError("simulated Temporal outage")
+
+    client.app.state.settings.outcome_generation_enabled = True
+    client.app.state.outcome_temporal_client = FailingTemporalClient()
+    read_url = f"/api/v1/cabinet/meetings/{meeting_id}/summaries/graf-auto-v1"
+    current = client.get(read_url, headers=auth_headers()).json()["current_outcome_set_id"]
+
+    response = client.post(
+        f"{read_url}/refresh",
+        headers=auth_headers(),
+        json={
+            "schema_version": 1,
+            "idempotency_key": "refresh-summary-dispatch-retry-0001",
+            "expected_current_outcome_set_id": current,
+            "template_id": None,
+            "template_version": 1,
+            "generation_options": {},
+        },
+    )
+
+    assert response.status_code == 202
+    payload = response.json()
+    assert payload["current_outcome_set_id"] == current
+    assert payload["catalog_entry"]["generation_state"] == "updating"
+    assert payload["catalog_entry"]["current_outcome_set_id"] == current
+
+
 def test_summary_state_matrix_preserves_current_result_and_advances_version(client) -> None:
     meeting_id = create_outcome_ready_meeting(client, "summary-state-matrix")
     service = _service_module()

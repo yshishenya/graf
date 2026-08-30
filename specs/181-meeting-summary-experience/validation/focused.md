@@ -62,3 +62,22 @@ server lint pass, Python compile pass, exit code 0.
 slot отражается в content-safe processing projection как `available` или
 `partial` только для той же processing/media revision и совместимого source
 hash. Содержимое встречи в evidence не попадает.
+
+## Latest dispatch-race rerun
+
+Дата: 2026-08-30
+
+После исправления потерянного Temporal acknowledgement полный focused command
+Feature 181 завершился `105 passed`, 2 ожидаемых предупреждения, exit code 0;
+изолированный PostgreSQL container удалён wrapper-скриптом. Дополнительный
+regression-набор для definitive outage, refresh dispatch, ambiguous connection
+и client-side timeout завершился `4 passed`. `infra/scripts/ci-local.sh
+--fast` на том же состоянии завершился `1346 passed`, lint и Python compile
+pass.
+
+Проверено, что durable candidate подтверждается HTTP `202`, текущие итоги не
+заменяются, timeout не вызывает отмену потенциально принятого deterministic
+workflow, а последующая reconciliation сохраняет возможность продолжить
+обработку. Реальная встреча проверена read-only: сохранённый результат,
+источники по таймкодам, picker и все девять форматов отображаются; новая
+генерация в production не запускалась.

@@ -113,6 +113,9 @@
 - Smoke cleanup теперь удаляет workspace-scoped playback backfill runs до удаления synthetic workspace.
 - Smoke cleanup блокирует synthetic workspace на время discovery и удаляет playback backfill runs в tenant-контексте, чтобы RLS и FK не оставляли остатки.
 - Outcome smoke cleanup удаляет workspace-scoped generation-call ledger до synthetic workspace.
+- Запрос обновления итогов теперь подтверждает уже сохранённую попытку (`202`),
+  даже если первый Temporal dispatch временно не удался: пользователь видит
+  честное ожидание и повторную отправку вместо ложной ошибки сервиса.
 
 ### Безопасность
 - _Пока нет записей._

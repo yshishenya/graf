@@ -143,6 +143,33 @@ async def test_duplicate_candidate_dispatch_keeps_temporal_run_id_when_available
 
 
 @pytest.mark.anyio
+async def test_ambiguous_candidate_dispatch_keeps_workflow_reconcilable() -> None:
+    candidate_id = UUID("11111111-1111-1111-1111-111111111111")
+
+    class _AmbiguousClient(_TemporalClient):
+        async def start_workflow(self, workflow, payload, **kwargs):
+            self.calls.append((workflow, payload, kwargs))
+            raise ConnectionError("Temporal acknowledgement was lost")
+
+    started = await start_outcome_generation_workflow(
+        temporal_client=_AmbiguousClient(),
+        settings=Settings(),
+        candidate_id=candidate_id,
+        meeting_id=UUID("22222222-2222-2222-2222-222222222222"),
+        workspace_id=UUID("33333333-3333-3333-3333-333333333333"),
+        source_result_id=UUID("44444444-4444-4444-4444-444444444444"),
+        template_key="graf-auto-v1",
+        template_version=1,
+        prompt_name="graf/meeting-outcome/auto",
+    )
+
+    assert started.workflow_id == f"outcome-generation/{candidate_id}"
+    assert started.reused is True
+    assert started.ambiguous is True
+    assert started.run_id is None
+
+
+@pytest.mark.anyio
 async def test_temporal_converter_accepts_mixed_payload_with_any_type_hint() -> None:
     from typing import Any
 

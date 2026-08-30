@@ -140,7 +140,7 @@ async def mark_dispatch_started(
     workspace_id: UUID,
     idempotency_key: str,
     workflow_id: str,
-    run_id: str,
+    run_id: str | None,
 ) -> DispatchIntent | None:
     seed_intent = await db.scalar(
         select(DispatchIntent).where(
@@ -202,7 +202,8 @@ async def mark_dispatch_started(
     intent.state = "started"
     intent.reconciliation_state = "started"
     intent.external_workflow_id = workflow_id
-    intent.external_run_id = run_id
+    if run_id is not None:
+        intent.external_run_id = run_id
     intent.started_at = intent.started_at or datetime.now(UTC)
     intent.completed_at = None
     # Keep a durable handoff lease after Temporal acknowledges the start. A
@@ -483,10 +484,11 @@ async def reconcile_dispatch_intent(
             timeout=DISPATCH_START_TIMEOUT_SECONDS,
         )
     except Exception as dispatch_error:
-        await _cancel_started_workflow(
-            temporal_client,
-            outcome_generation_workflow_id(attempt.candidate_id),
-        )
+        if not isinstance(dispatch_error, asyncio.TimeoutError):
+            await _cancel_started_workflow(
+                temporal_client,
+                outcome_generation_workflow_id(attempt.candidate_id),
+            )
         # Temporal start can race with a deletion or a user cancellation after
         # the lease commit. Re-read the authoritative rows before projecting a
         # retryable failure so a stale worker cannot resurrect the attempt.
@@ -561,6 +563,27 @@ async def reconcile_dispatch_intent(
                 await db.commit()
             else:
                 await db.rollback()
+            return False
+        if isinstance(dispatch_error, asyncio.TimeoutError):
+            # wait_for cancelled only the client-side acknowledgement. The
+            # deterministic Temporal start may already be accepted, so keep
+            # the workflow identity and lease for reconciliation instead of
+            # cancelling a possibly running workflow.
+            current_intent.state = "started"
+            current_intent.reconciliation_state = "started"
+            current_intent.external_workflow_id = outcome_generation_workflow_id(
+                attempt.candidate_id
+            )
+            current_intent.lease_expires_at = datetime.now(UTC) + DISPATCH_LEASE
+            current_intent.next_attempt_at = None
+            current_intent.failure_code = None
+            if (
+                current_attempt.status == "queued"
+                and current_attempt.failure_source == "temporal_dispatch"
+            ):
+                current_attempt.failure_code = None
+                current_attempt.failure_source = None
+            await db.commit()
             return False
         failure_intent = await mark_dispatch_failure(
             db,
@@ -681,8 +704,7 @@ async def reconcile_dispatch_intent(
         workflow_id=started.workflow_id,
         run_id=started.run_id
         or current_attempt.workflow_run_id
-        or (current_intent.external_run_id if current_intent is not None else None)
-        or "",
+        or (current_intent.external_run_id if current_intent is not None else None),
     )
     await db.commit()
     return True

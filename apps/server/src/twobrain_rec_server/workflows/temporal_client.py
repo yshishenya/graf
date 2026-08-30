@@ -121,6 +121,7 @@ class OutcomeGenerationWorkflowStart:
     workflow_id: str
     run_id: str | None = None
     reused: bool = False
+    ambiguous: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -544,14 +545,20 @@ async def start_outcome_generation_workflow(
             )
     except Exception as exc:
         exc_name = exc.__class__.__name__.lower()
-        if "already" not in exc_name and "workflowalready" not in exc_name:
-            raise
-        existing_run_id = getattr(exc, "run_id", None)
-        return OutcomeGenerationWorkflowStart(
-            workflow_id=workflow_id,
-            run_id=existing_run_id if isinstance(existing_run_id, str) else None,
-            reused=True,
-        )
+        if "already" in exc_name or "workflowalready" in exc_name:
+            existing_run_id = getattr(exc, "run_id", None)
+            return OutcomeGenerationWorkflowStart(
+                workflow_id=workflow_id,
+                run_id=existing_run_id if isinstance(existing_run_id, str) else None,
+                reused=True,
+            )
+        if _temporal_start_outcome_ambiguous(exc):
+            return OutcomeGenerationWorkflowStart(
+                workflow_id=workflow_id,
+                reused=True,
+                ambiguous=True,
+            )
+        raise
     run_id = _started_workflow_run_id(handle)
     return OutcomeGenerationWorkflowStart(workflow_id=workflow_id, run_id=run_id)
 
