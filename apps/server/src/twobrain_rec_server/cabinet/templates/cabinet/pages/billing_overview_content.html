@@ -21,7 +21,7 @@
             <span class="settings-scope-badge">Текущий тариф</span>
             <h2 id="billing-summary-title">{{ plan.label if billing_data_available else "Данные временно недоступны" }}</h2>
           </div>
-          {% if billing_data_available %}<p class="billing-price"><strong>{{ current_price_label|default("Сумма уточняется", true) }}</strong><span>{{ current_cycle_label|default("без оплаты") }}</span></p>{% endif %}
+          {% if billing_data_available and billing_owner %}<p class="billing-price"><strong>{{ current_price_label|default("Сумма уточняется", true) }}</strong><span>{{ current_cycle_label|default("без оплаты") }}</span></p>{% endif %}
         </div>
 
         {% if not billing_data_available %}
@@ -88,17 +88,18 @@
         {% elif trial_result|default(None) == "pending" %}<p role="status" aria-live="polite">Платёж уже проверяется. Пробный период пока не запускаем.</p>
         {% elif trial_result|default(None) == "already" or trial_state == "already" %}<p role="status" aria-live="polite">Пробный период уже использован.</p>
         {% elif trial_result|default(None) == "verification_required" or trial_state == "verification_required" %}<p role="alert">Подтвердите email, чтобы начать 7 дней бесплатно. <a href="/account/security">Открыть аккаунт и безопасность</a>.</p>
-        {% elif trial_result|default(None) == "confirmation_required" %}<p role="alert">Подтвердите запуск пробного периода кнопкой ещё раз.</p>{% endif %}
+        {% elif trial_result|default(None) == "confirmation_required" %}<p role="alert">Подтвердите запуск пробного периода кнопкой ещё раз.</p>
+        {% elif trial_result|default(None) == "unavailable" %}<p role="alert">Пробный период сейчас недоступен. Обновите страницу или повторите позже.</p>{% endif %}
       </section>
 
-      <section class="billing-section billing-offer{% if not (billing_owner and billing_enabled and catalog_ready|default(True) and plan_code != 'personal' and not operation_pending) %} billing-offer--quiet{% endif %}" aria-labelledby="billing-offer-title">
+      <section class="billing-section billing-offer{% if not (billing_owner and billing_enabled and catalog_ready|default(True) and not operation_pending) %} billing-offer--quiet{% endif %}" aria-labelledby="billing-offer-title">
         <div>
           <p class="eyebrow">Возможности GRAF</p>
           <h2 id="billing-offer-title">Больше встреч без лимита обработки</h2>
           <p>{% if plan_code == "personal" %}Тариф уже подключён. Здесь можно проверить условия, скидки и хранение.{% else %}Сравните Free, пробный период и «Личный» — только с реальными условиями GRAF.{% endif %}</p>
         </div>
         {% if billing_owner %}<div class="billing-row-section__actions">
-          {% if billing_enabled and catalog_ready|default(True) and plan_code != "personal" and not operation_pending %}<a class="button quiet" href="/billing/plans">Посмотреть возможности</a>{% endif %}
+          {% if billing_enabled and catalog_ready|default(True) and not operation_pending %}<a class="button quiet" href="/billing/plans">Посмотреть возможности</a>{% endif %}
           <a class="button quiet" href="/billing/discounts">Промокоды и скидки</a>
         </div>{% endif %}
       </section>

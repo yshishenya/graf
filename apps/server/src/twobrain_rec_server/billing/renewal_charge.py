@@ -27,7 +27,11 @@ from twobrain_rec_server.billing.catalog import (
     PlanCatalogSnapshot,
     validate_plan_version,
 )
-from twobrain_rec_server.billing.operations import BillingEmergencyStop, require_billing_enabled
+from twobrain_rec_server.billing.operations import (
+    CHECKOUT_BLOCKING_STATES,
+    BillingEmergencyStop,
+    require_billing_enabled,
+)
 from twobrain_rec_server.billing.payment_methods import (
     open_provider_reference,
     read_billing_encryption_key,
@@ -177,6 +181,17 @@ async def plan_due_renewals(
     )
     planned: list[UUID] = []
     for subscription in await db.scalars(query):
+        initial_checkout = await db.scalar(
+            select(BillingOperation.id)
+            .where(
+                BillingOperation.workspace_id == subscription.workspace_id,
+                BillingOperation.kind == "initial_checkout",
+                BillingOperation.state.in_(CHECKOUT_BLOCKING_STATES),
+            )
+            .limit(1)
+        )
+        if initial_checkout is not None:
+            continue
         catalog = await _approved_catalog(db, cycle=subscription.cycle, now=current)
         if (
             catalog is None

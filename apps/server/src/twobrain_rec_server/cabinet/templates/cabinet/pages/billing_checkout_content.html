@@ -1,7 +1,7 @@
 {% import "cabinet/components/sections.html" as sections %}
 {% set checkout_cycle = checkout_cycle|default("month") %}
 {% set checkout_result = checkout_result|default(None) %}
-{% set checkout_blocked = checkout_result == "pending" %}
+{% set checkout_blocked = checkout_blocked|default(checkout_result == "pending") %}
 {% set checkout_available = billing_enabled and catalog_ready|default(True) %}
 {% set selected_price_label = annual_price_label|default("Цена недоступна", true) if checkout_cycle == "year" else monthly_price_label|default("Цена недоступна", true) %}
 {% if checkout_preview|default(None) %}{% set selected_price_label = checkout_preview.payable_amount_label %}{% endif %}
@@ -24,13 +24,13 @@
         </nav>
         {% endif %}
 
-        {% if promo_preview_error|default(None) %}<p id="billing-checkout-error" role="alert" class="notice">{{ promo_preview_error }}</p>
+        {% if checkout_blocked %}<div class="notice" role="status" aria-live="polite"><p>Платёж уже создан. Повторную оплату не начинаем.</p>{% if checkout_continuation_url|default(None) %}<a class="button" href="{{ checkout_continuation_url|e }}">Продолжить этот платёж в ЮKassa</a>{% else %}<a class="button quiet" href="/billing/history">Открыть историю платежей</a>{% endif %}</div>
+        {% elif promo_preview_error|default(None) %}<p id="billing-checkout-error" role="alert" class="notice">{{ promo_preview_error }}</p>
         {% elif checkout_result == "owner_only" %}<p class="notice" role="alert">Оплатить тариф может только владелец пространства.</p>
         {% elif checkout_result == "offer_required" %}<p class="notice" role="alert">Откройте и примите оферту версии {{ offer_version_label|default("billing-personal-v1") }}.</p>
         {% elif checkout_result == "consent_required" %}<p class="notice" role="alert">Подтвердите согласие на регулярное списание или отмените оплату.</p>
         {% elif checkout_result == "catalog_not_approved" %}<p class="notice" role="alert">Оплата временно недоступна: действующая версия тарифа ещё не утверждена.</p>
         {% elif checkout_result == "unavailable" %}<p class="notice" role="alert">Оплата временно недоступна. Повторите попытку позже.</p>
-        {% elif checkout_result == "pending" %}<p class="notice" role="status" aria-live="polite">Платёж уже создан. Повторную оплату не начинаем; откройте историю платежей.</p>
         {% elif checkout_result == "promo_invalid" %}<p id="billing-checkout-error" role="alert" class="notice">Промокод недействителен, не подходит для выбранного периода или уже использован. Проверьте код и отправьте форму ещё раз.</p>{% endif %}
 
         {% if checkout_available and not checkout_blocked %}<dl class="billing-order-summary">

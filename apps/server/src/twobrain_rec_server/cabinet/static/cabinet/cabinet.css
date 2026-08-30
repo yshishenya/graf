@@ -5723,6 +5723,18 @@ html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned
   .billing-coupon__form { grid-template-columns: 1fr; }
   .billing-coupon__form label { grid-column: auto; }
   .billing-coupon__form .button { width: 100%; }
+  .billing-comparison__row { grid-template-columns: minmax(0, 1fr); }
+  .billing-comparison__row > span { border-inline-end: 0; }
+  .billing-comparison__row > [role="cell"]::before { content: attr(data-plan-label) ": "; font-weight: 700; }
+  .billing-comparison__row--head {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
 }
 @media (forced-colors: active) {
   .billing-offer,

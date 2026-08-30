@@ -15,6 +15,7 @@ from twobrain_rec_server.cabinet.web_routes.billing import (
     _billing_amount_label,
     _blocking_payment_operation_query,
     _checkout_result_redirect,
+    _operation_state_label,
     _processing_threshold_label,
     _receipt_registration_state,
 )
@@ -39,8 +40,13 @@ def test_new_money_mutations_block_initial_checkout_and_renewal_operations() -> 
     )
 
     assert "kind IN ('initial_checkout', 'renewal')" in statement
-    for state in ("scheduled", "sent", "processing", "unknown"):
+    for state in ("scheduled", "sent", "processing", "unknown", "pending_reconciliation"):
         assert f"'{state}'" in statement
+
+
+def test_in_flight_operation_labels_are_explicit() -> None:
+    assert _operation_state_label("sent") == "Платёж отправлен в ЮKassa"
+    assert _operation_state_label("processing") == "ЮKassa обрабатывает платёж"
 
 
 def test_billing_receipt_registration_uses_provider_status_mapping() -> None:
@@ -91,7 +97,9 @@ async def test_invoice_receipt_link_requires_registered_receipt(
 
     monkeypatch.setattr(billing_routes, "_billing_role", owner_role)
     monkeypatch.setattr(billing_routes, "_page_shell", capture_page)
-    monkeypatch.setattr(billing_routes, "build_request_browser_provider_context", lambda *_a, **_k: {})
+    monkeypatch.setattr(
+        billing_routes, "build_request_browser_provider_context", lambda *_a, **_k: {}
+    )
     request = Request(
         {
             "type": "http",
@@ -121,11 +129,16 @@ async def test_invoice_receipt_link_requires_registered_receipt(
     invoice_context = captured["invoice"]
     assert isinstance(invoice_context, dict)
     assert invoice_context["receipt_url"] == expected_url
-    assert invoice_context["receipt_label"] == receipt_label(_receipt_registration_state(registration))
+    assert invoice_context["receipt_label"] == receipt_label(
+        _receipt_registration_state(registration)
+    )
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(("query", "selected_cycle", "is_current"), ((b"", "month", True), (b"cycle=year", "year", False)))
+@pytest.mark.parametrize(
+    ("query", "selected_cycle", "is_current"),
+    ((b"", "month", True), (b"cycle=year", "year", False)),
+)
 async def test_plans_default_to_current_personal_cycle_without_mislabeling_other_period(
     monkeypatch: pytest.MonkeyPatch,
     query: bytes,
@@ -165,7 +178,9 @@ async def test_plans_default_to_current_personal_cycle_without_mislabeling_other
     monkeypatch.setattr(billing_routes, "_approved_personal_catalog", empty_catalog)
     monkeypatch.setattr(billing_routes, "_page_shell", capture_page)
     monkeypatch.setattr(billing_routes, "_csrf_token_for_principal", lambda *_a, **_k: "csrf")
-    monkeypatch.setattr(billing_routes, "build_request_browser_provider_context", lambda *_a, **_k: {})
+    monkeypatch.setattr(
+        billing_routes, "build_request_browser_provider_context", lambda *_a, **_k: {}
+    )
     request = Request(
         {
             "type": "http",
@@ -177,7 +192,9 @@ async def test_plans_default_to_current_personal_cycle_without_mislabeling_other
             "query_string": query,
             "app": SimpleNamespace(
                 state=SimpleNamespace(
-                    settings=SimpleNamespace(billing_checkout_enabled=True, billing_support_email=None)
+                    settings=SimpleNamespace(
+                        billing_checkout_enabled=True, billing_support_email=None
+                    )
                 )
             ),
         }
@@ -201,7 +218,11 @@ async def test_checkout_page_blocks_a_persisted_renewal_operation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     principal = SimpleNamespace(user_id=UUID(int=1), session_id=None, auth_via_session=False)
-    blocker = SimpleNamespace(kind="renewal", state="processing")
+    blocker = SimpleNamespace(
+        kind="initial_checkout",
+        state="provider_pending",
+        request_snapshot={"confirmation_url": "https://yookassa.test/checkout/existing-payment"},
+    )
 
     class FakeSession:
         def __init__(self) -> None:
@@ -226,7 +247,9 @@ async def test_checkout_page_blocks_a_persisted_renewal_operation(
     monkeypatch.setattr(billing_routes, "_approved_personal_catalog", empty_catalog)
     monkeypatch.setattr(billing_routes, "_page_shell", capture_page)
     monkeypatch.setattr(billing_routes, "_csrf_token_for_principal", lambda *_a, **_k: "csrf")
-    monkeypatch.setattr(billing_routes, "build_request_browser_provider_context", lambda *_a, **_k: {})
+    monkeypatch.setattr(
+        billing_routes, "build_request_browser_provider_context", lambda *_a, **_k: {}
+    )
     request = Request(
         {
             "type": "http",
@@ -237,9 +260,7 @@ async def test_checkout_page_blocks_a_persisted_renewal_operation(
             "headers": [],
             "query_string": b"cycle=month",
             "app": SimpleNamespace(
-                state=SimpleNamespace(
-                    settings=SimpleNamespace(billing_checkout_enabled=True)
-                )
+                state=SimpleNamespace(settings=SimpleNamespace(billing_checkout_enabled=True))
             ),
         }
     )
@@ -253,6 +274,10 @@ async def test_checkout_page_blocks_a_persisted_renewal_operation(
 
     assert response.status_code == 200
     assert captured["checkout_result"] == "pending"
+    assert captured["checkout_blocked"] is True
+    assert captured["checkout_continuation_url"] == (
+        "https://yookassa.test/checkout/existing-payment"
+    )
 
 
 def test_billing_keeps_legacy_account_alias_on_canonical_surface() -> None:
@@ -404,9 +429,13 @@ def test_pending_checkout_hides_recomputed_order_total() -> None:
         checkout_cycle="month",
         monthly_price_label="790 ₽",
         annual_price_label="7 900 ₽",
+        checkout_continuation_url="https://yookassa.test/checkout/existing-payment",
+        promo_preview_error="Промокод истёк",
     )
 
     assert "Платёж уже создан" in html
+    assert "Продолжить этот платёж в ЮKassa" in html
+    assert "Промокод истёк" not in html
     assert 'class="billing-order-summary"' not in html
     assert "790 ₽" not in html
 
@@ -755,6 +784,7 @@ def test_scheduled_renewal_keeps_subscription_cancellation_reachable() -> None:
     )
 
     assert 'href="/billing/subscription"' in html
+    assert 'href="/billing/plans"' in html
     assert 'href="/billing/checkout/status/INV-RNW-SCHEDULED"' not in html
 
 
@@ -798,6 +828,7 @@ def test_non_owner_billing_overview_hides_invoice_and_exact_storage() -> None:
     assert "28.09.2026" not in html
     assert "15.09.2026" not in html
     assert "29.09.2026" not in html
+    assert "790 ₽" not in html
     assert "Платёжные данные доступны владельцу пространства" in html
 
 
@@ -882,6 +913,31 @@ def test_workspace_owner_can_start_guarded_billing_takeover() -> None:
     )
     assert "Активным тарифом управляет текущий владелец биллинга" in active_overview
     assert 'href="/billing/plans"' not in active_overview
+
+
+def test_billing_overview_renders_unavailable_trial_result() -> None:
+    html = render_template(
+        "cabinet/pages/billing_overview_content.html",
+        embedded=False,
+        settings_navigation=settings_category_navigation(active="billing"),
+        settings_active="billing",
+        plan=plan_descriptor("free"),
+        plan_code="free",
+        billing_data_available=True,
+        billing_enabled=True,
+        catalog_ready=True,
+        billing_owner=True,
+        billing_role="owner",
+        trial_result="unavailable",
+        processing_used_label="0 мин 0 сек",
+        free_processing_limit_label="300 минут",
+        processing_threshold="normal",
+        storage_used_label="0 MB",
+        storage_capacity_label="250 MB",
+        storage_threshold_label="В норме",
+    )
+
+    assert "Пробный период сейчас недоступен" in html
 
 
 def test_checkout_keeps_coupon_collapsed_until_promo_interaction() -> None:

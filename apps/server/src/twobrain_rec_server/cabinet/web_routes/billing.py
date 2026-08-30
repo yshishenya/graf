@@ -264,6 +264,7 @@ def _checkout_result_redirect(
         response.delete_cookie(_CHECKOUT_PROMO_COOKIE, path="/billing/checkout")
     return response
 
+
 MOSCOW = ZoneInfo("Europe/Moscow")
 
 
@@ -276,7 +277,14 @@ def billing_checkout_return_url(request: Request, *, safe_invoice_number: str | 
         parsed = urlsplit(str(configured))
     except ValueError as exc:
         raise YooKassaConfigurationError("billing public callback URL is invalid") from exc
-    if parsed.scheme != "https" or not parsed.netloc or parsed.username or parsed.password or parsed.query or parsed.fragment:
+    if (
+        parsed.scheme != "https"
+        or not parsed.netloc
+        or parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+    ):
         raise YooKassaConfigurationError("billing public callback URL is invalid")
     path = request.app.url_path_for("billing_checkout_return")
     if safe_invoice_number is not None:
@@ -365,7 +373,9 @@ def _record_initial_checkout_failure(
     now: datetime | None = None,
 ) -> None:
     current = now or datetime.now(UTC)
-    snapshot = dict(operation.request_snapshot) if isinstance(operation.request_snapshot, dict) else {}
+    snapshot = (
+        dict(operation.request_snapshot) if isinstance(operation.request_snapshot, dict) else {}
+    )
     snapshot["provider_failure"] = _initial_checkout_failure_metadata(exc, now=current)
     operation.request_snapshot = snapshot
     if operation.provider_id is not None:
@@ -418,9 +428,7 @@ async def _create_initial_checkout_payment(
         payment_subject=str(
             receipt_config.get("payment_subject", settings.billing_receipt_payment_subject)
         ),
-        payment_mode=str(
-            receipt_config.get("payment_mode", settings.billing_receipt_payment_mode)
-        ),
+        payment_mode=str(receipt_config.get("payment_mode", settings.billing_receipt_payment_mode)),
     )
     async with YooKassaClient(settings) as provider:
         return await provider.create_payment(
@@ -482,7 +490,9 @@ def trial_surface(
     if trial_ends_at is None:
         return None, None, False
     end_label = trial_ends_at.astimezone(MOSCOW).strftime("%d.%m.%Y, %H:%M:%S (МСК)")
-    expired = raw_plan_code == "trial" and trial_ends_at <= now and effective_plan_code_value == "free"
+    expired = (
+        raw_plan_code == "trial" and trial_ends_at <= now and effective_plan_code_value == "free"
+    )
     days_left = (
         max(0, int((trial_ends_at.astimezone(UTC) - now.astimezone(UTC)).total_seconds() // 86_400))
         if effective_plan_code_value == "trial"
@@ -550,7 +560,9 @@ def checkout_preview_labels(
     discount_label = "Без скидки"
     if discount_minor > 0 and discount_percent is not None:
         source_label = "реферальная скидка, " if discount_source == "referral" else ""
-        discount_label = f"−{_billing_price_label(discount_minor)} ({source_label}{discount_percent}%)"
+        discount_label = (
+            f"−{_billing_price_label(discount_minor)} ({source_label}{discount_percent}%)"
+        )
     return {
         "cycle_label": "месяц" if preview.cycle == "month" else "год",
         "list_amount_label": _billing_price_label(preview.list_amount_minor) or "—",
@@ -568,7 +580,9 @@ def _choose_checkout_discount(
     promo: PromoCode | None,
     referral_candidate: PromoCode | None,
 ) -> tuple[PromoCode | None, str | None]:
-    candidates = tuple(candidate for candidate in (promo, referral_candidate) if candidate is not None)
+    candidates = tuple(
+        candidate for candidate in (promo, referral_candidate) if candidate is not None
+    )
     chosen, _ = choose_best_discount(
         amount_minor=amount_minor,
         plan_code="personal",
@@ -587,7 +601,9 @@ def _choose_checkout_discount(
     return chosen, discount_source
 
 
-def _annual_saving_label(monthly_amount_minor: int | None, annual_amount_minor: int | None) -> str | None:
+def _annual_saving_label(
+    monthly_amount_minor: int | None, annual_amount_minor: int | None
+) -> str | None:
     if monthly_amount_minor is None or annual_amount_minor is None:
         return None
     saving = monthly_amount_minor * 12 - annual_amount_minor
@@ -601,6 +617,8 @@ def _operation_state_label(state: str | None) -> str:
     return {
         "scheduled": "Платёж подготовлен",
         "provider_pending": "Ожидаем подтверждение ЮKassa",
+        "sent": "Платёж отправлен в ЮKassa",
+        "processing": "ЮKassa обрабатывает платёж",
         "unknown": "Проверяем результат платежа",
         "pending_reconciliation": "Ожидаем сверку с ЮKassa",
         "reconciliation_gap": "Нужна ручная сверка платежа",
@@ -847,7 +865,9 @@ async def _trial_eligibility_state(
     )
     workspace = await db.get(Workspace, tenant_scope.workspace_id)
     subscription = await db.scalar(
-        select(WorkspaceSubscription).where(WorkspaceSubscription.workspace_id == tenant_scope.workspace_id)
+        select(WorkspaceSubscription).where(
+            WorkspaceSubscription.workspace_id == tenant_scope.workspace_id
+        )
     )
     if (
         identity is None
@@ -859,14 +879,16 @@ async def _trial_eligibility_state(
     ):
         return "unavailable"
     if subscription is not None and (
-        subscription.paid_through is not None and subscription.paid_through > datetime.now(UTC)
+        subscription.paid_through is not None
+        and subscription.paid_through > datetime.now(UTC)
         or effective_plan_code(
             plan_code=subscription.plan_code,  # type: ignore[arg-type]
             state=subscription.state,
             now=datetime.now(UTC),
             paid_through=subscription.paid_through,
             trial_ends_at=subscription.trial_ends_at,
-        ) != "free"
+        )
+        != "free"
     ):
         return "unavailable"
     verified_identity = await db.scalar(
@@ -983,7 +1005,9 @@ async def billing_overview_page(
     billing_result = request.query_params.get("result")
     if db is not None:
         subscription = await db.scalar(
-            select(WorkspaceSubscription).where(WorkspaceSubscription.workspace_id == tenant_scope.workspace_id)
+            select(WorkspaceSubscription).where(
+                WorkspaceSubscription.workspace_id == tenant_scope.workspace_id
+            )
         )
     raw_plan_code = subscription.plan_code if subscription is not None else "free"
     plan_code = effective_plan_code(
@@ -1057,10 +1081,20 @@ async def billing_overview_page(
         processing_reserved = window.reserved_seconds if window is not None else 0
         storage_reserved = int(
             await db.scalar(
-                select(func.coalesce(func.sum(StorageReservation.declared_bytes - StorageReservation.committed_bytes), 0)).where(
+                select(
+                    func.coalesce(
+                        func.sum(
+                            StorageReservation.declared_bytes - StorageReservation.committed_bytes
+                        ),
+                        0,
+                    )
+                ).where(
                     StorageReservation.workspace_id == tenant_scope.workspace_id,
                     StorageReservation.state == "active",
-                    (StorageReservation.expires_at.is_(None) | (StorageReservation.expires_at > now)),
+                    (
+                        StorageReservation.expires_at.is_(None)
+                        | (StorageReservation.expires_at > now)
+                    ),
                 )
             )
             or 0
@@ -1106,7 +1140,11 @@ async def billing_overview_page(
                 )
             )
     paid_through_label = _billing_datetime_label(
-        subscription.paid_through if subscription is not None and plan_code == "personal" else subscription.trial_ends_at if subscription is not None and plan_code == "trial" else None
+        subscription.paid_through
+        if subscription is not None and plan_code == "personal"
+        else subscription.trial_ends_at
+        if subscription is not None and plan_code == "trial"
+        else None
     )
     approved_catalog = await _approved_personal_catalog(db, now=now)
     latest_invoice_summary = None
@@ -1119,7 +1157,9 @@ async def billing_overview_page(
     if billing_owner and latest_invoice is not None:
         latest_invoice_summary = {
             "safe_number": latest_invoice.safe_number,
-            "amount_label": _billing_amount_label(latest_invoice.amount_minor, latest_invoice.currency)
+            "amount_label": _billing_amount_label(
+                latest_invoice.amount_minor, latest_invoice.currency
+            )
             or "Сумма недоступна",
             "created_at_label": _billing_datetime_label(latest_invoice.created_at),
             "status_label": _invoice_status_label(latest_invoice.status),
@@ -1142,7 +1182,9 @@ async def billing_overview_page(
     current_price_label = (
         "0 ₽"
         if plan_code in {"free", "trial"}
-        else _billing_amount_label(current_catalog.amount_minor if current_catalog is not None else None)
+        else _billing_amount_label(
+            current_catalog.amount_minor if current_catalog is not None else None
+        )
         or "Сумма уточняется"
     )
     current_cycle_label = (
@@ -1158,18 +1200,35 @@ async def billing_overview_page(
     )
     recurring_next_charge_label = None
     recurring_next_charge_amount_label = None
-    if subscription is not None and plan_code == "personal" and subscription.paid_through and subscription.paid_through > now:
+    if (
+        subscription is not None
+        and plan_code == "personal"
+        and subscription.paid_through
+        and subscription.paid_through > now
+    ):
         if subscription.recurring_allowed:
             recurring_next_charge_label = _billing_datetime_label(subscription.paid_through)
-            snapshot = latest_invoice.plan_snapshot if latest_invoice and isinstance(latest_invoice.plan_snapshot, dict) else {}
-            cycle = subscription.cycle if subscription.cycle in {"month", "year"} else snapshot.get("cycle")
+            snapshot = (
+                latest_invoice.plan_snapshot
+                if latest_invoice and isinstance(latest_invoice.plan_snapshot, dict)
+                else {}
+            )
+            cycle = (
+                subscription.cycle
+                if subscription.cycle in {"month", "year"}
+                else snapshot.get("cycle")
+            )
             catalog_entry = approved_catalog.get(cycle)
             recurring_next_charge_amount_label = _billing_amount_label(
                 catalog_entry.amount_minor if catalog_entry is not None else None
             )
         else:
             recurring_next_charge_label = "не запланировано"
-    elif subscription is not None and subscription.renewal_resolution in {"unknown_pending", "pending", "unknown"}:
+    elif subscription is not None and subscription.renewal_resolution in {
+        "unknown_pending",
+        "pending",
+        "unknown",
+    }:
         recurring_next_charge_label = "проверяем результат предыдущего списания"
     content = _page_shell(
         "Тариф и оплата",
@@ -1211,11 +1270,15 @@ async def billing_overview_page(
         ),
         processing_reset_at_label=window_end.astimezone(MOSCOW).strftime("%d.%m.%Y, %H:%M (МСК)"),
         free_processing_limit_label="300 минут",
-        processing_usage_freshness=window.freshness_state if window is not None else ("unavailable" if db is None else "fresh"),
+        processing_usage_freshness=window.freshness_state
+        if window is not None
+        else ("unavailable" if db is None else "fresh"),
         billing_data_available=db is not None,
         storage_capacity_label=_capacity_label(effective_capacity),
         storage_capacity_exact_label=_exact_bytes_label(effective_capacity),
-        processing_threshold=classify_free_processing(committed_seconds=processing_used + processing_reserved),
+        processing_threshold=classify_free_processing(
+            committed_seconds=processing_used + processing_reserved
+        ),
         processing_threshold_label=_processing_threshold_label(
             classify_free_processing(committed_seconds=processing_used + processing_reserved)
         ),
@@ -1244,11 +1307,14 @@ async def billing_overview_page(
         latest_invoice_status_label=(
             _invoice_status_label(latest_invoice.status) if latest_invoice is not None else None
         ),
-        latest_operation_label=_operation_state_label(latest_operation.state if latest_operation is not None else None),
+        latest_operation_label=_operation_state_label(
+            latest_operation.state if latest_operation is not None else None
+        ),
         latest_operation_kind=latest_operation.kind if latest_operation is not None else None,
         latest_operation_state=latest_operation.state if latest_operation is not None else None,
     )
     return cabinet_html_response(content)
+
 
 @router.get("/billing/plans", response_class=HTMLResponse, include_in_schema=False)
 async def billing_plans_page(
@@ -1261,7 +1327,9 @@ async def billing_plans_page(
     subscription = None
     if db is not None:
         subscription = await db.scalar(
-            select(WorkspaceSubscription).where(WorkspaceSubscription.workspace_id == tenant_scope.workspace_id)
+            select(WorkspaceSubscription).where(
+                WorkspaceSubscription.workspace_id == tenant_scope.workspace_id
+            )
         )
     now = datetime.now(UTC)
     current_code = effective_plan_code(
@@ -1293,7 +1361,9 @@ async def billing_plans_page(
         else None
     )
     requested_cycle = request.query_params.get("cycle")
-    selected_cycle = requested_cycle if requested_cycle in {"month", "year"} else current_cycle or "year"
+    selected_cycle = (
+        requested_cycle if requested_cycle in {"month", "year"} else current_cycle or "year"
+    )
     monthly_catalog = catalog.get("month")
     annual_catalog = catalog.get("year")
     catalog_ready = monthly_catalog is not None and annual_catalog is not None
@@ -1301,12 +1371,18 @@ async def billing_plans_page(
     for code in ("free", "trial", "personal"):
         descriptor = plan_descriptor(code)  # type: ignore[arg-type]
         monthly_amount = (
-            monthly_catalog.amount_minor if code == "personal" and monthly_catalog is not None else descriptor.monthly_amount_minor
+            monthly_catalog.amount_minor
+            if code == "personal" and monthly_catalog is not None
+            else descriptor.monthly_amount_minor
         )
         annual_amount = (
-            annual_catalog.amount_minor if code == "personal" and annual_catalog is not None else descriptor.annual_amount_minor
+            annual_catalog.amount_minor
+            if code == "personal" and annual_catalog is not None
+            else descriptor.annual_amount_minor
         )
-        processing_label = format_duration(FREE_PROCESSING_SECONDS) if code == "free" else "Без лимита"
+        processing_label = (
+            format_duration(FREE_PROCESSING_SECONDS) if code == "free" else "Без лимита"
+        )
         plans.append(
             {
                 "code": code,
@@ -1314,15 +1390,22 @@ async def billing_plans_page(
                 "processing_mode": descriptor.processing_mode,
                 "processing_label": processing_label,
                 "storage_label": _capacity_label(
-                    monthly_catalog.storage_bytes if code == "personal" and monthly_catalog is not None else descriptor.storage_bytes
+                    monthly_catalog.storage_bytes
+                    if code == "personal" and monthly_catalog is not None
+                    else descriptor.storage_bytes
                 ),
-                "monthly_amount_label": _billing_price_label(monthly_amount) if catalog_ready or code != "personal" else None,
-                "annual_amount_label": _billing_price_label(annual_amount) if catalog_ready or code != "personal" else None,
+                "monthly_amount_label": _billing_price_label(monthly_amount)
+                if catalog_ready or code != "personal"
+                else None,
+                "annual_amount_label": _billing_price_label(annual_amount)
+                if catalog_ready or code != "personal"
+                else None,
                 "annual_saving_label": _annual_saving_label(
                     monthly_amount if catalog_ready or code != "personal" else None,
                     annual_amount if catalog_ready or code != "personal" else None,
                 ),
-                "is_current": code == current_code and (code != "personal" or selected_cycle == current_cycle),
+                "is_current": code == current_code
+                and (code != "personal" or selected_cycle == current_cycle),
                 "catalog_ready": catalog_ready if code == "personal" else True,
             }
         )
@@ -1361,7 +1444,9 @@ async def billing_discounts_page(
     subscription = None
     if db is not None:
         subscription = await db.scalar(
-            select(WorkspaceSubscription).where(WorkspaceSubscription.workspace_id == tenant_scope.workspace_id)
+            select(WorkspaceSubscription).where(
+                WorkspaceSubscription.workspace_id == tenant_scope.workspace_id
+            )
         )
     billing_owner = _can_manage_billing(
         role=await _billing_role(db, tenant_scope=tenant_scope, principal=principal),
@@ -1388,7 +1473,9 @@ async def billing_discounts_page(
             active_promotions.append(
                 {
                     "discount_label": f"Скидка {campaign.discount_percent}% на «Личный»",
-                    "expiry_label": _billing_datetime_label(campaign.ends_at) if campaign.ends_at else "срок не ограничен",
+                    "expiry_label": _billing_datetime_label(campaign.ends_at)
+                    if campaign.ends_at
+                    else "срок не ограничен",
                 }
             )
         rows = await db.execute(
@@ -1436,9 +1523,15 @@ async def apply_billing_discount(
     promo_code: str | None = Form(default=None, max_length=48),
 ) -> RedirectResponse:
     """Validate a code without reserving it; reservation belongs to checkout."""
-    subscription = await db.scalar(
-        select(WorkspaceSubscription).where(WorkspaceSubscription.workspace_id == tenant_scope.workspace_id)
-    ) if db is not None else None
+    subscription = (
+        await db.scalar(
+            select(WorkspaceSubscription).where(
+                WorkspaceSubscription.workspace_id == tenant_scope.workspace_id
+            )
+        )
+        if db is not None
+        else None
+    )
     if db is None or not _can_manage_billing(
         role=await _billing_role(db, tenant_scope=tenant_scope, principal=principal),
         subscription=subscription,
@@ -1481,9 +1574,15 @@ async def remove_billing_discount(
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
 ) -> RedirectResponse:
-    subscription = await db.scalar(
-        select(WorkspaceSubscription).where(WorkspaceSubscription.workspace_id == tenant_scope.workspace_id)
-    ) if db is not None else None
+    subscription = (
+        await db.scalar(
+            select(WorkspaceSubscription).where(
+                WorkspaceSubscription.workspace_id == tenant_scope.workspace_id
+            )
+        )
+        if db is not None
+        else None
+    )
     if db is None or not _can_manage_billing(
         role=await _billing_role(db, tenant_scope=tenant_scope, principal=principal),
         subscription=subscription,
@@ -1503,7 +1602,9 @@ async def remove_billing_discount(
     return response
 
 
-@router.get("/billing/checkout/status/{safe_number}", response_class=HTMLResponse, include_in_schema=False)
+@router.get(
+    "/billing/checkout/status/{safe_number}", response_class=HTMLResponse, include_in_schema=False
+)
 async def billing_checkout_status_page(
     safe_number: str,
     request: Request,
@@ -1517,7 +1618,9 @@ async def billing_checkout_status_page(
     operation = None
     if db is not None:
         subscription = await db.scalar(
-            select(WorkspaceSubscription).where(WorkspaceSubscription.workspace_id == tenant_scope.workspace_id)
+            select(WorkspaceSubscription).where(
+                WorkspaceSubscription.workspace_id == tenant_scope.workspace_id
+            )
         )
         invoice = await db.scalar(
             select(BillingInvoice).where(
@@ -1567,19 +1670,26 @@ async def billing_checkout_status_page(
             "safe_number": invoice.safe_number,
             "created_at_label": _billing_datetime_label(invoice.created_at),
         },
-        amount_label=_billing_amount_label(invoice.amount_minor, invoice.currency) or "Сумма недоступна",
+        amount_label=_billing_amount_label(invoice.amount_minor, invoice.currency)
+        or "Сумма недоступна",
         operation_state=operation_state,
         operation_state_label=_operation_state_label(operation_state),
         billing_enabled=bool(settings.billing_checkout_enabled),
         can_continue_payment=can_continue_payment,
         can_refresh_payment=can_refresh_payment,
-        updated_at_label=_billing_datetime_label(operation.updated_at if operation is not None else None),
+        updated_at_label=_billing_datetime_label(
+            operation.updated_at if operation is not None else None
+        ),
         status_result=request.query_params.get("result"),
     )
     return cabinet_html_response(content)
 
 
-@router.post("/billing/checkout/status/{safe_number}/refresh", response_class=HTMLResponse, include_in_schema=False)
+@router.post(
+    "/billing/checkout/status/{safe_number}/refresh",
+    response_class=HTMLResponse,
+    include_in_schema=False,
+)
 async def refresh_billing_checkout_status(
     safe_number: str,
     request: Request,
@@ -1590,7 +1700,10 @@ async def refresh_billing_checkout_status(
 ) -> RedirectResponse:
     """Refresh one hosted checkout from provider truth without opening a new payment."""
     if db is None:
-        return RedirectResponse(f"/billing/checkout/status/{quote(safe_number, safe='-')}?result=unavailable", status_code=303)
+        return RedirectResponse(
+            f"/billing/checkout/status/{quote(safe_number, safe='-')}?result=unavailable",
+            status_code=303,
+        )
     limited = await _billing_rate_limited_response(
         request,
         tenant_scope=tenant_scope,
@@ -1606,13 +1719,18 @@ async def refresh_billing_checkout_status(
         )
     )
     subscription = await db.scalar(
-        select(WorkspaceSubscription).where(WorkspaceSubscription.workspace_id == tenant_scope.workspace_id)
+        select(WorkspaceSubscription).where(
+            WorkspaceSubscription.workspace_id == tenant_scope.workspace_id
+        )
     )
-    if not _can_manage_billing(
-        role=await _billing_role(db, tenant_scope=tenant_scope, principal=principal),
-        subscription=subscription,
-        principal=principal,
-    ) or invoice is None:
+    if (
+        not _can_manage_billing(
+            role=await _billing_role(db, tenant_scope=tenant_scope, principal=principal),
+            subscription=subscription,
+            principal=principal,
+        )
+        or invoice is None
+    ):
         return RedirectResponse("/billing?result=owner_only", status_code=303)
     counters = await reconcile_pending_initial_checkout_operations(
         db,
@@ -1668,11 +1786,14 @@ async def continue_billing_checkout(
         .where(WorkspaceSubscription.workspace_id == tenant_scope.workspace_id)
         .with_for_update()
     )
-    if not _can_manage_billing(
-        role=await _billing_role(db, tenant_scope=tenant_scope, principal=principal),
-        subscription=subscription,
-        principal=principal,
-    ) or invoice is None:
+    if (
+        not _can_manage_billing(
+            role=await _billing_role(db, tenant_scope=tenant_scope, principal=principal),
+            subscription=subscription,
+            principal=principal,
+        )
+        or invoice is None
+    ):
         return RedirectResponse("/billing?result=owner_only", status_code=303)
     operation = await db.scalar(
         select(BillingOperation)
@@ -1786,14 +1907,6 @@ async def activate_billing_trial(
     if confirmation != "start_trial":
         return RedirectResponse("/billing?trial=confirmation_required", status_code=303)
     await lock_storage_workspace(db, tenant_scope.workspace_id)
-    workspace = await db.scalar(
-        select(Workspace).where(Workspace.id == tenant_scope.workspace_id).with_for_update()
-    )
-    blocking_checkout = await db.scalar(
-        _blocking_payment_operation_query(tenant_scope.workspace_id).limit(1)
-    )
-    if blocking_checkout is not None:
-        return RedirectResponse("/billing?trial=pending", status_code=303)
     eligibility_state = await _trial_eligibility_state(
         db,
         tenant_scope=tenant_scope,
@@ -1805,12 +1918,9 @@ async def activate_billing_trial(
         return RedirectResponse("/billing?trial=already", status_code=303)
     if eligibility_state != "eligible":
         return RedirectResponse("/billing?trial=unavailable", status_code=303)
-    identity = await db.scalar(
-        select(UserIdentity)
-        .where(UserIdentity.id == principal.user_id)
-        .with_for_update()
+    workspace = await db.scalar(
+        select(Workspace).where(Workspace.id == tenant_scope.workspace_id).with_for_update()
     )
-    already_used = await trial_used_by_lineage(db, user_id=principal.user_id)
     membership = await db.scalar(
         select(WorkspaceMembership).where(
             WorkspaceMembership.workspace_id == tenant_scope.workspace_id,
@@ -1818,6 +1928,23 @@ async def activate_billing_trial(
             WorkspaceMembership.status == "active",
         )
     )
+    if (
+        workspace is None
+        or workspace.kind != "personal"
+        or workspace.owner_user_id != principal.user_id
+        or membership is None
+        or membership.role != "owner"
+    ):
+        return RedirectResponse("/billing?trial=unavailable", status_code=303)
+    blocking_checkout = await db.scalar(
+        _blocking_payment_operation_query(tenant_scope.workspace_id).limit(1)
+    )
+    if blocking_checkout is not None:
+        return RedirectResponse("/billing?trial=pending", status_code=303)
+    identity = await db.scalar(
+        select(UserIdentity).where(UserIdentity.id == principal.user_id).with_for_update()
+    )
+    already_used = await trial_used_by_lineage(db, user_id=principal.user_id)
     subscription = await db.scalar(
         select(WorkspaceSubscription)
         .where(WorkspaceSubscription.workspace_id == tenant_scope.workspace_id)
@@ -1834,19 +1961,19 @@ async def activate_billing_trial(
         return RedirectResponse("/billing?trial=unavailable", status_code=303)
     except ValueError:
         return RedirectResponse("/billing?trial=already", status_code=303)
-    if workspace is None or workspace.owner_user_id != principal.user_id:
-        return RedirectResponse("/billing?trial=unavailable", status_code=303)
     if subscription is not None and subscription.billing_owner_id not in {None, principal.user_id}:
         return RedirectResponse("/billing?trial=unavailable", status_code=303)
     if subscription is not None and (
-        subscription.paid_through is not None and subscription.paid_through > datetime.now(UTC)
+        subscription.paid_through is not None
+        and subscription.paid_through > datetime.now(UTC)
         or effective_plan_code(
             plan_code=subscription.plan_code,  # type: ignore[arg-type]
             state=subscription.state,
             now=datetime.now(UTC),
             paid_through=subscription.paid_through,
             trial_ends_at=subscription.trial_ends_at,
-        ) != "free"
+        )
+        != "free"
     ):
         return RedirectResponse("/billing?trial=unavailable", status_code=303)
     now = datetime.now(UTC)
@@ -1867,7 +1994,16 @@ async def activate_billing_trial(
         )
     )
     if subscription is None:
-        db.add(WorkspaceSubscription(workspace_id=tenant_scope.workspace_id, billing_owner_id=principal.user_id, state="trial", plan_code="trial", capacity_bytes=500_000_000, trial_ends_at=trial.ends_at))
+        db.add(
+            WorkspaceSubscription(
+                workspace_id=tenant_scope.workspace_id,
+                billing_owner_id=principal.user_id,
+                state="trial",
+                plan_code="trial",
+                capacity_bytes=500_000_000,
+                trial_ends_at=trial.ends_at,
+            )
+        )
     else:
         subscription.state = "trial"
         subscription.plan_code = "trial"
@@ -1897,7 +2033,9 @@ async def billing_usage_page(
     window_start, window_end = moscow_window_for(now)
     if db is not None:
         subscription = await db.scalar(
-            select(WorkspaceSubscription).where(WorkspaceSubscription.workspace_id == tenant_scope.workspace_id)
+            select(WorkspaceSubscription).where(
+                WorkspaceSubscription.workspace_id == tenant_scope.workspace_id
+            )
         )
         window = await db.scalar(
             select(FreeUsageWindow).where(
@@ -1909,7 +2047,14 @@ async def billing_usage_page(
         processing_reserved = window.reserved_seconds if window is not None else 0
         usage_projection_state = window.freshness_state if window is not None else "fresh"
         reserved = await db.scalar(
-            select(func.coalesce(func.sum(StorageReservation.declared_bytes - StorageReservation.committed_bytes), 0)).where(
+            select(
+                func.coalesce(
+                    func.sum(
+                        StorageReservation.declared_bytes - StorageReservation.committed_bytes
+                    ),
+                    0,
+                )
+            ).where(
                 StorageReservation.workspace_id == tenant_scope.workspace_id,
                 StorageReservation.state == "active",
                 (StorageReservation.expires_at.is_(None) | (StorageReservation.expires_at > now)),
@@ -1938,7 +2083,10 @@ async def billing_usage_page(
         capacity = subscription.capacity_bytes
     if db is not None:
         projection = await project_active_playback_storage(
-            db, workspace_id=tenant_scope.workspace_id, capacity_bytes=capacity, reserved_bytes=reserved_bytes
+            db,
+            workspace_id=tenant_scope.workspace_id,
+            capacity_bytes=capacity,
+            reserved_bytes=reserved_bytes,
         )
     content = _page_shell(
         "Использование и хранение",
@@ -1956,11 +2104,15 @@ async def billing_usage_page(
         processing_used_label=format_duration(processing_used),
         processing_reserved_label=format_duration(processing_reserved),
         free_processing_limit_label="300 минут",
-        processing_threshold=classify_free_processing(committed_seconds=processing_used + processing_reserved),
+        processing_threshold=classify_free_processing(
+            committed_seconds=processing_used + processing_reserved
+        ),
         processing_threshold_label=_processing_threshold_label(
             classify_free_processing(committed_seconds=processing_used + processing_reserved)
         ),
-        processing_remaining=max(0, FREE_PROCESSING_SECONDS - processing_used - processing_reserved),
+        processing_remaining=max(
+            0, FREE_PROCESSING_SECONDS - processing_used - processing_reserved
+        ),
         processing_remaining_label=format_duration(
             max(0, FREE_PROCESSING_SECONDS - processing_used - processing_reserved)
         ),
@@ -1999,25 +2151,34 @@ async def billing_subscription_page(
     subscription = None
     if db is not None:
         subscription = await db.scalar(
-            select(WorkspaceSubscription).where(WorkspaceSubscription.workspace_id == tenant_scope.workspace_id)
+            select(WorkspaceSubscription).where(
+                WorkspaceSubscription.workspace_id == tenant_scope.workspace_id
+            )
         )
     role = await _billing_role(db, tenant_scope=tenant_scope, principal=principal)
     if not _can_manage_billing(role=role, subscription=subscription, principal=principal):
         return RedirectResponse("/billing?result=owner_only", status_code=303)
     now = datetime.now(UTC)
-    active = subscription is not None and subscription.paid_through is not None and subscription.paid_through > now
+    active = (
+        subscription is not None
+        and subscription.paid_through is not None
+        and subscription.paid_through > now
+    )
     method_available = False
     next_charge_amount_label = None
     if db is not None and subscription is not None:
-        method_available = await db.scalar(
-            select(BillingPaymentMethod.id).where(
-                BillingPaymentMethod.workspace_id == tenant_scope.workspace_id,
-                BillingPaymentMethod.owner_user_id == principal.user_id,
-                BillingPaymentMethod.is_default.is_(True),
-                BillingPaymentMethod.state == "active",
-                BillingPaymentMethod.verified_at.is_not(None),
+        method_available = (
+            await db.scalar(
+                select(BillingPaymentMethod.id).where(
+                    BillingPaymentMethod.workspace_id == tenant_scope.workspace_id,
+                    BillingPaymentMethod.owner_user_id == principal.user_id,
+                    BillingPaymentMethod.is_default.is_(True),
+                    BillingPaymentMethod.state == "active",
+                    BillingPaymentMethod.verified_at.is_not(None),
+                )
             )
-        ) is not None
+            is not None
+        )
         approved_catalog = await _approved_personal_catalog(db, now=now)
         cycle_catalog = approved_catalog.get(subscription.cycle)
         next_charge_amount_label = _billing_amount_label(
@@ -2035,7 +2196,9 @@ async def billing_subscription_page(
         content_template="cabinet/pages/billing_subscription_content.html",
         subscription=subscription,
         active=active,
-        paid_through_label=_billing_datetime_label(subscription.paid_through) if active and subscription is not None else None,
+        paid_through_label=_billing_datetime_label(subscription.paid_through)
+        if active and subscription is not None
+        else None,
         method_available=method_available,
         next_charge_amount_label=next_charge_amount_label,
         billing_enabled=bool(request.app.state.settings.billing_checkout_enabled),
@@ -2067,7 +2230,9 @@ async def billing_payment_method_page(
     subscription = None
     if db is not None:
         subscription = await db.scalar(
-            select(WorkspaceSubscription).where(WorkspaceSubscription.workspace_id == tenant_scope.workspace_id)
+            select(WorkspaceSubscription).where(
+                WorkspaceSubscription.workspace_id == tenant_scope.workspace_id
+            )
         )
     role = await _billing_role(db, tenant_scope=tenant_scope, principal=principal)
     if not _can_manage_billing(role=role, subscription=subscription, principal=principal):
@@ -2097,7 +2262,9 @@ async def billing_payment_method_page(
         method_kind_label=_payment_method_kind_label(method.kind if method is not None else None),
         method_present=method is not None,
         renewal_allowed=bool(subscription is not None and subscription.recurring_allowed),
-        paid_until_label=_billing_datetime_label(subscription.paid_through) if subscription is not None else None,
+        paid_until_label=_billing_datetime_label(subscription.paid_through)
+        if subscription is not None
+        else None,
         billing_enabled=bool(request.app.state.settings.billing_checkout_enabled),
         result=request.query_params.get("result"),
     )
@@ -2115,7 +2282,9 @@ async def delete_billing_payment_method(
     """Revoke GRAF's saved-method authority; YooKassa remains merchant-owned."""
     if db is None or not principal.auth_via_session:
         return RedirectResponse("/billing/payment-method?result=unavailable", status_code=303)
-    subscription = await _billing_owner_subscription(db, tenant_scope=tenant_scope, principal=principal)
+    subscription = await _billing_owner_subscription(
+        db, tenant_scope=tenant_scope, principal=principal
+    )
     if subscription is None:
         return RedirectResponse("/billing/payment-method?result=owner_only", status_code=303)
     if subscription.recurring_allowed:
@@ -2182,7 +2351,9 @@ async def billing_storage_page(
     subscription = None
     if db is not None:
         subscription = await db.scalar(
-            select(WorkspaceSubscription).where(WorkspaceSubscription.workspace_id == tenant_scope.workspace_id)
+            select(WorkspaceSubscription).where(
+                WorkspaceSubscription.workspace_id == tenant_scope.workspace_id
+            )
         )
     role = await _billing_role(db, tenant_scope=tenant_scope, principal=principal)
     if not _can_manage_billing(role=role, subscription=subscription, principal=principal):
@@ -2217,7 +2388,10 @@ async def billing_storage_page(
         current_capacity=current_capacity,
         current_capacity_label=_capacity_label(current_capacity),
         addon_options=(5_000_000_000, 20_000_000_000, 100_000_000_000, 500_000_000_000),
-        capacity_labels=tuple(_capacity_label(value) for value in (5_000_000_000, 20_000_000_000, 100_000_000_000, 500_000_000_000)),
+        capacity_labels=tuple(
+            _capacity_label(value)
+            for value in (5_000_000_000, 20_000_000_000, 100_000_000_000, 500_000_000_000)
+        ),
         eligible=effective_plan == "personal",
         billing_enabled=bool(request.app.state.settings.billing_checkout_enabled),
         result=request.query_params.get("result"),
@@ -2232,7 +2406,11 @@ async def _billing_owner_subscription(
     principal: AuthenticatedPrincipal,
 ) -> WorkspaceSubscription | None:
     workspace = await db.get(Workspace, tenant_scope.workspace_id)
-    if workspace is None or workspace.kind != "personal" or workspace.owner_user_id != principal.user_id:
+    if (
+        workspace is None
+        or workspace.kind != "personal"
+        or workspace.owner_user_id != principal.user_id
+    ):
         return None
     membership = await db.scalar(
         select(WorkspaceMembership).where(
@@ -2266,7 +2444,9 @@ async def cancel_billing_subscription(
 ) -> RedirectResponse:
     if db is None or not principal.auth_via_session:
         return RedirectResponse("/billing/subscription?result=unavailable", status_code=303)
-    subscription = await _billing_owner_subscription(db, tenant_scope=tenant_scope, principal=principal)
+    subscription = await _billing_owner_subscription(
+        db, tenant_scope=tenant_scope, principal=principal
+    )
     if (
         subscription is None
         or subscription.paid_through is None
@@ -2275,12 +2455,19 @@ async def cancel_billing_subscription(
         return RedirectResponse("/billing/subscription?result=unavailable", status_code=303)
     if not subscription.recurring_allowed:
         return RedirectResponse("/billing/subscription?result=already_cancelled", status_code=303)
-    if expected_authority_version is None or expected_authority_version != subscription.recurring_authority_version:
+    if (
+        expected_authority_version is None
+        or expected_authority_version != subscription.recurring_authority_version
+    ):
         await db.rollback()
         return RedirectResponse("/billing/subscription?result=conflict", status_code=303)
     try:
         changed = cancel_auto_renewal(
-            SubscriptionControl(subscription.paid_through, subscription.recurring_allowed, subscription.recurring_authority_version),
+            SubscriptionControl(
+                subscription.paid_through,
+                subscription.recurring_allowed,
+                subscription.recurring_authority_version,
+            ),
             expected_version=expected_authority_version,
         )
     except ValueError:
@@ -2301,7 +2488,9 @@ async def cancel_billing_subscription(
             metadata_json={
                 "authority_version": changed.authority_version,
                 "consent_at": datetime.now(UTC).isoformat(),
-                "next_charge_at": subscription.paid_through.isoformat() if subscription.paid_through else None,
+                "next_charge_at": subscription.paid_through.isoformat()
+                if subscription.paid_through
+                else None,
             },
         )
     )
@@ -2321,14 +2510,19 @@ async def resume_billing_subscription(
 ) -> RedirectResponse:
     if db is None or not principal.auth_via_session:
         return RedirectResponse("/billing/subscription?result=unavailable", status_code=303)
-    subscription = await _billing_owner_subscription(db, tenant_scope=tenant_scope, principal=principal)
+    subscription = await _billing_owner_subscription(
+        db, tenant_scope=tenant_scope, principal=principal
+    )
     if subscription is None:
         return RedirectResponse("/billing/subscription?result=unavailable", status_code=303)
     if subscription.recurring_allowed:
         return RedirectResponse("/billing/subscription?result=already_active", status_code=303)
     if not resume_consent:
         return RedirectResponse("/billing/subscription?result=consent_required", status_code=303)
-    if expected_authority_version is None or expected_authority_version != subscription.recurring_authority_version:
+    if (
+        expected_authority_version is None
+        or expected_authority_version != subscription.recurring_authority_version
+    ):
         await db.rollback()
         return RedirectResponse("/billing/subscription?result=conflict", status_code=303)
     method_exists = await db.scalar(
@@ -2345,7 +2539,11 @@ async def resume_billing_subscription(
         return RedirectResponse("/billing/subscription?result=method_required", status_code=303)
     try:
         changed = resume_auto_renewal(
-            SubscriptionControl(subscription.paid_through, subscription.recurring_allowed, subscription.recurring_authority_version),
+            SubscriptionControl(
+                subscription.paid_through,
+                subscription.recurring_allowed,
+                subscription.recurring_authority_version,
+            ),
             expected_version=expected_authority_version,
             now=datetime.now(UTC),
         )
@@ -2382,37 +2580,63 @@ async def billing_checkout_page(
         return RedirectResponse("/billing?result=owner_only", status_code=303)
     settings = request.app.state.settings
     checkout_result = request.query_params.get("result")
-    if db is not None and await db.scalar(
-        _blocking_payment_operation_query(tenant_scope.workspace_id).limit(1)
-    ) is not None:
+    blocking_operation = (
+        await db.scalar(_blocking_payment_operation_query(tenant_scope.workspace_id).limit(1))
+        if db is not None
+        else None
+    )
+    if blocking_operation is not None:
         checkout_result = "pending"
+    checkout_blocked = checkout_result == "pending"
+    continuation_candidate = (
+        blocking_operation.request_snapshot.get("confirmation_url")
+        if blocking_operation is not None
+        and blocking_operation.kind == "initial_checkout"
+        and blocking_operation.state == "provider_pending"
+        else None
+    )
+    checkout_continuation_url = (
+        continuation_candidate if is_allowed_confirmation_url(continuation_candidate) else None
+    )
     checkout_promo_code = request.cookies.get(_CHECKOUT_PROMO_COOKIE, "")
     checkout_cycle = request.query_params.get("cycle", "month")
     if checkout_cycle not in {"month", "year"}:
         checkout_cycle = "month"
     descriptor = plan_descriptor("personal")
-    receipt_contact = await db.scalar(
-        select(ExternalIdentity.email)
-        .where(
-            ExternalIdentity.user_id == principal.user_id,
-            ExternalIdentity.is_active.is_(True),
-            ExternalIdentity.is_verified.is_(True),
-            ExternalIdentity.email.is_not(None),
+    receipt_contact = (
+        await db.scalar(
+            select(ExternalIdentity.email)
+            .where(
+                ExternalIdentity.user_id == principal.user_id,
+                ExternalIdentity.is_active.is_(True),
+                ExternalIdentity.is_verified.is_(True),
+                ExternalIdentity.email.is_not(None),
+            )
+            .order_by(ExternalIdentity.created_at.asc())
         )
-        .order_by(ExternalIdentity.created_at.asc())
-    ) if db is not None else None
+        if db is not None
+        else None
+    )
     catalog = await _approved_personal_catalog(db, now=datetime.now(UTC))
     monthly_catalog = catalog.get("month")
     annual_catalog = catalog.get("year")
     catalog_ready = monthly_catalog is not None and annual_catalog is not None
     monthly_amount = monthly_catalog.amount_minor if monthly_catalog is not None else None
     annual_amount = annual_catalog.amount_minor if annual_catalog is not None else None
-    catalog_storage = monthly_catalog.storage_bytes if monthly_catalog is not None else descriptor.storage_bytes
-    offer_version = monthly_catalog.offer_version if monthly_catalog is not None else _BILLING_OFFER_VERSION
+    catalog_storage = (
+        monthly_catalog.storage_bytes if monthly_catalog is not None else descriptor.storage_bytes
+    )
+    offer_version = (
+        monthly_catalog.offer_version if monthly_catalog is not None else _BILLING_OFFER_VERSION
+    )
     checkout_preview_data: dict[str, str] | None = None
     promo_preview_error: str | None = None
     selected_catalog = catalog.get(checkout_cycle)
-    if bool(settings.billing_checkout_enabled) and selected_catalog is not None:
+    if (
+        not checkout_blocked
+        and bool(settings.billing_checkout_enabled)
+        and selected_catalog is not None
+    ):
         try:
             promo = None
             if checkout_promo_code:
@@ -2468,14 +2692,14 @@ async def billing_checkout_page(
         plan=descriptor,
         monthly_price_label=_billing_price_label(monthly_amount),
         annual_price_label=_billing_price_label(annual_amount),
-        annual_saving_label=_annual_saving_label(
-            monthly_amount, annual_amount
-        ),
+        annual_saving_label=_annual_saving_label(monthly_amount, annual_amount),
         catalog_ready=catalog_ready,
         catalog_storage_label=_capacity_label(catalog_storage),
         offer_version_label=offer_version,
         checkout_idempotency_key=f"web-{principal.user_id}-{uuid4().hex}",
         checkout_result=checkout_result,
+        checkout_blocked=checkout_blocked,
+        checkout_continuation_url=checkout_continuation_url,
         checkout_promo_code=checkout_promo_code,
         checkout_cycle=checkout_cycle,
         checkout_preview=checkout_preview_data,
@@ -2594,14 +2818,20 @@ async def start_billing_checkout(
         workspace = await db.scalar(
             select(Workspace).where(Workspace.id == tenant_scope.workspace_id).with_for_update()
         )
-        if workspace is None or workspace.kind != "personal" or workspace.owner_user_id != principal.user_id:
+        if (
+            workspace is None
+            or workspace.kind != "personal"
+            or workspace.owner_user_id != principal.user_id
+        ):
             return RedirectResponse("/billing?result=personal_only", status_code=303)
         membership = await db.scalar(
-            select(WorkspaceMembership).where(
+            select(WorkspaceMembership)
+            .where(
                 WorkspaceMembership.workspace_id == tenant_scope.workspace_id,
                 WorkspaceMembership.user_id == principal.user_id,
                 WorkspaceMembership.status == "active",
-            ).with_for_update()
+            )
+            .with_for_update()
         )
         subscription = await db.scalar(
             select(WorkspaceSubscription)
@@ -2636,10 +2866,12 @@ async def start_billing_checkout(
         # A retried request can carry the same reservation and should recover
         # the original hosted URL even after the campaign window changed.
         existing = await db.scalar(
-            select(BillingOperation).where(
+            select(BillingOperation)
+            .where(
                 BillingOperation.workspace_id == tenant_scope.workspace_id,
                 BillingOperation.idempotency_key == key,
-            ).with_for_update()
+            )
+            .with_for_update()
         )
         if existing is not None:
             confirmation_url = existing.request_snapshot.get("confirmation_url")
@@ -2683,7 +2915,9 @@ async def start_billing_checkout(
             except (CatalogNotApproved, ValueError):
                 continue
         if catalog_snapshot is None:
-            return RedirectResponse("/billing/checkout?result=catalog_not_approved", status_code=303)
+            return RedirectResponse(
+                "/billing/checkout?result=catalog_not_approved", status_code=303
+            )
 
         promo: PromoCode | None = None
         promo_campaign: PromotionCampaign | None = None
@@ -2778,9 +3012,7 @@ async def start_billing_checkout(
             if is_allowed_confirmation_url(confirmation_url):
                 return RedirectResponse(confirmation_url, status_code=303)
             unresolved_invoice = await db.scalar(
-                select(BillingInvoice).where(
-                    BillingInvoice.operation_id == unresolved_payment.id
-                )
+                select(BillingInvoice).where(BillingInvoice.operation_id == unresolved_payment.id)
             )
             if unresolved_invoice is not None:
                 return RedirectResponse(
@@ -2789,7 +3021,9 @@ async def start_billing_checkout(
                 )
             return RedirectResponse("/billing?result=pending", status_code=303)
         provider_environment(settings.billing_yookassa_environment)
-        intent = build_checkout_intent(workspace_id=tenant_scope.workspace_id, idempotency_key=key, preview=preview)
+        intent = build_checkout_intent(
+            workspace_id=tenant_scope.workspace_id, idempotency_key=key, preview=preview
+        )
         consent_at = datetime.now(UTC).isoformat()
         operation = BillingOperation(
             id=intent.operation_id,
@@ -2806,7 +3040,9 @@ async def start_billing_checkout(
                 "promo_code_hash": promo_code_hash(promo.code) if promo is not None else None,
                 "discount_percent": promo.discount_percent if promo is not None else None,
                 "referral_discount": referral_discount,
-                "discount_source": "referral" if referral_discount else ("promo" if promo is not None else None),
+                "discount_source": "referral"
+                if referral_discount
+                else ("promo" if promo is not None else None),
                 "catalog_snapshot": catalog_snapshot.as_dict(),
                 "offer_consent": True,
                 "recurring_consent": True,
@@ -2837,7 +3073,9 @@ async def start_billing_checkout(
                 "discount_percent": promo.discount_percent if promo is not None else None,
                 "campaign_version": promo.campaign_version if promo is not None else None,
                 "referral_discount": referral_discount,
-                "discount_source": "referral" if referral_discount else ("promo" if promo is not None else None),
+                "discount_source": "referral"
+                if referral_discount
+                else ("promo" if promo is not None else None),
                 "catalog_snapshot": catalog_snapshot.as_dict(),
                 "offer_consent": True,
                 "recurring_consent": True,
@@ -2911,14 +3149,18 @@ async def start_billing_checkout(
         # Recover that operation by its logical idempotency key instead of
         # returning a second checkout attempt or mutating the winner.
         await db.rollback()
-        winner = await db.scalar(
-            select(BillingOperation)
-            .where(
-                BillingOperation.workspace_id == tenant_scope.workspace_id,
-                BillingOperation.idempotency_key == key,
+        winner = (
+            await db.scalar(
+                select(BillingOperation)
+                .where(
+                    BillingOperation.workspace_id == tenant_scope.workspace_id,
+                    BillingOperation.idempotency_key == key,
+                )
+                .with_for_update()
             )
-            .with_for_update()
-        ) if "key" in locals() else None
+            if "key" in locals()
+            else None
+        )
         if winner is not None:
             winner_url = winner.request_snapshot.get("confirmation_url")
             if is_allowed_confirmation_url(winner_url):
@@ -2943,10 +3185,12 @@ async def start_billing_checkout(
         await db.rollback()
         if "intent" in locals():
             unresolved = await db.scalar(
-                select(BillingOperation).where(
+                select(BillingOperation)
+                .where(
                     BillingOperation.workspace_id == tenant_scope.workspace_id,
                     BillingOperation.id == intent.operation_id,
-                ).with_for_update()
+                )
+                .with_for_update()
             )
             if unresolved is not None:
                 invoice = await db.scalar(
@@ -2970,7 +3214,9 @@ async def start_billing_checkout(
 @router.get("/billing/checkout/return", name="billing_checkout_return", include_in_schema=False)
 async def billing_checkout_return(invoice: str | None = None) -> RedirectResponse:
     if invoice is not None and re.fullmatch(r"INV-[A-Z0-9]+", invoice):
-        return RedirectResponse(f"/billing/checkout/status/{quote(invoice, safe='-')}", status_code=303)
+        return RedirectResponse(
+            f"/billing/checkout/status/{quote(invoice, safe='-')}", status_code=303
+        )
     return RedirectResponse("/billing?result=returned", status_code=303)
 
 
@@ -2984,7 +3230,9 @@ async def billing_history_page(
     subscription = None
     if db is not None:
         subscription = await db.scalar(
-            select(WorkspaceSubscription).where(WorkspaceSubscription.workspace_id == tenant_scope.workspace_id)
+            select(WorkspaceSubscription).where(
+                WorkspaceSubscription.workspace_id == tenant_scope.workspace_id
+            )
         )
     if not _can_manage_billing(
         role=await _billing_role(db, tenant_scope=tenant_scope, principal=principal),
@@ -3016,7 +3264,8 @@ async def billing_history_page(
                 {
                     "safe_number": invoice.safe_number,
                     "created_at_label": _billing_datetime_label(invoice.created_at),
-                    "amount_label": _billing_amount_label(invoice.amount_minor, invoice.currency) or "Сумма недоступна",
+                    "amount_label": _billing_amount_label(invoice.amount_minor, invoice.currency)
+                    or "Сумма недоступна",
                     "status": invoice.status,
                     "status_label": _invoice_status_label(invoice.status),
                     "cycle_label": "Год" if snapshot.get("cycle") == "year" else "Месяц",
@@ -3065,7 +3314,9 @@ async def billing_invoice_detail_page(
     subscription = None
     if db is not None:
         subscription = await db.scalar(
-            select(WorkspaceSubscription).where(WorkspaceSubscription.workspace_id == tenant_scope.workspace_id)
+            select(WorkspaceSubscription).where(
+                WorkspaceSubscription.workspace_id == tenant_scope.workspace_id
+            )
         )
     if not _can_manage_billing(
         role=await _billing_role(db, tenant_scope=tenant_scope, principal=principal),
@@ -3092,7 +3343,9 @@ async def billing_invoice_detail_page(
     support_email = request.app.state.settings.billing_support_email
     if support_email:
         try:
-            refund_mailto = build_refund_mailto(support_email=support_email, safe_invoice_number=invoice.safe_number)
+            refund_mailto = build_refund_mailto(
+                support_email=support_email, safe_invoice_number=invoice.safe_number
+            )
         except ValueError:
             refund_mailto = None
     content = _page_shell(
@@ -3108,7 +3361,8 @@ async def billing_invoice_detail_page(
         invoice={
             "safe_number": invoice.safe_number,
             "created_at": invoice.created_at,
-            "amount_label": _billing_amount_label(invoice.amount_minor, invoice.currency) or "Сумма недоступна",
+            "amount_label": _billing_amount_label(invoice.amount_minor, invoice.currency)
+            or "Сумма недоступна",
             "status": invoice.status,
             "cycle_label": "Год" if snapshot.get("cycle") == "year" else "Месяц",
             "status_label": _invoice_status_label(invoice.status),

@@ -47,9 +47,9 @@
         <h2 id="billing-comparison-title">Сравнение возможностей</h2>
         <div class="billing-comparison__table" role="table" aria-label="Сравнение тарифов">
           <div role="row" class="billing-comparison__row billing-comparison__row--head"><span role="columnheader">Возможность</span>{% for item in plans %}<span role="columnheader">{{ item.label }}</span>{% endfor %}</div>
-          <div role="row" class="billing-comparison__row"><span role="rowheader">Обработка</span>{% for item in plans %}<span role="cell">{% if item.processing_mode == "unlimited" %}Без лимита{% else %}{{ item.processing_label }}{% endif %}</span>{% endfor %}</div>
-          <div role="row" class="billing-comparison__row"><span role="rowheader">Хранилище</span>{% for item in plans %}<span role="cell">{{ item.storage_label }}</span>{% endfor %}</div>
-          <div role="row" class="billing-comparison__row"><span role="rowheader">Без сохранения аудио</span>{% for item in plans %}<span role="cell">Доступно</span>{% endfor %}</div>
+          <div role="row" class="billing-comparison__row"><span role="rowheader">Обработка</span>{% for item in plans %}<span role="cell" data-plan-label="{{ item.label }}">{% if item.processing_mode == "unlimited" %}Без лимита{% else %}{{ item.processing_label }}{% endif %}</span>{% endfor %}</div>
+          <div role="row" class="billing-comparison__row"><span role="rowheader">Хранилище</span>{% for item in plans %}<span role="cell" data-plan-label="{{ item.label }}">{{ item.storage_label }}</span>{% endfor %}</div>
+          <div role="row" class="billing-comparison__row"><span role="rowheader">Без сохранения аудио</span>{% for item in plans %}<span role="cell" data-plan-label="{{ item.label }}">Доступно</span>{% endfor %}</div>
         </div>
       </section>
 

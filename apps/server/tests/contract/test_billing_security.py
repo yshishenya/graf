@@ -36,8 +36,7 @@ FINANCIAL_PAGE_CLASSES = (
     "billing_referrals",
 )
 BASE_TEMPLATE = (
-    Path(__file__).parents[2]
-    / "src/twobrain_rec_server/cabinet/templates/cabinet/base.html"
+    Path(__file__).parents[2] / "src/twobrain_rec_server/cabinet/templates/cabinet/base.html"
 )
 
 
@@ -49,8 +48,7 @@ def test_billing_mutations_require_csrf() -> None:
         ):
             continue
         dependency_names = {
-            getattr(dependency.call, "__name__", "")
-            for dependency in route.dependant.dependencies
+            getattr(dependency.call, "__name__", "") for dependency in route.dependant.dependencies
         }
         if "require_web_csrf" not in dependency_names:
             missing.append(f"{','.join(sorted(route.methods))} {route.path}")
@@ -61,7 +59,7 @@ def test_billing_mutations_require_csrf() -> None:
 def test_personal_checkout_cannot_run_for_corporate_workspace() -> None:
     source = inspect.getsource(start_billing_checkout)
 
-    assert "workspace.kind != \"personal\"" in source
+    assert 'workspace.kind != "personal"' in source
     assert "workspace.owner_user_id != principal.user_id" in source
 
 
@@ -77,10 +75,12 @@ def test_checkout_persists_operation_before_invoice_foreign_key() -> None:
 def test_trial_serializes_with_checkout_before_checking_payment_operations() -> None:
     source = inspect.getsource(activate_billing_trial)
 
-    assert source.index("select(Workspace)") < source.index(
-        "_blocking_payment_operation_query"
-    )
-    assert ".with_for_update()" in source
+    assert source.index("select(Workspace)") < source.index("_blocking_payment_operation_query")
+    workspace_guard = source[
+        source.index("select(Workspace)") : source.index("_blocking_payment_operation_query")
+    ]
+    assert ".with_for_update()" in workspace_guard
+    assert "workspace.owner_user_id != principal.user_id" in workspace_guard
 
 
 def test_subscription_mutations_share_personal_owner_gate() -> None:
@@ -128,14 +128,21 @@ def test_billing_audit_writers_filter_financial_metadata() -> None:
     source_root = Path(__file__).parents[2] / "src/twobrain_rec_server"
     for path in source_root.rglob("*.py"):
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            if not isinstance(node, ast.Call) or getattr(node.func, "id", None) != "BillingAuditEvent":
+            if (
+                not isinstance(node, ast.Call)
+                or getattr(node.func, "id", None) != "BillingAuditEvent"
+            ):
                 continue
-            metadata = next((item.value for item in node.keywords if item.arg == "metadata_json"), None)
+            metadata = next(
+                (item.value for item in node.keywords if item.arg == "metadata_json"), None
+            )
             if not isinstance(metadata, ast.Dict):
                 continue
             for key in metadata.keys:
                 assert isinstance(key, ast.Constant) and isinstance(key.value, str)
-                assert metadata_only({key.value: "value"}), f"unsafe audit metadata key {key.value!r} in {path}"
+                assert metadata_only({key.value: "value"}), (
+                    f"unsafe audit metadata key {key.value!r} in {path}"
+                )
 
 
 def test_billing_callback_url_uses_configured_public_origin_not_request_host() -> None:
