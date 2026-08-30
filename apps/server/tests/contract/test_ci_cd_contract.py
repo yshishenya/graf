@@ -294,10 +294,13 @@ def test_whitespace_check_covers_commits_since_the_merge_base(tmp_path: Path) ->
 
 
 def test_shell_syntax_check_includes_untracked_changed_scripts(tmp_path: Path) -> None:
-    script_path = tmp_path / "infra/scripts/new-check.sh"
-    script_path.parent.mkdir(parents=True)
-    script_path.write_text("if then\n", encoding="utf-8")
+    valid_script = tmp_path / "infra/scripts/a-valid.sh"
+    invalid_script = tmp_path / "infra/scripts/z-invalid.sh"
+    valid_script.parent.mkdir(parents=True)
+    valid_script.write_text("#!/usr/bin/env bash\ntrue\n", encoding="utf-8")
+    invalid_script.write_text("if then\n", encoding="utf-8")
     run("git", "init", "-q", cwd=tmp_path)
+    run("git", "add", "infra/scripts/a-valid.sh", cwd=tmp_path)
 
     result = run(
         "bash",
@@ -306,7 +309,7 @@ def test_shell_syntax_check_includes_untracked_changed_scripts(tmp_path: Path) -
         "contract",
         str(LOCAL_CI),
         str(tmp_path),
-        "infra/scripts/new-check.sh",
+        "infra/scripts/z-invalid.sh",
     )
 
     assert result.returncode != 0
@@ -454,7 +457,10 @@ def test_active_documentation_matches_bounded_fast_contract() -> None:
     )
     operator_readme = (ROOT / "infra/scripts/README.md").read_text(encoding="utf-8")
     pull_request_template = (ROOT / ".github/pull_request_template.md").read_text(encoding="utf-8")
+    quickstart = (ROOT / "specs/211-optimize-ci-cd/quickstart.md").read_text(encoding="utf-8")
 
     assert "always remains bounded" in release_guidance
     assert "never changes to `effective=full`" in operator_readme
     assert "coverage, next gate, result, duration" in pull_request_template
+    assert 'git diff --check "$(git merge-base origin/master HEAD)" HEAD' in quickstart
+    assert 'bash -n "$script"' in quickstart

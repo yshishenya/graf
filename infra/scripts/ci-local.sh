@@ -160,7 +160,9 @@ check_shell_syntax() {
     { git -C "$repo_root" ls-files '*.sh'; printf '%s\n' "$changed_file_list"; } \
       | LC_ALL=C sort -u
   )
-  [[ "${#shell_files[@]}" -eq 0 ]] || bash -n "${shell_files[@]}"
+  for path in "${shell_files[@]}"; do
+    bash -n "$path" || return $?
+  done
 }
 
 check_diff_whitespace() {

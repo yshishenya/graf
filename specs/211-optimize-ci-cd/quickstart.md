@@ -27,7 +27,9 @@ duplicated all `1351` server unit tests; that duplicate was then removed.
 ## 1. Static contract
 
 ```sh
-bash -n infra/scripts/ci-local.sh infra/scripts/cd-remote.sh apps/server/scripts/run_local_postgres_tests.sh
+for script in infra/scripts/ci-local.sh infra/scripts/cd-remote.sh apps/server/scripts/run_local_postgres_tests.sh; do
+  bash -n "$script"
+done
 speckit-bootstrap . --doctor --frozen
 set +e
 infra/scripts/ci-local.sh
@@ -35,7 +37,7 @@ status=$?
 set -e
 test "$status" -eq 2
 infra/scripts/ci-local.sh --help
-git diff --check
+git diff --check "$(git merge-base origin/master HEAD)" HEAD
 ```
 
 Expected: frozen bootstrap state matches its lock; bare CI performs no stage
