@@ -897,6 +897,7 @@ public enum DesktopUploadTransportRole: String, Codable, CaseIterable, Sendable 
 }
 
 public enum UploadItemState: String, Codable, CaseIterable, Sendable {
+    case saving
     case queued
     case uploading
     case retrying
@@ -910,7 +911,7 @@ public enum UploadItemState: String, Codable, CaseIterable, Sendable {
         switch self {
         case .uploaded, .failed, .terminalDeleted:
             return true
-        case .queued, .uploading, .retrying, .degraded, .blocked:
+        case .saving, .queued, .uploading, .retrying, .degraded, .blocked:
             return false
         }
     }
@@ -919,13 +920,15 @@ public enum UploadItemState: String, Codable, CaseIterable, Sendable {
         switch self {
         case .queued, .retrying, .degraded:
             return true
-        case .uploading, .uploaded, .failed, .blocked, .terminalDeleted:
+        case .saving, .uploading, .uploaded, .failed, .blocked, .terminalDeleted:
             return false
         }
     }
 
     public var displayName: String {
         switch self {
+        case .saving:
+            return "Сохраняется"
         case .queued:
             return "Ожидает загрузки"
         case .uploading:
@@ -947,20 +950,22 @@ public enum UploadItemState: String, Codable, CaseIterable, Sendable {
 
     public var sortPriority: Int {
         switch self {
-        case .uploading:
+        case .saving:
             return 0
-        case .retrying:
+        case .uploading:
             return 1
-        case .blocked, .degraded:
+        case .retrying:
             return 2
-        case .queued:
+        case .blocked, .degraded:
             return 3
-        case .failed:
+        case .queued:
             return 4
-        case .uploaded:
+        case .failed:
             return 5
-        case .terminalDeleted:
+        case .uploaded:
             return 6
+        case .terminalDeleted:
+            return 7
         }
     }
 }

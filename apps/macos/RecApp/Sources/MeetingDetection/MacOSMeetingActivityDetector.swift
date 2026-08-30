@@ -80,8 +80,7 @@ public final class MacOSMeetingActivityDetector: @unchecked Sendable {
         event: MacOSAudioOwnershipEvent,
         registry: MeetingTargetRegistryDocument,
         settings: MeetingDetectionSettings,
-        prerequisites: MeetingDetectionCapturePrerequisites = MeetingDetectionCapturePrerequisites(),
-        assistedAutoStartAuthorized: Bool = false
+        prerequisites: MeetingDetectionCapturePrerequisites = MeetingDetectionCapturePrerequisites()
     ) -> [MacOSMeetingActivityDetectorOutput] {
         guard reconcile(event: event) else { return [] }
         if event.state == .active {
@@ -91,8 +90,7 @@ public final class MacOSMeetingActivityDetector: @unchecked Sendable {
             now: event.observedAt,
             registry: registry,
             settings: settings,
-            prerequisites: prerequisites,
-            assistedAutoStartAuthorized: assistedAutoStartAuthorized
+            prerequisites: prerequisites
         )
     }
 
@@ -112,8 +110,7 @@ public final class MacOSMeetingActivityDetector: @unchecked Sendable {
         now: Date? = nil,
         registry: MeetingTargetRegistryDocument,
         settings: MeetingDetectionSettings,
-        prerequisites: MeetingDetectionCapturePrerequisites = MeetingDetectionCapturePrerequisites(),
-        assistedAutoStartAuthorized: Bool = false
+        prerequisites: MeetingDetectionCapturePrerequisites = MeetingDetectionCapturePrerequisites()
     ) -> [MacOSMeetingActivityDetectorOutput] {
         let value = now ?? clock()
         var outputs: [MacOSMeetingActivityDetectorOutput] = []
@@ -144,8 +141,7 @@ public final class MacOSMeetingActivityDetector: @unchecked Sendable {
                 activeUntil: value,
                 registry: registry,
                 settings: settings,
-                prerequisites: prerequisites,
-                assistedAutoStartAuthorized: assistedAutoStartAuthorized
+                prerequisites: prerequisites
             )
             guard let output else { continue }
             if case .suppressed(_, let reason) = output {
@@ -205,8 +201,7 @@ public final class MacOSMeetingActivityDetector: @unchecked Sendable {
         activeUntil: Date,
         registry: MeetingTargetRegistryDocument,
         settings: MeetingDetectionSettings,
-        prerequisites: MeetingDetectionCapturePrerequisites,
-        assistedAutoStartAuthorized: Bool
+        prerequisites: MeetingDetectionCapturePrerequisites
     ) -> MacOSMeetingActivityDetectorOutput? {
         let event = tracked.latestEvent
         let observation = MeetingDetectionAppObservation(
@@ -222,9 +217,7 @@ public final class MacOSMeetingActivityDetector: @unchecked Sendable {
         )
         switch policy.action(
             for: decision,
-            settings: settings.policySnapshot(
-                assistedAutoStartAuthorized: assistedAutoStartAuthorized
-            ),
+            settings: settings.policySnapshot(),
             prerequisites: prerequisites
         ) {
         case .prompt(let targetID):
@@ -309,13 +302,9 @@ private struct TrackedAudioOwnership: Sendable {
 }
 
 public extension MeetingDetectionSettings {
-    func policySnapshot(assistedAutoStartAuthorized: Bool = false) -> MeetingDetectionSettingsSnapshot {
+    func policySnapshot() -> MeetingDetectionSettingsSnapshot {
         MeetingDetectionSettingsSnapshot(
-            detectionMode: detectionMode,
-            targetScopedAutoRecordEnabled: targetScopedAutoRecordEnabled,
-            autoRecordTargetIds: autoRecordTargetIds,
-            automaticRecordingRules: automaticRecordingRules,
-            assistedAutoStartAuthorized: assistedAutoStartAuthorized
+            automaticRecordingRules: automaticRecordingRules
         )
     }
 }

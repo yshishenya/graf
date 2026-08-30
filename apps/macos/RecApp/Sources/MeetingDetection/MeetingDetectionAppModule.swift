@@ -4,6 +4,14 @@ import TwoBrainRecShared
 public enum MeetingDetectionAppModule {
     public static let applicationSupportDirectoryName = "MeetingDetection"
 
+    public static var bundledTargetRegistryURL: URL? {
+        Bundle.module.url(
+            forResource: "meeting-target-registry-baseline",
+            withExtension: "json",
+            subdirectory: "Resources"
+        )
+    }
+
     public static func applicationSupportDirectory(
         fileManager: FileManager = .default,
         applicationSupportURL: URL? = nil,

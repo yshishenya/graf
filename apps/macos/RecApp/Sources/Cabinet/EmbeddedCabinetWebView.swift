@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import SwiftUI
+import TwoBrainRecShared
 
 public enum EmbeddedCabinetBackNavigationDecision: Equatable, Sendable {
     case history
@@ -867,6 +868,101 @@ public enum EmbeddedCabinetQuitBridge {
     }
 }
 
+public struct EmbeddedCabinetLocalRecordingRow: Codable, Equatable, Sendable {
+    public let id: String
+    public let meetingId: String?
+    public let title: String
+    public let startedAt: Date
+    public let durationSeconds: Int
+    public let status: String
+    public let progressPercent: Int?
+    public let canSend: Bool
+    public let canDelete: Bool
+
+    public static func rows(for items: [DesktopUploadQueueItem]) -> [Self] {
+        items.compactMap { item in
+            guard item.state != .terminalDeleted else { return nil }
+            let damaged = item.failureReason == "recording_recovery_not_possible"
+            let status: String = if damaged {
+                "Запись повреждена"
+            } else if item.state == .uploading,
+                      let percent = DesktopMeetingShellLocalQueuePolicy.progressPercent(for: item) {
+                "Отправляется · \(percent)%"
+            } else {
+                switch item.state {
+                case .saving: "Сохраняется"
+                case .queued: "Ожидает отправки"
+                case .uploading: "Отправляется"
+                case .retrying: "Ожидает повторной отправки"
+                case .uploaded: "Отправлено"
+                case .degraded, .blocked, .failed: "Не удалось отправить"
+                case .terminalDeleted: "Удалено"
+                }
+            }
+            return Self(
+                id: item.id,
+                meetingId: item.meetingId ?? item.serverTruth.meetingId,
+                title: item.recordingMetadata?.title ?? "Запись",
+                startedAt: item.recordingMetadata?.recordingStartedAt ?? item.createdAt,
+                durationSeconds: max(1, item.artifactProfile.durationSeconds),
+                status: status,
+                progressPercent: DesktopMeetingShellLocalQueuePolicy.progressPercent(for: item),
+                canSend: !damaged
+                    && item.artifactProfile.isUploadable
+                    && ![.saving, .uploading, .uploaded].contains(item.state),
+                canDelete: damaged
+            )
+        }
+    }
+}
+
+public enum EmbeddedCabinetLocalRecordingBridge {
+    public static let messageHandlerName = "grafLocalRecording"
+    public static let sendAction = "send"
+    public static let deleteAction = "delete"
+
+    public static let documentScript = """
+    (() => {
+      if (window.__grafLocalRecordingBridgeBound) return;
+      window.__grafLocalRecordingBridgeBound = true;
+      document.addEventListener('click', (event) => {
+        const button = event.target instanceof Element
+          ? event.target.closest('[data-graf-local-recording-action]')
+          : null;
+        if (!button) return;
+        const action = button.dataset.grafLocalRecordingAction;
+        const id = button.dataset.grafLocalRecordingId;
+        if (!action || !id) return;
+        if (action === 'delete' && !window.confirm('Удалить локальную запись с этого Mac?')) return;
+        window.webkit.messageHandlers.grafLocalRecording.postMessage({action, id});
+      });
+    })();
+    """
+
+    public static func rowsScript(_ rows: [EmbeddedCabinetLocalRecordingRow]) -> String {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        guard let data = try? encoder.encode(rows) else { return "" }
+        return "window.GRAFLocalRecordings?.update(JSON.parse(atob('\(data.base64EncodedString())')));"
+    }
+
+    public static func allowedAction(
+        from body: Any,
+        rows: [EmbeddedCabinetLocalRecordingRow]
+    ) -> (action: String, id: String)? {
+        guard let object = body as? [String: Any],
+              let action = object["action"] as? String,
+              let id = object["id"] as? String,
+              [sendAction, deleteAction].contains(action),
+              let row = rows.first(where: { $0.id == id }),
+              action == sendAction ? row.canSend : row.canDelete
+        else {
+            return nil
+        }
+        return (action, id)
+    }
+}
+
 @MainActor
 public final class EmbeddedCabinetSupportIncidentBridge: DesktopSupportIncidentSubmitting {
     public static let intakePath = "/api/v1/desktop/support-incidents"
@@ -1060,6 +1156,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
     public typealias NavigationEventLogger = @MainActor @Sendable (_ event: String, _ detail: String) -> Void
     public typealias CheckForUpdatesAction = @MainActor @Sendable () -> Void
     public typealias OpenMeetingDetectionSettingsAction = @MainActor @Sendable () -> Void
+    public typealias LocalRecordingAction = @MainActor @Sendable (_ action: String, _ id: String) -> Void
 
     private let request: URLRequest
     private let routePolicy: DesktopCabinetRoutePolicy
@@ -1069,6 +1166,8 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
     private let onCheckForUpdates: CheckForUpdatesAction
     private let onOpenMeetingDetectionSettings: OpenMeetingDetectionSettingsAction
     private let supportIncidentBridge: EmbeddedCabinetSupportIncidentBridge?
+    private let localRecordingRows: [EmbeddedCabinetLocalRecordingRow]
+    private let onLocalRecordingAction: LocalRecordingAction
     private let fallbackRequest: URLRequest
     private let navigationController: EmbeddedCabinetNavigationController
     @Binding private var cabinetState: DesktopCabinetState
@@ -1085,6 +1184,8 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         onCheckForUpdates: @escaping CheckForUpdatesAction = {},
         onOpenMeetingDetectionSettings: @escaping OpenMeetingDetectionSettingsAction = {},
         supportIncidentBridge: EmbeddedCabinetSupportIncidentBridge? = nil,
+        localRecordingRows: [EmbeddedCabinetLocalRecordingRow] = [],
+        onLocalRecordingAction: @escaping LocalRecordingAction = { _, _ in },
         fallbackRequest: URLRequest,
         navigationController: EmbeddedCabinetNavigationController
     ) {
@@ -1096,6 +1197,8 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         self.onCheckForUpdates = onCheckForUpdates
         self.onOpenMeetingDetectionSettings = onOpenMeetingDetectionSettings
         self.supportIncidentBridge = supportIncidentBridge
+        self.localRecordingRows = localRecordingRows
+        self.onLocalRecordingAction = onLocalRecordingAction
         self.fallbackRequest = fallbackRequest
         self.navigationController = navigationController
         _cabinetState = cabinetState
@@ -1271,6 +1374,13 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 forMainFrameOnly: true
             )
         )
+        configuration.userContentController.addUserScript(
+            WKUserScript(
+                source: EmbeddedCabinetLocalRecordingBridge.documentScript,
+                injectionTime: .atDocumentEnd,
+                forMainFrameOnly: true
+            )
+        )
         configuration.userContentController.add(
             context.coordinator,
             name: EmbeddedCabinetUpdateBridge.messageHandlerName
@@ -1278,6 +1388,10 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         configuration.userContentController.add(
             context.coordinator,
             name: EmbeddedCabinetQuitBridge.messageHandlerName
+        )
+        configuration.userContentController.add(
+            context.coordinator,
+            name: EmbeddedCabinetLocalRecordingBridge.messageHandlerName
         )
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.wantsLayer = true
@@ -1298,7 +1412,9 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         )
         context.coordinator.update(
             showsAppUpdateBadge: showsAppUpdateBadge,
-            onCheckForUpdates: onCheckForUpdates
+            onCheckForUpdates: onCheckForUpdates,
+            localRecordingRows: localRecordingRows,
+            onLocalRecordingAction: onLocalRecordingAction
         )
         let container = WebViewContainer(webView: webView)
         container.lastLoadedRequestIdentity = Self.loadIdentity(for: request)
@@ -1316,7 +1432,9 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         guard let container = container as? WebViewContainer else { return }
         context.coordinator.update(
             showsAppUpdateBadge: showsAppUpdateBadge,
-            onCheckForUpdates: onCheckForUpdates
+            onCheckForUpdates: onCheckForUpdates,
+            localRecordingRows: localRecordingRows,
+            onLocalRecordingAction: onLocalRecordingAction
         )
         supportIncidentBridge?.attach(webView: container.webView, routePolicy: routePolicy)
         navigationController.updateConfiguration(
@@ -1327,6 +1445,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         )
         EmbeddedCabinetZoomBridge.apply(workspaceZoom, to: container.webView)
         context.coordinator.applyUpdateVisibility(to: container.webView)
+        context.coordinator.applyLocalRecordingRows(to: container.webView)
         guard Self.shouldLoad(
             request: request,
             lastLoadedRequestIdentity: container.lastLoadedRequestIdentity,
@@ -1370,6 +1489,9 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         container.webView.configuration.userContentController.removeScriptMessageHandler(
             forName: EmbeddedCabinetQuitBridge.messageHandlerName
         )
+        container.webView.configuration.userContentController.removeScriptMessageHandler(
+            forName: EmbeddedCabinetLocalRecordingBridge.messageHandlerName
+        )
     }
 
     public final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, WKDownloadDelegate {
@@ -1384,6 +1506,8 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         private let onOpenMeetingDetectionSettings: OpenMeetingDetectionSettingsAction
         private let supportIncidentBridge: EmbeddedCabinetSupportIncidentBridge?
         private let navigationController: EmbeddedCabinetNavigationController
+        private var localRecordingRows: [EmbeddedCabinetLocalRecordingRow] = []
+        private var onLocalRecordingAction: LocalRecordingAction = { _, _ in }
         private weak var downloadHostWindow: NSWindow?
         private var isActive = true
         @Binding private var cabinetState: DesktopCabinetState
@@ -1420,10 +1544,14 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         @MainActor
         public func update(
             showsAppUpdateBadge: Bool,
-            onCheckForUpdates: @escaping CheckForUpdatesAction
+            onCheckForUpdates: @escaping CheckForUpdatesAction,
+            localRecordingRows: [EmbeddedCabinetLocalRecordingRow],
+            onLocalRecordingAction: @escaping LocalRecordingAction
         ) {
             self.showsAppUpdateBadge = showsAppUpdateBadge
             self.onCheckForUpdates = onCheckForUpdates
+            self.localRecordingRows = localRecordingRows
+            self.onLocalRecordingAction = onLocalRecordingAction
         }
 
         @MainActor
@@ -1435,6 +1563,14 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         public func applyUpdateVisibility(to webView: WKWebView) {
             webView.evaluateJavaScript(
                 EmbeddedCabinetUpdateBridge.visibilityScript(showsBadge: showsAppUpdateBadge),
+                completionHandler: nil
+            )
+        }
+
+        @MainActor
+        public func applyLocalRecordingRows(to webView: WKWebView) {
+            webView.evaluateJavaScript(
+                EmbeddedCabinetLocalRecordingBridge.rowsScript(localRecordingRows),
                 completionHandler: nil
             )
         }
@@ -1455,6 +1591,21 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             _: WKUserContentController,
             didReceive message: WKScriptMessage
         ) {
+            if message.name == EmbeddedCabinetLocalRecordingBridge.messageHandlerName {
+                guard isActive,
+                      message.frameInfo.isMainFrame,
+                      let sourceURL = message.frameInfo.request.url,
+                      routePolicy.decision(for: sourceURL).route.kind == .meetingList,
+                      let action = EmbeddedCabinetLocalRecordingBridge.allowedAction(
+                        from: message.body,
+                        rows: localRecordingRows
+                      )
+                else {
+                    return
+                }
+                onLocalRecordingAction(action.action, action.id)
+                return
+            }
             if message.name == EmbeddedCabinetQuitBridge.messageHandlerName {
                 guard
                     isActive,
@@ -1814,6 +1965,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             }
             cabinetState = finishedState
             applyUpdateVisibility(to: webView)
+            applyLocalRecordingRows(to: webView)
             logNavigationEvent(
                 "cabinet_navigation_finished",
                 detail: "state=\(finishedState.rawValue) \(urlLogDetail(url))"

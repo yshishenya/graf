@@ -6,6 +6,42 @@ import TwoBrainRecShared
 import XCTest
 
 final class CanonicalRecordingManifestTests: XCTestCase {
+    func testActiveManifestIsDurableBeforeFramesAndFinalWriteReplacesItAtomically() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("active-manifest-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let url = root.appendingPathComponent("manifest.json")
+        let service = LocalRecordingManifestService(clock: { Date(timeIntervalSince1970: 30) })
+        let active = service.activeV5Manifest(
+            sessionId: "active-session",
+            directoryId: "active-directory",
+            startedAt: Date(timeIntervalSince1970: 10),
+            scopeApproval: acceptedScopeApproval(),
+            permissions: grantedPermissions()
+        )
+
+        try service.write(active, to: url)
+        XCTAssertEqual(try service.read(from: url).status, .active)
+        XCTAssertEqual(active.tracks.map(\.status), [.recording, .recording])
+
+        let final = service.v5Manifest(
+            sessionId: active.sessionId,
+            directoryId: active.directoryId,
+            startedAt: active.startedAt,
+            stoppedAt: Date(timeIntervalSince1970: 20),
+            tracks: canonicalTracks(),
+            scopeApproval: acceptedScopeApproval(),
+            permissions: grantedPermissions(),
+            echoProcessor: .webrtcAEC3,
+            echoProcessingHealth: completedEchoHealth()
+        )
+        try service.write(final, to: url)
+
+        XCTAssertEqual(try service.read(from: url).status, .saved)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: root.path), ["manifest.json"])
+    }
+
     func testV5FactoryCreatesExactlyOneASRWaveAndOnePlaybackM4A() {
         let manifest = LocalRecordingManifestService(clock: { Date(timeIntervalSince1970: 30) })
             .v5Manifest(

@@ -1,10 +1,28 @@
 import Foundation
+import TwoBrainRecAppCore
 import TwoBrainRecShared
 
 #if canImport(XCTest)
 import XCTest
 
 final class MeetingTargetRegistryTests: XCTestCase {
+    func testPackagedBaselineRegistryIsBundledAndValid() throws {
+        let url = try XCTUnwrap(MeetingDetectionAppModule.bundledTargetRegistryURL)
+        let document = try MeetingDetectionCoding.decoder().decode(
+            MeetingTargetRegistryDocument.self,
+            from: Data(contentsOf: url)
+        )
+
+        XCTAssertNoThrow(
+            try MeetingTargetRegistryValidator.validate(
+                document,
+                now: Date(timeIntervalSince1970: 4_000_000_000)
+            )
+        )
+        XCTAssertNil(document.expiresAt)
+        XCTAssertFalse(document.targets.filter(\.isVerifiedNativePromptTarget).isEmpty)
+    }
+
     func testVerifiedNativePromptTargetSelectionExcludesNonNativeAndUnverifiedTargets() {
         let verified = Self.promptTarget()
         let browser = MeetingTargetRegistryTarget(
@@ -52,49 +70,18 @@ final class MeetingTargetRegistryTests: XCTestCase {
         XCTAssertFalse(missingBundle.isVerifiedNativePromptTarget)
     }
 
-    func testAssistedAutoStartPolicyRequiresSafeOpaqueReferences() throws {
-        let now = Date(timeIntervalSince1970: 1_800_000_000)
-        let policy = AssistedAutoStartPolicySnapshot(
-            policyRef: "sha256:" + String(repeating: "a", count: 64),
-            acknowledgementSubjectRef: "sha256:" + String(repeating: "b", count: 64),
-            deviceRef: "sha256:" + String(repeating: "c", count: 64),
-            policyVersion: "2026.08.12.1",
-            acknowledgementVersion: "2026.08.12.1",
-            issuedAt: now,
-            expiresAt: now.addingTimeInterval(3_600)
+    func testLegacyAssistedAutoStartFieldIsIgnoredRegardlessOfItsShape() throws {
+        var object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Self.seedRegistryData()) as? [String: Any]
         )
-        let document = MeetingTargetRegistryDocument(
-            registryVersion: "2026.08.12.1",
-            generatedAt: now,
-            targets: [Self.promptTarget()],
-            assistedAutoStartPolicy: policy
+        object["assistedAutoStartPolicy"] = ["obsolete": true]
+        let document = try MeetingDetectionCoding.decoder().decode(
+            MeetingTargetRegistryDocument.self,
+            from: JSONSerialization.data(withJSONObject: object)
         )
 
-        XCTAssertNoThrow(try MeetingTargetRegistryValidator.validate(document, now: now))
-        XCTAssertTrue(policy.isActive(at: now))
-        XCTAssertFalse(policy.isActive(at: now.addingTimeInterval(3_601)))
-    }
-
-    func testAssistedAutoStartPolicyRejectsRawOrMalformedReference() {
-        let now = Date(timeIntervalSince1970: 1_800_000_000)
-        let document = MeetingTargetRegistryDocument(
-            registryVersion: "2026.08.12.1",
-            generatedAt: now,
-            targets: [Self.promptTarget()],
-            assistedAutoStartPolicy: AssistedAutoStartPolicySnapshot(
-                policyRef: "raw-workspace-id",
-                acknowledgementSubjectRef: "raw-user-id",
-                deviceRef: "raw-device-id",
-                policyVersion: "2026.08.12.1",
-                acknowledgementVersion: "2026.08.12.1",
-                issuedAt: now,
-                expiresAt: now.addingTimeInterval(3_600)
-            )
-        )
-
-        XCTAssertThrowsError(try MeetingTargetRegistryValidator.validate(document, now: now)) {
-            XCTAssertEqual($0 as? MeetingTargetRegistryError, .invalidAssistedAutoStartPolicy)
-        }
+        XCTAssertNoThrow(try MeetingTargetRegistryValidator.validate(document))
+        XCTAssertEqual(document.target(forBundleID: "us.zoom.xos")?.id, "zoom")
     }
     func testNoRemoteOrCacheFailsClosedWithoutPackagedSeed() throws {
         let root = temporaryRoot()
@@ -138,6 +125,38 @@ final class MeetingTargetRegistryTests: XCTestCase {
         XCTAssertEqual(resolution.source, .remoteCache)
         XCTAssertEqual(resolution.document.registryVersion, "2026.07.09.1")
         XCTAssertEqual(resolution.etag, "etag-cache")
+    }
+
+    func testNoRemoteOrCacheFallsBackToBundledRegistry() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = MeetingTargetRegistryStore(
+            cacheURL: root.appendingPathComponent("cache.json"),
+            bundledRegistryURL: try XCTUnwrap(MeetingDetectionAppModule.bundledTargetRegistryURL),
+            clock: { Date(timeIntervalSince1970: 4_000_000_000) }
+        )
+
+        let resolution = try store.resolve()
+
+        XCTAssertEqual(resolution.source, .bundled)
+        XCTAssertFalse(resolution.document.targets.filter(\.isVerifiedNativePromptTarget).isEmpty)
+    }
+
+    func testValidRemoteStillWinsWhenBundledRegistryExists() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = MeetingTargetRegistryStore(
+            cacheURL: root.appendingPathComponent("cache.json"),
+            bundledRegistryURL: try XCTUnwrap(MeetingDetectionAppModule.bundledTargetRegistryURL)
+        )
+
+        let resolution = try store.resolve(
+            remoteData: Self.seedRegistryData(registryVersion: "2026.08.31.1"),
+            remoteETag: "etag-remote"
+        )
+
+        XCTAssertEqual(resolution.source, .remote)
+        XCTAssertEqual(resolution.document.registryVersion, "2026.08.31.1")
     }
 
     func testUnsafePromptEnabledTargetFailsClosed() throws {

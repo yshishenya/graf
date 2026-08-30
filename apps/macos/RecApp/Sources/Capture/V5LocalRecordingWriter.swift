@@ -214,6 +214,20 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             let timeline = RecordingAudioTimeline(echoProcessor: echoProcessor) { [canonicalWriter] chunk in
                 try canonicalWriter.append(chunk)
             }
+            try manifestService.write(
+                manifestService.activeV5Manifest(
+                    sessionId: sessionId,
+                    directoryId: directory.directoryId,
+                    startedAt: startedAt,
+                    scopeApproval: scopeApproval,
+                    permissions: permissions,
+                    microphoneSelection: microphoneSelection,
+                    targetMuteCapability: targetMuteCapability,
+                    meetingMuteTruthEvidence: meetingMuteTruthEvidence,
+                    limitationCopyShownAt: limitationCopyShownAt
+                ),
+                to: directory.manifestURL
+            )
             let timer = DispatchSource.makeTimerSource(queue: queue)
             let active = V5ActiveRecording(
                 sessionId: sessionId,
@@ -744,7 +758,7 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         return min(1, sqrt(meanSquare))
     }
 
-    private static func sha256(of url: URL) throws -> String {
+    static func sha256(of url: URL) throws -> String {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
         var hasher = SHA256()

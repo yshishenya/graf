@@ -1,7 +1,11 @@
 <!--
 Sync Impact Report
-Version change: 4.2.0 -> 5.0.0
+Version change: 5.0.0 -> 6.0.0
 Modified principles:
+- Visible Consent And User Control: per-application automatic-recording choice
+  is now a local three-state client preference (`Всегда`, `Спрашивать`,
+  `Никогда`) with `Спрашивать` as the installation default; the server no
+  longer authorizes, acknowledges, stores, or controls that preference.
 - External AI Boundaries And Prompt Control: exactly one logical Generation
   Call remains authoritative, while Langfuse delivery is explicitly at-least-
   observable rather than falsely claimed exactly-once; ambiguous OTLP delivery
@@ -10,6 +14,10 @@ Modified principles:
   replaces the former brand-distance gate and remains subject to accessibility,
   privacy, security, validation and release evidence.
 Added sections:
+- Automatic-recording preference ownership: prompt remembrance, eight-second
+  expiry, bulk application and staged removal of the obsolete server contract
+  are defined without weakening visible capture, Stop, consent or storage
+  gates.
 - Reference-Fidelity Product Design: the product owner explicitly authorizes
   faithful, including literal, reproduction of observable Krisp UX/UI/IA,
   including screen composition, navigation, interaction states, control
@@ -21,6 +29,12 @@ Added sections:
 Removed sections:
 - Original-design and first-glance brand-distance requirements.
 Templates requiring updates:
+- ✅ reviewed `.specify/templates`; no server-owned automatic-recording
+  preference is embedded.
+- ✅ updated `docs/agent-guidance/product-gates.md` and
+  `docs/prd-voice-layer-final.md` for the local three-state contract.
+- ✅ recorded Feature 214 planning in `docs/current-product-status.md` and
+  `CHANGELOG.md`; historical release evidence remains unchanged.
 - ✅ reviewed `.specify/templates`; no brand-distance requirement is embedded.
 - ✅ updated `AGENTS.md`, `docs/agent-guidance/README.md`,
   `docs/agent-guidance/product-gates.md` and
@@ -31,6 +45,9 @@ Templates requiring updates:
 - ✅ recorded the amendment in `docs/current-product-status.md` and
   `CHANGELOG.md` without rewriting historical release evidence.
 Follow-up items:
+- Feature 214 must ship a client that ignores the obsolete server assisted
+  auto-start preference before that server field, configuration and tests are
+  removed, so older installed clients are not broken mid-rollout.
 - Before public release, verify the right to use each third-party asset, font,
   icon, logo and trademark; substitute independently created or licensed assets
   where that right is absent. Functional UI labels and interaction microcopy
@@ -77,33 +94,41 @@ make active capture invisible. Manual start/stop MUST remain available whenever
 workspace policy permits recording.
 
 The approved target-scoped automatic-recording flow is a required product
-capability, not removable legacy. Settings MUST expose the meeting-detection
-control and a complete allowlist of verified native meeting applications. Each
-application MUST have an explicit, reversible auto-record permission. A user
-MUST be able to choose "always record this application" from the meeting
-prompt, and that choice MUST persist in the target-scoped settings.
+capability, not removable legacy. Settings MUST expose the complete allowlist
+of verified native meeting applications. Each application MUST have exactly
+one explicit, reversible local preference: `Всегда`, `Спрашивать` or `Никогда`.
+The installation default MUST be `Спрашивать`. A bulk control MAY apply one of
+these values to all currently known applications, but MUST NOT create a fourth
+global state or authorize arbitrary system audio.
 
-For a detected approved target without saved auto-record permission, the
-product MUST show a visible prompt with the designed countdown timer and
-automatic start at its expiry, while retaining an immediate manual start,
-dismissal, and one-action Stop. Saved auto-record permission MAY start capture
-without asking again, but the local visible indicator, one-action Stop, and all
-capture prerequisites remain mandatory. Automatic recording MUST be limited to
-approved meeting targets or explicit user-selected capture scopes and MUST NOT
-start from arbitrary system audio, media playback, notifications, music,
-videos, or non-approved apps.
+For `Спрашивать`, the product MUST show a visible prompt with the designed
+eight-second countdown and start the current recording when the countdown
+expires. An explicit start begins immediately; an explicit refusal suppresses
+the current recording. `Запомнить выбор` MUST change the local application
+preference only after an explicit action: start maps to `Всегда`, refusal maps
+to `Никогда`, and no checked remembrance leaves the setting unchanged.
+`Всегда` MAY start without a prompt and `Никогда` MUST neither start nor show a
+prompt. Every setting change MUST be visible and reversible in settings.
 
-Assisted auto-start is allowed only as a policy-gated, user-acknowledged,
-visible, auditable feature. The countdown and automatic-start path MUST remain
-gated by meeting confidence, target permission, microphone/system-audio
-authorization, storage readiness, suppression state, and the current capture
-policy. A cleanup, refactor, or UX simplification MUST NOT remove the timer,
-auto-start, opt-in checkbox, or application allowlist. Removing or narrowing
-this contract requires a new approved Spec Kit feature, compatibility and
-migration notes, updated tests, and an explicit product-owner decision.
+The per-application preference and prompt remembrance MUST be owned entirely by
+the desktop client. The server MUST NOT authorize, acknowledge, store, or be
+required to read or update these three states. Server connectivity and the
+obsolete assisted-auto-start policy/acknowledgement MUST NOT be prerequisites
+for a locally allowed start. Automatic start MUST still pass current meeting
+confidence, approved-target, microphone/system-audio authorization, local
+storage, suppression, general workspace recording/consent, visible indicator,
+and one-action Stop gates. A cleanup, refactor, or UX simplification MUST NOT
+remove the timer, three-state application choice, remembrance control, or
+application allowlist. Removing or narrowing this contract requires a new
+approved Spec Kit feature, compatibility and migration notes, updated tests,
+and an explicit product-owner decision.
+
+Automatic recording MUST be limited to approved meeting targets or explicit
+user-selected capture scopes and MUST NOT start from arbitrary system audio,
+media playback, notifications, music, videos, or non-approved apps.
 Internal-team MVP may operate without participant-facing notice, but
 external/customer workspaces MUST select a notice/legal policy before
-recording, transcript-only capture, or assisted auto-start can be enabled.
+recording, transcript-only capture, or automatic start can be enabled.
 
 Rationale: botless capture is powerful and sensitive. Trust depends on visible
 state, immediate control, clear policy, and no surprise recording.
@@ -445,4 +470,4 @@ Amendment procedure:
 - Every implementation review MUST verify that tasks and code preserve the
   applicable constitution gates.
 
-**Version**: 5.0.0 | **Ratified**: 2026-05-27 | **Last Amended**: 2026-08-23
+**Version**: 6.0.0 | **Ratified**: 2026-05-27 | **Last Amended**: 2026-08-30

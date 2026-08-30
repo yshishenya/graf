@@ -73,9 +73,6 @@ public struct MeetingDetectionPolicy: Sendable {
             guard mode == .promptEnabled else {
                 return .detectOnly(targetID: targetID)
             }
-            guard settings.detectionMode == .detectAndAsk else {
-                return .detectOnly(targetID: targetID)
-            }
             if settings.recordingRule(for: targetID) == .never {
                 return .suppress(reason: "target_policy_never")
             }
@@ -85,10 +82,8 @@ public struct MeetingDetectionPolicy: Sendable {
             switch settings.recordingRule(for: targetID) {
             case .never:
                 return .suppress(reason: "target_policy_never")
-            case .always where settings.assistedAutoStartAuthorized:
-                return .autoRecord(targetID: targetID)
             case .always:
-                return .suppress(reason: "assisted_auto_start_unauthorized")
+                return .autoRecord(targetID: targetID)
             case .ask:
                 return .prompt(targetID: targetID)
             }
@@ -118,33 +113,18 @@ public struct MeetingDetectionPolicy: Sendable {
 }
 
 public struct MeetingDetectionSettingsSnapshot: Equatable, Sendable {
-    public let detectionMode: MeetingDetectionMode
-    public let targetScopedAutoRecordEnabled: Bool
-    public let autoRecordTargetIds: Set<String>
     public let automaticRecordingRules: [String: AutomaticRecordingRule]
-    public let assistedAutoStartAuthorized: Bool
 
     public init(
-        detectionMode: MeetingDetectionMode = .detectAndAsk,
-        targetScopedAutoRecordEnabled: Bool = false,
-        autoRecordTargetIds: Set<String> = [],
-        automaticRecordingRules: [String: AutomaticRecordingRule] = [:],
-        assistedAutoStartAuthorized: Bool = false
+        automaticRecordingRules: [String: AutomaticRecordingRule] = [:]
     ) {
-        self.detectionMode = detectionMode
-        self.targetScopedAutoRecordEnabled = targetScopedAutoRecordEnabled
-        self.autoRecordTargetIds = autoRecordTargetIds
         self.automaticRecordingRules = automaticRecordingRules
-        self.assistedAutoStartAuthorized = assistedAutoStartAuthorized
     }
 
     public func recordingRule(for targetID: String) -> AutomaticRecordingRule {
         if let rule = automaticRecordingRules[targetID] {
             return rule
         }
-        guard automaticRecordingRules.isEmpty else { return .ask }
-        return targetScopedAutoRecordEnabled && autoRecordTargetIds.contains(targetID)
-            ? .always
-            : .ask
+        return .ask
     }
 }

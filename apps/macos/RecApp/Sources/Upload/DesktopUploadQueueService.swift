@@ -262,6 +262,43 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
     }
 
     @discardableResult
+    public func enqueueSaving(
+        manifest: LocalRecordingManifest,
+        directoryURL: URL,
+        calendarContextEventId: String? = nil,
+        calendarMatchAttemptId: String? = nil
+    ) throws -> DesktopUploadQueueItem {
+        try queue.sync {
+            var document = try loadDocumentOnQueue()
+            let now = clock()
+            var item = try makeItem(
+                manifest: manifest,
+                directoryURL: directoryURL,
+                now: now,
+                reason: "local_recording_saving",
+                calendarContextEventId: calendarContextEventId,
+                calendarMatchAttemptId: calendarMatchAttemptId
+            )
+            item.state = .saving
+            item.failureCategory = .none
+            item.failureReason = nil
+            item.retryMode = .manualOnly
+            item.nextRetryAt = nil
+            if let index = document.items.firstIndex(where: { $0.id == item.id }) {
+                guard !document.items[index].state.isTerminal else { return document.items[index] }
+                document.items[index] = Self.preservingQueueState(from: document.items[index], over: item)
+                item = document.items[index]
+            } else {
+                document.items.append(item)
+            }
+            document.items = document.items.sortedForDisplay()
+            document.updatedAt = now
+            try saveDocumentOnQueue(document)
+            return item
+        }
+    }
+
+    @discardableResult
     public func persistCalendarMatchAttempt(
         localRecordingId: String,
         attemptId: String
@@ -338,6 +375,44 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                     policyReference: "local_buffer.retention_days.\(self.policy.retentionDays)"
                 )
             )
+        }
+    }
+
+    @discardableResult
+    public func deleteLocalCopy(itemId: String) throws -> DesktopUploadQueueItem {
+        try queue.sync {
+            var document = try loadDocumentOnQueue()
+            guard let index = document.items.firstIndex(where: { $0.id == itemId }) else {
+                throw DesktopUploadQueueServiceError.packageNotFound(itemId)
+            }
+            let item = document.items[index]
+            guard isInsideRecordingsRoot(item.directoryPath) else {
+                throw DesktopUploadQueueServiceError.localArtifactOutsideRecordingsRoot(item.directoryPath)
+            }
+            if FileManager.default.fileExists(atPath: item.directoryPath) {
+                try FileManager.default.removeItem(atPath: item.directoryPath)
+            }
+            let now = clock()
+            let deleted = item.withTransition(
+                to: .terminalDeleted,
+                now: now,
+                failureCategory: UploadFailureCategory.none,
+                failureReason: nil,
+                retryMode: .terminal,
+                nextRetryAt: nil,
+                retentionDecision: RetentionDecision(
+                    decision: .terminalDeleted,
+                    decidedAt: now,
+                    reason: "local_copy_deleted_by_user",
+                    localArtifactsRetained: false,
+                    policyReference: "local_buffer.user_delete"
+                )
+            )
+            document.items[index] = deleted
+            document.items = document.items.sortedForDisplay()
+            document.updatedAt = now
+            try saveDocumentOnQueue(document)
+            return deleted
         }
     }
 

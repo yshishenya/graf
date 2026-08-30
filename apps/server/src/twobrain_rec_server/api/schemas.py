@@ -461,34 +461,6 @@ class MeetingTargetNonTargetRule(BaseModel):
     reason_code: Annotated[SafeClientText, Field(alias="reasonCode", min_length=2, max_length=120)]
 
 
-class AssistedAutoStartPolicy(BaseModel):
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
-
-    scope: Literal["workspace", "all_workspaces"] = "workspace"
-    policy_ref: str = Field(alias="policyRef", pattern=r"^sha256:[0-9a-f]{64}$")
-    acknowledgement_subject_ref: str = Field(
-        alias="acknowledgementSubjectRef",
-        pattern=r"^sha256:[0-9a-f]{64}$",
-    )
-    device_ref: str = Field(alias="deviceRef", pattern=r"^sha256:[0-9a-f]{64}$")
-    policy_version: str = Field(
-        alias="policyVersion",
-        min_length=1,
-        max_length=64,
-        pattern=r"^[A-Za-z0-9._-]+$",
-    )
-    acknowledgement_version: str = Field(
-        alias="acknowledgementVersion",
-        min_length=1,
-        max_length=64,
-        pattern=r"^[A-Za-z0-9._-]+$",
-    )
-    enabled: Literal[True]
-    issued_at: datetime = Field(alias="issuedAt")
-    expires_at: datetime = Field(alias="expiresAt")
-    notice_mode: Literal["internal_no_participant_notice"] = Field(alias="noticeMode")
-
-
 class MeetingTargetRegistryDocument(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
@@ -503,13 +475,6 @@ class MeetingTargetRegistryDocument(BaseModel):
         default_factory=list,
         alias="nonTargetRules",
     )
-    assisted_auto_start_policy: AssistedAutoStartPolicy | None = Field(
-        default=None,
-        alias="assistedAutoStartPolicy",
-        exclude_if=lambda value: value is None,
-    )
-
-
 class MeetingDetectionRegistryResponse(MeetingTargetRegistryDocument):
     etag: Annotated[SafeClientText, Field(max_length=160)] | None = None
 

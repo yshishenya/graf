@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import hashlib
-from datetime import UTC, datetime
-
 from fastapi import APIRouter, Depends, Header, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -124,7 +121,6 @@ async def create_meeting_detection_telemetry(
     responses={304: {"description": "Client registry cache is current"}},
 )
 async def get_meeting_detection_target_registry(
-    request: Request,
     response: Response,
     if_none_match: str | None = Header(default=None, alias="If-None-Match"),
     tenant_scope: TenantScope = TenantDependency,
@@ -156,12 +152,6 @@ async def get_meeting_detection_target_registry(
         ) from exc
     await commit_if_available(db)
     document = dict(registry.document)
-    policy = _assisted_auto_start_policy(
-        settings=request.app.state.settings,
-        tenant_scope=tenant_scope,
-    )
-    if policy is not None:
-        document["assistedAutoStartPolicy"] = policy
     etag = registry_etag(document)
     headers = _registry_response_headers(
         etag=etag,
@@ -186,67 +176,3 @@ def _etag_matches(if_none_match: str | None, current_etag: str) -> bool:
         return False
     candidates = {value.strip().strip('"') for value in if_none_match.split(",")}
     return current_etag in candidates or "*" in candidates
-
-
-def _assisted_auto_start_policy(
-    *,
-    settings,
-    tenant_scope: TenantScope,
-    now: datetime | None = None,
-) -> dict[str, object] | None:
-    current_time = now or datetime.now(UTC)
-    issued_at = settings.assisted_auto_start_policy_issued_at
-    expires_at = settings.assisted_auto_start_policy_expires_at
-    is_global = settings.assisted_auto_start_all_workspaces
-    if (
-        not settings.assisted_auto_start_enabled
-        or (
-            not is_global
-            and settings.assisted_auto_start_workspace_id != tenant_scope.workspace_id
-        )
-        or (is_global and not settings.assisted_auto_start_all_workspaces_approved)
-        or (is_global and settings.assisted_auto_start_workspace_id is not None)
-        or issued_at is None
-        or expires_at is None
-        or issued_at > current_time
-        or expires_at <= current_time
-    ):
-        return None
-    policy_version = settings.assisted_auto_start_policy_version
-    acknowledgement_version = settings.assisted_auto_start_acknowledgement_version
-    if not policy_version or not acknowledgement_version:
-        return None
-    policy_ref = _opaque_policy_ref(
-        "all_workspaces" if is_global else "workspace",
-        *( () if is_global else (tenant_scope.workspace_id,) ),
-        policy_version,
-    )
-    subject_ref = _opaque_policy_ref(
-        "subject",
-        tenant_scope.user_id,
-        tenant_scope.workspace_id,
-        policy_version,
-    )
-    device_ref = _opaque_policy_ref(
-        "device",
-        tenant_scope.device_id,
-        tenant_scope.workspace_id,
-        policy_version,
-    )
-    return {
-        "scope": "all_workspaces" if is_global else "workspace",
-        "policyRef": policy_ref,
-        "acknowledgementSubjectRef": subject_ref,
-        "deviceRef": device_ref,
-        "policyVersion": policy_version,
-        "acknowledgementVersion": acknowledgement_version,
-        "enabled": True,
-        "issuedAt": issued_at.isoformat(),
-        "expiresAt": expires_at.isoformat(),
-        "noticeMode": "internal_no_participant_notice",
-    }
-
-
-def _opaque_policy_ref(kind: str, *values: object) -> str:
-    payload = "|".join([kind, *(str(value) for value in values)])
-    return f"sha256:{hashlib.sha256(payload.encode()).hexdigest()}"

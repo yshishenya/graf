@@ -459,15 +459,11 @@ final class CaptureControlTests: XCTestCase {
             SystemAudioAccessibilityIdentifier.meetingDetectionSettingsButton,
             "systemAudio.meetingDetection.settingsButton"
         )
-        XCTAssertEqual(
-            SystemAudioAccessibilityIdentifier.meetingDetectionRecordingToggle,
-            "systemAudio.meetingDetection.recordingToggle"
-        )
         XCTAssertTrue(label.contains(SystemAudioStatusLabels.meetingDetectionSettingsTitle))
         XCTAssertTrue(label.contains("detect_and_ask"))
         XCTAssertTrue(settingsSource.contains("MeetingDetectionSettingsView"))
-        XCTAssertTrue(settingsSource.contains("promptToggleTitle = \"Запрашивать запись\""))
-        XCTAssertTrue(settingsSource.contains("binding: recordingPromptBinding"))
+        XCTAssertFalse(settingsSource.contains("promptToggleTitle"))
+        XCTAssertFalse(settingsSource.contains("recordingPromptBinding"))
         XCTAssertTrue(settingsSource.contains("ScrollView"))
         XCTAssertTrue(settingsSource.contains("pageTitle = \"Автозапись\""))
         XCTAssertTrue(settingsSource.contains("ForEach(promptCapableTargets"))
@@ -479,7 +475,7 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertTrue(settingsSource.contains("rule.displayName"))
         XCTAssertFalse(settingsSource.contains("bundleID"))
         XCTAssertTrue(settingsSource.contains("twoBrainRecMeetingTargetRegistryDidChange"))
-        XCTAssertTrue(settingsSource.contains("SystemAudioAccessibilityIdentifier.meetingDetectionRecordingToggle"))
+        XCTAssertFalse(settingsSource.contains("meetingDetectionRecordingToggle"))
 
         let controlsSource = try String(
             contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/Capture/CaptureControlViewCore.swift"),
@@ -511,12 +507,10 @@ final class CaptureControlTests: XCTestCase {
 
         XCTAssertTrue(source.contains("indicatorAvailable: meetingDetectionVisibleIndicatorAvailable"))
         XCTAssertFalse(source.contains("indicatorAvailable: meetingDetectionOneActionStopAvailable"))
-        XCTAssertTrue(source.contains("requiresAssistedAuthorization: requiresAssistedAuthorization"))
-        XCTAssertTrue(source.contains("assistedAutoStartAuthorized: meetingDetectionWorkspacePolicyAllowsRecording"))
-        XCTAssertTrue(source.contains("reason == .promptButton"))
-        XCTAssertTrue(source.contains("let policy = registry.assistedAutoStartPolicy"))
-        XCTAssertTrue(source.contains("guard let policy,"))
-        XCTAssertTrue(source.contains("acknowledgement.matches(policy)"))
+        XCTAssertFalse(source.contains("requiresAssistedAuthorization"))
+        XCTAssertFalse(source.contains("assistedAutoStartAuthorized"))
+        XCTAssertFalse(source.contains("meetingDetectionWorkspacePolicyAllowsRecording"))
+        XCTAssertFalse(source.contains("acknowledgement.matches(policy)"))
     }
 
     func testMeetingDetectionReconcilesRegistryRecoveryAndPromptOutcomes() throws {
@@ -584,8 +578,10 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertTrue(source.contains("resolveStart(reason: .promptTimeout)"))
         XCTAssertTrue(source.contains("MeetingDetectionPromptDecision("))
         XCTAssertTrue(source.contains("persistedRule"))
-        XCTAssertTrue(source.contains("Запомнить выбор для этого приложения"))
+        XCTAssertTrue(source.contains("Toggle(\"Запомнить выбор\""))
+        XCTAssertTrue(source.contains("accessibilityHint(\"Сохранить решение для приложения"))
         XCTAssertTrue(source.contains("Не записывать"))
+        XCTAssertTrue(source.contains("accessibilityLabel(\"Записать\")"))
         XCTAssertFalse(source.contains("timeout_without_authorization"))
         XCTAssertFalse(source.contains("Режим: аудиозапись встречи"))
         XCTAssertFalse(source.contains("Источники: системный звук и микрофон"))
@@ -696,6 +692,18 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertFalse(source.contains("shouldWaitForCalendarResolve"))
         XCTAssertFalse(source.contains("if !shouldWaitForCalendarResolve"))
         XCTAssertTrue(source.contains("refreshUploadQueueAndProcess(reason: \"enqueue_\\(reason)\")"))
+    }
+
+    func testUploadQueueRecoverySkipsActiveWriterAndCoalescesRefreshRequests() throws {
+        let source = try String(
+            contentsOf: repositoryRootForCaptureTests()
+                .appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("if !(await localRecordingWriter.isRecordingAsync())"))
+        XCTAssertTrue(source.contains("uploadQueueRefreshRequested = true"))
+        XCTAssertTrue(source.contains("refreshUploadQueueAndProcess(reason: \"coalesced_\\(reason)\")"))
     }
 
     func testCaptureControlsCanShowMuteTruthWarningWithoutBlockingStop() {

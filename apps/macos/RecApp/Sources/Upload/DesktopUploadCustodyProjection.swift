@@ -289,6 +289,17 @@ public struct DesktopUploadCustodyProjection: Equatable, Sendable {
         }
 
         switch item.state {
+        case .saving:
+            return Rule(
+                custodyState: .serverUnknownLocalSaved,
+                owner: .productAutomatic,
+                retryClass: .automatic,
+                normalUserAction: .none,
+                displayPriority: 4,
+                reviewAvailable: false,
+                retentionDeadline: item.retentionDeadline,
+                copyKey: "custody.saving_local"
+            )
         case .queued, .retrying, .degraded:
             return Rule(
                 custodyState: .serverUnknownLocalSaved,

@@ -1,0 +1,1382 @@
+{
+  "schemaVersion": 1,
+  "registryVersion": "2026.07.21.1",
+  "generatedAt": "2026-07-21T00:00:00Z",
+  "targets": [
+    {
+      "id": "zoom",
+      "displayName": "Zoom",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "us.zoom.xos"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "runtime_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Runtime start is driven by macOS AudioHAL ownership."
+    },
+    {
+      "id": "yandex_telemost",
+      "displayName": "Yandex Telemost",
+      "market": "russia",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "ru.yandex.desktop.telemost"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "runtime_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Runtime start is driven by macOS AudioHAL ownership."
+    },
+    {
+      "id": "microsoft_teams_classic",
+      "displayName": "Microsoft Teams classic",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.microsoft.teams"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "confirmed",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "microsoft_teams_new",
+      "displayName": "Microsoft Teams new",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.microsoft.teams2"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "confirmed",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "slack_calls",
+      "displayName": "Slack calls",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.tinyspeck.slackmacgap"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "confirmed",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "webex",
+      "displayName": "Webex",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.cisco.webexmeetingsapp",
+        "com.webex.meetingmanager"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "seed",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "facetime",
+      "displayName": "FaceTime",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.apple.FaceTime"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "seed",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "discord",
+      "displayName": "Discord",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.hnc.Discord"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "seed",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "skype",
+      "displayName": "Skype",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.skype.skype"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "seed",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "whatsapp",
+      "displayName": "WhatsApp",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "net.whatsapp.WhatsApp"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "seed",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "voov_meeting",
+      "displayName": "VooV Meeting",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.tencent.tencentmeeting"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "seed",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "tuple",
+      "displayName": "Tuple",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "app.tuple.app"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "seed",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "gather",
+      "displayName": "Gather",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.gather.Gather"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "seed",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "kontur_talk",
+      "displayName": "Kontur Talk",
+      "market": "russia",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "kontur.talk"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "mts_link",
+      "displayName": "MTS Link",
+      "market": "russia",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "ru.weteams.desktop"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "trueconf",
+      "displayName": "TrueConf",
+      "market": "russia",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "org.trueconf.client"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "vk_calls",
+      "displayName": "VK Calls",
+      "market": "russia",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.vk.calls.native.1"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "vk_teams",
+      "displayName": "VK Teams",
+      "market": "russia",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "ru.mail.messenger-biz-avocado-desktop"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "installed_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "vinteo",
+      "displayName": "VINTEO",
+      "market": "russia",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.vinteo.desktop"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "express",
+      "displayName": "eXpress",
+      "market": "russia",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "ru.unlimitedtech.express.desktop"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "pachca",
+      "displayName": "Pachca",
+      "market": "russia",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.todesktop.240607opwvcw853"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "salutejazz",
+      "displayName": "SaluteJazz",
+      "market": "russia",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "salutejazz.jazz-app"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "seed",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "iva_connect",
+      "displayName": "IVA Connect",
+      "market": "russia",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "nativeBundleIds": [
+        "su.ivcs.ucim"
+      ],
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Current IVA Connect App Store package is available on Apple-silicon macOS."
+    },
+    {
+      "id": "videomost",
+      "displayName": "VideoMost",
+      "market": "russia",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "nativeBundleIds": [
+        "com.videomost.lite"
+      ],
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Current VideoMost App Store package is available on Apple-silicon macOS."
+    },
+    {
+      "id": "dion",
+      "displayName": "Dion",
+      "market": "russia",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "nativeBundleIds": [
+        "vc.dion.desktop"
+      ],
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Bundle identity inspected from the official signed DION 5.33.0 universal DMG."
+    },
+    {
+      "id": "yandex_telemost_web",
+      "displayName": "Yandex Telemost web",
+      "market": "russia",
+      "platform": "browser",
+      "targetFamily": "browser_meeting",
+      "browserServicePatterns": [
+        {
+          "serviceFamily": "yandex_telemost",
+          "hostCategory": "first_party",
+          "patternClass": "meeting_room"
+        }
+      ],
+      "mode": "manual_or_browser_only",
+      "evidence": "verify_required",
+      "requiredSignals": [
+        "browser_metadata",
+        "calendar_or_join_intent"
+      ],
+      "comments": "Browser foundation target: classify only with safe metadata plus calendar/join intent; browser extension remains future work."
+    },
+    {
+      "id": "google_meet_web",
+      "displayName": "Google Meet web",
+      "market": "global",
+      "platform": "browser",
+      "targetFamily": "browser_meeting",
+      "browserServicePatterns": [
+        {
+          "serviceFamily": "google_meet",
+          "hostCategory": "first_party",
+          "patternClass": "meeting_room"
+        }
+      ],
+      "mode": "manual_or_browser_only",
+      "evidence": "verify_required",
+      "requiredSignals": [
+        "browser_metadata",
+        "calendar_or_join_intent"
+      ],
+      "comments": "Browser foundation target: classify only with safe metadata plus calendar/join intent; browser extension remains future work."
+    },
+    {
+      "id": "pruffme",
+      "displayName": "Pruffme",
+      "market": "russia",
+      "platform": "browser",
+      "targetFamily": "browser_meeting",
+      "browserServicePatterns": [
+        {
+          "serviceFamily": "pruffme",
+          "hostCategory": "first_party",
+          "patternClass": "meeting_room"
+        }
+      ],
+      "mode": "manual_or_browser_only",
+      "evidence": "verify_required",
+      "requiredSignals": [
+        "browser_metadata",
+        "calendar_or_join_intent"
+      ],
+      "comments": "Appears web-first in this pass; use browser metadata path when implemented."
+    },
+    {
+      "id": "roschat_minicom_ping",
+      "displayName": "RosChat MiniCom-PING",
+      "market": "russia",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "mode": "blocked_missing_bundle",
+      "evidence": "verify_required",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Windows and Linux packages found; no trustworthy macOS bundle in this pass."
+    },
+    {
+      "id": "tada_team",
+      "displayName": "tada.team",
+      "market": "russia",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "mode": "blocked_missing_bundle",
+      "evidence": "verify_required",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "macOS availability is noted publicly, but bundle ID is not verified."
+    },
+    {
+      "id": "vkurse",
+      "displayName": "VKurse",
+      "market": "russia",
+      "platform": "cross_platform",
+      "targetFamily": "manual_only",
+      "mode": "manual_or_browser_only",
+      "evidence": "verify_required",
+      "requiredSignals": [
+        "browser_metadata",
+        "calendar_or_join_intent"
+      ],
+      "comments": "No separate desktop bundle found; may map to IVA or web surfaces."
+    },
+    {
+      "id": "telegram_macos",
+      "displayName": "Telegram for macOS / Telegram Lite",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "ru.keepcoder.Telegram"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "installed_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "telegram_desktop",
+      "displayName": "Telegram Desktop / TDX / Forkgram / 64Gram",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.tdesktop.Telegram"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "installed_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Shared current macOS identity for Telegram Desktop, TDX, Forkgram, and 64Gram; post-enable live QA is per build."
+    },
+    {
+      "id": "telegram_a",
+      "displayName": "Telegram A",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "org.telegram.TelegramA"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "ayugram_desktop",
+      "displayName": "AyuGram Desktop",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "one.ayugram.AyuGramDesktop"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "installed_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "kotatogram_desktop",
+      "displayName": "Kotatogram Desktop",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "io.github.kotatogram"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "zoom_phone",
+      "displayName": "Zoom Phone",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "us.zoom.ZoomPhone"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "confirmed",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "aircall",
+      "displayName": "Aircall",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "io.aircall.phone",
+        "io.aircall.workspace"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "dialpad",
+      "displayName": "Dialpad",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.electron.dialpad",
+        "com.electron.uberconference"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "ringcentral",
+      "displayName": "RingCentral / Glip",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.ringcentral.glip",
+        "com.ringcentral.RingCentral",
+        "com.Glip.Glip"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "gotomeeting",
+      "displayName": "GoTo Meeting",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.gotomeeting",
+        "com.logmein.GoToMeeting",
+        "com.logmein.goto"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "jitsi_desktop",
+      "displayName": "Jitsi Desktop / Jitsi Meet",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "org.jitsi.jitsi",
+        "org.jitsi.jitsi-meet"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "signal_calls",
+      "displayName": "Signal calls",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "org.whispersystems.signal-desktop"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "viber_calls",
+      "displayName": "Viber calls",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.viber.osx"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "element_calls",
+      "displayName": "Element / Matrix calls",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "im.riot.app"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "wire_calls",
+      "displayName": "Wire calls",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.wearezeta.zclient.mac"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "wechat_calls",
+      "displayName": "WeChat calls",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.tencent.xinWeChat"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "wecom_calls",
+      "displayName": "WeCom / WeChat Work calls",
+      "market": "enterprise",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.tencent.WeWorkMac"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "cisco_jabber",
+      "displayName": "Cisco Jabber",
+      "market": "enterprise",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.cisco.Jabber"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "lifesize",
+      "displayName": "Lifesize",
+      "market": "enterprise",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.lifesize.cloud"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "mattermost_calls",
+      "displayName": "Mattermost calls",
+      "market": "enterprise",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "Mattermost.Desktop"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "rocket_chat_calls",
+      "displayName": "Rocket.Chat calls",
+      "market": "enterprise",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "chat.rocket"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "zulip_calls",
+      "displayName": "Zulip calls",
+      "market": "enterprise",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "org.zulip.zulip-electron"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "tandem",
+      "displayName": "Tandem",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "tandem.app"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "teamspeak",
+      "displayName": "TeamSpeak 3",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.teamspeak.TeamSpeak3"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "lark",
+      "displayName": "Lark / Feishu",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.electron.lark"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "dingtalk",
+      "displayName": "DingTalk",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.alibaba.DingTalkMac"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "vk_messenger_calls",
+      "displayName": "VK Messenger calls",
+      "market": "russia",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.vk.messages"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "webex_current",
+      "displayName": "Webex current",
+      "market": "enterprise",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "Cisco-Systems.Spark"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "jami",
+      "displayName": "Jami",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "cx.ring.Ring"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "linphone",
+      "displayName": "Linphone",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "org.linphone.Linphone"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "mumble",
+      "displayName": "Mumble",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "net.sourceforge.mumble.Mumble"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "three_cx",
+      "displayName": "3CX",
+      "market": "enterprise",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.3cx.macos"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "pexip",
+      "displayName": "Pexip Infinity Connect",
+      "market": "enterprise",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.pexip.infinityconnect"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "vsee",
+      "displayName": "VSee Messenger",
+      "market": "enterprise",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.vsee.vsee"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "zoho_cliq",
+      "displayName": "Zoho Cliq",
+      "market": "enterprise",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.zoho.cliq"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Identity evidence is recorded in feature 119; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "line_calls",
+      "displayName": "LINE calls",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "jp.naver.line.mac"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Current Mac App Store identity; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "kakaotalk_calls",
+      "displayName": "KakaoTalk calls",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.kakao.KakaoTalkMac"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Current Mac App Store identity; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "eight_by_eight_work",
+      "displayName": "8x8 Work",
+      "market": "enterprise",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.electron.8x8---virtual-office"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Current maintained distribution identity; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "onsip",
+      "displayName": "OnSIP",
+      "market": "enterprise",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.onsip.app"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Current Mac App Store identity; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "telephone_sip",
+      "displayName": "Telephone SIP calls",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.tlphn.Telephone"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Current Mac App Store identity; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "vonage_business",
+      "displayName": "Vonage Business Communications",
+      "market": "enterprise",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.vonage.vbc"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Current maintained distribution identity; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "avaya_cloud_office",
+      "displayName": "Avaya Cloud Office",
+      "market": "enterprise",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.cloudoffice.app"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Current maintained distribution identity; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "cloudtalk_phone",
+      "displayName": "CloudTalk Phone",
+      "market": "enterprise",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.cloudtalk-phone.app"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Current maintained distribution identity; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "cloudya",
+      "displayName": "Cloudya",
+      "market": "enterprise",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "X26F74J8TH.net.nfon.app.cloudya"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Current maintained distribution identity; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "enreach_contact",
+      "displayName": "Enreach Contact",
+      "market": "enterprise",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.electron.enreachcontact"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Current maintained distribution identity; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "teamviewer_meeting",
+      "displayName": "TeamViewer Meeting",
+      "market": "enterprise",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.teamviewer.blizz"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Current maintained package identity; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "alfaview",
+      "displayName": "alfaview",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.alfaview.desktop"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Current maintained package identity; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "loop_messenger",
+      "displayName": "LOOP Messenger calls",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "ru.loop.app"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Current maintained package identity; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "sipgate",
+      "displayName": "sipgate",
+      "market": "enterprise",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.sipgate.desktop"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Current maintained package identity; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "tencent_meeting",
+      "displayName": "Tencent Meeting",
+      "market": "global",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.tencent.meeting"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Current mainland-China package identity; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "yealink_meeting",
+      "displayName": "Yealink Meeting",
+      "market": "enterprise",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.yealink.meeting.app"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Official signed 4.7.43 arm64 package identity; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "adobe_connect",
+      "displayName": "Adobe Connect",
+      "market": "enterprise",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.adobe.adobeconnect.app"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Current Adobe Connect package identity; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "quo_business_phone",
+      "displayName": "Quo / OpenPhone",
+      "market": "enterprise",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "ca.illusive.openphone"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Current Quo package preserves the OpenPhone macOS identity; enabled for user-selected prompt/auto-record with post-enable live QA."
+    },
+    {
+      "id": "teamviewer_quickjoin",
+      "displayName": "TeamViewer QuickJoin",
+      "market": "enterprise",
+      "platform": "macos",
+      "targetFamily": "native_app",
+      "nativeBundleIds": [
+        "com.teamviewer.TeamViewerQJ"
+      ],
+      "mode": "prompt_enabled",
+      "evidence": "package_verified",
+      "requiredSignals": [
+        "macos_audio_hal_assertion"
+      ],
+      "comments": "Current TeamViewer meeting-join package identity; enabled for user-selected prompt/auto-record with post-enable live QA."
+    }
+  ]
+}

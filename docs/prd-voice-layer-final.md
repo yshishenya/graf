@@ -224,14 +224,17 @@ MVP includes:
 - System-audio capture mode for incoming/remote audio.
 - Explicit microphone capture for local speaker audio.
 - Manual recording start/stop.
-- Assisted auto-start for the internal MVP only when enabled by workspace
-  policy, user-acknowledged during onboarding, and limited to approved meeting
-  targets or explicit user-selected capture scopes.
+- Automatic start for the internal MVP is controlled by a local per-application
+  preference and limited to approved meeting targets or explicit user-selected
+  capture scopes. General workspace recording and consent restrictions still
+  apply, but no server assisted-auto-start permission or acknowledgement is
+  required.
 - Target-scoped automatic recording for verified native meeting apps: the
   `Автозапись` settings page exposes the complete prompt-capable registry and
-  one reversible checkbox per app; the prompt offers `Записать сейчас`,
-  `Пропустить`, `Всегда писать это приложение`, and an eight-second countdown
-  that starts capture on expiry. This is not a global or arbitrary-audio mode.
+  the local `Всегда`, `Спрашивать`, `Никогда` choice for each app, defaulting to
+  `Спрашивать` on a new installation. The prompt offers `Записать`, `Не
+  записывать`, `Запомнить выбор`, and an eight-second countdown that starts the
+  current capture on expiry. This is not an arbitrary-audio mode.
 - Auto-stop configurable in settings; default auto-stop after 10 minutes of no routed meeting audio.
 - Audio recording mode.
 - Transcript-only mode.
@@ -297,13 +300,15 @@ Local/native desktop surfaces are authoritative for:
 - offline pending recordings;
 - diagnostics export and local degraded states.
 
-Server-provided policy, feature flags, approved targets, naming policy,
-consent/legal profile, localization, and non-critical help content may constrain
-or annotate the desktop UI, but MUST NOT be required to display active capture
-truth or to stop active capture. If policy is stale or the server is
-unreachable, the desktop app must keep active capture stoppable, show a truthful
-offline or policy-stale state, and fail closed for new assisted auto-start when
-the last valid policy cannot authorize it.
+Server-provided general workspace policy, feature flags, approved targets,
+naming policy, consent/legal profile, localization, and non-critical help
+content may constrain or annotate the desktop UI, but MUST NOT be required to
+display active capture truth or to stop active capture. If policy is stale or
+the server is unreachable, the desktop app must keep active capture stoppable,
+show a truthful
+offline or policy-stale state, and preserve the last valid general workspace
+recording/consent restriction. The server does not own or authorize the local
+per-application `Всегда`, `Спрашивать`, `Никогда` preference.
 
 Server-driven UI or WebView-rendered remote UI MUST NOT own:
 
@@ -392,7 +397,9 @@ Settings information architecture:
 - Audio devices: physical microphone, system-audio capture permission, physical
   speaker/headphones for playback awareness, route/capture test.
 - Recording defaults: default mode, language, manual start behavior, title defaults.
-- Auto-start and auto-stop: workspace policy status, eligible apps/domains, user suppression list where allowed, auto-stop duration.
+- Auto-start and auto-stop: local three-state choice per eligible app, bulk
+  application of the same choice, general workspace restriction status and
+  auto-stop duration.
 - Privacy and retention: local buffer retention, transcript-only behavior, deletion policy summary, consent policy summary.
 - Local buffer and upload queue: disk usage, queued meetings, retry failed upload, purge eligible local cache.
 - Capture and diagnostics: permission status, source eligibility, current
@@ -930,17 +937,23 @@ Required upload endpoints:
 
 Upload finalization must not start MediaScribe until required tracks are complete or explicitly marked unavailable with a valid degraded reason.
 
-Assisted auto-start backend contract:
+Local automatic-start and upload contract:
 
-- Assisted auto-start creates a local desktop capture session first.
-- Server meeting creation happens only after policy and auth requirements are satisfied.
-- Desktop may begin local encrypted buffering when assisted auto-start triggers.
-- Desktop must bind a `policy_snapshot_id` before upload.
+- Automatic start creates and durably identifies a local desktop capture
+  session before any server work.
+- Server meeting creation happens only after normal auth and general workspace
+  ingest requirements are satisfied; it does not evaluate the local
+  per-application choice.
+- Desktop may begin local buffering when automatic start triggers.
 - If authenticated and online, desktop creates a server `Meeting` and `UploadSession` immediately.
 - If offline or temporarily unauthenticated, desktop stores a local pending meeting record and uploads after re-authentication.
-- Upload is rejected if the policy snapshot no longer permits the capture.
+- A failure to create or complete the upload leaves the local recording visible
+  in the common meeting list with automatic retry and an `Отправить` action.
+- An unrecoverable local artifact remains visible as `Запись повреждена` and is
+  deletable, but offers no upload action.
 - Auto-start-created meetings must have `start_trigger=assisted_auto_start`.
-- Auto-start trigger, policy snapshot, source app, device ID, and user ID must be audit logged.
+- Auto-start trigger, source app, device ID, and user ID must be audit logged
+  without copying the local three-state preference to the server.
 - If upload never occurs and local retention expires, desktop purges the local pending meeting and records a local diagnostic event.
 
 ## 16. State Machines
@@ -1576,22 +1589,24 @@ Consent policy modes:
 MVP capture start policy:
 
 - Manual start/stop is the default behavior and is always available when workspace policy permits recording.
-- Assisted auto-start is included in the internal MVP only when enabled by workspace policy.
-- Assisted auto-start is disabled by default for future external/customer workspaces and must be explicitly enabled by admin policy.
-- Assisted auto-start requires user acknowledgement during onboarding. If either workspace policy or user acknowledgement is missing, meeting detection may show `detecting` but must not start capture.
+- Automatic start is controlled by the local per-application choice; no server
+  assisted-auto-start policy or acknowledgement is required.
+- New installations set every known application to `Спрашивать`.
 - Assisted auto-start may trigger only for locked MVP approved meeting targets.
 - Assisted auto-start must require an approved meeting target or explicit
   user-confirmed capture scope, current recording prerequisites, satisfied
   consent policy, and immediate visible local capture indication.
-- For a verified target without a persisted target-scoped rule, the prompt
-  remains visible during the eight-second countdown; the user may start
-  immediately, skip, or opt that exact app into future automatic recording.
-  Countdown expiry is the approved automatic-start action, not silent capture.
+- For `Спрашивать`, the prompt remains visible during the eight-second
+  countdown; `Записать` starts immediately, `Не записывать` suppresses this
+  meeting, and timeout starts the current recording. `Запомнить выбор` maps the
+  two explicit actions to `Всегда` and `Никогда`; timeout never changes the
+  saved setting.
+- `Всегда` bypasses the prompt, while `Никогда` neither records nor prompts.
 - Assisted auto-start must never trigger from arbitrary system audio, media playback, notification sounds, music, videos, or non-approved apps.
 - If meeting-like activity is uncertain, the product must remain in `detecting` or ask the user; it must not silently start capture.
-- For MVP, assisted auto-start must use the Feature-124 prompt/countdown for a
-  verified target; a persisted target-scoped opt-in may bypass a new prompt,
-  but never bypasses policy, prerequisite, visibility, and Stop gates.
+- For MVP, automatic start must use the Feature-214 three-state contract for a
+  verified target; `Всегда` may bypass a new prompt, but never bypasses general
+  workspace consent, prerequisite, visibility, and Stop gates.
 - User-controlled private/do-not-record mode must suppress assisted auto-start.
 - Participant-facing notice is not required for internal-team MVP.
 - Silent recording must not be used as a product term or default behavior.
@@ -1605,7 +1620,8 @@ Each meeting stores consent evidence:
 - Source app if detected.
 - Notice method used.
 - Whether auto-start was used.
-- Assisted auto-start trigger reason, route validation state, confirmation state, visible-indicator state, device ID, and policy snapshot.
+- Automatic-start trigger reason, target validation state, visible-indicator
+  state and device ID. The local three-state preference is not server evidence.
 - Whether participant-facing notice was unavailable.
 
 Participant notice requirements:
@@ -1832,7 +1848,8 @@ MVP internal admin controls:
 - Basic user management for the internal team.
 - Basic admin vs non-admin role separation only where required for sensitive actions.
 - Recording mode policy.
-- Assisted auto-start policy.
+- General recording and consent policy; per-application automatic-recording
+  preferences remain local to the desktop client.
 - Consent policy.
 - Retention policy.
 - Download/share disablement or basic controls if those features remain enabled.

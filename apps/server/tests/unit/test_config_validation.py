@@ -1,111 +1,13 @@
-from datetime import UTC, datetime
-from uuid import UUID
-
 import pytest
 from pydantic import ValidationError
 
-from twobrain_rec_server.api.meeting_detection import _assisted_auto_start_policy
-from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.config import LOCAL_DEV_SMOKE_IDS, SMOKE_IDENTITY_CLASS, Settings
 
 
-def test_assisted_auto_start_defaults_to_disabled() -> None:
-    settings = Settings()
-
-    assert settings.assisted_auto_start_enabled is False
-    assert settings.assisted_auto_start_workspace_id is None
-
-
-def test_enabled_assisted_auto_start_requires_complete_scoped_policy() -> None:
-    with pytest.raises(ValidationError, match="requires workspace"):
-        Settings(assisted_auto_start_enabled=True)
-
-    settings = Settings(
-        assisted_auto_start_enabled=True,
-        assisted_auto_start_workspace_id="20000000-0000-0000-0000-000000000001",
-        assisted_auto_start_policy_version="2026.08.12.1",
-        assisted_auto_start_acknowledgement_version="2026.08.12.1",
-        assisted_auto_start_policy_issued_at=datetime(2026, 8, 12, tzinfo=UTC),
-        assisted_auto_start_policy_expires_at=datetime(2026, 9, 12, tzinfo=UTC),
-    )
-
-    assert settings.assisted_auto_start_policy_version == "2026.08.12.1"
-
-
-def test_enabled_assisted_auto_start_global_scope_requires_explicit_approval() -> None:
-    common = {
-        "assisted_auto_start_enabled": True,
-        "assisted_auto_start_all_workspaces": True,
-        "assisted_auto_start_policy_version": "2026.08.23.1",
-        "assisted_auto_start_acknowledgement_version": "2026.08.23.1",
-        "assisted_auto_start_policy_issued_at": datetime(2026, 8, 23, tzinfo=UTC),
-        "assisted_auto_start_policy_expires_at": datetime(2026, 9, 23, tzinfo=UTC),
+def test_server_settings_do_not_define_auto_recording_policy() -> None:
+    assert not {
+        name for name in Settings.model_fields if name.startswith("assisted_auto_start_")
     }
-    with pytest.raises(ValidationError, match="global assisted auto-start"):
-        Settings(**common)
-
-    settings = Settings(
-        **common,
-        assisted_auto_start_all_workspaces_approved=True,
-    )
-    assert settings.assisted_auto_start_workspace_id is None
-
-    with pytest.raises(ValidationError, match="cannot include a workspace ID"):
-        Settings(
-            **common,
-            assisted_auto_start_all_workspaces_approved=True,
-            assisted_auto_start_workspace_id="20000000-0000-0000-0000-000000000001",
-        )
-
-
-def test_global_assisted_auto_start_policy_is_published_for_any_workspace() -> None:
-    settings = Settings(
-        assisted_auto_start_enabled=True,
-        assisted_auto_start_all_workspaces=True,
-        assisted_auto_start_all_workspaces_approved=True,
-        assisted_auto_start_policy_version="2026.08.23.1",
-        assisted_auto_start_acknowledgement_version="2026.08.23.1",
-        assisted_auto_start_policy_issued_at=datetime(2026, 8, 23, tzinfo=UTC),
-        assisted_auto_start_policy_expires_at=datetime(2026, 9, 23, tzinfo=UTC),
-    )
-    first_scope = TenantScope(
-        organization_id=UUID("10000000-0000-0000-0000-000000000001"),
-        workspace_id=UUID("20000000-0000-0000-0000-000000000001"),
-        user_id=UUID("30000000-0000-0000-0000-000000000001"),
-        device_id=UUID("40000000-0000-0000-0000-000000000001"),
-    )
-    second_scope = TenantScope(
-        organization_id=first_scope.organization_id,
-        workspace_id=UUID("20000000-0000-0000-0000-000000000099"),
-        user_id=UUID("30000000-0000-0000-0000-000000000099"),
-        device_id=UUID("40000000-0000-0000-0000-000000000099"),
-    )
-
-    first = _assisted_auto_start_policy(settings=settings, tenant_scope=first_scope)
-    second = _assisted_auto_start_policy(settings=settings, tenant_scope=second_scope)
-
-    assert first is not None and second is not None
-    assert first["scope"] == second["scope"] == "all_workspaces"
-    assert first["policyRef"] == second["policyRef"]
-    assert first["acknowledgementSubjectRef"] != second["acknowledgementSubjectRef"]
-    assert first["deviceRef"] != second["deviceRef"]
-
-
-def test_enabled_assisted_auto_start_rejects_unsafe_or_naive_values() -> None:
-    common = {
-        "assisted_auto_start_enabled": True,
-        "assisted_auto_start_workspace_id": "20000000-0000-0000-0000-000000000001",
-        "assisted_auto_start_acknowledgement_version": "2026.08.12.1",
-        "assisted_auto_start_policy_issued_at": datetime(2026, 8, 12, tzinfo=UTC),
-        "assisted_auto_start_policy_expires_at": datetime(2026, 9, 12, tzinfo=UTC),
-    }
-    with pytest.raises(ValidationError, match="safe codes"):
-        Settings(**common, assisted_auto_start_policy_version="unsafe policy")
-    with pytest.raises(ValidationError, match="timezone"):
-        Settings(
-            **{**common, "assisted_auto_start_policy_expires_at": datetime(2026, 9, 12)},
-            assisted_auto_start_policy_version="2026.08.12.1",
-        )
 
 
 def _production_settings(**overrides):

@@ -9851,68 +9851,6 @@ components:
       - label
       - action
       title: ArtifactEgressState
-    AssistedAutoStartPolicy:
-      properties:
-        scope:
-          type: string
-          enum:
-          - workspace
-          - all_workspaces
-          title: Scope
-          default: workspace
-        policyRef:
-          type: string
-          pattern: ^sha256:[0-9a-f]{64}$
-          title: Policyref
-        acknowledgementSubjectRef:
-          type: string
-          pattern: ^sha256:[0-9a-f]{64}$
-          title: Acknowledgementsubjectref
-        deviceRef:
-          type: string
-          pattern: ^sha256:[0-9a-f]{64}$
-          title: Deviceref
-        policyVersion:
-          type: string
-          maxLength: 64
-          minLength: 1
-          pattern: ^[A-Za-z0-9._-]+$
-          title: Policyversion
-        acknowledgementVersion:
-          type: string
-          maxLength: 64
-          minLength: 1
-          pattern: ^[A-Za-z0-9._-]+$
-          title: Acknowledgementversion
-        enabled:
-          type: boolean
-          const: true
-          title: Enabled
-        issuedAt:
-          type: string
-          format: date-time
-          title: Issuedat
-        expiresAt:
-          type: string
-          format: date-time
-          title: Expiresat
-        noticeMode:
-          type: string
-          const: internal_no_participant_notice
-          title: Noticemode
-      additionalProperties: false
-      type: object
-      required:
-      - policyRef
-      - acknowledgementSubjectRef
-      - deviceRef
-      - policyVersion
-      - acknowledgementVersion
-      - enabled
-      - issuedAt
-      - expiresAt
-      - noticeMode
-      title: AssistedAutoStartPolicy
     AuthCallbackResponse:
       properties:
         user_id:
@@ -12903,10 +12841,6 @@ components:
             $ref: '#/components/schemas/MeetingTargetNonTargetRule'
           type: array
           title: Nontargetrules
-        assistedAutoStartPolicy:
-          anyOf:
-          - $ref: '#/components/schemas/AssistedAutoStartPolicy'
-          - type: 'null'
         etag:
           anyOf:
           - type: string
