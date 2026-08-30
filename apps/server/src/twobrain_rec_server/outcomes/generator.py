@@ -15,7 +15,11 @@ from twobrain_rec_server.outcomes.models import (
     OutcomeSourceReference,
     OutcomeTranscriptSegment,
 )
-from twobrain_rec_server.outcomes.prompts import PromptSnapshot, canonical_json
+from twobrain_rec_server.outcomes.prompts import (
+    PROMPT_VARIABLE_RE,
+    PromptSnapshot,
+    canonical_json,
+)
 
 CATEGORIES = [category.value for category in OutcomeCategory]
 NEGATIVE_CONTEXT_RE = re.compile(r"\b(без|нет|не было|отсутств)\b", re.IGNORECASE)
@@ -288,10 +292,21 @@ def compile_prompt_messages(
         content = message["content"]
         if role not in {"system", "user", "assistant"} or not isinstance(content, str):
             raise ValueError("chat prompt message is invalid")
-        for key, value in variables.items():
-            content = content.replace(f"{{{{{key}}}}}", value)
-        if "{{" in content or "}}" in content:
+        # Validate placeholders in the template before inserting values. A
+        # transcript is untrusted data and may legitimately contain
+        # placeholder-looking text; checking the rendered message would treat
+        # that data as an unresolved instruction.
+        template_content = content
+        for key in variables:
+            template_content = template_content.replace(f"{{{{{key}}}}}", "")
+        if "{{" in template_content or "}}" in template_content:
             raise ValueError("chat prompt contains an unresolved variable")
+        # Replace template variables in one pass so inserted data is never
+        # processed as another variable.
+        content = PROMPT_VARIABLE_RE.sub(
+            lambda match: variables.get(match.group(1), match.group(0)),
+            content,
+        )
         messages.append({"role": role, "content": content})
     return messages
 
