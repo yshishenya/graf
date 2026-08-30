@@ -133,7 +133,9 @@ def test_candidate_ui_keeps_current_notes_without_a_decision_surface() -> None:
     assert "Вариант" in script
     assert 'text: "Использовать"' not in script
     assert 'text: "Оставить текущие"' not in script
-    assert "expected_current_outcome_set_id: currentOutcomeSetId" in script
+    assert "const currentOutcomeSetIdForTemplate = async (template)" in script
+    assert "expected_current_outcome_set_id: expectedCurrentOutcomeSetId" in script
+    assert "await currentOutcomeSetIdForTemplate(template)" in script
     assert "Обновить итоги" in script
     assert "request_intent_id" in script
     assert "manual_refresh" in script
