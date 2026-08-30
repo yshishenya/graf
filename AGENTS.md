@@ -66,7 +66,7 @@ must read it as a gate and must not mark review items complete.
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at specs/211-spec-kit-workflow-hardening/plan.md
+at specs/212-spec-kit-workflow-hardening/plan.md
 <!-- SPECKIT END -->
 
 ## Tracking and product gates

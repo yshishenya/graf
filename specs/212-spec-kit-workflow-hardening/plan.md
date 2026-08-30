@@ -1,8 +1,8 @@
 # Implementation Plan: Надёжный Spec Kit workflow
 
-**Branch**: `211-spec-kit-workflow-hardening` | **Date**: 2026-08-30 | **Spec**: [spec.md](spec.md)
+**Branch**: `212-spec-kit-workflow-hardening` | **Date**: 2026-08-30 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `specs/211-spec-kit-workflow-hardening/spec.md`
+**Input**: Feature specification from `specs/212-spec-kit-workflow-hardening/spec.md`
 
 ## Summary
 
@@ -58,7 +58,7 @@ Post-design re-check: PASS — дизайн не вводит продуктов
 ### Documentation (this feature)
 
 ```text
-specs/211-spec-kit-workflow-hardening/
+specs/212-spec-kit-workflow-hardening/
 ├── plan.md
 ├── research.md
 ├── quickstart.md

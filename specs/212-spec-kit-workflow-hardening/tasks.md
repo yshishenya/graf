@@ -1,6 +1,6 @@
 # Tasks: Надёжный Spec Kit workflow
 
-**Input**: Design documents from `specs/211-spec-kit-workflow-hardening/`
+**Input**: Design documents from `specs/212-spec-kit-workflow-hardening/`
 **Prerequisites**: `spec.md`, `plan.md`, `research.md`, `quickstart.md`, `contracts/governance-check.md`
 **Risk / Validation Lane**: `significant-feature`, no deploy
 
@@ -8,7 +8,7 @@
 
 **Purpose**: Начать с проверенных stable источников без изменения master или чужих worktrees.
 
-- [X] T001 Fast-forward clean bootstrap source checkout to published `v0.8.0` in `/Users/yshishenya/Documents/speckit-bootstrap` and record exact source/executable hashes in `specs/211-spec-kit-workflow-hardening/research.md` per FR-011
+- [X] T001 Fast-forward clean bootstrap source checkout to published `v0.8.0` in `/Users/yshishenya/Documents/speckit-bootstrap` and record exact source/executable hashes in `specs/212-spec-kit-workflow-hardening/research.md` per FR-011
 - [X] T002 Run the non-frozen schema 2 → 3 migration in `/Users/yshishenya/.codex/worktrees/e029/crisp/.specify/speckit-bootstrap.lock.json` and review every generated `.agents/skills/` and `.specify/` change without deleting legacy user-level skills per FR-001, FR-002 and FR-003
 
 ---
@@ -30,7 +30,7 @@
 
 **Independent Test**: Выполнить Scenario 1, Scenario 2 и Scenario 4 из `quickstart.md`; второй refresh не создаёт необъяснимый tracked drift.
 
-- [X] T005 [US1] Re-run bootstrap dry-run/apply and record idempotence evidence plus exact lock/version state in `specs/211-spec-kit-workflow-hardening/quickstart.md` per FR-001 and FR-010
+- [X] T005 [US1] Re-run bootstrap dry-run/apply and record idempotence evidence plus exact lock/version state in `specs/212-spec-kit-workflow-hardening/quickstart.md` per FR-001 and FR-010
 
 ---
 
@@ -59,9 +59,9 @@
 
 **Purpose**: Зафиксировать user-visible operational change и пройти declared gates.
 
-- [X] T009 Update `[Unreleased]` Russian tooling/operations notes in `CHANGELOG.md` and reconcile Feature 211 quickstart evidence in `specs/211-spec-kit-workflow-hardening/quickstart.md` per FR-012
-- [X] T010 Run the governance self-test, repository guard, frozen doctor, Feature 211 quickstart and `infra/scripts/ci-local.sh --fast`; record exact results in `specs/211-spec-kit-workflow-hardening/quickstart.md` per SC-001, SC-002, SC-003, SC-004, SC-005 and SC-006
-- [X] T011 Run Ponytail review and `$speckit-converge`; complete any appended tasks before declaring Feature 211 PR-ready per FR-008
+- [X] T009 Update `[Unreleased]` Russian tooling/operations notes in `CHANGELOG.md` and reconcile Feature 212 quickstart evidence in `specs/212-spec-kit-workflow-hardening/quickstart.md` per FR-012
+- [X] T010 Run the governance self-test, repository guard, frozen doctor, Feature 212 quickstart and `infra/scripts/ci-local.sh --fast`; record exact results in `specs/212-spec-kit-workflow-hardening/quickstart.md` per SC-001, SC-002, SC-003, SC-004, SC-005 and SC-006
+- [X] T011 Run Ponytail review and `$speckit-converge`; complete any appended tasks before declaring Feature 212 PR-ready per FR-008
 - [X] T012 Publish bytecode-safe `github-issue-canon v0.3.2` and fail-closed `speckit-bootstrap v0.9.0`, adopt their immutable refs in GRAF, then prove issue-canon command → frozen doctor without `__pycache__` per FR-013 and SC-007
 
 ## Dependencies And Execution Order

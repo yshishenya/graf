@@ -2,8 +2,8 @@
 
 ## Preconditions
 
-- Рабочая ветка `211-spec-kit-workflow-hardening` основана на актуальном `origin/master`.
-- Worktree чистый либо каждый существующий diff явно относится к Feature 211.
+- Рабочая ветка `212-spec-kit-workflow-hardening` основана на актуальном `origin/master`.
+- Worktree чистый либо каждый существующий diff явно относится к Feature 212.
 - `specify`, `speckit-bootstrap`, Git и Python 3 доступны.
 
 ## Scenario 1: Source and version preflight

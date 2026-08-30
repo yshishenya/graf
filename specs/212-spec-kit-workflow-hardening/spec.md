@@ -1,6 +1,6 @@
 # Feature Specification: Надёжный Spec Kit workflow
 
-**Feature Branch**: `211-spec-kit-workflow-hardening`
+**Feature Branch**: `212-spec-kit-workflow-hardening`
 
 **Created**: 2026-08-30
 
