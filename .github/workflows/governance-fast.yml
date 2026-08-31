@@ -1,0 +1,67 @@
+name: governance-fast
+
+on:
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+    inputs:
+      requested_sha:
+        description: Full commit SHA to audit
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: governance-fast-pr-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  governance-fast:
+    name: governance-fast
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GRAF_CI_REQUESTED_SHA: ${{ github.event.pull_request.head.sha || inputs.requested_sha }}
+    steps:
+      - name: Checkout exact PR SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || inputs.requested_sha }}
+          fetch-depth: 0
+
+      - name: Verify exact SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GRAF_CI_REQUESTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          checkout_sha="$(git rev-parse HEAD)"
+          [[ "$checkout_sha" == "$GRAF_CI_REQUESTED_SHA" ]]
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            [[ "$checkout_sha" == "${{ github.event.pull_request.head.sha }}" ]]
+          fi
+
+      - name: Run bounded fast lane
+        run: infra/scripts/ci-local.sh --fast
+
+      - name: Locate metadata-only evidence
+        id: evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="$(find .dev/ci-evidence -type f -name '*.json' -print | sort | tail -n 1)"
+          test -n "$evidence"
+          printf 'path=%s\n' "$evidence" >> "$GITHUB_OUTPUT"
+
+      - name: Validate metadata-only evidence
+        run: python3 scripts/validate-ci-evidence.py "${{ steps.evidence.outputs.path }}"
+
+      - name: Upload metadata-only evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: graf-governance-fast-evidence
+          path: ${{ steps.evidence.outputs.path }}
+          if-no-files-found: error
+          retention-days: 14

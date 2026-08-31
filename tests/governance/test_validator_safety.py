@@ -145,6 +145,39 @@ def test_agent_context_requires_object_branch_and_full_source_sha(tmp_path: Path
     assert any("full 40-character" in error for error in validator.validate(tmp_path))
 
 
+def test_agent_context_uses_explicit_fork_base_for_ownership(tmp_path: Path) -> None:
+    validator = load_script("validate-agent-context")
+    (tmp_path / ".specify").mkdir()
+    (tmp_path / "specs/222-example").mkdir(parents=True)
+    (tmp_path / "specs/222-example/spec.md").write_text("# example\n", encoding="utf-8")
+    (tmp_path / "inherited.txt").write_text("parent\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "checkout", "-qb", "codex/222-example"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "Context Test"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-qm", "base"], cwd=tmp_path, check=True)
+    (tmp_path / "inherited.txt").write_text("parent changed by prior feature\n", encoding="utf-8")
+    subprocess.run(["git", "add", "inherited.txt"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-qm", "prior-feature"], cwd=tmp_path, check=True)
+    base_sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=tmp_path, check=True, capture_output=True, text=True).stdout.strip()
+    (tmp_path / "owned.txt").write_text("new feature\n", encoding="utf-8")
+    subprocess.run(["git", "add", "owned.txt"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-qm", "feature"], cwd=tmp_path, check=True)
+    source_sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=tmp_path, check=True, capture_output=True, text=True).stdout.strip()
+    (tmp_path / ".specify/feature.json").write_text(json.dumps({
+        "feature_directory": "specs/222-example",
+        "feature_id": "222",
+        "owner": "test",
+        "risk_lane": "significant-feature",
+        "owned_paths": ["specs/222-example", ".specify", "owned.txt"],
+        "branch": "codex/222-example",
+        "source_sha": source_sha,
+        "base_sha": base_sha,
+    }), encoding="utf-8")
+    assert validator.validate(tmp_path) == []
+
+
 def test_changelog_required_fields_must_be_top_level(tmp_path: Path) -> None:
     validator = load_script("validate-changelog-fragments")
     directory = tmp_path / "changes" / "unreleased"

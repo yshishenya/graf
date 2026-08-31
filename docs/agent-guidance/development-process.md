@@ -38,6 +38,11 @@ constitution and linked guidance; this file only routes a feature through them.
   metadata-only output.
 - If the active pointer is missing, malformed or points outside the current
   worktree, stop rather than guessing.
+- A stacked feature may set an explicit full-hex `base_sha` in
+  `.specify/feature.json`; ownership is checked only against
+  `base_sha...HEAD`. Without it, validators use `origin/master...HEAD` for
+  backwards compatibility. Never widen `owned_paths` just to hide an inherited
+  diff.
 
 Codex instruction discovery follows the official OpenAI contract: global
 guidance is loaded first, then project and nested-directory guidance; the
@@ -76,8 +81,9 @@ permission trust. Production app, data and origins are always rejected.
 - If GitHub Actions are enabled, `.github/workflows/governance-fast.yml` uses a
   per-ref concurrency group with `cancel-in-progress: true`; the workflow
   passes `GRAF_CI_REQUESTED_SHA` so a changed target is rejected fail-closed.
-  The repository currently keeps Actions disabled, so local evidence remains
-  authoritative until the setting is deliberately enabled.
+  Feature 222 owns the guarded enablement and canonical check name
+  `governance-fast`; until its operator gate is complete, local evidence
+  remains authoritative.
 - Use release windows (for example twice weekly) to batch completed features.
   Hotfixes are explicit exceptions with a reason and the same evidence rules.
 - A product release requires CalVer tag, GitHub Release and Russian notes with

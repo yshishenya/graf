@@ -66,6 +66,11 @@ def validate(root: Path) -> list[str]:
                 errors.append("source_sha does not match current HEAD; refresh context before changing files")
         except (OSError, subprocess.CalledProcessError) as exc:
             errors.append(f"cannot read current HEAD: {exc}")
+    base_sha = data.get("base_sha")
+    if base_sha is not None and (
+        not isinstance(base_sha, str) or not re.fullmatch(r"[0-9a-f]{40}", base_sha)
+    ):
+        errors.append("base_sha must be a full 40-character git SHA when provided")
     if not isinstance(data.get("owned_paths"), list) or not all(isinstance(item, str) and item for item in data["owned_paths"]):
         errors.append("owned_paths must be a non-empty list of relative paths")
     elif any(Path(item).is_absolute() or ".." in Path(item).parts for item in data["owned_paths"]):
@@ -74,8 +79,14 @@ def validate(root: Path) -> list[str]:
         owned = [Path(item) for item in data["owned_paths"]]
         changed: set[str] = set()
         commands = []
-        if subprocess.run(["git", "rev-parse", "--verify", "origin/master^{commit}"], cwd=root, capture_output=True).returncode == 0:
-            commands.append(["git", "diff", "--name-only", "origin/master...HEAD"])
+        diff_base = "origin/master"
+        if isinstance(base_sha, str) and re.fullmatch(r"[0-9a-f]{40}", base_sha):
+            if subprocess.run(["git", "rev-parse", "--verify", f"{base_sha}^{{commit}}"], cwd=root, capture_output=True).returncode == 0:
+                diff_base = base_sha
+            else:
+                errors.append("base_sha does not resolve to a commit")
+        if subprocess.run(["git", "rev-parse", "--verify", f"{diff_base}^{{commit}}"], cwd=root, capture_output=True).returncode == 0:
+            commands.append(["git", "diff", "--name-only", f"{diff_base}...HEAD"])
         commands.extend([
             ["git", "diff", "--name-only", "HEAD"],
             ["git", "diff", "--cached", "--name-only"],

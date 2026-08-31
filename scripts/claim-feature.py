@@ -60,6 +60,16 @@ def _ids_from_refs(refs: Iterable[str]) -> set[int]:
     return result
 
 
+def _refs_for_collision_check(refs: Iterable[str], requested_branch: str) -> list[str]:
+    """Ignore only the branch being claimed and its remote-tracking twin."""
+    requested = requested_branch.removeprefix("refs/").strip("/")
+    return [
+        ref
+        for ref in refs
+        if ref.removeprefix("refs/").strip("/") not in {requested, f"origin/{requested}"}
+    ]
+
+
 def _github_ids(root: Path, *, exclude_issue: int | None = None, strict: bool = False) -> set[int]:
     """Read every visible issue/PR marker through the paginated GitHub API."""
     result: set[int] = set()
@@ -242,7 +252,7 @@ def claim(root: Path, feature_id: int, *, issue_number: int | None, branch: str,
     if _canonical_slug(branch_match.group(2)) != _canonical_slug(slug):
         raise SystemExit("feature-claim: branch suffix must match the requested slug")
     _assert_clean_worktree(root)
-    refs = _git_refs(root, strict=not offline)
+    refs = _refs_for_collision_check(_git_refs(root, strict=not offline), branch)
     local_claims = _local_claim_records(root)
     requested_claim = {"issue_number": issue_number, "branch": branch, "slug": slug}
     existing_claim = local_claims.get(f"{feature_id:03d}")
@@ -332,6 +342,10 @@ def self_test() -> int:
         subprocess.run(["git", "commit", "-qm", "fixture"], cwd=root, check=True)
         occupied = _ids_from_specs(root) | _ids_from_refs(["origin/codex/215-summary-auto-recovery", "origin/codex/1024-large-feature"])
         assert occupied == {1, 215, 1024}
+        assert _refs_for_collision_check(
+            ["codex/216-x", "codex/222-github-actions-governance", "origin/codex/222-github-actions-governance"],
+            "codex/222-github-actions-governance",
+        ) == ["codex/216-x"]
         assert _available_id(occupied, 1) == 2
         assert _available_id(occupied, 215) == 216
         try:

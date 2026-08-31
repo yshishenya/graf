@@ -86,8 +86,10 @@ does not replace the full lane for a release candidate.
 ### 2. PR and merge
 
 The PR must record the selected risk/validation lane, commands, result, and
-commit SHA. GitHub Actions are disabled, so this evidence is supplied by the
-author. Do not run full CI after every local edit or every small commit.
+commit SHA. When Feature 222's guarded workflow is enabled, the canonical
+`governance-fast` check is the remote PR gate and its artifact is still
+metadata-only. Until that operator gate is enabled, the author supplies local
+evidence. Do not run full CI after every local edit or every small commit.
 
 Before merging a significant or high-risk slice, the fast lane and the feature
 quickstart must pass. If the change affects capture, privacy, auth, storage,

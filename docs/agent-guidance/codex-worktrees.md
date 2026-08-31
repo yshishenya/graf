@@ -22,6 +22,8 @@ Anchor the current feature from:
 - current Git branch;
 - `specs/<number>-<slug>/`;
 - `.specify/feature.json`;
+- optional `base_sha` in `.specify/feature.json` when a feature is deliberately
+  stacked on an unmerged reviewed feature; it must be the exact fork commit.
 - active `tasks.md`;
 - GitHub issue labels and links when issue sync exists.
 

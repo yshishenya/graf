@@ -43,8 +43,10 @@ Every lane emits one metadata-only evidence record under the ignored
 prints `ci_evidence_path=...`. Set `GRAF_CI_CANDIDATE_FILE` for the single
 authoritative Full CI run so its evidence is bound to the frozen candidate.
 
-GitHub Actions are disabled. No pull-request validation runs remotely. For an
-early full baseline, run locally:
+The `governance-fast` GitHub Actions check is enabled only after its workflow
+contract, exact-SHA and artifact gates have passed. Until that Feature 222
+operator step is complete, no pull-request validation is assumed to run
+remotely. For an early full baseline, run locally:
 
 ```sh
 infra/scripts/ci-local.sh --full

@@ -19,6 +19,14 @@ fail() {
   exit 1
 }
 
+assert_workflow_policy() {
+  workflow_dir=$1
+  [ -d "$workflow_dir" ] || return 0
+  forbidden_workflow=$(find "$workflow_dir" -type f ! -name 'governance-fast.yml' -print -quit)
+  [ -z "$forbidden_workflow" ] ||
+    fail "remote workflow files remain in the active repository outside the governance allowlist: $forbidden_workflow"
+}
+
 if [ "${1:-}" = "--assert-fixture-class" ]; then
   [ "${GRAF_RELEASE_SIGNING_FIXTURE_CLASS:-disposable-public}" = "disposable-public" ] ||
     fail "only disposable public signing fixtures are permitted"
@@ -524,8 +532,15 @@ grep -Fq 'GRAF_RELEASE_SIGNING_KEYCHAIN_ATTESTATION="$ATTESTATION"' "$LOCAL_SIGN
   fail "local draft-signing entrypoint does not bind staging to local custody evidence"
 grep -Fq 'cb6fdbdc8884f15d62a616e79face92b08322410fd2d425edc6596ccbf4ba3b0' "$LOCAL_SIGNER" ||
   fail "local draft-signing entrypoint does not pin the Sparkle tool checksum"
-if find "$REPO_ROOT/.github/workflows" -type f -print -quit 2>/dev/null | grep -q .; then
-  fail "remote workflow files remain in the active repository"
+assert_workflow_policy "$REPO_ROOT/.github/workflows"
+
+WORKFLOW_POLICY_FIXTURE="$TEMP_ROOT/workflow-policy"
+mkdir -p "$WORKFLOW_POLICY_FIXTURE"
+: > "$WORKFLOW_POLICY_FIXTURE/governance-fast.yml"
+assert_workflow_policy "$WORKFLOW_POLICY_FIXTURE"
+: > "$WORKFLOW_POLICY_FIXTURE/sign-graf-app-update.yml"
+if (assert_workflow_policy "$WORKFLOW_POLICY_FIXTURE") >/dev/null 2>&1; then
+  fail "release-signing workflow was accepted by the workflow policy"
 fi
 
 if rg -n -I -e \

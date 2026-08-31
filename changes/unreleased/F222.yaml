@@ -1,0 +1,8 @@
+schema_version: 1
+feature_id: 222
+category: Changed
+summary: "Добавлены SHA-bound PR-проверки с отменой устаревших GitHub Actions запусков."
+issue: 6155
+tasks: [T001, T002, T003, T004, T005, T006, T007, T008]
+compatibility: "Требуется включить Actions и required check на master после проверки workflow."
+release_notes: "Fast-gate не заменяет единственный Full CI для release candidate."
