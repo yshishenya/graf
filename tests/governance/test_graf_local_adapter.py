@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 from pathlib import Path
+from urllib.error import HTTPError
 
 import pytest
 
@@ -97,6 +98,17 @@ def test_live_smoke_checks_server_rendered_frontend_auth_and_one_app(monkeypatch
         "representative_api": "pass",
         "app_origin": "pass",
     }
+
+
+def test_http_probe_preserves_auth_challenge_status(monkeypatch, tmp_path):
+    adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
+
+    def raise_auth_challenge(*_args, **_kwargs):
+        raise HTTPError("http://127.0.0.1:8081/api/v1/cabinet/meetings", 401, "Unauthorized", {}, None)
+
+    monkeypatch.setattr(dev_harness, "urlopen", raise_auth_challenge)
+
+    assert adapter._wait_http("http://127.0.0.1:8081", "/api/v1/cabinet/meetings") == 401
 
 
 def test_live_promote_restores_app_and_restarts_previous_backend_on_smoke_failure(monkeypatch, tmp_path):

@@ -23,7 +23,7 @@ import sys
 import tempfile
 import time
 from typing import Any, Dict, Iterator, Optional
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
@@ -545,6 +545,12 @@ class GrafLocalAdapter:
                 request = Request(origin.rstrip("/") + path, headers=headers or {})
                 with urlopen(request, timeout=3) as response:
                     return int(response.status)
+            except HTTPError as exc:
+                # Authentication challenges are useful probe results.  Keep
+                # their status so callers can distinguish expected 401/403
+                # from a broken 404/5xx route instead of treating all HTTP
+                # errors as unreachable.
+                return int(exc.code)
             except (OSError, URLError) as exc:
                 last_error = type(exc).__name__
                 time.sleep(PROBE_RETRY_DELAY_SECONDS)
