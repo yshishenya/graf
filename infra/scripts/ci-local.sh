@@ -244,6 +244,13 @@ main() (
     trap - EXIT INT TERM
     pipeline_completed="$(date +%s)"
     pipeline_duration=$((pipeline_completed - pipeline_started))
+    if [[ "$requested_mode" == "full" && -n "$candidate_id" && -n "$skipped_gates" \
+      && "$pipeline_result" == "pass" ]]; then
+      pipeline_result="fail"
+      exit_status=1
+      evidence_status="failed"
+      evidence_reason="full_candidate_skipped_gates"
+    fi
     if [[ -n "$observed_sha_start" && "$effective_mode" != "help" ]]; then
       local finished_at
       local evidence_path

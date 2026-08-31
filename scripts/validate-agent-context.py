@@ -54,8 +54,8 @@ def validate(root: Path) -> list[str]:
                 errors.append("checkout must have an active branch")
             elif actual != branch:
                 errors.append(f"branch mismatch: pointer={branch!r}, checkout={actual!r}")
-        except (OSError, subprocess.CalledProcessError):
-            pass
+        except (OSError, subprocess.CalledProcessError) as exc:
+            errors.append(f"cannot read current branch: {exc}")
     source_sha = data.get("source_sha")
     if not isinstance(source_sha, str) or not re.fullmatch(r"[0-9a-f]{40}", source_sha):
         errors.append("source_sha must be a full 40-character git SHA")
@@ -64,8 +64,8 @@ def validate(root: Path) -> list[str]:
             actual_sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, text=True, capture_output=True, check=True).stdout.strip()
             if actual_sha != source_sha:
                 errors.append("source_sha does not match current HEAD; refresh context before changing files")
-        except (OSError, subprocess.CalledProcessError):
-            pass
+        except (OSError, subprocess.CalledProcessError) as exc:
+            errors.append(f"cannot read current HEAD: {exc}")
     if not isinstance(data.get("owned_paths"), list) or not all(isinstance(item, str) and item for item in data["owned_paths"]):
         errors.append("owned_paths must be a non-empty list of relative paths")
     elif any(Path(item).is_absolute() or ".." in Path(item).parts for item in data["owned_paths"]):
@@ -81,9 +81,18 @@ def self_test() -> int:
     with tempfile.TemporaryDirectory(prefix="graf-context-") as tmp:
         root = Path(tmp); (root / ".specify").mkdir(); (root / "specs/001-x").mkdir(parents=True)
         (root / "specs/001-x/spec.md").write_text("# x\n", encoding="utf-8")
+        subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+        subprocess.run(["git", "checkout", "-qb", "test/001-x"], cwd=root, check=True)
+        subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=root, check=True)
+        subprocess.run(["git", "config", "user.name", "Context Test"], cwd=root, check=True)
+        subprocess.run(["git", "add", "."], cwd=root, check=True)
+        subprocess.run(["git", "commit", "-qm", "fixture"], cwd=root, check=True)
+        source_sha = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True
+        ).stdout.strip()
         (root / ".specify/feature.json").write_text(json.dumps({"feature_directory":"specs/001-x","feature_id":"001","branch":"test/001-x","source_sha":"","owner":"test","risk_lane":"significant-feature","owned_paths":["specs/001-x"]}), encoding="utf-8")
         assert validate(root)
-        (root / ".specify/feature.json").write_text(json.dumps({"feature_directory":"specs/001-x","feature_id":"001","branch":"test/001-x","source_sha":"a" * 40,"owner":"test","risk_lane":"significant-feature","owned_paths":["specs/001-x"]}), encoding="utf-8")
+        (root / ".specify/feature.json").write_text(json.dumps({"feature_directory":"specs/001-x","feature_id":"001","branch":"test/001-x","source_sha":source_sha,"owner":"test","risk_lane":"significant-feature","owned_paths":["specs/001-x"]}), encoding="utf-8")
         assert validate(root) == []
         (root / ".specify/feature.json").write_text("[]\n", encoding="utf-8")
         assert any("object" in error for error in validate(root))

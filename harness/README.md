@@ -36,9 +36,9 @@ sample project under `sample/` is the publish smoke fixture. The following
 commands are the source-tree self-check and must work from a clean checkout:
 
 ```sh
-(./bin/harness-check --self-test)
-(cd sample && ../bin/harness-check --spec specs/001-example/spec.md)
-(./bin/harness-check --package-root .)
+PYTHONDONTWRITEBYTECODE=1 ./bin/harness-check --self-test
+(cd sample && PYTHONDONTWRITEBYTECODE=1 ../bin/harness-check --spec specs/001-example/spec.md)
+PYTHONDONTWRITEBYTECODE=1 ./bin/harness-check --package-root .
 ```
 
 The validator API is also available without installing dependencies:
@@ -72,7 +72,7 @@ The current public release is pinned at
 `v0.1.4` remains the rollback ref. A consumer must pin the immutable release
 and update its migration notes and rollback ref together.
 
-The next planned release is `v0.1.5`. Until it is cut, keep `VERSION` and the
+The next planned release is `v0.1.6`. Until it is cut, keep `VERSION` and the
 package metadata at the current published version and treat the new files as
 unreleased changes. Publish only after the clean self-check, package scan,
 provenance scan and immutable tag/release procedure pass.

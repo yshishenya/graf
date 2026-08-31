@@ -1,6 +1,18 @@
 # Changelog
 
-## [Unreleased] — планируется `v0.1.5`
+## [Unreleased] — планируется `v0.1.7`
+
+## [0.1.6] - 2026-08-31
+
+### Исправлено
+
+- Усилены package safety, PR metadata, changelog и Legacy Impact validators.
+- Добавлены fail-closed ошибки Git/GitHub discovery и безопасные self-check команды.
+
+### Совместимость
+
+- CLI и validator API совместимы с `v0.1.5`.
+- Откат: immutable `v0.1.5`.
 
 ### Проверки
 

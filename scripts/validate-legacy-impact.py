@@ -19,6 +19,9 @@ EXCEPTION_FIELDS = {
     "expiry": re.compile(r"^[ \t]*(?:[-*][ \t]*)?(?:\*\*)?expiry(?:\*\*)?[ \t]*:", re.IGNORECASE | re.MULTILINE),
     "removal trigger": re.compile(r"^[ \t]*(?:[-*][ \t]*)?(?:\*\*)?removal[ \t]+trigger(?:\*\*)?[ \t]*:", re.IGNORECASE | re.MULTILINE),
     "retirement task": re.compile(r"^[ \t]*(?:[-*][ \t]*)?(?:\*\*)?retirement[ \t]+task(?:\*\*)?[ \t]*:", re.IGNORECASE | re.MULTILINE),
+    "risk": re.compile(r"^[ \t]*(?:[-*][ \t]*)?(?:\*\*)?risk(?:\*\*)?[ \t]*:", re.IGNORECASE | re.MULTILINE),
+    "validation": re.compile(r"^[ \t]*(?:[-*][ \t]*)?(?:\*\*)?validation(?:\*\*)?[ \t]*:", re.IGNORECASE | re.MULTILINE),
+    "reason": re.compile(r"^[ \t]*(?:[-*][ \t]*)?(?:\*\*)?reason(?:\*\*)?[ \t]*:", re.IGNORECASE | re.MULTILINE),
 }
 
 
@@ -26,7 +29,8 @@ def validate(path: Path) -> list[str]:
     text = path.read_text(encoding="utf-8", errors="ignore")
     errors: list[str] = []
     match = re.search(r"^## Legacy Impact\s*$([\s\S]*?)(?=^## |\Z)", text, re.MULTILINE)
-    if not match: return [f"{path}: missing ## Legacy Impact"]
+    if not match:
+        return [f"{path}: missing ## Legacy Impact"]
     section = match.group(1)
     classifications = CLASSIFICATION_RE.findall(section)
     if len(classifications) != 1:
@@ -64,13 +68,17 @@ def validate(path: Path) -> list[str]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__); parser.add_argument("--feature", type=Path, required=True); args = parser.parse_args()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--feature", type=Path, required=True)
+    args = parser.parse_args()
     errors = validate(args.feature.resolve())
     if errors:
-        for error in errors: print(f"legacy-impact: ERROR: {error}", file=sys.stderr)
+        for error in errors:
+            print(f"legacy-impact: ERROR: {error}", file=sys.stderr)
         return 1
     print("legacy-impact: OK")
     return 0
 
 
-if __name__ == "__main__": raise SystemExit(main())
+if __name__ == "__main__":
+    raise SystemExit(main())

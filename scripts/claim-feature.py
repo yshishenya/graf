@@ -35,7 +35,7 @@ def _ids_from_specs(root: Path) -> set[int]:
     return result
 
 
-def _git_refs(root: Path) -> list[str]:
+def _git_refs(root: Path, *, strict: bool = False) -> list[str]:
     try:
         proc = subprocess.run(
             ["git", "for-each-ref", "--format=%(refname:short)"],
@@ -44,7 +44,9 @@ def _git_refs(root: Path) -> list[str]:
             capture_output=True,
             text=True,
         )
-    except (OSError, subprocess.CalledProcessError):
+    except (OSError, subprocess.CalledProcessError) as exc:
+        if strict:
+            raise SystemExit(f"feature-claim: cannot inspect git refs: {exc}") from exc
         return []
     return [line.strip() for line in proc.stdout.splitlines() if line.strip()]
 
@@ -57,7 +59,7 @@ def _ids_from_refs(refs: Iterable[str]) -> set[int]:
     return result
 
 
-def _github_ids(root: Path, *, exclude_issue: int | None = None) -> set[int]:
+def _github_ids(root: Path, *, exclude_issue: int | None = None, strict: bool = False) -> set[int]:
     """Read visible issue/PR metadata when gh is available; never guess offline."""
     result: set[int] = set()
     for kind in ("issue", "pr"):
@@ -68,7 +70,12 @@ def _github_ids(root: Path, *, exclude_issue: int | None = None) -> set[int]:
                 cwd=root, check=True, capture_output=True, text=True,
             )
             rows = json.loads(proc.stdout or "[]")
-        except (OSError, subprocess.CalledProcessError, json.JSONDecodeError):
+        except (OSError, subprocess.CalledProcessError, json.JSONDecodeError) as exc:
+            if strict:
+                raise SystemExit(
+                    f"feature-claim: cannot inspect GitHub {kind} metadata: {exc}; "
+                    "use --offline only for an explicitly offline draft"
+                ) from exc
             continue
         for row in rows if isinstance(rows, list) else []:
             if kind == "issue" and exclude_issue is not None and row.get("number") == exclude_issue:
@@ -125,10 +132,10 @@ def _available_id(occupied: set[int], start: int) -> int:
 
 
 def claim(root: Path, feature_id: int, *, issue_number: int | None, branch: str, slug: str, offline: bool) -> dict[str, object]:
-    refs = _git_refs(root)
+    refs = _git_refs(root, strict=not offline)
     occupied = _ids_from_specs(root) | _ids_from_refs(refs) | _local_claim_ids(root)
     if not offline:
-        occupied |= _github_ids(root, exclude_issue=issue_number)
+        occupied |= _github_ids(root, exclude_issue=issue_number, strict=True)
     if feature_id in occupied:
         conflicts = sorted(
             [f"spec/branch ref containing {feature_id:03d}"],
@@ -191,7 +198,7 @@ def self_test() -> int:
         assert _available_id(occupied, 1) == 2
         assert _available_id(occupied, 215) == 216
         try:
-            claim(root, 1, issue_number=1, branch="codex/001-x", slug="x", offline=False)
+            claim(root, 1, issue_number=None, branch="codex/001-x", slug="x", offline=True)
         except SystemExit as exc:
             assert "collision" in str(exc)
         else:

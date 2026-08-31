@@ -26,35 +26,52 @@ def validate(root: Path) -> list[str]:
     seen: set[int] = set()
     for path in sorted(directory.glob("F*.yaml")):
         text = path.read_text(encoding="utf-8", errors="ignore")
-        missing = [key for key in REQUIRED if _field(text, key) is None]
-        if missing: errors.append(f"{path}: missing {', '.join(missing)}")
+        missing = [
+            key
+            for key in REQUIRED
+            if (match := _field(text, key)) is None or not match.group(1).strip()
+        ]
+        if missing:
+            errors.append(f"{path}: missing {', '.join(missing)}")
         match = re.search(r"^feature_id[ \t]*:[ \t]*(\d+)[ \t]*$", text, re.MULTILINE)
-        if not match: continue
+        if not match:
+            continue
         feature_id = int(match.group(1))
-        if feature_id in seen: errors.append(f"{path}: duplicate feature_id {feature_id}")
+        if feature_id in seen:
+            errors.append(f"{path}: duplicate feature_id {feature_id}")
         seen.add(feature_id)
-        if path.stem != f"F{feature_id}": errors.append(f"{path}: filename must be F{feature_id}.yaml")
+        if path.stem != f"F{feature_id}":
+            errors.append(f"{path}: filename must be F{feature_id}.yaml")
         category = re.search(r"^category[ \t]*:[ \t]*([^\s]+)[ \t]*$", text, re.MULTILINE)
-        if category and category.group(1) not in CATEGORIES: errors.append(f"{path}: invalid category")
+        if category and category.group(1) not in CATEGORIES:
+            errors.append(f"{path}: invalid category")
         schema = re.search(r"^schema_version[ \t]*:[ \t]*([^\s]+)[ \t]*$", text, re.MULTILINE)
-        if schema and schema.group(1) != "1": errors.append(f"{path}: schema_version must be 1")
+        if schema and schema.group(1) != "1":
+            errors.append(f"{path}: schema_version must be 1")
         summary = re.search(r"^summary[ \t]*:[ \t]*(.+)$", text, re.MULTILINE)
         if not summary or not summary.group(1).strip() or not re.search(r"[А-Яа-яЁё]", summary.group(1)):
             errors.append(f"{path}: summary must be a non-empty Russian entry")
-        if not re.search(r"^issue[ \t]*:[ \t]*#?\d+[ \t]*$", text, re.MULTILINE): errors.append(f"{path}: issue must contain a GitHub number")
-        if not re.search(r"^tasks[ \t]*:[ \t]*.+T\d{3,}", text, re.MULTILINE): errors.append(f"{path}: tasks must contain a Spec Kit task ID")
-        if any(token.lower() in text.lower() for token in FORBIDDEN): errors.append(f"{path}: forbidden secret/private/path token")
+        if not re.search(r"^issue[ \t]*:[ \t]*#?\d+[ \t]*$", text, re.MULTILINE):
+            errors.append(f"{path}: issue must contain a GitHub number")
+        if not re.search(r"^tasks[ \t]*:[ \t]*.+T\d{3,}", text, re.MULTILINE):
+            errors.append(f"{path}: tasks must contain a Spec Kit task ID")
+        if any(token.lower() in text.lower() for token in FORBIDDEN):
+            errors.append(f"{path}: forbidden secret/private/path token")
     return errors
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__); parser.add_argument("--root", type=Path, default=Path.cwd()); args = parser.parse_args()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--root", type=Path, default=Path.cwd())
+    args = parser.parse_args()
     errors = validate(args.root.resolve())
     if errors:
-        for error in errors: print(f"changelog-fragments: ERROR: {error}", file=sys.stderr)
+        for error in errors:
+            print(f"changelog-fragments: ERROR: {error}", file=sys.stderr)
         return 1
     print("changelog-fragments: OK")
     return 0
 
 
-if __name__ == "__main__": raise SystemExit(main())
+if __name__ == "__main__":
+    raise SystemExit(main())
