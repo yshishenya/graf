@@ -125,6 +125,31 @@ def test_pid_ownership_requires_matching_process_start_token(monkeypatch, tmp_pa
     assert adapter._pid_owned({"pid": 77, "command": record["command"]}) is False
 
 
+def test_app_snapshot_rejects_production_destination_before_copy(monkeypatch, tmp_path):
+    adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
+    production = tmp_path / "GRAF.app"
+    production.mkdir()
+    (production / "Contents").mkdir()
+    monkeypatch.setattr(dev_harness, "PRODUCTION_APP_PATH", production)
+    monkeypatch.setenv("GRAF_DEV_INSTALL_PATH", str(production))
+
+    with pytest.raises(dev_harness.HarnessError, match="Dev destination"):
+        adapter._snapshot_app()
+
+
+def test_app_snapshot_rejects_symlink_into_production(monkeypatch, tmp_path):
+    adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
+    production = tmp_path / "GRAF.app"
+    production.mkdir()
+    monkeypatch.setattr(dev_harness, "PRODUCTION_APP_PATH", production)
+    destination = tmp_path / "GRAF Dev.app"
+    destination.symlink_to(production, target_is_directory=True)
+    monkeypatch.setenv("GRAF_DEV_INSTALL_PATH", str(destination))
+
+    with pytest.raises(dev_harness.HarnessError, match="production"):
+        adapter._snapshot_app()
+
+
 def test_live_promote_restores_app_and_restarts_previous_backend_on_smoke_failure(monkeypatch, tmp_path):
     old_sha = "a" * 40
     candidate_sha = "b" * 40

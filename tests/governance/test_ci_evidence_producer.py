@@ -111,3 +111,25 @@ def test_producer_hashes_supplied_artifact_bytes(tmp_path: Path) -> None:
     import hashlib
     expected = "sha256:" + hashlib.sha256(b"release-bytes").hexdigest()
     assert evidence["artifact_digests"]["bundle"] == expected
+
+
+def test_producer_refuses_overwrite_unless_explicitly_non_authoritative(tmp_path: Path) -> None:
+    sha = "a" * 40
+    output = tmp_path / "evidence.json"
+    command = [
+        sys.executable, str(PRODUCER), "--output", str(output),
+        "--run-id", "ci-fast-repeat", "--lane", "fast",
+        "--requested-sha", sha, "--observed-sha-start", sha,
+        "--observed-sha-end", sha, "--status", "passed",
+        "--started-at", "2026-08-31T00:00:00Z", "--finished-at", "2026-08-31T00:01:00Z",
+        "--scope", "diagnostic",
+    ]
+    first = subprocess.run(command, cwd=ROOT, text=True, capture_output=True, check=False)
+    assert first.returncode == 0, first.stderr
+    second = subprocess.run(command, cwd=ROOT, text=True, capture_output=True, check=False)
+    assert second.returncode != 0
+    assert "refusing to overwrite" in second.stderr
+
+    diagnostic = subprocess.run(command + ["--non-authoritative"], cwd=ROOT, text=True, capture_output=True, check=False)
+    assert diagnostic.returncode == 0, diagnostic.stderr
+    assert json.loads(output.read_text(encoding="utf-8"))["authoritative"] is False

@@ -145,9 +145,9 @@ infra/scripts/release-candidate.sh attest \
   --output .dev/release/attestations/<candidate-id>.publication.json
 ```
 
-Obtain the URL and exact tag commit from GitHub before running the command.
-It checks that the URL tag and target SHA equal the approved decision and
-creates a write-once attestation. The schema is
+The command resolves the repository from `origin`, queries GitHub to confirm
+that the non-draft Release and tag exist, and verifies that the tag resolves
+to the approved commit before creating a write-once attestation. The schema is
 `infra/release/publication-attestation.schema.json`.
 
 Every CI invocation emits one metadata-only evidence record after the run. By

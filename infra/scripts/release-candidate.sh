@@ -233,6 +233,56 @@ def require_current(data):
     if data["changelog_digest"] != digest(root / "CHANGELOG.md"):
         die("candidate changelog digest differs from current CHANGELOG.md; candidate is stale")
 
+def github_origin_repo():
+    try:
+        remote = subprocess.check_output(
+            ["git", "-C", str(root), "remote", "get-url", "origin"], text=True
+        ).strip()
+    except (OSError, subprocess.CalledProcessError) as exc:
+        die(f"cannot resolve GitHub origin: {exc}")
+    match = re.search(r"github\.com[:/]([^/\s:]+)/([^/\s]+?)(?:\.git)?$", remote)
+    if not match:
+        die("origin must be a GitHub repository")
+    return match.group(1), match.group(2)
+
+def verify_github_release(release_url, expected_tag, expected_sha):
+    """Resolve the published GitHub Release and tag to the approved commit."""
+    match = re.fullmatch(
+        r"https://github\.com/([^/]+)/([^/]+)/releases/tag/(v[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+)",
+        release_url,
+    )
+    if not match or match.group(3) != expected_tag:
+        die("release URL must be the GitHub Release URL for the decision tag")
+    owner, repo = github_origin_repo()
+    if (match.group(1), match.group(2)) != (owner, repo):
+        die("release URL repository does not match git origin")
+    repository = f"{owner}/{repo}"
+    try:
+        release = json.loads(subprocess.check_output(
+            ["gh", "api", f"repos/{repository}/releases/tags/{expected_tag}"], text=True
+        ))
+        ref = json.loads(subprocess.check_output(
+            ["gh", "api", f"repos/{repository}/git/ref/tags/{expected_tag}"], text=True
+        ))
+    except (OSError, subprocess.CalledProcessError, UnicodeError, json.JSONDecodeError) as exc:
+        die(f"cannot verify published GitHub Release/tag: {exc}")
+    if release.get("draft") or release.get("tag_name") != expected_tag:
+        die("GitHub Release is missing, draft, or has a different tag")
+    tag_object = ref.get("object") if isinstance(ref, dict) else None
+    if not isinstance(tag_object, dict) or not isinstance(tag_object.get("sha"), str):
+        die("GitHub tag reference is malformed")
+    resolved_sha = tag_object["sha"]
+    if tag_object.get("type") == "tag":
+        try:
+            tag_data = json.loads(subprocess.check_output(
+                ["gh", "api", f"repos/{repository}/git/tags/{resolved_sha}"], text=True
+            ))
+        except (OSError, subprocess.CalledProcessError, UnicodeError, json.JSONDecodeError) as exc:
+            die(f"cannot resolve annotated GitHub tag: {exc}")
+        resolved_sha = tag_data.get("object", {}).get("sha")
+    if resolved_sha != expected_sha:
+        die("published GitHub tag does not resolve to the approved candidate SHA")
+
 def require_clean_source(exempt_paths=()):
     """Reject source-tree drift while allowing explicitly named evidence files."""
     try:
@@ -530,12 +580,7 @@ if op == "attest":
     if not SHA_RE.fullmatch(release_sha) or release_sha != decision["source_sha"]:
         die("release SHA must be the exact candidate source SHA")
     release_url = values["release_url"]
-    expected_url = re.fullmatch(
-        r"https://github\.com/[^/]+/[^/]+/releases/tag/(v[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+)",
-        release_url,
-    )
-    if not expected_url or expected_url.group(1) != decision["tag"]:
-        die("release URL must be the GitHub Release URL for the decision tag")
+    verify_github_release(release_url, decision["tag"], release_sha)
     release_dir = DECISION_DIR.parent / "attestations"
     output = pathlib.Path(values["output"] or (release_dir / f"{decision['candidate_id']}.publication.json"))
     if output.resolve() == decision_path.resolve():

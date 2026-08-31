@@ -5,6 +5,6 @@ summary: "Процесс разработки переводится на изо
 issue: 6090
 tasks: [T001, T002, T003, T004]
 compatibility: "Не меняет продуктовый runtime; требует нового agent preflight и release-train правил."
-release_notes: "В релизе описать правила Dev, CI, release train и Legacy Impact на русском языке; повторный идентичный Feature ID claim должен быть идемпотентным."
+release_notes: "В релизе описать правила Dev, CI, release train и Legacy Impact на русском языке; повторный идентичный Feature ID claim должен быть идемпотентным; publication attestation проверяет GitHub Release и tag по origin и exact SHA."
 known_limitations:
   - "Полный live Dev promote ожидает отдельного безопасного восстановления локального migration state; production volume не затрагивается."

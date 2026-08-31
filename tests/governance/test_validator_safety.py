@@ -276,6 +276,8 @@ def _context_pointer(feature_directory: str = "specs/001-example", feature_id: s
     return {
         "feature_directory": feature_directory,
         "feature_id": feature_id,
+        "branch": "test/001-example",
+        "source_sha": "a" * 40,
         "owner": "test",
         "risk_lane": "low",
         "owned_paths": [feature_directory],
@@ -300,6 +302,28 @@ def test_portable_context_requires_existing_spec_and_matching_feature_id(tmp_pat
     errors = validator.context(tmp_path)
 
     assert any("feature_id must match feature_directory" in error for error in errors)
+
+
+def test_portable_context_binds_branch_and_head_when_checkout_is_git(tmp_path: Path) -> None:
+    validator = load_harness_validators()
+    (tmp_path / "specs/001-example").mkdir(parents=True)
+    (tmp_path / "specs/001-example/spec.md").write_text("# Example\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "Governance Test"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-qm", "fixture"], cwd=tmp_path, check=True)
+    branch = subprocess.check_output(["git", "branch", "--show-current"], cwd=tmp_path, text=True).strip()
+    sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=tmp_path, text=True).strip()
+    pointer = tmp_path / ".specify" / "feature.json"
+    pointer.parent.mkdir()
+    pointer.write_text(json.dumps(_context_pointer() | {"branch": branch, "source_sha": sha}), encoding="utf-8")
+
+    assert validator.context(tmp_path) == []
+    pointer.write_text(json.dumps(_context_pointer() | {"branch": "wrong/branch", "source_sha": sha}), encoding="utf-8")
+    assert any("branch mismatch" in error for error in validator.context(tmp_path))
+    pointer.write_text(json.dumps(_context_pointer() | {"branch": branch, "source_sha": "b" * 40}), encoding="utf-8")
+    assert any("does not match current HEAD" in error for error in validator.context(tmp_path))
 
 
 def test_portable_context_rejects_feature_directory_symlink_escape(tmp_path: Path) -> None:
@@ -341,6 +365,31 @@ def test_ci_evidence_binds_source_revision_digest_to_observed_sha() -> None:
     errors = validator.ci_evidence(evidence)
 
     assert any("source-revision artifact digest" in error for error in errors)
+
+
+def test_ci_evidence_requires_ordered_rfc3339_utc_timestamps() -> None:
+    validator = load_harness_validators()
+    sha = "a" * 40
+    evidence = {
+        "run_id": "run-1",
+        "lane": "fast",
+        "requested_sha": sha,
+        "observed_sha_start": sha,
+        "observed_sha_end": sha,
+        "status": "passed",
+        "started_at": "2026-08-31T00:01:00Z",
+        "finished_at": "2026-08-31T00:00:00Z",
+        "commands": ["ci --fast"],
+        "skipped_gates": [],
+        "scope": "test",
+        "artifact_digests": {"log": "sha256:" + "b" * 64},
+    }
+
+    errors = validator.ci_evidence(evidence)
+
+    assert any("finished_at must be after started_at" in error for error in errors)
+    errors = validator.ci_evidence(dict(evidence, started_at="2026-08-31T00:00:00+05:00"))
+    assert any("RFC3339 UTC" in error for error in errors)
 
 
 def test_ci_evidence_rejects_path_like_artifact_identity() -> None:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import hashlib
 import json
 import re
@@ -17,6 +18,9 @@ SAFE_ID_RE = re.compile(r"^[A-Za-z0-9._:-]+$")
 LANES = {"focused", "fast", "full"}
 STATUSES = {"passed", "failed", "stale", "cancelled", "ambiguous"}
 STALE_STATUSES = {"failed", "stale", "cancelled", "ambiguous"}
+UTC_TIMESTAMP_RE = re.compile(
+    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]00:00)$"
+)
 
 
 def _non_empty_string(data: dict[str, Any], key: str, errors: list[str]) -> Optional[str]:
@@ -32,6 +36,23 @@ def _sha(data: dict[str, Any], key: str, errors: list[str]) -> Optional[str]:
     if value is not None and not SHA_RE.fullmatch(value):
         errors.append(f"invalid {key}: expected 40 hexadecimal characters")
     return value
+
+
+def _utc_timestamp(data: dict[str, Any], key: str, errors: list[str]) -> Optional[dt.datetime]:
+    value = _non_empty_string(data, key, errors)
+    if value is None or not UTC_TIMESTAMP_RE.fullmatch(value):
+        if value is not None:
+            errors.append(f"{key} must be an RFC3339 UTC timestamp")
+        return None
+    try:
+        parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        errors.append(f"{key} must be an RFC3339 UTC timestamp")
+        return None
+    if parsed.tzinfo is None or parsed.utcoffset() != dt.timedelta(0):
+        errors.append(f"{key} must be an RFC3339 UTC timestamp")
+        return None
+    return parsed
 
 
 def _string_list(
@@ -91,8 +112,10 @@ def validate(data: dict[str, Any]) -> list[str]:
     if status != "passed":
         _non_empty_string(data, "reason", errors)
 
-    _non_empty_string(data, "started_at", errors)
-    _non_empty_string(data, "finished_at", errors)
+    started_at = _utc_timestamp(data, "started_at", errors)
+    finished_at = _utc_timestamp(data, "finished_at", errors)
+    if started_at is not None and finished_at is not None and finished_at <= started_at:
+        errors.append("finished_at must be after started_at")
     _string_list(data, "commands", errors, non_empty=True)
     skipped_gates = _string_list(data, "skipped_gates", errors)
     _non_empty_string(data, "scope", errors)

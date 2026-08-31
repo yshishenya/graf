@@ -37,6 +37,7 @@ SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 MANIFEST_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 APP_BUNDLE_ID = "pro.2brain.graf.dev"
 APP_CHANNEL = "dev"
+PRODUCTION_APP_PATH = Path("/Applications/GRAF.app")
 SCHEMA_VERSION = "dev-manifest.v1"
 POINTER_VERSION = "dev-active-pointer.v1"
 PROCESS_STOP_TIMEOUT_SECONDS = 10
@@ -436,6 +437,7 @@ class GrafLocalAdapter:
 
     def _snapshot_app(self) -> Optional[Path]:
         destination = Path(os.environ.get("GRAF_DEV_INSTALL_PATH", "/Applications/GRAF Dev.app"))
+        self._assert_dev_app_destination(destination)
         if not destination.exists():
             return None
         backup = self.state / "transactions" / f"previous-{os.getpid()}-{int(time.time() * 1000)}.app"
@@ -445,6 +447,16 @@ class GrafLocalAdapter:
         # rollback snapshot, never evidence or application data.
         shutil.copytree(destination, backup)
         return backup
+
+    @staticmethod
+    def _assert_dev_app_destination(destination: Path) -> None:
+        """Reject production app paths before reading or mutating them."""
+        canonical = Path(os.path.realpath(destination))
+        production = Path(os.path.realpath(PRODUCTION_APP_PATH))
+        if destination.name != "GRAF Dev.app":
+            raise HarnessError("Dev destination must end in GRAF Dev.app")
+        if canonical == production or production in canonical.parents:
+            raise HarnessError("Dev destination cannot be the production GRAF.app or a child path")
 
     def _restore_app(self, backup: Optional[Path]) -> None:
         destination = Path(os.environ.get("GRAF_DEV_INSTALL_PATH", "/Applications/GRAF Dev.app"))

@@ -462,6 +462,49 @@ def test_decide_rejects_non_full_evidence_lane(tmp_path: Path) -> None:
     assert "lane=full" in decision["decision_reason"]
 
 
+def test_attest_rejects_release_from_different_github_repository(tmp_path: Path) -> None:
+    root = fixture(tmp_path)
+    script = root / "infra/scripts/release-candidate.sh"
+    subprocess.run(["git", "remote", "add", "origin", "https://github.com/yshishenya/graf.git"], cwd=root, check=True)
+    sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+    candidate_path = root / ".dev" / "release" / "candidate.json"
+    result = run(script, "freeze", "--sha", sha, "--feature-id", "216", "--operator", "release", "--output", str(candidate_path), cwd=root)
+    assert result.returncode == 0, result.stderr
+    candidate = json.loads(candidate_path.read_text(encoding="utf-8"))
+    evidence_path = root / "evidence.json"
+    evidence_path.write_text(json.dumps({
+        "run_id": "full-attest",
+        "lane": "full",
+        "requested_sha": sha,
+        "observed_sha_start": sha,
+        "observed_sha_end": sha,
+        "status": "passed",
+        "started_at": "2026-08-31T00:00:00Z",
+        "finished_at": "2026-08-31T00:01:00Z",
+        "commands": ["infra/scripts/ci-local.sh --full"],
+        "artifact_digests": {"full-log": "sha256:" + "a" * 64},
+        "skipped_gates": [],
+        "scope": "release candidate",
+        "candidate_id": candidate["candidate_id"],
+        "authoritative_full": True,
+        "component_shas": {"server": sha},
+    }), encoding="utf-8")
+    decision_path = root / "decision.json"
+    result = run(script, "decide", str(candidate_path), "--evidence", str(evidence_path), "--calver", "2026.08.31.1", "--output", str(decision_path), cwd=root)
+    assert result.returncode == 0, result.stderr
+    result = run(
+        script,
+        "attest",
+        str(decision_path),
+        "--release-url", "https://github.com/other/repo/releases/tag/v2026.08.31.1",
+        "--release-sha", sha,
+        "--operator", "release",
+        cwd=root,
+    )
+    assert result.returncode != 0
+    assert "does not match git origin" in result.stderr
+
+
 def test_prepare_release_preserves_multiline_limitation_values(tmp_path: Path) -> None:
     root = tmp_path
     (root / "scripts").mkdir()
