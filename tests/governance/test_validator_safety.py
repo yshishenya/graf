@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 from pathlib import Path
 
 
@@ -232,6 +233,33 @@ def test_feature_claim_can_upgrade_matching_offline_draft(monkeypatch) -> None:
         assert upgraded["status"] == "reserved"
         assert upgraded["issue_number"] == 6090
         assert validator._local_claim_records(root)["216"]["issue_number"] == 6090
+
+
+def test_feature_claim_requires_feature_label_on_github_umbrella(monkeypatch, tmp_path: Path) -> None:
+    validator = load_script("claim-feature")
+
+    def fake_run(*args, **kwargs):
+        return subprocess.CompletedProcess(
+            args[0],
+            0,
+            stdout=json.dumps(
+                {
+                    "number": 6090,
+                    "state": "OPEN",
+                    "title": "[216] Development governance harness",
+                    "body": "Feature ID: 216",
+                    "labels": [],
+                }
+            ),
+        )
+
+    monkeypatch.setattr(validator.subprocess, "run", fake_run)
+    try:
+        validator._github_umbrella(tmp_path, 6090, 216)
+    except SystemExit as exc:
+        assert "must have label feature:216" in str(exc)
+    else:
+        raise AssertionError("umbrella without feature label was accepted")
 
 
 def test_package_safety_allows_documentation_examples_but_rejects_credentials(tmp_path: Path) -> None:

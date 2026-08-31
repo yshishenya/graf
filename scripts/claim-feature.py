@@ -142,7 +142,7 @@ def _github_umbrella(root: Path, issue_number: int, feature_id: int) -> None:
     """Require the supplied open issue to explicitly identify this feature."""
     try:
         proc = subprocess.run(
-            ["gh", "issue", "view", str(issue_number), "--json", "number,title,body,state"],
+            ["gh", "issue", "view", str(issue_number), "--json", "number,title,body,state,labels"],
             cwd=root,
             check=True,
             capture_output=True,
@@ -155,6 +155,16 @@ def _github_umbrella(root: Path, issue_number: int, feature_id: int) -> None:
         raise SystemExit(f"feature-claim: GitHub umbrella issue #{issue_number} was not found")
     if row.get("state") not in (None, "OPEN"):
         raise SystemExit(f"feature-claim: umbrella issue #{issue_number} is not open")
+    labels = row.get("labels", [])
+    label_names = {
+        str(label.get("name", ""))
+        for label in labels
+        if isinstance(label, dict)
+    }
+    if f"feature:{feature_id}" not in label_names:
+        raise SystemExit(
+            f"feature-claim: umbrella issue #{issue_number} must have label feature:{feature_id}"
+        )
     marker = str(feature_id)
     text = f"{row.get('title', '')}\n{row.get('body', '')}"
     linked = (
