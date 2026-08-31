@@ -43,7 +43,6 @@
 
 - Self-test, clean sample smoke-test, package-safety scan и runtime-version
   check — PASS.
-
 ## [0.1.11] - 2026-08-31
 
 ### Исправлено
