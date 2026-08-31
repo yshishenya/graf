@@ -521,6 +521,9 @@ def self_test() -> int:
     assert any("forbidden private or credential" in error for error in ci_evidence(
         dict(good_evidence, scope="Authorization: Bearer abcdefghijkl")
     ))
+    assert any("forbidden private or credential" in error for error in ci_evidence(
+        dict(good_evidence, scope="authorization: bearer x")
+    ))
 
     good_pr = (
         "## Feature identity\nFeature ID: `F216`\nUmbrella issue: `#6090`\nSpec task IDs: `T042`\n"

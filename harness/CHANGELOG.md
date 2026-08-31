@@ -6,6 +6,8 @@
 
 - Добавлены portable CI contracts для receipts, release-train lineage и
   authoritative Full CI.
+- Добавлены fail-closed event identity, metadata-only CI receipt и release-train
+  contracts.
 - Добавлены bounded context, Feature ID allocation и package-content safety
   проверки.
 
