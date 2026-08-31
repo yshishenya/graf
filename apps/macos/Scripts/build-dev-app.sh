@@ -7,7 +7,12 @@ MACOS_DIR="$ROOT_DIR/apps/macos"
 BUILD_DIR="${GRAF_DEV_BUILD_DIR:-$MACOS_DIR/.build/dev}"
 APP_BUNDLE="${GRAF_DEV_APP_BUNDLE:-$BUILD_DIR/GRAF Dev.app}"
 LOCAL_ORIGIN="${GRAF_DEV_ORIGIN:-}"
-SIGNING_IDENTITY="${GRAF_DEV_SIGN_IDENTITY:-GRAF Local Code Signing}"
+SIGNING_IDENTITY="${GRAF_DEV_SIGNING_IDENTITY:-${GRAF_DEV_SIGN_IDENTITY:-GRAF Local Code Signing}}"
+if [ -n "${GRAF_DEV_SIGNING_IDENTITY:-}" ] && [ -n "${GRAF_DEV_SIGN_IDENTITY:-}" ] &&
+  [ "$GRAF_DEV_SIGNING_IDENTITY" != "$GRAF_DEV_SIGN_IDENTITY" ]; then
+  echo "GRAF Dev build: signing identity variables disagree; use GRAF_DEV_SIGNING_IDENTITY" >&2
+  exit 1
+fi
 DEV_BUNDLE_ID="pro.2brain.graf.dev"
 SOURCE_SHA="${GRAF_DEV_SOURCE_SHA:-$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || true)}"
 SOURCE_SHA_SHORT=$(printf '%s' "$SOURCE_SHA" | cut -c1-12)
