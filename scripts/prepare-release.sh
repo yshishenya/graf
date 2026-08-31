@@ -3,7 +3,7 @@
 set -euo pipefail
 
 if [[ $# -ne 1 ]]; then
-  echo "usage: $(basename "$0") <patch|minor|major|version>"
+  echo "usage: $(basename "$0") <YYYY.MM.DD.N>"
   exit 1
 fi
 
@@ -16,50 +16,89 @@ if [[ ! -f "$changelog" ]]; then
   exit 1
 fi
 
-latest_tag="$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n 1 || true)"
-if [[ -z "$latest_tag" ]]; then
-  latest_version="0.0.0"
-else
-  latest_version="${latest_tag#v}"
+if [[ ! "$bump_input" =~ ^[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+$ ]]; then
+  echo "error: product releases require explicit CalVer YYYY.MM.DD.N"
+  exit 1
 fi
-
-if [[ "$bump_input" =~ ^[0-9]+(\.[0-9]+){2,3}$ ]]; then
-  next_version="$bump_input"
-else
-  IFS='.' read -r major minor patch extra <<< "$latest_version"
-  if [[ -n "${extra:-}" ]]; then
-    echo "error: latest tag v$latest_version uses CalVer"
-    echo "pass an explicit version such as YYYY.MM.DD.N"
-    exit 1
-  fi
-  case "$bump_input" in
-    patch)
-      patch=$((patch + 1))
-      ;;
-    minor)
-      minor=$((minor + 1))
-      patch=0
-      ;;
-    major)
-      major=$((major + 1))
-      minor=0
-      patch=0
-      ;;
-    *)
-      echo "error: bump must be patch, minor, major, or explicit version"
-      exit 1
-      ;;
-  esac
-  next_version="$major.$minor.$patch"
-fi
+next_version="$bump_input"
 
 if git tag --list "v$next_version" | grep -q "v$next_version"; then
   echo "error: tag v$next_version already exists"
   exit 1
 fi
 
+if [[ -f "$PWD/scripts/validate-changelog-fragments.py" ]]; then
+  python3 scripts/validate-changelog-fragments.py --root "$PWD"
+fi
+
 unreleased_content="$(awk '/^## \[Unreleased\]/{record=1; next} /^## \[Unreleased Template\]/{if (record) exit} record{print}' "$changelog")"
 
+# Feature agents own independent fragments. The release operator is the only
+# writer that assembles them into the root changelog.
+fragment_content="$(python3 - "$PWD" <<'PY'
+import json
+import re
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+titles = {
+    "Added": "Добавлено",
+    "Changed": "Изменено",
+    "Fixed": "Исправлено",
+    "Security": "Безопасность",
+    "Docs": "Документы",
+    "Ops": "Операции",
+}
+groups = {key: [] for key in titles}
+for path in sorted((root / "changes" / "unreleased").glob("F*.yaml")):
+    text = path.read_text(encoding="utf-8")
+
+    def value(name):
+        match = re.search(r"^" + re.escape(name) + r":\s*(.*)$", text, re.MULTILINE)
+        if not match:
+            return ""
+        raw = match.group(1).strip()
+        if raw.startswith('"') and raw.endswith('"'):
+            try:
+                return json.loads(raw)
+            except json.JSONDecodeError:
+                return raw[1:-1]
+        return raw.strip("'")
+
+    category = value("category")
+    feature = value("feature_id")
+    summary = value("summary")
+    issue = value("issue")
+    tasks = value("tasks")
+    compatibility = value("compatibility")
+    limitations = value("known_limitations")
+    if category not in groups or not feature or not summary:
+        raise SystemExit(f"invalid fragment fields: {path}")
+    refs = [f"Фича {feature}"]
+    if issue and issue not in {"null", "[]"}:
+        refs.append(f"issue #{issue.lstrip('#')}")
+    if tasks and tasks not in {"null", "[]"}:
+        refs.append(f"tasks {tasks}")
+    entry = f"- {summary} ({', '.join(refs)})"
+    if compatibility:
+        entry += f"; совместимость: {compatibility}"
+    if limitations and limitations not in {"[]", "null"}:
+        entry += f"; ограничения: {limitations}"
+    groups[category].append(entry)
+for category, title in titles.items():
+    if groups[category]:
+        print(f"### {title}")
+        print("\n".join(groups[category]))
+PY
+)"
+if [[ -n "$fragment_content" ]]; then
+  if [[ -n "$unreleased_content" ]]; then
+    unreleased_content="$fragment_content"$'\n\n'"$unreleased_content"
+  else
+    unreleased_content="$fragment_content"
+  fi
+fi
 if [[ -z "${unreleased_content}" ]]; then
   echo "error: unreleased block is empty. add entries before release"
   exit 1
@@ -108,5 +147,14 @@ EOF
 } > "$tmp_file"
 
 mv "$tmp_file" "$changelog"
+fragment_dir="$PWD/changes/unreleased"
+archive_dir="$PWD/changes/releases/v$next_version"
+if [[ -d "$fragment_dir" ]] && compgen -G "$fragment_dir/F*.yaml" > /dev/null; then
+  mkdir -p "$archive_dir"
+  for fragment in "$fragment_dir"/F*.yaml; do
+    mv "$fragment" "$archive_dir/"
+  done
+  echo "Archived release fragments in $archive_dir"
+fi
 echo "Prepared release section in $changelog for v$next_version"
 echo "Next step: git add CHANGELOG.md && git commit -m \"chore: prepare release v$next_version\" && git tag -a v$next_version -m \"Release v$next_version\""

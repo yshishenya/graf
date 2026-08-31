@@ -1,0 +1,96 @@
+#!/usr/bin/env python3
+"""Validate the explicit per-worktree Spec Kit context pointer."""
+from __future__ import annotations
+
+import argparse
+import json
+import subprocess
+import re
+import sys
+from pathlib import Path
+
+
+def validate(root: Path) -> list[str]:
+    errors: list[str] = []
+    pointer = root / ".specify" / "feature.json"
+    if not pointer.is_file():
+        return ["missing .specify/feature.json; refusing mtime-based feature selection"]
+    try:
+        data = json.loads(pointer.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return [f"invalid .specify/feature.json: {exc}"]
+    required = ("feature_directory", "feature_id", "owner", "risk_lane", "owned_paths")
+    for key in required:
+        if key not in data or data[key] in (None, "", []):
+            errors.append(f"missing required context field: {key}")
+    feature_dir = data.get("feature_directory")
+    if not isinstance(feature_dir, str) or not re.fullmatch(r"specs/\d{3}-[a-z0-9][a-z0-9-]*", feature_dir):
+        errors.append("feature_directory must match specs/NNN-slug")
+    else:
+        path = (root / feature_dir).resolve()
+        if root.resolve() not in path.parents or not (path / "spec.md").is_file():
+            errors.append("feature_directory must point to a spec.md inside this worktree")
+        else:
+            expected = path.name.split("-", 1)[0]
+            if str(data.get("feature_id", "")) != expected:
+                errors.append("feature_id must match the spec directory prefix")
+    branch = data.get("branch")
+    if branch is not None and not isinstance(branch, str):
+        errors.append("branch must be a string when present")
+    if isinstance(branch, str):
+        try:
+            actual = subprocess.run(["git", "branch", "--show-current"], cwd=root, text=True, capture_output=True, check=True).stdout.strip()
+            if actual and actual != branch:
+                errors.append(f"branch mismatch: pointer={branch!r}, checkout={actual!r}")
+        except (OSError, subprocess.CalledProcessError):
+            pass
+    source_sha = data.get("source_sha")
+    if source_sha is not None and (not isinstance(source_sha, str) or (source_sha and not re.fullmatch(r"[0-9a-f]{7,64}", source_sha))):
+        errors.append("source_sha must be a git SHA when present")
+    if isinstance(source_sha, str) and source_sha:
+        try:
+            actual_sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, text=True, capture_output=True, check=True).stdout.strip()
+            if actual_sha != source_sha:
+                errors.append("source_sha does not match current HEAD; refresh context before changing files")
+        except (OSError, subprocess.CalledProcessError):
+            pass
+    if not isinstance(data.get("owned_paths"), list) or not all(isinstance(item, str) and item for item in data["owned_paths"]):
+        errors.append("owned_paths must be a non-empty list of relative paths")
+    elif any(Path(item).is_absolute() or ".." in Path(item).parts for item in data["owned_paths"]):
+        errors.append("owned_paths must stay relative to this worktree")
+    agents = (root / "AGENTS.md").read_text(encoding="utf-8", errors="ignore") if (root / "AGENTS.md").is_file() else ""
+    if re.search(r"at specs/\d{3}-[^\s`]+/plan\.md", agents):
+        errors.append("root AGENTS.md contains a dynamic plan pointer")
+    return errors
+
+
+def self_test() -> int:
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix="graf-context-") as tmp:
+        root = Path(tmp); (root / ".specify").mkdir(); (root / "specs/001-x").mkdir(parents=True)
+        (root / "specs/001-x/spec.md").write_text("# x\n", encoding="utf-8")
+        (root / ".specify/feature.json").write_text(json.dumps({"feature_directory":"specs/001-x","feature_id":"001","branch":"","source_sha":"","owner":"test","risk_lane":"significant-feature","owned_paths":["specs/001-x"]}), encoding="utf-8")
+        assert validate(root) == []
+        (root / ".specify/feature.json").write_text('{"feature_directory":"specs/002-y"}\n', encoding="utf-8")
+        assert validate(root)
+    print("agent-context self-test: OK")
+    return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--root", type=Path, default=Path.cwd())
+    parser.add_argument("--self-test", action="store_true")
+    args = parser.parse_args()
+    if args.self_test:
+        return self_test()
+    errors = validate(args.root.resolve())
+    if errors:
+        for error in errors: print(f"agent-context: ERROR: {error}", file=sys.stderr)
+        return 1
+    print("agent-context: OK")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

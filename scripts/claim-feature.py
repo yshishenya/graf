@@ -1,0 +1,253 @@
+#!/usr/bin/env python3
+"""Deterministic Feature ID preflight for the GRAF/Spec Kit workflow.
+
+The script does not pretend to reserve a number without a GitHub umbrella issue.
+It validates a caller-supplied claim against local specs and Git refs and emits a
+small metadata-only manifest. The GitHub issue remains the authoritative atomic
+reservation record.
+"""
+from __future__ import annotations
+
+import argparse
+import fcntl
+import json
+import re
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+from typing import Iterable
+
+
+ID_RE = re.compile(r"(?:^|/)(\d{3,})-")
+
+
+def _ids_from_specs(root: Path) -> set[int]:
+    specs = root / "specs"
+    if not specs.is_dir():
+        return set()
+    result: set[int] = set()
+    for path in specs.iterdir():
+        if path.is_dir():
+            match = re.match(r"^(\d{3,})(?:-|$)", path.name)
+            if match:
+                result.add(int(match.group(1)))
+    return result
+
+
+def _git_refs(root: Path) -> list[str]:
+    try:
+        proc = subprocess.run(
+            ["git", "for-each-ref", "--format=%(refname:short)"],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return []
+    return [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+
+
+def _ids_from_refs(refs: Iterable[str]) -> set[int]:
+    result: set[int] = set()
+    for ref in refs:
+        for match in ID_RE.finditer(ref):
+            result.add(int(match.group(1)))
+    return result
+
+
+def _github_ids(root: Path) -> set[int]:
+    """Read visible issue/PR metadata when gh is available; never guess offline."""
+    result: set[int] = set()
+    for kind in ("issue", "pr"):
+        try:
+            proc = subprocess.run(
+                ["gh", kind, "list", "--state", "all", "--limit", "1000",
+                 "--json", "title,body,labels"],
+                cwd=root, check=True, capture_output=True, text=True,
+            )
+            rows = json.loads(proc.stdout or "[]")
+        except (OSError, subprocess.CalledProcessError, json.JSONDecodeError):
+            continue
+        for row in rows if isinstance(rows, list) else []:
+            labels = row.get("labels", []) if isinstance(row, dict) else []
+            label_text = " ".join(str(item.get("name", "")) for item in labels if isinstance(item, dict))
+            title = str(row.get("title", ""))
+            body = str(row.get("body", ""))
+            # Only consume explicit feature markers. Generic numbers in issue
+            # bodies include timestamps, hashes and external IDs and can make
+            # the suggested next feature number nonsensically large.
+            result |= {int(value) for value in re.findall(r"^\[(\d{3,})\]", title)}
+            result |= {int(value) for value in re.findall(r"feature:(\d{3,})\b", label_text, flags=re.IGNORECASE)}
+            result |= {int(value) for value in re.findall(r"(?:Feature ID|feature_id)\s*:\s*`?F?(\d{3,})\b", body, flags=re.IGNORECASE)}
+    return result
+
+
+def _local_claim_ids(root: Path) -> set[int]:
+    try:
+        git_dir = _git_common_dir(root)
+        if not git_dir.is_absolute():
+            git_dir = root / git_dir
+        data = json.loads((git_dir / "feature-claims.json").read_text(encoding="utf-8"))
+        return {int(key) for key in data if re.fullmatch(r"\d{3,}", str(key))}
+    except (OSError, subprocess.CalledProcessError, json.JSONDecodeError, ValueError):
+        return set()
+
+
+def _parse_ids(values: Iterable[str]) -> set[int]:
+    result: set[int] = set()
+    for value in values:
+        for match in ID_RE.finditer(value):
+            result.add(int(match.group(1)))
+    return result
+
+
+def _git_common_dir(root: Path) -> Path:
+    """Resolve the shared Git metadata directory used by every worktree."""
+    output = subprocess.run(
+        ["git", "rev-parse", "--git-common-dir"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    return Path(output)
+
+
+def _available_id(occupied: set[int], start: int) -> int:
+    candidate = max(1, start)
+    while candidate in occupied:
+        candidate += 1
+    return candidate
+
+
+def claim(root: Path, feature_id: int, *, issue_number: int | None, branch: str, slug: str, offline: bool) -> dict[str, object]:
+    refs = _git_refs(root)
+    occupied = _ids_from_specs(root) | _ids_from_refs(refs) | _local_claim_ids(root)
+    if not offline:
+        occupied |= _github_ids(root)
+    if feature_id in occupied:
+        conflicts = sorted(
+            [f"spec/branch ref containing {feature_id:03d}"],
+        )
+        raise SystemExit(
+            f"feature-claim: collision for {feature_id:03d}; inspect specs and refs ({', '.join(conflicts)})"
+        )
+    if not offline and issue_number is None:
+        raise SystemExit("feature-claim: GitHub umbrella issue is required; use --offline only for draft mode")
+    if not branch or not slug:
+        raise SystemExit("feature-claim: branch and slug are required")
+    # Worktrees share this directory; the lock serializes claims across all of
+    # them instead of creating one reservation file per worktree.
+    git_dir = _git_common_dir(root)
+    if not git_dir.is_absolute():
+        git_dir = root / git_dir
+    lock_path = git_dir / "feature-claim.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        claims_path = lock_path.with_name("feature-claims.json")
+        try:
+            claims = json.loads(claims_path.read_text(encoding="utf-8")) if claims_path.exists() else {}
+        except (OSError, json.JSONDecodeError):
+            claims = {}
+        key = f"{feature_id:03d}"
+        if key in claims and claims[key].get("issue_number") != issue_number:
+            raise SystemExit(f"feature-claim: local claim already exists for {key}")
+        claims[key] = {"issue_number": issue_number, "branch": branch, "slug": slug}
+        claims_path.write_text(json.dumps(claims, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    return {
+        "schema_version": 1,
+        "feature_id": f"{feature_id:03d}",
+        "issue_number": issue_number,
+        "branch": branch,
+        "slug": slug,
+        "source_sha": _git_sha(root),
+        "status": "draft" if offline else "reserved",
+    }
+
+
+def _git_sha(root: Path) -> str | None:
+    try:
+        return subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return None
+
+
+def self_test() -> int:
+    with tempfile.TemporaryDirectory(prefix="graf-feature-claim-") as tmp:
+        root = Path(tmp)
+        subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+        (root / "specs" / "001-old").mkdir(parents=True)
+        (root / "specs" / "001-old" / "spec.md").write_text("# old\n", encoding="utf-8")
+        occupied = _ids_from_specs(root) | _ids_from_refs(["origin/codex/215-summary-auto-recovery", "origin/codex/1024-large-feature"])
+        assert occupied == {1, 215, 1024}
+        assert _available_id(occupied, 1) == 2
+        assert _available_id(occupied, 215) == 216
+        try:
+            claim(root, 1, issue_number=1, branch="codex/001-x", slug="x", offline=False)
+        except SystemExit as exc:
+            assert "collision" in str(exc)
+        else:
+            raise AssertionError("occupied ID was accepted")
+        draft = claim(root, 216, issue_number=None, branch="draft/216-x", slug="x", offline=True)
+        assert draft["status"] == "draft"
+        assert _local_claim_ids(root) == {216}
+        subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=root, check=True)
+        subprocess.run(["git", "config", "user.name", "Feature Claim Test"], cwd=root, check=True)
+        subprocess.run(["git", "add", "specs"], cwd=root, check=True)
+        subprocess.run(["git", "commit", "-qm", "fixture"], cwd=root, check=True)
+        linked = root.parent / "linked-worktree"
+        subprocess.run(["git", "worktree", "add", "-q", str(linked), "HEAD"], cwd=root, check=True)
+        try:
+            try:
+                claim(linked, 216, issue_number=None, branch="draft/216-y", slug="y", offline=True)
+            except SystemExit as exc:
+                assert "collision" in str(exc)
+            else:
+                raise AssertionError("linked worktree reused an existing claim")
+        finally:
+            subprocess.run(["git", "worktree", "remove", "--force", str(linked)], cwd=root, check=True)
+    print("feature-claim self-test: OK")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--root", type=Path, default=Path.cwd())
+    parser.add_argument("--feature-id", type=int)
+    parser.add_argument("--issue-number", type=int)
+    parser.add_argument("--branch", default="")
+    parser.add_argument("--slug", default="")
+    parser.add_argument("--offline", action="store_true")
+    parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("--json", action="store_true")
+    args = parser.parse_args(argv)
+    if args.self_test:
+        return self_test()
+    root = args.root.resolve()
+    if args.feature_id is None:
+        occupied = _ids_from_specs(root) | _ids_from_refs(_git_refs(root)) | _local_claim_ids(root)
+        if not args.offline:
+            # A suggested number is useful only when it includes the same
+            # remote collision sources as an actual claim. Offline mode is
+            # explicitly a draft and must be labelled as such.
+            occupied |= _github_ids(root)
+        next_id = _available_id(occupied, max(1, max(occupied, default=0) + 1))
+        print(json.dumps({"next_available": f"{next_id:03d}", "occupied_count": len(occupied), "mode": "offline-draft" if args.offline else "github-checked"}))
+        return 0
+    try:
+        result = claim(root, args.feature_id, issue_number=args.issue_number, branch=args.branch, slug=args.slug, offline=args.offline)
+    except SystemExit:
+        raise
+    output = json.dumps(result, ensure_ascii=False, sort_keys=True)
+    print(output if args.json else f"feature-claim: {output}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -105,6 +105,33 @@ Review the changelog and release metadata, commit that release-prep change, and
 use the resulting commit as the candidate. The full lane must run after this
 step, because release metadata is part of what will be shipped.
 
+Freeze the exact release boundary before starting Full CI:
+
+    infra/scripts/release-candidate.sh freeze \
+      --features <feature[,feature,...]> \
+      --operator <release-operator> \
+      --output infra/release/candidate.json
+    infra/scripts/release-candidate.sh validate \
+      infra/release/candidate.json --current
+
+\`freeze\` requires a clean checkout, records the exact HEAD and changelog
+digest, and refuses to overwrite an existing candidate. It never creates a tag
+or GitHub Release. Full evidence must include \`candidate_id\`,
+\`authoritative_full=true\`, component SHA checks and artifact digests. Attach
+that evidence to a separate immutable decision record:
+
+    infra/scripts/release-candidate.sh decide infra/release/candidate.json \
+      --evidence path/to/full-evidence.json \
+      --calver YYYY.MM.DD.N \
+      --output infra/release/candidate.decision.json
+
+`decide` validates the Full CI evidence, checks its candidate ID and exact SHA,
+and writes a separate create-once decision record; it never overwrites the
+frozen candidate. Only `go` from this decision record may proceed to tag/release
+preparation. A failed, stale, interrupted or mismatched run produces `no-go`.
+Changed HEAD or changelog, a failed/interrupted run, a component mismatch, or
+skipped gates produces \`no-go\`; create a new candidate after correction.
+
 Run the full lane directly only for broad diagnosis:
 
 ```sh
@@ -131,6 +158,11 @@ After explicit production approval, run:
 ```sh
 infra/scripts/cd-remote.sh --execute --branch <branch>
 ```
+
+Для production `--execute` обязательно передаётся `--candidate
+<candidate.decision.json>` (или задаётся `GRAF_RELEASE_CANDIDATE`). Скрипт
+проверяет текущий SHA и changelog digest, затем допускает только decision
+`status=go`; frozen/no-go/stale candidate блокируется до удалённых действий.
 
 `--execute` requires a clean tracked-and-untracked worktree, synchronizes and
 pins the SHA, runs `ci-local.sh --full`, re-checks the clean worktree plus local
@@ -265,13 +297,32 @@ reduces repeated release overhead. Two planned release windows per day are a
 useful operating rhythm, not a hard gate; an explicitly marked hotfix remains
 available when production risk requires it.
 
+### Release-train checklist
+
+- [ ] Release window, owner and included Feature IDs are recorded.
+- [ ] Each included PR has fast evidence on its own exact SHA.
+- [ ] \`prepare-release.sh YYYY.MM.DD.N\` assembled fragments and passed CalVer,
+      Russian notes, compatibility, limitations and rollback review.
+- [ ] \`release-candidate.sh freeze\` produced one immutable candidate manifest.
+- [ ] Exactly one authoritative Full CI identity passed for that candidate;
+      stale, cancelled, ambiguous and skipped-gate results do not qualify.
+- [ ] Candidate SHA and changelog digest are unchanged after Full CI.
+- [ ] CD dry-run passed; production execute and tag/GitHub Release wait for
+      explicit approval.
+
 ## Changelog
 
-Maintain `CHANGELOG.md` in the repository root.
+Maintain `CHANGELOG.md` in the repository root, but do not make it a parallel
+agent write target. During feature work each agent owns one
+`changes/unreleased/F<feature-id>.yaml` fragment. The release operator alone
+assembles fragments into `[Unreleased]` while freezing a release candidate.
 
 Every implemented feature slice that changes behavior, architecture, UX, QA
-expectations, operations, or release readiness must update `[Unreleased]` before
-merge.
+expectations, operations, or release readiness must update its fragment before
+merge. The fragment must contain a category, Russian summary, Feature ID,
+issue/task links, compatibility impact and known limitations. The root file is
+updated only by the release operator, preserving one writer and conflict-free
+parallel work.
 
 Keep entries grouped by:
 
@@ -283,6 +334,24 @@ Keep entries grouped by:
 - `Ops`
 
 Include feature, issue, or task references when available.
+
+## Legacy Definition of Done
+
+Every feature and PR must include a `Legacy Impact` classification (`remove`,
+`retain-with-exception` or `untouched`). New aliases, fallback names, flags,
+dependencies, fixtures, tests or documentation that preserve an old path are
+not accepted. A compatibility exception must name an owner, expiry date,
+removal trigger, risk, validation and retirement task. The release gate checks:
+
+```text
+legacy_new=0
+unowned_legacy=0
+expired_exceptions=0
+```
+
+Existing migrations, Temporal history, Sparkle/client compatibility and other
+production boundaries are retired in separate features with cutover and
+rollback evidence; this rule does not authorize mass deletion.
 
 ## Versioning
 

@@ -126,7 +126,9 @@ The plan must:
 - create `data-model.md` where data is involved;
 - create `contracts/` for APIs, capture/session protocols, or UI contracts;
 - create `quickstart.md` with validation scenarios;
-- update the root `AGENTS.md` plan reference between the Spec Kit markers.
+- keep the root `AGENTS.md` stable; active feature routing belongs only to the
+  ignored per-worktree `.specify/feature.json` pointer and the explicit
+  prerequisite command output.
 
 Planning stops when constitution gates fail or important clarifications remain
 unresolved.
@@ -283,7 +285,8 @@ implementation does not satisfy this closeout.
 
 ## Commit Checkpoints
 
-Spec Kit documentation stages may use user-approved auto-commit hooks:
+Spec Kit documentation stages may use explicitly approved documentation
+commits, but auto-commit hooks are disabled by default:
 
 - `$speckit-constitution` -> constitution updates
 - `$speckit-specify` -> `spec.md`

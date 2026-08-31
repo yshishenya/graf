@@ -64,9 +64,12 @@ complete GRAF path. Custom checklist state is reviewer-owned; implementation
 must read it as a gate and must not mark review items complete.
 
 <!-- SPECKIT START -->
-For additional context about technologies to be used, project structure,
-shell commands, and other important information, read the current plan
-at specs/212-spec-kit-workflow-hardening/plan.md
+For feature-specific context, read only the active paths reported by
+`.specify/feature.json` and `.specify/scripts/bash/check-prerequisites.sh
+--json --paths-only`. Do not infer a feature from file mtime, a physical
+worktree folder name, or a plan pointer in this file. Read the active feature's
+`spec.md`, `plan.md`, `tasks.md` and `quickstart.md` plus only the guidance
+files required by its risk lane. Keep this root file stable across features.
 <!-- SPECKIT END -->
 
 ## Tracking and product gates
@@ -97,8 +100,9 @@ Gatekeeper, Sparkle signature, and live appcast checks are mandatory; the full
 procedure is in `macos-notarization.md`. Never publish a non-notarized build.
 
 Implementation commits require explicit user approval after validation. Never
-reset or discard user changes. Update `CHANGELOG.md` for behavior, architecture,
-UX/QA, operations, or release-readiness changes.
+reset or discard user changes. Feature work writes an owned changelog fragment
+under `changes/unreleased/`; the release operator alone assembles root
+`CHANGELOG.md` for a frozen release candidate.
 
 <!-- SPECKIT RELEASE VERSIONING START -->
 ## Правила релизов и версий

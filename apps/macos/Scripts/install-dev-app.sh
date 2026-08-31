@@ -19,9 +19,24 @@ fail() {
 [ -x "$BUILDER" ] || fail "Dev builder is missing or not executable"
 
 CANDIDATE="$TEMP_ROOT/GRAF Dev.app"
-GRAF_DEV_BUILD_DIR="$TEMP_ROOT/build" \
-GRAF_DEV_APP_BUNDLE="$CANDIDATE" \
-  sh "$BUILDER"
+LOCAL_ORIGIN="${GRAF_DEV_ORIGIN:-}"
+SOURCE_SHA="${GRAF_DEV_SOURCE_SHA:-$(git -C "$ROOT_DIR" rev-parse HEAD)}"
+MANIFEST_ID="${GRAF_DEV_MANIFEST_ID:-dev-$(printf '%s' "$SOURCE_SHA" | cut -c1-12)}"
+SOURCE_BUNDLE="${GRAF_DEV_APP_SOURCE_BUNDLE:-}"
+[ -n "$LOCAL_ORIGIN" ] || fail "GRAF_DEV_ORIGIN must be explicitly supplied"
+[ "$SOURCE_SHA" ] && printf '%s' "$SOURCE_SHA" | grep -Eq '^[0-9a-fA-F]{40}$' || fail "GRAF_DEV_SOURCE_SHA must be a 40-character git SHA"
+if [ -n "$SOURCE_BUNDLE" ]; then
+  [ "$(basename -- "$SOURCE_BUNDLE")" = "GRAF Dev.app" ] || fail "prebuilt Dev bundle must end in GRAF Dev.app"
+  [ -d "$SOURCE_BUNDLE" ] || fail "prebuilt Dev bundle is missing: $SOURCE_BUNDLE"
+  ditto --norsrc --noextattr --noqtn "$SOURCE_BUNDLE" "$CANDIDATE"
+else
+  GRAF_DEV_BUILD_DIR="$TEMP_ROOT/build" \
+  GRAF_DEV_APP_BUNDLE="$CANDIDATE" \
+  GRAF_DEV_SOURCE_SHA="$SOURCE_SHA" \
+  GRAF_DEV_MANIFEST_ID="$MANIFEST_ID" \
+  GRAF_DEV_ORIGIN="$LOCAL_ORIGIN" \
+    sh "$BUILDER"
+fi
 
 INFO_PLIST="$CANDIDATE/Contents/Info.plist"
 plutil -extract CFBundleDisplayName raw "$INFO_PLIST" | grep -Fxq "GRAF Dev" || fail "candidate display name is invalid"
@@ -30,6 +45,8 @@ plutil -extract CFBundleExecutable raw "$INFO_PLIST" | grep -Fxq "GRAF" || fail 
 [ ! -e "$CANDIDATE/Contents/MacOS/GRAF-dev" ] || fail "shell launcher cannot own the Dev bundle identity"
 plutil -extract LSEnvironment.GRAF_APP_CHANNEL raw "$INFO_PLIST" | grep -Fxq "dev" ||
   fail "candidate channel is not Dev"
+plutil -extract GRAFSourceSHA raw "$INFO_PLIST" | grep -Fxq "$SOURCE_SHA" ||
+  fail "candidate source SHA metadata is invalid"
 plutil -extract LSEnvironment.GRAF_CABINET_BASE_URL raw "$INFO_PLIST" | grep -Eq '^http://(127\.0\.0\.1|localhost):' ||
   fail "candidate origin is not loopback"
 if plutil -extract SUFeedURL raw "$INFO_PLIST" >/dev/null 2>&1 ||

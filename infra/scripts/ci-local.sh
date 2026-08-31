@@ -14,7 +14,8 @@ classify_path() {
     apps/macos/*)
       echo macos
       ;;
-    infra/docker-compose.yml|infra/server/*|infra/scripts/*.sh|infra/scripts/*.py|\
+    infra/docker-compose.yml|infra/server/*|infra/dev/*|infra/release/*|infra/scripts/*.sh|infra/scripts/*.py|\
+    harness/*|tests/governance/*|changes/unreleased/*|\
     docs/deployments/*|\
     scripts/*|.specify/*|.github/workflows/*|.github/actions/*|\
     Dockerfile*|docker-compose*|Makefile|pyproject.toml)
@@ -188,6 +189,9 @@ check_diff_whitespace() {
 
 main() (
   set -uo pipefail
+  local requested_sha="${GRAF_CI_REQUESTED_SHA:-}"
+  local observed_sha_start=""
+  local observed_sha_end=""
   local requested_mode="unselected"
   local effective_mode="unselected"
   local components="none"
@@ -216,6 +220,12 @@ main() (
 
   finish_ci() {
     local exit_status=$?
+    observed_sha_end="$(git rev-parse HEAD 2>/dev/null || true)"
+    if [[ -n "$observed_sha_start" && "$observed_sha_end" != "$observed_sha_start" ]]; then
+      printf 'ci_evidence_status=stale requested_sha=%s observed_sha_start=%s observed_sha_end=%s reason=target_changed_during_run\n' "${requested_sha:-$observed_sha_start}" "$observed_sha_start" "$observed_sha_end" >&2
+      exit_status=2
+      pipeline_result="fail"
+    fi
     trap - EXIT INT TERM
     pipeline_completed="$(date +%s)"
     pipeline_duration=$((pipeline_completed - pipeline_started))
@@ -259,6 +269,12 @@ main() (
   esac
 
   cd "$repo_root" || return 1
+  observed_sha_start="$(git rev-parse HEAD)"
+  if [[ -n "$requested_sha" && "$requested_sha" != "$observed_sha_start" ]]; then
+    printf 'ci_evidence_status=stale requested_sha=%s observed_sha_start=%s reason=target_changed\n' "$requested_sha" "$observed_sha_start" >&2
+    pipeline_result="fail"
+    return 2
+  fi
   performance_proof="$(calendar_performance_test_path)" || return 1
 
   if ! changed_list="$(changed_files)"; then
@@ -403,6 +419,11 @@ main() (
     "$requested_mode" "$effective_mode" "$components" "$selection_reason" "$performance_gate" \
     "$coverage" "$next_gate"
 
+  process_preflight=(python3 scripts/check-development-process.py)
+  if [[ -n "${GRAF_PR_BODY_FILE:-}" ]]; then
+    process_preflight+=(--pr-body "$GRAF_PR_BODY_FILE")
+  fi
+  run_step "Development process preflight" "${process_preflight[@]}" || return $?
   run_step "Spec Kit governance" python3 scripts/check_spec_kit_governance.py || return $?
 
   if [[ "$effective_mode" == "full" ]]; then

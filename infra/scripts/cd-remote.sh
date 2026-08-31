@@ -6,6 +6,7 @@ SKIP_LOCAL_CI=0
 BRANCH="${TWOBRAIN_DEPLOY_BRANCH:-$(git branch --show-current)}"
 REMOTE_HOST="${TWOBRAIN_DEPLOY_HOST:-2brain.dev}"
 REMOTE_PATH="${TWOBRAIN_DEPLOY_PATH:-/opt/projects/2brain-rec}"
+CANDIDATE_PATH="${GRAF_RELEASE_CANDIDATE:-}"
 
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
@@ -25,8 +26,12 @@ while [[ "$#" -gt 0 ]]; do
       BRANCH="${2:-}"
       shift 2
       ;;
+    --candidate)
+      CANDIDATE_PATH="${2:-}"
+      shift 2
+      ;;
     *)
-      echo "usage: $0 [--dry-run|--execute] [--skip-local-ci] [--branch <name>]" >&2
+      echo "usage: $0 [--dry-run|--execute] [--skip-local-ci] [--branch <name>] [--candidate <decision.json>]" >&2
       exit 2
       ;;
   esac
@@ -45,12 +50,19 @@ if [[ "$MODE" == "execute" && "$BRANCH" != "master" ]]; then
   exit 1
 fi
 
+if [[ "$MODE" == "execute" && -z "$CANDIDATE_PATH" ]]; then
+  echo "deploy_result=blocked"
+  echo "reason=release_candidate_required"
+  exit 1
+fi
+
 if [[ "$MODE" == "dry-run" ]]; then
   cat <<EOF
 deploy_result=dry_run
 remote_host=$REMOTE_HOST
 remote_path=$REMOTE_PATH
 branch=$BRANCH
+candidate=${CANDIDATE_PATH:-required_for_execute}
 local_ci=$([[ "$SKIP_LOCAL_CI" == "1" ]] && echo skipped_incident_only || echo full_required)
 posthog_stack_handoff=dry_run_metadata_only
 posthog_stack_contract=infra/posthog/docker-compose.posthog.yml
@@ -92,6 +104,25 @@ if [[ "$EXPECTED_SHA" != "$ORIGIN_SHA" ]]; then
   echo "local_sha=$EXPECTED_SHA"
   echo "origin_sha=$ORIGIN_SHA"
   exit 1
+fi
+
+if [[ -n "$CANDIDATE_PATH" ]]; then
+  [[ -f "$CANDIDATE_PATH" ]] || { echo "deploy_result=blocked"; echo "reason=release_candidate_missing"; exit 1; }
+  infra/scripts/release-candidate.sh validate "$CANDIDATE_PATH" --current
+  candidate_status="$(python3 - "$CANDIDATE_PATH" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as handle:
+    data = json.load(handle)
+print(data.get("status", ""))
+PY
+)"
+  if [[ "$candidate_status" != "go" ]]; then
+    echo "deploy_result=blocked"
+    echo "reason=release_candidate_not_go"
+    echo "candidate_status=$candidate_status"
+    exit 1
+  fi
+  echo "release_candidate=go"
 fi
 
 if [[ "$SKIP_LOCAL_CI" != "1" ]]; then

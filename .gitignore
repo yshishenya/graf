@@ -80,6 +80,7 @@ out/
 
 # Spec Kit/Codex generated working files
 .specify/extensions/.registry
+.specify/extensions/.cache/
 .specify/integrations/codex.manifest.json
 .specify/scripts/bash/check-prerequisites.sh
 .specify/scripts/bash/common.sh

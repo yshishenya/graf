@@ -9,6 +9,9 @@ APP_BUNDLE="${GRAF_DEV_APP_BUNDLE:-$BUILD_DIR/GRAF Dev.app}"
 LOCAL_ORIGIN="${GRAF_DEV_ORIGIN:-}"
 SIGNING_IDENTITY="${GRAF_DEV_SIGN_IDENTITY:-GRAF Local Code Signing}"
 DEV_BUNDLE_ID="pro.2brain.graf.dev"
+SOURCE_SHA="${GRAF_DEV_SOURCE_SHA:-$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || true)}"
+SOURCE_SHA_SHORT=$(printf '%s' "$SOURCE_SHA" | cut -c1-12)
+MANIFEST_ID="${GRAF_DEV_MANIFEST_ID:-dev-$SOURCE_SHA_SHORT}"
 
 fail() {
   echo "GRAF Dev build: $1" >&2
@@ -16,6 +19,8 @@ fail() {
 }
 
 [ -n "$LOCAL_ORIGIN" ] || fail "GRAF_DEV_ORIGIN must be explicitly supplied"
+[ "$SOURCE_SHA" ] && printf '%s' "$SOURCE_SHA" | grep -Eq '^[0-9a-fA-F]{40}$' || fail "GRAF_DEV_SOURCE_SHA must be a 40-character git SHA"
+[ "$MANIFEST_ID" ] && printf '%s' "$MANIFEST_ID" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$' || fail "GRAF_DEV_MANIFEST_ID contains unsupported characters"
 [ "$(basename -- "$APP_BUNDLE")" = "GRAF Dev.app" ] || fail "Dev bundle path must end in GRAF Dev.app"
 case "$LOCAL_ORIGIN" in
   http://127.0.0.1:*|http://localhost:*) ;;
@@ -97,6 +102,10 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<EOF
   <string>0.0.0-dev</string>
   <key>CFBundleVersion</key>
   <string>0.0.0-dev</string>
+  <key>GRAFSourceSHA</key>
+  <string>$SOURCE_SHA</string>
+  <key>GRAFManifestID</key>
+  <string>$MANIFEST_ID</string>
   <key>LSMinimumSystemVersion</key>
   <string>14.5</string>
   <key>NSHighResolutionCapable</key>
