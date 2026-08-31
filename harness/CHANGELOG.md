@@ -1,6 +1,29 @@
 # Changelog
 
-## [Unreleased] — планируется `v0.1.8`
+## [0.1.8] - 2026-08-31
+
+### Исправлено
+
+- Усилена проверка portable context: feature directory, `spec.md`, numeric ID и symlink containment.
+- Уточнена проверка Legacy Impact; разрешён безопасный комментарий после classification.
+- Artifact identities ограничены безопасным форматом; `source-revision` связывается с observed SHA.
+- Добавлен bounded Codex skill для progressive disclosure и bounded context.
+
+### Совместимость
+
+- Python 3.9+; CLI и validator API обратно совместимы с `v0.1.7`.
+- Откат: immutable `v0.1.7`.
+
+### Проверки
+
+- Self-test, clean sample smoke-test и recursive package-safety/provenance scan — PASS.
+- Публичный immutable release создан из exact commit `1d9f5c3ffb242f6480032958000fce40740a10b7`.
+
+### Ограничения
+
+- Product-specific capture, privacy, signing, deployment и data gates остаются adapter-контрактом потребителя.
+
+## [Unreleased]
 
 ## [0.1.7] - 2026-08-31
 
