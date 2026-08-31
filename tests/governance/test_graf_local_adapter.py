@@ -55,6 +55,11 @@ def test_live_build_runs_compose_backend_and_signed_app_adapter(monkeypatch, tmp
         return ""
 
     monkeypatch.setattr(dev_harness, "_run_command", fake_run)
+    monkeypatch.setattr(
+        adapter,
+        "_measure_signed_app_identity",
+        lambda _: ("GRAF Local Code Signing", "identifier pro.2brain.graf.dev", "sha256:" + "e" * 64),
+    )
     result = adapter.build(manifest(tmp_path, sha))
 
     assert result["mode"] == "live"
@@ -66,6 +71,25 @@ def test_live_build_runs_compose_backend_and_signed_app_adapter(monkeypatch, tmp
     ]
     assert calls[-1][0:2] == ["sh", str(adapter.build_app_script)]
     assert result["app_bundle_digest"].startswith("sha256:")
+
+
+def test_signed_app_identity_is_measured_from_codesign_output(monkeypatch, tmp_path):
+    adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
+    outputs = {
+        "-dv": "Authority=GRAF Local Code Signing\nTeamIdentifier=LOCAL",
+        "-dr": "designated => identifier \"pro.2brain.graf.dev\"",
+        "-d": "Executable=GRAF\n<?xml version=\"1.0\"?><plist><dict/></plist>",
+    }
+
+    def fake_combined(command, *, cwd, env=None):
+        return outputs[command[1]]
+
+    monkeypatch.setattr(dev_harness, "_run_command_combined", fake_combined)
+    signer, requirement, entitlements_digest = adapter._measure_signed_app_identity(tmp_path / "GRAF Dev.app")
+
+    assert signer == "GRAF Local Code Signing"
+    assert requirement == 'identifier "pro.2brain.graf.dev"'
+    assert entitlements_digest.startswith("sha256:")
 
 
 def test_live_smoke_checks_server_rendered_frontend_auth_and_one_app(monkeypatch, tmp_path):

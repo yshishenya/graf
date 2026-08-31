@@ -134,6 +134,18 @@ def _digest(value: str) -> str:
     return "sha256:" + hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+def _configured_signing_identity() -> str:
+    """Resolve the one signing identity accepted by the Dev build contract."""
+    primary = os.environ.get("GRAF_DEV_SIGNING_IDENTITY", "").strip()
+    legacy = os.environ.get("GRAF_DEV_SIGN_IDENTITY", "").strip()
+    if primary and legacy and primary != legacy:
+        raise HarnessError(
+            "GRAF_DEV_SIGNING_IDENTITY and GRAF_DEV_SIGN_IDENTITY disagree; "
+            "use one signing identity"
+        )
+    return primary or legacy or "GRAF Local Code Signing"
+
+
 def _tree_digest(path: Path) -> str:
     """Return a deterministic digest for a built artifact without its contents in evidence."""
     if not path.exists():
@@ -166,6 +178,27 @@ def _run_command(command: list[str], *, cwd: Path, env: Optional[Dict[str, str]]
             check=False,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            text=True,
+        )
+    except OSError as exc:
+        raise HarnessError(f"adapter command unavailable ({command[0]}): {exc}") from exc
+    if completed.returncode:
+        raise HarnessError(
+            f"adapter command failed ({command[0]}), exit={completed.returncode}"
+        )
+    return completed.stdout.strip()
+
+
+def _run_command_combined(command: list[str], *, cwd: Path, env: Optional[Dict[str, str]] = None) -> str:
+    """Run a command whose diagnostic contract is emitted on stderr."""
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=str(cwd),
+            env=env,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=True,
         )
     except OSError as exc:
@@ -307,8 +340,37 @@ class GrafLocalAdapter:
         _run_command(["sh", str(self.build_app_script)], cwd=self.root, env=env)
         if not app_bundle.is_dir():
             raise HarnessError("GRAF Dev builder did not produce GRAF Dev.app")
+        signing_identity, designated_requirement, entitlements_digest = self._measure_signed_app_identity(app_bundle)
+        manifest["app_identity"].update(
+            {
+                "signing_identity": signing_identity,
+                "designated_requirement": designated_requirement,
+                "entitlements_digest": entitlements_digest,
+            }
+        )
         manifest["components"]["macos_app"]["digest"] = _tree_digest(app_bundle)
         return {"mode": "live", "app_bundle_digest": manifest["components"]["macos_app"]["digest"]}
+
+    def _measure_signed_app_identity(self, app_bundle: Path) -> tuple[str, str, str]:
+        """Read signing facts from the final bundle, never from configuration."""
+        details = _run_command_combined(
+            ["codesign", "-dv", "--verbose=4", str(app_bundle)], cwd=self.root
+        )
+        authorities = re.findall(r"^Authority=(.+)$", details, re.MULTILINE)
+        if not authorities or not authorities[0].strip():
+            raise HarnessError("signed Dev app has no codesign authority")
+        requirement_output = _run_command_combined(
+            ["codesign", "-dr", "-", str(app_bundle)], cwd=self.root
+        )
+        requirement_match = re.search(r"^designated => (.+)$", requirement_output, re.MULTILINE)
+        if not requirement_match or not requirement_match.group(1).strip():
+            raise HarnessError("signed Dev app has no designated requirement")
+        entitlements = _run_command_combined(
+            ["codesign", "-d", "--entitlements", "-", str(app_bundle)], cwd=self.root
+        )
+        if "<plist" not in entitlements:
+            raise HarnessError("signed Dev app has no readable entitlements")
+        return authorities[0].strip(), requirement_match.group(1).strip(), _digest(entitlements)
 
     def _runtime_record(self) -> Path:
         return self.state / "runtime.json"
@@ -784,7 +846,7 @@ def build_manifest(sha: str, feature_id: str, operator: str = "local", migration
         "app_identity": {
             "bundle_id": APP_BUNDLE_ID,
             "channel": APP_CHANNEL,
-            "signing_identity": os.environ.get("GRAF_DEV_SIGNING_IDENTITY", "GRAF Local Code Signing"),
+            "signing_identity": _configured_signing_identity(),
             "designated_requirement": os.environ.get("GRAF_DEV_DESIGNATED_REQUIREMENT", f"identifier {APP_BUNDLE_ID}"),
             "entitlements_digest": _digest("graf-dev-entitlements"),
             "update_trust": os.environ.get("GRAF_DEV_UPDATE_TRUST", "local-dev-trust-v1"),
