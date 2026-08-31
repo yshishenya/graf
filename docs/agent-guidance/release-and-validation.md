@@ -159,9 +159,14 @@ run explicitly:
 
 ```sh
 GRAF_CI_CANDIDATE_FILE=.dev/release/candidates/rc-<sha12>.json \\
-GRAF_CI_EVIDENCE_PATH=/tmp/graf-full-evidence.json \\
 infra/scripts/ci-local.sh --full
 ```
+
+Для candidate-bound Full CI путь evidence выбирается самим harness как
+`.dev/ci-evidence/authoritative-<candidate-id>.json` и создаётся один раз.
+Перезапуск с тем же candidate не может создать вторую authoritative-запись;
+сначала разберите исходный результат и создайте новый candidate после
+исправления причины.
 
 The producer records the requested/start/end SHA, run identity, timestamps,
 lane, commands, scope, skipped gates, component SHAs and artifact digests.

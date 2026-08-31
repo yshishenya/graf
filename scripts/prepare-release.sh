@@ -22,6 +22,22 @@ if [[ ! "$bump_input" =~ ^[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+$ ]]; then
 fi
 next_version="$bump_input"
 
+if ! python3 - "$next_version" <<'PY'
+import datetime as dt
+import sys
+
+value = sys.argv[1]
+year, month, day, _ = value.split(".")
+try:
+    dt.date(int(year), int(month), int(day))
+except ValueError:
+    raise SystemExit("invalid calendar date")
+PY
+then
+  echo "error: CalVer date does not exist: $next_version"
+  exit 1
+fi
+
 if git tag --list "v$next_version" | grep -q "v$next_version"; then
   echo "error: tag v$next_version already exists"
   exit 1
@@ -194,7 +210,10 @@ if [[ "$real_entries" -eq 0 ]]; then
 fi
 
 head_part="$(awk '/^## \[Unreleased\]/{exit} {print}' "$changelog")"
-template_part="$(awk '/^## \[Unreleased Template\]/{print; flag=1; next} flag{print}' "$changelog")"
+# Preserve every historical release heading.  The old implementation looked
+# for an optional template heading that is not present in the real changelog,
+# silently truncating release history on every preparation.
+history_part="$(awk '/^## \[20[0-9][0-9]\./{seen=1} seen{print}' "$changelog")"
 
 tmp_file="$(mktemp)"
 trap 'rm -f "$tmp_file"' EXIT
@@ -225,7 +244,7 @@ trap 'rm -f "$tmp_file"' EXIT
 EOF
   printf '## [%s] - %s\n\n' "$next_version" "$today"
   printf '%s\n' "$unreleased_content"
-  printf '\n%s\n' "$template_part"
+  printf '\n%s\n' "$history_part"
 } > "$tmp_file"
 
 mv "$tmp_file" "$changelog"

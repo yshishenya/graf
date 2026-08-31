@@ -159,6 +159,21 @@ _STALE_CI_STATUSES = {"failed", "stale", "cancelled", "ambiguous"}
 _UTC_TIMESTAMP_RE = re.compile(
     r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]00:00)$"
 )
+_CI_ALLOWED_FIELDS = {
+    "run_id", "lane", "requested_sha", "observed_sha_start", "observed_sha_end",
+    "status", "started_at", "finished_at", "commands", "skipped_gates", "scope",
+    "reason", "candidate_id", "authoritative_full", "authoritative", "component_shas",
+    "artifact_digests",
+}
+_PRIVATE_PATH_RE = re.compile(r"(?:/Users/|/home/|/private/var/|file://)", re.IGNORECASE)
+_CREDENTIAL_RE = re.compile(
+    r"(?:api[_-]?key|secret|password|token|bearer|cookie|signed[-_ ]?url)"
+    r"\s*[:=]\s*[^\s,;]{8,}", re.IGNORECASE
+)
+_SENSITIVE_FIELD_RE = re.compile(
+    r"(?:raw[_ -]?transcript|transcript[_ -]?text|raw[_ -]?audio|private[_ -]?meeting)",
+    re.IGNORECASE,
+)
 
 
 def _utc_timestamp(data: dict[str, Any], key: str, errors: list[str]) -> Optional[dt.datetime]:
@@ -250,6 +265,27 @@ def ci_evidence(data: Any) -> list[str]:
     errors: list[str] = []
     if not isinstance(data, dict):
         return ["evidence must be a JSON object"]
+    errors.extend(
+        f"unsupported evidence field: {key}"
+        for key in sorted(set(data) - _CI_ALLOWED_FIELDS)
+    )
+
+    def visit(value: Any, key: str = "") -> None:
+        if isinstance(value, dict):
+            for child_key, child_value in value.items():
+                if _SENSITIVE_FIELD_RE.search(str(child_key)):
+                    errors.append(f"evidence contains forbidden sensitive field: {child_key}")
+                visit(child_value, str(child_key))
+        elif isinstance(value, list):
+            for item in value:
+                visit(item, key)
+        elif isinstance(value, str):
+            if _PRIVATE_PATH_RE.search(value) or _CREDENTIAL_RE.search(value):
+                errors.append(f"evidence contains forbidden private or credential content in {key or 'value'}")
+            if re.search(r"\b(?:raw audio|raw transcript|transcript text|private meeting content)\b", value, re.IGNORECASE):
+                errors.append(f"evidence contains forbidden private content in {key or 'value'}")
+
+    visit(data)
 
     run_id = _non_empty_string(data, "run_id", errors)
     if run_id is not None and not _SAFE_ID_RE.fullmatch(run_id):
@@ -366,7 +402,8 @@ def pr_metadata(body: Any, feature_id: str) -> list[str]:
         errors.append("exact source SHA evidence is required")
     if not re.search(r"Spec task IDs:\s*`?T\d{3,}", body):
         errors.append("at least one Spec task ID is required")
-    if not any(token in body for token in ("Refs #", "Part of #", "Fixes #", "Closes #", "Resolves #")):
+    issue_section = sections.get("## Issues", "")
+    if not re.search(r"\b(?:Refs|Part of|Fixes|Closes|Resolves)\s+#([1-9]\d*)\b", issue_section, re.IGNORECASE):
         errors.append("at least one explicit issue linkage keyword is required")
     legacy_section = sections.get("## Legacy Impact", "")
     if len(re.findall(r"(?im)^\s*[-*]?\s*Classification\s*:\s*`?(?:remove|retain-with-exception|untouched)`?\s*$", legacy_section)) != 1:

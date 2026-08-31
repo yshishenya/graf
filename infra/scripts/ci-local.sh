@@ -262,7 +262,13 @@ main() (
       local evidence_path
       local evidence_args
       finished_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-      evidence_path="${GRAF_CI_EVIDENCE_PATH:-.dev/ci-evidence/${run_id}.json}"
+      if [[ "$requested_mode" == "full" && -n "$candidate_id" ]]; then
+        # A candidate has exactly one authoritative Full CI identity.  Do not
+        # let a retry choose a second output path and become a competing proof.
+        evidence_path=".dev/ci-evidence/authoritative-${candidate_id}.json"
+      else
+        evidence_path="${GRAF_CI_EVIDENCE_PATH:-.dev/ci-evidence/${run_id}.json}"
+      fi
       evidence_args=(
         --output "$evidence_path" --run-id "$run_id" --lane "$effective_mode"
         --requested-sha "${requested_sha:-$observed_sha_start}"
@@ -513,8 +519,10 @@ PY
   fi
   run_step "Spec Kit governance" python3 scripts/check_spec_kit_governance.py || return $?
 
-  if [[ "$effective_mode" == "full" || "$has_governance_tests" -eq 1 ]]; then
+  if [[ "$effective_mode" == "full" || "$has_governance_tests" -eq 1 || "$has_infra" -eq 1 ]]; then
     run_step "governance tests" pytest -q tests/governance || return $?
+    run_step "portable harness self-test" env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=harness/src \
+      python3 -c 'from dev_harness.validators import self_test; raise SystemExit(self_test())' || return $?
   fi
 
   if [[ "$effective_mode" == "full" ]]; then

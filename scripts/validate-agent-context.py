@@ -70,6 +70,31 @@ def validate(root: Path) -> list[str]:
         errors.append("owned_paths must be a non-empty list of relative paths")
     elif any(Path(item).is_absolute() or ".." in Path(item).parts for item in data["owned_paths"]):
         errors.append("owned_paths must stay relative to this worktree")
+    else:
+        owned = [Path(item) for item in data["owned_paths"]]
+        changed: set[str] = set()
+        commands = []
+        if subprocess.run(["git", "rev-parse", "--verify", "origin/master^{commit}"], cwd=root, capture_output=True).returncode == 0:
+            commands.append(["git", "diff", "--name-only", "origin/master...HEAD"])
+        commands.extend([
+            ["git", "diff", "--name-only", "HEAD"],
+            ["git", "diff", "--cached", "--name-only"],
+            ["git", "ls-files", "--others", "--exclude-standard"],
+        ])
+        for command in commands:
+            try:
+                result = subprocess.run(command, cwd=root, text=True, capture_output=True, check=True)
+            except (OSError, subprocess.CalledProcessError) as exc:
+                errors.append(f"cannot determine changed paths for owned-path check: {exc}")
+                break
+            changed.update(line.strip() for line in result.stdout.splitlines() if line.strip())
+        outside = []
+        for value in sorted(changed):
+            path = Path(value)
+            if not any(path == prefix or prefix in path.parents for prefix in owned):
+                outside.append(value)
+        if outside:
+            errors.append("changed paths outside active feature ownership: " + ", ".join(outside))
     agents = (root / "AGENTS.md").read_text(encoding="utf-8", errors="ignore") if (root / "AGENTS.md").is_file() else ""
     if re.search(r"at specs/\d{3}-[^\s`]+/plan\.md", agents):
         errors.append("root AGENTS.md contains a dynamic plan pointer")
@@ -102,7 +127,7 @@ def self_test() -> int:
                     "source_sha": "",
                     "owner": "test",
                     "risk_lane": "significant-feature",
-                    "owned_paths": ["specs/001-x"],
+                    "owned_paths": ["specs/001-x", ".specify"],
                 }
             ),
             encoding="utf-8",
@@ -117,7 +142,7 @@ def self_test() -> int:
                     "source_sha": source_sha,
                     "owner": "test",
                     "risk_lane": "significant-feature",
-                    "owned_paths": ["specs/001-x"],
+                    "owned_paths": ["specs/001-x", ".specify"],
                 }
             ),
             encoding="utf-8",

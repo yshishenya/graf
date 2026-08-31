@@ -227,11 +227,12 @@ def current_sha():
     except subprocess.CalledProcessError as exc:
         die(f"cannot resolve current HEAD: {exc}")
 
-def require_current(data):
+def require_current(data, exempt_paths=()):
     if data["source_sha"] != current_sha():
         die(f"candidate source SHA {data['source_sha']} differs from current HEAD; candidate is stale")
     if data["changelog_digest"] != digest(root / "CHANGELOG.md"):
         die("candidate changelog digest differs from current CHANGELOG.md; candidate is stale")
+    require_clean_source(exempt_paths)
 
 def github_origin_repo():
     try:
@@ -328,6 +329,17 @@ def feature_exists(feature_id):
         for path in specs.iterdir()
     )
 
+def changelog_mentions_feature(feature_id):
+    try:
+        text = (root / "CHANGELOG.md").read_text(encoding="utf-8")
+    except OSError as exc:
+        die(f"cannot read CHANGELOG.md: {exc}")
+    return bool(re.search(
+        rf"(?:Фича|Feature|feature_id|feature:)\s*[:#]?\s*`?{re.escape(feature_id)}\b",
+        text,
+        re.IGNORECASE,
+    ))
+
 def decision_identity_path(candidate_id):
     return DECISION_DIR / f".{candidate_id}.decision-identity.json"
 
@@ -378,7 +390,7 @@ if op in {"status", "validate"}:
     data = load(path)
     validate_candidate(data)
     if op == "validate" and len(args) == 2:
-        require_current(data)
+        require_current(data, exempt_paths=(pathlib.Path(args[0]).resolve(),))
     print("release-candidate: OK" if op == "validate" else json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True))
     raise SystemExit(0)
 
@@ -416,6 +428,9 @@ if op == "freeze":
     missing_features = [feature_id for feature_id in feature_ids if not feature_exists(feature_id)]
     if missing_features:
         die("cannot freeze nonexistent feature IDs: " + ", ".join(missing_features))
+    unlisted_features = [feature_id for feature_id in feature_ids if not changelog_mentions_feature(feature_id)]
+    if unlisted_features:
+        die("included feature IDs are absent from the prepared CHANGELOG.md: " + ", ".join(unlisted_features))
     output = pathlib.Path(values["output"] or (CANDIDATE_DIR / f"rc-{sha[:12]}.json"))
     candidate = {
         "schema_version": 1,
@@ -501,7 +516,7 @@ if op == "decide":
     # Full CI can finish while the operator is preparing the decision.  The
     # candidate must still describe the exact checkout at the point of go/no-go.
     if not errors:
-        require_current(candidate)
+        require_current(candidate, exempt_paths=(candidate_path, evidence_path))
     decision = "go" if not errors else "no-go"
     calver = values["calver"]
     if decision == "go":

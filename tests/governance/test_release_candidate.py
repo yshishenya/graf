@@ -24,7 +24,7 @@ def fixture(tmp_path: Path) -> Path:
     (tmp_path / "scripts").mkdir()
     shutil.copy2(EVIDENCE_VALIDATOR, tmp_path / "scripts/validate-ci-evidence.py")
     (tmp_path / "CHANGELOG.md").write_text(
-        "## [Unreleased]\n\n- Feature 216\n\n## [2026.08.31.1] - 2026-08-31\n\n- Previous release\n",
+        "## [Unreleased]\n\n- Feature 216\n- Feature 217\n\n## [2026.08.31.1] - 2026-08-31\n\n- Previous release\n",
         encoding="utf-8",
     )
     for feature_id in ("216", "217"):

@@ -67,7 +67,7 @@ def validate(body: str, feature_id: str, expected_sha: str | None = None) -> lis
         errors.append("Feature ID is required in PR body")
     elif marker.group(1) != feature_id:
         errors.append(f"Feature ID mismatch: expected {feature_id}, got {marker.group(1)}")
-    if not re.search(r"Umbrella issue:\s*`?#\d+", body):
+    if not re.search(r"Umbrella issue:\s*`?#([1-9]\d*)\b", body):
         errors.append("umbrella issue is required")
     sha_matches = SHA_RE.findall(body)
     if not sha_matches:
@@ -83,7 +83,10 @@ def validate(body: str, feature_id: str, expected_sha: str | None = None) -> lis
             )
     if not re.search(r"Spec task IDs:\s*`?T\d{3,}", body):
         errors.append("at least one Spec task ID is required")
-    if not any(int(number) > 0 for number in ISSUE_LINK_RE.findall(body)):
+    issue_section = sections.get("## Issues", [])
+    if len(issue_section) != 1 or not any(
+        int(number) > 0 for number in ISSUE_LINK_RE.findall(issue_section[0])
+    ):
         errors.append("at least one explicit issue linkage keyword is required")
     risk_section = sections.get("## Risk / validation lane", [])
     if len(risk_section) == 1 and not LANE_RE.search(risk_section[0]):
