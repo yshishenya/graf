@@ -78,8 +78,11 @@ def validate(root: Path) -> list[str]:
 
 def self_test() -> int:
     import tempfile
+
     with tempfile.TemporaryDirectory(prefix="graf-context-") as tmp:
-        root = Path(tmp); (root / ".specify").mkdir(); (root / "specs/001-x").mkdir(parents=True)
+        root = Path(tmp)
+        (root / ".specify").mkdir()
+        (root / "specs/001-x").mkdir(parents=True)
         (root / "specs/001-x/spec.md").write_text("# x\n", encoding="utf-8")
         subprocess.run(["git", "init", "-q"], cwd=root, check=True)
         subprocess.run(["git", "checkout", "-qb", "test/001-x"], cwd=root, check=True)
@@ -90,9 +93,35 @@ def self_test() -> int:
         source_sha = subprocess.run(
             ["git", "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True
         ).stdout.strip()
-        (root / ".specify/feature.json").write_text(json.dumps({"feature_directory":"specs/001-x","feature_id":"001","branch":"test/001-x","source_sha":"","owner":"test","risk_lane":"significant-feature","owned_paths":["specs/001-x"]}), encoding="utf-8")
+        (root / ".specify/feature.json").write_text(
+            json.dumps(
+                {
+                    "feature_directory": "specs/001-x",
+                    "feature_id": "001",
+                    "branch": "test/001-x",
+                    "source_sha": "",
+                    "owner": "test",
+                    "risk_lane": "significant-feature",
+                    "owned_paths": ["specs/001-x"],
+                }
+            ),
+            encoding="utf-8",
+        )
         assert validate(root)
-        (root / ".specify/feature.json").write_text(json.dumps({"feature_directory":"specs/001-x","feature_id":"001","branch":"test/001-x","source_sha":source_sha,"owner":"test","risk_lane":"significant-feature","owned_paths":["specs/001-x"]}), encoding="utf-8")
+        (root / ".specify/feature.json").write_text(
+            json.dumps(
+                {
+                    "feature_directory": "specs/001-x",
+                    "feature_id": "001",
+                    "branch": "test/001-x",
+                    "source_sha": source_sha,
+                    "owner": "test",
+                    "risk_lane": "significant-feature",
+                    "owned_paths": ["specs/001-x"],
+                }
+            ),
+            encoding="utf-8",
+        )
         assert validate(root) == []
         (root / ".specify/feature.json").write_text("[]\n", encoding="utf-8")
         assert any("object" in error for error in validate(root))
@@ -111,7 +140,8 @@ def main() -> int:
         return self_test()
     errors = validate(args.root.resolve())
     if errors:
-        for error in errors: print(f"agent-context: ERROR: {error}", file=sys.stderr)
+        for error in errors:
+            print(f"agent-context: ERROR: {error}", file=sys.stderr)
         return 1
     print("agent-context: OK")
     return 0
