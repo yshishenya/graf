@@ -41,6 +41,9 @@ op = sys.argv[2]
 args = sys.argv[3:]
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 CANDIDATE_RE = re.compile(r"^rc-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}$")
+DECISION_LOCK_RE = re.compile(
+    r"^\.dev/release/decisions/\.rc-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}\.decision\.lock$"
+)
 CALVER_RE = re.compile(r"^v?[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+$")
 TAG_RE = re.compile(r"^v[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+$")
 REQUIRED = (
@@ -293,6 +296,10 @@ def require_clean_source(exempt_paths=()):
         )
     except (OSError, subprocess.CalledProcessError) as exc:
         die(f"cannot inspect worktree cleanliness: {exc}")
+    # Do not treat the whole ignored `.dev/` tree as an exemption.  Release
+    # metadata is intentionally kept there, but an arbitrary manifest/config
+    # written after freeze must still invalidate the candidate.  Callers name
+    # the exact files that are being produced by the current operation.
     allowed = {pathlib.Path(path).resolve() for path in exempt_paths}
     dirty = []
     for line in output.splitlines():
@@ -300,7 +307,11 @@ def require_clean_source(exempt_paths=()):
             continue
         relative = line[3:].strip().split(" -> ", 1)[-1]
         path = (root / relative).resolve()
-        if relative == ".dev" or relative.startswith(".dev/") or path in allowed:
+        # The per-candidate decision lock is created before the current-tree
+        # check and is the one transient metadata path that cannot be passed
+        # as an output exemption by the caller.  Allow only its exact
+        # generated shape; arbitrary `.dev` files remain source drift.
+        if path in allowed or DECISION_LOCK_RE.fullmatch(relative):
             continue
         dirty.append(relative)
     if dirty:
@@ -516,7 +527,14 @@ if op == "decide":
     # Full CI can finish while the operator is preparing the decision.  The
     # candidate must still describe the exact checkout at the point of go/no-go.
     if not errors:
-        require_current(candidate, exempt_paths=(candidate_path, evidence_path))
+        require_current(
+            candidate,
+            exempt_paths=(
+                candidate_path,
+                evidence_path,
+                DECISION_DIR / f".{candidate['candidate_id']}.decision.lock",
+            ),
+        )
     decision = "go" if not errors else "no-go"
     calver = values["calver"]
     if decision == "go":
