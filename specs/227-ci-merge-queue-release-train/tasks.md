@@ -101,8 +101,8 @@ runtime path is added. Legacy retirement remains Feature 220 and later slices.
 - Локальная проверка `scripts/verify-merge-group-mapping.py --self-test` и
   `tests/governance/test_merge_group_mapping.py` проходят (10 тестов).
 - Повторный локальный governance/fast lane проходит на exact SHA
-  `b3b363c10de23cec6a550810714466128fc0e921`; receipt
-  `.dev/ci-evidence/ci-fast-b3b363c10de2-27694.json` имеет `status=passed`.
+  `072120c062216f90388a8941a1b8fa18dfd599b0`; receipt
+  `.dev/ci-evidence/ci-fast-072120c06221-34518.json` имеет `status=passed`.
   Remote Actions rehearsal и
   operator-owned enforcement после merge остаются открытыми.
 - Ранее выполненный диагностический `infra/scripts/ci-local.sh --full` на
