@@ -61,40 +61,50 @@ def _ids_from_refs(refs: Iterable[str]) -> set[int]:
 
 
 def _github_ids(root: Path, *, exclude_issue: int | None = None, strict: bool = False) -> set[int]:
-    """Read visible issue/PR metadata when gh is available; never guess offline."""
+    """Read every visible issue/PR marker through the paginated GitHub API."""
     result: set[int] = set()
-    for kind in ("issue", "pr"):
-        try:
-            proc = subprocess.run(
-                ["gh", kind, "list", "--state", "all", "--limit", "1000",
-                 "--json", "number,title,body,labels"],
-                cwd=root, check=True, capture_output=True, text=True,
-            )
-            rows = json.loads(proc.stdout or "[]")
-        except (OSError, subprocess.CalledProcessError, json.JSONDecodeError) as exc:
-            if strict:
-                raise SystemExit(
-                    f"feature-claim: cannot inspect GitHub {kind} metadata: {exc}; "
-                    "use --offline only for an explicitly offline draft"
-                ) from exc
+    try:
+        remote = subprocess.run(
+            ["git", "config", "--get", "remote.origin.url"],
+            cwd=root, check=True, capture_output=True, text=True,
+        ).stdout.strip()
+        match = re.search(r"github\.com[:/]([^/ :]+/[^/ .]+?)(?:\.git)?$", remote)
+        if not match:
+            raise ValueError("remote.origin.url is not a GitHub repository")
+        endpoint = f"repos/{match.group(1)}/issues?state=all&per_page=100"
+        proc = subprocess.run(
+            ["gh", "api", "--paginate", "--slurp", endpoint],
+            cwd=root, check=True, capture_output=True, text=True,
+        )
+        pages = json.loads(proc.stdout or "[]")
+    except (OSError, subprocess.CalledProcessError, json.JSONDecodeError, ValueError) as exc:
+        if strict:
+            raise SystemExit(
+                f"feature-claim: cannot inspect complete GitHub issue/PR history: {exc}; "
+                "use --offline only for an explicitly offline draft"
+            ) from exc
+        return result
+    rows = [row for page in pages if isinstance(page, list) for row in page]
+    for row in rows:
+        if exclude_issue is not None and row.get("number") == exclude_issue:
             continue
-        for row in rows if isinstance(rows, list) else []:
-            if kind == "issue" and exclude_issue is not None and row.get("number") == exclude_issue:
-                continue
-            labels = row.get("labels", []) if isinstance(row, dict) else []
-            label_text = " ".join(str(item.get("name", "")) for item in labels if isinstance(item, dict))
-            title = str(row.get("title", ""))
-            body = str(row.get("body", ""))
-            # Only consume explicit feature markers. Generic numbers in issue
-            # bodies include timestamps, hashes and external IDs and can make
-            # the suggested next feature number nonsensically large.
-            result |= {int(value) for value in re.findall(r"^\[(\d{3,})\]", title)}
-            result |= {int(value) for value in re.findall(r"feature:(\d{3,})\b", label_text, flags=re.IGNORECASE)}
-            result |= {int(value) for value in re.findall(r"(?:Feature ID|feature_id)\s*:\s*`?F?(\d{3,})\b", body, flags=re.IGNORECASE)}
+        labels = row.get("labels", []) if isinstance(row, dict) else []
+        label_text = " ".join(str(item.get("name", "")) for item in labels if isinstance(item, dict))
+        title = str(row.get("title", ""))
+        body = str(row.get("body", ""))
+        # Only consume explicit feature markers. Generic numbers in issue
+        # bodies include timestamps, hashes and external IDs.
+        result |= {int(value) for value in re.findall(r"^\[(\d{3,})\]", title)}
+        result |= {int(value) for value in re.findall(r"feature:(\d{3,})\b", label_text, flags=re.IGNORECASE)}
+        result |= {int(value) for value in re.findall(r"(?:Feature ID|feature_id)\s*:\s*`?F?(\d{3,})\b", body, flags=re.IGNORECASE)}
     return result
 
 
 def _local_claim_ids(root: Path) -> set[int]:
+    return {int(key) for key in _local_claim_records(root)}
+
+
+def _local_claim_records(root: Path) -> dict[str, dict[str, object]]:
     claims_path = None
     try:
         git_dir = _git_common_dir(root)
@@ -102,14 +112,14 @@ def _local_claim_ids(root: Path) -> set[int]:
             git_dir = root / git_dir
         claims_path = git_dir / "feature-claims.json"
         if not claims_path.exists():
-            return set()
+            return {}
         data = json.loads(claims_path.read_text(encoding="utf-8"))
     except (OSError, subprocess.CalledProcessError) as exc:
         raise SystemExit(f"feature-claim: cannot inspect shared claim state: {exc}") from exc
     except json.JSONDecodeError as exc:
         raise SystemExit(f"feature-claim: shared claim state is corrupt: {claims_path}") from exc
     _validate_claims(data, claims_path)
-    return {int(key) for key in data}
+    return data
 
 
 def _validate_claims(data: object, claims_path: Path) -> None:
@@ -197,10 +207,17 @@ def _available_id(occupied: set[int], start: int) -> int:
 
 def claim(root: Path, feature_id: int, *, issue_number: int | None, branch: str, slug: str, offline: bool) -> dict[str, object]:
     refs = _git_refs(root, strict=not offline)
-    occupied = _ids_from_specs(root) | _ids_from_refs(refs) | _local_claim_ids(root)
+    local_claims = _local_claim_records(root)
+    requested_claim = {"issue_number": issue_number, "branch": branch, "slug": slug}
+    existing_claim = local_claims.get(f"{feature_id:03d}")
+    # A retry of the exact same claim is safe and must be idempotent.  A
+    # different issue, branch or slug remains a collision and is rejected
+    # before any shared state is written.
+    same_local_claim = existing_claim == requested_claim
+    occupied = _ids_from_specs(root) | _ids_from_refs(refs) | set(int(key) for key in local_claims)
     if not offline:
         occupied |= _github_ids(root, exclude_issue=issue_number, strict=True)
-    if feature_id in occupied:
+    if feature_id in occupied and not same_local_claim:
         conflicts = sorted(
             [f"spec/branch ref containing {feature_id:03d}"],
         )
@@ -232,7 +249,6 @@ def claim(root: Path, feature_id: int, *, issue_number: int | None, branch: str,
             raise SystemExit(f"feature-claim: shared claim state is corrupt: {claims_path}") from exc
         _validate_claims(claims, claims_path)
         key = f"{feature_id:03d}"
-        requested_claim = {"issue_number": issue_number, "branch": branch, "slug": slug}
         if key in claims and claims[key] != requested_claim:
             raise SystemExit(f"feature-claim: local claim already exists with different metadata for {key}")
         claims[key] = requested_claim
@@ -284,14 +300,21 @@ def self_test() -> int:
         linked = root.parent / "linked-worktree"
         subprocess.run(["git", "worktree", "add", "-q", str(linked), "HEAD"], cwd=root, check=True)
         try:
-            try:
-                claim(linked, 216, issue_number=None, branch="draft/216-y", slug="y", offline=True)
-            except SystemExit as exc:
-                assert "collision" in str(exc)
-            else:
-                raise AssertionError("linked worktree reused an existing claim")
+            claim(linked, 216, issue_number=None, branch="draft/216-y", slug="y", offline=True)
+        except SystemExit as exc:
+            assert "collision" in str(exc)
+        else:
+            raise AssertionError("linked worktree reused an existing claim")
         finally:
             subprocess.run(["git", "worktree", "remove", "--force", str(linked)], cwd=root, check=True)
+        retry = claim(root, 216, issue_number=None, branch="draft/216-x", slug="x", offline=True)
+        assert retry["status"] == "draft"
+        try:
+            claim(root, 216, issue_number=None, branch="draft/216-other", slug="other", offline=True)
+        except SystemExit as exc:
+            assert "collision" in str(exc)
+        else:
+            raise AssertionError("conflicting claim metadata was accepted")
     print("feature-claim self-test: OK")
     return 0
 

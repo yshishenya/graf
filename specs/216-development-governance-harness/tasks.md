@@ -195,6 +195,27 @@ retirement отдельно.
   rollback/остановку backend без изменения production boundary (FR-011,
   FR-016; convergence of T043).
 
+## Phase 9: Convergence follow-up
+
+- [ ] T049 Реализовать проверенный live rollback: восстановить предыдущий
+  backend-процесс и Dev app до публикации active pointer, либо явно оформить
+  отдельный fail-closed adapter с доказанным восстановлением (FR-017, SC-003;
+  partial).
+- [ ] T050 Добавить неизменяемую post-publication attestation, связывающую
+  decision, exact SHA, CalVer tag и фактический GitHub Release URL после
+  `gh release create`; decision не перезаписывать (FR-024, SC-005; missing).
+- [ ] T051 Перевести producer artifact digests с identity-only записи на
+  хэши фактически созданных release/Dev артефактов и сохранить отдельную
+  проверку source-revision (FR-021, SC-005; partial).
+- [ ] T052 После одобренного repair path Feature 221 повторить live Dev
+  sequence и сохранить evidence миграционного head, promote, smoke и rollback;
+  volume и production не изменять обходными командами (FR-013, SC-003;
+  blocked-by-external-feature).
+- [ ] T053 Опубликовать текущий generic harness из чистого exact commit как
+  следующий immutable SemVer release, обновить consumer lock и migration notes,
+  затем повторить clean sample/package/provenance checks (FR-030, SC-007;
+  pending explicit approval).
+
 ## Dependencies and parallelism
 
 - T001–T004 создают безопасную основу; T005–T010 зависят от T001.

@@ -25,6 +25,7 @@ provider and production gates remain in this repository's adapter.
   `schemas/` and `templates/`.
 - Release-candidate contracts and adapter interfaces.
 - Dev manifest adapter interface with lock/atomic-promotion semantics.
+- A bounded `skills/development-process/SKILL.md` for Codex-compatible agents.
 - Self-test, secret/path/provenance scan and clean sample-project quickstart.
 
 ## Portable package

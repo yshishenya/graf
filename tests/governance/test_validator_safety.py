@@ -168,6 +168,55 @@ release_notes: "Русские заметки"
     assert any("missing feature_id" in error for error in errors)
 
 
+def test_changelog_malformed_feature_id_is_rejected(tmp_path: Path) -> None:
+    validator = load_script("validate-changelog-fragments")
+    directory = tmp_path / "changes" / "unreleased"
+    directory.mkdir(parents=True)
+    (directory / "F217.yaml").write_text(
+        """schema_version: 1
+feature_id: F217
+category: Changed
+summary: "Русское описание"
+issue: 1
+tasks: [T001]
+compatibility: "нет"
+release_notes: "Русские заметки"
+""",
+        encoding="utf-8",
+    )
+
+    errors = validator.validate(tmp_path)
+
+    assert any("feature_id must be numeric" in error for error in errors)
+
+
+def test_feature_claim_rejects_corrupt_shared_state_and_keeps_offline_draft_explicit() -> None:
+    validator = load_script("claim-feature")
+    import subprocess
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+        common = Path(
+            subprocess.check_output(["git", "rev-parse", "--git-common-dir"], cwd=root, text=True).strip()
+        )
+        if not common.is_absolute():
+            common = root / common
+        claims = common / "feature-claims.json"
+        claims.write_text('{"216": []}\n', encoding="utf-8")
+        try:
+            validator._local_claim_records(root)
+        except SystemExit as exc:
+            assert "shared claim state is corrupt" in str(exc)
+        else:
+            raise AssertionError("corrupt shared claim state was accepted")
+
+        claims.unlink()
+        draft = validator.claim(root, 216, issue_number=None, branch="draft/216-x", slug="x", offline=True)
+        assert draft["status"] == "draft"
+
+
 def test_package_safety_allows_documentation_examples_but_rejects_credentials(tmp_path: Path) -> None:
     validator = load_harness_validators()
     (tmp_path / "README.md").write_text("Use `secret:` and `password =` as field names.\n", encoding="utf-8")
@@ -176,3 +225,179 @@ def test_package_safety_allows_documentation_examples_but_rejects_credentials(tm
     (tmp_path / "config.py").write_text('password = "not-a-real-but-long-value"\n', encoding="utf-8")
     errors = validator.package_safety(tmp_path)
     assert any("forbidden secret/private content" in error for error in errors)
+
+
+def _context_pointer(feature_directory: str = "specs/001-example", feature_id: str = "001") -> dict[str, object]:
+    return {
+        "feature_directory": feature_directory,
+        "feature_id": feature_id,
+        "owner": "test",
+        "risk_lane": "low",
+        "owned_paths": [feature_directory],
+    }
+
+
+def test_portable_context_requires_existing_spec_and_matching_feature_id(tmp_path: Path) -> None:
+    validator = load_harness_validators()
+    pointer = tmp_path / ".specify" / "feature.json"
+    pointer.parent.mkdir()
+    pointer.write_text(json.dumps(_context_pointer()), encoding="utf-8")
+
+    errors = validator.context(tmp_path)
+
+    assert any("feature_directory and spec.md must exist" in error for error in errors)
+
+    feature_dir = tmp_path / "specs/001-example"
+    feature_dir.mkdir(parents=True)
+    (feature_dir / "spec.md").write_text("# Example\n", encoding="utf-8")
+    pointer.write_text(json.dumps(_context_pointer(feature_id="002")), encoding="utf-8")
+
+    errors = validator.context(tmp_path)
+
+    assert any("feature_id must match feature_directory" in error for error in errors)
+
+
+def test_portable_context_rejects_feature_directory_symlink_escape(tmp_path: Path) -> None:
+    validator = load_harness_validators()
+    outside = tmp_path.parent / "outside-feature"
+    outside.mkdir()
+    (outside / "spec.md").write_text("# Outside\n", encoding="utf-8")
+    (tmp_path / "specs").mkdir()
+    (tmp_path / "specs/001-example").symlink_to(outside, target_is_directory=True)
+    pointer = tmp_path / ".specify" / "feature.json"
+    pointer.parent.mkdir()
+    pointer.write_text(json.dumps(_context_pointer()), encoding="utf-8")
+
+    errors = validator.context(tmp_path)
+
+    assert any("remain inside the consumer root" in error for error in errors)
+
+
+def test_ci_evidence_binds_source_revision_digest_to_observed_sha() -> None:
+    validator = load_harness_validators()
+    sha = "a" * 40
+    evidence = {
+        "run_id": "run-1",
+        "lane": "fast",
+        "requested_sha": sha,
+        "observed_sha_start": sha,
+        "observed_sha_end": sha,
+        "status": "passed",
+        "started_at": "2026-08-31T00:00:00Z",
+        "finished_at": "2026-08-31T00:01:00Z",
+        "commands": ["ci --fast"],
+        "skipped_gates": [],
+        "scope": "test",
+        "artifact_digests": {
+            "source-revision": "sha256:" + ("b" * 64),
+        },
+    }
+
+    errors = validator.ci_evidence(evidence)
+
+    assert any("source-revision artifact digest" in error for error in errors)
+
+
+def test_ci_evidence_rejects_path_like_artifact_identity() -> None:
+    validator = load_harness_validators()
+    sha = "a" * 40
+    evidence = {
+        "run_id": "run-1",
+        "lane": "fast",
+        "requested_sha": sha,
+        "observed_sha_start": sha,
+        "observed_sha_end": sha,
+        "status": "passed",
+        "started_at": "2026-08-31T00:00:00Z",
+        "finished_at": "2026-08-31T00:01:00Z",
+        "commands": ["ci --fast"],
+        "skipped_gates": [],
+        "scope": "test",
+        "artifact_digests": {"../release": "sha256:" + ("b" * 64)},
+    }
+
+    errors = validator.ci_evidence(evidence)
+
+    assert any("invalid artifact name" in error for error in errors)
+
+
+def _valid_pr_body(sha: str = "a" * 40) -> str:
+    return f"""## Feature identity
+- Feature ID: `F216`
+- Umbrella issue: `#6090`
+- Spec task IDs: `T042`
+
+## Как проверено
+- focused test passed
+- Exact source SHA: {sha}
+
+## Risk / validation lane
+- Lane: significant-feature
+
+## Issues
+- Refs #6090
+
+## Legacy Impact
+- Classification: `untouched`
+
+## Перед merge
+- evidence recorded
+"""
+
+
+def test_pr_metadata_requires_concrete_issue_link_and_expected_sha() -> None:
+    validator = load_script("validate-pr-metadata")
+    sha = "a" * 40
+    body = _valid_pr_body(sha)
+
+    assert validator.validate(body, "216", expected_sha=sha) == []
+    assert validator.validate(body.replace("Classification: `untouched`", "Classification: `untouched`."), "216", expected_sha=sha) == []
+    assert any("mismatch" in error for error in validator.validate(body, "216", expected_sha="b" * 40))
+    assert any("issue linkage" in error for error in validator.validate(body.replace("Refs #6090", "Refs #___"), "216"))
+
+
+def test_pr_metadata_rejects_placeholder_legacy_and_empty_sections() -> None:
+    validator = load_script("validate-pr-metadata")
+    body = _valid_pr_body()
+
+    placeholder = body.replace(
+        "Classification: `untouched`",
+        "Classification: `remove` / `retain-with-exception` / `untouched`",
+    )
+    assert any("Legacy Impact classification" in error for error in validator.validate(placeholder, "216"))
+
+    empty = body.replace("## Issues\n- Refs #6090", "## Issues\n")
+    assert any("empty PR section: ## Issues" in error for error in validator.validate(empty, "216"))
+
+    for heading, content in (
+        ("## Как проверено", "- focused test passed\n- Exact source SHA: " + "a" * 40),
+        ("## Risk / validation lane", "- Lane: significant-feature"),
+    ):
+        empty_section = body.replace(f"{heading}\n{content}", f"{heading}\n")
+        assert any(f"empty PR section: {heading}" in error for error in validator.validate(empty_section, "216"))
+
+
+def test_process_changed_legacy_scan_collects_committed_and_worktree_specs(tmp_path: Path) -> None:
+    checker = load_script("check-development-process")
+    import subprocess
+
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "Process Test"], cwd=tmp_path, check=True)
+    committed = tmp_path / "specs" / "001-old" / "spec.md"
+    committed.parent.mkdir(parents=True)
+    committed.write_text("# Old\n", encoding="utf-8")
+    subprocess.run(["git", "add", "specs"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-qm", "baseline"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "branch", "-M", "master"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "update-ref", "refs/remotes/origin/master", "HEAD"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "checkout", "-qb", "codex/002-process"], cwd=tmp_path, check=True)
+    committed.write_text("# Old changed\n", encoding="utf-8")
+    untracked = tmp_path / "specs" / "002-new" / "spec.md"
+    untracked.parent.mkdir(parents=True)
+    untracked.write_text("# New\n", encoding="utf-8")
+
+    assert checker.changed_feature_specs(tmp_path) == [
+        Path("specs/001-old/spec.md"),
+        Path("specs/002-new/spec.md"),
+    ]

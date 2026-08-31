@@ -31,7 +31,16 @@ if [[ -f "$PWD/scripts/validate-changelog-fragments.py" ]]; then
   python3 scripts/validate-changelog-fragments.py --root "$PWD"
 fi
 
-unreleased_content="$(awk '/^## \[Unreleased\]/{record=1; next} /^## \[Unreleased Template\]/{if (record) exit} record{print}' "$changelog")"
+unreleased_content="$(python3 - "$changelog" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+text = Path(sys.argv[1]).read_text(encoding="utf-8")
+match = re.search(r"^## \[Unreleased\][ \t]*\n([\s\S]*?)(?=^## \[|\Z)", text, re.MULTILINE)
+print(match.group(1).strip() if match else "")
+PY
+)"
 
 # Feature agents own independent fragments. The release operator is the only
 # writer that assembles them into the root changelog.

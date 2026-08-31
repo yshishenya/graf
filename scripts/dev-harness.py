@@ -17,6 +17,7 @@ import os
 from pathlib import Path
 import re
 import signal
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -310,6 +311,20 @@ class GrafLocalAdapter:
             return False
         return True
 
+    def _pid_owned(self, record: Dict[str, Any]) -> bool:
+        """Only signal a process whose command identity we recorded."""
+        pid = record.get("pid")
+        command = record.get("command")
+        if not isinstance(pid, int) or not isinstance(command, str) or not command:
+            return False
+        try:
+            observed = subprocess.check_output(
+                ["ps", "-p", str(pid), "-o", "command="], text=True, stderr=subprocess.DEVNULL
+            ).strip()
+        except (OSError, subprocess.CalledProcessError):
+            return False
+        return command in observed
+
     def _stop_previous(self) -> None:
         if not self._runtime_record().exists():
             return
@@ -317,6 +332,8 @@ class GrafLocalAdapter:
         pid = record.get("pid")
         if not isinstance(pid, int) or not self._pid_alive(pid):
             return
+        if not self._pid_owned(record):
+            raise HarnessError(f"refusing to terminate unverified Dev backend pid {pid}")
         try:
             os.kill(pid, signal.SIGTERM)
         except OSError:
@@ -354,7 +371,15 @@ class GrafLocalAdapter:
             raise HarnessError(f"could not start local backend: {exc}") from exc
         finally:
             log_handle.close()
-        _write_json(runtime, {"pid": process.pid, "source_sha": manifest["source_sha"], "started_at": now()})
+        _write_json(
+            runtime,
+            {
+                "pid": process.pid,
+                "source_sha": manifest["source_sha"],
+                "started_at": now(),
+                "command": str(self.start_script),
+            },
+        )
         try:
             self._wait_http(str(manifest["dev_boundary"]["backend_origin"]), "/api/v1/health/live", timeout=90)
         except HarnessError:
@@ -371,13 +396,67 @@ class GrafLocalAdapter:
         env["GRAF_DEV_APP_SOURCE_BUNDLE"] = str(app_bundle)
         _run_command(["sh", str(self.install_app_script)], cwd=self.root, env=env)
 
+    def _snapshot_app(self) -> Optional[Path]:
+        destination = Path(os.environ.get("GRAF_DEV_INSTALL_PATH", "/Applications/GRAF Dev.app"))
+        if not destination.exists():
+            return None
+        backup = self.state / "transactions" / f"previous-{os.getpid()}-{int(time.time() * 1000)}.app"
+        backup.parent.mkdir(parents=True, exist_ok=True)
+        # Keep the original in place so install-dev-app.sh can still compare
+        # designated requirements before replacing it.  The copy is a local
+        # rollback snapshot, never evidence or application data.
+        shutil.copytree(destination, backup)
+        return backup
+
+    def _restore_app(self, backup: Optional[Path]) -> None:
+        if backup is None:
+            return
+        destination = Path(os.environ.get("GRAF_DEV_INSTALL_PATH", "/Applications/GRAF Dev.app"))
+        if destination.exists():
+            shutil.rmtree(destination)
+        shutil.copytree(backup, destination)
+        shutil.rmtree(backup)
+
+    def _restore_runtime_record(self, previous: Optional[Dict[str, Any]]) -> None:
+        runtime = self._runtime_record()
+        if runtime.exists():
+            current = _read_json(runtime)
+            pid = current.get("pid")
+            if isinstance(pid, int) and self._pid_alive(pid) and self._pid_owned(current):
+                with contextlib.suppress(OSError):
+                    os.kill(pid, signal.SIGTERM)
+        if previous is None:
+            with contextlib.suppress(FileNotFoundError):
+                runtime.unlink()
+        else:
+            _write_json(runtime, previous)
+
     def promote(self, manifest: Dict[str, Any]) -> Dict[str, str]:
         self._assert_supported()
         self._assert_source_matches_checkout(manifest)
         env = self._env(manifest)
         self._compose_config(env)
-        self._ensure_backend(manifest, env)
-        self._install_app(manifest, env)
+        previous_runtime = _read_json(self._runtime_record()) if self._runtime_record().exists() else None
+        app_backup = self._snapshot_app()
+        try:
+            # Install is staged while the previous backend is still serving.
+            # The old app and runtime record are restored if any later gate
+            # fails, so active-manifest.json is never published for a partial
+            # promotion.
+            self._install_app(manifest, env)
+            self._ensure_backend(manifest, env)
+            checks = self.smoke(manifest)
+            if any(value != "pass" for key, value in checks.items() if key != "mode"):
+                raise HarnessError("live promotion smoke failed")
+        except BaseException:
+            with contextlib.suppress(Exception):
+                self._restore_runtime_record(previous_runtime)
+            with contextlib.suppress(Exception):
+                self._restore_app(app_backup)
+            raise
+        else:
+            if app_backup is not None:
+                shutil.rmtree(app_backup)
         return {"mode": "live", "backend": "started", "app": "installed"}
 
     def _wait_http(self, origin: str, path: str, *, headers: Optional[Dict[str, str]] = None, timeout: int = 10) -> int:
@@ -410,7 +489,13 @@ class GrafLocalAdapter:
         )
         checks["frontend_reachability"] = probe(frontend, "/login")
         checks["auth_session_bootstrap"] = probe(backend, "/api/v1/auth/providers")
-        checks["representative_api"] = checks["auth_session_bootstrap"]
+        try:
+            representative_status = self._wait_http(backend, "/api/v1/cabinet/meetings")
+            # An unauthenticated Dev probe may correctly receive an auth
+            # challenge; a 404/5xx still proves that the route is broken.
+            checks["representative_api"] = "pass" if representative_status in {200, 401, 403} else "fail"
+        except HarnessError:
+            checks["representative_api"] = "fail"
         app_path = Path(os.environ.get("GRAF_DEV_INSTALL_PATH", "/Applications/GRAF Dev.app"))
         info_plist = app_path / "Contents" / "Info.plist"
         try:
@@ -603,6 +688,8 @@ def operation_promote(args: argparse.Namespace) -> Dict[str, Any]:
     root = state_dir()
     candidate = _read_json(Path(args.manifest).resolve())
     _validate_manifest(candidate)
+    if candidate.get("migration_head") in {None, "", "unknown"}:
+        raise HarnessError("manifest migration_head must be resolved before promotion")
     with state_lock(root):
         active = _load_active(root)
         expected_parent = candidate.get("parent_manifest_id")

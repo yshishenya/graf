@@ -19,8 +19,14 @@ fail() {
 }
 
 [ -n "$LOCAL_ORIGIN" ] || fail "GRAF_DEV_ORIGIN must be explicitly supplied"
-[ "$SOURCE_SHA" ] && printf '%s' "$SOURCE_SHA" | grep -Eq '^[0-9a-fA-F]{40}$' || fail "GRAF_DEV_SOURCE_SHA must be a 40-character git SHA"
-[ "$MANIFEST_ID" ] && printf '%s' "$MANIFEST_ID" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$' || fail "GRAF_DEV_MANIFEST_ID contains unsupported characters"
+if [ -z "$SOURCE_SHA" ] || ! printf '%s' "$SOURCE_SHA" | grep -Eq '^[0-9a-fA-F]{40}$'; then
+  fail "GRAF_DEV_SOURCE_SHA must be a 40-character git SHA"
+fi
+[ -z "$(git -C "$ROOT_DIR" status --porcelain --untracked-files=all)" ] ||
+  fail "source checkout must be clean; commit or stash local changes before building GRAF Dev"
+if [ -z "$MANIFEST_ID" ] || ! printf '%s' "$MANIFEST_ID" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$'; then
+  fail "GRAF_DEV_MANIFEST_ID contains unsupported characters"
+fi
 [ "$(basename -- "$APP_BUNDLE")" = "GRAF Dev.app" ] || fail "Dev bundle path must end in GRAF Dev.app"
 case "$LOCAL_ORIGIN" in
   http://127.0.0.1:*|http://localhost:*) ;;

@@ -34,14 +34,17 @@ def validate(root: Path) -> list[str]:
         if missing:
             errors.append(f"{path}: missing {', '.join(missing)}")
         match = re.search(r"^feature_id[ \t]*:[ \t]*(\d+)[ \t]*$", text, re.MULTILINE)
-        if not match:
-            continue
-        feature_id = int(match.group(1))
-        if feature_id in seen:
-            errors.append(f"{path}: duplicate feature_id {feature_id}")
-        seen.add(feature_id)
-        if path.stem != f"F{feature_id}":
-            errors.append(f"{path}: filename must be F{feature_id}.yaml")
+        if match:
+            feature_id = int(match.group(1))
+            if feature_id in seen:
+                errors.append(f"{path}: duplicate feature_id {feature_id}")
+            seen.add(feature_id)
+            if path.name != f"F{feature_id}.yaml":
+                errors.append(f"{path}: filename must be F{feature_id}.yaml")
+        else:
+            feature_id = None
+            if _field(text, "feature_id") is not None:
+                errors.append(f"{path}: feature_id must be numeric")
         category = re.search(r"^category[ \t]*:[ \t]*([^\s]+)[ \t]*$", text, re.MULTILINE)
         if category and category.group(1) not in CATEGORIES:
             errors.append(f"{path}: invalid category")

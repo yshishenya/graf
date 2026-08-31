@@ -91,7 +91,7 @@ def validate(data: dict[str, Any]) -> list[str]:
     _non_empty_string(data, "started_at", errors)
     _non_empty_string(data, "finished_at", errors)
     _string_list(data, "commands", errors, non_empty=True)
-    _string_list(data, "skipped_gates", errors)
+    skipped_gates = _string_list(data, "skipped_gates", errors)
     _non_empty_string(data, "scope", errors)
     _artifact_digests(data, errors)
 
@@ -116,6 +116,10 @@ def validate(data: dict[str, Any]) -> list[str]:
             errors.append("invalid candidate_id")
         if data.get("authoritative_full") is not True:
             errors.append("full evidence requires authoritative_full=true")
+        if skipped_gates == []:
+            pass
+        elif skipped_gates is not None:
+            errors.append("authoritative full evidence cannot skip gates")
 
     if "authoritative_full" in data and not isinstance(data["authoritative_full"], bool):
         errors.append("authoritative_full must be boolean")

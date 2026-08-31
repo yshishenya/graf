@@ -14,6 +14,45 @@ def run(root: Path, args: list[str]) -> int:
     return result.returncode
 
 
+def changed_feature_specs(root: Path) -> list[Path] | None:
+    """Return feature specs changed against the integration base and locally."""
+    commands = [
+        ["git", "diff", "--name-only", "origin/master...HEAD", "--", "specs"],
+        ["git", "diff", "--name-only", "--", "specs"],
+        ["git", "diff", "--cached", "--name-only", "--", "specs"],
+        ["git", "ls-files", "--others", "--exclude-standard", "--", "specs"],
+    ]
+    paths: set[Path] = set()
+    for command in commands:
+        result = subprocess.run(command, cwd=root, text=True, capture_output=True)
+        if result.returncode != 0:
+            print(
+                "development-process: cannot determine changed paths for Legacy Impact scan: "
+                + result.stderr.strip(),
+                file=sys.stderr,
+            )
+            return None
+        for value in result.stdout.splitlines():
+            relative = Path(value.strip())
+            if len(relative.parts) >= 3 and relative.parts[0] == "specs" and relative.name == "spec.md":
+                paths.add(relative)
+    return sorted(paths)
+
+
+def scan_changed_legacy(root: Path) -> bool:
+    paths = changed_feature_specs(root)
+    if paths is None:
+        return False
+    for relative in paths:
+        spec = (root / relative).resolve()
+        if root not in spec.parents or not spec.is_file():
+            print(f"development-process: changed spec is unavailable: {relative}", file=sys.stderr)
+            return False
+        if run(root, ["scripts/validate-legacy-impact.py", "--feature", str(spec)]) != 0:
+            return False
+    return True
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path.cwd())
@@ -53,9 +92,12 @@ def main() -> int:
         return 1
     if run(root, ["scripts/validate-legacy-impact.py", "--feature", str(spec)]) != 0:
         return 1
+    if not scan_changed_legacy(root):
+        return 1
     if args.pr_body:
         feature_id = str(data.get("feature_id", ""))
-        if run(root, ["scripts/validate-pr-metadata.py", str(args.pr_body), "--feature-id", feature_id]) != 0:
+        source_sha = str(data.get("source_sha", ""))
+        if run(root, ["scripts/validate-pr-metadata.py", str(args.pr_body), "--feature-id", feature_id, "--expected-sha", source_sha]) != 0:
             return 1
     print(f"development-process: OK feature={feature}")
     return 0

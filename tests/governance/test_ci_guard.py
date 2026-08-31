@@ -42,3 +42,34 @@ def test_ci_records_requested_sha_mismatch_as_stale_evidence(tmp_path: Path) -> 
     record = json.loads(evidence.read_text(encoding="utf-8"))
     assert record["status"] == "stale"
     assert record["reason"] == "target_changed"
+
+
+def test_cd_requires_machine_readable_skip_ci_approval_before_checkout(tmp_path: Path) -> None:
+    candidate = tmp_path / "candidate.json"
+    candidate.write_text("{}\n", encoding="utf-8")
+    result = subprocess.run(
+        [
+            "bash",
+            "infra/scripts/cd-remote.sh",
+            "--execute",
+            "--branch",
+            "master",
+            "--candidate",
+            str(candidate),
+            "--skip-local-ci",
+        ],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "reason=skip_local_ci_approval_evidence_required" in result.stdout
+
+
+def test_cd_exposes_reuse_contract_for_authoritative_full_evidence() -> None:
+    script = (ROOT / "infra/scripts/cd-remote.sh").read_text(encoding="utf-8")
+    assert "--evidence" in script
+    assert "authoritative_full_evidence_invalid" in script
+    assert "local_ci=authoritative_full_reused" in script
+    assert "REUSE_AUTHORITATIVE_FULL=1" in script

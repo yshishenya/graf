@@ -7,7 +7,7 @@ root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 usage() {
   cat >&2 <<'EOF'
 usage:
-  release-candidate.sh freeze --sha <40-hex> --features <id,id,...> --operator <name> [--output <path>] [--dry-run]
+  release-candidate.sh freeze --sha <exact-HEAD-40-hex> --features <id,id,...> --operator <name> [--output <path>] [--dry-run]
   release-candidate.sh status <candidate.json>
   release-candidate.sh validate <candidate.json> [--current]
   release-candidate.sh decide <candidate.json> --evidence <full-evidence.json> --calver <YYYY.MM.DD.N> [--tag <tag>] [--output <path>]
@@ -19,6 +19,7 @@ command="$1"; shift
 
 python3 - "$root_dir" "$command" "$@" <<'PY'
 import datetime as dt
+import contextlib
 import fcntl
 import hashlib
 import importlib.util
@@ -43,6 +44,8 @@ REQUIRED = (
     "rollback_target", "known_limitations", "decision", "decision_reason",
 )
 SCHEMA_PATH = root / "infra/release/candidate.schema.json"
+CANDIDATE_DIR = root / ".dev" / "release" / "candidates"
+DECISION_DIR = root / ".dev" / "release" / "decisions"
 
 def die(message):
     raise SystemExit(f"release-candidate: {message}")
@@ -238,6 +241,18 @@ def changelog_calvers():
         )
     }
 
+def feature_exists(feature_id):
+    specs = root / "specs"
+    if not specs.is_dir():
+        return False
+    return any(
+        path.is_dir() and re.fullmatch(rf"{re.escape(feature_id)}(?:-.+)?", path.name)
+        for path in specs.iterdir()
+    )
+
+def decision_identity_path(candidate_id):
+    return DECISION_DIR / f".{candidate_id}.decision-identity.json"
+
 def write_create_once(path, text):
     path = pathlib.Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -297,7 +312,10 @@ if op == "freeze":
     status = subprocess.run(["git", "-C", str(root), "status", "--porcelain", "--untracked-files=all"], text=True, capture_output=True, check=True).stdout
     if status:
         die("worktree must be clean before freeze")
-    output = pathlib.Path(values["output"] or (root / ".dev/release/candidates" / f"rc-{sha[:12]}.json"))
+    missing_features = [feature_id for feature_id in feature_ids if not feature_exists(feature_id)]
+    if missing_features:
+        die("cannot freeze nonexistent feature IDs: " + ", ".join(missing_features))
+    output = pathlib.Path(values["output"] or (CANDIDATE_DIR / f"rc-{sha[:12]}.json"))
     candidate = {
         "schema_version": 1,
         "candidate_id": f"rc-{dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{sha[:12]}",
@@ -335,23 +353,23 @@ if op == "decide":
     candidate_path = pathlib.Path(values["candidate"]).resolve()
     candidate = load(candidate_path)
     validate_candidate(candidate)
-    require_current(candidate)
     if candidate["status"] != "frozen":
         die("only a frozen candidate can receive a decision")
-    lock_path = candidate_path.with_suffix(candidate_path.suffix + ".decision.lock")
+    lock_path = DECISION_DIR / f".{candidate['candidate_id']}.decision.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
     lock_handle = lock_path.open("a+", encoding="utf-8")
     fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
     # The candidate itself is immutable, so a canonical identity sidecar is the
     # single writer/identity guard. Custom output paths cannot create a second
     # decision in another directory.
-    identity_path = candidate_path.with_name(f".{candidate_path.name}.decision-identity.json")
+    identity_path = decision_identity_path(candidate["candidate_id"])
     if identity_path.exists():
         identity = load(identity_path)
         if identity.get("candidate_id") != candidate["candidate_id"]:
             die(f"decision identity sidecar belongs to another candidate: {identity_path}")
         die(f"candidate already has an immutable decision identity {identity_path}")
-    for existing in candidate_path.parent.glob("*.json"):
-        if existing == candidate_path:
+    for existing in DECISION_DIR.glob(f"*{candidate['candidate_id']}*.json"):
+        if existing == identity_path:
             continue
         try:
             existing_data = json.loads(existing.read_text(encoding="utf-8"))
@@ -378,6 +396,10 @@ if op == "decide":
         errors.append("evidence requested_sha differs from candidate source_sha")
     if evidence.get("candidate_id") != candidate["candidate_id"]:
         errors.append("evidence candidate_id differs from candidate_id")
+    # Full CI can finish while the operator is preparing the decision.  The
+    # candidate must still describe the exact checkout at the point of go/no-go.
+    if not errors:
+        require_current(candidate)
     decision = "go" if not errors else "no-go"
     calver = values["calver"]
     if decision == "go":
@@ -385,7 +407,7 @@ if op == "decide":
             die("go requires --calver YYYY.MM.DD.N")
         calver = validate_calver(calver)
         versions = changelog_calvers()
-        if versions and calver not in versions:
+        if calver not in versions:
             die(f"CalVer {calver} is not bound to a release section in CHANGELOG.md")
         tag = values["tag"] or calver
         if not TAG_RE.fullmatch(tag):
@@ -394,7 +416,9 @@ if op == "decide":
             die("tag must equal the normalized CalVer")
     else:
         calver = None; tag = None
-    output = pathlib.Path(values["output"] or str(candidate_path)[:-5] + ".decision.json")
+    output = pathlib.Path(values["output"] or (DECISION_DIR / f"{candidate['candidate_id']}.decision.json"))
+    if output.resolve() == candidate_path.resolve():
+        die("decision output must be separate from the immutable candidate")
     record = dict(candidate)
     record.update({
         "status": decision,
@@ -411,8 +435,17 @@ if op == "decide":
         indent=2,
         sort_keys=True,
     ) + "\n"
+    # Preflight the user-selected destination before creating the canonical
+    # identity, avoiding a stranded identity when --output is already present.
+    if output.exists():
+        die(f"refusing to overwrite existing immutable record {output}")
     write_create_once(identity_path, identity)
-    write_create_once(output, text)
+    try:
+        write_create_once(output, text)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            identity_path.unlink()
+        raise
     print(text, end="")
     fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
     lock_handle.close()
