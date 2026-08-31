@@ -5,17 +5,21 @@ environment. It does not contact production, delete application data, build a
 container, or install an app by itself. A project adapter may connect a valid
 manifest to those actions only after the manifest and Dev boundary checks pass.
 
-The state directory is `GRAF_DEV_STATE_DIR` or `.dev/harness`. It contains only
+The state directory is `GRAF_DEV_STATE_DIR` or the shared machine-local
+`~/Library/Application Support/GRAF Dev/<repo>/harness` path on macOS
+(`~/.cache/GRAF Dev/<repo>/harness` on other systems). It contains only
 metadata, a lock and an atomic `active-manifest.json` pointer. A state path that
 looks like production is rejected. Origins must be loopback (`localhost`,
-`127.0.0.1` or `[::1]`).
+`127.0.0.1` or `[::1]`). Set `GRAF_DEV_STATE_DIR` explicitly when a disposable
+fixture needs a worktree-local state directory.
 
 ## Operations
 
 ```sh
 ./infra/scripts/dev-harness.sh build --sha <40-hex-sha> --feature-id 216
 ./infra/scripts/dev-harness.sh build --sha <40-hex-sha> --feature-id 216 --dry-run
-./infra/scripts/dev-harness.sh promote --manifest .dev/harness/manifests/dev-<sha>.json
+dev_state="$(./infra/scripts/dev-harness.sh status --json | jq -r '.state_dir')"
+./infra/scripts/dev-harness.sh promote --manifest "$dev_state/manifests/dev-<sha12>.json"
 ./infra/scripts/dev-harness.sh promote --manifest <path> --dry-run
 ./infra/scripts/dev-harness.sh status --json
 ./infra/scripts/dev-harness.sh smoke --json --fixture
@@ -30,7 +34,8 @@ app. На macOS разработчик может явно включить adap
 
 ```sh
 ./infra/scripts/dev-harness.sh build --sha "$(git rev-parse HEAD)" --feature-id 216 --live
-./infra/scripts/dev-harness.sh promote --manifest .dev/harness/manifests/dev-<sha>.json --live
+dev_state="$(./infra/scripts/dev-harness.sh status --json | jq -r '.state_dir')"
+./infra/scripts/dev-harness.sh promote --manifest "$dev_state/manifests/dev-<sha12>.json" --live
 ./infra/scripts/dev-harness.sh smoke --json --live
 ```
 

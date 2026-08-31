@@ -54,15 +54,17 @@ Expected: one umbrella reservation, no duplicate active claim, and labels
 
 ```sh
 ./infra/scripts/dev-harness.sh build --sha "$(git rev-parse HEAD)" --migration-head 0085_merge_summary_mediascribe
-./infra/scripts/dev-harness.sh promote --manifest .dev/harness/manifests/dev-<sha12>.json
+dev_state="$(./infra/scripts/dev-harness.sh status --json | jq -r '.state_dir')"
+./infra/scripts/dev-harness.sh promote --manifest "$dev_state/manifests/dev-<sha12>.json"
 ./infra/scripts/dev-harness.sh status --json
 ./infra/scripts/dev-harness.sh smoke --json --fixture
 ./infra/scripts/dev-harness.sh rollback --dry-run
 ```
 
-For a metadata-only fixture, pass the expected migration head explicitly. The
-default `unknown` value is intentional and promotion must reject it; this keeps
-an unresolved real migration from being hidden by a synthetic manifest. A
+For a metadata-only fixture, pass the expected migration head explicitly. In a
+real GRAF checkout, `build` resolves the current Alembic graph head
+automatically; an explicit `--migration-head` remains available for a verified
+override. The unresolved `unknown` value is rejected by promotion. A
 `--dry-run` build does not write a manifest, so `status`/`smoke` correctly report
 that no active manifest exists until a non-dry-run build is promoted. Expected
 successful fixture output shows one SHA across backend/frontend/worker/app and
