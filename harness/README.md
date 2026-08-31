@@ -41,7 +41,7 @@ contracts. Each published version is immutable SemVer and requires a checksum,
 migration notes, secret/path scan and a rollback ref.
 
 The current public release is pinned at
-`https://github.com/yshishenya/graf-development-harness/releases/tag/v0.1.3`;
-`v0.1.2` remains the rollback ref.
+`https://github.com/yshishenya/graf-development-harness/releases/tag/v0.1.4`;
+`v0.1.3` remains the rollback ref.
 The GRAF adapter records that immutable ref in `harness/harness.lock.json`;
 consumers must update the lock and migration notes together.
