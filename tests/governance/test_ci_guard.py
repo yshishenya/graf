@@ -99,15 +99,60 @@ def test_ci_checks_shell_syntax_for_macos_changes_and_full_runs() -> None:
     assert script.count('run_step "shell syntax" check_shell_syntax "$changed_list"') >= 2
 
 
-def test_remote_actions_remain_disabled_until_merge_queue_slice() -> None:
-    # The existing release-signing custody gate intentionally rejects active
-    # repository workflows. F227 owns the later merge_group/required-checks
-    # rollout and must update that gate in the same reviewed slice.
-    workflows = ROOT / ".github/workflows"
-    assert not workflows.exists() or not any(workflows.iterdir())
-    assert "GitHub Actions are intentionally disabled" in (
-        ROOT / "docs/agent-guidance/release-and-validation.md"
-    ).read_text(encoding="utf-8")
+def test_ci_runs_final_cleanliness_before_success_evidence() -> None:
+    script = (ROOT / "infra/scripts/ci-local.sh").read_text(encoding="utf-8")
+    assert "check_final_cleanliness()" in script
+    assert 'run_step "final cleanliness" check_final_cleanliness' in script
+    assert script.index('run_step "final cleanliness" check_final_cleanliness') < script.rindex('pipeline_result="pass"')
+    assert "initial_tree_state=\"$(git status --porcelain --untracked-files=all)\"" in script
+    assert '[[ "$status" != "$initial_tree_state" ]]' in script
+
+
+def test_full_without_candidate_is_diagnostic_only() -> None:
+    script = (ROOT / "infra/scripts/ci-local.sh").read_text(encoding="utf-8")
+    assert 'next_gate="full_diagnostic_only"' in script
+    assert 'next_gate="release_ready"' in script
+    assert '[[ -n "$candidate_id" ]]' in script
+
+
+def test_candidate_file_source_sha_is_checked_before_pipeline() -> None:
+    script = (ROOT / "infra/scripts/ci-local.sh").read_text(encoding="utf-8")
+    assert 'candidate_file="${GRAF_CI_CANDIDATE_FILE:-}"' in script
+    assert 'candidate_source_sha=""' in script
+    assert '"${candidate_source_sha,,}" != "${observed_sha_start,,}"' in script
+    assert "candidate_source_sha_mismatch" in script
+
+
+def test_candidate_file_mismatch_emits_stale_evidence_without_running_pipeline(tmp_path: Path) -> None:
+    candidate = tmp_path / "candidate.json"
+    candidate.write_text(
+        json.dumps({"candidate_id": "rc-test-source-mismatch", "source_sha": "0" * 40}) + "\n",
+        encoding="utf-8",
+    )
+    evidence = tmp_path / "evidence.json"
+    env = os.environ.copy()
+    env["GRAF_CI_CANDIDATE_FILE"] = str(candidate)
+    env["GRAF_CI_EVIDENCE_PATH"] = str(evidence)
+    result = subprocess.run(
+        ["bash", "infra/scripts/ci-local.sh", "--fast"],
+        cwd=ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 2
+    assert "candidate_source_sha_mismatch" in result.stderr
+    record = json.loads(evidence.read_text(encoding="utf-8"))
+    assert record["status"] == "stale"
+    assert record["reason"] == "candidate_source_sha_mismatch"
+
+
+def test_dirty_candidate_full_run_is_blocked_but_direct_full_is_diagnostic() -> None:
+    script = (ROOT / "infra/scripts/ci-local.sh").read_text(encoding="utf-8")
+    assert 'reason=dirty_worktree_before_run' in script
+    assert 'reason=release_candidate_required_for_clean_gate' in script
+    assert '[[ "$requested_mode" == "full" && -n "$candidate_file" && -n "$initial_tree_state" ]]' in script
 
 
 def test_dev_installer_parses_and_validates_both_loopback_origins() -> None:

@@ -1,4 +1,7 @@
-context_file: "AGENTS.md"
+# Keep generated feature pointers out of the stable root instruction chain.
+# `.dev/` is worktree-local/ignored; agents use `.specify/feature.json` as the
+# authoritative active context and load this optional pointer only when needed.
+context_file: ".dev/active-feature-context.md"
 context_markers:
   start: <!-- SPECKIT START -->
   end: <!-- SPECKIT END -->

@@ -1,0 +1,8 @@
+schema_version: 1
+feature_id: 227
+category: Changed
+summary: "CI получает merge-group validation, stale-SHA protection и provenance редкого release train."
+issue: 6207
+tasks: [T001, T002, T003, T004, T005, T006, T007, T008, T009, T010, T011, T012, T013, T014, T015, T016, T017, T018, T019, T020, T021, T022, T023, T024, T025, T026, T027, T028, T029, T030]
+compatibility: "PR feedback остаётся bounded fast lane; production release по-прежнему требует frozen candidate, одного authoritative Full CI и отдельного approval."
+release_notes: "Synthetic merge SHA, post-merge master SHA и release candidate связываются отдельными metadata-only receipts; устаревшие проверки блокируются."

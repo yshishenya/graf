@@ -487,6 +487,9 @@ def package_safety(package_root: Path) -> list[str]:
 
 
 def self_test() -> int:
+    from dev_harness.ci_contracts import self_test as ci_contracts_self_test
+
+    ci_contracts_self_test()
     sha = "a" * 40
     digest = "sha256:" + "b" * 64
     good_evidence = {

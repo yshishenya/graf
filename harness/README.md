@@ -21,6 +21,7 @@ provider and production gates remain in this repository's adapter.
 - Feature claim and bounded-context schemas/validators.
 - Changelog fragment and Legacy Impact templates.
 - SHA-bound CI evidence and pull-request metadata validators.
+- Fail-closed event identity and metadata-only CI receipt contracts.
 - Generic JSON schemas and copyable CI evidence / pull-request templates under
   `schemas/` and `templates/`.
 - Copyable short `AGENTS.md`, feature workflow, Dev adapter, Legacy Impact and
@@ -51,6 +52,15 @@ from dev_harness.validators import ci_evidence, pr_metadata
 
 assert ci_evidence(evidence) == []
 assert pr_metadata(pull_request_body, "216") == []
+```
+
+The portable CI contract API is dependency-free as well:
+
+```python
+from dev_harness.ci_contracts import ci_receipt, resolve_event_identity
+
+identity = resolve_event_identity(event_payload, "merge_group")
+assert ci_receipt(receipt_payload) == []
 ```
 
 `ci_evidence()` enforces exact-SHA evidence, non-ambiguous status, required

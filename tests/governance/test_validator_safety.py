@@ -173,6 +173,21 @@ def test_agent_context_accepts_four_digit_feature_directory(tmp_path: Path) -> N
     assert not any("feature_directory must match" in error for error in errors)
 
 
+def test_context_updater_target_stays_outside_root_instruction_chain() -> None:
+    config = (ROOT / ".specify/extensions/agent-context/agent-context-config.yml").read_text(
+        encoding="utf-8"
+    )
+    assert 'context_file: ".dev/active-feature-context.md"' in config
+
+
+def test_issue_canon_pr_template_keeps_feature_and_legacy_gates() -> None:
+    template = (ROOT / ".specify/extensions/github-issue-canon/templates/github/pull_request_template.md").read_text(
+        encoding="utf-8"
+    )
+    for marker in ("## Feature identity", "Exact source SHA", "## Legacy Impact"):
+        assert marker in template
+
+
 def test_changelog_required_fields_must_be_top_level(tmp_path: Path) -> None:
     validator = load_script("validate-changelog-fragments")
     directory = tmp_path / "changes" / "unreleased"
