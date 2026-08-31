@@ -44,6 +44,18 @@ def test_build_promote_status_smoke_and_rollback(tmp_path):
     assert run("rollback", tmp_path, manifest_id=None, dry_run=False)["manifest"]["source_sha"] == sha_a
 
 
+def test_build_requires_or_resolves_feature_identity(tmp_path, monkeypatch):
+    monkeypatch.delenv("GRAF_FEATURE_ID", raising=False)
+    monkeypatch.setattr(dev_harness, "_repo_root", lambda: tmp_path / "repo")
+    with pytest.raises(dev_harness.HarnessError, match="feature id is required"):
+        run("build", tmp_path, sha="a" * 40, feature_id=None, operator="test", migration_head="dev-head", dry_run=True)
+    pointer = tmp_path / "repo" / ".specify"
+    pointer.mkdir(parents=True)
+    (pointer / "feature.json").write_text(json.dumps({"feature_id": "216"}), encoding="utf-8")
+    result = run("build", tmp_path, sha="a" * 40, feature_id=None, operator="test", migration_head="dev-head", dry_run=True)
+    assert result["manifest"]["feature_id"] == "216"
+
+
 def test_dry_run_does_not_activate_and_reset_requires_confirmation(tmp_path):
     manifest = build(tmp_path, "c" * 40)
     candidate = tmp_path / "manifests" / f"{manifest['manifest_id']}.json"

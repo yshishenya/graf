@@ -59,6 +59,26 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
+def _active_feature_id() -> str:
+    """Resolve the feature identity from the explicit per-worktree pointer."""
+    pointer = _repo_root() / ".specify" / "feature.json"
+    if not pointer.exists():
+        raise HarnessError(
+            "feature id is required: pass --feature-id or GRAF_FEATURE_ID; "
+            "no .specify/feature.json active pointer exists"
+        )
+    try:
+        payload = json.loads(pointer.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise HarnessError(f"cannot read active feature pointer {pointer}: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise HarnessError("active feature pointer must be a JSON object")
+    feature_id = str(payload.get("feature_id", "")).strip()
+    if not re.fullmatch(r"\d{3,}", feature_id) or int(feature_id) == 0:
+        raise HarnessError("active feature pointer has no valid non-zero feature_id")
+    return feature_id
+
+
 def state_dir() -> Path:
     raw = os.environ.get("GRAF_DEV_STATE_DIR")
     path = Path(raw).expanduser() if raw else _repo_root() / ".dev" / "harness"
@@ -564,7 +584,8 @@ def build_manifest(sha: str, feature_id: str, operator: str = "local", migration
 
 def operation_build(args: argparse.Namespace) -> Dict[str, Any]:
     root = state_dir()
-    manifest = build_manifest(args.sha, args.feature_id, args.operator, args.migration_head, root)
+    feature_id = args.feature_id or os.environ.get("GRAF_FEATURE_ID") or _active_feature_id()
+    manifest = build_manifest(args.sha, feature_id, args.operator, args.migration_head, root)
     adapter_info: Dict[str, str] = {"mode": "metadata-only"}
     if getattr(args, "live", False) and not args.dry_run:
         adapter_info = GrafLocalAdapter(_repo_root(), root).build(manifest)
@@ -679,7 +700,7 @@ def parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="operation", required=True)
     build = sub.add_parser("build")
     build.add_argument("--sha", required=True)
-    build.add_argument("--feature-id", default=os.environ.get("GRAF_FEATURE_ID", "000"))
+    build.add_argument("--feature-id", default=None)
     build.add_argument("--operator", default=os.environ.get("GRAF_DEV_OPERATOR", "local"))
     build.add_argument("--migration-head", default="unknown")
     build.add_argument("--dry-run", action="store_true")
