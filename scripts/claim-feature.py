@@ -57,20 +57,22 @@ def _ids_from_refs(refs: Iterable[str]) -> set[int]:
     return result
 
 
-def _github_ids(root: Path) -> set[int]:
+def _github_ids(root: Path, *, exclude_issue: int | None = None) -> set[int]:
     """Read visible issue/PR metadata when gh is available; never guess offline."""
     result: set[int] = set()
     for kind in ("issue", "pr"):
         try:
             proc = subprocess.run(
                 ["gh", kind, "list", "--state", "all", "--limit", "1000",
-                 "--json", "title,body,labels"],
+                 "--json", "number,title,body,labels"],
                 cwd=root, check=True, capture_output=True, text=True,
             )
             rows = json.loads(proc.stdout or "[]")
         except (OSError, subprocess.CalledProcessError, json.JSONDecodeError):
             continue
         for row in rows if isinstance(rows, list) else []:
+            if kind == "issue" and exclude_issue is not None and row.get("number") == exclude_issue:
+                continue
             labels = row.get("labels", []) if isinstance(row, dict) else []
             label_text = " ".join(str(item.get("name", "")) for item in labels if isinstance(item, dict))
             title = str(row.get("title", ""))
@@ -126,7 +128,7 @@ def claim(root: Path, feature_id: int, *, issue_number: int | None, branch: str,
     refs = _git_refs(root)
     occupied = _ids_from_specs(root) | _ids_from_refs(refs) | _local_claim_ids(root)
     if not offline:
-        occupied |= _github_ids(root)
+        occupied |= _github_ids(root, exclude_issue=issue_number)
     if feature_id in occupied:
         conflicts = sorted(
             [f"spec/branch ref containing {feature_id:03d}"],
