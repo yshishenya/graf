@@ -97,13 +97,15 @@ def test_ci_checks_shell_syntax_for_macos_changes_and_full_runs() -> None:
     assert script.count('run_step "shell syntax" check_shell_syntax "$changed_list"') >= 2
 
 
-def test_github_fast_workflow_cancels_superseded_sha_and_validates_pr_metadata() -> None:
-    workflow = (ROOT / ".github/workflows/governance-fast.yml").read_text(encoding="utf-8")
-    assert "cancel-in-progress: true" in workflow
-    assert "GRAF_CI_REQUESTED_SHA" in workflow
-    assert "infra/scripts/ci-local.sh --fast" in workflow
-    assert "validate-pr-metadata.py" in workflow
-    assert "--expected-sha" in workflow
+def test_remote_actions_remain_disabled_until_merge_queue_slice() -> None:
+    # The existing release-signing custody gate intentionally rejects active
+    # repository workflows. F227 owns the later merge_group/required-checks
+    # rollout and must update that gate in the same reviewed slice.
+    workflows = ROOT / ".github/workflows"
+    assert not workflows.exists() or not any(workflows.iterdir())
+    assert "GitHub Actions are intentionally disabled" in (
+        ROOT / "docs/agent-guidance/release-and-validation.md"
+    ).read_text(encoding="utf-8")
 
 
 def test_dev_installer_parses_and_validates_both_loopback_origins() -> None:
