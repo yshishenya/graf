@@ -97,23 +97,6 @@ PY
   fi
 fi
 
-if [[ "$MODE" == "dry-run" ]]; then
-  cat <<EOF
-deploy_result=dry_run
-remote_host=$REMOTE_HOST
-remote_path=$REMOTE_PATH
-branch=$BRANCH
-candidate=${CANDIDATE_PATH:-required_for_execute}
-local_ci=$([[ "$SKIP_LOCAL_CI" == "1" ]] && echo skipped_incident_only || echo full_required)
-posthog_stack_handoff=dry_run_metadata_only
-posthog_stack_contract=infra/posthog/docker-compose.posthog.yml
-posthog_stack_runtime_source=official_posthog_hobby_generated_compose_required
-posthog_stack_execute=requires_explicit_release_approval
-steps=clean_worktree,branch_sync,pinned_sha,local_ci,remote_fetch,backup,restore_rehearsal,runtime_secret_group,runtime_service_secret_permissions,runtime_db_secret_provision,media_storage_secret_provision,compose_config_secret_scan,migration_head,runtime_db_role_bootstrap,runtime_db_identity,initial_dispatch_closed,temporal_readiness,processing_worker_readiness,image_capability,profile_contract,media_worker_readiness_control,production_smoke,automatic_dispatch_open,guarded_rollback,runtime_secret_env_scan,public_health,automatic_retry_post_deploy,backfill_inventory_post_deploy,range_playback_post_deploy,normalization_cleanup_post_deploy
-EOF
-  exit 0
-fi
-
 cd "$(dirname "$0")/../.."
 
 if ! WORKTREE_STATUS="$(git status --porcelain --untracked-files=all)"; then
@@ -169,22 +152,21 @@ PY
     echo "candidate_status=$candidate_status"
     exit 1
   fi
-  if [[ "$MODE" == "execute" ]]; then
-    if [[ -z "$EVIDENCE_PATH" ]]; then
-      candidate_run_id="$(python3 - "$CANDIDATE_PATH" <<'PY'
+  if [[ -z "$EVIDENCE_PATH" ]]; then
+    candidate_id="$(python3 - "$CANDIDATE_PATH" <<'PY'
 import json, sys
 with open(sys.argv[1], encoding="utf-8") as handle:
-    print(json.load(handle).get("full_run_id", ""))
+    print(json.load(handle).get("candidate_id", ""))
 PY
 )"
-      [[ -n "$candidate_run_id" ]] && EVIDENCE_PATH=".dev/ci-evidence/${candidate_run_id}.json"
-    fi
-    [[ -n "$EVIDENCE_PATH" && -f "$EVIDENCE_PATH" ]] || {
-      echo "deploy_result=blocked"
-      echo "reason=authoritative_full_evidence_missing"
-      exit 1
-    }
-    if ! python3 - "$CANDIDATE_PATH" "$EVIDENCE_PATH" <<'PY'
+    [[ -n "$candidate_id" ]] && EVIDENCE_PATH=".dev/ci-evidence/authoritative-${candidate_id}.json"
+  fi
+  [[ -n "$EVIDENCE_PATH" && -f "$EVIDENCE_PATH" ]] || {
+    echo "deploy_result=blocked"
+    echo "reason=authoritative_full_evidence_missing"
+    exit 1
+  }
+  if ! python3 - "$CANDIDATE_PATH" "$EVIDENCE_PATH" <<'PY'
 import hashlib
 import importlib.util
 import json
@@ -214,15 +196,32 @@ if evidence.get("requested_sha") != candidate.get("source_sha"):
 if evidence.get("lane") != "full" or evidence.get("authoritative_full") is not True:
     raise SystemExit("decision evidence is not an authoritative Full CI record")
 PY
-    then
-      echo "deploy_result=blocked"
-      echo "reason=authoritative_full_evidence_invalid"
-      exit 1
-    fi
-    echo "authoritative_full_evidence=$EVIDENCE_PATH"
-    REUSE_AUTHORITATIVE_FULL=1
+  then
+    echo "deploy_result=blocked"
+    echo "reason=authoritative_full_evidence_invalid"
+    exit 1
   fi
+  echo "authoritative_full_evidence=$EVIDENCE_PATH"
+  [[ "$MODE" == "execute" ]] && REUSE_AUTHORITATIVE_FULL=1
   echo "release_candidate=go"
+fi
+
+if [[ "$MODE" == "dry-run" ]]; then
+  cat <<EOF
+deploy_result=dry_run
+remote_host=$REMOTE_HOST
+remote_path=$REMOTE_PATH
+branch=$BRANCH
+candidate=${CANDIDATE_PATH:-required_for_execute}
+local_ci=$([[ "$SKIP_LOCAL_CI" == "1" ]] && echo skipped_incident_only || echo full_required)
+posthog_stack_handoff=dry_run_metadata_only
+posthog_stack_contract=infra/posthog/docker-compose.posthog.yml
+posthog_stack_runtime_source=official_posthog_hobby_generated_compose_required
+posthog_stack_execute=requires_explicit_release_approval
+candidate_gates=$([[ -n "$CANDIDATE_PATH" ]] && echo passed || echo not_supplied)
+steps=clean_worktree,branch_sync,pinned_sha,candidate_validation,authoritative_full_evidence_validation,local_ci,remote_fetch,backup,restore_rehearsal,runtime_secret_group,runtime_service_secret_permissions,runtime_db_secret_provision,media_storage_secret_provision,compose_config_secret_scan,migration_head,runtime_db_role_bootstrap,runtime_db_identity,initial_dispatch_closed,temporal_readiness,processing_worker_readiness,image_capability,profile_contract,media_worker_readiness_control,production_smoke,automatic_dispatch_open,guarded_rollback,runtime_secret_env_scan,public_health,automatic_retry_post_deploy,backfill_inventory_post_deploy,range_playback_post_deploy,normalization_cleanup_post_deploy
+EOF
+  exit 0
 fi
 
 if [[ "$REUSE_AUTHORITATIVE_FULL" == "1" ]]; then
