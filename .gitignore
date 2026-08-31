@@ -75,6 +75,9 @@ out/
 .idea/
 .vscode/
 
+# Dev harness manifests, artifacts and runtime logs (never source/evidence)
+.dev/
+
 # Spec Kit local runtime state that should not contain project source
 .specify/feature.json
 
