@@ -220,6 +220,27 @@ retirement отдельно.
   канонический `build → promote` не создавал манифест с `unknown`; fixture-режим
   сохраняет явный synthetic head (FR-013, SC-003; convergence follow-up).
 
+## Phase 10: Critical convergence hardening
+
+- [ ] T055 [P] Сделать identity Dev state производной от общего Git metadata
+  directory, а не имени физического worktree; добавить regression proof для
+  одинакового lock/runtime namespace всех linked worktree (FR-011, SC-003;
+  partial).
+- [ ] T056 [P] Закрыть Dev manifest по schema contract: отвергать неизвестные
+  и sensitive/private поля до записи active state и синхронизировать
+  executable validator с `infra/dev/manifest.schema.json` (FR-012, SC-004;
+  contradicts).
+- [ ] T057 [P] Не считать metadata-only manifest live build success: при
+  `build --live` проверять наличие и digest реального `GRAF Dev.app`, а при
+  отсутствии пересобирать либо fail-closed (FR-014, SC-003; partial).
+- [ ] T058 Поднять в локальном Dev topology Temporal и processing worker,
+  включить их в `build → promote → smoke` и отдельно проверять worker health;
+  server-rendered frontend считать frontend-компонентом до выделения отдельного
+  frontend runtime (FR-011, FR-016; missing).
+- [ ] T059 Запретить `reset-data` при живом owned backend/runtime и сохранить
+  явный stop/rollback порядок в операторском runbook (FR-017, SC-003;
+  contradicts).
+
 ## Dependencies and parallelism
 
 - T001–T004 создают безопасную основу; T005–T010 зависят от T001.
@@ -234,6 +255,9 @@ retirement отдельно.
 - T036–T042 — финальные reviewer, analyze, issue-sync, validation, converge и
   отдельный legacy follow-up gates; implementation commit не делается до
   explicit approval.
+- T055–T059 — critical convergence hardening; T058 зависит от миграционного
+  repair path Feature 221 для полного live rehearsal, но contract и tests могут
+  быть подготовлены заранее.
 
 ## Definition of Done
 

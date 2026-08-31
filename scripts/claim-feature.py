@@ -176,6 +176,78 @@ def _github_umbrella(root: Path, issue_number: int, feature_id: int) -> None:
         raise SystemExit(f"feature-claim: umbrella issue #{issue_number} is not linked to Feature {marker}")
 
 
+def _create_github_umbrella(root: Path, feature_id: int, slug: str) -> int:
+    """Create the one canonical reservation issue while the shared claim lock is held."""
+    title = f"[{feature_id:03d}][P1][governance] T000: Реализовать фичу {slug}"
+    body = f"""## Кратко
+
+Зарезервировать Feature {feature_id:03d} и вести его работу через Spec Kit и GitHub.
+
+## Контекст
+
+- Фича: `{feature_id:03d}-{slug}`
+- Приоритет: `P1`
+- Область: `governance`
+- Источник: автоматический feature bootstrap
+- Гейт: blocks PR
+
+## Проблема
+
+Номер должен быть занят до создания branch/spec и не может повторно использоваться.
+
+## Проверенные факты
+
+- Номер проверен против локальных specs, Git refs, claims и GitHub history.
+- Этот issue является umbrella reservation и source of truth для Feature {feature_id:03d}.
+
+## Границы задачи
+
+Входит:
+- Реализация задачи в отдельной feature ветке и Spec Kit directory.
+
+Не входит:
+- Несвязанные изменения и массовое удаление legacy.
+
+## Критерии приемки
+
+- [ ] Feature ID присутствует в spec, branch, tasks, child issues и PR.
+- [ ] Перед закрытием есть validation evidence и reviewer approval.
+
+## Что проверить перед закрытием
+
+- [ ] Spec Kit tasks и GitHub issue links.
+- [ ] Exact SHA и выбранный validation lane.
+
+## Заметки по реализации
+
+Детальные требования находятся в `specs/{feature_id:03d}-{slug}/spec.md`.
+
+## Ссылки
+
+- Feature ID: `F{feature_id:03d}`
+"""
+    try:
+        proc = subprocess.run(
+            [
+                "gh", "issue", "create", "--title", title, "--body", body,
+                "--label", f"feature:{feature_id:03d},priority:P1,area:docs/governance,gate:pr-blocker,type:hardening",
+            ],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        detail = getattr(exc, "stderr", "") or ""
+        raise SystemExit(f"feature-claim: cannot create GitHub umbrella issue: {detail.strip() or exc}") from exc
+    match = re.search(r"/(\d+)\s*$", proc.stdout.strip())
+    if not match:
+        raise SystemExit("feature-claim: gh did not return an issue URL")
+    issue_number = int(match.group(1))
+    _github_umbrella(root, issue_number, feature_id)
+    return issue_number
+
+
 def _write_claims_atomic(path: Path, claims: dict[str, object]) -> None:
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     try:
@@ -373,12 +445,52 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--branch", default="")
     parser.add_argument("--slug", default="")
     parser.add_argument("--offline", action="store_true")
+    parser.add_argument("--allocate", action="store_true", help="atomically allocate a fresh ID and create its umbrella issue")
     parser.add_argument("--self-test", action="store_true")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
     if args.self_test:
         return self_test()
     root = args.root.resolve()
+    if args.allocate:
+        if not args.branch or not args.slug:
+            raise SystemExit("feature-claim: --allocate requires --branch and --slug")
+        if args.offline:
+            raise SystemExit("feature-claim: --allocate cannot use --offline; use an explicit draft claim instead")
+        _assert_clean_worktree(root)
+        git_dir = _git_common_dir(root)
+        if not git_dir.is_absolute():
+            git_dir = root / git_dir
+        lock_path = git_dir / "feature-claim.lock"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with lock_path.open("a+") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            claims_path = lock_path.with_name("feature-claims.json")
+            try:
+                claims = json.loads(claims_path.read_text(encoding="utf-8")) if claims_path.exists() else {}
+            except (OSError, json.JSONDecodeError) as exc:
+                raise SystemExit(f"feature-claim: shared claim state is corrupt: {claims_path}") from exc
+            _validate_claims(claims, claims_path)
+            occupied = _ids_from_specs(root) | _ids_from_refs(_git_refs(root, strict=True)) | set(int(key) for key in claims)
+            occupied |= _github_ids(root, strict=True)
+            feature_id = _available_id(occupied, max(1, max(occupied, default=0) + 1))
+            branch_match = re.search(r"(?:^|/)(\d{3,})-([A-Za-z0-9][A-Za-z0-9-]*)$", args.branch)
+            if not branch_match or int(branch_match.group(1)) != feature_id:
+                raise SystemExit(
+                    f"feature-claim: generated branch {args.branch!r} is not the next collision-free Feature {feature_id:03d}; retry bootstrap"
+                )
+            issue_number = args.issue_number or _create_github_umbrella(root, feature_id, args.slug)
+            requested = {"issue_number": issue_number, "branch": args.branch, "slug": args.slug}
+            claims[f"{feature_id:03d}"] = requested
+            _write_claims_atomic(claims_path, claims)
+            result = {
+                "schema_version": 1, "feature_id": f"{feature_id:03d}",
+                "issue_number": issue_number, "branch": args.branch, "slug": args.slug,
+                "source_sha": _git_sha(root), "status": "reserved",
+            }
+        output = json.dumps(result, ensure_ascii=False, sort_keys=True)
+        print(output if args.json else f"feature-claim: {output}")
+        return 0
     if args.feature_id is None:
         occupied = _ids_from_specs(root) | _ids_from_refs(_git_refs(root)) | _local_claim_ids(root)
         if not args.offline:

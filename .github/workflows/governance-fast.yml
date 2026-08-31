@@ -1,0 +1,52 @@
+name: governance-fast
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+    inputs:
+      requested_sha:
+        description: Exact commit SHA to validate (leave empty for the selected ref)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  # A newer commit supersedes every older run for this PR/ref. The evidence
+  # itself is also bound to GRAF_CI_REQUESTED_SHA by ci-local.sh.
+  group: graf-governance-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fast:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GRAF_CI_REQUESTED_SHA: ${{ inputs.requested_sha || github.event.pull_request.head.sha || github.sha }}
+      GRAF_CI_BASE_REF: origin/${{ github.event.pull_request.base.ref || github.ref_name }}
+    steps:
+      - name: Checkout requested SHA
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ inputs.requested_sha || github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Verify SHA and run bounded fast lane
+        run: |
+          test "$(git rev-parse HEAD)" = "$GRAF_CI_REQUESTED_SHA"
+          infra/scripts/ci-local.sh --fast
+
+      - name: Validate PR metadata contract
+        if: github.event_name == 'pull_request'
+        env:
+          GRAF_PR_BODY: ${{ github.event.pull_request.body }}
+          GRAF_PR_BRANCH: ${{ github.head_ref }}
+        run: |
+          feature_id="$(printf '%s' "$GRAF_PR_BRANCH" | sed -nE 's#^[^/]*/([0-9]{3,})-.*#\1#p')"
+          test -n "$feature_id"
+          printf '%s' "$GRAF_PR_BODY" > "$RUNNER_TEMP/graf-pr-body.md"
+          python3 scripts/validate-pr-metadata.py "$RUNNER_TEMP/graf-pr-body.md" \
+            --feature-id "$feature_id" --expected-sha "$GRAF_CI_REQUESTED_SHA"

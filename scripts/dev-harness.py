@@ -42,6 +42,23 @@ SCHEMA_VERSION = "dev-manifest.v1"
 POINTER_VERSION = "dev-active-pointer.v1"
 PROCESS_STOP_TIMEOUT_SECONDS = 10
 PROBE_RETRY_DELAY_SECONDS = 0.2
+MANIFEST_FIELDS = {
+    "schema_version", "manifest_id", "feature_id", "source_sha", "components",
+    "migration_head", "app_identity", "operator", "created_at", "promoted_at",
+    "parent_manifest_id", "status", "health", "dev_boundary",
+}
+COMPONENT_FIELDS = {"source_sha", "version", "digest"}
+APP_IDENTITY_FIELDS = {
+    "bundle_id", "channel", "signing_identity", "designated_requirement",
+    "entitlements_digest", "update_trust",
+}
+HEALTH_FIELDS = {"result", "checked_at", "checks"}
+BOUNDARY_FIELDS = {"environment", "backend_origin", "frontend_origin", "data_root"}
+SENSITIVE_KEY_RE = re.compile(
+    r"(?:api[_-]?key|access[_-]?token|refresh[_-]?token|password|secret|credential|"
+    r"private[_-]?key|raw[_-]?transcript|transcript[_-]?text|signed[_-]?url)",
+    re.IGNORECASE,
+)
 # GRAF's current frontend is server-rendered by the backend.  Keep a separate
 # manifest field for a future split frontend, but do not invent a second local
 # server in the adapter.
@@ -81,17 +98,24 @@ def _active_feature_id() -> str:
     return feature_id
 
 
-def state_dir() -> Path:
+def state_dir(*, live: bool = False) -> Path:
     raw = os.environ.get("GRAF_DEV_STATE_DIR")
+    if live and raw:
+        raise HarnessError(
+            "live Dev operations cannot override the repository-global state directory; "
+            "unset GRAF_DEV_STATE_DIR and use the canonical single Dev target"
+        )
     if raw:
         path = Path(raw).expanduser()
     else:
         # All worktrees of this repository share one machine-local state and
         # lock because they also share one loopback runtime and one installed
-        # /Applications/GRAF Dev.app.  Tests and operators can still inject an
-        # explicit state directory through GRAF_DEV_STATE_DIR.
+        # /Applications/GRAF Dev.app.  The identity is derived from Git's
+        # common metadata directory, never from the physical worktree name.
+        # Tests and operators can still inject an explicit state directory
+        # through GRAF_DEV_STATE_DIR.
         base = Path.home() / ("Library/Application Support" if sys.platform == "darwin" else ".cache") / "GRAF Dev"
-        path = base / _repo_root().name / "harness"
+        path = base / _repository_identity() / "harness"
     path = path.resolve()
     lowered = str(path).lower()
     if any(token in lowered for token in ("production", "prod-data", "prod_data")):
@@ -99,6 +123,33 @@ def state_dir() -> Path:
     if path == Path("/") or path == Path.home():
         raise HarnessError("Dev state path is too broad: " + str(path))
     return path
+
+
+def _repository_identity() -> str:
+    """Return one stable, non-sensitive identity shared by linked worktrees."""
+    root = _repo_root()
+    try:
+        common = subprocess.run(
+            ["git", "rev-parse", "--git-common-dir"],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        common_path = Path(common)
+        if not common_path.is_absolute():
+            common_path = root / common_path
+        common_path = common_path.resolve()
+        label = common_path.parent.name or "repository"
+        suffix = hashlib.sha256(str(common_path).encode("utf-8")).hexdigest()[:12]
+        return f"{_safe_id(label, 'repository')}-{suffix}"
+    except (OSError, subprocess.CalledProcessError, HarnessError) as exc:
+        # A real live operation must never silently fall back to the physical
+        # worktree name: that would split the supposedly single Dev target.
+        raise HarnessError(
+            "cannot resolve the repository-global Git metadata directory; "
+            "refusing to derive Dev state from the physical worktree"
+        ) from exc
 
 
 def _assert_dev_environment() -> None:
@@ -292,7 +343,8 @@ class GrafLocalAdapter:
                 "TWOBRAIN_MINIO_SECRET_KEY": "twobrain_rec_dev_secret",
                 "TWOBRAIN_MINIO_BUCKET": "twobrain-rec-ingest",
                 "TWOBRAIN_MINIO_SECURE": "false",
-                "TWOBRAIN_PROCESSING_ENABLED": "false",
+                "TWOBRAIN_TEMPORAL_ADDRESS": "127.0.0.1:7233",
+                "TWOBRAIN_PROCESSING_ENABLED": "true",
                 "TWOBRAIN_OUTCOME_GENERATION_ENABLED": "false",
                 "TWOBRAIN_BILLING_CHECKOUT_ENABLED": "false",
                 "TWOBRAIN_PRODUCT_ANALYTICS_ENABLED": "false",
@@ -716,6 +768,16 @@ class GrafLocalAdapter:
         checks["worker_dependencies"] = probe(
             backend, "/api/v1/health/ready/internal", headers={"X-Internal-Health-Check": "true"}
         )
+        try:
+            worker = _run_command(
+                ["docker", "compose", "-f", str(self.compose_file), "ps", "--format", "json", "rec-processing-worker"],
+                cwd=self.root,
+                env=self._env(manifest),
+            ).lower()
+            if worker and "healthy" not in worker:
+                checks["worker_dependencies"] = "fail"
+        except HarnessError:
+            checks["worker_dependencies"] = "fail"
         checks["frontend_reachability"] = probe(frontend, "/login")
         checks["auth_session_bootstrap"] = probe(backend, "/api/v1/auth/providers")
         try:
@@ -809,6 +871,9 @@ def _load_active(root: Path) -> Optional[Dict[str, Any]]:
 
 
 def _validate_manifest(manifest: Dict[str, Any]) -> None:
+    unknown = sorted(set(manifest) - MANIFEST_FIELDS)
+    if unknown:
+        raise HarnessError("manifest contains unsupported fields: " + ", ".join(unknown))
     required = {"schema_version", "manifest_id", "feature_id", "source_sha", "components", "migration_head", "app_identity", "operator", "created_at", "parent_manifest_id", "health", "dev_boundary"}
     missing = sorted(required - set(manifest))
     if missing:
@@ -821,10 +886,16 @@ def _validate_manifest(manifest: Dict[str, Any]) -> None:
     components = manifest["components"]
     if not isinstance(components, dict):
         raise HarnessError("manifest components must be an object")
+    unknown_components = sorted(set(components) - {"backend", "frontend", "worker", "macos_app"})
+    if unknown_components:
+        raise HarnessError("manifest contains unsupported components: " + ", ".join(unknown_components))
     for name in ("backend", "frontend", "worker", "macos_app"):
         component = components.get(name)
         if not isinstance(component, dict):
             raise HarnessError(f"manifest component missing: {name}")
+        unknown_fields = sorted(set(component) - COMPONENT_FIELDS)
+        if unknown_fields:
+            raise HarnessError(f"manifest component {name} contains unsupported fields: {', '.join(unknown_fields)}")
         if _sha(str(component.get("source_sha", ""))) != source_sha:
             raise HarnessError(f"component {name} does not match manifest source SHA")
         if not component.get("version"):
@@ -834,11 +905,17 @@ def _validate_manifest(manifest: Dict[str, Any]) -> None:
     identity = manifest["app_identity"]
     if not isinstance(identity, dict) or identity.get("bundle_id") != APP_BUNDLE_ID or identity.get("channel") != APP_CHANNEL:
         raise HarnessError("manifest is not for the single GRAF Dev app")
+    unknown_identity = sorted(set(identity) - APP_IDENTITY_FIELDS) if isinstance(identity, dict) else []
+    if unknown_identity:
+        raise HarnessError("manifest app identity contains unsupported fields: " + ", ".join(unknown_identity))
     if not identity.get("signing_identity") or not identity.get("designated_requirement"):
         raise HarnessError("manifest app identity is incomplete")
     boundary = manifest["dev_boundary"]
     if not isinstance(boundary, dict) or boundary.get("environment") != "development":
         raise HarnessError("manifest is outside the development boundary")
+    unknown_boundary = sorted(set(boundary) - BOUNDARY_FIELDS) if isinstance(boundary, dict) else []
+    if unknown_boundary:
+        raise HarnessError("manifest Dev boundary contains unsupported fields: " + ", ".join(unknown_boundary))
     for key in ("backend_origin", "frontend_origin"):
         if not _is_loopback_origin(str(boundary.get(key, ""))):
             raise HarnessError(f"manifest {key} must be loopback-only")
@@ -848,6 +925,13 @@ def _validate_manifest(manifest: Dict[str, Any]) -> None:
     health = manifest["health"]
     if not isinstance(health, dict) or health.get("result") not in {"pass", "fail", "unknown"}:
         raise HarnessError("manifest health result is invalid")
+    unknown_health = sorted(set(health) - HEALTH_FIELDS) if isinstance(health, dict) else []
+    if unknown_health:
+        raise HarnessError("manifest health contains unsupported fields: " + ", ".join(unknown_health))
+    if isinstance(health, dict) and not isinstance(health.get("checks"), dict):
+        raise HarnessError("manifest health checks must be an object")
+    if SENSITIVE_KEY_RE.search(json.dumps(manifest, ensure_ascii=False, sort_keys=True)):
+        raise HarnessError("manifest contains a forbidden secret or private-content field")
 
 
 def build_manifest(sha: str, feature_id: str, operator: str = "local", migration_head: str = "unknown", root: Optional[Path] = None) -> Dict[str, Any]:
@@ -897,7 +981,7 @@ def build_manifest(sha: str, feature_id: str, operator: str = "local", migration
 
 
 def operation_build(args: argparse.Namespace) -> Dict[str, Any]:
-    root = state_dir()
+    root = state_dir(live=bool(getattr(args, "live", False)))
     feature_id = args.feature_id or os.environ.get("GRAF_FEATURE_ID") or _active_feature_id()
     migration_head = args.migration_head
     if migration_head in {None, "", "unknown"}:
@@ -907,6 +991,24 @@ def operation_build(args: argparse.Namespace) -> Dict[str, Any]:
     # A manifest ID is derived from the source SHA. Rebuilding the active SHA
     # must not silently replace its active record (or detach runtime metadata).
     if active and active.get("manifest_id") == manifest["manifest_id"]:
+        if getattr(args, "live", False) and not args.dry_run:
+            artifact = root / "artifacts" / str(manifest["manifest_id"]) / "GRAF Dev.app"
+            if not artifact.is_dir():
+                # Metadata-only builds are deliberately not treated as live
+                # builds. Rebuild the missing artifact before claiming
+                # idempotent live success.
+                adapter_info = GrafLocalAdapter(_repo_root(), root).build(manifest)
+                _validate_manifest(manifest)
+                _write_json(_manifest_path(root, manifest["manifest_id"]), manifest)
+                return {
+                    "operation": "build",
+                    "dry_run": False,
+                    "status": active.get("status", "active"),
+                    "adapter": adapter_info,
+                    "manifest": manifest,
+                    "idempotent": True,
+                    "repaired_live_artifact": True,
+                }
         return {
             "operation": "build",
             "dry_run": bool(args.dry_run),
@@ -929,7 +1031,7 @@ def operation_build(args: argparse.Namespace) -> Dict[str, Any]:
 
 def operation_promote(args: argparse.Namespace) -> Dict[str, Any]:
     _assert_dev_environment()
-    root = state_dir()
+    root = state_dir(live=bool(getattr(args, "live", False)))
     candidate = _read_json(Path(args.manifest).resolve())
     _validate_manifest(candidate)
     if candidate.get("migration_head") in {None, "", "unknown"}:
@@ -990,7 +1092,7 @@ def operation_smoke(args: argparse.Namespace) -> Dict[str, Any]:
     _assert_dev_environment()
     if not getattr(args, "live", False) and not getattr(args, "fixture", False):
         raise HarnessError("smoke requires an explicit --live or --fixture mode")
-    root = state_dir()
+    root = state_dir(live=bool(getattr(args, "live", False)))
     active = _load_active(root)
     if active is None:
         raise HarnessError("smoke requires an active Dev manifest")
@@ -1015,7 +1117,7 @@ def operation_smoke(args: argparse.Namespace) -> Dict[str, Any]:
 
 def operation_rollback(args: argparse.Namespace) -> Dict[str, Any]:
     _assert_dev_environment()
-    root = state_dir()
+    root = state_dir(live=bool(getattr(args, "live", False)))
     with state_lock(root):
         active = _load_active(root)
         if active is None:
@@ -1074,6 +1176,14 @@ def operation_reset_data(args: argparse.Namespace) -> Dict[str, Any]:
     root = state_dir()
     _assert_dev_environment()
     with state_lock(root):
+        runtime = _read_json(root / "runtime.json") if (root / "runtime.json").exists() else None
+        if runtime is not None:
+            adapter = GrafLocalAdapter(_repo_root(), root)
+            if adapter._runtime_is_live(runtime):
+                raise HarnessError(
+                    "cannot reset Dev metadata while the owned live backend is running; "
+                    "stop or rollback the live runtime first"
+                )
         if not args.dry_run:
             _atomic_write(root / "last-reset.json", json.dumps({"operation": "reset-data", "scope": "metadata-only-dev-state", "at": now()}, indent=2) + "\n")
             with contextlib.suppress(FileNotFoundError):

@@ -57,7 +57,8 @@
       CalVer `vYYYY.MM.DD.N` для продукта/apps/services или SemVer
       `vMAJOR.MINOR.PATCH` для libraries/CLI/extensions/bootstrap.
 - [ ] Читаемый postfix релиза записан в GitHub Release title, а не в stable tag.
-- [ ] `CHANGELOG.md` обновлен понятной русской записью.
+- [ ] `changes/unreleased/F<feature-id>.yaml` добавлен и проверен; root
+      `CHANGELOG.md` меняет только release operator при freeze candidate.
 - [ ] Release notes включают validation evidence, compatibility/migration notes
       и known limitations.
 

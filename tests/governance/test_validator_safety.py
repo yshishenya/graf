@@ -470,6 +470,8 @@ def test_pr_metadata_requires_concrete_issue_link_and_expected_sha() -> None:
     assert validator.validate(body.replace("Classification: `untouched`", "Classification: `untouched`."), "216", expected_sha=sha) == []
     assert any("mismatch" in error for error in validator.validate(body, "216", expected_sha="b" * 40))
     assert any("issue linkage" in error for error in validator.validate(body.replace("Refs #6090", "Refs #___"), "216"))
+    wrong_umbrella_link = body.replace("Refs #6090", "Refs #999")
+    assert any("declared umbrella issue" in error for error in validator.validate(wrong_umbrella_link, "216"))
 
 
 def test_pr_metadata_rejects_placeholder_legacy_and_empty_sections() -> None:

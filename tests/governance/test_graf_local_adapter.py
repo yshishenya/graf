@@ -105,6 +105,8 @@ def test_live_smoke_checks_server_rendered_frontend_auth_and_one_app(monkeypatch
     monkeypatch.setattr(adapter, "_wait_http", lambda *args, **kwargs: 200)
 
     def fake_plutil(command, *, cwd, env=None):
+        if command[:2] == ["docker", "compose"] and "ps" in command:
+            return "healthy"
         if command[2] == "GRAFSourceSHA":
             return sha
         if command[2] == "CFBundleIdentifier":

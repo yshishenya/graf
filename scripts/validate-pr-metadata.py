@@ -67,7 +67,8 @@ def validate(body: str, feature_id: str, expected_sha: str | None = None) -> lis
         errors.append("Feature ID is required in PR body")
     elif marker.group(1) != feature_id:
         errors.append(f"Feature ID mismatch: expected {feature_id}, got {marker.group(1)}")
-    if not re.search(r"Umbrella issue:\s*`?#([1-9]\d*)\b", body):
+    umbrella_match = re.search(r"Umbrella issue:\s*`?#([1-9]\d*)\b", body)
+    if not umbrella_match:
         errors.append("umbrella issue is required")
     sha_matches = SHA_RE.findall(body)
     if not sha_matches:
@@ -84,10 +85,15 @@ def validate(body: str, feature_id: str, expected_sha: str | None = None) -> lis
     if not re.search(r"Spec task IDs:\s*`?T\d{3,}", body):
         errors.append("at least one Spec task ID is required")
     issue_section = sections.get("## Issues", [])
-    if len(issue_section) != 1 or not any(
-        int(number) > 0 for number in ISSUE_LINK_RE.findall(issue_section[0])
-    ):
+    linked_issue_numbers = (
+        [int(number) for number in ISSUE_LINK_RE.findall(issue_section[0])]
+        if len(issue_section) == 1
+        else []
+    )
+    if not linked_issue_numbers or not any(number > 0 for number in linked_issue_numbers):
         errors.append("at least one explicit issue linkage keyword is required")
+    elif umbrella_match and int(umbrella_match.group(1)) not in linked_issue_numbers:
+        errors.append("issue linkage must include the declared umbrella issue")
     risk_section = sections.get("## Risk / validation lane", [])
     if len(risk_section) == 1 and not LANE_RE.search(risk_section[0]):
         errors.append("concrete validation lane is required")
@@ -135,6 +141,7 @@ def self_test() -> int:
     assert validate(body.replace("Classification: `untouched`", "Classification: `remove` / `retain-with-exception` / `untouched`"), "216")
     assert validate(body.replace("## Issues\n- Refs #6090", "## Issues\n"), "216")
     assert validate(body.replace("Refs #6090", "Refs #___"), "216")
+    assert validate(body.replace("Refs #6090", "Refs #999"), "216")
     print("pr-metadata self-test: OK")
     return 0
 

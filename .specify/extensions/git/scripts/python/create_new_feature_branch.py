@@ -553,6 +553,25 @@ def main(argv: list[str]) -> int:
 
     if not args.dry_run:
         if has_git_repo:
+            # GRAF's project adapter reserves the Feature ID and umbrella issue
+            # before the branch exists. The generic extension remains usable in
+            # standalone repositories where this script is absent.
+            claim_script = repo_root / "scripts" / "claim-feature.py"
+            if claim_script.is_file() and not os.environ.get("GRAF_SKIP_FEATURE_CLAIM"):
+                claim_command = [
+                    sys.executable, str(claim_script), "--root", str(repo_root),
+                    "--allocate", "--branch", branch_name, "--slug", branch_suffix,
+                    "--json",
+                ]
+                umbrella = os.environ.get("GRAF_UMBRELLA_ISSUE", "").strip()
+                if umbrella:
+                    claim_command.extend(["--issue-number", umbrella])
+                claim = subprocess.run(claim_command, cwd=repo_root, capture_output=True, text=True)
+                if claim.returncode != 0:
+                    _err("Error: Feature ID/umbrella reservation failed before branch creation.")
+                    if claim.stderr.strip():
+                        _err(claim.stderr.strip())
+                    return 1
             create = subprocess.run(
                 ["git", "checkout", "-q", "-b", branch_name],
                 cwd=repo_root,

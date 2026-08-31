@@ -10,9 +10,8 @@
 #
 # Usage: update-agent-context.ps1 [plan_path]
 #
-# When `plan_path` is omitted, the script derives it from `.specify/feature.json`
-# (written by /speckit-specify). Falls back to the most recently modified
-# `specs/**/plan.md` only when feature.json is absent or its plan does not exist yet.
+# When `plan_path` is omitted, the script derives it only from the active
+# `.specify/feature.json` pointer and fails closed when its plan is unavailable.
 
 [CmdletBinding()]
 param(
@@ -392,7 +391,7 @@ if ($cm) {
 }
 
 if (-not $PlanPath) {
-    # Prefer .specify/feature.json (written by /speckit-specify) over mtime heuristic.
+    # Prefer .specify/feature.json (written by /speckit-specify).
     $FeatureJson = Join-Path $ProjectRoot '.specify/feature.json'
     if (Test-Path -LiteralPath $FeatureJson) {
         try {
@@ -427,40 +426,15 @@ if (-not $PlanPath) {
                 }
             }
         } catch {
-            # Non-fatal: fall through to mtime heuristic.
+            # Keep the empty path and fail closed below.
         }
     }
 
-    # Fall back to mtime only when feature.json is absent or its plan does not exist yet.
-    if (-not $PlanPath) {
-        try {
-            $specsDir = Join-Path $ProjectRoot 'specs'
-            # Recurse (rather than the old one-level specs/*/plan.md scan) so scoped
-            # layouts created via SPECIFY_FEATURE_DIRECTORY, e.g.
-            # specs/<scope>/<feature>/plan.md, are still discovered when
-            # feature.json is absent (#3024).
-            $candidate = Get-ChildItem -Path $specsDir -Filter 'plan.md' -File -Recurse -ErrorAction SilentlyContinue |
-                Sort-Object LastWriteTime -Descending |
-                Select-Object -First 1
-            if ($candidate) {
-                # GetRelativePath is .NET 5+ only; strip prefix manually for PS 5.1 compat.
-                # Use case-insensitive comparison on Windows only (matches common.ps1 pattern).
-                $fullPath = $candidate.FullName.Replace('\', '/')
-                $normRoot = $ProjectRoot.Replace('\', '/').TrimEnd('/') + '/'
-                $cmp = if ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT) { [System.StringComparison]::OrdinalIgnoreCase } else { [System.StringComparison]::Ordinal }
-                if ($fullPath.StartsWith($normRoot, $cmp)) {
-                    $relativeCandidate = $fullPath.Substring($normRoot.Length)
-                    $resolvedCandidate = Resolve-ContextPath -Root $ProjectRoot -RelativePath $relativeCandidate
-                    if (Test-IsSubPath -Root $ProjectRoot -Path $resolvedCandidate) {
-                        $resolvedPath = $resolvedCandidate.Replace('\', '/')
-                        $PlanPath = $resolvedPath.Substring($normRoot.Length)
-                    }
-                }
-            }
-        } catch {
-            # Non-fatal: continue without a plan path.
-        }
-    }
+}
+
+if (-not $PlanPath) {
+    Write-Warning 'agent-context: no active feature plan; refusing timestamp-based context selection.'
+    exit 0
 }
 
 $lines = @($MarkerStart,

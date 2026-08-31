@@ -70,6 +70,9 @@ permission trust. Production app, data and origins are always rejected.
 - Focused tests are the inner loop.
 - `infra/scripts/ci-local.sh --fast` is the PR-ready gate and may repeat for a
   new SHA.
+- Fast/full evidence requires a clean worktree so the recorded SHA identifies
+  the tested bytes. `GRAF_CI_ALLOW_DIRTY=1` is diagnostic-only: its evidence is
+  `ambiguous` and cannot authorize merge or release.
 - A release operator freezes one candidate SHA and metadata digest. Exactly one
   authoritative `--full` run belongs to that candidate; changed SHA makes
   evidence stale.

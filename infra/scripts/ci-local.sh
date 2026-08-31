@@ -236,7 +236,7 @@ main() (
       pipeline_result="fail"
       evidence_status="stale"
       evidence_reason="target_changed_during_run"
-    elif [[ "$evidence_status_override" == "stale" ]]; then
+    elif [[ -n "$evidence_status_override" ]]; then
       exit_status=2
       pipeline_result="fail"
     elif [[ "$exit_status" -eq 130 || "$exit_status" -eq 143 ]]; then
@@ -358,6 +358,19 @@ PY
     pipeline_result="fail"
     evidence_status_override="stale"
     evidence_reason_override="target_changed"
+    return 2
+  fi
+  if [[ -n "$(git status --porcelain --untracked-files=all)" ]]; then
+    if [[ "${GRAF_CI_ALLOW_DIRTY:-}" == "1" ]]; then
+      printf 'ci_evidence_status=ambiguous requested_sha=%s observed_sha_start=%s reason=dirty_worktree_opt_in\n' \
+        "${requested_sha:-$observed_sha_start}" "$observed_sha_start" >&2
+    else
+      printf 'ci_evidence_status=ambiguous requested_sha=%s observed_sha_start=%s reason=dirty_worktree\n' \
+        "${requested_sha:-$observed_sha_start}" "$observed_sha_start" >&2
+    fi
+    pipeline_result="fail"
+    evidence_status_override="ambiguous"
+    evidence_reason_override="dirty_worktree"
     return 2
   fi
   performance_proof="$(calendar_performance_test_path)" || return 1

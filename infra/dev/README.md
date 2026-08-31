@@ -6,8 +6,10 @@ container, or install an app by itself. A project adapter may connect a valid
 manifest to those actions only after the manifest and Dev boundary checks pass.
 
 The state directory is `GRAF_DEV_STATE_DIR` or the shared machine-local
-`~/Library/Application Support/GRAF Dev/<repo>/harness` path on macOS
-(`~/.cache/GRAF Dev/<repo>/harness` on other systems). It contains only
+`~/Library/Application Support/GRAF Dev/<repository-identity>/harness` path on
+macOS (`~/.cache/GRAF Dev/<repository-identity>/harness` on other systems).
+The identity is derived from Git's common metadata directory, so linked
+worktrees share one lock/runtime/artifact namespace. It contains only
 metadata, a lock and an atomic `active-manifest.json` pointer. A state path that
 looks like production is rejected. Origins must be loopback (`localhost`,
 `127.0.0.1` or `[::1]`). Set `GRAF_DEV_STATE_DIR` explicitly when a disposable

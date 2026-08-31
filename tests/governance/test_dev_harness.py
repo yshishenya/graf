@@ -5,6 +5,7 @@ import json
 import multiprocessing
 from pathlib import Path
 import os
+import subprocess
 
 import pytest
 
@@ -17,15 +18,12 @@ SPEC.loader.exec_module(dev_harness)
 
 
 def run(operation, root, **kwargs):
-    old = os.environ.get("GRAF_DEV_STATE_DIR")
-    os.environ["GRAF_DEV_STATE_DIR"] = str(root)
+    old = dev_harness.state_dir
+    dev_harness.state_dir = lambda **_kwargs: Path(root)
     try:
         return getattr(dev_harness, f"operation_{operation}")(type("Args", (), kwargs)())
     finally:
-        if old is None:
-            os.environ.pop("GRAF_DEV_STATE_DIR", None)
-        else:
-            os.environ["GRAF_DEV_STATE_DIR"] = old
+        dev_harness.state_dir = old
 
 
 def build(root, sha, feature="216"):
@@ -80,6 +78,55 @@ def test_build_same_active_sha_is_idempotent_and_preserves_active_record(tmp_pat
     assert rebuilt["idempotent"] is True
     assert rebuilt["manifest"]["status"] == "active"
     assert run("status", tmp_path)["manifest"]["status"] == "active"
+
+
+def test_manifest_rejects_unknown_and_sensitive_fields(tmp_path):
+    manifest = build(tmp_path, "1" * 40)
+    manifest["raw_transcript"] = "must never enter Dev metadata"
+    path = tmp_path / "unsafe.json"
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(dev_harness.HarnessError, match="unsupported fields|forbidden"):
+        run("promote", tmp_path, manifest=str(path), dry_run=False)
+
+
+def test_live_build_does_not_claim_existing_metadata_is_a_live_artifact(monkeypatch, tmp_path):
+    sha = "2" * 40
+    first = build(tmp_path, sha)
+    run("promote", tmp_path, manifest=str(tmp_path / "manifests" / f"{first['manifest_id']}.json"), dry_run=False)
+    calls = []
+
+    class FakeAdapter:
+        def __init__(self, _root, _state):
+            pass
+
+        def build(self, manifest):
+            calls.append(manifest["source_sha"])
+            return {"mode": "live", "app_bundle_digest": "sha256:" + "3" * 64}
+
+    monkeypatch.setattr(dev_harness, "GrafLocalAdapter", FakeAdapter)
+    result = run(
+        "build", tmp_path, sha=sha, feature_id="216", operator="test",
+        migration_head="dev-head", dry_run=False, live=True,
+    )
+    assert result["idempotent"] is True
+    assert result["repaired_live_artifact"] is True
+    assert calls == [sha]
+
+
+def test_reset_refuses_owned_live_runtime(monkeypatch, tmp_path):
+    build(tmp_path, "4" * 40)
+    dev_harness._write_json(tmp_path / "runtime.json", {"pid": 42, "source_sha": "4" * 40})
+
+    class FakeAdapter:
+        def __init__(self, _root, _state):
+            pass
+
+        def _runtime_is_live(self, record):
+            return record.get("pid") == 42
+
+    monkeypatch.setattr(dev_harness, "GrafLocalAdapter", FakeAdapter)
+    with pytest.raises(dev_harness.HarnessError, match="cannot reset Dev metadata"):
+        run("reset_data", tmp_path, confirm_dev_reset=True, dry_run=False)
 
 
 def test_build_requires_or_resolves_feature_identity(tmp_path, monkeypatch):
@@ -142,6 +189,24 @@ def test_mismatched_component_and_production_boundary_are_rejected(tmp_path):
             dev_harness.state_dir()
     finally:
         os.environ.pop("GRAF_DEV_STATE_DIR", None)
+
+
+def test_live_state_cannot_be_split_by_worktree_override(monkeypatch, tmp_path):
+    monkeypatch.setenv("GRAF_DEV_STATE_DIR", str(tmp_path / "other-worktree-state"))
+    with pytest.raises(dev_harness.HarnessError, match="cannot override the repository-global state"):
+        dev_harness.state_dir(live=True)
+
+
+def test_repository_identity_failure_is_fail_closed(monkeypatch, tmp_path):
+    monkeypatch.delenv("GRAF_DEV_STATE_DIR", raising=False)
+    monkeypatch.setattr(dev_harness, "_repo_root", lambda: tmp_path)
+
+    def fail_git(*_args, **_kwargs):
+        raise subprocess.CalledProcessError(128, "git")
+
+    monkeypatch.setattr(dev_harness.subprocess, "run", fail_git)
+    with pytest.raises(dev_harness.HarnessError, match="repository-global Git metadata"):
+        dev_harness.state_dir()
 
 
 def _promote_worker(root: str, manifest: str, queue) -> None:

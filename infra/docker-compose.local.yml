@@ -26,6 +26,59 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+  rec-temporal:
+    image: temporalio/auto-setup:1.27.2
+    environment:
+      DB: postgres12
+      DB_PORT: "5432"
+      POSTGRES_SEEDS: rec-postgres
+      POSTGRES_USER: twobrain_rec
+      POSTGRES_PWD: twobrain_rec
+      DBNAME: temporal
+      VISIBILITY_DBNAME: temporal_visibility
+      BIND_ON_IP: 0.0.0.0
+    ports: ["127.0.0.1:7233:7233"]
+    depends_on:
+      rec-postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "temporal operator cluster health --address 127.0.0.1:7233 >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+      start_period: 20s
+  rec-processing-worker:
+    build:
+      context: ..
+      dockerfile: infra/server/Dockerfile
+    environment:
+      TWOBRAIN_ENV: development
+      TWOBRAIN_PROCESSING_ENABLED: "true"
+      TWOBRAIN_OUTCOME_GENERATION_ENABLED: "false"
+      TWOBRAIN_DATABASE_URL: postgresql+asyncpg://twobrain_rec:twobrain_rec@rec-postgres:5432/twobrain_rec
+      TWOBRAIN_MINIO_ENDPOINT: rec-minio:9000
+      TWOBRAIN_MINIO_ACCESS_KEY: twobrain_rec
+      TWOBRAIN_MINIO_SECRET_KEY: twobrain_rec_dev_secret
+      TWOBRAIN_MINIO_BUCKET: twobrain-rec-ingest
+      TWOBRAIN_MINIO_SECURE: "false"
+      TWOBRAIN_TEMPORAL_ADDRESS: rec-temporal:7233
+      TWOBRAIN_LITELLM_BASE_URL: ""
+      TWOBRAIN_LANGFUSE_BASE_URL: https://cloud.langfuse.com
+      TWOBRAIN_LANGFUSE_ENVIRONMENT: development
+    command: ["python", "-m", "twobrain_rec_server.workflows.worker"]
+    depends_on:
+      rec-postgres:
+        condition: service_healthy
+      rec-minio:
+        condition: service_healthy
+      rec-temporal:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "/app/scripts/verify_processing_worker_ready.py"]
+      interval: 10s
+      timeout: 8s
+      retries: 18
+      start_period: 20s
 volumes:
   twobrain-rec-local-postgres:
   twobrain-rec-local-minio:

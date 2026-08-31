@@ -552,6 +552,18 @@ fi
 
 if [ "$DRY_RUN" != true ]; then
     if [ "$HAS_GIT" = true ]; then
+        claim_script="$REPO_ROOT/scripts/claim-feature.py"
+        if [ -f "$claim_script" ] && [ "${GRAF_SKIP_FEATURE_CLAIM:-}" != "1" ]; then
+            claim_args=(--root "$REPO_ROOT" --allocate --branch "$BRANCH_NAME" --slug "$BRANCH_SUFFIX" --json)
+            if [ -n "${GRAF_UMBRELLA_ISSUE:-}" ]; then
+                claim_args+=(--issue-number "$GRAF_UMBRELLA_ISSUE")
+            fi
+            if ! claim_output=$(python3 "$claim_script" "${claim_args[@]}" 2>&1); then
+                >&2 echo "Error: Feature ID/umbrella reservation failed before branch creation."
+                >&2 printf '%s\n' "$claim_output"
+                exit 1
+            fi
+        fi
         branch_create_error=""
         if ! branch_create_error=$(git checkout -q -b "$BRANCH_NAME" 2>&1); then
             current_branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"

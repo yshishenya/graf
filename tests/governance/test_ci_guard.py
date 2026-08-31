@@ -24,6 +24,15 @@ def test_ci_rejects_requested_sha_mismatch_before_running_pipeline() -> None:
     assert "ci_evidence_status=stale" in result.stderr
 
 
+def test_ci_script_rejects_dirty_sha_evidence_and_marks_opt_in_diagnostic_ambiguous() -> None:
+    script = (ROOT / "infra/scripts/ci-local.sh").read_text(encoding="utf-8")
+    assert 'git status --porcelain --untracked-files=all' in script
+    assert 'reason=dirty_worktree' in script
+    assert 'reason=dirty_worktree_opt_in' in script
+    assert 'evidence_status_override="ambiguous"' in script
+    assert 'GRAF_CI_ALLOW_DIRTY' in script
+
+
 def test_ci_records_requested_sha_mismatch_as_stale_evidence(tmp_path: Path) -> None:
     evidence = tmp_path / "stale.json"
     env = os.environ.copy()
@@ -86,6 +95,15 @@ def test_ci_checks_shell_syntax_for_macos_changes_and_full_runs() -> None:
     assert 'run_step "shell syntax" check_shell_syntax "$changed_list"' in script
     assert 'if [[ "$has_infra" -eq 1 || "$has_macos" -eq 1 ]]; then' in script
     assert script.count('run_step "shell syntax" check_shell_syntax "$changed_list"') >= 2
+
+
+def test_github_fast_workflow_cancels_superseded_sha_and_validates_pr_metadata() -> None:
+    workflow = (ROOT / ".github/workflows/governance-fast.yml").read_text(encoding="utf-8")
+    assert "cancel-in-progress: true" in workflow
+    assert "GRAF_CI_REQUESTED_SHA" in workflow
+    assert "infra/scripts/ci-local.sh --fast" in workflow
+    assert "validate-pr-metadata.py" in workflow
+    assert "--expected-sha" in workflow
 
 
 def test_dev_installer_parses_and_validates_both_loopback_origins() -> None:
