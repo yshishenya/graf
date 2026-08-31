@@ -111,6 +111,20 @@ def test_http_probe_preserves_auth_challenge_status(monkeypatch, tmp_path):
     assert adapter._wait_http("http://127.0.0.1:8081", "/api/v1/cabinet/meetings") == 401
 
 
+def test_pid_ownership_requires_matching_process_start_token(monkeypatch, tmp_path):
+    adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
+    record = {"pid": 77, "command": "/tmp/start-dev.sh", "start_token": "Mon Aug 31 01:02:03 2026"}
+
+    def fake_ps(command, **_kwargs):
+        assert command[:3] == ["ps", "-p", "77"]
+        return record["command"] if command[-1] == "command=" else record["start_token"]
+
+    monkeypatch.setattr(dev_harness.subprocess, "check_output", fake_ps)
+    assert adapter._pid_owned(record) is True
+    assert adapter._pid_owned(dict(record, start_token="Tue Aug 31 01:02:03 2026")) is False
+    assert adapter._pid_owned({"pid": 77, "command": record["command"]}) is False
+
+
 def test_live_promote_restores_app_and_restarts_previous_backend_on_smoke_failure(monkeypatch, tmp_path):
     old_sha = "a" * 40
     candidate_sha = "b" * 40

@@ -59,4 +59,10 @@ data. `smoke --fixture` proves the deterministic contract without network
 access; real health probes and Compose/macOS actions are opt-in through the
 GRAF adapter above.
 
+The live adapter records both the backend launch command and the macOS `ps`
+start-time token in `runtime.json`. Stop and rollback signal a process only when
+both identities still match; a legacy runtime record without `start_token` is
+treated as unowned and fails closed, so remove/repair it manually after
+confirming that no Dev backend is running.
+
 The full field contract is [manifest.schema.json](manifest.schema.json).

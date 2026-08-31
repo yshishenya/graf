@@ -312,18 +312,41 @@ class GrafLocalAdapter:
         return True
 
     def _pid_owned(self, record: Dict[str, Any]) -> bool:
-        """Only signal a process whose command identity we recorded."""
+        """Only signal a process whose command and start identity we recorded."""
         pid = record.get("pid")
         command = record.get("command")
-        if not isinstance(pid, int) or not isinstance(command, str) or not command:
+        start_token = record.get("start_token")
+        if (
+            not isinstance(pid, int)
+            or not isinstance(command, str)
+            or not command
+            or not isinstance(start_token, str)
+            or not start_token
+        ):
             return False
         try:
             observed = subprocess.check_output(
                 ["ps", "-p", str(pid), "-o", "command="], text=True, stderr=subprocess.DEVNULL
             ).strip()
+            observed_start = subprocess.check_output(
+                ["ps", "-p", str(pid), "-o", "lstart="], text=True, stderr=subprocess.DEVNULL
+            ).strip()
         except (OSError, subprocess.CalledProcessError):
             return False
-        return command in observed
+        return command in observed and observed_start == start_token
+
+    def _process_start_token(self, pid: int) -> str:
+        try:
+            token = subprocess.check_output(
+                ["ps", "-p", str(pid), "-o", "lstart="],
+                text=True,
+                stderr=subprocess.DEVNULL,
+            ).strip()
+        except (OSError, subprocess.CalledProcessError) as exc:
+            raise HarnessError(f"could not prove Dev backend start time for pid {pid}") from exc
+        if not token:
+            raise HarnessError(f"Dev backend pid {pid} has no process start identity")
+        return token
 
     def _stop_previous(self) -> None:
         if not self._runtime_record().exists():
@@ -378,6 +401,7 @@ class GrafLocalAdapter:
                 "source_sha": manifest["source_sha"],
                 "started_at": now(),
                 "command": str(self.start_script),
+                "start_token": self._process_start_token(process.pid),
             },
         )
         try:

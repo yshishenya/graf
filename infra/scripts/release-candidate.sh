@@ -11,6 +11,7 @@ usage:
   release-candidate.sh status <candidate.json>
   release-candidate.sh validate <candidate.json> [--current]
   release-candidate.sh decide <candidate.json> --evidence <full-evidence.json> --calver <YYYY.MM.DD.N> [--tag <tag>] [--output <path>]
+  release-candidate.sh attest <decision.json> --release-url <url> --release-sha <exact-HEAD-40-hex> --operator <name> [--output <path>]
 EOF
 }
 
@@ -19,6 +20,7 @@ command="$1"; shift
 
 python3 - "$root_dir" "$command" "$@" <<'PY'
 import datetime as dt
+import atexit
 import contextlib
 import fcntl
 import hashlib
@@ -279,6 +281,29 @@ def feature_exists(feature_id):
 def decision_identity_path(candidate_id):
     return DECISION_DIR / f".{candidate_id}.decision-identity.json"
 
+def publication_identity_path(candidate_id):
+    return DECISION_DIR / f".{candidate_id}.publication-identity.json"
+
+def acquire_decision_lock(candidate_id):
+    lock_path = DECISION_DIR / f".{candidate_id}.decision.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_handle = lock_path.open("a+", encoding="utf-8")
+    fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+    # Keep the lock inode stable so concurrent operators cannot split the lock
+    # by racing an unlink. atexit covers every die()/exception path.
+    released = False
+    def release():
+        nonlocal released
+        if released:
+            return
+        released = True
+        with contextlib.suppress(OSError):
+            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+        with contextlib.suppress(OSError):
+            lock_handle.close()
+    atexit.register(release)
+    return release
+
 def write_create_once(path, text):
     path = pathlib.Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -381,10 +406,7 @@ if op == "decide":
     validate_candidate(candidate)
     if candidate["status"] != "frozen":
         die("only a frozen candidate can receive a decision")
-    lock_path = DECISION_DIR / f".{candidate['candidate_id']}.decision.lock"
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    lock_handle = lock_path.open("a+", encoding="utf-8")
-    fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+    release_decision_lock = acquire_decision_lock(candidate["candidate_id"])
     # The candidate itself is immutable, so a canonical identity sidecar is the
     # single writer/identity guard. Custom output paths cannot create a second
     # decision in another directory.
@@ -479,8 +501,81 @@ if op == "decide":
             identity_path.unlink()
         raise
     print(text, end="")
-    fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
-    lock_handle.close()
+    release_decision_lock()
+    raise SystemExit(0)
+
+if op == "attest":
+    if not args:
+        die("attest expects decision path")
+    values = {"decision": args[0], "release_url": None, "release_sha": None, "operator": None, "output": None}
+    i = 1
+    while i < len(args):
+        item = args[i]
+        if item in {"--release-url", "--release-sha", "--operator", "--output"}:
+            i += 1
+            if i >= len(args):
+                die(f"{item} requires a value")
+            values[item[2:].replace("-", "_")] = args[i]
+        else:
+            die(f"unknown attest option {item}")
+        i += 1
+    decision_path = pathlib.Path(values["decision"]).resolve()
+    decision = load(decision_path)
+    validate_candidate(decision)
+    if decision["status"] != "go" or decision["decision"] != "go":
+        die("publication attestation requires a go decision")
+    if not values["release_url"] or not values["release_sha"] or not values["operator"]:
+        die("release URL, release SHA and operator are required")
+    release_sha = values["release_sha"].lower()
+    if not SHA_RE.fullmatch(release_sha) or release_sha != decision["source_sha"]:
+        die("release SHA must be the exact candidate source SHA")
+    release_url = values["release_url"]
+    expected_url = re.fullmatch(
+        r"https://github\.com/[^/]+/[^/]+/releases/tag/(v[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+)",
+        release_url,
+    )
+    if not expected_url or expected_url.group(1) != decision["tag"]:
+        die("release URL must be the GitHub Release URL for the decision tag")
+    release_dir = DECISION_DIR.parent / "attestations"
+    output = pathlib.Path(values["output"] or (release_dir / f"{decision['candidate_id']}.publication.json"))
+    if output.resolve() == decision_path.resolve():
+        die("publication attestation must be separate from the decision")
+    release_identity = publication_identity_path(decision["candidate_id"])
+    release_identity.parent.mkdir(parents=True, exist_ok=True)
+    release_lock = acquire_decision_lock(decision["candidate_id"])
+    if release_identity.exists():
+        die(f"candidate already has an immutable publication identity {release_identity}")
+    if output.exists():
+        die(f"refusing to overwrite existing immutable record {output}")
+    require_current(decision)
+    record = {
+        "schema_version": 1,
+        "attestation_id": f"pa-{decision['candidate_id']}",
+        "candidate_id": decision["candidate_id"],
+        "decision_digest": digest(decision_path),
+        "source_sha": decision["source_sha"],
+        "tag": decision["tag"],
+        "github_release_url": release_url,
+        "release_target_sha": release_sha,
+        "attested_at": dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "attested_by": values["operator"],
+    }
+    text = json.dumps(record, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    identity = json.dumps(
+        {"candidate_id": decision["candidate_id"], "attestation_id": record["attestation_id"], "output": str(output)},
+        ensure_ascii=False,
+        indent=2,
+        sort_keys=True,
+    ) + "\n"
+    write_create_once(release_identity, identity)
+    try:
+        write_create_once(output, text)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            release_identity.unlink()
+        raise
+    print(text, end="")
+    release_lock()
     raise SystemExit(0)
 
 die(f"unknown command {op}")
