@@ -208,6 +208,7 @@ main() (
   local has_infra=0
   local has_docs=0
   local has_unknown=0
+  local has_governance_tests=0
   local coverage="complete"
   local next_gate="unselected"
   local performance_required=0
@@ -367,6 +368,7 @@ PY
   elif [[ -n "$changed_list" ]]; then
     while IFS= read -r path; do
       [[ -z "$path" ]] && continue
+      [[ "$path" == tests/governance/* ]] && has_governance_tests=1
       if performance_path "$path"; then
         performance_required=1
         if [[ "$requested_mode" == "fast" ]]; then
@@ -510,6 +512,10 @@ PY
     printf '\n==> Development process preflight skipped (release checkout without active feature pointer)\n'
   fi
   run_step "Spec Kit governance" python3 scripts/check_spec_kit_governance.py || return $?
+
+  if [[ "$effective_mode" == "full" || "$has_governance_tests" -eq 1 ]]; then
+    run_step "governance tests" python3 -m pytest -q tests/governance || return $?
+  fi
 
   if [[ "$effective_mode" == "full" ]]; then
     run_step "macOS legacy audio architecture guard" sh apps/macos/Scripts/validate-no-legacy-audio-driver.sh || return $?
