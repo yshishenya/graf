@@ -55,8 +55,10 @@ Every change must record one risk/validation lane in the final response or PR.
   lane before closeout/PR; add a full baseline before release when it helps
   resolve risk early.
 - **Release / deploy**: run the CD dry-run and execute only after the release
-  gate is met and approved. `--execute` runs one authoritative full after exact
-  SHA synchronization and before remote production actions.
+  gate is met and approved. The release operator runs exactly one authoritative
+  Full CI for the frozen candidate before `decide`; `--execute` synchronizes the
+  approved SHA and verifies/reuses that immutable evidence before remote
+  production actions. It must not launch a second Full CI for the same candidate.
 
 Do not rerun full local CI after every small edit inside a slice. Accumulate
 focused checks while developing, use the fast lane for PR feedback, and rely on
