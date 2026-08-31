@@ -526,6 +526,9 @@ PY
   fi
 
   if [[ "$effective_mode" == "full" ]]; then
+    # Full CI is the authoritative release gate. Check every tracked shell
+    # script regardless of path classification, including macOS helpers.
+    run_step "shell syntax" check_shell_syntax "$changed_list" || return $?
     run_step "macOS legacy audio architecture guard" sh apps/macos/Scripts/validate-no-legacy-audio-driver.sh || return $?
     if [[ "$(uname -s)" == "Darwin" ]]; then
       run_step "macOS Swift build" swift build --package-path apps/macos || return $?
@@ -570,8 +573,10 @@ PY
       run_step "server lint" bash -c "cd apps/server && PYTHONPATH=src uv run --extra dev ruff check ." || return $?
       run_step "python compile" python3 -m compileall -q apps/server/src apps/server/tests apps/server/scripts || return $?
     fi
-    if [[ "$has_infra" -eq 1 ]]; then
+    if [[ "$has_infra" -eq 1 || "$has_macos" -eq 1 ]]; then
       run_step "shell syntax" check_shell_syntax "$changed_list" || return $?
+    fi
+    if [[ "$has_infra" -eq 1 ]]; then
       run_step "CI contracts" bash -c "cd apps/server && PYTHONPATH=src uv run --extra dev pytest -q \
         tests/contract/test_ci_cd_contract.py \
         tests/contract/test_local_postgres_test_runner.py" || return $?

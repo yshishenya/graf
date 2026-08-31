@@ -81,6 +81,13 @@ def test_ci_runs_governance_suite_for_process_contract_changes() -> None:
     assert '[[ "$path" == tests/governance/* ]] && has_governance_tests=1' in script
 
 
+def test_ci_checks_shell_syntax_for_macos_changes_and_full_runs() -> None:
+    script = (ROOT / "infra/scripts/ci-local.sh").read_text(encoding="utf-8")
+    assert 'run_step "shell syntax" check_shell_syntax "$changed_list"' in script
+    assert 'if [[ "$has_infra" -eq 1 || "$has_macos" -eq 1 ]]; then' in script
+    assert script.count('run_step "shell syntax" check_shell_syntax "$changed_list"') >= 2
+
+
 def test_dev_installer_parses_and_validates_both_loopback_origins() -> None:
     script = (ROOT / "apps/macos/Scripts/install-dev-app.sh").read_text(encoding="utf-8")
     assert "urlsplit" in script
