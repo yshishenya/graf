@@ -73,3 +73,10 @@ def test_cd_exposes_reuse_contract_for_authoritative_full_evidence() -> None:
     assert "authoritative_full_evidence_invalid" in script
     assert "local_ci=authoritative_full_reused" in script
     assert "REUSE_AUTHORITATIVE_FULL=1" in script
+
+
+def test_dev_installer_parses_and_validates_both_loopback_origins() -> None:
+    script = (ROOT / "apps/macos/Scripts/install-dev-app.sh").read_text(encoding="utf-8")
+    assert "urlsplit" in script
+    assert "GRAF_CABINET_BASE_URL" in script and "GRAF_UPLOAD_BASE_URL" in script
+    assert "parsed.username" in script and "parsed.hostname" in script

@@ -214,10 +214,17 @@ def claim(root: Path, feature_id: int, *, issue_number: int | None, branch: str,
     # different issue, branch or slug remains a collision and is rejected
     # before any shared state is written.
     same_local_claim = existing_claim == requested_claim
+    draft_upgrade = (
+        isinstance(existing_claim, dict)
+        and existing_claim.get("issue_number") is None
+        and issue_number is not None
+        and existing_claim.get("branch") == branch
+        and existing_claim.get("slug") == slug
+    )
     occupied = _ids_from_specs(root) | _ids_from_refs(refs) | set(int(key) for key in local_claims)
     if not offline:
         occupied |= _github_ids(root, exclude_issue=issue_number, strict=True)
-    if feature_id in occupied and not same_local_claim:
+    if feature_id in occupied and not (same_local_claim or draft_upgrade):
         conflicts = sorted(
             [f"spec/branch ref containing {feature_id:03d}"],
         )
@@ -250,7 +257,15 @@ def claim(root: Path, feature_id: int, *, issue_number: int | None, branch: str,
         _validate_claims(claims, claims_path)
         key = f"{feature_id:03d}"
         if key in claims and claims[key] != requested_claim:
-            raise SystemExit(f"feature-claim: local claim already exists with different metadata for {key}")
+            current = claims[key]
+            if not (
+                draft_upgrade
+                and isinstance(current, dict)
+                and current.get("issue_number") is None
+                and current.get("branch") == branch
+                and current.get("slug") == slug
+            ):
+                raise SystemExit(f"feature-claim: local claim already exists with different metadata for {key}")
         claims[key] = requested_claim
         _write_claims_atomic(claims_path, claims)
         fcntl.flock(handle.fileno(), fcntl.LOCK_UN)

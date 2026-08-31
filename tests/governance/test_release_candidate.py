@@ -376,3 +376,60 @@ def test_decide_requires_calver_present_in_changelog(tmp_path: Path) -> None:
     )
     assert result.returncode != 0
     assert "not bound to a release section" in result.stderr
+
+
+def test_decide_rejects_non_full_evidence_lane(tmp_path: Path) -> None:
+    root = fixture(tmp_path)
+    script = root / "infra/scripts/release-candidate.sh"
+    sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+    candidate_path = root / ".dev" / "release" / "candidate.json"
+    result = run(script, "freeze", "--sha", sha, "--feature-id", "216", "--operator", "release", "--output", str(candidate_path), cwd=root)
+    assert result.returncode == 0, result.stderr
+    candidate = json.loads(candidate_path.read_text(encoding="utf-8"))
+    evidence = {
+        "run_id": "fast-216", "lane": "fast", "requested_sha": sha,
+        "observed_sha_start": sha, "observed_sha_end": sha, "status": "passed",
+        "started_at": "2026-08-31T00:00:00Z", "finished_at": "2026-08-31T00:01:00Z",
+        "commands": ["infra/scripts/ci-local.sh --fast"],
+        "artifact_digests": {"full-log": "sha256:" + "a" * 64}, "skipped_gates": [],
+        "scope": "release candidate", "candidate_id": candidate["candidate_id"],
+        "authoritative_full": True,
+    }
+    evidence_path = root / "evidence.json"
+    evidence_path.write_text(json.dumps(evidence), encoding="utf-8")
+    result = run(script, "decide", str(candidate_path), "--evidence", str(evidence_path), "--calver", "2026.08.31.1", cwd=root)
+    assert result.returncode == 0, result.stderr
+    decision = json.loads(result.stdout)
+    assert decision["status"] == "no-go"
+    assert "lane=full" in decision["decision_reason"]
+
+
+def test_prepare_release_preserves_multiline_limitation_values(tmp_path: Path) -> None:
+    root = tmp_path
+    (root / "scripts").mkdir()
+    shutil.copy2(ROOT / "scripts/prepare-release.sh", root / "scripts/prepare-release.sh")
+    shutil.copy2(ROOT / "scripts/validate-changelog-fragments.py", root / "scripts/validate-changelog-fragments.py")
+    (root / "changes/unreleased").mkdir(parents=True)
+    (root / "changes/unreleased/F216.yaml").write_text(
+        '''schema_version: 1
+feature_id: 216
+category: Changed
+summary: "Русский результат"
+issue: 6090
+tasks: [T001]
+compatibility: "нет"
+release_notes: "Русские заметки"
+known_limitations:
+  - "Первое ограничение"
+  - "Второе ограничение"
+''',
+        encoding="utf-8",
+    )
+    (root / "CHANGELOG.md").write_text("# Changelog\n\n## [Unreleased]\n\n- _Пока нет записей._\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    subprocess.run(["git", "add", "."], cwd=root, check=True)
+    subprocess.run(["git", "commit", "-qm", "fixture"], cwd=root, check=True)
+    result = subprocess.run(["bash", "scripts/prepare-release.sh", "2026.08.31.2"], cwd=root, text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
+    text = (root / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert "Первое ограничение; Второе ограничение" in text

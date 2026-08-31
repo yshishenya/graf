@@ -28,6 +28,13 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--candidate-id")
     parser.add_argument("--authoritative-full", action="store_true")
     parser.add_argument("--component-sha", action="append", default=[], metavar="NAME=SHA")
+    parser.add_argument(
+        "--artifact",
+        action="append",
+        default=[],
+        metavar="NAME=PATH",
+        help="hash a produced file or directory and include it in artifact_digests",
+    )
     return parser
 
 
@@ -43,7 +50,45 @@ def _components(values: list[str]) -> dict[str, str]:
     return result
 
 
+def _artifact_digest(path: Path) -> str:
+    """Hash bytes of a file or a deterministic directory manifest."""
+    hasher = hashlib.sha256()
+    if path.is_file():
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                hasher.update(chunk)
+    elif path.is_dir():
+        for child in sorted(path.rglob("*")):
+            if not child.is_file():
+                continue
+            relative = child.relative_to(path).as_posix().encode("utf-8")
+            hasher.update(len(relative).to_bytes(8, "big"))
+            hasher.update(relative)
+            with child.open("rb") as handle:
+                for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                    hasher.update(chunk)
+    else:
+        raise SystemExit(f"artifact path does not exist: {path}")
+    return "sha256:" + hasher.hexdigest()
+
+
+def _artifacts(values: list[str]) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for value in values:
+        if "=" not in value:
+            raise SystemExit(f"invalid --artifact {value!r}: expected NAME=PATH")
+        name, raw_path = value.split("=", 1)
+        if not name or name in result or not raw_path:
+            raise SystemExit(f"invalid --artifact {value!r}")
+        result[name] = _artifact_digest(Path(raw_path))
+    return result
+
+
 def emit(args: argparse.Namespace) -> dict[str, object]:
+    artifact_digests = {
+        "source-revision": "sha256:" + hashlib.sha256(args.observed_sha_end.encode("ascii")).hexdigest()
+    }
+    artifact_digests.update(_artifacts(args.artifact))
     evidence: dict[str, object] = {
         "run_id": args.run_id,
         "lane": args.lane,
@@ -56,9 +101,7 @@ def emit(args: argparse.Namespace) -> dict[str, object]:
         "commands": args.command or [f"infra/scripts/ci-local.sh --{args.lane}"],
         "skipped_gates": args.skipped_gate,
         "scope": args.scope,
-        "artifact_digests": {
-            "source-revision": "sha256:" + hashlib.sha256(args.observed_sha_end.encode("ascii")).hexdigest()
-        },
+        "artifact_digests": artifact_digests,
     }
     components = _components(args.component_sha)
     if components:

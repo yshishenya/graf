@@ -44,6 +44,44 @@ def test_build_promote_status_smoke_and_rollback(tmp_path):
     assert run("rollback", tmp_path, manifest_id=None, dry_run=False)["manifest"]["source_sha"] == sha_a
 
 
+def test_live_rollback_publishes_pointer_only_after_verified_adapter(monkeypatch, tmp_path):
+    first = build(tmp_path, "a" * 40)
+    run("promote", tmp_path, manifest=str(tmp_path / "manifests" / f"{first['manifest_id']}.json"), dry_run=False)
+    second = build(tmp_path, "b" * 40)
+    run("promote", tmp_path, manifest=str(tmp_path / "manifests" / f"{second['manifest_id']}.json"), dry_run=False)
+    before = json.loads((tmp_path / "active-manifest.json").read_text(encoding="utf-8"))
+    calls = []
+
+    class FakeAdapter:
+        def __init__(self, _root, _state):
+            pass
+
+        def rollback(self, active, target):
+            calls.append((active["source_sha"], target["source_sha"]))
+            return {"mode": "live", "checks": {"backend_health": "pass"}}
+
+    monkeypatch.setattr(dev_harness, "GrafLocalAdapter", FakeAdapter)
+    result = run("rollback", tmp_path, manifest_id=None, dry_run=False, live=True)
+
+    after = json.loads((tmp_path / "active-manifest.json").read_text(encoding="utf-8"))
+    assert calls == [("b" * 40, "a" * 40)]
+    assert before["manifest_id"] != after["manifest_id"]
+    assert after["manifest_id"] == first["manifest_id"]
+    assert result["adapter"]["checks"]["backend_health"] == "pass"
+    restored = json.loads((tmp_path / "manifests" / f"{first['manifest_id']}.json").read_text(encoding="utf-8"))
+    assert restored["health"]["result"] == "pass"
+
+
+def test_build_same_active_sha_is_idempotent_and_preserves_active_record(tmp_path):
+    sha = "a" * 40
+    first = build(tmp_path, sha)
+    run("promote", tmp_path, manifest=str(tmp_path / "manifests" / f"{first['manifest_id']}.json"), dry_run=False)
+    rebuilt = run("build", tmp_path, sha=sha, feature_id="216", operator="test", migration_head="dev-head", dry_run=False)
+    assert rebuilt["idempotent"] is True
+    assert rebuilt["manifest"]["status"] == "active"
+    assert run("status", tmp_path)["manifest"]["status"] == "active"
+
+
 def test_build_requires_or_resolves_feature_identity(tmp_path, monkeypatch):
     monkeypatch.delenv("GRAF_FEATURE_ID", raising=False)
     monkeypatch.setattr(dev_harness, "_repo_root", lambda: tmp_path / "repo")

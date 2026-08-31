@@ -68,8 +68,30 @@ plutil -extract LSEnvironment.GRAF_APP_CHANNEL raw "$INFO_PLIST" | grep -Fxq "de
   fail "candidate channel is not Dev"
 plutil -extract GRAFSourceSHA raw "$INFO_PLIST" | grep -Fxq "$SOURCE_SHA" ||
   fail "candidate source SHA metadata is invalid"
-plutil -extract LSEnvironment.GRAF_CABINET_BASE_URL raw "$INFO_PLIST" | grep -Eq '^http://(127\.0\.0\.1|localhost):' ||
-  fail "candidate origin is not loopback"
+validate_loopback_url() {
+  python3 - "$1" "$2" <<'PY'
+from urllib.parse import urlsplit
+import sys
+
+label, raw = sys.argv[1:]
+try:
+    parsed = urlsplit(raw)
+    port = parsed.port
+except ValueError:
+    raise SystemExit(f"{label} has an invalid port")
+if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
+    raise SystemExit(f"{label} must use an HTTP loopback hostname")
+if parsed.username or parsed.password or parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
+    raise SystemExit(f"{label} contains forbidden URL userinfo or path components")
+if port is None or not 1 <= port <= 65535:
+    raise SystemExit(f"{label} must include a valid port")
+PY
+}
+
+CABINET_URL=$(plutil -extract LSEnvironment.GRAF_CABINET_BASE_URL raw "$INFO_PLIST") || fail "candidate cabinet URL is missing"
+UPLOAD_URL=$(plutil -extract LSEnvironment.GRAF_UPLOAD_BASE_URL raw "$INFO_PLIST") || fail "candidate upload URL is missing"
+validate_loopback_url cabinet "$CABINET_URL" || fail "candidate cabinet URL is not loopback-safe"
+validate_loopback_url upload "$UPLOAD_URL" || fail "candidate upload URL is not loopback-safe"
 if plutil -extract SUFeedURL raw "$INFO_PLIST" >/dev/null 2>&1 ||
    plutil -extract SUPublicEDKey raw "$INFO_PLIST" >/dev/null 2>&1; then
   fail "candidate production updater metadata must be absent"

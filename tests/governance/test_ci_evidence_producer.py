@@ -89,3 +89,25 @@ def test_producer_requires_name_value_for_component_sha(tmp_path: Path) -> None:
     )
     assert result.returncode != 0
     assert "expected NAME=SHA" in result.stderr
+
+
+def test_producer_hashes_supplied_artifact_bytes(tmp_path: Path) -> None:
+    sha = "a" * 40
+    artifact = tmp_path / "artifact.bin"
+    artifact.write_bytes(b"release-bytes")
+    output = tmp_path / "evidence.json"
+    result = subprocess.run(
+        [
+            sys.executable, str(PRODUCER), "--output", str(output),
+            "--run-id", "ci-fast-artifact", "--lane", "fast",
+            "--requested-sha", sha, "--observed-sha-start", sha,
+            "--observed-sha-end", sha, "--status", "passed",
+            "--started-at", "2026-08-31T00:00:00Z", "--finished-at", "2026-08-31T00:01:00Z",
+            "--scope", "test", "--artifact", f"bundle={artifact}",
+        ], cwd=ROOT, text=True, capture_output=True, check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    evidence = json.loads(output.read_text(encoding="utf-8"))
+    import hashlib
+    expected = "sha256:" + hashlib.sha256(b"release-bytes").hexdigest()
+    assert evidence["artifact_digests"]["bundle"] == expected

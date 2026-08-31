@@ -396,6 +396,10 @@ if op == "decide":
         errors.append("evidence requested_sha differs from candidate source_sha")
     if evidence.get("candidate_id") != candidate["candidate_id"]:
         errors.append("evidence candidate_id differs from candidate_id")
+    if evidence.get("lane") != "full":
+        errors.append("release decision requires lane=full evidence")
+    if evidence.get("authoritative_full") is not True:
+        errors.append("release decision requires authoritative_full=true evidence")
     # Full CI can finish while the operator is preparing the decision.  The
     # candidate must still describe the exact checkout at the point of go/no-go.
     if not errors:

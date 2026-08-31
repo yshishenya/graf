@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
@@ -53,6 +54,8 @@ def _artifact_digests(data: dict[str, Any], errors: list[str]) -> None:
     for name, digest in value.items():
         if not isinstance(name, str) or not name.strip():
             errors.append("artifact_digests contains an invalid artifact name")
+        elif not SAFE_ID_RE.fullmatch(name):
+            errors.append(f"invalid artifact name for {name!r}")
         elif not isinstance(digest, str) or not DIGEST_RE.fullmatch(digest):
             errors.append(f"invalid artifact digest for {name!r}")
 
@@ -94,6 +97,11 @@ def validate(data: dict[str, Any]) -> list[str]:
     skipped_gates = _string_list(data, "skipped_gates", errors)
     _non_empty_string(data, "scope", errors)
     _artifact_digests(data, errors)
+    artifact_digests = data.get("artifact_digests")
+    if isinstance(artifact_digests, dict) and "source-revision" in artifact_digests and observed_end:
+        expected = "sha256:" + hashlib.sha256(observed_end.encode("ascii")).hexdigest()
+        if artifact_digests.get("source-revision") != expected:
+            errors.append("source-revision artifact digest does not match observed_sha_end")
 
     component_shas = data.get("component_shas")
     if lane == "full" and (not isinstance(component_shas, dict) or not component_shas):

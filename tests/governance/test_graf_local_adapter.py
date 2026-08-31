@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
+
+import pytest
 
 
 SOURCE_ROOT = Path(__file__).resolve().parents[2]
@@ -93,3 +96,117 @@ def test_live_smoke_checks_server_rendered_frontend_auth_and_one_app(monkeypatch
         "representative_api": "pass",
         "app_origin": "pass",
     }
+
+
+def test_live_promote_restores_app_and_restarts_previous_backend_on_smoke_failure(monkeypatch, tmp_path):
+    old_sha = "a" * 40
+    candidate_sha = "b" * 40
+    old = manifest(tmp_path, old_sha)
+    candidate = manifest(tmp_path, candidate_sha)
+    adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
+    app = tmp_path / "GRAF Dev.app"
+    (app / "Contents").mkdir(parents=True)
+    marker = app / "Contents" / "marker"
+    marker.write_text("old", encoding="utf-8")
+    monkeypatch.setenv("GRAF_DEV_INSTALL_PATH", str(app))
+
+    (tmp_path / "manifests").mkdir()
+    dev_harness._write_json(tmp_path / "manifests" / f"{old['manifest_id']}.json", old)
+    dev_harness._write_json(
+        tmp_path / "active-manifest.json",
+        {
+            "schema_version": dev_harness.POINTER_VERSION,
+            "manifest_id": old["manifest_id"],
+            "runtime_mode": "live",
+            "updated_at": dev_harness.now(),
+        },
+    )
+    previous_runtime = {
+        "pid": 101,
+        "source_sha": old_sha,
+        "command": str(adapter.start_script),
+    }
+    dev_harness._write_json(tmp_path / "runtime.json", previous_runtime)
+
+    calls = []
+    monkeypatch.setattr(adapter, "_assert_supported", lambda: None)
+    monkeypatch.setattr(adapter, "_assert_source_matches_checkout", lambda _: None)
+    monkeypatch.setattr(adapter, "_compose_config", lambda _: None)
+    monkeypatch.setattr(adapter, "_runtime_is_live", lambda _: True)
+    monkeypatch.setattr(adapter, "_pid_alive", lambda _: True)
+    monkeypatch.setattr(adapter, "_pid_owned", lambda _: True)
+    monkeypatch.setattr(adapter, "_stop_previous", lambda: calls.append("stop"))
+
+    def fake_install(manifest_value, _env):
+        calls.append(("install", manifest_value["source_sha"]))
+        marker.write_text("new", encoding="utf-8")
+
+    def fake_start(manifest_value, _env):
+        calls.append(("start", manifest_value["source_sha"]))
+        dev_harness._write_json(
+            tmp_path / "runtime.json",
+            {
+                "pid": 303 if manifest_value["source_sha"] == candidate_sha else 101,
+                "source_sha": manifest_value["source_sha"],
+                "command": str(adapter.start_script),
+            },
+        )
+
+    monkeypatch.setattr(adapter, "_install_app", fake_install)
+    monkeypatch.setattr(adapter, "_start_backend", fake_start)
+    monkeypatch.setattr(adapter, "smoke", lambda _: {"backend_health": "fail", "mode": "live"})
+
+    with pytest.raises(dev_harness.HarnessError, match="live promotion smoke failed"):
+        adapter.promote(candidate)
+
+    assert marker.read_text(encoding="utf-8") == "old"
+    assert json.loads((tmp_path / "runtime.json").read_text(encoding="utf-8")) == previous_runtime
+    assert calls == ["stop", ("install", candidate_sha), ("start", candidate_sha), "stop", ("start", old_sha)]
+
+
+def test_live_rollback_reinstalls_target_and_verifies_before_return(monkeypatch, tmp_path):
+    active_sha = "c" * 40
+    target_sha = "d" * 40
+    active = manifest(tmp_path, active_sha)
+    target = manifest(tmp_path, target_sha)
+    adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
+    app = tmp_path / "GRAF Dev.app"
+    (app / "Contents").mkdir(parents=True)
+    marker = app / "Contents" / "marker"
+    marker.write_text("active", encoding="utf-8")
+    monkeypatch.setenv("GRAF_DEV_INSTALL_PATH", str(app))
+
+    previous_runtime = {
+        "pid": 202,
+        "source_sha": active_sha,
+        "command": str(adapter.start_script),
+    }
+    dev_harness._write_json(tmp_path / "runtime.json", previous_runtime)
+    calls = []
+    monkeypatch.setattr(adapter, "_assert_supported", lambda: None)
+    monkeypatch.setattr(adapter, "_assert_source_matches_checkout", lambda _: None)
+    monkeypatch.setattr(adapter, "_compose_config", lambda _: None)
+    monkeypatch.setattr(adapter, "_runtime_is_live", lambda _: True)
+    monkeypatch.setattr(adapter, "_stop_previous", lambda: calls.append("stop"))
+
+    def fake_install(manifest_value, _env):
+        calls.append(("install", manifest_value["source_sha"]))
+        marker.write_text("target", encoding="utf-8")
+
+    def fake_start(manifest_value, _env):
+        calls.append(("start", manifest_value["source_sha"]))
+
+    monkeypatch.setattr(adapter, "_install_app", fake_install)
+    monkeypatch.setattr(adapter, "_start_backend", fake_start)
+    monkeypatch.setattr(
+        adapter,
+        "smoke",
+        lambda _: {"backend_health": "pass", "frontend_reachability": "pass", "mode": "live"},
+    )
+
+    result = adapter.rollback(active, target)
+
+    assert result["mode"] == "live"
+    assert result["checks"]["backend_health"] == "pass"
+    assert marker.read_text(encoding="utf-8") == "target"
+    assert calls == ["stop", ("install", target_sha), ("start", target_sha)]

@@ -271,6 +271,11 @@ main() (
         --scope "components=$components;reason=$selection_reason;coverage=$coverage"
         --component-sha "repository=$observed_sha_start"
       )
+      # Bind evidence to bytes produced by the run when available. The source
+      # revision digest remains a lightweight identity anchor; build outputs
+      # provide the artifact-level provenance required for release decisions.
+      [[ -f "$repo_root/CHANGELOG.md" ]] && evidence_args+=(--artifact "changelog=$repo_root/CHANGELOG.md")
+      [[ -d "$repo_root/apps/macos/.build" ]] && evidence_args+=(--artifact "macos-build=$repo_root/apps/macos/.build")
       [[ -n "$evidence_reason" ]] && evidence_args+=(--reason "$evidence_reason")
       [[ -n "$candidate_id" ]] && evidence_args+=(--candidate-id "$candidate_id")
       [[ "$requested_mode" == "full" && -n "$candidate_id" ]] && evidence_args+=(--authoritative-full)

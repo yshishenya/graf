@@ -63,17 +63,52 @@ groups = {key: [] for key in titles}
 for path in sorted((root / "changes" / "unreleased").glob("F*.yaml")):
     text = path.read_text(encoding="utf-8")
 
-    def value(name):
-        match = re.search(r"^" + re.escape(name) + r":\s*(.*)$", text, re.MULTILINE)
-        if not match:
-            return ""
-        raw = match.group(1).strip()
+    def scalar(raw):
+        raw = raw.strip()
         if raw.startswith('"') and raw.endswith('"'):
             try:
                 return json.loads(raw)
             except json.JSONDecodeError:
                 return raw[1:-1]
-        return raw.strip("'")
+        if raw.startswith("'") and raw.endswith("'"):
+            return raw[1:-1].replace("''", "'")
+        return raw.split(" #", 1)[0].strip()
+
+    def fields():
+        result = {}
+        lines = text.splitlines()
+        index = 0
+        while index < len(lines):
+            match = re.match(r"^([A-Za-z_][A-Za-z0-9_-]*)[ \t]*:[ \t]*(.*)$", lines[index])
+            if not match:
+                index += 1
+                continue
+            name, raw = match.groups()
+            index += 1
+            if raw in {"|", ">", "|-", ">-", "|+", ">+"}:
+                block = []
+                while index < len(lines) and (not lines[index].strip() or lines[index].startswith((" ", "\t"))):
+                    block.append(lines[index][2:] if lines[index].startswith("  ") else lines[index].lstrip())
+                    index += 1
+                result[name] = "\n".join(block) if raw.startswith("|") else " ".join(line.strip() for line in block)
+                continue
+            if not raw:
+                values = []
+                while index < len(lines):
+                    item = re.match(r"^[ \t]{2,}-[ \t]*(.*)$", lines[index])
+                    if not item:
+                        break
+                    values.append(scalar(item.group(1)))
+                    index += 1
+                result[name] = values if values else ""
+                continue
+            result[name] = scalar(raw)
+        return result
+
+    parsed = fields()
+
+    def value(name):
+        return parsed.get(name, "")
 
     category = value("category")
     feature = value("feature_id")
@@ -81,9 +116,20 @@ for path in sorted((root / "changes" / "unreleased").glob("F*.yaml")):
     issue = value("issue")
     tasks = value("tasks")
     compatibility = value("compatibility")
+    release_notes = value("release_notes")
     limitations = value("known_limitations")
     if category not in groups or not feature or not summary:
         raise SystemExit(f"invalid fragment fields: {path}")
+
+    def display(raw):
+        if isinstance(raw, list):
+            return "; ".join(display(item) for item in raw if display(item))
+        return " ".join(str(raw).split())
+
+    summary = display(summary)
+    compatibility = display(compatibility)
+    release_notes = display(release_notes)
+    limitations = display(limitations)
     refs = [f"Фича {feature}"]
     if issue and issue not in {"null", "[]"}:
         refs.append(f"issue #{issue.lstrip('#')}")
@@ -92,8 +138,11 @@ for path in sorted((root / "changes" / "unreleased").glob("F*.yaml")):
     entry = f"- {summary} ({', '.join(refs)})"
     if compatibility:
         entry += f"; совместимость: {compatibility}"
+    if release_notes and release_notes not in {"[]", "null"}:
+        entry += f"; release notes: {release_notes}"
     if limitations and limitations not in {"[]", "null"}:
-        entry += f"; ограничения: {limitations}"
+        if limitations:
+            entry += f"; ограничения: {limitations}"
     groups[category].append(entry)
 for category, title in titles.items():
     if groups[category]:

@@ -217,6 +217,23 @@ def test_feature_claim_rejects_corrupt_shared_state_and_keeps_offline_draft_expl
         assert draft["status"] == "draft"
 
 
+def test_feature_claim_can_upgrade_matching_offline_draft(monkeypatch) -> None:
+    validator = load_script("claim-feature")
+    import subprocess
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+        validator.claim(root, 216, issue_number=None, branch="draft/216-x", slug="x", offline=True)
+        monkeypatch.setattr(validator, "_github_ids", lambda *args, **kwargs: set())
+        monkeypatch.setattr(validator, "_github_umbrella", lambda *args, **kwargs: None)
+        upgraded = validator.claim(root, 216, issue_number=6090, branch="draft/216-x", slug="x", offline=False)
+        assert upgraded["status"] == "reserved"
+        assert upgraded["issue_number"] == 6090
+        assert validator._local_claim_records(root)["216"]["issue_number"] == 6090
+
+
 def test_package_safety_allows_documentation_examples_but_rejects_credentials(tmp_path: Path) -> None:
     validator = load_harness_validators()
     (tmp_path / "README.md").write_text("Use `secret:` and `password =` as field names.\n", encoding="utf-8")
@@ -328,7 +345,7 @@ def _valid_pr_body(sha: str = "a" * 40) -> str:
 - Spec task IDs: `T042`
 
 ## Как проверено
-- focused test passed
+- `pytest -q tests/governance`: passed
 - Exact source SHA: {sha}
 
 ## Risk / validation lane
@@ -370,11 +387,21 @@ def test_pr_metadata_rejects_placeholder_legacy_and_empty_sections() -> None:
     assert any("empty PR section: ## Issues" in error for error in validator.validate(empty, "216"))
 
     for heading, content in (
-        ("## Как проверено", "- focused test passed\n- Exact source SHA: " + "a" * 40),
+        ("## Как проверено", "- `pytest -q tests/governance`: passed\n- Exact source SHA: " + "a" * 40),
         ("## Risk / validation lane", "- Lane: significant-feature"),
     ):
         empty_section = body.replace(f"{heading}\n{content}", f"{heading}\n")
         assert any(f"empty PR section: {heading}" in error for error in validator.validate(empty_section, "216"))
+
+
+def test_pr_metadata_requires_machine_readable_lane_and_evidence() -> None:
+    validator = load_script("validate-pr-metadata")
+    body = _valid_pr_body()
+    weak = body.replace("- `pytest -q tests/governance`: passed", "- validation will happen later")
+    weak = weak.replace("- Lane: significant-feature", "- lane TBD")
+    errors = validator.validate(weak, "216")
+    assert any("validation lane" in error for error in errors)
+    assert any("validation evidence" in error for error in errors)
 
 
 def test_process_changed_legacy_scan_collects_committed_and_worktree_specs(tmp_path: Path) -> None:

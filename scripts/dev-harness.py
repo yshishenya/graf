@@ -346,14 +346,14 @@ class GrafLocalAdapter:
                 f"previous Dev backend pid {pid} did not exit after SIGTERM; refusing to start another"
             )
 
-    def _ensure_backend(self, manifest: Dict[str, Any], env: Dict[str, str]) -> None:
+    def _runtime_is_live(self, record: Optional[Dict[str, Any]]) -> bool:
+        if not isinstance(record, dict):
+            return False
+        pid = record.get("pid")
+        return isinstance(pid, int) and self._pid_alive(pid) and self._pid_owned(record)
+
+    def _start_backend(self, manifest: Dict[str, Any], env: Dict[str, str]) -> None:
         runtime = self._runtime_record()
-        if runtime.exists():
-            record = _read_json(runtime)
-            if record.get("source_sha") == manifest["source_sha"] and isinstance(record.get("pid"), int):
-                if self._pid_alive(record["pid"]):
-                    return
-        self._stop_previous()
         log_path = self.state / "logs" / "backend.log"
         log_path.parent.mkdir(parents=True, exist_ok=True)
         log_handle = log_path.open("a", encoding="utf-8")
@@ -387,12 +387,26 @@ class GrafLocalAdapter:
                 os.kill(process.pid, signal.SIGTERM)
             raise
 
+    def _ensure_backend(self, manifest: Dict[str, Any], env: Dict[str, str]) -> None:
+        runtime = self._runtime_record()
+        if runtime.exists():
+            record = _read_json(runtime)
+            if record.get("source_sha") == manifest["source_sha"] and isinstance(record.get("pid"), int):
+                if self._pid_alive(record["pid"]):
+                    return
+        self._stop_previous()
+        self._start_backend(manifest, env)
+
     def _install_app(self, manifest: Dict[str, Any], env: Dict[str, str]) -> None:
         env = dict(env)
         env["GRAF_DEV_INSTALL_PATH"] = os.environ.get("GRAF_DEV_INSTALL_PATH", "/Applications/GRAF Dev.app")
         app_bundle = self.state / "artifacts" / str(manifest["manifest_id"]) / "GRAF Dev.app"
         if not app_bundle.is_dir():
             raise HarnessError("live promote requires the exact app bundle produced by live build")
+        expected_digest = str(manifest["components"]["macos_app"]["digest"])
+        actual_digest = _tree_digest(app_bundle)
+        if actual_digest != expected_digest:
+            raise HarnessError("live promote app bundle digest does not match the manifest")
         env["GRAF_DEV_APP_SOURCE_BUNDLE"] = str(app_bundle)
         _run_command(["sh", str(self.install_app_script)], cwd=self.root, env=env)
 
@@ -409,23 +423,35 @@ class GrafLocalAdapter:
         return backup
 
     def _restore_app(self, backup: Optional[Path]) -> None:
-        if backup is None:
-            return
         destination = Path(os.environ.get("GRAF_DEV_INSTALL_PATH", "/Applications/GRAF Dev.app"))
         if destination.exists():
-            shutil.rmtree(destination)
-        shutil.copytree(backup, destination)
-        shutil.rmtree(backup)
+            if destination.is_dir() and not destination.is_symlink():
+                shutil.rmtree(destination)
+            else:
+                destination.unlink()
+        if backup is not None:
+            shutil.copytree(backup, destination)
+            shutil.rmtree(backup)
 
-    def _restore_runtime_record(self, previous: Optional[Dict[str, Any]]) -> None:
+    def _restore_runtime(
+        self,
+        previous: Optional[Dict[str, Any]],
+        previous_manifest: Optional[Dict[str, Any]],
+        previous_was_live: bool,
+    ) -> None:
         runtime = self._runtime_record()
         if runtime.exists():
             current = _read_json(runtime)
             pid = current.get("pid")
-            if isinstance(pid, int) and self._pid_alive(pid) and self._pid_owned(current):
-                with contextlib.suppress(OSError):
-                    os.kill(pid, signal.SIGTERM)
-        if previous is None:
+            if isinstance(pid, int) and self._pid_alive(pid):
+                if not self._pid_owned(current):
+                    raise HarnessError(f"refusing to restore over unverified Dev backend pid {pid}")
+                self._stop_previous()
+        if previous_was_live:
+            if previous_manifest is None:
+                raise HarnessError("cannot restore live Dev backend without its previous manifest")
+            self._start_backend(previous_manifest, self._env(previous_manifest))
+        elif previous is None:
             with contextlib.suppress(FileNotFoundError):
                 runtime.unlink()
         else:
@@ -437,27 +463,79 @@ class GrafLocalAdapter:
         env = self._env(manifest)
         self._compose_config(env)
         previous_runtime = _read_json(self._runtime_record()) if self._runtime_record().exists() else None
+        previous_manifest = _load_active(self.state)
+        previous_was_live = self._runtime_is_live(previous_runtime)
+        if previous_was_live and previous_manifest is None:
+            raise HarnessError("cannot compensate live promotion without the previous active manifest")
+        if (
+            previous_runtime is not None
+            and previous_manifest is not None
+            and previous_runtime.get("source_sha") != previous_manifest.get("source_sha")
+        ):
+            raise HarnessError("previous Dev runtime does not match the active manifest")
         app_backup = self._snapshot_app()
         try:
-            # Install is staged while the previous backend is still serving.
-            # The old app and runtime record are restored if any later gate
-            # fails, so active-manifest.json is never published for a partial
-            # promotion.
+            self._stop_previous()
             self._install_app(manifest, env)
-            self._ensure_backend(manifest, env)
+            self._start_backend(manifest, env)
             checks = self.smoke(manifest)
             if any(value != "pass" for key, value in checks.items() if key != "mode"):
                 raise HarnessError("live promotion smoke failed")
-        except BaseException:
-            with contextlib.suppress(Exception):
-                self._restore_runtime_record(previous_runtime)
-            with contextlib.suppress(Exception):
+        except BaseException as failure:
+            compensation_errors = []
+            try:
                 self._restore_app(app_backup)
+            except Exception as exc:  # pragma: no cover - defensive path
+                compensation_errors.append(f"app restore failed: {exc}")
+            try:
+                self._restore_runtime(previous_runtime, previous_manifest, previous_was_live)
+            except Exception as exc:  # pragma: no cover - defensive path
+                compensation_errors.append(f"runtime restore failed: {exc}")
+            if compensation_errors:
+                raise HarnessError("live promotion failed; compensation failed: " + "; ".join(compensation_errors)) from failure
             raise
         else:
             if app_backup is not None:
                 shutil.rmtree(app_backup)
         return {"mode": "live", "backend": "started", "app": "installed"}
+
+    def rollback(self, active: Dict[str, Any], target: Dict[str, Any]) -> Dict[str, Any]:
+        """Restore one previously built Dev target and prove it before commit."""
+        self._assert_supported()
+        self._assert_source_matches_checkout(active)
+        env = self._env(target)
+        self._compose_config(env)
+        previous_runtime = _read_json(self._runtime_record()) if self._runtime_record().exists() else None
+        previous_was_live = self._runtime_is_live(previous_runtime)
+        if not previous_was_live:
+            raise HarnessError("live rollback requires an owned active Dev backend")
+        if previous_runtime.get("source_sha") != active.get("source_sha"):
+            raise HarnessError("active Dev runtime does not match the active manifest")
+        app_backup = self._snapshot_app()
+        try:
+            self._stop_previous()
+            self._install_app(target, env)
+            self._start_backend(target, env)
+            checks = self.smoke(target)
+            if any(value != "pass" for key, value in checks.items() if key != "mode"):
+                raise HarnessError("live rollback smoke failed")
+        except BaseException as failure:
+            compensation_errors = []
+            try:
+                self._restore_app(app_backup)
+            except Exception as exc:  # pragma: no cover - defensive path
+                compensation_errors.append(f"app restore failed: {exc}")
+            try:
+                self._restore_runtime(previous_runtime, active, previous_was_live)
+            except Exception as exc:  # pragma: no cover - defensive path
+                compensation_errors.append(f"runtime restore failed: {exc}")
+            if compensation_errors:
+                raise HarnessError("live rollback failed; compensation failed: " + "; ".join(compensation_errors)) from failure
+            raise
+        else:
+            if app_backup is not None:
+                shutil.rmtree(app_backup)
+        return {"mode": "live", "backend": "started", "app": "installed", "checks": checks}
 
     def _wait_http(self, origin: str, path: str, *, headers: Optional[Dict[str, str]] = None, timeout: int = 10) -> int:
         deadline = dt.datetime.now(dt.timezone.utc).timestamp() + timeout
@@ -671,6 +749,18 @@ def operation_build(args: argparse.Namespace) -> Dict[str, Any]:
     root = state_dir()
     feature_id = args.feature_id or os.environ.get("GRAF_FEATURE_ID") or _active_feature_id()
     manifest = build_manifest(args.sha, feature_id, args.operator, args.migration_head, root)
+    active = _load_active(root)
+    # A manifest ID is derived from the source SHA. Rebuilding the active SHA
+    # must not silently replace its active record (or detach runtime metadata).
+    if active and active.get("manifest_id") == manifest["manifest_id"]:
+        return {
+            "operation": "build",
+            "dry_run": bool(args.dry_run),
+            "status": active.get("status", "active"),
+            "adapter": {"mode": "existing-active"},
+            "manifest": active,
+            "idempotent": True,
+        }
     adapter_info: Dict[str, str] = {"mode": "metadata-only"}
     if getattr(args, "live", False) and not args.dry_run:
         adapter_info = GrafLocalAdapter(_repo_root(), root).build(manifest)
@@ -760,37 +850,51 @@ def operation_rollback(args: argparse.Namespace) -> Dict[str, Any]:
     _assert_dev_environment()
     root = state_dir()
     with state_lock(root):
-        if getattr(args, "live", False):
-            raise HarnessError("live rollback is not implemented; refusing to change the active target")
+        active = _load_active(root)
+        if active is None:
+            raise HarnessError("rollback requires an active Dev manifest")
         pointer_path = root / "active-manifest.json"
-        if not args.dry_run and pointer_path.exists():
+        if not args.dry_run and pointer_path.exists() and not getattr(args, "live", False):
             pointer = _read_json(pointer_path)
             if pointer.get("runtime_mode") == "live" or (root / "runtime.json").exists():
                 raise HarnessError(
                     "live Dev state is active; refusing metadata-only rollback without runtime restoration"
                 )
-        active = _load_active(root)
-        if active is None:
-            raise HarnessError("rollback requires an active Dev manifest")
         target_id = args.manifest_id or active.get("parent_manifest_id")
         if not target_id:
             raise HarnessError("no parent manifest is available for rollback")
         target = _read_json(_manifest_path(root, _safe_id(str(target_id), "manifest_id")))
         _validate_manifest(target)
+        adapter_info: Dict[str, Any] = {"mode": "metadata-only"}
+        if getattr(args, "live", False) and not args.dry_run:
+            adapter_info = GrafLocalAdapter(_repo_root(), root).rollback(active, target)
         if not args.dry_run:
             target = dict(target)
             target["status"] = "active"
+            if getattr(args, "live", False):
+                target["promoted_at"] = now()
+                target["health"] = {
+                    "result": "pass",
+                    "checked_at": now(),
+                    "checks": adapter_info.get("checks", {}),
+                }
             _write_json(_manifest_path(root, target["manifest_id"]), target)
             _write_json(
                 root / "active-manifest.json",
                 {
                     "schema_version": POINTER_VERSION,
                     "manifest_id": target["manifest_id"],
-                    "runtime_mode": "metadata-only",
+                    "runtime_mode": adapter_info["mode"],
                     "updated_at": now(),
                 },
             )
-    return {"operation": "rollback", "dry_run": bool(args.dry_run), "status": "ready" if args.dry_run else "active", "manifest": target}
+    return {
+        "operation": "rollback",
+        "dry_run": bool(args.dry_run),
+        "status": "ready" if args.dry_run else "active",
+        "adapter": adapter_info,
+        "manifest": target,
+    }
 
 
 def operation_reset_data(args: argparse.Namespace) -> Dict[str, Any]:
@@ -829,7 +933,7 @@ def parser() -> argparse.ArgumentParser:
     rollback = sub.add_parser("rollback")
     rollback.add_argument("--manifest-id")
     rollback.add_argument("--dry-run", action="store_true")
-    rollback.add_argument("--live", action="store_true", help="reserved; live rollback currently fails closed")
+    rollback.add_argument("--live", action="store_true", help="explicitly restore the local live Dev target")
     reset = sub.add_parser("reset-data")
     reset.add_argument("--confirm-dev-reset", action="store_true")
     reset.add_argument("--dry-run", action="store_true")

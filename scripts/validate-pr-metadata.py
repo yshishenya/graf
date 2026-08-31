@@ -30,6 +30,15 @@ ISSUE_LINK_RE = re.compile(
     r"\b(?:Refs|Part of|Fixes|Closes|Resolves)[ \t]+#(\d+)\b",
     re.IGNORECASE,
 )
+LANE_RE = re.compile(
+    r"^[ \t]*(?:[-*][ \t]*)?Lane[ \t]*:[ \t]*(?!$|___|<[^>]+>)([^\n]+?)\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+EVIDENCE_COMMAND_RE = re.compile(r"`[^`\n]+`", re.MULTILINE)
+EVIDENCE_STATUS_RE = re.compile(
+    r"\b(?:pass(?:ed)?|ok|fail(?:ed)?|blocked|skipped|not[ \t]+run|не[ \t]+запускал|не[ \t]+запущен)\b",
+    re.IGNORECASE,
+)
 
 
 def _sections(body: str) -> dict[str, list[str]]:
@@ -74,8 +83,17 @@ def validate(body: str, feature_id: str, expected_sha: str | None = None) -> lis
             )
     if not re.search(r"Spec task IDs:\s*`?T\d{3,}", body):
         errors.append("at least one Spec task ID is required")
-    if not ISSUE_LINK_RE.search(body):
+    if not any(int(number) > 0 for number in ISSUE_LINK_RE.findall(body)):
         errors.append("at least one explicit issue linkage keyword is required")
+    risk_section = sections.get("## Risk / validation lane", [])
+    if len(risk_section) == 1 and not LANE_RE.search(risk_section[0]):
+        errors.append("concrete validation lane is required")
+    evidence_section = sections.get("## Как проверено", [])
+    if len(evidence_section) == 1 and (
+        not EVIDENCE_COMMAND_RE.search(evidence_section[0])
+        or not EVIDENCE_STATUS_RE.search(evidence_section[0])
+    ):
+        errors.append("concrete validation evidence is required")
     legacy_sections = sections.get("## Legacy Impact", [])
     legacy_section = legacy_sections[0] if len(legacy_sections) == 1 else ""
     classifications = CLASSIFICATION_RE.findall(legacy_section)
@@ -92,7 +110,7 @@ def self_test() -> int:
 - Spec task IDs: `T042`
 
 ## Как проверено
-- focused test passed
+- `pytest -q tests/governance`: passed
 - Exact source SHA: {sha}
 
 ## Risk / validation lane
