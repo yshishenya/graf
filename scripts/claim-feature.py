@@ -21,6 +21,7 @@ from typing import Iterable
 
 
 ID_RE = re.compile(r"(?:^|/)(\d{3,})-")
+GITHUB_COMMAND_TIMEOUT_SECONDS = 30
 
 
 def _ids_from_specs(root: Path) -> set[int]:
@@ -75,9 +76,10 @@ def _github_ids(root: Path, *, exclude_issue: int | None = None, strict: bool = 
         proc = subprocess.run(
             ["gh", "api", "--paginate", "--slurp", endpoint],
             cwd=root, check=True, capture_output=True, text=True,
+            timeout=GITHUB_COMMAND_TIMEOUT_SECONDS,
         )
         pages = json.loads(proc.stdout or "[]")
-    except (OSError, subprocess.CalledProcessError, json.JSONDecodeError, ValueError) as exc:
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired, json.JSONDecodeError, ValueError) as exc:
         if strict:
             raise SystemExit(
                 f"feature-claim: cannot inspect complete GitHub issue/PR history: {exc}; "
@@ -147,9 +149,10 @@ def _github_umbrella(root: Path, issue_number: int, feature_id: int) -> None:
             check=True,
             capture_output=True,
             text=True,
+            timeout=GITHUB_COMMAND_TIMEOUT_SECONDS,
         )
         row = json.loads(proc.stdout or "{}")
-    except (OSError, subprocess.CalledProcessError, json.JSONDecodeError) as exc:
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired, json.JSONDecodeError) as exc:
         raise SystemExit(f"feature-claim: cannot validate GitHub umbrella issue #{issue_number}: {exc}") from exc
     if not isinstance(row, dict) or row.get("number") != issue_number:
         raise SystemExit(f"feature-claim: GitHub umbrella issue #{issue_number} was not found")
@@ -236,8 +239,9 @@ def _create_github_umbrella(root: Path, feature_id: int, slug: str) -> int:
             check=True,
             capture_output=True,
             text=True,
+            timeout=GITHUB_COMMAND_TIMEOUT_SECONDS,
         )
-    except (OSError, subprocess.CalledProcessError) as exc:
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
         detail = getattr(exc, "stderr", "") or ""
         raise SystemExit(f"feature-claim: cannot create GitHub umbrella issue: {detail.strip() or exc}") from exc
     match = re.search(r"/(\d+)\s*$", proc.stdout.strip())

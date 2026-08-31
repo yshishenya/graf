@@ -284,6 +284,24 @@ def test_feature_claim_requires_feature_label_on_github_umbrella(monkeypatch, tm
         raise AssertionError("umbrella without feature label was accepted")
 
 
+def test_feature_claim_github_timeout_fails_closed(monkeypatch, tmp_path: Path) -> None:
+    validator = load_script("claim-feature")
+
+    def fake_run(command, **kwargs):
+        if command[:2] == ["git", "config"]:
+            return subprocess.CompletedProcess(command, 0, stdout="https://github.com/example/project.git\n")
+        raise subprocess.TimeoutExpired(command, kwargs.get("timeout", 0))
+
+    monkeypatch.setattr(validator.subprocess, "run", fake_run)
+    try:
+        validator._github_ids(tmp_path, strict=True)
+    except SystemExit as exc:
+        assert "cannot inspect complete GitHub issue/PR history" in str(exc)
+        assert "use --offline" in str(exc)
+    else:
+        raise AssertionError("GitHub timeout was not treated as a fail-closed error")
+
+
 def test_package_safety_allows_documentation_examples_but_rejects_credentials(tmp_path: Path) -> None:
     validator = load_harness_validators()
     (tmp_path / "README.md").write_text("Use `secret:` and `password =` as field names.\n", encoding="utf-8")
