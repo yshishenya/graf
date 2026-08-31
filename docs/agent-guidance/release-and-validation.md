@@ -133,6 +133,23 @@ preparation. A failed, stale, interrupted or mismatched run produces `no-go`.
 Changed HEAD or changelog, a failed/interrupted run, a component mismatch, or
 skipped gates produces \`no-go\`; create a new candidate after correction.
 
+After the GitHub Release is published, record the immutable link without
+editing either the candidate or decision:
+
+```sh
+infra/scripts/release-candidate.sh attest \
+  .dev/release/decisions/<candidate-id>.decision.json \
+  --release-url https://github.com/<owner>/<repo>/releases/tag/vYYYY.MM.DD.N \
+  --release-sha <exact-tag-commit-40-hex> \
+  --operator <release-operator> \
+  --output .dev/release/attestations/<candidate-id>.publication.json
+```
+
+Obtain the URL and exact tag commit from GitHub before running the command.
+It checks that the URL tag and target SHA equal the approved decision and
+creates a write-once attestation. The schema is
+`infra/release/publication-attestation.schema.json`.
+
 Every CI invocation emits one metadata-only evidence record after the run. By
 default it is written under the ignored `.dev/ci-evidence/` directory and the
 path is printed as `ci_evidence_path=...`. For a release candidate, bind the
