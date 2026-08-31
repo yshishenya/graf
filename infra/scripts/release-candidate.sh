@@ -30,6 +30,10 @@ import re
 import subprocess
 import sys
 
+# Metadata-only release operations must never materialize bytecode in the
+# source tree: the cleanliness gate treats generated files as source drift.
+sys.dont_write_bytecode = True
+
 root = pathlib.Path(sys.argv[1]).resolve()
 op = sys.argv[2]
 args = sys.argv[3:]
@@ -227,6 +231,28 @@ def require_current(data):
     if data["changelog_digest"] != digest(root / "CHANGELOG.md"):
         die("candidate changelog digest differs from current CHANGELOG.md; candidate is stale")
 
+def require_clean_source(exempt_paths=()):
+    """Reject source-tree drift while allowing explicitly named evidence files."""
+    try:
+        output = subprocess.check_output(
+            ["git", "-C", str(root), "status", "--porcelain", "--untracked-files=all"],
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        die(f"cannot inspect worktree cleanliness: {exc}")
+    allowed = {pathlib.Path(path).resolve() for path in exempt_paths}
+    dirty = []
+    for line in output.splitlines():
+        if len(line) < 4:
+            continue
+        relative = line[3:].strip().split(" -> ", 1)[-1]
+        path = (root / relative).resolve()
+        if relative == ".dev" or relative.startswith(".dev/") or path in allowed:
+            continue
+        dirty.append(relative)
+    if dirty:
+        die("source tree is dirty after candidate freeze: " + ", ".join(dirty))
+
 def changelog_calvers():
     try:
         text = (root / "CHANGELOG.md").read_text(encoding="utf-8")
@@ -423,6 +449,8 @@ if op == "decide":
     output = pathlib.Path(values["output"] or (DECISION_DIR / f"{candidate['candidate_id']}.decision.json"))
     if output.resolve() == candidate_path.resolve():
         die("decision output must be separate from the immutable candidate")
+    if decision == "go":
+        require_clean_source((candidate_path, evidence_path, output))
     record = dict(candidate)
     record.update({
         "status": decision,

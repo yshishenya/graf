@@ -280,6 +280,64 @@ def test_decide_rechecks_current_sha_before_go(tmp_path: Path) -> None:
     assert "candidate source SHA" in result.stderr
 
 
+def test_decide_rejects_dirty_source_tree_before_go(tmp_path: Path) -> None:
+    root = fixture(tmp_path)
+    script = root / "infra/scripts/release-candidate.sh"
+    sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+    candidate_path = root / ".dev" / "release" / "candidate.json"
+    result = run(
+        script,
+        "freeze",
+        "--sha",
+        sha,
+        "--feature-id",
+        "216",
+        "--operator",
+        "release",
+        "--output",
+        str(candidate_path),
+        cwd=root,
+    )
+    assert result.returncode == 0, result.stderr
+    candidate = json.loads(candidate_path.read_text(encoding="utf-8"))
+    evidence_path = root / "evidence.json"
+    evidence_path.write_text(
+        json.dumps(
+            {
+                "run_id": "full-dirty-tree",
+                "lane": "full",
+                "requested_sha": sha,
+                "observed_sha_start": sha,
+                "observed_sha_end": sha,
+                "status": "passed",
+                "started_at": "2026-08-31T00:00:00Z",
+                "finished_at": "2026-08-31T00:01:00Z",
+                "commands": ["infra/scripts/ci-local.sh --full"],
+                "artifact_digests": {"full-log": "sha256:" + "a" * 64},
+                "skipped_gates": [],
+                "scope": "release candidate",
+                "candidate_id": candidate["candidate_id"],
+                "authoritative_full": True,
+                "component_shas": {"server": sha},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (root / "untracked-source.py").write_text("print('drift')\n", encoding="utf-8")
+    result = run(
+        script,
+        "decide",
+        str(candidate_path),
+        "--evidence",
+        str(evidence_path),
+        "--calver",
+        "2026.08.31.1",
+        cwd=root,
+    )
+    assert result.returncode != 0
+    assert "source tree is dirty" in result.stderr
+
+
 def test_prepare_release_does_not_fold_historical_releases_into_new_section(tmp_path: Path) -> None:
     root = tmp_path
     (root / "scripts").mkdir()
