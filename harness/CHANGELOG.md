@@ -1,12 +1,15 @@
 # Changelog
 
-## [Unreleased]
+## [Unreleased] — планируется `v0.1.5`
 
 ### Проверки
 
 - Добавлен runnable source-tree self-test для portable package.
 - Добавлен GitHub Actions workflow для self-test, sample smoke-test и
   publish-safety scan в матрице Python 3.9 и 3.12.
+- Добавлены generic CI evidence и PR metadata validators с positive/negative
+  self-tests.
+- Добавлены JSON schemas и reusable templates для CI evidence и pull request.
 
 ## [0.1.4] - 2026-08-31
 

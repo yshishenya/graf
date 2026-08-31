@@ -20,7 +20,10 @@ provider and production gates remain in this repository's adapter.
 
 - Feature claim and bounded-context schemas/validators.
 - Changelog fragment and Legacy Impact templates.
-- SHA-bound CI evidence and release-candidate contracts.
+- SHA-bound CI evidence and pull-request metadata validators.
+- Generic JSON schemas and copyable CI evidence / pull-request templates under
+  `schemas/` and `templates/`.
+- Release-candidate contracts and adapter interfaces.
 - Dev manifest adapter interface with lock/atomic-promotion semantics.
 - Self-test, secret/path/provenance scan and clean sample-project quickstart.
 
@@ -38,6 +41,22 @@ commands are the source-tree self-check and must work from a clean checkout:
 (./bin/harness-check --package-root .)
 ```
 
+The validator API is also available without installing dependencies:
+
+```python
+from dev_harness.validators import ci_evidence, pr_metadata
+
+assert ci_evidence(evidence) == []
+assert pr_metadata(pull_request_body, "216") == []
+```
+
+`ci_evidence()` enforces exact-SHA evidence, non-ambiguous status, required
+commands/digests and authoritative full-run metadata. `pr_metadata()` enforces
+the feature ID, umbrella issue, task ID, SHA, issue linkage, Legacy Impact and
+required PR sections. JSON Schemas document the structural contract; these
+Python validators perform the cross-field checks that JSON Schema cannot
+express.
+
 The package scan is intentionally run before building or installing the
 package: generated `build/`, `*.egg-info/` and bytecode files are not
 publishable. A consumer may run the same checks from its CI after extracting
@@ -52,3 +71,8 @@ The current public release is pinned at
 `https://github.com/yshishenya/graf-development-harness/releases/tag/v0.1.4`;
 `v0.1.3` remains the rollback ref. A consumer must pin the immutable release
 and update its migration notes and rollback ref together.
+
+The next planned release is `v0.1.5`. Until it is cut, keep `VERSION` and the
+package metadata at the current published version and treat the new files as
+unreleased changes. Publish only after the clean self-check, package scan,
+provenance scan and immutable tag/release procedure pass.
