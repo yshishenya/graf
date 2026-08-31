@@ -456,7 +456,7 @@ class GrafLocalAdapter:
         if not requirement_match or not requirement_match.group(1).strip():
             raise HarnessError("signed Dev app has no designated requirement")
         entitlements = _run_command_combined(
-            ["codesign", "-d", "--entitlements", "-", str(app_bundle)], cwd=self.root
+            ["codesign", "-d", "--entitlements", ":-", str(app_bundle)], cwd=self.root
         )
         if "<plist" not in entitlements:
             raise HarnessError("signed Dev app has no readable entitlements")
@@ -522,6 +522,20 @@ class GrafLocalAdapter:
             raise HarnessError(f"Dev backend pid {pid} has no process start identity")
         return token
 
+    def _process_command(self, pid: int) -> str:
+        """Capture the post-exec command used for ownership checks."""
+        try:
+            command = subprocess.check_output(
+                ["ps", "-p", str(pid), "-o", "command="],
+                text=True,
+                stderr=subprocess.DEVNULL,
+            ).strip()
+        except (OSError, subprocess.CalledProcessError) as exc:
+            raise HarnessError(f"could not prove Dev backend command for pid {pid}") from exc
+        if not command:
+            raise HarnessError(f"Dev backend pid {pid} has no process command")
+        return command
+
     def _stop_previous(self) -> None:
         if not self._runtime_record().exists():
             return
@@ -568,6 +582,16 @@ class GrafLocalAdapter:
             raise HarnessError(f"could not start local backend: {exc}") from exc
         finally:
             log_handle.close()
+        _write_json(
+            runtime,
+            {
+                "pid": process.pid,
+                "source_sha": manifest["source_sha"],
+                "started_at": now(),
+                "command": self._process_command(process.pid),
+                "start_token": self._process_start_token(process.pid),
+            },
+        )
         try:
             self._wait_http(str(manifest["dev_boundary"]["backend_origin"]), "/api/v1/health/live", timeout=90)
         except HarnessError:

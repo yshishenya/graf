@@ -173,6 +173,18 @@ def test_pid_ownership_requires_matching_process_start_token(monkeypatch, tmp_pa
     assert adapter._pid_owned({"pid": 77, "command": record["command"]}) is False
 
 
+def test_process_command_captures_post_exec_command(monkeypatch, tmp_path):
+    adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
+
+    def fake_ps(command, **_kwargs):
+        assert command == ["ps", "-p", "303", "-o", "command="]
+        return "uv run uvicorn twobrain_rec_server.main:create_app --factory\n"
+
+    monkeypatch.setattr(dev_harness.subprocess, "check_output", fake_ps)
+
+    assert adapter._process_command(303) == "uv run uvicorn twobrain_rec_server.main:create_app --factory"
+
+
 def test_app_snapshot_rejects_production_destination_before_copy(monkeypatch, tmp_path):
     adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
     production = tmp_path / "GRAF.app"
