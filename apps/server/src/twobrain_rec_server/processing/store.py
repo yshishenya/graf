@@ -1090,8 +1090,6 @@ async def reconcile_closed_processing_workflow_result(
         meeting_id=current.meeting_id,
         media_revision_id=current.media_revision_id,
     )
-    from twobrain_rec_server.processing.results import result_is_complete
-
     target = (
         ProcessingStatus.PROCESSED
         if result_is_complete(result)

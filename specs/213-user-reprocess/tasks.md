@@ -51,14 +51,14 @@
 
 - [X] T015 [P] Add latest-workflow versus effective-result projection tests in `apps/server/tests/unit/test_cabinet_view_models.py` and `apps/server/tests/contract/test_processing_status_contract.py`
 - [X] T016 [P] Add detail/share/export/egress/desktop consistency tests in `apps/server/tests/integration/test_cabinet_meeting_detail.py`, `apps/server/tests/integration/test_artifact_egress_policy.py` and `apps/server/tests/integration/test_desktop_sync.py`
-- [X] T017 [P] Add outcome lag/alignment and previous-version-label tests in `apps/server/tests/integration/test_cabinet_meeting_outcomes.py` and `apps/server/tests/contract/test_summary_template_ui_contract.py`
+- [X] T017 Remove Feature 213 outcome-generation, summary-export and stale-summary UI tests; preserve the summary tests from current `master` unchanged
 
 ### Implementation
 
 - [X] T018 Split operational latest attempt from effective complete content in `apps/server/src/twobrain_rec_server/processing/status.py`, `apps/server/src/twobrain_rec_server/cabinet/queries.py` and `apps/server/src/twobrain_rec_server/cabinet/view_models.py`
-- [X] T019 Route exports, downloads, egress and desktop review availability through the shared complete selector in `apps/server/src/twobrain_rec_server/cabinet/exports.py`, `apps/server/src/twobrain_rec_server/cabinet/egress.py` and `apps/server/src/twobrain_rec_server/ingest/desktop_sync.py`
-- [X] T020 Route outcome source selection/generation through the effective result while preserving existing outcome CAS in `apps/server/src/twobrain_rec_server/outcomes/service.py` and `apps/server/src/twobrain_rec_server/outcomes/ai_service.py`
-- [X] T021 Show the continuity banner and previous-version outcome label without hiding transcript/player/actions in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/meeting_detail_content.html`
+- [X] T019 Route transcript downloads, egress and desktop review availability through the shared complete selector without changing summary exports in `apps/server/src/twobrain_rec_server/cabinet/egress.py` and `apps/server/src/twobrain_rec_server/ingest/desktop_sync.py`
+- [X] T020 Remove Feature 213 changes from `outcomes/service.py`, `outcomes/ai_service.py`, summary runtime and summary export paths
+- [X] T021 Show transcript-only continuity copy without changing stale-summary UI in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/meeting_detail_content.html`
 
 **Checkpoint**: Active, partial and failed replacement attempts never remove the last complete customer result.
 
@@ -75,15 +75,15 @@
 ### Implementation
 
 - [X] T025 Revalidate meeting creator for replacement-attempt manual actions without changing initial-processing recovery in `apps/server/src/twobrain_rec_server/api/processing.py`
-- [X] T026 Reuse server time, `schedule_generation`, existing manual check and quiet countdown for replacement copy/actions in `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js` and `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/meeting_detail_content.html`
+- [X] T026 Reuse server time, `schedule_generation`, existing manual check and quiet countdown; refresh live reprocess eligibility and keep transcript-only copy in `cabinet.js` and `meeting_detail_content.html`
 
 **Checkpoint**: Manual and automatic retry cannot run in parallel, and terminal failure has a fresh user action.
 
 ## Phase 6: Polish and validation
 
-- [X] T027 Update `CHANGELOG.md` and `docs/current-product-status.md` with Feature 213 behavior and compatibility
+- [X] T027 Update `CHANGELOG.md` and `docs/current-product-status.md` with transcript-only Feature 213 behavior and compatibility
 - [X] T028 Run every focused command and scenario in `specs/213-user-reprocess/quickstart.md` and record metadata-only evidence
-- [X] T029 Run the scoped Feature 213 PR gate approved by the product owner; `infra/scripts/ci-local.sh --fast` escalates these high-risk paths to full CI, so full CI is deferred to the exact release candidate
+- [X] T029 Run `infra/scripts/ci-local.sh --fast`; full CI remains deferred to the exact release candidate
 - [X] T030 Run final Ponytail/code review for duplicate selectors, unnecessary schema/layers, trust boundaries and accessibility
 
 ## Dependencies and execution order
@@ -98,7 +98,7 @@
 
 1. Land exact identity and the shared complete-result selector behind no new action.
 2. Add owner admission and confirmation.
-3. Switch all customer readers and outcome alignment.
+3. Switch transcript customer readers while leaving outcomes untouched.
 4. Add replacement-specific status/retry copy.
 5. Run focused checks, quickstart and fast CI.
 

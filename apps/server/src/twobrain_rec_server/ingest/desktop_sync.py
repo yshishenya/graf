@@ -312,7 +312,9 @@ async def _latest_processing_result(
     workspace_id: object,
     meeting_id: object,
     media_revision_id: object | None,
+    processing_workflow_id: object | None = None,
 ) -> ProcessingResult | None:
+    del processing_workflow_id  # Retained for compatible internal callers; selection is revision-wide.
     if db is None or media_revision_id is None:
         return None
     return await db.scalar(
@@ -327,8 +329,6 @@ async def _latest_processing_result(
 def _review_available(
     conflict: DesktopSyncConflict,
     processing_status: ProcessingStatus,
-    *,
-    content_available: bool,
 ) -> bool:
     if conflict.state in {
         SyncConflictState.SERVER_MEETING_DELETED,
@@ -338,7 +338,7 @@ def _review_available(
         SyncConflictState.DEPENDENCY_UNAVAILABLE,
     }:
         return False
-    return content_available or processing_status != ProcessingStatus.CANCELED
+    return processing_status != ProcessingStatus.CANCELED
 
 
 def _custody_processing_state(status: ProcessingStatus) -> CustodyProcessingState:
@@ -794,7 +794,7 @@ async def get_desktop_recording_sync_state(
     processing_conflict = _processing_conflict(effective_processing_status)
     review_status = _desktop_review_status(
         meeting=meeting,
-        result=review_result,
+        result=review_result or workflow_result,
         processing_status=effective_processing_status,
         processing_workflow_id=review_workflow.id if review_workflow is not None else None,
     )
@@ -814,11 +814,7 @@ async def get_desktop_recording_sync_state(
         access_state = "stale_device_identity"
     accepted_bytes_by_track = _accepted_bytes_by_track(session)
     missing_ranges_by_track = _missing_ranges_by_track(session)
-    review_available = _review_available(
-        conflict,
-        effective_processing_status,
-        content_available=transcript_ready,
-    )
+    review_available = _review_available(conflict, effective_processing_status)
     custody_review_available = review_available and transcript_ready and diarization_ready
     review_desktop_url = f"/desktop/meetings/{meeting.id}" if review_available else None
     custody_review_desktop_url = f"/desktop/meetings/{meeting.id}" if custody_review_available else None

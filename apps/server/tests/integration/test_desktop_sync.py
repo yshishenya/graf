@@ -4,6 +4,7 @@ from sqlalchemy import select
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fixtures.cabinet import seed_cabinet_meetings
+from twobrain_rec_server.api.schemas import DesktopSyncConflict
 from twobrain_rec_server.db.models import (
     MediaScribeJob,
     Meeting,
@@ -17,6 +18,16 @@ from twobrain_rec_server.domain.statuses import (
     ProcessingStatus,
     SummaryStatus,
 )
+from twobrain_rec_server.ingest.desktop_sync import _review_available
+
+
+def test_desktop_review_url_preserves_initial_recovery_and_hides_canceled() -> None:
+    assert all(
+        _review_available(DesktopSyncConflict(), status)
+        for status in ProcessingStatus
+        if status != ProcessingStatus.CANCELED
+    )
+    assert not _review_available(DesktopSyncConflict(), ProcessingStatus.CANCELED)
 
 
 def test_desktop_sync_keeps_complete_review_during_active_replacement(client) -> None:

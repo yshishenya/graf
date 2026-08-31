@@ -42,7 +42,7 @@ Required matrix:
 | complete A | complete B | B |
 | complete A version 2 | complete B version 1, newer attempt | B |
 
-Detail, full share, export, egress and desktop sync must agree on the same result ID.
+Detail, full share, transcript export, transcript egress and desktop sync must agree on the same result ID.
 
 ## 3. Temporal identity and retry
 
@@ -76,10 +76,9 @@ Manual synthetic-data acceptance:
 
 1. Owner finds the action in `Ещё`; shared recipient does not.
 2. Cancel/Escape restores focus; confirm enters one busy state.
-3. Active and retryable states keep transcript, player, export and outcomes usable.
+3. Active and retryable states keep transcript, player and transcript export usable.
 4. Countdown is not announced every second.
 5. Terminal failure offers a fresh reprocess action.
-6. New transcript with old outcomes shows the previous-version label.
 
 ## 5. Feature gate
 
@@ -92,21 +91,23 @@ infra/scripts/ci-local.sh --fast
 
 Do not run release/deploy or production smoke without separate approval. Full CI is reserved for the frozen release candidate or approved deployment.
 
-## Validation evidence (2026-08-31)
+## Validation evidence (2026-09-01)
 
-- Unified isolated-PostgreSQL run of the 14 Feature 213 files on current
-  `origin/master`: `354 passed`.
-- Targeted access, stale-summary/export, web/embedded replacement and UI refresh
-  regressions after final review fixes: `3 passed`.
+- Isolated-PostgreSQL run of the 12 core Feature 213 files after synchronizing
+  `origin/master` at `bef6ef5ced604d475eab43bfd1c9bbddc8faff05`:
+  `349 passed`.
+- The remaining quickstart egress, recovery and accessibility files passed in
+  one isolated-PostgreSQL run: `36 passed`.
+- Targeted access, transcript continuity, web/embedded replacement and UI refresh
+  regressions are rerun after the final `origin/master` synchronization.
 - Owner/non-owner, lost-response replay, stale predecessor/revision, missing
   source, CSRF, fresh terminal successor, one provider job, unchanged initial
   recovery and schedule-generation scenarios are covered with synthetic IDs
   and no meeting content in evidence.
-- Web and embedded HTML acceptance confirms that complete result B replaces A,
-  outcomes A remain visible with `По предыдущей версии расшифровки`, and their
-  summary-only export does not resolve evidence against B.
-- `node --check`, Ruff and `git diff --check`: PASS before the unified run.
-- By explicit product-owner decision, the PR gate used focused Feature 213 tests
-  instead of the repository script that escalates these high-risk paths to full
-  CI. Full CI is deferred to the exact release candidate.
+- Web and embedded HTML acceptance confirms that complete result B replaces A
+  only after transcript and matching diarization are complete.
+- `node --check`, Ruff, Python compile and `git diff --check`: PASS.
+- `infra/scripts/ci-local.sh --fast`: PASS (`1362` unit tests and `153` changed
+  server tests); coverage is intentionally partial and the next release gate is
+  full CI on the exact release candidate.
 - Release, deployment and production smoke were not performed.
