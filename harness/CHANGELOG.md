@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.1.9] - 2026-08-31
+
+### Исправлено
+
+- Portable `Legacy Impact` теперь требует корректную будущую ISO-дату expiry для compatibility exceptions.
+- Package-safety scan проверяет credential assignments и в документации, не принимая реальные ключи за безопасный пример.
+
+### Совместимость
+
+- Python 3.9+; CLI и validator API обратно совместимы с `v0.1.8`.
+- Откат: immutable `v0.1.8`.
+
+### Проверки
+
+- Self-test, clean sample smoke-test и recursive package-safety/provenance scan — PASS.
+
+### Ограничения
+
+- Product-specific capture, privacy, signing, deployment и data gates остаются adapter-контрактом потребителя.
+
 ## [0.1.8] - 2026-08-31
 
 ### Исправлено
