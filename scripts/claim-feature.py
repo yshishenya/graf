@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import fcntl
 import json
+import os
 import re
 import subprocess
 import sys
@@ -94,14 +95,77 @@ def _github_ids(root: Path, *, exclude_issue: int | None = None, strict: bool = 
 
 
 def _local_claim_ids(root: Path) -> set[int]:
+    claims_path = None
     try:
         git_dir = _git_common_dir(root)
         if not git_dir.is_absolute():
             git_dir = root / git_dir
-        data = json.loads((git_dir / "feature-claims.json").read_text(encoding="utf-8"))
-        return {int(key) for key in data if re.fullmatch(r"\d{3,}", str(key))}
-    except (OSError, subprocess.CalledProcessError, json.JSONDecodeError, ValueError):
-        return set()
+        claims_path = git_dir / "feature-claims.json"
+        if not claims_path.exists():
+            return set()
+        data = json.loads(claims_path.read_text(encoding="utf-8"))
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise SystemExit(f"feature-claim: cannot inspect shared claim state: {exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"feature-claim: shared claim state is corrupt: {claims_path}") from exc
+    _validate_claims(data, claims_path)
+    return {int(key) for key in data}
+
+
+def _validate_claims(data: object, claims_path: Path) -> None:
+    if not isinstance(data, dict):
+        raise SystemExit(f"feature-claim: shared claim state is corrupt: {claims_path}")
+    for key, value in data.items():
+        if (
+            not re.fullmatch(r"\d{3,}", str(key))
+            or not isinstance(value, dict)
+            or set(value) != {"issue_number", "branch", "slug"}
+            or not isinstance(value["branch"], str)
+            or not value["branch"].strip()
+            or not isinstance(value["slug"], str)
+            or not value["slug"].strip()
+        ):
+            raise SystemExit(f"feature-claim: shared claim state is corrupt: {claims_path}")
+
+
+def _github_umbrella(root: Path, issue_number: int, feature_id: int) -> None:
+    """Require the supplied open issue to explicitly identify this feature."""
+    try:
+        proc = subprocess.run(
+            ["gh", "issue", "view", str(issue_number), "--json", "number,title,body,state"],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        row = json.loads(proc.stdout or "{}")
+    except (OSError, subprocess.CalledProcessError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"feature-claim: cannot validate GitHub umbrella issue #{issue_number}: {exc}") from exc
+    if not isinstance(row, dict) or row.get("number") != issue_number:
+        raise SystemExit(f"feature-claim: GitHub umbrella issue #{issue_number} was not found")
+    if row.get("state") not in (None, "OPEN"):
+        raise SystemExit(f"feature-claim: umbrella issue #{issue_number} is not open")
+    marker = str(feature_id)
+    text = f"{row.get('title', '')}\n{row.get('body', '')}"
+    linked = (
+        re.search(rf"^\[{re.escape(marker)}\]", str(row.get("title", "")), re.MULTILINE)
+        or re.search(rf"feature:(?:F)?{re.escape(marker)}\b", text, re.IGNORECASE)
+        or re.search(rf"(?:Feature ID|feature_id)\s*:\s*`?F?{re.escape(marker)}\b", text, re.IGNORECASE)
+    )
+    if not linked:
+        raise SystemExit(f"feature-claim: umbrella issue #{issue_number} is not linked to Feature {marker}")
+
+
+def _write_claims_atomic(path: Path, claims: dict[str, object]) -> None:
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        temporary.write_text(json.dumps(claims, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        os.replace(temporary, path)
+    finally:
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
 
 
 def _parse_ids(values: Iterable[str]) -> set[int]:
@@ -147,6 +211,11 @@ def claim(root: Path, feature_id: int, *, issue_number: int | None, branch: str,
         raise SystemExit("feature-claim: GitHub umbrella issue is required; use --offline only for draft mode")
     if not branch or not slug:
         raise SystemExit("feature-claim: branch and slug are required")
+    branch_match = re.search(r"(?:^|/)(\d{3,})-", branch)
+    if not branch_match or int(branch_match.group(1)) != feature_id:
+        raise SystemExit(f"feature-claim: branch must be bound to Feature {feature_id:03d}")
+    if not offline:
+        _github_umbrella(root, issue_number, feature_id)
     # Worktrees share this directory; the lock serializes claims across all of
     # them instead of creating one reservation file per worktree.
     git_dir = _git_common_dir(root)
@@ -159,13 +228,15 @@ def claim(root: Path, feature_id: int, *, issue_number: int | None, branch: str,
         claims_path = lock_path.with_name("feature-claims.json")
         try:
             claims = json.loads(claims_path.read_text(encoding="utf-8")) if claims_path.exists() else {}
-        except (OSError, json.JSONDecodeError):
-            claims = {}
+        except (OSError, json.JSONDecodeError) as exc:
+            raise SystemExit(f"feature-claim: shared claim state is corrupt: {claims_path}") from exc
+        _validate_claims(claims, claims_path)
         key = f"{feature_id:03d}"
-        if key in claims and claims[key].get("issue_number") != issue_number:
-            raise SystemExit(f"feature-claim: local claim already exists for {key}")
-        claims[key] = {"issue_number": issue_number, "branch": branch, "slug": slug}
-        claims_path.write_text(json.dumps(claims, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        requested_claim = {"issue_number": issue_number, "branch": branch, "slug": slug}
+        if key in claims and claims[key] != requested_claim:
+            raise SystemExit(f"feature-claim: local claim already exists with different metadata for {key}")
+        claims[key] = requested_claim
+        _write_claims_atomic(claims_path, claims)
         fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
     return {
         "schema_version": 1,

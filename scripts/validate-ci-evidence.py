@@ -33,9 +33,11 @@ def _sha(data: dict[str, Any], key: str, errors: list[str]) -> Optional[str]:
     return value
 
 
-def _string_list(data: dict[str, Any], key: str, errors: list[str]) -> Optional[list[str]]:
+def _string_list(
+    data: dict[str, Any], key: str, errors: list[str], *, non_empty: bool = False
+) -> Optional[list[str]]:
     value = data.get(key)
-    if not isinstance(value, list) or any(
+    if not isinstance(value, list) or (non_empty and not value) or any(
         not isinstance(item, str) or not item.strip() for item in value
     ):
         errors.append(f"missing or invalid {key}: expected a list of non-empty strings")
@@ -88,12 +90,14 @@ def validate(data: dict[str, Any]) -> list[str]:
 
     _non_empty_string(data, "started_at", errors)
     _non_empty_string(data, "finished_at", errors)
-    _string_list(data, "commands", errors)
+    _string_list(data, "commands", errors, non_empty=True)
     _string_list(data, "skipped_gates", errors)
     _non_empty_string(data, "scope", errors)
     _artifact_digests(data, errors)
 
     component_shas = data.get("component_shas")
+    if lane == "full" and (not isinstance(component_shas, dict) or not component_shas):
+        errors.append("full evidence requires a non-empty component_shas object")
     if component_shas is not None:
         if not isinstance(component_shas, dict) or not component_shas:
             errors.append("component_shas must be a non-empty object when present")

@@ -623,7 +623,12 @@ def operation_promote(args: argparse.Namespace) -> Dict[str, Any]:
         if not args.dry_run:
             _mkdirs(root)
             _write_json(_manifest_path(root, promoted["manifest_id"]), promoted)
-            pointer = {"schema_version": POINTER_VERSION, "manifest_id": promoted["manifest_id"], "updated_at": now()}
+            pointer = {
+                "schema_version": POINTER_VERSION,
+                "manifest_id": promoted["manifest_id"],
+                "runtime_mode": adapter_info["mode"],
+                "updated_at": now(),
+            }
             _write_json(root / "active-manifest.json", pointer)
     return {"operation": "promote", "dry_run": bool(args.dry_run), "status": "ready" if args.dry_run else "active", "adapter": adapter_info, "manifest": promoted}
 
@@ -639,6 +644,8 @@ def operation_status(args: argparse.Namespace) -> Dict[str, Any]:
 
 def operation_smoke(args: argparse.Namespace) -> Dict[str, Any]:
     _assert_dev_environment()
+    if not getattr(args, "live", False) and not getattr(args, "fixture", False):
+        raise HarnessError("smoke requires an explicit --live or --fixture mode")
     root = state_dir()
     active = _load_active(root)
     if active is None:
@@ -666,6 +673,15 @@ def operation_rollback(args: argparse.Namespace) -> Dict[str, Any]:
     _assert_dev_environment()
     root = state_dir()
     with state_lock(root):
+        if getattr(args, "live", False):
+            raise HarnessError("live rollback is not implemented; refusing to change the active target")
+        pointer_path = root / "active-manifest.json"
+        if not args.dry_run and pointer_path.exists():
+            pointer = _read_json(pointer_path)
+            if pointer.get("runtime_mode") == "live" or (root / "runtime.json").exists():
+                raise HarnessError(
+                    "live Dev state is active; refusing metadata-only rollback without runtime restoration"
+                )
         active = _load_active(root)
         if active is None:
             raise HarnessError("rollback requires an active Dev manifest")
@@ -678,7 +694,15 @@ def operation_rollback(args: argparse.Namespace) -> Dict[str, Any]:
             target = dict(target)
             target["status"] = "active"
             _write_json(_manifest_path(root, target["manifest_id"]), target)
-            _write_json(root / "active-manifest.json", {"schema_version": POINTER_VERSION, "manifest_id": target["manifest_id"], "updated_at": now()})
+            _write_json(
+                root / "active-manifest.json",
+                {
+                    "schema_version": POINTER_VERSION,
+                    "manifest_id": target["manifest_id"],
+                    "runtime_mode": "metadata-only",
+                    "updated_at": now(),
+                },
+            )
     return {"operation": "rollback", "dry_run": bool(args.dry_run), "status": "ready" if args.dry_run else "active", "manifest": target}
 
 
@@ -718,6 +742,7 @@ def parser() -> argparse.ArgumentParser:
     rollback = sub.add_parser("rollback")
     rollback.add_argument("--manifest-id")
     rollback.add_argument("--dry-run", action="store_true")
+    rollback.add_argument("--live", action="store_true", help="reserved; live rollback currently fails closed")
     reset = sub.add_parser("reset-data")
     reset.add_argument("--confirm-dev-reset", action="store_true")
     reset.add_argument("--dry-run", action="store_true")

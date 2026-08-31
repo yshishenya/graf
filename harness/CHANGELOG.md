@@ -2,6 +2,13 @@
 
 ## [Unreleased] — планируется `v0.1.7`
 
+### Безопасность и контекст
+
+- Package-safety scan теперь проверяет и собственный validator source, не
+  оставляя исключений для credential assignments.
+- Portable `AGENTS.md` явно описывает официальный порядок наследования
+  инструкций Codex и default context limit.
+
 ## [0.1.6] - 2026-08-31
 
 ### Исправлено

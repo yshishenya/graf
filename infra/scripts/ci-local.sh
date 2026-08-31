@@ -489,7 +489,14 @@ PY
   if [[ -n "${GRAF_PR_BODY_FILE:-}" ]]; then
     process_preflight+=(--pr-body "$GRAF_PR_BODY_FILE")
   fi
-  run_step "Development process preflight" "${process_preflight[@]}" || return $?
+  if [[ -f "$repo_root/.specify/feature.json" ]]; then
+    run_step "Development process preflight" "${process_preflight[@]}" || return $?
+  else
+    # Feature context is per-worktree and intentionally absent from clean
+    # merged/release checkouts. The repository-wide Spec Kit gate still runs;
+    # do not invent an active feature just to execute a release lane.
+    printf '\n==> Development process preflight skipped (release checkout without active feature pointer)\n'
+  fi
   run_step "Spec Kit governance" python3 scripts/check_spec_kit_governance.py || return $?
 
   if [[ "$effective_mode" == "full" ]]; then

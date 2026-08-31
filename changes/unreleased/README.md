@@ -15,6 +15,7 @@ issue: 6090
 tasks: [T001]
 compatibility: "Изменения совместимости или `нет`"
 known_limitations: ["Ограничение, если есть"]
+release_notes: "Русские заметки для release train"
 ```
 
 Fragments must contain metadata only: no secrets, credentials, raw audio,

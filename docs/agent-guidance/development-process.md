@@ -39,6 +39,15 @@ constitution and linked guidance; this file only routes a feature through them.
 - If the active pointer is missing, malformed or points outside the current
   worktree, stop rather than guessing.
 
+Codex instruction discovery follows the official OpenAI contract: global
+guidance is loaded first, then project and nested-directory guidance; the
+closest non-empty file wins, and `AGENTS.override.md` replaces `AGENTS.md` at
+the same directory level. Keep this file and the root `AGENTS.md` concise: the
+default combined instruction budget is 32 KiB. Put task-specific procedures in
+one scoped guidance file and verify the active chain from a fresh Codex run;
+never copy the whole repository history into always-on instructions. See the
+[official AGENTS.md guidance](https://developers.openai.com/codex/guides/agents-md).
+
 ## Parallel development and Dev testing
 
 Development is parallel; manual end-to-end verification is serialized:

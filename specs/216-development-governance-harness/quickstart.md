@@ -17,6 +17,17 @@ cat .specify/feature.json
 Expected: branch `codex/216-development-governance-harness`, feature directory
 `specs/216-development-governance-harness`, and no user changes overwritten.
 
+## 1a. Confirm Codex instruction scope
+
+Start a fresh Codex run from the repository root and request the loaded
+instruction sources. The expected chain is global guidance, this root
+`AGENTS.md`, then only any closer nested file. Feature-specific procedures are
+read from the active paths below, not copied into root instructions. If the
+chain is unexpectedly long, split the guidance before continuing; Codex's
+default combined instruction limit is 32 KiB.
+
+Reference: [OpenAI AGENTS.md guidance](https://developers.openai.com/codex/guides/agents-md).
+
 ## 2. Validate specification and governance
 
 ```sh

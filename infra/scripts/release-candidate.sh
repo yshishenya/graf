@@ -47,6 +47,17 @@ SCHEMA_PATH = root / "infra/release/candidate.schema.json"
 def die(message):
     raise SystemExit(f"release-candidate: {message}")
 
+def validate_calver(value, field="calver"):
+    if not isinstance(value, str) or not CALVER_RE.fullmatch(value):
+        die(f"invalid {field}")
+    normalized = "v" + value.lstrip("v")
+    year, month, day, _ = normalized[1:].split(".")
+    try:
+        dt.date(int(year), int(month), int(day))
+    except ValueError:
+        die(f"invalid {field}: date does not exist")
+    return normalized
+
 def load(path):
     try:
         return json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
@@ -183,8 +194,8 @@ def validate_candidate(data):
             die(f"{key} must be string or null")
     if data["full_evidence_digest"] is not None and not re.fullmatch(r"sha256:[0-9a-f]{64}", data["full_evidence_digest"]):
         die("invalid full_evidence_digest")
-    if data["calver"] is not None and not CALVER_RE.fullmatch(data["calver"]):
-        die("invalid calver")
+    if data["calver"] is not None:
+        validate_calver(data["calver"])
     if data["tag"] is not None and not TAG_RE.fullmatch(data["tag"]):
         die("invalid tag")
     if data["github_release_url"] is not None and not re.fullmatch(r"https://github\.com/[^/]+/[^/]+/releases/tag/v[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+", data["github_release_url"]):
@@ -212,6 +223,20 @@ def require_current(data):
         die(f"candidate source SHA {data['source_sha']} differs from current HEAD; candidate is stale")
     if data["changelog_digest"] != digest(root / "CHANGELOG.md"):
         die("candidate changelog digest differs from current CHANGELOG.md; candidate is stale")
+
+def changelog_calvers():
+    try:
+        text = (root / "CHANGELOG.md").read_text(encoding="utf-8")
+    except OSError as exc:
+        die(f"cannot read CHANGELOG.md: {exc}")
+    return {
+        "v" + value.lstrip("v")
+        for value in re.findall(
+            r"^## \[(v?[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+)\]",
+            text,
+            re.MULTILINE,
+        )
+    }
 
 def write_create_once(path, text):
     path = pathlib.Path(path)
@@ -310,13 +335,21 @@ if op == "decide":
     candidate_path = pathlib.Path(values["candidate"]).resolve()
     candidate = load(candidate_path)
     validate_candidate(candidate)
+    require_current(candidate)
     if candidate["status"] != "frozen":
         die("only a frozen candidate can receive a decision")
     lock_path = candidate_path.with_suffix(candidate_path.suffix + ".decision.lock")
     lock_handle = lock_path.open("a+", encoding="utf-8")
     fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
-    # The candidate itself is immutable, so a sidecar decision is the single
-    # writer/identity guard. Custom output paths cannot create a second decision.
+    # The candidate itself is immutable, so a canonical identity sidecar is the
+    # single writer/identity guard. Custom output paths cannot create a second
+    # decision in another directory.
+    identity_path = candidate_path.with_name(f".{candidate_path.name}.decision-identity.json")
+    if identity_path.exists():
+        identity = load(identity_path)
+        if identity.get("candidate_id") != candidate["candidate_id"]:
+            die(f"decision identity sidecar belongs to another candidate: {identity_path}")
+        die(f"candidate already has an immutable decision identity {identity_path}")
     for existing in candidate_path.parent.glob("*.json"):
         if existing == candidate_path:
             continue
@@ -348,12 +381,17 @@ if op == "decide":
     decision = "go" if not errors else "no-go"
     calver = values["calver"]
     if decision == "go":
-        if not calver or not CALVER_RE.fullmatch(calver):
+        if not calver:
             die("go requires --calver YYYY.MM.DD.N")
-        calver = "v" + calver.lstrip("v")
+        calver = validate_calver(calver)
+        versions = changelog_calvers()
+        if versions and calver not in versions:
+            die(f"CalVer {calver} is not bound to a release section in CHANGELOG.md")
         tag = values["tag"] or calver
         if not TAG_RE.fullmatch(tag):
             die("tag must be vYYYY.MM.DD.N")
+        if tag != calver:
+            die("tag must equal the normalized CalVer")
     else:
         calver = None; tag = None
     output = pathlib.Path(values["output"] or str(candidate_path)[:-5] + ".decision.json")
@@ -367,6 +405,13 @@ if op == "decide":
     })
     validate_candidate(record)
     text = json.dumps(record, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    identity = json.dumps(
+        {"candidate_id": candidate["candidate_id"], "decision": decision, "output": str(output)},
+        ensure_ascii=False,
+        indent=2,
+        sort_keys=True,
+    ) + "\n"
+    write_create_once(identity_path, identity)
     write_create_once(output, text)
     print(text, end="")
     fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
