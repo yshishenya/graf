@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
@@ -71,10 +72,12 @@ from twobrain_rec_server.outcomes.prompts import (
     validate_prompt_snapshot,
 )
 from twobrain_rec_server.outcomes.service import (
+    SummarySlotDefaultConflict,
     advance_summary_slot_state_version,
     ensure_summary_slot,
     load_outcome_transcript_segments,
     load_summary_slot,
+    mark_meeting_default_slot,
 )
 from twobrain_rec_server.outcomes.store import set_outcome_category_states
 from twobrain_rec_server.outcomes.templates import (
@@ -921,6 +924,20 @@ async def ensure_automatic_summary_candidate(
     )
     if definition is None:
         return None
+    with suppress(SummarySlotDefaultConflict):
+        # The workspace automatic format is the product default for a meeting.
+        # Persist that fact before creating the candidate so fresh imports and
+        # populated slots are both visible through the default egress. An
+        # explicit default selected earlier remains authoritative.
+        await mark_meeting_default_slot(
+            db,
+            workspace_id=workspace_id,
+            meeting_id=meeting_id,
+            template_key=definition.key,
+            resolution_source="workspace",
+            resolution_version=f"workspace-default:{definition.key}:v{definition.version}",
+            resolved_at=datetime.now(UTC),
+        )
     slot = await ensure_summary_slot(
         db,
         workspace_id=workspace_id,

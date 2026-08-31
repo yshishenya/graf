@@ -9,6 +9,7 @@ from uuid import UUID
 
 from sqlalchemy import exists, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from twobrain_rec_server.db.models import (
     DispatchIntent,
@@ -29,6 +30,88 @@ DISPATCH_LEASE = timedelta(seconds=60)
 # stalled SDK call cannot outlive its lease and race a maintenance retry.
 DISPATCH_START_TIMEOUT_SECONDS = 45.0
 logger = logging.getLogger(__name__)
+
+
+async def reconcile_missing_summary_defaults(
+    db: AsyncSession,
+    *,
+    limit: int = 25,
+) -> int:
+    """Restore default markers for populated workspace-default slots.
+
+    This is deliberately metadata-only: it never regenerates content, changes
+    an outcome pointer, or replaces an explicit default selected by a user.
+    """
+
+    if limit <= 0:
+        return 0
+    default_slot = aliased(MeetingSummarySlot)
+    default_exists = exists(
+        select(default_slot.id).where(
+            default_slot.workspace_id == MeetingSummarySlot.workspace_id,
+            default_slot.meeting_id == MeetingSummarySlot.meeting_id,
+            default_slot.is_meeting_default.is_(True),
+        )
+    )
+    rows = (
+        await db.execute(
+            select(
+                MeetingSummarySlot.workspace_id,
+                MeetingSummarySlot.meeting_id,
+                MeetingSummarySlot.template_key,
+                Workspace.default_summary_template_version,
+            )
+            .join(Workspace, Workspace.id == MeetingSummarySlot.workspace_id)
+            .join(Meeting, Meeting.id == MeetingSummarySlot.meeting_id)
+            .where(
+                MeetingSummarySlot.template_key == Workspace.default_summary_template_key,
+                MeetingSummarySlot.current_outcome_set_id.is_not(None),
+                MeetingSummarySlot.is_meeting_default.is_(False),
+                Meeting.deleted_at.is_(None),
+                or_(Meeting.deletion_state.is_(None), Meeting.deletion_state == "none"),
+                ~default_exists,
+            )
+            .order_by(MeetingSummarySlot.updated_at.asc(), MeetingSummarySlot.id.asc())
+            .limit(limit)
+            .with_for_update(skip_locked=True, of=MeetingSummarySlot)
+        )
+    ).all()
+    await db.commit()
+
+    if not rows:
+        return 0
+
+    from twobrain_rec_server.outcomes.service import (
+        SummarySlotDefaultConflict,
+        mark_meeting_default_slot,
+    )
+
+    repaired = 0
+    for workspace_id, meeting_id, template_key, template_version in rows:
+        try:
+            await mark_meeting_default_slot(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                template_key=template_key,
+                resolution_source="workspace",
+                resolution_version=f"workspace-default:{template_key}:v{template_version}",
+                resolved_at=datetime.now(UTC),
+            )
+        except SummarySlotDefaultConflict:
+            # A concurrent explicit choice is authoritative.
+            await db.rollback()
+            continue
+        except Exception:
+            await db.rollback()
+            logger.exception(
+                "missing summary default reconciliation failed",
+                extra={"workspace_id": str(workspace_id), "meeting_id": str(meeting_id)},
+            )
+            continue
+        await db.commit()
+        repaired += 1
+    return repaired
 
 
 async def reconcile_orphaned_summary_candidates(

@@ -34,9 +34,11 @@ from twobrain_rec_server.outcomes.ai_service import (
     publish_model_generated_outcome,
 )
 from twobrain_rec_server.outcomes.dispatch import (
+    reconcile_missing_summary_defaults,
     reconcile_orphaned_summary_candidates,
     reconcile_unrequested_summary_candidates,
 )
+from twobrain_rec_server.outcomes.service import mark_meeting_default_slot
 from twobrain_rec_server.processing.store import ProcessingLifecycleBlocked
 
 
@@ -399,6 +401,14 @@ def test_automatic_candidate_uses_exact_workspace_builtin_default_once(client) -
                     select(DispatchIntent).where(DispatchIntent.meeting_id == meeting_id)
                 )
             ).all()
+            slot = await db.scalar(
+                select(MeetingSummarySlot).where(
+                    MeetingSummarySlot.workspace_id == meeting.workspace_id,
+                    MeetingSummarySlot.meeting_id == meeting.id,
+                    MeetingSummarySlot.template_key == "graf-meeting-minutes-v1",
+                )
+            )
+            assert slot is not None
             await db.commit()
             assert first is not None and second is not None
             return (
@@ -414,6 +424,8 @@ def test_automatic_candidate_uses_exact_workspace_builtin_default_once(client) -
                 len(attempts),
                 len(intents),
                 intents[0].state,
+                slot.is_meeting_default,
+                slot.default_resolution_source,
             )
 
     (
@@ -429,6 +441,8 @@ def test_automatic_candidate_uses_exact_workspace_builtin_default_once(client) -
         attempt_count,
         intent_count,
         intent_state,
+        is_default,
+        resolution_source,
     ) = asyncio.run(create_twice())
     assert current_before is None
     assert current_after is None
@@ -438,6 +452,112 @@ def test_automatic_candidate_uses_exact_workspace_builtin_default_once(client) -
     assert status == "queued"
     assert attempt_count == intent_count == 1
     assert intent_state == "created"
+    assert is_default is True
+    assert resolution_source == "workspace"
+
+
+def test_automatic_candidate_preserves_an_existing_explicit_default(client) -> None:
+    meeting_id = create_outcome_ready_meeting(client, "automatic-summary-default-conflict")
+
+    async def run() -> tuple[bool, bool, str | None]:
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.get(Meeting, meeting_id)
+            assert meeting is not None
+            workspace = await db.get(Workspace, meeting.workspace_id)
+            assert workspace is not None
+            workspace.default_summary_template_key = "graf-meeting-minutes-v1"
+            workspace.default_summary_template_version = 1
+            explicit = await mark_meeting_default_slot(
+                db,
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                template_key="graf-auto-v1",
+                resolution_source="explicit_meeting",
+                resolution_version="test-explicit-v1",
+                resolved_at=datetime(2026, 8, 31, tzinfo=UTC),
+            )
+            candidate = await ensure_automatic_summary_candidate(
+                db,
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+            )
+            automatic = await db.scalar(
+                select(MeetingSummarySlot).where(
+                    MeetingSummarySlot.workspace_id == meeting.workspace_id,
+                    MeetingSummarySlot.meeting_id == meeting.id,
+                    MeetingSummarySlot.template_key == "graf-meeting-minutes-v1",
+                )
+            )
+            assert candidate is not None and automatic is not None
+            result = (explicit.is_meeting_default, automatic.is_meeting_default, explicit.template_key)
+            await db.rollback()
+            return result
+
+    assert asyncio.run(run()) == (True, False, "graf-auto-v1")
+
+
+def test_missing_summary_default_reconciliation_only_marks_populated_slot(client) -> None:
+    meeting_id = create_outcome_ready_meeting(client, "missing-summary-default-reconciliation")
+
+    async def run() -> tuple[int, int, bool, object, object]:
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.get(Meeting, meeting_id)
+            result = await db.scalar(
+                select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
+            )
+            assert meeting is not None and result is not None
+            workspace = await db.get(Workspace, meeting.workspace_id)
+            assert workspace is not None
+            workspace.default_summary_template_key = "graf-auto-v1"
+            workspace.default_summary_template_version = 1
+            outcome = MeetingOutcomeSet(
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                media_revision_id=result.media_revision_id,
+                processing_result_id=result.id,
+                status="available",
+                source_kind="db_fixture",
+                generator_kind="litellm",
+                generator_version="test:automatic-ai",
+                source_result_hash=result.source_result_hash,
+                source_fingerprint=f"result:{result.id}",
+                template_key="graf-auto-v1",
+                template_version=1,
+                revision_state="accepted",
+            )
+            db.add(outcome)
+            await db.flush()
+            slot = MeetingSummarySlot(
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                template_key="graf-auto-v1",
+                current_outcome_set_id=outcome.id,
+                current_binding_class="verified_complete",
+                is_meeting_default=False,
+            )
+            db.add(slot)
+            await db.flush()
+            repaired = await reconcile_missing_summary_defaults(db, limit=10)
+            await db.refresh(slot)
+            second_pass = await reconcile_missing_summary_defaults(db, limit=10)
+            await db.refresh(slot)
+            result_tuple = (
+                repaired,
+                second_pass,
+                slot.is_meeting_default,
+                slot.default_resolution_source,
+                slot.default_resolution_version,
+            )
+            await db.rollback()
+            return result_tuple
+
+    assert asyncio.run(run()) == (
+        1,
+        0,
+        True,
+        "workspace",
+        "workspace-default:graf-auto-v1:v1",
+    )
 
 
 def test_orphaned_revision_candidate_is_repaired_and_dispatched(client) -> None:
