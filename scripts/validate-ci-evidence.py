@@ -30,7 +30,8 @@ ALLOWED_FIELDS = {
 PRIVATE_PATH_RE = re.compile(r"(?:/Users/|/home/|/private/var/|file://)", re.IGNORECASE)
 CREDENTIAL_RE = re.compile(
     r"(?:api[_-]?key|secret|password|token|bearer|cookie|signed[-_ ]?url)"
-    r"\s*[:=]\s*[^\s,;]{8,}",
+    r"\s*[:=]\s*[^\s,;]{8,}|"
+    r"(?:authorization\s*:\s*)?bearer\s+[^\s,;]{1,}",
     re.IGNORECASE,
 )
 SENSITIVE_FIELD_RE = re.compile(

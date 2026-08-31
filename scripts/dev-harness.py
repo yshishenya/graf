@@ -118,8 +118,12 @@ def state_dir(*, live: bool = False) -> Path:
         path = base / _repository_identity() / "harness"
     path = path.resolve()
     lowered = str(path).lower()
+    canonical = Path(os.path.realpath(path))
+    production = Path(os.path.realpath(PRODUCTION_APP_PATH))
     if any(token in lowered for token in ("production", "prod-data", "prod_data")):
         raise HarnessError("Refusing a production-looking Dev state path: " + str(path))
+    if canonical == production or production in canonical.parents:
+        raise HarnessError("Dev state path cannot be inside the production GRAF.app: " + str(path))
     if path == Path("/") or path == Path.home():
         raise HarnessError("Dev state path is too broad: " + str(path))
     return path
@@ -486,6 +490,19 @@ class GrafLocalAdapter:
             return False
         return command in observed and observed_start == start_token
 
+    def _process_command(self, pid: int) -> str:
+        try:
+            command = subprocess.check_output(
+                ["ps", "-p", str(pid), "-o", "command="],
+                text=True,
+                stderr=subprocess.DEVNULL,
+            ).strip()
+        except (OSError, subprocess.CalledProcessError) as exc:
+            raise HarnessError(f"could not prove Dev backend command for pid {pid}") from exc
+        if not command:
+            raise HarnessError(f"Dev backend pid {pid} has no process command")
+        return command
+
     def _process_start_token(self, pid: int) -> str:
         try:
             token = subprocess.check_output(
@@ -551,7 +568,10 @@ class GrafLocalAdapter:
                 "pid": process.pid,
                 "source_sha": manifest["source_sha"],
                 "started_at": now(),
-                "command": str(self.start_script),
+                # start-local.sh execs uvicorn. Record the command after exec,
+                # not the transient shell script path, so ownership survives
+                # the wrapper's process replacement.
+                "command": self._process_command(process.pid),
                 "start_token": self._process_start_token(process.pid),
             },
         )
@@ -636,12 +656,44 @@ class GrafLocalAdapter:
         if previous_was_live:
             if previous_manifest is None:
                 raise HarnessError("cannot restore live Dev backend without its previous manifest")
-            self._start_backend(previous_manifest, self._env(previous_manifest))
+            with self._adapter_for_manifest(previous_manifest) as adapter:
+                adapter._start_backend(previous_manifest, adapter._env(previous_manifest))
         elif previous is None:
             with contextlib.suppress(FileNotFoundError):
                 runtime.unlink()
         else:
             _write_json(runtime, previous)
+
+    @contextlib.contextmanager
+    def _adapter_for_manifest(self, manifest: Dict[str, Any]) -> Iterator["GrafLocalAdapter"]:
+        """Run a target SHA from its own checkout, never from another feature."""
+        target_sha = _sha(str(manifest["source_sha"]))
+        # Unit/integration adapters may deliberately use a temporary fixture
+        # root with mocked source checks.  There is no checkout to materialize
+        # there; preserve the test double and let its explicit source guard
+        # decide.  A real GRAF checkout always reaches the worktree path below
+        # (or fails closed through _assert_source_matches_checkout).
+        try:
+            current_sha = _run_command(["git", "rev-parse", "HEAD"], cwd=self.root)
+        except HarnessError:
+            yield self
+            return
+        if _sha(current_sha) == target_sha:
+            yield self
+            return
+        worktree = self.state / "source-worktrees" / str(manifest["manifest_id"])
+        if worktree.exists():
+            raise HarnessError(f"target source worktree already exists: {worktree}")
+        worktree.parent.mkdir(parents=True, exist_ok=True)
+        _run_command(
+            ["git", "worktree", "add", "--detach", str(worktree), target_sha],
+            cwd=self.root,
+        )
+        try:
+            yield GrafLocalAdapter(worktree, self.state)
+        finally:
+            with contextlib.suppress(HarnessError):
+                _run_command(["git", "worktree", "remove", "--force", str(worktree)], cwd=self.root)
 
     def promote(self, manifest: Dict[str, Any]) -> Dict[str, str]:
         self._assert_supported()
@@ -688,11 +740,12 @@ class GrafLocalAdapter:
     def rollback(self, active: Dict[str, Any], target: Dict[str, Any]) -> Dict[str, Any]:
         """Restore one previously built Dev target and prove it before commit."""
         self._assert_supported()
-        # start-local.sh resolves backend code from its checkout. A rollback
-        # target may be older than the active runtime, so validating only the
-        # active manifest could start the target with the wrong backend code.
-        # Require the operator to check out the target SHA before touching the
-        # live runtime so app, backend and manifest share one source identity.
+        with self._adapter_for_manifest(target) as adapter:
+            return adapter._rollback_from_own_checkout(active, target)
+
+    def _rollback_from_own_checkout(self, active: Dict[str, Any], target: Dict[str, Any]) -> Dict[str, Any]:
+        """Perform rollback after the adapter is bound to target source bytes."""
+        self._assert_supported()
         self._assert_source_matches_checkout(target)
         env = self._env(target)
         self._compose_config(env)

@@ -26,6 +26,22 @@ def changed_feature_specs(root: Path) -> list[Path] | None:
     for command in commands:
         result = subprocess.run(command, cwd=root, text=True, capture_output=True)
         if result.returncode != 0:
+            # A clean release checkout may not have origin/master.  Repository
+            # derived checks must still run; use the local parent as a bounded
+            # fallback instead of silently skipping Legacy Impact validation.
+            if command == commands[0]:
+                fallback = subprocess.run(
+                    ["git", "diff", "--name-only", "HEAD^", "HEAD", "--", "specs"],
+                    cwd=root,
+                    text=True,
+                    capture_output=True,
+                )
+                if fallback.returncode == 0:
+                    for value in fallback.stdout.splitlines():
+                        relative = Path(value.strip())
+                        if len(relative.parts) >= 3 and relative.parts[0] == "specs" and relative.name == "spec.md":
+                            paths.add(relative)
+                    continue
             print(
                 "development-process: cannot determine changed paths for Legacy Impact scan: "
                 + result.stderr.strip(),
@@ -73,33 +89,41 @@ def main() -> int:
         print("development-process self-test: OK")
         return 0
     pointer = root / ".specify" / "feature.json"
+    # The pointer is required for feature implementation, but it is not the
+    # source of truth for repository-wide checks.  Release/PR checkouts may
+    # intentionally omit it; still validate fragments and changed specs.
+    if pointer.is_file() and run(root, ["scripts/validate-agent-context.py"]) != 0:
+        return 1
     if not pointer.is_file():
-        print("development-process: no active feature pointer; preflight required before feature work", file=sys.stderr)
-        return 1
-    if run(root, ["scripts/validate-agent-context.py"]) != 0:
-        return 1
+        print("development-process: active feature context not present; repository checks continue", file=sys.stderr)
     if run(root, ["scripts/validate-changelog-fragments.py"]) != 0:
         return 1
-    try:
-        data = json.loads(pointer.read_text(encoding="utf-8"))
-        feature = Path(data["feature_directory"])
-    except (OSError, ValueError, KeyError, TypeError) as exc:
-        print(f"development-process: invalid feature pointer: {exc}", file=sys.stderr)
-        return 1
-    spec = root / feature / "spec.md"
-    if not spec.is_file():
-        print(f"development-process: missing {spec}", file=sys.stderr)
-        return 1
-    if run(root, ["scripts/validate-legacy-impact.py", "--feature", str(spec)]) != 0:
-        return 1
+    data: dict[str, object] = {}
+    feature: Path | None = None
+    if pointer.is_file():
+        try:
+            data = json.loads(pointer.read_text(encoding="utf-8"))
+            feature = Path(str(data["feature_directory"]))
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            print(f"development-process: invalid feature pointer: {exc}", file=sys.stderr)
+            return 1
+        spec = root / feature / "spec.md"
+        if not spec.is_file():
+            print(f"development-process: missing {spec}", file=sys.stderr)
+            return 1
+        if run(root, ["scripts/validate-legacy-impact.py", "--feature", str(spec)]) != 0:
+            return 1
     if not scan_changed_legacy(root):
         return 1
     if args.pr_body:
+        if not pointer.is_file():
+            print("development-process: PR metadata validation requires active feature pointer", file=sys.stderr)
+            return 1
         feature_id = str(data.get("feature_id", ""))
         source_sha = str(data.get("source_sha", ""))
         if run(root, ["scripts/validate-pr-metadata.py", str(args.pr_body), "--feature-id", feature_id, "--expected-sha", source_sha]) != 0:
             return 1
-    print(f"development-process: OK feature={feature}")
+    print(f"development-process: OK feature={feature or 'repository-only'}")
     return 0
 
 
