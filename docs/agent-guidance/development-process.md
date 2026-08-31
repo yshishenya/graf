@@ -76,11 +76,10 @@ permission trust. Production app, data and origins are always rejected.
 - A release operator freezes one candidate SHA and metadata digest. Exactly one
   authoritative `--full` run belongs to that candidate; changed SHA makes
   evidence stale.
-- If GitHub Actions are enabled, `.github/workflows/governance-fast.yml` uses a
-  per-ref concurrency group with `cancel-in-progress: true`; the workflow
-  passes `GRAF_CI_REQUESTED_SHA` so a changed target is rejected fail-closed.
-  The repository currently keeps Actions disabled, so local evidence remains
-  authoritative until the setting is deliberately enabled.
+- GitHub Actions are currently disabled and no repository workflow is active;
+  local evidence remains authoritative. Feature 227 owns the future
+  `merge_group` workflow, canonical concurrency and required-check rollout;
+  it must update the release-signing custody gate in the same reviewed slice.
 - Use release windows (for example twice weekly) to batch completed features.
   Hotfixes are explicit exceptions with a reason and the same evidence rules.
 - A product release requires CalVer tag, GitHub Release and Russian notes with
