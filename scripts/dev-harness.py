@@ -20,6 +20,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import time
 from typing import Any, Dict, Iterator, Optional
 from urllib.error import URLError
 from urllib.parse import urlsplit
@@ -37,6 +38,8 @@ APP_BUNDLE_ID = "pro.2brain.graf.dev"
 APP_CHANNEL = "dev"
 SCHEMA_VERSION = "dev-manifest.v1"
 POINTER_VERSION = "dev-active-pointer.v1"
+PROCESS_STOP_TIMEOUT_SECONDS = 10
+PROBE_RETRY_DELAY_SECONDS = 0.2
 # GRAF's current frontend is server-rendered by the backend.  Keep a separate
 # manifest field for a future split frontend, but do not invent a second local
 # server in the adapter.
@@ -298,6 +301,13 @@ class GrafLocalAdapter:
             os.kill(pid, signal.SIGTERM)
         except OSError:
             return
+        deadline = time.monotonic() + PROCESS_STOP_TIMEOUT_SECONDS
+        while self._pid_alive(pid) and time.monotonic() < deadline:
+            time.sleep(PROBE_RETRY_DELAY_SECONDS)
+        if self._pid_alive(pid):
+            raise HarnessError(
+                f"previous Dev backend pid {pid} did not exit after SIGTERM; refusing to start another"
+            )
 
     def _ensure_backend(self, manifest: Dict[str, Any], env: Dict[str, str]) -> None:
         runtime = self._runtime_record()
@@ -360,6 +370,7 @@ class GrafLocalAdapter:
                     return int(response.status)
             except (OSError, URLError) as exc:
                 last_error = type(exc).__name__
+                time.sleep(PROBE_RETRY_DELAY_SECONDS)
         raise HarnessError(f"live probe failed for {path}: {last_error}")
 
     def smoke(self, manifest: Dict[str, Any]) -> Dict[str, str]:

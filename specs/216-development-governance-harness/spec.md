@@ -243,6 +243,7 @@ Release operator объединяет несколько завершённых 
 
 ## Legacy Impact
 
+- **Classification**: `untouched`
 - **New legacy**: forbidden by FR-028; every exception must be explicit and time-bounded.
 - **Existing contours**: aliases, fallback environment names, old states, compatibility migrations, Temporal patch markers, historical specs and internal names remain untouched in this feature and will be retired in separate slices.
 - **Protected compatibility**: database migrations, Temporal history, Sparkle/client updates and production data cutovers require their own spec, owner, migration evidence and rollback plan.

@@ -1,5 +1,26 @@
 # Changelog
 
+## [Unreleased]
+
+### Проверки
+
+- Добавлен runnable source-tree self-test для portable package.
+- Добавлен GitHub Actions workflow для self-test, sample smoke-test и
+  publish-safety scan в матрице Python 3.9 и 3.12.
+
+## [0.1.4] - 2026-08-31
+
+### Исправлено
+
+- Синхронизирована версия во всех package metadata и runtime-модулях после
+  публикации `v0.1.3`; существующие immutable tags не переписываются.
+- Добавлены self-test и recursive package consistency/safety checks.
+
+### Совместимость
+
+- CLI и validator API обратно совместимы с `v0.1.3`.
+- Откат: immutable `v0.1.3`.
+
 ## [0.1.3] - 2026-08-31
 
 ### Документация

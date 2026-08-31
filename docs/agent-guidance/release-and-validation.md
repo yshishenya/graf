@@ -132,6 +132,23 @@ preparation. A failed, stale, interrupted or mismatched run produces `no-go`.
 Changed HEAD or changelog, a failed/interrupted run, a component mismatch, or
 skipped gates produces \`no-go\`; create a new candidate after correction.
 
+Every CI invocation emits one metadata-only evidence record after the run. By
+default it is written under the ignored `.dev/ci-evidence/` directory and the
+path is printed as `ci_evidence_path=...`. For a release candidate, bind the
+run explicitly:
+
+```sh
+GRAF_CI_CANDIDATE_FILE=infra/release/candidate.json \\
+GRAF_CI_EVIDENCE_PATH=/tmp/graf-full-evidence.json \\
+infra/scripts/ci-local.sh --full
+```
+
+The producer records the requested/start/end SHA, run identity, timestamps,
+lane, commands, scope, skipped gates, component SHAs and artifact digests.
+The record is written atomically and remains invalid for release if the target
+SHA changes, a stage fails, or the run is interrupted. It contains metadata
+only: never add logs, credentials, raw audio, transcripts or private paths.
+
 Run the full lane directly only for broad diagnosis:
 
 ```sh

@@ -19,7 +19,17 @@ def validate(root: Path) -> list[str]:
         data = json.loads(pointer.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         return [f"invalid .specify/feature.json: {exc}"]
-    required = ("feature_directory", "feature_id", "owner", "risk_lane", "owned_paths")
+    if not isinstance(data, dict):
+        return ["invalid .specify/feature.json: top-level value must be an object"]
+    required = (
+        "feature_directory",
+        "feature_id",
+        "owner",
+        "risk_lane",
+        "owned_paths",
+        "branch",
+        "source_sha",
+    )
     for key in required:
         if key not in data or data[key] in (None, "", []):
             errors.append(f"missing required context field: {key}")
@@ -35,19 +45,21 @@ def validate(root: Path) -> list[str]:
             if str(data.get("feature_id", "")) != expected:
                 errors.append("feature_id must match the spec directory prefix")
     branch = data.get("branch")
-    if branch is not None and not isinstance(branch, str):
-        errors.append("branch must be a string when present")
-    if isinstance(branch, str):
+    if not isinstance(branch, str) or not branch.strip():
+        errors.append("branch must be a non-empty string")
+    if isinstance(branch, str) and branch.strip():
         try:
             actual = subprocess.run(["git", "branch", "--show-current"], cwd=root, text=True, capture_output=True, check=True).stdout.strip()
-            if actual and actual != branch:
+            if not actual:
+                errors.append("checkout must have an active branch")
+            elif actual != branch:
                 errors.append(f"branch mismatch: pointer={branch!r}, checkout={actual!r}")
         except (OSError, subprocess.CalledProcessError):
             pass
     source_sha = data.get("source_sha")
-    if source_sha is not None and (not isinstance(source_sha, str) or (source_sha and not re.fullmatch(r"[0-9a-f]{7,64}", source_sha))):
-        errors.append("source_sha must be a git SHA when present")
-    if isinstance(source_sha, str) and source_sha:
+    if not isinstance(source_sha, str) or not re.fullmatch(r"[0-9a-f]{40}", source_sha):
+        errors.append("source_sha must be a full 40-character git SHA")
+    if isinstance(source_sha, str) and re.fullmatch(r"[0-9a-f]{40}", source_sha):
         try:
             actual_sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, text=True, capture_output=True, check=True).stdout.strip()
             if actual_sha != source_sha:
@@ -69,8 +81,12 @@ def self_test() -> int:
     with tempfile.TemporaryDirectory(prefix="graf-context-") as tmp:
         root = Path(tmp); (root / ".specify").mkdir(); (root / "specs/001-x").mkdir(parents=True)
         (root / "specs/001-x/spec.md").write_text("# x\n", encoding="utf-8")
-        (root / ".specify/feature.json").write_text(json.dumps({"feature_directory":"specs/001-x","feature_id":"001","branch":"","source_sha":"","owner":"test","risk_lane":"significant-feature","owned_paths":["specs/001-x"]}), encoding="utf-8")
+        (root / ".specify/feature.json").write_text(json.dumps({"feature_directory":"specs/001-x","feature_id":"001","branch":"test/001-x","source_sha":"","owner":"test","risk_lane":"significant-feature","owned_paths":["specs/001-x"]}), encoding="utf-8")
+        assert validate(root)
+        (root / ".specify/feature.json").write_text(json.dumps({"feature_directory":"specs/001-x","feature_id":"001","branch":"test/001-x","source_sha":"a" * 40,"owner":"test","risk_lane":"significant-feature","owned_paths":["specs/001-x"]}), encoding="utf-8")
         assert validate(root) == []
+        (root / ".specify/feature.json").write_text("[]\n", encoding="utf-8")
+        assert any("object" in error for error in validate(root))
         (root / ".specify/feature.json").write_text('{"feature_directory":"specs/002-y"}\n', encoding="utf-8")
         assert validate(root)
     print("agent-context self-test: OK")

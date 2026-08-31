@@ -19,6 +19,13 @@ consumer adapter.
 ## Check
 
 ```sh
+(./bin/harness-check --self-test)
 (cd sample && ../bin/harness-check --spec specs/001-example/spec.md)
-PYTHONPATH=src python3 -c 'import dev_harness; print(dev_harness.__version__)'
+./bin/harness-check --package-root .
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -c 'import dev_harness; print(dev_harness.__version__)'
 ```
+
+Run these commands from the harness repository root. They are intentionally
+dependency-free and are the minimum required check before publishing a
+release. Run the package scan before creating build artifacts; generated
+bytecode, `build/` and `*.egg-info/` must not be included in a release.

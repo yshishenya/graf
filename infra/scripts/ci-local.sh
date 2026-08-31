@@ -213,6 +213,10 @@ main() (
   local performance_required=0
   local performance_covered_by_changed_tests=0
   local performance_gate="report"
+  local run_id=""
+  local candidate_id="${GRAF_CI_CANDIDATE_ID:-}"
+  local started_at=""
+  local skipped_gates=""
   local path
   local classification
   local performance_proof
@@ -221,14 +225,53 @@ main() (
   finish_ci() {
     local exit_status=$?
     observed_sha_end="$(git rev-parse HEAD 2>/dev/null || true)"
+    local evidence_status="failed"
+    local evidence_reason=""
     if [[ -n "$observed_sha_start" && "$observed_sha_end" != "$observed_sha_start" ]]; then
       printf 'ci_evidence_status=stale requested_sha=%s observed_sha_start=%s observed_sha_end=%s reason=target_changed_during_run\n' "${requested_sha:-$observed_sha_start}" "$observed_sha_start" "$observed_sha_end" >&2
       exit_status=2
       pipeline_result="fail"
+      evidence_status="stale"
+      evidence_reason="target_changed_during_run"
+    elif [[ "$exit_status" -eq 130 || "$exit_status" -eq 143 ]]; then
+      evidence_status="cancelled"
+      evidence_reason="ci_runner_interrupted"
+    elif [[ "$exit_status" -eq 0 && "$pipeline_result" == "pass" ]]; then
+      evidence_status="passed"
+    else
+      evidence_reason="ci_stage_failed"
     fi
     trap - EXIT INT TERM
     pipeline_completed="$(date +%s)"
     pipeline_duration=$((pipeline_completed - pipeline_started))
+    if [[ -n "$observed_sha_start" && "$effective_mode" != "help" ]]; then
+      local finished_at
+      local evidence_path
+      local evidence_args
+      finished_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      evidence_path="${GRAF_CI_EVIDENCE_PATH:-.dev/ci-evidence/${run_id}.json}"
+      evidence_args=(
+        --output "$evidence_path" --run-id "$run_id" --lane "$effective_mode"
+        --requested-sha "${requested_sha:-$observed_sha_start}"
+        --observed-sha-start "$observed_sha_start" --observed-sha-end "$observed_sha_end"
+        --status "$evidence_status" --started-at "$started_at" --finished-at "$finished_at"
+        --command "infra/scripts/ci-local.sh --$requested_mode"
+        --scope "components=$components;reason=$selection_reason;coverage=$coverage"
+        --component-sha "repository=$observed_sha_start"
+      )
+      [[ -n "$evidence_reason" ]] && evidence_args+=(--reason "$evidence_reason")
+      [[ -n "$candidate_id" ]] && evidence_args+=(--candidate-id "$candidate_id")
+      [[ "$requested_mode" == "full" && -n "$candidate_id" ]] && evidence_args+=(--authoritative-full)
+      while IFS= read -r skipped; do
+        [[ -n "$skipped" ]] && evidence_args+=(--skipped-gate "$skipped")
+      done <<< "$skipped_gates"
+      if python3 scripts/emit-ci-evidence.py "${evidence_args[@]}" >/dev/null; then
+        printf 'ci_evidence_path=%s run_id=%s status=%s\n' "$evidence_path" "$run_id" "$evidence_status"
+      else
+        printf 'ci_evidence_status=failed reason=evidence_write_failed\n' >&2
+        [[ "$exit_status" -eq 0 ]] && exit_status=1
+      fi
+    fi
     if [[ "$exit_status" -eq 0 && "$pipeline_result" == "pass" ]]; then
       [[ "$requested_mode" == "full" ]] && next_gate="release_ready"
       printf '\nci_local_result=pass mode=%s requested_mode=%s duration_seconds=%s next_gate=%s\n' \
@@ -251,9 +294,11 @@ main() (
   case "$1" in
     --fast)
       requested_mode="fast"
+      effective_mode="fast"
       ;;
     --full)
       requested_mode="full"
+      effective_mode="full"
       ;;
     --help|-h)
       requested_mode="help"
@@ -270,6 +315,20 @@ main() (
 
   cd "$repo_root" || return 1
   observed_sha_start="$(git rev-parse HEAD)"
+  started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  run_id="ci-${requested_mode}-${observed_sha_start:0:12}-$$"
+  if [[ -z "$candidate_id" && -n "${GRAF_CI_CANDIDATE_FILE:-}" && -f "$GRAF_CI_CANDIDATE_FILE" ]]; then
+    candidate_id="$(python3 - "$GRAF_CI_CANDIDATE_FILE" <<'PY'
+import json
+import sys
+try:
+    value = json.loads(open(sys.argv[1], encoding="utf-8").read()).get("candidate_id", "")
+except (OSError, UnicodeError, json.JSONDecodeError):
+    value = ""
+print(value if isinstance(value, str) else "")
+PY
+)"
+  fi
   if [[ -n "$requested_sha" && "$requested_sha" != "$observed_sha_start" ]]; then
     printf 'ci_evidence_status=stale requested_sha=%s observed_sha_start=%s reason=target_changed\n' "$requested_sha" "$observed_sha_start" >&2
     pipeline_result="fail"
@@ -434,6 +493,7 @@ main() (
       run_step "macOS contract validation" swift run --package-path apps/macos ContractValidation || return $?
     else
       printf '\n==> macOS Swift validation skipped (requires Darwin)\n'
+      skipped_gates="${skipped_gates}${skipped_gates:+$'\n'}macOS Swift validation (requires Darwin)"
     fi
     run_step "server tests" run_server_tests full "$performance_gate" || return $?
     run_step "server lint" bash -c "cd apps/server && PYTHONPATH=src uv run --extra dev ruff check ." || return $?
@@ -451,6 +511,7 @@ main() (
         run_step "macOS contract validation" swift run --package-path apps/macos ContractValidation || return $?
       else
         printf '\n==> macOS Swift validation skipped (requires Darwin)\n'
+        skipped_gates="${skipped_gates}${skipped_gates:+$'\n'}macOS Swift validation (requires Darwin)"
       fi
     fi
     if [[ "$has_server" -eq 1 ]]; then

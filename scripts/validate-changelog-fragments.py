@@ -8,9 +8,14 @@ import sys
 from pathlib import Path
 
 
-REQUIRED = ("schema_version:", "feature_id:", "category:", "summary:", "issue:", "tasks:", "compatibility:", "release_notes:")
+REQUIRED = ("schema_version", "feature_id", "category", "summary", "issue", "tasks", "compatibility", "release_notes")
 CATEGORIES = {"Added", "Changed", "Fixed", "Security", "Docs", "Ops"}
 FORBIDDEN = ("/Users/", "/home/", "BEGIN PRIVATE KEY", "sk-", "signed-url", "raw audio", "transcript text")
+
+
+def _field(text: str, name: str) -> re.Match[str] | None:
+    """Return only an unindented, top-level YAML field occurrence."""
+    return re.search(rf"^{re.escape(name)}[ \t]*:[ \t]*(.*)$", text, re.MULTILINE)
 
 
 def validate(root: Path) -> list[str]:
@@ -21,23 +26,23 @@ def validate(root: Path) -> list[str]:
     seen: set[int] = set()
     for path in sorted(directory.glob("F*.yaml")):
         text = path.read_text(encoding="utf-8", errors="ignore")
-        missing = [key for key in REQUIRED if key not in text]
+        missing = [key for key in REQUIRED if _field(text, key) is None]
         if missing: errors.append(f"{path}: missing {', '.join(missing)}")
-        match = re.search(r"^feature_id:\s*(\d+)\s*$", text, re.MULTILINE)
+        match = re.search(r"^feature_id[ \t]*:[ \t]*(\d+)[ \t]*$", text, re.MULTILINE)
         if not match: continue
         feature_id = int(match.group(1))
         if feature_id in seen: errors.append(f"{path}: duplicate feature_id {feature_id}")
         seen.add(feature_id)
         if path.stem != f"F{feature_id}": errors.append(f"{path}: filename must be F{feature_id}.yaml")
-        category = re.search(r"^category:\s*([^\s]+)", text, re.MULTILINE)
+        category = re.search(r"^category[ \t]*:[ \t]*([^\s]+)[ \t]*$", text, re.MULTILINE)
         if category and category.group(1) not in CATEGORIES: errors.append(f"{path}: invalid category")
-        schema = re.search(r"^schema_version:\s*([^\s]+)", text, re.MULTILINE)
+        schema = re.search(r"^schema_version[ \t]*:[ \t]*([^\s]+)[ \t]*$", text, re.MULTILINE)
         if schema and schema.group(1) != "1": errors.append(f"{path}: schema_version must be 1")
-        summary = re.search(r"^summary:\s*(.+)$", text, re.MULTILINE)
+        summary = re.search(r"^summary[ \t]*:[ \t]*(.+)$", text, re.MULTILINE)
         if not summary or not summary.group(1).strip() or not re.search(r"[А-Яа-яЁё]", summary.group(1)):
             errors.append(f"{path}: summary must be a non-empty Russian entry")
-        if not re.search(r"^issue:\s*#?\d+", text, re.MULTILINE): errors.append(f"{path}: issue must contain a GitHub number")
-        if not re.search(r"^tasks:\s*.+T\d{3,}", text, re.MULTILINE): errors.append(f"{path}: tasks must contain a Spec Kit task ID")
+        if not re.search(r"^issue[ \t]*:[ \t]*#?\d+[ \t]*$", text, re.MULTILINE): errors.append(f"{path}: issue must contain a GitHub number")
+        if not re.search(r"^tasks[ \t]*:[ \t]*.+T\d{3,}", text, re.MULTILINE): errors.append(f"{path}: tasks must contain a Spec Kit task ID")
         if any(token.lower() in text.lower() for token in FORBIDDEN): errors.append(f"{path}: forbidden secret/private/path token")
     return errors
 

@@ -7,4 +7,4 @@ tasks: [T001, T002, T003, T004]
 compatibility: "Не меняет продуктовый runtime; требует нового agent preflight и release-train правил."
 release_notes: "В релизе описать правила Dev, CI, release train и Legacy Impact на русском языке."
 known_limitations:
-  - "Dev harness и отдельный reusable repository будут завершены последующими задачами Feature 216."
+  - "Полный live Dev promote ожидает отдельного безопасного восстановления локального migration state; production volume не затрагивается."

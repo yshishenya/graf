@@ -70,9 +70,12 @@ and atomic replacement; do not run public release/notarization commands here.
 infra/scripts/ci-local.sh --fast
 ```
 
-Record the exact SHA, effective lane, result and skipped gates in the PR. Do not
-run `--full` for every edit. Full CI is reserved for a frozen release candidate
-and is not evidence if the SHA changes afterward.
+Record the exact SHA, effective lane, result and skipped gates in the PR. Each
+run also emits metadata-only evidence under `.dev/ci-evidence/` and prints its
+path as `ci_evidence_path=...`. Do not run `--full` for every edit. Full CI is
+reserved for a frozen release candidate; set `GRAF_CI_CANDIDATE_FILE` for that
+run and retain the printed evidence path. Evidence is invalid if the SHA
+changes afterward.
 
 ## 7. Changelog and legacy checks
 

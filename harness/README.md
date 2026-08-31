@@ -1,4 +1,4 @@
-# GRAF Development Harness (project adapter)
+# Development Process Harness
 
 This directory is the extraction boundary for the reusable public harness. It
 must contain only generic rules, schemas, validators, templates, self-tests and
@@ -27,13 +27,21 @@ provider and production gates remain in this repository's adapter.
 ## Portable package
 
 `src/dev_harness` and `bin/harness-check` are dependency-free and contain no
-GRAF runtime or private product rules. Install in another repository with
-`python -m pip install ./harness` or run the CLI directly. The sample project
-under `sample/` is the publish smoke fixture; its expected command is:
+product runtime or private product rules. From this directory, install in
+another repository with `python -m pip install .` or run the CLI directly. The
+sample project under `sample/` is the publish smoke fixture. The following
+commands are the source-tree self-check and must work from a clean checkout:
 
 ```sh
-(cd harness/sample && ../bin/harness-check --spec specs/001-example/spec.md)
+(./bin/harness-check --self-test)
+(cd sample && ../bin/harness-check --spec specs/001-example/spec.md)
+(./bin/harness-check --package-root .)
 ```
+
+The package scan is intentionally run before building or installing the
+package: generated `build/`, `*.egg-info/` and bytecode files are not
+publishable. A consumer may run the same checks from its CI after extracting
+this directory as the repository root.
 
 Project adapters may add real build, health, signing and deployment probes, but
 must preserve the exact-SHA, loopback-only, one-active-target and fail-closed
@@ -42,6 +50,5 @@ migration notes, secret/path scan and a rollback ref.
 
 The current public release is pinned at
 `https://github.com/yshishenya/graf-development-harness/releases/tag/v0.1.4`;
-`v0.1.3` remains the rollback ref.
-The GRAF adapter records that immutable ref in `harness/harness.lock.json`;
-consumers must update the lock and migration notes together.
+`v0.1.3` remains the rollback ref. A consumer must pin the immutable release
+and update its migration notes and rollback ref together.
