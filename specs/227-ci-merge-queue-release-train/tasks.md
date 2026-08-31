@@ -101,8 +101,8 @@ runtime path is added. Legacy retirement remains Feature 220 and later slices.
 - Локальная проверка `scripts/verify-merge-group-mapping.py --self-test` и
   `tests/governance/test_merge_group_mapping.py` проходят (10 тестов).
 - Повторный локальный governance/fast lane проходит на exact SHA
-  `4434e95993c531216cb3ec0da63e4a220279c889`; receipt
-  `.dev/ci-evidence/ci-fast-4434e95993c5-40089.json` имеет `status=passed`.
+  `abe63e09627cb5273f0621685e56a7101c713a6a`; receipt
+  `.dev/ci-evidence/ci-fast-abe63e09627c-53014.json` имеет `status=passed`.
   Remote Actions rehearsal и
   operator-owned enforcement после merge остаются открытыми.
 - Ранее выполненный диагностический `infra/scripts/ci-local.sh --full` на
@@ -111,3 +111,8 @@ runtime path is added. Legacy retirement remains Feature 220 and later slices.
   запущен без frozen candidate и потому не является release evidence
   (`candidate_id` и `authoritative_full=true` отсутствуют); для выпуска нужен
   новый clean candidate и один authoritative Full CI на его SHA.
+- Live Dev build/signing на exact SHA проходит. Promote/smoke остаются
+  заблокированы до отдельной настройки полноценного worker/Temporal runtime:
+  текущий `start-local.sh` запускает server-rendered backend с
+  `processing_enabled=false`, а существующая локальная БД содержит revision,
+  которого нет в текущей ветке. Production app и production data не трогались.
