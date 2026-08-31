@@ -217,6 +217,8 @@ main() (
   local candidate_id="${GRAF_CI_CANDIDATE_ID:-}"
   local started_at=""
   local skipped_gates=""
+  local evidence_status_override=""
+  local evidence_reason_override=""
   local path
   local classification
   local performance_proof
@@ -225,14 +227,17 @@ main() (
   finish_ci() {
     local exit_status=$?
     observed_sha_end="$(git rev-parse HEAD 2>/dev/null || true)"
-    local evidence_status="failed"
-    local evidence_reason=""
+    local evidence_status="${evidence_status_override:-failed}"
+    local evidence_reason="${evidence_reason_override:-}"
     if [[ -n "$observed_sha_start" && "$observed_sha_end" != "$observed_sha_start" ]]; then
       printf 'ci_evidence_status=stale requested_sha=%s observed_sha_start=%s observed_sha_end=%s reason=target_changed_during_run\n' "${requested_sha:-$observed_sha_start}" "$observed_sha_start" "$observed_sha_end" >&2
       exit_status=2
       pipeline_result="fail"
       evidence_status="stale"
       evidence_reason="target_changed_during_run"
+    elif [[ "$evidence_status_override" == "stale" ]]; then
+      exit_status=2
+      pipeline_result="fail"
     elif [[ "$exit_status" -eq 130 || "$exit_status" -eq 143 ]]; then
       evidence_status="cancelled"
       evidence_reason="ci_runner_interrupted"
@@ -339,6 +344,8 @@ PY
   if [[ -n "$requested_sha" && "$requested_sha" != "$observed_sha_start" ]]; then
     printf 'ci_evidence_status=stale requested_sha=%s observed_sha_start=%s reason=target_changed\n' "$requested_sha" "$observed_sha_start" >&2
     pipeline_result="fail"
+    evidence_status_override="stale"
+    evidence_reason_override="target_changed"
     return 2
   fi
   performance_proof="$(calendar_performance_test_path)" || return 1
