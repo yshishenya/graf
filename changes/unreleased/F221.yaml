@@ -1,0 +1,10 @@
+schema_version: 1
+feature_id: 221
+category: Changed
+summary: "Воспроизводимый repair локальной Dev migration state с read-only probe и reviewer approval."
+issue: 6146
+tasks: [T001, T002, T003, T004, T005, T012, T013, T021]
+compatibility: "Не меняет production и не выполняет destructive операции; existing volume остаётся неизменённым до отдельного approval."
+release_notes: "В релизе описать безопасный Dev migration probe, backup/restore rehearsal, idempotent repair и exact-SHA smoke evidence на русском языке."
+known_limitations:
+  - "Runtime repair adapter и live repair existing volume не выполняются до отдельного approval и evidence."
