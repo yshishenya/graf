@@ -99,35 +99,37 @@ fi
 
 cd "$(dirname "$0")/../.."
 
-if ! WORKTREE_STATUS="$(git status --porcelain --untracked-files=all)"; then
-  echo "deploy_result=blocked"
-  echo "reason=worktree_status_failed"
-  exit 1
-fi
-if [[ -n "$WORKTREE_STATUS" ]]; then
-  echo "deploy_result=blocked"
-  echo "reason=dirty_worktree"
-  exit 1
-fi
+if [[ "$MODE" == "execute" ]]; then
+  if ! WORKTREE_STATUS="$(git status --porcelain --untracked-files=all)"; then
+    echo "deploy_result=blocked"
+    echo "reason=worktree_status_failed"
+    exit 1
+  fi
+  if [[ -n "$WORKTREE_STATUS" ]]; then
+    echo "deploy_result=blocked"
+    echo "reason=dirty_worktree"
+    exit 1
+  fi
 
-CURRENT_BRANCH="$(git branch --show-current)"
-if [[ "$CURRENT_BRANCH" != "$BRANCH" ]]; then
-  echo "deploy_result=blocked"
-  echo "reason=branch_mismatch"
-  echo "current_branch=$CURRENT_BRANCH"
-  echo "deploy_branch=$BRANCH"
-  exit 1
-fi
+  CURRENT_BRANCH="$(git branch --show-current)"
+  if [[ "$CURRENT_BRANCH" != "$BRANCH" ]]; then
+    echo "deploy_result=blocked"
+    echo "reason=branch_mismatch"
+    echo "current_branch=$CURRENT_BRANCH"
+    echo "deploy_branch=$BRANCH"
+    exit 1
+  fi
 
-git fetch origin "$BRANCH"
-EXPECTED_SHA="$(git rev-parse HEAD)"
-ORIGIN_SHA="$(git rev-parse "origin/$BRANCH")"
-if [[ "$EXPECTED_SHA" != "$ORIGIN_SHA" ]]; then
-  echo "deploy_result=blocked"
-  echo "reason=origin_sha_mismatch"
-  echo "local_sha=$EXPECTED_SHA"
-  echo "origin_sha=$ORIGIN_SHA"
-  exit 1
+  git fetch origin "$BRANCH"
+  EXPECTED_SHA="$(git rev-parse HEAD)"
+  ORIGIN_SHA="$(git rev-parse "origin/$BRANCH")"
+  if [[ "$EXPECTED_SHA" != "$ORIGIN_SHA" ]]; then
+    echo "deploy_result=blocked"
+    echo "reason=origin_sha_mismatch"
+    echo "local_sha=$EXPECTED_SHA"
+    echo "origin_sha=$ORIGIN_SHA"
+    exit 1
+  fi
 fi
 
 if [[ -n "$CANDIDATE_PATH" ]]; then
@@ -219,7 +221,7 @@ posthog_stack_contract=infra/posthog/docker-compose.posthog.yml
 posthog_stack_runtime_source=official_posthog_hobby_generated_compose_required
 posthog_stack_execute=requires_explicit_release_approval
 candidate_gates=$([[ -n "$CANDIDATE_PATH" ]] && echo passed || echo not_supplied)
-steps=clean_worktree,branch_sync,pinned_sha,candidate_validation,authoritative_full_evidence_validation,local_ci,remote_fetch,backup,restore_rehearsal,runtime_secret_group,runtime_service_secret_permissions,runtime_db_secret_provision,media_storage_secret_provision,compose_config_secret_scan,migration_head,runtime_db_role_bootstrap,runtime_db_identity,initial_dispatch_closed,temporal_readiness,processing_worker_readiness,image_capability,profile_contract,media_worker_readiness_control,production_smoke,automatic_dispatch_open,guarded_rollback,runtime_secret_env_scan,public_health,automatic_retry_post_deploy,backfill_inventory_post_deploy,range_playback_post_deploy,normalization_cleanup_post_deploy
+steps=clean_worktree,branch_sync,pinned_sha,local_ci,remote_fetch,backup,restore_rehearsal,runtime_secret_group,runtime_service_secret_permissions,runtime_db_secret_provision,media_storage_secret_provision,compose_config_secret_scan,migration_head,runtime_db_role_bootstrap,runtime_db_identity,initial_dispatch_closed,temporal_readiness,processing_worker_readiness,image_capability,profile_contract,media_worker_readiness_control,production_smoke,automatic_dispatch_open,guarded_rollback,runtime_secret_env_scan,public_health,automatic_retry_post_deploy,backfill_inventory_post_deploy,range_playback_post_deploy,normalization_cleanup_post_deploy,candidate_validation,authoritative_full_evidence_validation
 EOF
   exit 0
 fi
