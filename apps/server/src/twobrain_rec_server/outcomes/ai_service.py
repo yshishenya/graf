@@ -1825,6 +1825,7 @@ async def execute_candidate_generation(
                 allowed_segment_sequences={
                     str(segment.segment_id): segment.sequence for segment in segments
                 },
+                repair_source_refs=True,
             )
         except ValueError as exc:
             validated = {

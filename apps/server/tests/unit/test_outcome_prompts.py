@@ -401,6 +401,58 @@ def test_outcome_validation_preserves_category_truth_and_source_ownership() -> N
             allowed_segment_sequences={"seg-1": 0},
         )
 
+    repaired_sequence = deepcopy(result)
+    repaired_sequence["items"][0]["source_refs"][0]["sequence"] = 7
+    repaired = validate_outcome_result(
+        repaired_sequence,
+        allowed_categories=["summary", "action_items"],
+        allowed_segment_ids={"seg-1", "seg-2"},
+        allowed_segment_sequences={"seg-1": 0, "seg-2": 1},
+        repair_source_refs=True,
+    )
+    assert repaired["items"][0]["source_refs"][0]["sequence"] == 0
+
+    repaired_unknown_id = deepcopy(result)
+    repaired_unknown_id["items"][0]["source_refs"][0]["transcript_segment_id"] = "gateway-segment"
+    repaired_unknown_id["items"][0]["source_refs"][0]["sequence"] = 0
+    repaired = validate_outcome_result(
+        repaired_unknown_id,
+        allowed_categories=["summary", "action_items"],
+        allowed_segment_ids={"seg-1", "seg-2"},
+        allowed_segment_sequences={"seg-1": 0, "seg-2": 1},
+        repair_source_refs=True,
+    )
+    assert repaired["items"][0]["source_refs"][0]["transcript_segment_id"] == "seg-1"
+
+    partially_unverifiable = deepcopy(result)
+    partially_unverifiable["items"][0]["source_refs"] = [
+        {"transcript_segment_id": "not-in-transcript", "sequence": 99},
+        {"transcript_segment_id": "seg-1", "sequence": 0},
+    ]
+    repaired = validate_outcome_result(
+        partially_unverifiable,
+        allowed_categories=["summary", "action_items"],
+        allowed_segment_ids={"seg-1"},
+        allowed_segment_sequences={"seg-1": 0},
+        repair_source_refs=True,
+    )
+    assert len(repaired["items"][0]["source_refs"]) == 1
+
+    fully_unverifiable = deepcopy(result)
+    fully_unverifiable["items"][0]["source_refs"][0] = {
+        "transcript_segment_id": "not-in-transcript",
+        "sequence": 99,
+    }
+    repaired = validate_outcome_result(
+        fully_unverifiable,
+        allowed_categories=["summary", "action_items"],
+        allowed_segment_ids={"seg-1"},
+        allowed_segment_sequences={"seg-1": 0},
+        repair_source_refs=True,
+    )
+    assert repaired["items"] == []
+    assert repaired["category_states"]["summary"] == "not_inferable"
+
     non_action_metadata = deepcopy(result)
     non_action_metadata["items"][0]["owner_text"] = "Анна"
     non_action_metadata["items"][0]["due_date_text"] = "в пятницу"

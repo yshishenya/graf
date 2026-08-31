@@ -354,6 +354,7 @@ def validate_outcome_result(
     allowed_categories: Sequence[str],
     allowed_segment_ids: set[str],
     allowed_segment_sequences: Mapping[str, int] | None = None,
+    repair_source_refs: bool = False,
 ) -> dict[str, object]:
     if not isinstance(result, dict) or set(result) != {"category_states", "items"}:
         raise ValueError("outcome result must contain category_states and items only")
@@ -372,6 +373,16 @@ def validate_outcome_result(
     seen: set[tuple[str, int]] = set()
     counts = {category: 0 for category in OUTCOME_CATEGORIES}
     normalized_items: list[dict[str, object]] = []
+    sequence_to_segment: dict[int, str] = {}
+    duplicate_sequences: set[int] = set()
+    if allowed_segment_sequences is not None:
+        for segment_id, segment_sequence in allowed_segment_sequences.items():
+            if segment_sequence in sequence_to_segment:
+                duplicate_sequences.add(segment_sequence)
+            else:
+                sequence_to_segment[segment_sequence] = segment_id
+        for segment_sequence in duplicate_sequences:
+            sequence_to_segment.pop(segment_sequence, None)
     for item in items:
         if not isinstance(item, dict):
             raise ValueError("outcome item must be an object")
@@ -411,12 +422,14 @@ def validate_outcome_result(
         ):
             raise ValueError("generic speaker label cannot be an action owner")
         refs = item["source_refs"]
-        if not isinstance(refs, list) or not 1 <= len(refs) <= 8:
+        if not isinstance(refs, list) or len(refs) > 8:
             raise ValueError("outcome item requires at least one source reference")
         normalized_refs: list[dict[str, object]] = []
         seen_refs: set[tuple[str, int]] = set()
         for ref in refs:
             if not isinstance(ref, dict) or set(ref) != {"transcript_segment_id", "sequence"}:
+                if repair_source_refs:
+                    continue
                 raise ValueError("source reference is invalid")
             segment_id = str(ref["transcript_segment_id"])
             if (
@@ -424,19 +437,35 @@ def validate_outcome_result(
                 or isinstance(ref["sequence"], bool)
                 or ref["sequence"] < 0
             ):
+                if repair_source_refs:
+                    continue
                 raise ValueError("source reference sequence is invalid")
             provided_sequence = int(ref["sequence"])
             canonical_sequence = provided_sequence
             if allowed_segment_sequences is not None:
                 canonical_sequence = allowed_segment_sequences.get(segment_id)
                 if canonical_sequence is None:
-                    raise ValueError("source reference is outside the pinned transcript")
-                if provided_sequence != canonical_sequence:
+                    if repair_source_refs:
+                        # Some gateways preserve the segment position but
+                        # rewrite or omit the UUID. Recover only when that
+                        # position maps to exactly one pinned segment; never
+                        # invent evidence for an unknown position.
+                        segment_id = sequence_to_segment.get(provided_sequence)
+                        if segment_id is None:
+                            continue
+                        canonical_sequence = provided_sequence
+                    else:
+                        raise ValueError("source reference is outside the pinned transcript")
+                elif provided_sequence != canonical_sequence and not repair_source_refs:
                     raise ValueError("source reference sequence does not match pinned transcript")
             elif segment_id not in allowed_segment_ids:
+                if repair_source_refs:
+                    continue
                 raise ValueError("source reference is outside the pinned transcript")
             ref_key = (segment_id, canonical_sequence)
             if ref_key in seen_refs:
+                if repair_source_refs:
+                    continue
                 raise ValueError("source references must be unique")
             seen_refs.add(ref_key)
             normalized_refs.append(
@@ -446,6 +475,12 @@ def validate_outcome_result(
                     "evidence_kind": "segment",
                 }
             )
+        if not normalized_refs:
+            if repair_source_refs:
+                # A model item without a verifiable source is not safe to
+                # publish. Keep the rest of the response when possible.
+                continue
+            raise ValueError("outcome item requires at least one source reference")
         normalized_items.append(
             {
                 **item,
@@ -455,6 +490,14 @@ def validate_outcome_result(
             }
         )
         counts[category] += 1
+    if repair_source_refs:
+        normalized_states = dict(states)
+        for category in OUTCOME_CATEGORIES:
+            if counts[category] > 0:
+                normalized_states[category] = "available"
+            elif normalized_states[category] == "available":
+                normalized_states[category] = "not_inferable"
+        return {"category_states": normalized_states, "items": normalized_items}
     for category, state in states.items():
         if (state == "available") != (counts[category] > 0):
             raise ValueError("category state and item count disagree")
