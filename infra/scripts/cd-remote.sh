@@ -149,7 +149,13 @@ fi
 
 if [[ -n "$CANDIDATE_PATH" ]]; then
   [[ -f "$CANDIDATE_PATH" ]] || { echo "deploy_result=blocked"; echo "reason=release_candidate_missing"; exit 1; }
-  infra/scripts/release-candidate.sh validate "$CANDIDATE_PATH" --current
+  if ! CANDIDATE_VALIDATION_OUTPUT="$(infra/scripts/release-candidate.sh validate "$CANDIDATE_PATH" --current 2>&1)"; then
+    printf '%s\n' "$CANDIDATE_VALIDATION_OUTPUT" >&2
+    echo "deploy_result=blocked"
+    echo "reason=release_candidate_invalid"
+    exit 1
+  fi
+  printf '%s\n' "$CANDIDATE_VALIDATION_OUTPUT"
   candidate_status="$(python3 - "$CANDIDATE_PATH" <<'PY'
 import json, sys
 with open(sys.argv[1], encoding="utf-8") as handle:

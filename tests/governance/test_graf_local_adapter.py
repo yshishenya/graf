@@ -34,7 +34,8 @@ def test_live_adapter_build_is_explicit_and_uses_only_dev_environment(monkeypatc
 
 def test_live_build_runs_compose_backend_and_signed_app_adapter(monkeypatch, tmp_path):
     sha = "b" * 40
-    adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
+    fake_root = tmp_path / "root"
+    adapter = dev_harness.GrafLocalAdapter(fake_root, tmp_path / "state")
     for path in (adapter.compose_file, adapter.start_script, adapter.build_app_script, adapter.install_app_script):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.touch()
