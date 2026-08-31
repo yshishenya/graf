@@ -94,7 +94,31 @@ PY
 )"
 if [[ -n "$fragment_content" ]]; then
   if [[ -n "$unreleased_content" ]]; then
-    unreleased_content="$fragment_content"$'\n\n'"$unreleased_content"
+    unreleased_content="$(python3 - "$unreleased_content" "$fragment_content" <<'PY'
+import sys
+
+existing, generated = sys.argv[1:]
+titles = ("Добавлено", "Изменено", "Исправлено", "Безопасность", "Документы", "Операции")
+groups = {title: [] for title in titles}
+
+def collect(text):
+    current = None
+    for line in text.splitlines():
+        if line.startswith("### "):
+            heading = line[4:].strip()
+            current = heading if heading in groups else None
+            continue
+        if current and line.strip() and "Пока нет записей" not in line and "No entries yet" not in line:
+            groups[current].append(line)
+
+collect(existing)
+collect(generated)
+for title in titles:
+    print(f"### {title}")
+    print("\n".join(groups[title] or ["- _Пока нет записей._"]))
+    print()
+PY
+)"
   else
     unreleased_content="$fragment_content"
   fi

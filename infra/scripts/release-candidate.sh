@@ -297,7 +297,7 @@ if op == "freeze":
     status = subprocess.run(["git", "-C", str(root), "status", "--porcelain", "--untracked-files=all"], text=True, capture_output=True, check=True).stdout
     if status:
         die("worktree must be clean before freeze")
-    output = pathlib.Path(values["output"] or (root / "docs/releases/candidates" / f"rc-{sha[:12]}.json"))
+    output = pathlib.Path(values["output"] or (root / ".dev/release/candidates" / f"rc-{sha[:12]}.json"))
     candidate = {
         "schema_version": 1,
         "candidate_id": f"rc-{dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{sha[:12]}",

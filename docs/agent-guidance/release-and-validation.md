@@ -110,9 +110,9 @@ Freeze the exact release boundary before starting Full CI:
     infra/scripts/release-candidate.sh freeze \
       --features <feature[,feature,...]> \
       --operator <release-operator> \
-      --output infra/release/candidate.json
+      --output .dev/release/candidate.json
     infra/scripts/release-candidate.sh validate \
-      infra/release/candidate.json --current
+      .dev/release/candidate.json --current
 
 \`freeze\` requires a clean checkout, records the exact HEAD and changelog
 digest, and refuses to overwrite an existing candidate. It never creates a tag
@@ -120,10 +120,10 @@ or GitHub Release. Full evidence must include \`candidate_id\`,
 \`authoritative_full=true\`, component SHA checks and artifact digests. Attach
 that evidence to a separate immutable decision record:
 
-    infra/scripts/release-candidate.sh decide infra/release/candidate.json \
+    infra/scripts/release-candidate.sh decide .dev/release/candidate.json \
       --evidence path/to/full-evidence.json \
       --calver YYYY.MM.DD.N \
-      --output infra/release/candidate.decision.json
+      --output .dev/release/candidate.decision.json
 
 `decide` validates the Full CI evidence, checks its candidate ID and exact SHA,
 and writes a separate create-once decision record; it never overwrites the
@@ -138,7 +138,7 @@ path is printed as `ci_evidence_path=...`. For a release candidate, bind the
 run explicitly:
 
 ```sh
-GRAF_CI_CANDIDATE_FILE=infra/release/candidate.json \\
+GRAF_CI_CANDIDATE_FILE=.dev/release/candidate.json \\
 GRAF_CI_EVIDENCE_PATH=/tmp/graf-full-evidence.json \\
 infra/scripts/ci-local.sh --full
 ```

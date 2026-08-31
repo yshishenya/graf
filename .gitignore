@@ -78,6 +78,15 @@ out/
 # Dev harness manifests, artifacts and runtime logs (never source/evidence)
 .dev/
 
+# Immutable release-candidate records are operator evidence, not source.
+/infra/release/candidate*.json*
+/infra/release/.candidate*.json*
+
+# The portable harness ships its own executable launcher despite the generic
+# repository bin/ ignore rule.
+!/harness/bin/
+!/harness/bin/harness-check
+
 # Spec Kit local runtime state that should not contain project source
 .specify/feature.json
 
