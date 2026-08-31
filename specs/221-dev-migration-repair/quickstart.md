@@ -8,7 +8,12 @@ an isolated or temporary Dev target.
 .specify/scripts/bash/check-prerequisites.sh --json --require-tasks --include-tasks
 
 # 2. Probe without mutation
+# For dev-existing set GRAF_DEV_DATABASE_URL privately in the shell. The
+# adapter accepts only twobrain_rec on loopback port 54329 or 54330 and never
+# falls back to TWOBRAIN_DATABASE_URL. Use --database-url for a one-shot
+# override when needed. The URL is not written to evidence.
 python3 scripts/dev-migration-repair.py probe --target isolated-dev --output /tmp/f221-probe.json
+python3 scripts/dev-migration-repair.py probe --target dev-existing --output /tmp/f221-existing-probe.json
 
 # 3. Rehearse backup and restore on an isolated copy
 python3 scripts/dev-migration-repair.py backup-restore --source isolated-dev --target isolated-restore --output /tmp/f221-restore.json
@@ -29,3 +34,9 @@ infra/scripts/ci-local.sh --fast
 
 If any command reports `blocked`, preserve the metadata record and stop. Do not
 retry with `stamp`, manual pointer edits, `down -v`, or production credentials.
+
+For `dev-existing`, a successful probe means that `psql` read exactly one
+`version_num` from the local Dev `alembic_version` table. A missing or
+unreachable Postgres, multiple revisions, and every non-loopback or
+non-allowlisted URL remain `blocked` with a metadata-only reason. The probe
+does not read application tables or user rows and does not execute Alembic.

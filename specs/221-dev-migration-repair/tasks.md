@@ -9,8 +9,8 @@ checklist checkbox state is not changed by the implementation agent.
 - [ ] T002 [P] [US1] Define repair decision contract and fail-closed boundaries in `specs/221-dev-migration-repair/contracts/repair-decision.md`.
 - [ ] T003 [P] [US1] Define evidence contract and secret/path prohibitions in `specs/221-dev-migration-repair/contracts/evidence.md`.
 - [ ] T004 [US1] Inventory current migration graph, Dev compose targets and expected head in `specs/221-dev-migration-repair/research.md`.
-- [ ] T005 [US1] Add read-only probe adapter with explicit target and atomic metadata output at `scripts/dev-migration-repair.py`.
-- [ ] T006 [US1] Add probe tests for unknown revision, multiple heads, production boundary and metadata-only output in `tests/governance/test_dev_migration_repair.py`.
+- [X] T005 [US1] Add read-only probe adapter with explicit target and atomic metadata output at `scripts/dev-migration-repair.py`.
+- [X] T006 [US1] Add probe tests for unknown revision, multiple heads, production boundary and metadata-only output in `tests/governance/test_dev_migration_repair.py`.
 
 ## Phase 1 — Isolated backup and rehearsal
 

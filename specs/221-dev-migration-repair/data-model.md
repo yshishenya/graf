@@ -16,6 +16,11 @@ updates create a new record with a new operation id.
 | `schema_fingerprint` | string | yes | Digest of schema metadata, never rows. |
 | `created_at` | RFC3339 | yes | UTC creation time. |
 
+For `boundary=dev-existing`, the record also contains `database_probe` with
+`status`, `reason_code`, and `current_revision` (or `null` when the local
+metadata read is blocked). It does not contain a connection URL, credentials,
+stderr, or application/user rows.
+
 ## RepairDecision
 
 | Field | Type | Required | Meaning |

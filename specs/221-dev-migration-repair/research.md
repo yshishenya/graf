@@ -40,3 +40,20 @@
 - Read-only volume and compose boundary probe.
 - Backup/restore digest comparison on an isolated copy.
 - Reviewer-signed repair decision naming the exact target and abort conditions.
+
+## Probe implementation boundary
+
+The `dev-existing` probe now uses only an explicitly supplied
+`--database-url` or the private `GRAF_DEV_DATABASE_URL` environment variable.
+It accepts the repository's local Dev PostgreSQL database/user on loopback
+ports `54329` or `54330`; it never reuses `TWOBRAIN_DATABASE_URL`. The adapter
+invokes `psql` with one read-only query against `alembic_version` and stores
+only the revision, status and stable reason code. Connection failures are
+`blocked` metadata, while production-looking or otherwise disallowed
+boundaries are rejected before `psql` starts.
+
+The focused governance tests cover the observed drift
+`0074_calendar_sync_maintenance`, code head `0085_merge_summary_mediascribe`,
+production host rejection, generic-environment non-fallback, and the absence
+of application/user-row queries. No live Dev volume was changed by this probe
+work.
