@@ -9,6 +9,23 @@ DESTINATION_NAME=$(basename -- "$DESTINATION")
 TEMP_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/graf-dev-install.XXXXXX")
 trap 'rm -rf "$TEMP_ROOT"' EXIT INT TERM
 
+# Resolve lexical aliases before any filesystem mutation. A custom Dev path is
+# allowed, but it must never be the production bundle or anything below it.
+DESTINATION_CANONICAL=$(python3 - "$DESTINATION" <<'PY'
+import os
+import sys
+
+print(os.path.realpath(sys.argv[1]))
+PY
+)
+PRODUCTION_APP_CANONICAL=$(python3 - "/Applications/GRAF.app" <<'PY'
+import os
+import sys
+
+print(os.path.realpath(sys.argv[1]))
+PY
+)
+
 fail() {
   echo "GRAF Dev install: $1" >&2
   exit 1
@@ -16,6 +33,10 @@ fail() {
 
 [ "$DESTINATION_NAME" = "GRAF Dev.app" ] || fail "destination must end in GRAF Dev.app"
 [ "$DESTINATION_NAME" != "GRAF.app" ] || fail "production GRAF.app is not a Dev destination"
+[ "$DESTINATION_CANONICAL" != "$PRODUCTION_APP_CANONICAL" ] || fail "production GRAF.app is not a Dev destination"
+case "$DESTINATION_CANONICAL" in
+  "$PRODUCTION_APP_CANONICAL"/*) fail "Dev destination cannot be inside production GRAF.app" ;;
+esac
 [ -x "$BUILDER" ] || fail "Dev builder is missing or not executable"
 
 CANDIDATE="$TEMP_ROOT/GRAF Dev.app"
