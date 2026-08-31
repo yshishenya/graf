@@ -53,16 +53,20 @@ Expected: one umbrella reservation, no duplicate active claim, and labels
 ## 4. Focused Dev harness fixture
 
 ```sh
-./infra/scripts/dev-harness.sh build --sha "$(git rev-parse HEAD)" --dry-run
+./infra/scripts/dev-harness.sh build --sha "$(git rev-parse HEAD)" --migration-head 0085_merge_summary_mediascribe
+./infra/scripts/dev-harness.sh promote --manifest .dev/harness/manifests/dev-<sha12>.json
 ./infra/scripts/dev-harness.sh status --json
 ./infra/scripts/dev-harness.sh smoke --json --fixture
-./infra/scripts/dev-harness.sh promote --manifest /path/to/fixture.json --dry-run
 ./infra/scripts/dev-harness.sh rollback --dry-run
 ```
 
-Expected: commands fail closed when no valid manifest exists and never target a
-production origin. Once implemented, a synthetic candidate must show one SHA
-across backend/frontend/app and a rollback target.
+For a metadata-only fixture, pass the expected migration head explicitly. The
+default `unknown` value is intentional and promotion must reject it; this keeps
+an unresolved real migration from being hidden by a synthetic manifest. A
+`--dry-run` build does not write a manifest, so `status`/`smoke` correctly report
+that no active manifest exists until a non-dry-run build is promoted. Expected
+successful fixture output shows one SHA across backend/frontend/worker/app and
+a reversible parent manifest; no production origin is ever accepted.
 
 ## 5. Dev app identity
 

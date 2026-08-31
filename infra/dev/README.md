@@ -47,7 +47,8 @@ identity. Он не предназначен для production/staging и не �
 
 `build` creates one manifest for backend, frontend, worker and the single
 `pro.2brain.graf.dev` app. Every component must report the same exact source
-SHA. `promote` takes an exclusive lock and replaces the active pointer only
+SHA. A real or fixture manifest must carry a resolved `migration_head`; the
+default `unknown` value is deliberately rejected by `promote`. `promote` takes an exclusive lock and replaces the active pointer only
 after validation; a stale candidate or malformed component is refused. The
 first failed/partial operation therefore leaves the previous active manifest
 untouched. Re-promoting the active manifest is idempotent.
