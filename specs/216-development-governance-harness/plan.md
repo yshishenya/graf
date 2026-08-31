@@ -107,6 +107,9 @@ external sample project in v1
 - Add a single-manifest Dev orchestration layer around existing compose and
   macOS scripts; use lock, atomic pointer and dry-run/status/rollback.
 - Add source SHA and component digest reporting; keep reset local-only.
+- Resolve the current Alembic graph head during a real GRAF `build` when no
+  explicit head is supplied; keep fixture roots explicit and reject unknown
+  heads at promotion.
 - Add stale-SHA and frozen-candidate validators and integrate them into the
   fast lane without running Full CI for every commit.
 

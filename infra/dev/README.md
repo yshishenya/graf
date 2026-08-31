@@ -47,11 +47,14 @@ identity. Он не предназначен для production/staging и не �
 
 `build` creates one manifest for backend, frontend, worker and the single
 `pro.2brain.graf.dev` app. Every component must report the same exact source
-SHA. A real or fixture manifest must carry a resolved `migration_head`; the
-default `unknown` value is deliberately rejected by `promote`. `promote` takes an exclusive lock and replaces the active pointer only
-after validation; a stale candidate or malformed component is refused. The
-first failed/partial operation therefore leaves the previous active manifest
-untouched. Re-promoting the active manifest is idempotent.
+SHA. In a real GRAF checkout, `build` resolves the Alembic graph head with
+`uv run alembic heads`; `GRAF_DEV_MIGRATION_HEAD` or `--migration-head` may
+provide an explicitly verified override. Fixture manifests may use an explicit
+synthetic head, but the default `unknown` value is deliberately rejected by
+`promote`. `promote` takes an exclusive lock and replaces the active pointer
+only after validation; a stale candidate or malformed component is refused.
+The first failed/partial operation therefore leaves the previous active
+manifest untouched. Re-promoting the active manifest is idempotent.
 
 `rollback` selects the manifest's parent unless an explicit manifest ID is
 provided. `reset-data` is intentionally limited to metadata-only Dev state and

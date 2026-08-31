@@ -215,6 +215,10 @@ retirement отдельно.
   следующий immutable SemVer release, обновить consumer lock и migration notes,
   затем повторить clean sample/package/provenance checks (FR-030, SC-007;
   pending explicit approval).
+- [ ] T054 [P] Разрешать актуальный Alembic migration head при
+  `dev-harness build` в реальном GRAF checkout и добавить regression test, чтобы
+  канонический `build → promote` не создавал манифест с `unknown`; fixture-режим
+  сохраняет явный synthetic head (FR-013, SC-003; convergence follow-up).
 
 ## Dependencies and parallelism
 

@@ -94,6 +94,32 @@ def test_build_requires_or_resolves_feature_identity(tmp_path, monkeypatch):
     assert result["manifest"]["feature_id"] == "216"
 
 
+def test_build_resolves_migration_head_for_real_checkout(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    (repo / "apps" / "server").mkdir(parents=True)
+    (repo / "apps" / "server" / "alembic.ini").write_text("[alembic]\n", encoding="utf-8")
+    monkeypatch.setattr(dev_harness, "_repo_root", lambda: repo)
+    calls = []
+
+    def fake_run(command, *, cwd, env=None):
+        calls.append((command, cwd))
+        return "0085_merge_summary_mediascribe (head)"
+
+    monkeypatch.setattr(dev_harness, "_run_command", fake_run)
+    result = run(
+        "build",
+        tmp_path / "state",
+        sha="a" * 40,
+        feature_id="216",
+        operator="test",
+        migration_head="unknown",
+        dry_run=True,
+    )
+
+    assert result["manifest"]["migration_head"] == "0085_merge_summary_mediascribe"
+    assert calls == [(["uv", "run", "alembic", "heads"], repo / "apps" / "server")]
+
+
 def test_dry_run_does_not_activate_and_reset_requires_confirmation(tmp_path):
     manifest = build(tmp_path, "c" * 40)
     candidate = tmp_path / "manifests" / f"{manifest['manifest_id']}.json"

@@ -189,6 +189,34 @@ def _run_command(command: list[str], *, cwd: Path, env: Optional[Dict[str, str]]
     return completed.stdout.strip()
 
 
+def _resolve_migration_head(root: Path) -> str:
+    """Resolve the current Alembic graph head for a real GRAF checkout.
+
+    Metadata-only fixture roots intentionally have no server migration config
+    and retain ``unknown`` until an adapter supplies a value.  A real checkout
+    must never make the operator copy a guessed revision into the manifest.
+    """
+    configured = os.environ.get("GRAF_DEV_MIGRATION_HEAD", "").strip()
+    if configured and configured.lower() != "unknown":
+        return configured
+    server_root = root / "apps" / "server"
+    if not (server_root / "alembic.ini").is_file():
+        return "unknown"
+    try:
+        output = _run_command(["uv", "run", "alembic", "heads"], cwd=server_root)
+    except HarnessError as exc:
+        raise HarnessError(f"cannot resolve Dev migration head: {exc}") from exc
+    heads = sorted(
+        {
+            match.group(1)
+            for match in re.finditer(r"^\s*([A-Za-z0-9_-]+)\s+\(head\)\s*$", output, re.MULTILINE)
+        }
+    )
+    if not heads:
+        raise HarnessError("cannot resolve Dev migration head: Alembic returned no heads")
+    return ",".join(heads)
+
+
 def _run_command_combined(command: list[str], *, cwd: Path, env: Optional[Dict[str, str]] = None) -> str:
     """Run a command whose diagnostic contract is emitted on stderr."""
     try:
@@ -871,7 +899,10 @@ def build_manifest(sha: str, feature_id: str, operator: str = "local", migration
 def operation_build(args: argparse.Namespace) -> Dict[str, Any]:
     root = state_dir()
     feature_id = args.feature_id or os.environ.get("GRAF_FEATURE_ID") or _active_feature_id()
-    manifest = build_manifest(args.sha, feature_id, args.operator, args.migration_head, root)
+    migration_head = args.migration_head
+    if migration_head in {None, "", "unknown"}:
+        migration_head = _resolve_migration_head(_repo_root())
+    manifest = build_manifest(args.sha, feature_id, args.operator, migration_head, root)
     active = _load_active(root)
     # A manifest ID is derived from the source SHA. Rebuilding the active SHA
     # must not silently replace its active record (or detach runtime metadata).
