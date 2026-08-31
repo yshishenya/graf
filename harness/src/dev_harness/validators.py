@@ -72,7 +72,9 @@ def context(root: Path) -> list[str]:
             if current_sha.lower() != source_sha.lower():
                 errors.append("source_sha does not match current HEAD; refresh context before changing files")
     owned_paths = data.get("owned_paths", [])
-    if not isinstance(owned_paths, list):
+    if not isinstance(owned_paths, list) or not owned_paths or not all(
+        isinstance(item, str) and item.strip() for item in owned_paths
+    ):
         return errors + ["owned_paths must be a JSON array"]
     for item in owned_paths:
         path_item = Path(str(item))
@@ -366,7 +368,8 @@ def pr_metadata(body: Any, feature_id: str) -> list[str]:
         errors.append("at least one Spec task ID is required")
     if not any(token in body for token in ("Refs #", "Part of #", "Fixes #", "Closes #", "Resolves #")):
         errors.append("at least one explicit issue linkage keyword is required")
-    if not re.search(r"Classification:\s*`(?:remove|retain-with-exception|untouched)`", body):
+    legacy_section = sections.get("## Legacy Impact", "")
+    if len(re.findall(r"(?im)^\s*[-*]?\s*Classification\s*:\s*`?(?:remove|retain-with-exception|untouched)`?\s*$", legacy_section)) != 1:
         errors.append("Legacy Impact classification is required")
     return errors
 

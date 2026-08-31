@@ -83,7 +83,15 @@ def _active_feature_id() -> str:
 
 def state_dir() -> Path:
     raw = os.environ.get("GRAF_DEV_STATE_DIR")
-    path = Path(raw).expanduser() if raw else _repo_root() / ".dev" / "harness"
+    if raw:
+        path = Path(raw).expanduser()
+    else:
+        # All worktrees of this repository share one machine-local state and
+        # lock because they also share one loopback runtime and one installed
+        # /Applications/GRAF Dev.app.  Tests and operators can still inject an
+        # explicit state directory through GRAF_DEV_STATE_DIR.
+        base = Path.home() / ("Library/Application Support" if sys.platform == "darwin" else ".cache") / "GRAF Dev"
+        path = base / _repo_root().name / "harness"
     path = path.resolve()
     lowered = str(path).lower()
     if any(token in lowered for token in ("production", "prod-data", "prod_data")):
@@ -586,6 +594,12 @@ class GrafLocalAdapter:
                 # their status so callers can distinguish expected 401/403
                 # from a broken 404/5xx route instead of treating all HTTP
                 # errors as unreachable.
+                if exc.code in {401, 403, 404}:
+                    return int(exc.code)
+                if 500 <= exc.code <= 599:
+                    last_error = f"HTTP {exc.code}"
+                    time.sleep(PROBE_RETRY_DELAY_SECONDS)
+                    continue
                 return int(exc.code)
             except (OSError, URLError) as exc:
                 last_error = type(exc).__name__
@@ -830,7 +844,13 @@ def operation_promote(args: argparse.Namespace) -> Dict[str, Any]:
         if active is None and expected_parent is not None:
             raise HarnessError("candidate parent manifest is unavailable")
         if active and candidate["manifest_id"] == active["manifest_id"]:
-            return {"operation": "promote", "dry_run": bool(args.dry_run), "status": "active", "manifest": active, "idempotent": True}
+            pointer = _read_json(root / "active-manifest.json") if (root / "active-manifest.json").exists() else {}
+            runtime_mode = pointer.get("runtime_mode")
+            live_runtime = GrafLocalAdapter(_repo_root(), root)._runtime_is_live(
+                _read_json(root / "runtime.json") if (root / "runtime.json").exists() else None
+            ) if getattr(args, "live", False) and not args.dry_run else False
+            if not getattr(args, "live", False) or (runtime_mode == "live" and live_runtime):
+                return {"operation": "promote", "dry_run": bool(args.dry_run), "status": "active", "manifest": active, "idempotent": True}
         promoted = dict(candidate)
         promoted["status"] = "active"
         promoted["promoted_at"] = now()
@@ -839,6 +859,13 @@ def operation_promote(args: argparse.Namespace) -> Dict[str, Any]:
         adapter_info: Dict[str, str] = {"mode": "metadata-only"}
         if getattr(args, "live", False) and not args.dry_run:
             adapter_info = GrafLocalAdapter(_repo_root(), root).promote(promoted)
+            checks = adapter_info.get("checks", {})
+            promoted["health"] = {
+                "result": "pass" if checks and all(value == "pass" for value in checks.values()) else "fail",
+                "checked_at": now(),
+                "checks": checks,
+            }
+            _validate_manifest(promoted)
         if not args.dry_run:
             _mkdirs(root)
             _write_json(_manifest_path(root, promoted["manifest_id"]), promoted)
@@ -902,6 +929,10 @@ def operation_rollback(args: argparse.Namespace) -> Dict[str, Any]:
                 raise HarnessError(
                     "live Dev state is active; refusing metadata-only rollback without runtime restoration"
                 )
+        if not args.dry_run and not getattr(args, "live", False) and pointer_path.exists():
+            pointer = _read_json(pointer_path)
+            if pointer.get("runtime_mode") == "live":
+                raise HarnessError("metadata-only reset cannot clear an active live Dev runtime")
         target_id = args.manifest_id or active.get("parent_manifest_id")
         if not target_id:
             raise HarnessError("no parent manifest is available for rollback")

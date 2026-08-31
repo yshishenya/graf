@@ -215,7 +215,33 @@ def _available_id(occupied: set[int], start: int) -> int:
     return candidate
 
 
+def _canonical_slug(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+
+
+def _assert_clean_worktree(root: Path) -> None:
+    try:
+        status = subprocess.run(
+            ["git", "status", "--porcelain", "--untracked-files=all"],
+            cwd=root, check=True, capture_output=True, text=True,
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise SystemExit(f"feature-claim: cannot inspect worktree cleanliness: {exc}") from exc
+    if status:
+        raise SystemExit("feature-claim: worktree must be clean before claiming a feature")
+
+
 def claim(root: Path, feature_id: int, *, issue_number: int | None, branch: str, slug: str, offline: bool) -> dict[str, object]:
+    if feature_id <= 0:
+        raise SystemExit("feature-claim: feature_id must be greater than zero")
+    if not branch or not slug:
+        raise SystemExit("feature-claim: branch and slug are required")
+    branch_match = re.search(r"(?:^|/)(\d{3,})-([A-Za-z0-9][A-Za-z0-9-]*)$", branch)
+    if not branch_match or int(branch_match.group(1)) != feature_id:
+        raise SystemExit(f"feature-claim: branch must be bound to Feature {feature_id:03d}")
+    if _canonical_slug(branch_match.group(2)) != _canonical_slug(slug):
+        raise SystemExit("feature-claim: branch suffix must match the requested slug")
+    _assert_clean_worktree(root)
     refs = _git_refs(root, strict=not offline)
     local_claims = _local_claim_records(root)
     requested_claim = {"issue_number": issue_number, "branch": branch, "slug": slug}
@@ -243,11 +269,6 @@ def claim(root: Path, feature_id: int, *, issue_number: int | None, branch: str,
         )
     if not offline and issue_number is None:
         raise SystemExit("feature-claim: GitHub umbrella issue is required; use --offline only for draft mode")
-    if not branch or not slug:
-        raise SystemExit("feature-claim: branch and slug are required")
-    branch_match = re.search(r"(?:^|/)(\d{3,})-", branch)
-    if not branch_match or int(branch_match.group(1)) != feature_id:
-        raise SystemExit(f"feature-claim: branch must be bound to Feature {feature_id:03d}")
     if not offline:
         _github_umbrella(root, issue_number, feature_id)
     # Worktrees share this directory; the lock serializes claims across all of
@@ -305,6 +326,10 @@ def self_test() -> int:
         subprocess.run(["git", "init", "-q"], cwd=root, check=True)
         (root / "specs" / "001-old").mkdir(parents=True)
         (root / "specs" / "001-old" / "spec.md").write_text("# old\n", encoding="utf-8")
+        subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=root, check=True)
+        subprocess.run(["git", "config", "user.name", "Feature Claim Test"], cwd=root, check=True)
+        subprocess.run(["git", "add", "specs"], cwd=root, check=True)
+        subprocess.run(["git", "commit", "-qm", "fixture"], cwd=root, check=True)
         occupied = _ids_from_specs(root) | _ids_from_refs(["origin/codex/215-summary-auto-recovery", "origin/codex/1024-large-feature"])
         assert occupied == {1, 215, 1024}
         assert _available_id(occupied, 1) == 2
@@ -318,10 +343,6 @@ def self_test() -> int:
         draft = claim(root, 216, issue_number=None, branch="draft/216-x", slug="x", offline=True)
         assert draft["status"] == "draft"
         assert _local_claim_ids(root) == {216}
-        subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=root, check=True)
-        subprocess.run(["git", "config", "user.name", "Feature Claim Test"], cwd=root, check=True)
-        subprocess.run(["git", "add", "specs"], cwd=root, check=True)
-        subprocess.run(["git", "commit", "-qm", "fixture"], cwd=root, check=True)
         linked = root.parent / "linked-worktree"
         subprocess.run(["git", "worktree", "add", "-q", str(linked), "HEAD"], cwd=root, check=True)
         try:

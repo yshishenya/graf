@@ -21,6 +21,22 @@ STALE_STATUSES = {"failed", "stale", "cancelled", "ambiguous"}
 UTC_TIMESTAMP_RE = re.compile(
     r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]00:00)$"
 )
+ALLOWED_FIELDS = {
+    "run_id", "lane", "requested_sha", "observed_sha_start", "observed_sha_end",
+    "status", "started_at", "finished_at", "commands", "skipped_gates", "scope",
+    "reason", "candidate_id", "authoritative_full", "authoritative", "component_shas",
+    "artifact_digests",
+}
+PRIVATE_PATH_RE = re.compile(r"(?:/Users/|/home/|/private/var/|file://)", re.IGNORECASE)
+CREDENTIAL_RE = re.compile(
+    r"(?:api[_-]?key|secret|password|token|bearer|cookie|signed[-_ ]?url)"
+    r"\s*[:=]\s*[^\s,;]{8,}",
+    re.IGNORECASE,
+)
+SENSITIVE_FIELD_RE = re.compile(
+    r"(?:raw[_ -]?transcript|transcript[_ -]?text|raw[_ -]?audio|private[_ -]?meeting)",
+    re.IGNORECASE,
+)
 
 
 def _non_empty_string(data: dict[str, Any], key: str, errors: list[str]) -> Optional[str]:
@@ -81,11 +97,35 @@ def _artifact_digests(data: dict[str, Any], errors: list[str]) -> None:
             errors.append(f"invalid artifact digest for {name!r}")
 
 
+def _metadata_only(data: dict[str, Any], errors: list[str]) -> None:
+    """Reject unknown/private evidence before its digest becomes release proof."""
+    unknown = sorted(set(data) - ALLOWED_FIELDS)
+    errors.extend(f"unsupported evidence field: {key}" for key in unknown)
+
+    def visit(value: Any, key: str = "") -> None:
+        if isinstance(value, dict):
+            for child_key, child_value in value.items():
+                if SENSITIVE_FIELD_RE.search(str(child_key)):
+                    errors.append(f"evidence contains forbidden sensitive field: {child_key}")
+                visit(child_value, str(child_key))
+        elif isinstance(value, list):
+            for item in value:
+                visit(item, key)
+        elif isinstance(value, str):
+            if PRIVATE_PATH_RE.search(value) or CREDENTIAL_RE.search(value):
+                errors.append(f"evidence contains forbidden private or credential content in {key or 'value'}")
+            if re.search(r"\b(?:raw audio|raw transcript|transcript text|private meeting content)\b", value, re.IGNORECASE):
+                errors.append(f"evidence contains forbidden private content in {key or 'value'}")
+
+    visit(data)
+
+
 def validate(data: dict[str, Any]) -> list[str]:
     """Return actionable contract violations; an empty list means valid proof."""
     errors: list[str] = []
     if not isinstance(data, dict):
         return ["evidence must be a JSON object"]
+    _metadata_only(data, errors)
 
     run_id = _non_empty_string(data, "run_id", errors)
     if run_id is not None and not SAFE_ID_RE.fullmatch(run_id):
