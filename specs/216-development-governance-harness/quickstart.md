@@ -102,7 +102,7 @@ feature work, Legacy Impact is present, and no exception is expired or ownerless
 ## 8. Reusable harness sample project
 
 The generic core is published at
-`https://github.com/yshishenya/graf-development-harness/releases/tag/v0.1.7`.
+`https://github.com/yshishenya/graf-development-harness/releases/tag/v0.1.9`.
 Clone that immutable tag into a clean temporary sample and run:
 
 ```sh
