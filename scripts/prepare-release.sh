@@ -10,6 +10,43 @@ fi
 bump_input="$1"
 changelog="CHANGELOG.md"
 today="$(date +%Y-%m-%d)"
+release_operator="${GRAF_RELEASE_OPERATOR:-}"
+
+if [[ -z "$release_operator" || ! "$release_operator" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]]; then
+  echo "error: set GRAF_RELEASE_OPERATOR to an explicit release-operator identity"
+  exit 1
+fi
+
+# Preparing a release mutates the root changelog and archives feature
+# fragments. Never invalidate a candidate that has already been frozen for
+# this exact source tree; create a new candidate only after the release-prep
+# commit is complete.
+current_sha="$(git rev-parse HEAD 2>/dev/null || true)"
+if ! python3 - "$PWD/.dev/release/candidates" "$current_sha" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+candidate_dir = Path(sys.argv[1])
+current_sha = sys.argv[2]
+if not candidate_dir.is_dir():
+    raise SystemExit(0)
+for path in sorted(candidate_dir.glob("rc-*.json")):
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"error: release candidate is unreadable: {path}: {exc}")
+    if not isinstance(data, dict):
+        raise SystemExit(f"error: release candidate is malformed: {path}")
+    if data.get("status") == "frozen" and data.get("source_sha") == current_sha:
+        raise SystemExit(
+            f"error: frozen release candidate targets current HEAD: {path}; "
+            "validate or invalidate it before preparing a release"
+        )
+PY
+then
+  exit 1
+fi
 
 if [[ ! -f "$changelog" ]]; then
   echo "error: changelog file not found: $changelog"

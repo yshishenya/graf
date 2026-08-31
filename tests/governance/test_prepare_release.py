@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -67,6 +68,10 @@ known_limitations:
     return tmp_path
 
 
+def release_env() -> dict[str, str]:
+    return {**os.environ, "GRAF_RELEASE_OPERATOR": "test-release-operator"}
+
+
 def test_prepare_release_preserves_multiline_release_metadata(tmp_path: Path) -> None:
     root = fixture(tmp_path)
     result = subprocess.run(
@@ -75,6 +80,7 @@ def test_prepare_release_preserves_multiline_release_metadata(tmp_path: Path) ->
         text=True,
         capture_output=True,
         check=False,
+        env=release_env(),
     )
 
     assert result.returncode == 0, result.stderr
@@ -100,7 +106,50 @@ def test_prepare_release_rejects_only_placeholder_unreleased_content(tmp_path: P
         text=True,
         capture_output=True,
         check=False,
+        env=release_env(),
     )
 
     assert result.returncode != 0
     assert "no concrete entries" in result.stdout + result.stderr
+
+
+def test_prepare_release_requires_explicit_release_operator(tmp_path: Path) -> None:
+    root = fixture(tmp_path)
+    env = {key: value for key, value in os.environ.items() if key != "GRAF_RELEASE_OPERATOR"}
+    result = subprocess.run(
+        ["bash", "scripts/prepare-release.sh", "2099.01.01.3"],
+        cwd=root,
+        text=True,
+        capture_output=True,
+        check=False,
+        env=env,
+    )
+
+    assert result.returncode != 0
+    assert "GRAF_RELEASE_OPERATOR" in result.stdout + result.stderr
+
+
+def test_prepare_release_rejects_frozen_candidate_for_current_head(tmp_path: Path) -> None:
+    root = fixture(tmp_path)
+    subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=root, check=True)
+    subprocess.run(["git", "config", "user.name", "Release Test"], cwd=root, check=True)
+    subprocess.run(["git", "add", "."], cwd=root, check=True)
+    subprocess.run(["git", "commit", "-qm", "fixture"], cwd=root, check=True)
+    sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+    candidate = root / ".dev" / "release" / "candidates" / "rc-current.json"
+    candidate.parent.mkdir(parents=True)
+    candidate.write_text(
+        f'{{"status": "frozen", "source_sha": "{sha}"}}\n',
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        ["bash", "scripts/prepare-release.sh", "2099.01.01.4"],
+        cwd=root,
+        text=True,
+        capture_output=True,
+        check=False,
+        env=release_env(),
+    )
+
+    assert result.returncode != 0
+    assert "frozen release candidate" in result.stdout + result.stderr

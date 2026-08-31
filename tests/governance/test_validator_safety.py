@@ -284,6 +284,32 @@ def test_feature_claim_requires_feature_label_on_github_umbrella(monkeypatch, tm
         raise AssertionError("umbrella without feature label was accepted")
 
 
+def test_feature_claim_validates_umbrella_before_collision(monkeypatch, tmp_path: Path) -> None:
+    validator = load_script("claim-feature")
+    calls: list[tuple[int, int]] = []
+
+    monkeypatch.setattr(validator, "_assert_clean_worktree", lambda _root: None)
+    monkeypatch.setattr(validator, "_github_umbrella", lambda _root, issue, feature: calls.append((issue, feature)))
+    monkeypatch.setattr(validator, "_git_refs", lambda _root, strict=False: [])
+    monkeypatch.setattr(validator, "_local_claim_records", lambda _root: {})
+    monkeypatch.setattr(validator, "_github_ids", lambda *args, **kwargs: {216})
+
+    try:
+        validator.claim(
+            tmp_path,
+            216,
+            issue_number=6090,
+            branch="codex/216-x",
+            slug="x",
+            offline=False,
+        )
+    except SystemExit as exc:
+        assert "collision" in str(exc)
+    else:
+        raise AssertionError("feature collision was accepted")
+    assert calls == [(6090, 216)]
+
+
 def test_feature_claim_github_timeout_fails_closed(monkeypatch, tmp_path: Path) -> None:
     validator = load_script("claim-feature")
 

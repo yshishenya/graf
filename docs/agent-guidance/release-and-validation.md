@@ -100,7 +100,7 @@ When the batch is approved for release, prepare the CalVer release metadata
 before the final validation:
 
 ```sh
-./scripts/prepare-release.sh YYYY.MM.DD.N
+GRAF_RELEASE_OPERATOR=<release-operator> ./scripts/prepare-release.sh YYYY.MM.DD.N
 ```
 
 Review the changelog and release metadata, commit that release-prep change, and
@@ -451,13 +451,13 @@ Use this versioning policy:
 Product release command:
 
 ```sh
-./scripts/prepare-release.sh YYYY.MM.DD.N
+GRAF_RELEASE_OPERATOR=<release-operator> ./scripts/prepare-release.sh YYYY.MM.DD.N
 ```
 
 For example:
 
 ```sh
-./scripts/prepare-release.sh 2026.06.18.1
+GRAF_RELEASE_OPERATOR=<release-operator> ./scripts/prepare-release.sh 2026.06.18.1
 ```
 
 Use `patch`, `minor`, or `major` only in repositories that are intentionally

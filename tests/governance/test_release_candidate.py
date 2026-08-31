@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import re
 import shutil
@@ -11,6 +12,10 @@ ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "infra/scripts/release-candidate.sh"
 EVIDENCE_VALIDATOR = ROOT / "scripts/validate-ci-evidence.py"
 SCHEMA = ROOT / "infra/release/candidate.schema.json"
+
+
+def release_env() -> dict[str, str]:
+    return {**os.environ, "GRAF_RELEASE_OPERATOR": "test-release-operator"}
 
 
 def run(script: Path, *args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
@@ -449,6 +454,7 @@ release_notes: \"Русские заметки\"
         text=True,
         capture_output=True,
         check=False,
+        env=release_env(),
     )
 
     assert result.returncode == 0, result.stderr
@@ -592,7 +598,13 @@ known_limitations:
     subprocess.run(["git", "init", "-q"], cwd=root, check=True)
     subprocess.run(["git", "add", "."], cwd=root, check=True)
     subprocess.run(["git", "commit", "-qm", "fixture"], cwd=root, check=True)
-    result = subprocess.run(["bash", "scripts/prepare-release.sh", "2026.08.31.2"], cwd=root, text=True, capture_output=True)
+    result = subprocess.run(
+        ["bash", "scripts/prepare-release.sh", "2026.08.31.2"],
+        cwd=root,
+        text=True,
+        capture_output=True,
+        env=release_env(),
+    )
     assert result.returncode == 0, result.stderr
     text = (root / "CHANGELOG.md").read_text(encoding="utf-8")
     assert "Первое ограничение; Второе ограничение" in text

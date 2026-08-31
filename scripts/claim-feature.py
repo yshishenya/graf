@@ -318,6 +318,14 @@ def claim(root: Path, feature_id: int, *, issue_number: int | None, branch: str,
     if _canonical_slug(branch_match.group(2)) != _canonical_slug(slug):
         raise SystemExit("feature-claim: branch suffix must match the requested slug")
     _assert_clean_worktree(root)
+    if not offline:
+        if issue_number is None:
+            raise SystemExit(
+                "feature-claim: GitHub umbrella issue is required; use --offline only for draft mode"
+            )
+        # Validate the umbrella before collision checks so every online claim
+        # is anchored to the same open, feature-labelled GitHub reservation.
+        _github_umbrella(root, issue_number, feature_id)
     refs = _git_refs(root, strict=not offline)
     local_claims = _local_claim_records(root)
     requested_claim = {"issue_number": issue_number, "branch": branch, "slug": slug}
@@ -343,10 +351,6 @@ def claim(root: Path, feature_id: int, *, issue_number: int | None, branch: str,
         raise SystemExit(
             f"feature-claim: collision for {feature_id:03d}; inspect specs and refs ({', '.join(conflicts)})"
         )
-    if not offline and issue_number is None:
-        raise SystemExit("feature-claim: GitHub umbrella issue is required; use --offline only for draft mode")
-    if not offline:
-        _github_umbrella(root, issue_number, feature_id)
     # Worktrees share this directory; the lock serializes claims across all of
     # them instead of creating one reservation file per worktree.
     git_dir = _git_common_dir(root)
