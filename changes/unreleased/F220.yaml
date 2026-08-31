@@ -1,0 +1,10 @@
+feature_id: 220
+category: Changed
+schema_version: 1
+summary: "Подготовить metadata-only inventory и безопасные retirement slices для legacy-контуров без нового legacy."
+issue: 6145
+tasks: [T001]
+compatibility: "Runtime-пути, production data, миграции и Temporal history не изменяются; cleanup выполняется отдельными features."
+known_limitations:
+  - "Inventory и классификация требуют reviewer decision; массовое удаление legacy не входит в эту feature."
+release_notes: "Добавлен процесс безопасного inventory и retirement legacy-контуров."
