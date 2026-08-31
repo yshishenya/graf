@@ -2,9 +2,9 @@
   "schema_version": 1,
   "name": "development-process-harness",
   "repository": "https://github.com/yshishenya/graf-development-harness",
-  "version": "0.1.11",
-  "ref": "v0.1.11",
-  "commit": "b08e16e6ecd701e998adcf4b2c406b41330c12f5",
+  "version": "0.1.12",
+  "ref": "v0.1.12",
+  "commit": "9ba1f6e616103782b2e93f9752db98cee913dcc6",
   "adapter": "GRAF-local",
-  "rollback_ref": "v0.1.10"
+  "rollback_ref": "v0.1.11"
 }
