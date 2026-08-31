@@ -514,7 +514,7 @@ PY
   run_step "Spec Kit governance" python3 scripts/check_spec_kit_governance.py || return $?
 
   if [[ "$effective_mode" == "full" || "$has_governance_tests" -eq 1 ]]; then
-    run_step "governance tests" python3 -m pytest -q tests/governance || return $?
+    run_step "governance tests" pytest -q tests/governance || return $?
   fi
 
   if [[ "$effective_mode" == "full" ]]; then
