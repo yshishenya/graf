@@ -18,7 +18,7 @@ checklist checkbox state is not changed by the implementation agent.
 - [ ] T008 [US2] Add digest and schema-fingerprint comparison without reading user rows in `scripts/dev-migration-repair.py`.
 - [ ] T009 [US2] Add restore failure and mismatch tests in `tests/governance/test_dev_migration_repair.py`.
 - [ ] T010 [US2] Document the rehearsal and abort paths in `specs/221-dev-migration-repair/quickstart.md`.
-- [ ] T011 [US2] Record reviewer-owned infra checklist evidence in `specs/221-dev-migration-repair/checklists/requirements.md`.
+- [ ] T011 [US2] Record reviewer-owned infrastructure gate evidence in `specs/221-dev-migration-repair/checklists/infra.md`.
 
 ## Phase 2 — Approved Dev repair
 

@@ -5,6 +5,9 @@
 **Spec**: [spec.md](spec.md)
 **Umbrella issue**: [#6146](https://github.com/yshishenya/graf/issues/6146)
 
+**Reviewer gate**: [checklists/infra.md](checklists/infra.md) (checkbox state is
+reviewer-owned)
+
 ## Risk and validation lane
 
 `high-risk product area / infrastructure`: работа затрагивает Postgres,
