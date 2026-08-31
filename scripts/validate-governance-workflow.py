@@ -37,6 +37,9 @@ def validate(path: Path) -> list[str]:
         "exact checkout ref": r"(?m)^\s*ref:\s*\$\{\{[^\n]*github\.event\.pull_request\.head\.sha",
         "requested SHA env": r"GRAF_CI_REQUESTED_SHA:\s*\$\{\{",
         "bounded fast lane": r"infra/scripts/ci-local\.sh\s+--fast",
+        "PR metadata gate": r"(?ms)name:\s*Validate pull request metadata.*?if:\s*\$\{\{\s*github\.event_name\s*==\s*'pull_request'\s*\}\}.*?scripts/validate-pr-metadata\.py",
+        "PR metadata exact SHA": r"(?ms)name:\s*Validate pull request metadata.*?--expected-sha\s+\"\$EXPECTED_SHA\"",
+        "mandatory outcome assertion": r"(?ms)name:\s*Assert mandatory governance outcomes.*?exit 1",
         "evidence validator": r"scripts/validate-ci-evidence\.py",
         "authoritative merge-group API mapping": r"gh\s+api\s+--paginate\s+--slurp",
         "authoritative response passed to verifier": r"--authoritative-response\s+\"?\$RUNNER_TEMP/graf-merge-group-api\.json",
@@ -49,6 +52,10 @@ def validate(path: Path) -> list[str]:
     for forbidden in FORBIDDEN:
         if forbidden in text:
             errors.append(f"forbidden command in workflow: {forbidden}")
+    if ".specify/feature.json" in text:
+        errors.append("workflow must not depend on ignored .specify/feature.json")
+    if re.search(r"(?mi)^\s*continue-on-error:\s*true\s*$", text):
+        errors.append("governance workflow must not make a gate advisory with continue-on-error")
     validator_at = text.find("scripts/validate-ci-evidence.py")
     upload_at = text.find("actions/upload-artifact@v4")
     if validator_at >= 0 and upload_at >= 0 and validator_at > upload_at:
@@ -85,8 +92,16 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || inputs.requested_sha }}
       - run: gh api --paginate --slurp repos/o/r/commits/$GRAF_CI_REQUESTED_SHA/pulls
       - run: python3 scripts/verify-merge-group-mapping.py --authoritative-response "$RUNNER_TEMP/graf-merge-group-api.json"
+      - name: Validate pull request metadata
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          python3 scripts/validate-pr-metadata.py "$RUNNER_TEMP/graf-pr-body.md" --feature-id "$FEATURE_ID" --expected-sha "$EXPECTED_SHA"
       - run: infra/scripts/ci-local.sh --fast
       - run: python3 scripts/validate-ci-evidence.py .dev/ci-evidence/run.json
+      - name: Assert mandatory governance outcomes
+        if: ${{ always() }}
+        run: |
+          test "$VALIDATION_OUTCOME" = success || exit 1
       - uses: actions/upload-artifact@v4
 """
     import tempfile

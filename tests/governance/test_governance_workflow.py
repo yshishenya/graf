@@ -39,6 +39,37 @@ def test_governance_workflow_binds_merge_group_identity_and_receipt() -> None:
         assert marker in source
 
 
+def test_governance_workflow_validates_pr_metadata_against_event_sha() -> None:
+    source = (ROOT / ".github/workflows/governance-fast.yml").read_text(encoding="utf-8")
+    assert "name: Validate pull request metadata" in source
+    assert "if: ${{ github.event_name == 'pull_request' }}" in source
+    assert 'event_path, body_path, feature_id_path = map(Path, sys.argv[1:])' in source
+    assert 'pull_request = event.get("pull_request")' in source
+    assert 'github.event.pull_request.head.sha' in source
+    assert '--expected-sha "$EXPECTED_SHA"' in source
+    assert '.specify/feature.json' not in source
+
+
+def test_governance_workflow_has_fail_closed_terminal_validators() -> None:
+    source = (ROOT / ".github/workflows/governance-fast.yml").read_text(encoding="utf-8")
+    assert "continue-on-error: true" not in source
+    assert "name: Assert mandatory governance outcomes" in source
+    assert "PR_METADATA_OUTCOME" in source
+    assert "TERMINAL_OUTCOME" in source
+    assert "RECEIPT_VALIDATION_OUTCOME" in source
+    assert "if: ${{ always() }}" in source
+    assert "name: Upload metadata-only evidence" in source
+
+
+def test_governance_workflow_does_not_require_pr_body_for_non_pr_events() -> None:
+    source = (ROOT / ".github/workflows/governance-fast.yml").read_text(encoding="utf-8")
+    gate = source.split("- name: Validate pull request metadata", 1)[1]
+    gate = gate.split("- name: Run bounded fast lane", 1)[0]
+    assert "if: ${{ github.event_name == 'pull_request' }}" in gate
+    assert "merge_group" not in gate
+    assert "workflow_dispatch" not in gate
+
+
 def test_governance_workflow_emits_terminal_receipt_after_failure_or_cancel() -> None:
     source = (ROOT / ".github/workflows/governance-fast.yml").read_text(encoding="utf-8")
     assert source.count("if: ${{ always() }}") >= 5

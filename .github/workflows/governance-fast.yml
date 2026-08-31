@@ -89,7 +89,45 @@ jobs:
             --authoritative-response "$RUNNER_TEMP/graf-merge-group-api.json" \
             | tee "$RUNNER_TEMP/graf-merge-group-verification.json"
 
+      - name: Validate pull request metadata
+        if: ${{ github.event_name == 'pull_request' }}
+        id: pr_metadata
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          body_path="$RUNNER_TEMP/graf-pr-body.md"
+          feature_id_path="$RUNNER_TEMP/graf-feature-id"
+          python3 - "$GITHUB_EVENT_PATH" "$body_path" "$feature_id_path" <<'PY'
+          import json
+          import re
+          import sys
+          from pathlib import Path
+
+          event_path, body_path, feature_id_path = map(Path, sys.argv[1:])
+          try:
+              event = json.loads(event_path.read_text(encoding="utf-8"))
+          except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+              raise SystemExit(f"cannot read pull_request event payload: {exc}")
+          pull_request = event.get("pull_request")
+          body = pull_request.get("body") if isinstance(pull_request, dict) else None
+          if not isinstance(body, str) or not body.strip():
+              raise SystemExit("pull_request.body is required for metadata validation")
+          marker = re.search(r"Feature ID:\s*`?F?(\d{3,})", body)
+          if marker is None:
+              raise SystemExit("Feature ID is required in pull request body")
+          body_path.write_text(body, encoding="utf-8")
+          feature_id_path.write_text(marker.group(1), encoding="ascii")
+          PY
+          feature_id="$(<"$feature_id_path")"
+          python3 scripts/validate-pr-metadata.py \
+            "$body_path" \
+            --feature-id "$feature_id" \
+            --expected-sha "$EXPECTED_SHA"
+
       - name: Run bounded fast lane
+        id: fast_lane
         run: infra/scripts/ci-local.sh --fast
 
       - name: Prepare terminal metadata-only evidence and identity
@@ -191,7 +229,6 @@ jobs:
         if: ${{ always() }}
         id: receipt
         shell: bash
-        continue-on-error: true
         env:
           WORKFLOW_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           RUN_ID: ${{ github.run_id }}
@@ -210,13 +247,50 @@ jobs:
 
       - name: Validate metadata-only evidence
         if: ${{ always() }}
-        continue-on-error: true
+        id: validate_evidence
         run: python3 scripts/validate-ci-evidence.py "${{ steps.terminal.outputs.evidence_path }}"
 
       - name: Validate metadata-only CI receipt
         if: ${{ always() }}
-        continue-on-error: true
+        id: validate_receipt
         run: python3 scripts/validate-ci-receipt.py "${{ steps.receipt.outputs.path }}"
+
+      - name: Assert mandatory governance outcomes
+        if: ${{ always() }}
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_METADATA_OUTCOME: ${{ steps.pr_metadata.outcome }}
+          FAST_LANE_OUTCOME: ${{ steps.fast_lane.outcome }}
+          TERMINAL_OUTCOME: ${{ steps.terminal.outcome }}
+          RECEIPT_OUTCOME: ${{ steps.receipt.outcome }}
+          EVIDENCE_VALIDATION_OUTCOME: ${{ steps.validate_evidence.outcome }}
+          RECEIPT_VALIDATION_OUTCOME: ${{ steps.validate_receipt.outcome }}
+        run: |
+          set -euo pipefail
+          failures=()
+          if [[ "$EVENT_NAME" == "pull_request" && "$PR_METADATA_OUTCOME" != "success" ]]; then
+            failures+=("pr_metadata:$PR_METADATA_OUTCOME")
+          fi
+          if [[ "$FAST_LANE_OUTCOME" != "success" ]]; then
+            failures+=("fast_lane:$FAST_LANE_OUTCOME")
+          fi
+          if [[ "$TERMINAL_OUTCOME" != "success" ]]; then
+            failures+=("terminal:$TERMINAL_OUTCOME")
+          fi
+          if [[ "$RECEIPT_OUTCOME" != "success" ]]; then
+            failures+=("receipt:$RECEIPT_OUTCOME")
+          fi
+          if [[ "$EVIDENCE_VALIDATION_OUTCOME" != "success" ]]; then
+            failures+=("evidence_validation:$EVIDENCE_VALIDATION_OUTCOME")
+          fi
+          if [[ "$RECEIPT_VALIDATION_OUTCOME" != "success" ]]; then
+            failures+=("receipt_validation:$RECEIPT_VALIDATION_OUTCOME")
+          fi
+          if (( ${#failures[@]} > 0 )); then
+            printf 'governance-fast: mandatory outcome failure: %s\n' "${failures[*]}" >&2
+            exit 1
+          fi
 
       - name: Upload metadata-only evidence
         if: ${{ always() }}
@@ -228,5 +302,5 @@ jobs:
             ${{ steps.receipt.outputs.path }}
             ${{ runner.temp }}/graf-merge-group-api.json
             ${{ runner.temp }}/graf-merge-group-verification.json
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 14
