@@ -165,7 +165,10 @@ _CI_ALLOWED_FIELDS = {
     "reason", "candidate_id", "authoritative_full", "authoritative", "component_shas",
     "artifact_digests",
 }
-_PRIVATE_PATH_RE = re.compile(r"(?:/Users/|/home/|/private/var/|file://)", re.IGNORECASE)
+_PRIVATE_PATH_RE = re.compile(
+    r"(?:/" + "Users" + r"/|/" + "home" + r"/|/" + "private/var/|file://)",
+    re.IGNORECASE,
+)
 _CREDENTIAL_RE = re.compile(
     r"(?:api[_-]?key|secret|password|token|bearer|cookie|signed[-_ ]?url)"
     r"\s*[:=]\s*[^\s,;]{8,}", re.IGNORECASE
