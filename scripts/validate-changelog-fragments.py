@@ -11,6 +11,11 @@ from pathlib import Path
 REQUIRED = ("schema_version", "feature_id", "category", "summary", "issue", "tasks", "compatibility", "release_notes")
 CATEGORIES = {"Added", "Changed", "Fixed", "Security", "Docs", "Ops"}
 FORBIDDEN = ("/Users/", "/home/", "BEGIN PRIVATE KEY", "sk-", "signed-url", "raw audio", "transcript text")
+CREDENTIAL_ASSIGNMENT_RE = re.compile(
+    r"\b(?:api[_-]?key|secret|password|token|bearer|cookie|signed[-_ ]?url)"
+    r"\s*[:=]\s*['\"]?[^\s,;\"']{8,}",
+    re.IGNORECASE,
+)
 
 
 def _field(text: str, name: str) -> re.Match[str] | None:
@@ -58,7 +63,7 @@ def validate(root: Path) -> list[str]:
             errors.append(f"{path}: issue must contain a GitHub number")
         if not re.search(r"^tasks[ \t]*:[ \t]*.+T\d{3,}", text, re.MULTILINE):
             errors.append(f"{path}: tasks must contain a Spec Kit task ID")
-        if any(token.lower() in text.lower() for token in FORBIDDEN):
+        if any(token.lower() in text.lower() for token in FORBIDDEN) or CREDENTIAL_ASSIGNMENT_RE.search(text):
             errors.append(f"{path}: forbidden secret/private/path token")
     return errors
 

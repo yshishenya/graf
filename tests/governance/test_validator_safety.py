@@ -99,6 +99,28 @@ retirement task: T217
     assert any("needs reason" in error for error in errors)
 
 
+def test_changelog_fragment_rejects_credential_assignment(tmp_path: Path) -> None:
+    validator = load_script("validate-changelog-fragments")
+    fragment = tmp_path / "changes" / "unreleased" / "F216.yaml"
+    fragment.parent.mkdir(parents=True)
+    fragment.write_text(
+        '''schema_version: 1
+feature_id: 216
+category: Changed
+summary: "Добавлена проверка"
+issue: 6090
+tasks: T001
+compatibility: "нет"
+release_notes: "Пароль: password = RealCredential123456"
+''',
+        encoding="utf-8",
+    )
+
+    errors = validator.validate(tmp_path)
+
+    assert any("forbidden secret/private/path token" in error for error in errors)
+
+
 def test_agent_context_requires_object_branch_and_full_source_sha(tmp_path: Path) -> None:
     validator = load_script("validate-agent-context")
     pointer = tmp_path / ".specify" / "feature.json"

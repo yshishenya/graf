@@ -262,3 +262,38 @@ def test_live_rollback_reinstalls_target_and_verifies_before_return(monkeypatch,
     assert result["checks"]["backend_health"] == "pass"
     assert marker.read_text(encoding="utf-8") == "target"
     assert calls == ["stop", ("install", target_sha), ("start", target_sha)]
+
+
+def test_live_rollback_validates_target_checkout_before_starting(monkeypatch, tmp_path):
+    active = manifest(tmp_path, "c" * 40)
+    target = manifest(tmp_path, "d" * 40)
+    adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
+    calls = []
+
+    monkeypatch.setattr(adapter, "_assert_supported", lambda: None)
+    monkeypatch.setattr(
+        adapter,
+        "_assert_source_matches_checkout",
+        lambda value: calls.append(value["source_sha"]),
+    )
+    monkeypatch.setattr(adapter, "_env", lambda _: {})
+    monkeypatch.setattr(adapter, "_compose_config", lambda _: None)
+    monkeypatch.setattr(adapter, "_runtime_record", lambda: tmp_path / "runtime.json")
+    monkeypatch.setattr(adapter, "_runtime_is_live", lambda _: True)
+    dev_harness._write_json(
+        tmp_path / "runtime.json",
+        {"pid": 202, "source_sha": active["source_sha"], "command": "start-local"},
+    )
+    monkeypatch.setattr(adapter, "_snapshot_app", lambda: None)
+    monkeypatch.setattr(adapter, "_stop_previous", lambda: None)
+    monkeypatch.setattr(adapter, "_install_app", lambda *_: None)
+    monkeypatch.setattr(adapter, "_start_backend", lambda *_: None)
+    monkeypatch.setattr(
+        adapter,
+        "smoke",
+        lambda _: {"backend_health": "pass", "mode": "live"},
+    )
+
+    adapter.rollback(active, target)
+
+    assert calls == [target["source_sha"]]

@@ -546,7 +546,12 @@ class GrafLocalAdapter:
     def rollback(self, active: Dict[str, Any], target: Dict[str, Any]) -> Dict[str, Any]:
         """Restore one previously built Dev target and prove it before commit."""
         self._assert_supported()
-        self._assert_source_matches_checkout(active)
+        # start-local.sh resolves backend code from its checkout. A rollback
+        # target may be older than the active runtime, so validating only the
+        # active manifest could start the target with the wrong backend code.
+        # Require the operator to check out the target SHA before touching the
+        # live runtime so app, backend and manifest share one source identity.
+        self._assert_source_matches_checkout(target)
         env = self._env(target)
         self._compose_config(env)
         previous_runtime = _read_json(self._runtime_record()) if self._runtime_record().exists() else None
