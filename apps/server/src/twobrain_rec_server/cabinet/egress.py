@@ -774,6 +774,14 @@ async def _processing_result_is_current(
     meeting: Meeting,
     result: ProcessingResult,
 ) -> bool:
+    slot = await load_meeting_default_slot(
+        db,
+        workspace_id=meeting.workspace_id,
+        meeting_id=meeting.id,
+    )
+    pinned_outcome = await load_egress_default_outcome(db, meeting=meeting, slot=slot)
+    if pinned_outcome is not None and pinned_outcome.processing_result_id == result.id:
+        return True
     effective_result = await _effective_complete_result(db, meeting=meeting)
     return effective_result is not None and effective_result.id == result.id
 
