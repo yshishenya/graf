@@ -64,6 +64,16 @@ def _artifact_digest(path: Path) -> str:
                 hasher.update(chunk)
     elif path.is_dir():
         for child in sorted(path.rglob("*")):
+            if child.is_symlink():
+                relative = child.relative_to(path).as_posix().encode("utf-8")
+                target = os.readlink(child).encode("utf-8")
+                hasher.update(b"entry\0symlink\0")
+                hasher.update(len(relative).to_bytes(8, "big"))
+                hasher.update(relative)
+                hasher.update(len(target).to_bytes(8, "big"))
+                hasher.update(target)
+                hasher.update(b"\0end-entry\0")
+                continue
             if not child.is_file():
                 continue
             relative = child.relative_to(path).as_posix().encode("utf-8")

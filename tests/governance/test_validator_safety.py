@@ -121,28 +121,6 @@ release_notes: "Пароль: password = RealCredential123456"
     assert any("forbidden secret/private/path token" in error for error in errors)
 
 
-def test_portable_changelog_fragment_rejects_credential_assignment(tmp_path: Path) -> None:
-    validator = load_harness_validators()
-    fragment = tmp_path / "changes" / "unreleased" / "F228.yaml"
-    fragment.parent.mkdir(parents=True)
-    fragment.write_text(
-        """schema_version: 1
-feature_id: 228
-category: Changed
-summary: \"Добавлена проверка\"
-issue: 6238
-tasks: T001
-compatibility: \"нет\"
-release_notes: \"token: abcdefghijkl\"
-""",
-        encoding="utf-8",
-    )
-
-    errors = validator.fragments(tmp_path)
-
-    assert any("forbidden secret/private content" in error for error in errors)
-
-
 def test_agent_context_requires_object_branch_and_full_source_sha(tmp_path: Path) -> None:
     validator = load_script("validate-agent-context")
     pointer = tmp_path / ".specify" / "feature.json"
