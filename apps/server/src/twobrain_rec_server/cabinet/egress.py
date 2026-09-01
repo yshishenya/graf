@@ -796,6 +796,22 @@ async def _effective_complete_result(
     )
     if latest_revision is None:
         return None
+    slot = await load_meeting_default_slot(
+        db,
+        workspace_id=meeting.workspace_id,
+        meeting_id=meeting.id,
+    )
+    pinned_outcome = await load_egress_default_outcome(db, meeting=meeting, slot=slot)
+    if pinned_outcome is not None:
+        pinned_result = await db.scalar(
+            select(ProcessingResult).where(
+                ProcessingResult.id == pinned_outcome.processing_result_id,
+                ProcessingResult.media_revision_id == latest_revision.id,
+                ProcessingResult.status == ProcessingResultStatus.IMPORTED.value,
+            )
+        )
+        if pinned_result is not None:
+            return pinned_result
     return await db.scalar(
         effective_processing_result_query(
             workspace_id=meeting.workspace_id,

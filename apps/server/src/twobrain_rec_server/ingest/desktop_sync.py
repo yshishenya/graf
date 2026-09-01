@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.problems import ProblemDetail
@@ -798,6 +799,37 @@ async def get_desktop_recording_sync_state(
         and workflow_result.processing_workflow_id == review_workflow.id
         and result_is_terminal_input(workflow_result)
     )
+    # A replacement attempt owns the desktop projection while it is active.
+    # Do not expose artifacts from the prior attempt until this attempt has
+    # published its own result; once it has, expose its partial/complete state.
+    replacement_active = bool(
+        review_workflow is not None
+        and review_workflow.attempt_ordinal > 1
+        and review_workflow.status
+        in {
+            ProcessingStatus.PENDING_PROCESSING.value,
+            ProcessingStatus.STARTING.value,
+            ProcessingStatus.WORKFLOW_STARTED.value,
+            ProcessingStatus.SUBMITTING.value,
+            ProcessingStatus.SUBMITTED.value,
+            ProcessingStatus.POLLING.value,
+            ProcessingStatus.IMPORTING.value,
+            ProcessingStatus.WAITING_RETRY.value,
+        }
+    )
+    review_projection_result = review_result
+    if replacement_active:
+        review_projection_result = await db.scalar(
+            select(ProcessingResult)
+            .where(
+                ProcessingResult.workspace_id == tenant_scope.workspace_id,
+                ProcessingResult.meeting_id == meeting.id,
+                ProcessingResult.media_revision_id == meeting.media_revision_id,
+                ProcessingResult.processing_workflow_id == review_workflow.id,
+                ProcessingResult.status == ProcessingResultStatus.IMPORTED.value,
+            )
+            .order_by(ProcessingResult.result_version.desc(), ProcessingResult.created_at.desc())
+        )
     effective_processing_status = (
         ProcessingStatus.FAILED_TERMINAL
         if terminal_input_result
@@ -808,12 +840,16 @@ async def get_desktop_recording_sync_state(
     processing_conflict = _processing_conflict(effective_processing_status)
     review_status = _desktop_review_status(
         meeting=meeting,
-        result=review_result or workflow_result,
+        result=(
+            review_projection_result
+            if replacement_active
+            else (review_projection_result or workflow_result)
+        ),
         processing_status=effective_processing_status,
         processing_workflow_id=review_workflow.id if review_workflow is not None else None,
     )
-    transcript_ready = _transcript_available(review_result)
-    diarization_ready = _diarization_available(review_result)
+    transcript_ready = _transcript_available(review_projection_result)
+    diarization_ready = _diarization_available(review_projection_result)
     session_device_conflict = _session_device_conflict(tenant_scope=tenant_scope, session=session)
     conflict = _first_blocking_conflict(
         access_conflict,
