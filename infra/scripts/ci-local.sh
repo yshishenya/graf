@@ -2,6 +2,13 @@
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
+# Frozen Spec Kit extension digests must be independent of Python's runtime
+# caches.  Some governance checks import project-local extension helpers before
+# the frozen doctor runs; without this setting those imports create ignored
+# __pycache__ files inside the signed extension tree and make the doctor fail
+# on an otherwise unchanged checkout.
+export PYTHONDONTWRITEBYTECODE=1
+
 usage() {
   echo "usage: $0 --fast|--full|--help" >&2
 }
