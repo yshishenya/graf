@@ -3,7 +3,7 @@
   "extensions": {
     "agent_context": {
       "manifest_hash": "sha256:9a1dc02d2d0139bb03860392ecacef79183be2c442feda2f9ccaa4e5907b1e47",
-      "tree_sha256": "9e15181a65b71f2d9e9b6cb73af8c73fe40dd3ff59728f839ca6c116d21ccaa7",
+            "tree_sha256": "7c292fd65482f3f3db93794dd1314a9964dbd8be0469ae502de9bc2484710f84",
       "version": "1.0.0"
     },
     "git": {
