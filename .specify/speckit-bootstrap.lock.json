@@ -3,12 +3,12 @@
   "extensions": {
     "agent_context": {
       "manifest_hash": "sha256:9a1dc02d2d0139bb03860392ecacef79183be2c442feda2f9ccaa4e5907b1e47",
-      "tree_sha256": "b8d612862aac1e2efd6b7ddd184de28537e9e2bfbcf1e5d6e523c65308282e34",
+      "tree_sha256": "9e15181a65b71f2d9e9b6cb73af8c73fe40dd3ff59728f839ca6c116d21ccaa7",
       "version": "1.0.0"
     },
     "git": {
       "manifest_hash": "sha256:89711dec9716473fba4afc54f7224bcb28ebd3c55fb5aaa30df854ab02b07a75",
-      "tree_sha256": "20c85130494affefd5fa79d2986b8b6f7023db2b1645f07287e8968ac58551d6",
+      "tree_sha256": "79b079184765b50cc526177258ffba41756dc7303e326561fe74fb80ad25fda1",
       "version": "1.0.0"
     }
   },
