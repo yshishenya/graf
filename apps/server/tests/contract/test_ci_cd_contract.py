@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import uuid
 from pathlib import Path
 
 import pytest
@@ -397,14 +398,15 @@ def test_failing_stage_emits_one_final_failure() -> None:
 
 
 def test_full_claims_release_ready_only_after_success() -> None:
+    token = uuid.uuid4().hex[:12]
     passed = run_stubbed_ci(
-        "", "--full", env={"GRAF_CI_CANDIDATE_ID": "rc-20260901T000001Z-bbbbbbbbbbbb"}
+        "", "--full", env={"GRAF_CI_CANDIDATE_ID": f"rc-20260901T000001Z-{token}"}
     )
     failed = run_stubbed_ci(
         "",
         "--full",
         fail_stage="server tests",
-        env={"GRAF_CI_CANDIDATE_ID": "rc-20260901T000002Z-cccccccccccc"},
+        env={"GRAF_CI_CANDIDATE_ID": f"rc-20260901T000002Z-{token}"},
     )
 
     assert passed.returncode == 0, passed.stdout
