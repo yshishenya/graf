@@ -31,7 +31,17 @@ fail() {
   exit 1
 }
 
+# ``codesign -d`` writes human-readable diagnostics to stderr. Hash only the
+# canonical entitlements plist so paths in those diagnostics cannot make an
+# otherwise identical candidate and installed app appear different.
+entitlements_digest() {
+  codesign -d --entitlements :- "$1" > "$TEMP_ROOT/entitlements.plist" 2>/dev/null || return 1
+  plutil -convert xml1 -o - -- "$TEMP_ROOT/entitlements.plist" 2>/dev/null |
+    shasum -a 256 | awk '{print $1}'
+}
+
 [ "$DESTINATION_NAME" = "GRAF Dev.app" ] || fail "destination must end in GRAF Dev.app"
+[ "$DESTINATION" = "/Applications/GRAF Dev.app" ] || fail "Dev install destination is fixed at /Applications/GRAF Dev.app"
 [ "$DESTINATION_NAME" != "GRAF.app" ] || fail "production GRAF.app is not a Dev destination"
 [ "$DESTINATION_CANONICAL" != "$PRODUCTION_APP_CANONICAL" ] || fail "production GRAF.app is not a Dev destination"
 case "$DESTINATION_CANONICAL" in
@@ -104,10 +114,18 @@ codesign --verify --deep --strict "$CANDIDATE" >/dev/null || fail "candidate sig
 
 CANDIDATE_REQUIREMENT=$(codesign -dr - "$CANDIDATE" 2>&1 | sed -n 's/^designated => //p' | head -n 1)
 [ -n "$CANDIDATE_REQUIREMENT" ] || fail "candidate designated requirement is unavailable"
+CANDIDATE_SIGNER=$(codesign -dv --verbose=4 "$CANDIDATE" 2>&1 | sed -n 's/^Authority=//p' | head -n 1)
+[ -n "$CANDIDATE_SIGNER" ] || fail "candidate signing identity is unavailable"
+CANDIDATE_ENTITLEMENTS_DIGEST=$(entitlements_digest "$CANDIDATE")
+[ -n "$CANDIDATE_ENTITLEMENTS_DIGEST" ] || fail "candidate entitlements are unavailable"
 if [ -d "$DESTINATION" ]; then
   EXISTING_REQUIREMENT=$(codesign -dr - "$DESTINATION" 2>&1 | sed -n 's/^designated => //p' | head -n 1)
   [ -n "$EXISTING_REQUIREMENT" ] || fail "existing Dev designated requirement is unavailable"
   [ "$EXISTING_REQUIREMENT" = "$CANDIDATE_REQUIREMENT" ] || fail "designated_requirement drift; refusing replacement"
+  EXISTING_SIGNER=$(codesign -dv --verbose=4 "$DESTINATION" 2>&1 | sed -n 's/^Authority=//p' | head -n 1)
+  [ "$EXISTING_SIGNER" = "$CANDIDATE_SIGNER" ] || fail "signing identity drift; refusing replacement"
+  EXISTING_ENTITLEMENTS_DIGEST=$(entitlements_digest "$DESTINATION")
+  [ "$EXISTING_ENTITLEMENTS_DIGEST" = "$CANDIDATE_ENTITLEMENTS_DIGEST" ] || fail "entitlements drift; refusing replacement"
 fi
 
 mkdir -p "$INSTALL_PARENT"

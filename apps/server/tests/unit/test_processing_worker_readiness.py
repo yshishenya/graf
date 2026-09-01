@@ -9,9 +9,10 @@ from temporalio.api.enums.v1 import TaskQueueType
 
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.domain.statuses import ProcessingStatus
-from twobrain_rec_server.mediascribe.client import MediaScribeClientError
+from twobrain_rec_server.mediascribe.client import MediaScribeClient, MediaScribeClientError
 from twobrain_rec_server.workflows.temporal_client import processing_worker_identity
 from twobrain_rec_server.workflows.worker import (
+    _processing_mediascribe_client,
     _processing_status_for_client_error,
     _processing_status_for_runtime_error,
 )
@@ -53,6 +54,34 @@ def test_known_processing_runtime_failures_have_bounded_classification() -> None
     assert blocked == (ProcessingStatus.BLOCKED, False)
     assert retryable == (ProcessingStatus.FAILED_RETRYABLE, True)
     assert _processing_status_for_runtime_error(RuntimeError("unexpected_worker_bug")) is None
+
+
+def test_dev_processing_worker_allows_unconfigured_provider_without_network_egress(monkeypatch) -> None:
+    settings = Settings(
+        env="development",
+        processing_enabled=True,
+        temporal_address="temporal:7233",
+    )
+
+    def blocked_from_settings(_settings, *, reuse_connections=False):
+        assert reuse_connections is True
+        raise MediaScribeClientError("blocked_config", retryable=False)
+
+    monkeypatch.setattr(MediaScribeClient, "from_settings", blocked_from_settings)
+
+    assert _processing_mediascribe_client(settings) is None
+
+
+def test_production_processing_worker_does_not_downgrade_provider_config_failure(monkeypatch) -> None:
+    settings = SimpleNamespace(env="production")
+
+    def blocked_from_settings(_settings, *, reuse_connections=False):
+        raise MediaScribeClientError("blocked_config", retryable=False)
+
+    monkeypatch.setattr(MediaScribeClient, "from_settings", blocked_from_settings)
+
+    with pytest.raises(MediaScribeClientError, match="blocked_config"):
+        _processing_mediascribe_client(settings)
 
 
 @pytest.mark.anyio

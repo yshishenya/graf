@@ -73,7 +73,7 @@ def resolve_event_identity(event: dict[str, Any], event_name: str | None = None)
         base = _sha(_same(event.get("base_sha"), group.get("base_sha"), "merge_group.base_sha"), "merge_group.base_sha")
         group_id = _same(_same(event.get("id"), event.get("merge_group_id"), "merge_group.id"), group.get("id"), "merge_group.id")
         if group_id is None:
-            group_id = f"mg-{target[:12]}"
+            group_id = f"head-{target}"
         if not isinstance(group_id, str) or not _GROUP_ID.fullmatch(group_id):
             raise IdentityError("merge_group.id is required and must be safe")
         root_rows, nested_rows = event.get("pull_requests"), group.get("pull_requests")

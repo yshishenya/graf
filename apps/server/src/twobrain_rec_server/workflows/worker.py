@@ -144,6 +144,25 @@ BILLING_RENEWAL_TERMINAL_STATES = frozenset({"succeeded", "canceled", "succeeded
 PROCESSING_ACTIVITY_HEARTBEAT_INTERVAL_SECONDS = 15
 
 
+def _processing_mediascribe_client(settings: Any) -> MediaScribeClient | None:
+    """Build the provider client without making Dev worker readiness depend on it.
+
+    The local full-stack adapter intentionally starts with no MediaScribe
+    endpoint or secret. The Temporal worker must still poll its queues so that
+    local readiness proves the worker/runtime wiring. An activity that actually
+    needs provider work continues to fail closed through the normal
+    ``blocked_config`` path. Production never gets this startup exception.
+    """
+
+    try:
+        return MediaScribeClient.from_settings(settings, reuse_connections=True)
+    except MediaScribeClientError as exc:
+        if settings.env.lower() not in {"development", "test"} or exc.reason_code != "blocked_config":
+            raise
+        logger.warning("processing worker started with MediaScribe provider unconfigured")
+        return None
+
+
 def _processing_activity_is_cancelled(activity_context: Any) -> bool:
     is_cancelled = getattr(activity_context, "is_cancelled", None)
     if is_cancelled is None:
@@ -2561,9 +2580,7 @@ async def run_worker() -> None:
     processing_sessionmaker = create_sessionmaker(processing_engine)
     processing_storage = get_storage(settings)
     processing_mediascribe_client = (
-        MediaScribeClient.from_settings(settings, reuse_connections=True)
-        if settings.processing_enabled
-        else None
+        _processing_mediascribe_client(settings) if settings.processing_enabled else None
     )
 
     async def processing_activity_impl(payload: dict[str, str]) -> dict[str, str]:

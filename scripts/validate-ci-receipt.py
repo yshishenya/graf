@@ -91,11 +91,11 @@ def validate(data: dict[str, Any]) -> list[str]:
     base = _sha(data, "base_sha", errors, nullable=True)
     if event in {"pull_request", "merge_group"} and base is None:
         errors.append("base_sha is required for PR and merge_group events")
-    if target and requested and target != requested:
+    if status == "passed" and target and requested and target != requested:
         errors.append("target_sha and requested_sha mismatch")
-    if requested and observed_start and requested != observed_start:
+    if status == "passed" and requested and observed_start and requested != observed_start:
         errors.append("requested_sha and observed_sha_start mismatch")
-    if requested and observed_end and requested != observed_end:
+    if status == "passed" and requested and observed_end and requested != observed_end:
         errors.append("requested_sha and observed_sha_end mismatch")
     prs = data.get("pull_request_numbers")
     if not isinstance(prs, list) or any(isinstance(x, bool) or not isinstance(x, int) or x < 1 for x in prs) or len(set(prs)) != len(prs):

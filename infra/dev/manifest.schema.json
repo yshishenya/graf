@@ -26,11 +26,18 @@
     "components": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["backend", "frontend", "worker", "macos_app"],
+      "required": ["backend", "frontend", "worker", "processing_worker", "media_worker", "maintenance", "temporal", "migration", "database", "storage", "macos_app"],
       "properties": {
         "backend": {"$ref": "#/$defs/component"},
         "frontend": {"$ref": "#/$defs/component"},
         "worker": {"$ref": "#/$defs/component"},
+        "processing_worker": {"$ref": "#/$defs/component"},
+        "media_worker": {"$ref": "#/$defs/component"},
+        "maintenance": {"$ref": "#/$defs/component"},
+        "temporal": {"$ref": "#/$defs/component"},
+        "migration": {"$ref": "#/$defs/component"},
+        "database": {"$ref": "#/$defs/component"},
+        "storage": {"$ref": "#/$defs/component"},
         "macos_app": {"$ref": "#/$defs/component"}
       }
     },

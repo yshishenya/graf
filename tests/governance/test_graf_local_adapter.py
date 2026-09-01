@@ -163,6 +163,33 @@ def test_http_probe_preserves_auth_challenge_status(monkeypatch, tmp_path):
     assert adapter._wait_http("http://127.0.0.1:8081", "/api/v1/cabinet/meetings") == 401
 
 
+def test_startup_wait_does_not_accept_stale_http_listener(monkeypatch, tmp_path):
+    adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
+    candidate = manifest(tmp_path, "a" * 40)
+    attempts = {"api": 0}
+    observed_services = []
+
+    monkeypatch.setattr(
+        adapter,
+        "_wait_http",
+        lambda *_args, **_kwargs: 200,
+    )
+
+    def service_ready(service, _env):
+        observed_services.append(service)
+        if service == "api":
+            attempts["api"] += 1
+        return "pass" if attempts["api"] >= 2 else "fail"
+
+    monkeypatch.setattr(adapter, "_compose_service_ready", service_ready)
+    monkeypatch.setattr(dev_harness.time, "sleep", lambda _seconds: None)
+
+    adapter._wait_runtime_ready(candidate, {"GRAF_DEV_SOURCE_SHA": candidate["source_sha"]}, timeout=1)
+
+    assert attempts["api"] == 2
+    assert observed_services[:2] == ["api", "api"]
+
+
 def test_pid_ownership_requires_matching_process_start_token(monkeypatch, tmp_path):
     adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
     record = {"pid": 77, "command": "/tmp/start-dev.sh", "start_token": "Mon Aug 31 01:02:03 2026"}
@@ -175,6 +202,17 @@ def test_pid_ownership_requires_matching_process_start_token(monkeypatch, tmp_pa
     assert adapter._pid_owned(record) is True
     assert adapter._pid_owned(dict(record, start_token="Tue Aug 31 01:02:03 2026")) is False
     assert adapter._pid_owned({"pid": 77, "command": record["command"]}) is False
+
+
+def test_pid_alive_treats_zombie_as_stopped(monkeypatch, tmp_path):
+    adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
+    monkeypatch.setattr(dev_harness.os, "kill", lambda *_args: None)
+    monkeypatch.setattr(
+        dev_harness.subprocess,
+        "check_output",
+        lambda *_args, **_kwargs: "Z+" if "stat=" in _args[0] else "",
+    )
+    assert adapter._pid_alive(77) is False
 
 
 def test_process_command_captures_post_exec_command(monkeypatch, tmp_path):
