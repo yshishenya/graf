@@ -331,7 +331,14 @@ def _canonical_slug(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
 
 
-def _assert_clean_worktree(root: Path, allowed_paths: Iterable[str] = ()) -> None:
+def _assert_clean_worktree(root: Path, allowed_paths: Iterable[str] = (".specify/feature.json",)) -> None:
+    """Require a clean worktree, except for claim metadata we own.
+
+    Claiming a feature atomically refreshes ``.specify/feature.json``.  Keep
+    that exception in the default contract so callers (and test doubles) can
+    use the one-argument form without accidentally weakening the dirty-tree
+    gate for any other path.
+    """
     try:
         status = subprocess.run(
             ["git", "status", "--porcelain", "--untracked-files=all"],
@@ -360,7 +367,7 @@ def claim(root: Path, feature_id: int, *, issue_number: int | None, branch: str,
         raise SystemExit(f"feature-claim: branch must be bound to Feature {feature_id:03d}")
     if _canonical_slug(branch_match.group(2)) != _canonical_slug(slug):
         raise SystemExit("feature-claim: branch suffix must match the requested slug")
-    _assert_clean_worktree(root, (".specify/feature.json",))
+    _assert_clean_worktree(root)
     if not offline:
         if issue_number is None:
             raise SystemExit(
@@ -519,7 +526,7 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit("feature-claim: --allocate requires --branch and --slug")
         if args.offline:
             raise SystemExit("feature-claim: --allocate cannot use --offline; use an explicit draft claim instead")
-        _assert_clean_worktree(root, (".specify/feature.json",))
+        _assert_clean_worktree(root)
         git_dir = _git_common_dir(root)
         if not git_dir.is_absolute():
             git_dir = root / git_dir
