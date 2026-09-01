@@ -176,6 +176,17 @@ def test_dry_run_does_not_activate_and_reset_requires_confirmation(tmp_path):
         run("reset_data", tmp_path, confirm_dev_reset=False, dry_run=False)
 
 
+def test_promote_rejects_candidate_with_different_migration_head(tmp_path):
+    active = build(tmp_path, "a" * 40)
+    run("promote", tmp_path, manifest=str(tmp_path / "manifests" / f"{active['manifest_id']}.json"), dry_run=False)
+    candidate = build(tmp_path, "b" * 40)
+    candidate["migration_head"] = "other-head"
+    path = tmp_path / "candidate.json"
+    path.write_text(json.dumps(candidate), encoding="utf-8")
+    with pytest.raises(dev_harness.HarnessError, match="migration_head"):
+        run("promote", tmp_path, manifest=str(path), dry_run=False)
+
+
 def test_mismatched_component_and_production_boundary_are_rejected(tmp_path):
     manifest = build(tmp_path, "d" * 40)
     manifest["components"]["frontend"]["source_sha"] = "e" * 40

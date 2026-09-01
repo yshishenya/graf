@@ -478,12 +478,17 @@ def main(argv: list[str] | None = None) -> int:
                 claims = json.loads(claims_path.read_text(encoding="utf-8")) if claims_path.exists() else {}
             except (OSError, json.JSONDecodeError) as exc:
                 raise SystemExit(f"feature-claim: shared claim state is corrupt: {claims_path}") from exc
+            branch_match = re.search(r"(?:^|/)(\d{3,})-([A-Za-z0-9][A-Za-z0-9-]*)$", args.branch)
+            if not branch_match:
+                raise SystemExit("feature-claim: branch must end in <feature-id>-<slug>")
+            requested_feature_id = int(branch_match.group(1))
+            if args.issue_number is not None:
+                _github_umbrella(root, args.issue_number, requested_feature_id)
             _validate_claims(claims, claims_path)
             occupied = _ids_from_specs(root) | _ids_from_refs(_git_refs(root, strict=True)) | set(int(key) for key in claims)
-            occupied |= _github_ids(root, strict=True)
+            occupied |= _github_ids(root, exclude_issue=args.issue_number, strict=True)
             feature_id = _available_id(occupied, max(1, max(occupied, default=0) + 1))
-            branch_match = re.search(r"(?:^|/)(\d{3,})-([A-Za-z0-9][A-Za-z0-9-]*)$", args.branch)
-            if not branch_match or int(branch_match.group(1)) != feature_id:
+            if requested_feature_id != feature_id:
                 raise SystemExit(
                     f"feature-claim: generated branch {args.branch!r} is not the next collision-free Feature {feature_id:03d}; retry bootstrap"
                 )

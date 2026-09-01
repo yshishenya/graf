@@ -562,25 +562,26 @@ class GrafLocalAdapter:
             raise HarnessError(f"could not start local backend: {exc}") from exc
         finally:
             log_handle.close()
-        _write_json(
-            runtime,
-            {
-                "pid": process.pid,
-                "source_sha": manifest["source_sha"],
-                "started_at": now(),
-                # start-local.sh execs uvicorn. Record the command after exec,
-                # not the transient shell script path, so ownership survives
-                # the wrapper's process replacement.
-                "command": self._process_command(process.pid),
-                "start_token": self._process_start_token(process.pid),
-            },
-        )
         try:
             self._wait_http(str(manifest["dev_boundary"]["backend_origin"]), "/api/v1/health/live", timeout=90)
         except HarnessError:
             with contextlib.suppress(OSError):
                 os.kill(process.pid, signal.SIGTERM)
             raise
+        # start-local.sh execs uvicorn. Wait for the health endpoint first,
+        # then record the post-exec command and start token. Writing the
+        # transient shell identity here would make a healthy runtime appear
+        # unowned as soon as the wrapper replaces itself.
+        _write_json(
+            runtime,
+            {
+                "pid": process.pid,
+                "source_sha": manifest["source_sha"],
+                "started_at": now(),
+                "command": self._process_command(process.pid),
+                "start_token": self._process_start_token(process.pid),
+            },
+        )
 
     def _ensure_backend(self, manifest: Dict[str, Any], env: Dict[str, str]) -> None:
         runtime = self._runtime_record()
@@ -822,14 +823,29 @@ class GrafLocalAdapter:
             backend, "/api/v1/health/ready/internal", headers={"X-Internal-Health-Check": "true"}
         )
         try:
-            worker = _run_command(
+            worker_output = _run_command(
                 ["docker", "compose", "-f", str(self.compose_file), "ps", "--format", "json", "rec-processing-worker"],
                 cwd=self.root,
                 env=self._env(manifest),
-            ).lower()
-            if worker and "healthy" not in worker:
+            )
+            try:
+                parsed = json.loads(worker_output)
+            except json.JSONDecodeError:
+                parsed = None
+            rows = parsed if isinstance(parsed, list) else ([parsed] if isinstance(parsed, dict) else [])
+            worker_rows = [
+                row for row in rows
+                if isinstance(row, dict) and row.get("Service") == "rec-processing-worker"
+            ]
+            if len(worker_rows) != 1:
                 checks["worker_dependencies"] = "fail"
+            else:
+                worker_row = worker_rows[0]
+                if worker_row.get("State") != "running" or worker_row.get("Health") != "healthy":
+                    checks["worker_dependencies"] = "fail"
         except HarnessError:
+            checks["worker_dependencies"] = "fail"
+        except (TypeError, ValueError):
             checks["worker_dependencies"] = "fail"
         checks["frontend_reachability"] = probe(frontend, "/login")
         checks["auth_session_bootstrap"] = probe(backend, "/api/v1/auth/providers")
@@ -1096,6 +1112,10 @@ def operation_promote(args: argparse.Namespace) -> Dict[str, Any]:
             raise HarnessError("candidate parent manifest is stale; rebuild from current active Dev manifest")
         if active is None and expected_parent is not None:
             raise HarnessError("candidate parent manifest is unavailable")
+        if active and candidate.get("migration_head") != active.get("migration_head"):
+            raise HarnessError(
+                "candidate migration_head differs from active Dev manifest; rebuild against the current database schema"
+            )
         if active and candidate["manifest_id"] == active["manifest_id"]:
             pointer = _read_json(root / "active-manifest.json") if (root / "active-manifest.json").exists() else {}
             runtime_mode = pointer.get("runtime_mode")

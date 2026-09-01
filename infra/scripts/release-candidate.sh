@@ -301,6 +301,11 @@ def require_clean_source(exempt_paths=()):
     # written after freeze must still invalidate the candidate.  Callers name
     # the exact files that are being produced by the current operation.
     allowed = {pathlib.Path(path).resolve() for path in exempt_paths}
+    generated_roots = {
+        (root / ".dev" / "ci-evidence").resolve(),
+        (root / ".dev" / "release" / "candidates").resolve(),
+        (root / ".dev" / "release" / "decisions").resolve(),
+    }
     dirty = []
     for line in output.splitlines():
         if len(line) < 4:
@@ -314,6 +319,23 @@ def require_clean_source(exempt_paths=()):
         if path in allowed or DECISION_LOCK_RE.fullmatch(relative):
             continue
         dirty.append(relative)
+    # Git status collapses ignored directories such as `.dev/` to one `!!`
+    # entry and cannot reveal an unexpected file inside them. Walk the ignored
+    # metadata tree directly, while allowing only documented evidence/record
+    # roots. A stray `.dev` file must invalidate the candidate.
+    dev_root = root / ".dev"
+    if dev_root.is_dir():
+        for candidate in sorted(dev_root.rglob("*")):
+            if not candidate.is_file() and not candidate.is_symlink():
+                continue
+            resolved = candidate.resolve()
+            if any(resolved == prefix or prefix in resolved.parents for prefix in generated_roots):
+                continue
+            if resolved in allowed:
+                continue
+            relative = candidate.relative_to(root).as_posix()
+            if relative not in dirty:
+                dirty.append(relative)
     if dirty:
         die("source tree is dirty after candidate freeze: " + ", ".join(dirty))
 
@@ -533,13 +555,14 @@ if op == "decide":
         errors = module.validate(evidence)
     else:
         errors = ["CI evidence validator is missing"]
-    if evidence.get("requested_sha") != candidate["source_sha"]:
+    evidence_object = evidence if isinstance(evidence, dict) else {}
+    if evidence_object.get("requested_sha") != candidate["source_sha"]:
         errors.append("evidence requested_sha differs from candidate source_sha")
-    if evidence.get("candidate_id") != candidate["candidate_id"]:
+    if evidence_object.get("candidate_id") != candidate["candidate_id"]:
         errors.append("evidence candidate_id differs from candidate_id")
-    if evidence.get("lane") != "full":
+    if evidence_object.get("lane") != "full":
         errors.append("release decision requires lane=full evidence")
-    if evidence.get("authoritative_full") is not True:
+    if evidence_object.get("authoritative_full") is not True:
         errors.append("release decision requires authoritative_full=true evidence")
     # Full CI can finish while the operator is preparing the decision.  The
     # candidate must still describe the exact checkout at the point of go/no-go.
@@ -579,7 +602,7 @@ if op == "decide":
     record = dict(candidate)
     record.update({
         "status": decision,
-        "full_run_id": evidence.get("run_id") if isinstance(evidence.get("run_id"), str) else None,
+        "full_run_id": evidence_object.get("run_id") if isinstance(evidence_object.get("run_id"), str) else None,
         "full_evidence_digest": digest(evidence_path), "calver": calver, "tag": tag,
         "github_release_url": None, "decision": decision,
         "decision_reason": "Authoritative Full CI passed for frozen candidate." if decision == "go" else "No-go: " + "; ".join(errors),

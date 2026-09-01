@@ -106,7 +106,7 @@ def test_live_smoke_checks_server_rendered_frontend_auth_and_one_app(monkeypatch
 
     def fake_plutil(command, *, cwd, env=None):
         if command[:2] == ["docker", "compose"] and "ps" in command:
-            return "healthy"
+            return json.dumps({"Service": "rec-processing-worker", "State": "running", "Health": "healthy"})
         if command[2] == "GRAFSourceSHA":
             return sha
         if command[2] == "CFBundleIdentifier":
@@ -124,6 +124,26 @@ def test_live_smoke_checks_server_rendered_frontend_auth_and_one_app(monkeypatch
         "representative_api": "pass",
         "app_origin": "pass",
     }
+
+
+def test_live_smoke_rejects_empty_or_unrelated_worker_status(monkeypatch, tmp_path):
+    adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
+    active = manifest(tmp_path, "c" * 40)
+    monkeypatch.setattr(dev_harness.sys, "platform", "darwin")
+    monkeypatch.setattr(adapter, "_assert_supported", lambda: None)
+    monkeypatch.setattr(adapter, "_wait_http", lambda *args, **kwargs: 200)
+    monkeypatch.setattr(
+        dev_harness,
+        "_run_command",
+        lambda command, *, cwd, env=None: "{}" if command[:2] == ["docker", "compose"] else (
+            active["source_sha"] if command[2] == "GRAFSourceSHA" else dev_harness.APP_BUNDLE_ID
+        ),
+    )
+    app = tmp_path / "GRAF Dev.app" / "Contents"
+    app.mkdir(parents=True)
+    monkeypatch.setenv("GRAF_DEV_INSTALL_PATH", str(app.parent))
+    checks = adapter.smoke(active)
+    assert checks["worker_dependencies"] == "fail"
 
 
 def test_http_probe_preserves_auth_challenge_status(monkeypatch, tmp_path):

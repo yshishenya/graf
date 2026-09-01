@@ -530,6 +530,22 @@ def test_decide_rejects_non_full_evidence_lane(tmp_path: Path) -> None:
     assert "lane=full" in decision["decision_reason"]
 
 
+def test_decide_treats_non_object_evidence_as_normal_no_go(tmp_path: Path) -> None:
+    root = fixture(tmp_path)
+    script = root / "infra/scripts/release-candidate.sh"
+    sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+    candidate_path = root / ".dev" / "release" / "candidate.json"
+    result = run(script, "freeze", "--sha", sha, "--feature-id", "216", "--operator", "release", "--output", str(candidate_path), cwd=root)
+    assert result.returncode == 0, result.stderr
+    evidence_path = root / "evidence.json"
+    evidence_path.write_text("[]\n", encoding="utf-8")
+    result = run(script, "decide", str(candidate_path), "--evidence", str(evidence_path), "--calver", "2026.08.31.1", cwd=root)
+    assert result.returncode == 0, result.stderr
+    decision = json.loads(result.stdout)
+    assert decision["status"] == "no-go"
+    assert "evidence must be a JSON object" in decision["decision_reason"]
+
+
 def test_attest_rejects_release_from_different_github_repository(tmp_path: Path) -> None:
     root = fixture(tmp_path)
     script = root / "infra/scripts/release-candidate.sh"

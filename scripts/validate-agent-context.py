@@ -9,6 +9,14 @@ import re
 import sys
 from pathlib import Path
 
+RISK_LANES = {
+    "tiny-low-risk",
+    "active-spec-kit",
+    "significant-feature",
+    "high-risk-product",
+    "release-deploy",
+}
+
 
 def validate(root: Path) -> list[str]:
     errors: list[str] = []
@@ -22,6 +30,7 @@ def validate(root: Path) -> list[str]:
     if not isinstance(data, dict):
         return ["invalid .specify/feature.json: top-level value must be an object"]
     required = (
+        "schema_version",
         "feature_directory",
         "feature_id",
         "owner",
@@ -33,6 +42,10 @@ def validate(root: Path) -> list[str]:
     for key in required:
         if key not in data or data[key] in (None, "", []):
             errors.append(f"missing required context field: {key}")
+    if data.get("schema_version") != 1:
+        errors.append("schema_version must be 1")
+    if data.get("risk_lane") not in RISK_LANES:
+        errors.append("risk_lane must be one of: " + ", ".join(sorted(RISK_LANES)))
     feature_dir = data.get("feature_directory")
     if not isinstance(feature_dir, str) or not re.fullmatch(r"specs/\d{3}-[a-z0-9][a-z0-9-]*", feature_dir):
         errors.append("feature_directory must match specs/NNN-slug")
@@ -96,7 +109,14 @@ def validate(root: Path) -> list[str]:
         if outside:
             errors.append("changed paths outside active feature ownership: " + ", ".join(outside))
     agents = (root / "AGENTS.md").read_text(encoding="utf-8", errors="ignore") if (root / "AGENTS.md").is_file() else ""
-    if re.search(r"at specs/\d{3}-[^\s`]+/plan\.md", agents):
+    managed_start = "<!-- SPECKIT START -->"
+    managed_end = "<!-- SPECKIT END -->"
+    outside_managed = agents
+    if managed_start in agents and managed_end in agents:
+        before, remainder = agents.split(managed_start, 1)
+        _managed, after = remainder.split(managed_end, 1)
+        outside_managed = before + after
+    if re.search(r"at specs/\d{3}-[^\s`]+/plan\.md", outside_managed):
         errors.append("root AGENTS.md contains a dynamic plan pointer")
     return errors
 
@@ -121,6 +141,7 @@ def self_test() -> int:
         (root / ".specify/feature.json").write_text(
             json.dumps(
                 {
+                    "schema_version": 1,
                     "feature_directory": "specs/001-x",
                     "feature_id": "001",
                     "branch": "test/001-x",
@@ -136,6 +157,7 @@ def self_test() -> int:
         (root / ".specify/feature.json").write_text(
             json.dumps(
                 {
+                    "schema_version": 1,
                     "feature_directory": "specs/001-x",
                     "feature_id": "001",
                     "branch": "test/001-x",

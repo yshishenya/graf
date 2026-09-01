@@ -348,7 +348,8 @@ main() (
   cd "$repo_root" || return 1
   observed_sha_start="$(git rev-parse HEAD)"
   started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  run_id="ci-${requested_mode}-${observed_sha_start:0:12}-$$"
+  run_nonce="$(python3 -c 'import secrets; print(secrets.token_hex(6))')"
+  run_id="ci-${requested_mode}-${observed_sha_start:0:12}-${run_nonce}"
   if [[ -z "$candidate_id" && -n "${GRAF_CI_CANDIDATE_FILE:-}" && -f "$GRAF_CI_CANDIDATE_FILE" ]]; then
     candidate_id="$(python3 - "$GRAF_CI_CANDIDATE_FILE" <<'PY'
 import json

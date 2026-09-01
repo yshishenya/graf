@@ -134,7 +134,7 @@ def test_agent_context_requires_object_branch_and_full_source_sha(tmp_path: Path
                 "feature_directory": "specs/001-example",
                 "feature_id": "001",
                 "owner": "test",
-                "risk_lane": "low",
+                "risk_lane": "tiny-low-risk",
                 "owned_paths": ["specs/001-example"],
                 "branch": "test/001-example",
                 "source_sha": "abc1234",
@@ -340,12 +340,13 @@ def test_package_safety_allows_documentation_examples_but_rejects_credentials(tm
 
 def _context_pointer(feature_directory: str = "specs/001-example", feature_id: str = "001") -> dict[str, object]:
     return {
+        "schema_version": 1,
         "feature_directory": feature_directory,
         "feature_id": feature_id,
         "branch": "test/001-example",
         "source_sha": "a" * 40,
         "owner": "test",
-        "risk_lane": "low",
+        "risk_lane": "tiny-low-risk",
         "owned_paths": [feature_directory],
     }
 
