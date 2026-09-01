@@ -198,10 +198,6 @@ async def _delete_smoke_meeting_rows(
             "delete from dispatch_intents where meeting_id=:meeting_id",
         ),
         (
-            "meetings",
-            "update meetings set current_outcome_set_id=null where id=:meeting_id",
-        ),
-        (
             "meeting_summary_slots",
             """
             update meeting_summary_slots
@@ -322,6 +318,48 @@ async def _delete_smoke_meeting_rows(
             "delete from track_artifacts where meeting_id=:meeting_id",
         ),
     ]
+    # Outcome sets can be selected through a processing-result lineage whose
+    # meeting_id is stale. Clear every meeting pointer to that full set before
+    # deleting it; this update is not a deletion and must not inflate counts.
+    if "meetings" in available_tables and "meeting_outcome_sets" in available_tables:
+        await conn.execute(
+            text(
+                """
+                with lineage as (
+                    select id from meeting_outcome_sets
+                    where meeting_id=:meeting_id
+                       or processing_result_id in (
+                           select id from processing_results where meeting_id=:meeting_id
+                       )
+                )
+                update meetings
+                   set current_outcome_set_id=null
+                 where current_outcome_set_id in (select id from lineage)
+                """
+            ),
+            meeting_params,
+        )
+    if "meeting_outcome_sets" in available_tables:
+        # A later/non-smoke outcome set may supersede a selected set. Break
+        # that FK edge before deleting the selected lineage.
+        await conn.execute(
+            text(
+                """
+                with lineage as (
+                    select id from meeting_outcome_sets
+                    where meeting_id=:meeting_id
+                       or processing_result_id in (
+                           select id from processing_results where meeting_id=:meeting_id
+                       )
+                )
+                update meeting_outcome_sets
+                   set supersedes_outcome_set_id=null
+                 where supersedes_outcome_set_id in (select id from lineage)
+                   and id not in (select id from lineage)
+                """
+            ),
+            meeting_params,
+        )
     for table_name, sql in ordered_meeting_deletes:
         removed_rows += await _delete_statement(
             conn,
