@@ -145,6 +145,34 @@ def test_agent_context_requires_object_branch_and_full_source_sha(tmp_path: Path
     assert any("full 40-character" in error for error in validator.validate(tmp_path))
 
 
+def test_agent_context_accepts_four_digit_feature_directory(tmp_path: Path) -> None:
+    validator = load_script("validate-agent-context")
+    feature = tmp_path / "specs/1000-example"
+    feature.mkdir(parents=True)
+    (feature / "spec.md").write_text("# Example\n", encoding="utf-8")
+    pointer = tmp_path / ".specify" / "feature.json"
+    pointer.parent.mkdir()
+    pointer.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "feature_directory": "specs/1000-example",
+                "feature_id": "1000",
+                "owner": "test",
+                "risk_lane": "tiny-low-risk",
+                "owned_paths": ["specs/1000-example"],
+                "branch": "test/1000-example",
+                "source_sha": "a" * 40,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    errors = validator.validate(tmp_path)
+
+    assert not any("feature_directory must match" in error for error in errors)
+
+
 def test_changelog_required_fields_must_be_top_level(tmp_path: Path) -> None:
     validator = load_script("validate-changelog-fragments")
     directory = tmp_path / "changes" / "unreleased"

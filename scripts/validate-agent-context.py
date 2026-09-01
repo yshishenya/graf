@@ -47,8 +47,8 @@ def validate(root: Path) -> list[str]:
     if data.get("risk_lane") not in RISK_LANES:
         errors.append("risk_lane must be one of: " + ", ".join(sorted(RISK_LANES)))
     feature_dir = data.get("feature_directory")
-    if not isinstance(feature_dir, str) or not re.fullmatch(r"specs/\d{3}-[a-z0-9][a-z0-9-]*", feature_dir):
-        errors.append("feature_directory must match specs/NNN-slug")
+    if not isinstance(feature_dir, str) or not re.fullmatch(r"specs/\d{3,}-[a-z0-9][a-z0-9-]*", feature_dir):
+        errors.append("feature_directory must match specs/NNN+-slug")
     else:
         path = (root / feature_dir).resolve()
         if root.resolve() not in path.parents or not (path / "spec.md").is_file():
