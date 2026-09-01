@@ -160,7 +160,10 @@ def _resolve_plan_path(project_root: str) -> str:
     try:
         return resolved.relative_to(root).as_posix()
     except ValueError:
-        return resolved.as_posix()
+        # Never leak or follow a plan outside this checkout.  The active
+        # pointer is untrusted input and context updates must fail closed
+        # rather than writing a machine-specific external path into AGENTS.md.
+        return ""
 
 
 def _build_section(marker_start: str, marker_end: str, plan_path: str) -> str:
