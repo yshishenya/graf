@@ -52,7 +52,10 @@ from twobrain_rec_server.processing.fences import (
     lock_meeting_fence,
     meeting_is_deleted_or_deleting,
 )
-from twobrain_rec_server.processing.results import effective_processing_result_query
+from twobrain_rec_server.processing.results import (
+    effective_processing_result_query,
+    latest_processing_result_query,
+)
 from twobrain_rec_server.processing.store import ProcessingLifecycleBlocked
 
 BASELINE_TEMPLATE_KEY = "graf-auto-v1"
@@ -156,7 +159,7 @@ async def ensure_outcomes_for_processing_result(
     if (latest_revision.id if latest_revision is not None else None) != result.media_revision_id:
         raise ProcessingLifecycleBlocked("summary_source_revision_stale")
     latest_result = await db.scalar(
-        effective_processing_result_query(
+        latest_processing_result_query(
             workspace_id=result.workspace_id,
             meeting_id=result.meeting_id,
             media_revision_id=result.media_revision_id,

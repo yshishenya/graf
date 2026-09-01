@@ -82,6 +82,44 @@ def effective_processing_result_query(
     )
 
 
+def latest_processing_result_query(
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+    media_revision_id: UUID | None,
+):
+    """Build the lineage fence query, including incomplete replacements.
+
+    User-visible projections intentionally use ``effective_processing_result_query``
+    and hide incomplete results. Lifecycle writers must still see a newer
+    imported replacement so an older result cannot create a competing lineage.
+    """
+
+    query = (
+        select(ProcessingResult)
+        .join(
+            ProcessingWorkflow,
+            ProcessingWorkflow.id == ProcessingResult.processing_workflow_id,
+        )
+        .where(
+            ProcessingResult.workspace_id == workspace_id,
+            ProcessingResult.meeting_id == meeting_id,
+            ProcessingResult.status == ProcessingResultStatus.IMPORTED.value,
+        )
+    )
+    if media_revision_id is None:
+        return query.where(false())
+    return query.where(
+        ProcessingResult.media_revision_id == media_revision_id,
+    ).order_by(
+        ProcessingWorkflow.attempt_ordinal.desc(),
+        ProcessingResult.result_version.desc(),
+        nullslast(ProcessingResult.imported_at.desc()),
+        ProcessingResult.created_at.desc(),
+        ProcessingResult.id.desc(),
+    )
+
+
 def result_lineage_is_current(
     result: object | None,
     *,
