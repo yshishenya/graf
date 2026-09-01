@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "feature_directory": "specs/216-development-governance-harness",
+  "feature_id": "216",
+  "branch": "codex/216-development-governance-harness",
+  "source_sha": "4486c350b37b4f7cf2a8a6b20dee03362af6774c",
+  "owner": "yshishenya",
+  "risk_lane": "significant-feature",
+  "task_ids": [
+    "T001",
+    "T042"
+  ],
+  "owned_paths": [
+    "specs/216-development-governance-harness",
+    "scripts",
+    "docs/agent-guidance",
+    "changes/unreleased",
+    ".github",
+    ".gitignore",
+    ".specify",
+    "AGENTS.md",
+    "apps/macos/Scripts",
+    "harness",
+    "infra",
+    "tests/governance",
+    "apps/server/tests/contract/test_ci_cd_contract.py"
+  ]
+}
