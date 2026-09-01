@@ -264,6 +264,11 @@ def test_feature_claim_rejects_corrupt_shared_state_and_keeps_offline_draft_expl
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+        subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=root, check=True)
+        subprocess.run(["git", "config", "user.name", "Governance Test"], cwd=root, check=True)
+        (root / ".keep").write_text("fixture\n", encoding="utf-8")
+        subprocess.run(["git", "add", ".keep"], cwd=root, check=True)
+        subprocess.run(["git", "commit", "-qm", "fixture"], cwd=root, check=True)
         common = Path(
             subprocess.check_output(["git", "rev-parse", "--git-common-dir"], cwd=root, text=True).strip()
         )
@@ -291,6 +296,11 @@ def test_feature_claim_can_upgrade_matching_offline_draft(monkeypatch) -> None:
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+        subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=root, check=True)
+        subprocess.run(["git", "config", "user.name", "Governance Test"], cwd=root, check=True)
+        (root / ".keep").write_text("fixture\n", encoding="utf-8")
+        subprocess.run(["git", "add", ".keep"], cwd=root, check=True)
+        subprocess.run(["git", "commit", "-qm", "fixture"], cwd=root, check=True)
         validator.claim(root, 216, issue_number=None, branch="draft/216-x", slug="x", offline=True)
         monkeypatch.setattr(validator, "_github_ids", lambda *args, **kwargs: set())
         monkeypatch.setattr(validator, "_github_umbrella", lambda *args, **kwargs: None)

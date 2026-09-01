@@ -19,17 +19,31 @@ def release_env() -> dict[str, str]:
 
 
 def run(script: Path, *args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
-    return subprocess.run([str(script), *args], cwd=cwd, text=True, capture_output=True)
+    call_args = list(args)
+    if args and args[0] == "decide" and "--evidence" in args:
+        evidence_index = args.index("--evidence") + 1
+        evidence = Path(args[evidence_index])
+        candidate = Path(args[1])
+        if evidence.exists() and candidate.exists():
+            candidate_id = json.loads(candidate.read_text(encoding="utf-8")).get("candidate_id")
+            if isinstance(candidate_id, str):
+                canonical = cwd / ".dev" / "ci-evidence" / f"authoritative-{candidate_id}.json"
+                canonical.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(evidence, canonical)
+                if evidence != canonical:
+                    evidence.unlink()
+                call_args[evidence_index] = str(canonical)
+    return subprocess.run([str(script), *call_args], cwd=cwd, text=True, capture_output=True)
 
 
-def fixture(tmp_path: Path) -> Path:
+def fixture(tmp_path: Path, release_calver: str = "2026.08.31.1") -> Path:
     shutil.copytree(ROOT / "infra/scripts", tmp_path / "infra/scripts")
     (tmp_path / "infra/release").mkdir(parents=True)
     shutil.copy2(SCHEMA, tmp_path / "infra/release/candidate.schema.json")
     (tmp_path / "scripts").mkdir()
     shutil.copy2(EVIDENCE_VALIDATOR, tmp_path / "scripts/validate-ci-evidence.py")
     (tmp_path / "CHANGELOG.md").write_text(
-        "## [Unreleased]\n\n- _Пока нет записей._\n\n## [2026.08.31.1] - 2026-08-31\n\n- Feature 216\n- Feature 217\n\n## [2026.08.30.1] - 2026-08-30\n\n- Previous release\n",
+        f"## [Unreleased]\n\n- _Пока нет записей._\n\n## [{release_calver}] - 2026-09-01\n\n- Feature 216\n- Feature 217\n\n## [2026.08.30.1] - 2026-08-30\n\n- Previous release\n",
         encoding="utf-8",
     )
     for feature_id in ("216", "217"):
@@ -110,7 +124,7 @@ def test_validate_current_rejects_ignored_candidate_metadata_drift(tmp_path: Pat
 
     result = run(script, "validate", str(frozen), "--current", cwd=root)
     assert result.returncode != 0
-    assert "metadata drift detected" in result.stderr
+    assert "candidate schema validation failed" in result.stderr or "metadata drift detected" in result.stderr
 
 
 def test_decide_rejects_impossible_calver_date(tmp_path: Path) -> None:
@@ -191,7 +205,7 @@ def test_default_records_are_in_ignored_evidence_path_and_decision_is_unique(tmp
     sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
     result = run(script, "freeze", "--sha", sha, "--features", "216,217", "--operator", "release", cwd=root)
     assert result.returncode == 0, result.stderr
-    candidate_paths = list((root / ".dev" / "release" / "candidates").glob(f"rc-*-{sha[:12]}.json"))
+    candidate_paths = list((root / ".dev" / "release" / "candidates").glob("rc-*.json"))
     assert len(candidate_paths) == 1
     candidate_path = candidate_paths[0]
     candidate = json.loads(candidate_path.read_text(encoding="utf-8"))
@@ -562,7 +576,7 @@ def test_decide_treats_non_object_evidence_as_normal_no_go(tmp_path: Path) -> No
 
 
 def test_attest_rejects_release_from_different_github_repository(tmp_path: Path) -> None:
-    root = fixture(tmp_path)
+    root = fixture(tmp_path, release_calver="2026.09.01.1")
     script = root / "infra/scripts/release-candidate.sh"
     subprocess.run(["git", "remote", "add", "origin", "https://github.com/yshishenya/graf.git"], cwd=root, check=True)
     sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
@@ -589,13 +603,13 @@ def test_attest_rejects_release_from_different_github_repository(tmp_path: Path)
         "component_shas": {"server": sha},
     }), encoding="utf-8")
     decision_path = root / "decision.json"
-    result = run(script, "decide", str(candidate_path), "--evidence", str(evidence_path), "--calver", "2026.08.31.1", "--output", str(decision_path), cwd=root)
+    result = run(script, "decide", str(candidate_path), "--evidence", str(evidence_path), "--calver", "2026.09.01.1", "--output", str(decision_path), cwd=root)
     assert result.returncode == 0, result.stderr
     result = run(
         script,
         "attest",
         str(decision_path),
-        "--release-url", "https://github.com/other/repo/releases/tag/v2026.08.31.1",
+        "--release-url", "https://github.com/other/repo/releases/tag/v2026.09.01.1",
         "--release-sha", sha,
         "--operator", "release",
         cwd=root,

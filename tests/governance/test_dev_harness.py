@@ -174,12 +174,11 @@ def test_live_build_does_not_claim_existing_metadata_is_a_live_artifact(monkeypa
             return {"mode": "live", "app_bundle_digest": "sha256:" + "3" * 64}
 
     monkeypatch.setattr(dev_harness, "GrafLocalAdapter", FakeAdapter)
-    with pytest.raises(dev_harness.HarnessError, match="active live Dev app artifact"):
-        run(
-            "build", tmp_path, sha=sha, feature_id="216", operator="test",
-            migration_head="dev-head", dry_run=False, live=True,
-        )
-    assert calls == []
+    run(
+        "build", tmp_path, sha=sha, feature_id="216", operator="test",
+        migration_head="dev-head", dry_run=False, live=True,
+    )
+    assert calls == [sha]
     assert json.loads((tmp_path / "manifests" / f"{first['manifest_id']}.json").read_text()) == active_before
 
 
@@ -211,12 +210,11 @@ def test_live_build_rebuilds_when_existing_app_digest_drifted(monkeypatch, tmp_p
             return {"mode": "live", "app_bundle_digest": manifest["components"]["macos_app"]["digest"]}
 
     monkeypatch.setattr(dev_harness, "GrafLocalAdapter", FakeAdapter)
-    with pytest.raises(dev_harness.HarnessError, match="active live Dev app artifact"):
-        run(
-            "build", tmp_path, sha=sha, feature_id="216", operator="test",
-            migration_head="dev-head", dry_run=False, live=True,
-        )
-    assert calls == []
+    run(
+        "build", tmp_path, sha=sha, feature_id="216", operator="test",
+        migration_head="dev-head", dry_run=False, live=True,
+    )
+    assert calls == [sha]
 
 
 def test_metadata_only_promote_refuses_live_active_target(tmp_path):

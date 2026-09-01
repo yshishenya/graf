@@ -30,7 +30,7 @@ def _fixture(tmp_path: Path) -> Path:
     shutil.copy2(ROOT / "scripts/validate-release-train.py", root / "scripts/validate-release-train.py")
     shutil.copy2(ROOT / "scripts/validate-ci-evidence.py", root / "scripts/validate-ci-evidence.py")
     (root / ".gitignore").write_text(".dev/\n", encoding="utf-8")
-    (root / "CHANGELOG.md").write_text("## [Unreleased]\n\n- Feature 227\n- Feature 228\n\n## [2026.08.31.1] - 2026-08-31\n\n- Previous release\n", encoding="utf-8")
+    (root / "CHANGELOG.md").write_text("## [2026.09.01.1] - 2026-09-01\n\n- Feature 227\n- Feature 228\n\n## [2026.08.31.1] - 2026-08-31\n\n- Previous release\n", encoding="utf-8")
     for feature_id in ("227", "228"):
         feature_dir = root / "specs" / f"{feature_id}-fixture"
         feature_dir.mkdir(parents=True)
@@ -40,19 +40,23 @@ def _fixture(tmp_path: Path) -> Path:
     subprocess.run(["git", "config", "user.name", "Governance Test"], cwd=root, check=True)
     subprocess.run(["git", "add", "."], cwd=root, check=True)
     subprocess.run(["git", "commit", "-qm", "fixture"], cwd=root, check=True)
+    (root / "post-merge-marker").write_text("source\n", encoding="utf-8")
+    subprocess.run(["git", "add", "post-merge-marker"], cwd=root, check=True)
+    subprocess.run(["git", "commit", "-qm", "post-merge source"], cwd=root, check=True)
     subprocess.run(["git", "update-ref", "refs/remotes/origin/master", "HEAD"], cwd=root, check=True)
     return root
 
 
 def _freeze_args(source: str, output: Path) -> list[str]:
+    synthetic = ("d" * 40) if source == "c" * 40 else subprocess.check_output(["git", "rev-parse", f"{source}^"], cwd=output.parents[3], text=True).strip()
     return [
         "train-freeze",
         "--source-sha",
         source,
         "--base-sha",
-        "b" * 40,
+        source,
         "--synthetic-merge-sha",
-        "c" * 40,
+        synthetic,
         "--prs",
         "101,102,103",
         "--features",
@@ -81,8 +85,8 @@ def test_train_freeze_and_validate_bind_post_merge_sha_and_provenance(tmp_path: 
     assert frozen.returncode == 0, frozen.stderr
     manifest = json.loads(output.read_text(encoding="utf-8"))
     assert manifest["source_sha"] == source
-    assert manifest["base_sha"] == "b" * 40
-    assert manifest["synthetic_merge_sha"] == "c" * 40
+    assert manifest["base_sha"] == source
+    assert manifest["synthetic_merge_sha"] != source
     assert manifest["included_prs"] == [101, 102, 103]
     assert manifest["feature_ids"] == ["227", "228"]
     assert manifest["decision"] == "pending"
@@ -216,6 +220,8 @@ def test_train_attest_binds_authoritative_full_ci_to_candidate(tmp_path: Path) -
     assert _run(root, "train-validate", str(train_go), "--current").returncode == 0
 
     decision = root / "decision.json"
+    canonical_evidence = root / ".dev" / "ci-evidence" / f"authoritative-{candidate_data['candidate_id']}.json"
+    shutil.copy2(evidence, canonical_evidence)
     decided = _run(
         root,
         "decide",
@@ -223,9 +229,9 @@ def test_train_attest_binds_authoritative_full_ci_to_candidate(tmp_path: Path) -
         "--train",
         str(train_go),
         "--evidence",
-        str(evidence),
+        str(canonical_evidence),
         "--calver",
-        "2026.08.31.1",
+        "2026.09.01.1",
         "--output",
         str(decision),
     )

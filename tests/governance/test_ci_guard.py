@@ -147,7 +147,7 @@ def test_dirty_candidate_full_run_is_blocked_but_direct_full_is_diagnostic() -> 
     script = (ROOT / "infra/scripts/ci-local.sh").read_text(encoding="utf-8")
     assert 'reason=dirty_worktree_before_run' in script
     assert 'reason=release_candidate_required_for_clean_gate' in script
-    assert '[[ "$requested_mode" == "full" && -n "$candidate_file" && -n "$initial_tree_state" ]]' in script
+    assert '[[ "$requested_mode" == "full" && -n "$candidate_id" && -n "$initial_tree_state" ]]' in script
 
 
 def test_dev_installer_parses_and_validates_both_loopback_origins() -> None:

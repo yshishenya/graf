@@ -84,7 +84,11 @@ def test_signed_app_identity_is_measured_from_codesign_output(monkeypatch, tmp_p
     def fake_combined(command, *, cwd, env=None):
         return outputs[command[1]]
 
+    def fake_run(command, *, cwd, env=None):
+        return outputs["-d"]
+
     monkeypatch.setattr(dev_harness, "_run_command_combined", fake_combined)
+    monkeypatch.setattr(dev_harness, "_run_command", fake_run)
     signer, requirement, entitlements_digest = adapter._measure_signed_app_identity(tmp_path / "GRAF Dev.app")
 
     assert signer == "GRAF Local Code Signing"
