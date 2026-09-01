@@ -1,7 +1,6 @@
 from pathlib import Path
 
 import pytest
-
 from twobrain_rec_server.deployment import SmokeCleanupRecord
 
 
