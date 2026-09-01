@@ -227,8 +227,20 @@ def _desktop_review_status(
     processing_status: ProcessingStatus,
     processing_workflow_id: object | None,
 ) -> str:
+    if processing_status in {
+        ProcessingStatus.FAILED_RETRYABLE,
+        ProcessingStatus.FAILED_TERMINAL,
+    }:
+        return "failed"
     has_transcript = _transcript_artifact_available(result)
     has_diarization = _diarization_available(result)
+    if (
+        processing_status == ProcessingStatus.PROCESSED
+        and has_transcript != has_diarization
+    ):
+        # A terminal processing attempt that produced only one artifact is a
+        # failed/incomplete review state, matching the cabinet projection.
+        return "failed"
     latest_attempt_has_effective_result = bool(
         result is not None
         and processing_workflow_id is not None
@@ -780,6 +792,21 @@ async def get_desktop_recording_sync_state(
         meeting_id=meeting.id,
         media_revision_id=meeting.media_revision_id,
     )
+    # An active replacement owns the review surface; do not expose artifacts
+    # from an older attempt while the replacement is running.
+    if (
+        review_workflow is not None
+        and review_workflow.status
+        not in {
+            ProcessingStatus.PROCESSED.value,
+            ProcessingStatus.FAILED_RETRYABLE.value,
+            ProcessingStatus.FAILED_TERMINAL.value,
+            ProcessingStatus.BLOCKED.value,
+            ProcessingStatus.CANCELED.value,
+        }
+        and (review_result is None or review_result.processing_workflow_id != review_workflow.id)
+    ):
+        review_result = None
     terminal_input_result = bool(
         review_workflow is not None
         and workflow_result is not None

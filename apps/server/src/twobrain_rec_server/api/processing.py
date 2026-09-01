@@ -382,6 +382,7 @@ async def start_new_processing_attempt(
     "/meetings/{meeting_id}/processing/reprocess",
     response_model=ProcessingReprocessResponse,
     status_code=202,
+    include_in_schema=False,
     dependencies=[PrincipalDependency, DeviceDependency, WebCSRFDependency],
 )
 async def reprocess_meeting(

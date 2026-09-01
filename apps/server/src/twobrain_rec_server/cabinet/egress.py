@@ -796,6 +796,38 @@ async def _effective_complete_result(
     )
     if latest_revision is None:
         return None
+    # The default summary slot is the publication pointer. Keep its source
+    # pinned while an unpromoted provider result is being reconciled.
+    slot = await load_meeting_default_slot(
+        db,
+        workspace_id=meeting.workspace_id,
+        meeting_id=meeting.id,
+    )
+    if slot is not None and slot.current_outcome_set_id is not None:
+        pinned = await db.scalar(
+            select(MeetingOutcomeSet).where(
+                MeetingOutcomeSet.id == slot.current_outcome_set_id,
+                MeetingOutcomeSet.workspace_id == meeting.workspace_id,
+                MeetingOutcomeSet.meeting_id == meeting.id,
+                MeetingOutcomeSet.lifecycle_state == "active",
+                MeetingOutcomeSet.status.in_({
+                    OutcomeSetStatus.AVAILABLE.value,
+                    OutcomeSetStatus.PARTIAL.value,
+                }),
+            )
+        )
+        if pinned is not None and pinned.processing_result_id is not None:
+            pinned_result = await db.scalar(
+                select(ProcessingResult).where(
+                    ProcessingResult.id == pinned.processing_result_id,
+                    ProcessingResult.workspace_id == meeting.workspace_id,
+                    ProcessingResult.meeting_id == meeting.id,
+                    ProcessingResult.media_revision_id == latest_revision.id,
+                    ProcessingResult.status == ProcessingResultStatus.IMPORTED.value,
+                )
+            )
+            if pinned_result is not None:
+                return pinned_result
     return await db.scalar(
         effective_processing_result_query(
             workspace_id=meeting.workspace_id,

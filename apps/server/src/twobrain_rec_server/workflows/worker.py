@@ -202,13 +202,41 @@ async def _load_processing_workflow_for_activity(
     if processing_workflow_id is None:
         # ponytail: legacy histories omit the row UUID; remove this fallback
         # after every such execution has closed.
-        workflow = await store.get_processing_workflow(
-            db,
-            workspace_id=workspace_id,
-            meeting_id=meeting_id,
-            media_revision_id=media_revision_id,
-            active_only=active_only,
-        )
+        if media_revision_id is None:
+            # Legacy callbacks omitted revision identity. Discover the
+            # workflow, then let the accepted-revision fence reject it.
+            query = (
+                select(ProcessingWorkflow)
+                .where(
+                    ProcessingWorkflow.workspace_id == workspace_id,
+                    ProcessingWorkflow.meeting_id == meeting_id,
+                    ProcessingWorkflow.purpose == "transcription",
+                )
+                .order_by(
+                    ProcessingWorkflow.attempt_ordinal.desc(),
+                    ProcessingWorkflow.created_at.desc(),
+                )
+            )
+            if active_only:
+                query = query.where(
+                    ProcessingWorkflow.status.notin_(
+                        {
+                            ProcessingStatus.PROCESSED.value,
+                            ProcessingStatus.BLOCKED.value,
+                            ProcessingStatus.FAILED_TERMINAL.value,
+                            ProcessingStatus.CANCELED.value,
+                        }
+                    )
+                )
+            workflow = await db.scalar(query)
+        else:
+            workflow = await store.get_processing_workflow(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+                active_only=active_only,
+            )
     else:
         query = select(ProcessingWorkflow).where(
             ProcessingWorkflow.id == processing_workflow_id,
@@ -232,7 +260,7 @@ async def _load_processing_workflow_for_activity(
     if (
         workflow.workspace_id != workspace_id
         or workflow.meeting_id != meeting_id
-        or workflow.media_revision_id != media_revision_id
+        or (media_revision_id is not None and workflow.media_revision_id != media_revision_id)
         or (temporal_workflow_id is not None and workflow.workflow_id != temporal_workflow_id)
     ):
         raise ProcessingLifecycleBlocked("processing_workflow_identity_mismatch")

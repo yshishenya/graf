@@ -55,6 +55,7 @@ from twobrain_rec_server.processing.fences import (
 from twobrain_rec_server.processing.results import (
     effective_processing_result_query,
     latest_processing_result_query,
+    result_is_complete,
 )
 from twobrain_rec_server.processing.store import ProcessingLifecycleBlocked
 
@@ -165,10 +166,27 @@ async def ensure_outcomes_for_processing_result(
             media_revision_id=result.media_revision_id,
         )
     )
-    if latest_result is None or latest_result.id != result.id:
+    # Only complete imported results may seed user-visible outcomes. The
+    # latest imported row is still consulted so incomplete replacements fence
+    # older callbacks without replacing their projection.
+    if not result_is_complete(result):
+        raise ProcessingLifecycleBlocked("summary_source_result_stale")
+    effective_result = await db.scalar(
+        effective_processing_result_query(
+            workspace_id=result.workspace_id,
+            meeting_id=result.meeting_id,
+            media_revision_id=result.media_revision_id,
+        )
+    )
+    if effective_result is None or effective_result.id != result.id:
+        raise ProcessingLifecycleBlocked("summary_source_result_stale")
+    if latest_result is None:
+        raise ProcessingLifecycleBlocked("summary_source_result_stale")
+    if result_is_complete(latest_result) and latest_result.id != result.id:
         raise ProcessingLifecycleBlocked("summary_source_result_stale")
     if (
-        latest_result.source_result_hash is not None
+        latest_result.id == result.id
+        and latest_result.source_result_hash is not None
         and result.source_result_hash is not None
         and latest_result.source_result_hash != result.source_result_hash
     ):
