@@ -792,21 +792,6 @@ async def get_desktop_recording_sync_state(
         meeting_id=meeting.id,
         media_revision_id=meeting.media_revision_id,
     )
-    # An active replacement owns the review surface; do not expose artifacts
-    # from an older attempt while the replacement is running.
-    if (
-        review_workflow is not None
-        and review_workflow.status
-        not in {
-            ProcessingStatus.PROCESSED.value,
-            ProcessingStatus.FAILED_RETRYABLE.value,
-            ProcessingStatus.FAILED_TERMINAL.value,
-            ProcessingStatus.BLOCKED.value,
-            ProcessingStatus.CANCELED.value,
-        }
-        and (review_result is None or review_result.processing_workflow_id != review_workflow.id)
-    ):
-        review_result = None
     terminal_input_result = bool(
         review_workflow is not None
         and workflow_result is not None
