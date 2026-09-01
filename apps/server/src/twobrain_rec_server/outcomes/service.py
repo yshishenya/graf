@@ -56,6 +56,7 @@ from twobrain_rec_server.processing.results import (
     effective_processing_result_query,
     latest_processing_result_query,
     result_is_complete,
+    result_is_terminal_input,
 )
 from twobrain_rec_server.processing.store import ProcessingLifecycleBlocked
 
@@ -128,6 +129,7 @@ async def ensure_outcomes_for_meeting(
             db,
             result=result,
             publish_initial_baseline=publish_initial_baseline,
+            enforce_latest_result=False,
         )
         await db.commit()
         return outcome_set
@@ -139,6 +141,7 @@ async def ensure_outcomes_for_processing_result(
     result: ProcessingResult,
     publish_initial_baseline: bool = False,
     ai_dispatch_planned: bool | None = None,
+    enforce_latest_result: bool = True,
 ) -> MeetingOutcomeSet:
     meeting = await lock_meeting_fence(
         db, workspace_id=result.workspace_id, meeting_id=result.meeting_id
@@ -159,18 +162,20 @@ async def ensure_outcomes_for_processing_result(
     )
     if (latest_revision.id if latest_revision is not None else None) != result.media_revision_id:
         raise ProcessingLifecycleBlocked("summary_source_revision_stale")
-    latest_result = await db.scalar(
-        latest_processing_result_query(
-            workspace_id=result.workspace_id,
-            meeting_id=result.meeting_id,
-            media_revision_id=result.media_revision_id,
+    latest_result = None
+    if enforce_latest_result:
+        latest_result = await db.scalar(
+            latest_processing_result_query(
+                workspace_id=result.workspace_id,
+                meeting_id=result.meeting_id,
+                media_revision_id=result.media_revision_id,
+            )
         )
-    )
-    # A callback may only create or update the lineage for the latest imported
-    # row. Incomplete terminal input results still create a blocked outcome;
-    # only a newer imported row fences this callback.
-    if latest_result is None or latest_result.id != result.id:
-        raise ProcessingLifecycleBlocked("summary_source_result_stale")
+        # A callback may only create or update the lineage for the latest
+        # imported row. Meeting-level reconciliation intentionally uses the
+        # effective complete result, even when a newer partial row exists.
+        if latest_result is None or latest_result.id != result.id:
+            raise ProcessingLifecycleBlocked("summary_source_result_stale")
     if result_is_complete(result):
         effective_result = await db.scalar(
             effective_processing_result_query(
@@ -182,7 +187,8 @@ async def ensure_outcomes_for_processing_result(
         if effective_result is None or effective_result.id != result.id:
             raise ProcessingLifecycleBlocked("summary_source_result_stale")
     if (
-        latest_result.id == result.id
+        latest_result is not None
+        and latest_result.id == result.id
         and latest_result.source_result_hash is not None
         and result.source_result_hash is not None
         and latest_result.source_result_hash != result.source_result_hash
@@ -226,6 +232,11 @@ async def ensure_outcomes_for_processing_result(
             .with_for_update()
         )
     transcript_is_available = canonical_speech_available(result)
+    has_transcript_artifact = bool(
+        result.transcript_status == "available" and int(result.segment_count or 0) > 0
+    )
+    if not has_transcript_artifact and not result_is_terminal_input(result):
+        raise ProcessingLifecycleBlocked("summary_source_result_stale")
     revision_scoped_ai_wait = (
         publish_initial_baseline
         and result.media_revision_id is not None
