@@ -1881,6 +1881,7 @@ async def continue_billing_checkout(
             "billing_actor_user_id": str(principal.user_id),
         }
         billing_actor_user_id = str(principal.user_id)
+        await db.commit()
     if operation.provider_id is not None:
         confirmation_url = operation.request_snapshot.get("confirmation_url")
         return RedirectResponse(
