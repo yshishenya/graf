@@ -1,6 +1,6 @@
 # Feature 210: implementation evidence
 
-Дата: 2026-08-31.
+Дата: 2026-09-01.
 
 ## Scope и границы
 
@@ -28,7 +28,12 @@
 - GitHub issue canon: PASS, 300 Spec Kit issues checked; Feature 210 tasks
   связаны с #5945–#5962.
 - `git diff --check`: PASS.
-- Exact feature SHA: `8a0c9be7d5a0411d503b95f7db0af2288b7bdaf4`.
+- Exact reviewed SHA: `97c1489bf14280fc2f76fe515a8212a72f1baaf7`.
+- На exact reviewed SHA `infra/scripts/ci-local.sh --fast` выполнен: сборка
+  прошла, 781 macOS-тест запущен; 5 падений ограничены baseline
+  `InstallerLifecycleEvidenceTests` с причиной `remote workflow files remain in
+  the active repository`. Billing-код и связанные тесты в этих падениях не
+  участвуют; full CI/release gate остаётся обязательным перед релизом.
 - `infra/scripts/ci-local.sh --fast` штатно эскалировал в full из-за high-risk
   billing paths и завершился PASS: macOS `770 passed`, server parallel
   `3779 passed, 1 skipped`, performance `1 passed`, strict-RLS `52 passed,
