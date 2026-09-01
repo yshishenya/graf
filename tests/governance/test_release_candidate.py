@@ -99,6 +99,20 @@ def test_validate_current_rejects_changed_changelog(tmp_path: Path) -> None:
     assert "changelog digest" in result.stderr
 
 
+def test_validate_current_rejects_ignored_candidate_metadata_drift(tmp_path: Path) -> None:
+    root = fixture(tmp_path)
+    script = root / "infra/scripts/release-candidate.sh"
+    sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+    frozen = root / ".dev" / "release" / "candidate.json"
+    result = run(script, "freeze", "--sha", sha, "--feature-id", "216", "--operator", "release", "--output", str(frozen), cwd=root)
+    assert result.returncode == 0, result.stderr
+    frozen.write_text(frozen.read_text(encoding="utf-8").replace('"status": "frozen"', '"status": "invalidated"'), encoding="utf-8")
+
+    result = run(script, "validate", str(frozen), "--current", cwd=root)
+    assert result.returncode != 0
+    assert "metadata drift detected" in result.stderr
+
+
 def test_decide_rejects_impossible_calver_date(tmp_path: Path) -> None:
     root = fixture(tmp_path)
     script = root / "infra/scripts/release-candidate.sh"

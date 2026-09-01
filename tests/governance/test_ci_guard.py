@@ -123,6 +123,12 @@ def test_candidate_file_source_sha_is_checked_before_pipeline() -> None:
     assert "candidate_source_sha_mismatch" in script
 
 
+def test_authoritative_full_requires_candidate_file() -> None:
+    script = (ROOT / "infra/scripts/ci-local.sh").read_text(encoding="utf-8")
+    assert 'requested_mode" == "full" && -n "$candidate_id" && -z "$candidate_file"' in script
+    assert "candidate_file_required" in script
+
+
 def test_candidate_file_mismatch_emits_stale_evidence_without_running_pipeline(tmp_path: Path) -> None:
     candidate = tmp_path / "candidate.json"
     candidate.write_text(

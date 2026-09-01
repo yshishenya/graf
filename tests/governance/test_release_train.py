@@ -40,6 +40,7 @@ def _fixture(tmp_path: Path) -> Path:
     subprocess.run(["git", "config", "user.name", "Governance Test"], cwd=root, check=True)
     subprocess.run(["git", "add", "."], cwd=root, check=True)
     subprocess.run(["git", "commit", "-qm", "fixture"], cwd=root, check=True)
+    subprocess.run(["git", "update-ref", "refs/remotes/origin/master", "HEAD"], cwd=root, check=True)
     return root
 
 
@@ -106,6 +107,20 @@ def test_train_freeze_is_create_once_and_rejects_synthetic_source(tmp_path: Path
     assert "distinct" in invalid.stderr or "HEAD differs" in invalid.stderr
 
 
+def test_train_freeze_rejects_source_not_on_origin_master(tmp_path: Path) -> None:
+    root = _fixture(tmp_path)
+    source = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+    (root / "post-merge.txt").write_text("post merge\n", encoding="utf-8")
+    subprocess.run(["git", "add", "post-merge.txt"], cwd=root, check=True)
+    subprocess.run(["git", "commit", "-qm", "post merge"], cwd=root, check=True)
+    current = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+    assert current != source
+
+    result = _run(root, *_freeze_args(current, root / ".dev/release/trains/rejected.json"))
+    assert result.returncode != 0
+    assert "must match origin/master" in result.stderr
+
+
 def test_train_validate_current_rejects_changelog_drift(tmp_path: Path) -> None:
     root = _fixture(tmp_path)
     source = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
@@ -116,6 +131,37 @@ def test_train_validate_current_rejects_changelog_drift(tmp_path: Path) -> None:
     result = _run(root, "train-validate", str(output), "--current")
     assert result.returncode != 0
     assert "changelog digest" in result.stderr
+
+
+def test_candidate_freeze_rejects_partial_release_train_feature_set(tmp_path: Path) -> None:
+    root = _fixture(tmp_path)
+    source = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+    train = root / ".dev/release/trains/train.json"
+    assert _run(root, *_freeze_args(source, train)).returncode == 0
+
+    result = _run(
+        root,
+        "freeze",
+        "--sha", source,
+        "--features", "227",
+        "--operator", "release-operator",
+        "--train", str(train),
+        "--output", str(root / ".dev/release/candidates/partial.json"),
+    )
+    assert result.returncode != 0
+    assert "exactly match the release train feature set" in result.stderr
+
+
+def test_train_validate_current_rejects_ignored_train_metadata_drift(tmp_path: Path) -> None:
+    root = _fixture(tmp_path)
+    source = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+    train = root / ".dev/release/trains/train.json"
+    assert _run(root, *_freeze_args(source, train)).returncode == 0
+    train.write_text(train.read_text(encoding="utf-8").replace('"operator": "release-operator"', '"operator": "tampered-operator"'), encoding="utf-8")
+
+    result = _run(root, "train-validate", str(train), "--current")
+    assert result.returncode != 0
+    assert "metadata drift detected" in result.stderr
 
 
 def test_train_attest_binds_authoritative_full_ci_to_candidate(tmp_path: Path) -> None:

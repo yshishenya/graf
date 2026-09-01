@@ -380,6 +380,14 @@ def test_package_safety_allows_documentation_examples_but_rejects_credentials(tm
     errors = validator.package_safety(tmp_path)
     assert any("forbidden secret/private content" in error for error in errors)
 
+    (tmp_path / "env.py").write_text(
+        "GITHUB_" + "TOKEN=abcdefghijk\n"
+        "SIGNED_" + "URL=https://example.invalid/path\n",
+        encoding="utf-8",
+    )
+    errors = validator.package_safety(tmp_path)
+    assert any("forbidden secret/private content" in error for error in errors)
+
 
 def _context_pointer(feature_directory: str = "specs/001-example", feature_id: str = "001") -> dict[str, object]:
     return {

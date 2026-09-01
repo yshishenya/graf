@@ -4,7 +4,11 @@
   "repository": "https://github.com/yshishenya/graf-development-harness",
   "version": "0.1.13",
   "ref": "v0.1.13",
+<<<<<<< HEAD
   "commit": "6a8257186aee878087b68fd77716ddce595a012d",
+=======
+  "commit": "38a476dc8be17f290ace9661716f00ed1b3974d4",
+>>>>>>> 15cfdec1d (fix(227): close release train and harness governance gaps)
   "adapter": "GRAF-local",
   "rollback_ref": "v0.1.12"
 }
