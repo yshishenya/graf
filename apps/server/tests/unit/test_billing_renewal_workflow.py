@@ -102,7 +102,7 @@ async def test_confirmed_renewal_extends_paid_through_once() -> None:
         recurring_authority_version=0,
     )
     operation.request_snapshot["recurring_authority_version"] = 0
-    db = FakeDb([operation, invoice, None, subscription, _personal_workspace(), _active_owner()])
+    db = FakeDb([_personal_workspace(), subscription, operation, invoice, None, _active_owner()])
 
     result = await grant_confirmed_renewal(
         db,
@@ -162,7 +162,7 @@ async def test_late_success_after_provider_key_expiry_restores_access_without_re
         recurring_allowed=True,
         recurring_authority_version=4,
     )
-    db = FakeDb([operation, invoice, None, subscription, _personal_workspace(), _active_owner()])
+    db = FakeDb([_personal_workspace(), subscription, operation, invoice, None, _active_owner()])
 
     result = await grant_confirmed_renewal(
         db,
@@ -227,17 +227,8 @@ async def test_late_success_after_refusal_is_recorded_and_notified_once() -> Non
         recurring_authority_version=5,
     )
     db = FakeDb(
-        [
-            operation,
-            invoice,
-            None,
-            subscription,
-            _personal_workspace(),
-            _active_owner(),
-            None,
-            operation,
-            invoice,
-        ]
+        [_personal_workspace(), subscription, operation, invoice, None, _active_owner(), None,
+         _personal_workspace(), subscription, operation, invoice]
     )
 
     first = await grant_confirmed_renewal(
@@ -317,7 +308,7 @@ async def test_confirmed_renewal_is_refused_without_active_personal_owner() -> N
         recurring_authority_version=4,
     )
     db = FakeDb(
-        [operation, invoice, None, subscription, _personal_workspace(kind="corporate"), None]
+        [_personal_workspace(kind="corporate"), subscription, operation, invoice, None, None]
     )
 
     result = await grant_confirmed_renewal(
