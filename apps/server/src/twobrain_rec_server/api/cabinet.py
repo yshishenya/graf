@@ -13,7 +13,7 @@ from fastapi.responses import (
     Response,
     StreamingResponse,
 )
-from sqlalchemy import select
+from sqlalchemy import nullslast, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.admin.queries import load_admin_workspace_context
@@ -197,7 +197,6 @@ from twobrain_rec_server.processing.fences import (
     meeting_is_deleted_or_deleting,
     normalize_db_timestamp,
 )
-from twobrain_rec_server.processing.results import effective_processing_result_query
 from twobrain_rec_server.processing.store import (
     latest_media_revision_for_meeting,
 )
@@ -1895,11 +1894,22 @@ async def list_summary_candidates_route(
         )
         .order_by(MediaRevision.revision_number.desc(), MediaRevision.updated_at.desc())
     )
+    result_query = select(ProcessingResult).where(
+        ProcessingResult.workspace_id == tenant_scope.workspace_id,
+        ProcessingResult.meeting_id == meeting_id,
+        ProcessingResult.status == "imported",
+    )
+    result_query = result_query.where(
+        ProcessingResult.media_revision_id == latest_revision.id
+        if latest_revision is not None
+        else ProcessingResult.media_revision_id.is_(None)
+    )
     latest_result = await db.scalar(
-        effective_processing_result_query(
-            workspace_id=tenant_scope.workspace_id,
-            meeting_id=meeting_id,
-            media_revision_id=latest_revision.id if latest_revision is not None else None,
+        result_query.order_by(
+            ProcessingResult.result_version.desc(),
+            nullslast(ProcessingResult.imported_at.desc()),
+            ProcessingResult.created_at.desc(),
+            ProcessingResult.id.desc(),
         )
     )
     if latest_result is None:
@@ -4375,11 +4385,22 @@ async def _summary_candidate_source_is_current(
         )
         .order_by(MediaRevision.revision_number.desc(), MediaRevision.updated_at.desc())
     )
+    result_query = select(ProcessingResult).where(
+        ProcessingResult.workspace_id == attempt.workspace_id,
+        ProcessingResult.meeting_id == attempt.meeting_id,
+        ProcessingResult.status == "imported",
+    )
+    result_query = result_query.where(
+        ProcessingResult.media_revision_id == latest_revision.id
+        if latest_revision is not None
+        else ProcessingResult.media_revision_id.is_(None)
+    )
     latest_result = await db.scalar(
-        effective_processing_result_query(
-            workspace_id=attempt.workspace_id,
-            meeting_id=attempt.meeting_id,
-            media_revision_id=latest_revision.id if latest_revision is not None else None,
+        result_query.order_by(
+            ProcessingResult.result_version.desc(),
+            nullslast(ProcessingResult.imported_at.desc()),
+            ProcessingResult.created_at.desc(),
+            ProcessingResult.id.desc(),
         )
     )
     speaker_attribution_current = await candidate_speaker_attribution_is_current(db, attempt)
