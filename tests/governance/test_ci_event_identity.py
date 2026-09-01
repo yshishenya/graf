@@ -40,12 +40,13 @@ def test_pr_identity_uses_head_and_base_sha() -> None:
     assert result["concurrency_key"] == "pr-42"
 
 
-def test_merge_group_requires_complete_pr_mapping() -> None:
-    with pytest.raises(identity.IdentityError):
-        identity.resolve(
-            {"head_sha": "A" * 40, "base_sha": "B" * 40, "id": "mg-1", "pull_requests": []},
-            event_name="merge_group",
-        )
+def test_merge_group_defers_missing_mapping_to_authoritative_api() -> None:
+    result = identity.resolve(
+        {"head_sha": "A" * 40, "base_sha": "B" * 40},
+        event_name="merge_group",
+    )
+    assert result["pull_request_numbers"] == []
+    assert result["merge_group_id"] == "head-" + "a" * 40
 
 
 def test_merge_group_accepts_github_nested_payload_and_rejects_conflicts() -> None:

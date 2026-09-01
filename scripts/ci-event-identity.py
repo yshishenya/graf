@@ -90,11 +90,12 @@ def resolve(event: dict[str, Any], *, event_name: str | None = None) -> dict[str
             group.get("id"),
             "merge_group.id",
         )
+        # GitHub's real ``merge_group/checks_requested`` payload has the
+        # synthetic head/base SHAs but does not include the internal group ID
+        # or PR list. Derive a stable, auditable key from the exact head SHA;
+        # the authoritative associated-PR API below resolves membership.
         if group_id is None:
-            # GitHub's checks_requested merge_group payload omits an ID.  The
-            # head SHA is the stable event identity; membership is resolved
-            # separately against GitHub's associated-PR API.
-            group_id = f"mg-{target_sha[:12]}"
+            group_id = f"head-{target_sha}"
         if not isinstance(group_id, str) or not group_id.strip():
             raise IdentityError("merge_group.id is required")
         group_id = group_id.strip()
@@ -111,23 +112,21 @@ def resolve(event: dict[str, Any], *, event_name: str | None = None) -> dict[str
             raise IdentityError("conflicting values for merge_group.pull_request_numbers")
         if rows is None:
             rows = root_numbers if root_numbers is not None else nested_numbers
+        # Membership is deliberately resolved later from GitHub's associated
+        # pull-requests endpoint when the real event omits it.
         if rows is None:
-            # Real GitHub payloads do not include PR membership. The workflow
-            # must fill this from the authoritative associated-PR API before
-            # emitting a terminal receipt.
-            numbers = []
-        elif not isinstance(rows, list) or not rows:
-            raise IdentityError("merge_group.pull_requests mapping is required when present")
-        else:
-            numbers = []
-            for row in rows:
-                if isinstance(row, dict):
-                    value = row.get("number")
-                else:
-                    value = row
-                numbers.append(_positive_int(value, "merge_group.pull_requests.number"))
-            if len(set(numbers)) != len(numbers):
-                raise IdentityError("merge_group.pull_requests contains duplicate PR numbers")
+            rows = []
+        if not isinstance(rows, list):
+            raise IdentityError("merge_group.pull_requests must be a list")
+        numbers: list[int] = []
+        for row in rows:
+            if isinstance(row, dict):
+                value = row.get("number")
+            else:
+                value = row
+            numbers.append(_positive_int(value, "merge_group.pull_requests.number"))
+        if len(set(numbers)) != len(numbers):
+            raise IdentityError("merge_group.pull_requests contains duplicate PR numbers")
         return {
             "schema_version": 1,
             "event_name": name,
@@ -171,7 +170,7 @@ def main() -> int:
         assert resolve({"pull_request": {"head": {"sha": sha}, "base": {"sha": "b" * 40}}, "number": 7}, event_name="pull_request")["concurrency_key"] == "pr-7"
         assert resolve({"head_sha": sha, "base_sha": "b" * 40, "id": "mg-1", "pull_requests": [{"number": 7}]}, event_name="merge_group")["merge_group_id"] == "mg-1"
         assert resolve({"inputs": {"target_sha": sha}}, event_name="workflow_dispatch")["base_sha"] is None
-        for bad in ({}, {"inputs": {}}, {"head_sha": sha, "base_sha": "b" * 40, "id": "x", "pull_requests": []}):
+        for bad in ({}, {"inputs": {}}, {"head_sha": sha, "id": "x"}):
             try:
                 resolve(bad, event_name="workflow_dispatch" if "inputs" in bad else "merge_group")
             except IdentityError:

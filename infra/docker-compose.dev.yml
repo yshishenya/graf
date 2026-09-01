@@ -1,19 +1,71 @@
+name: graf-dev
+
+x-dev-labels: &dev-labels
+  org.2brain.graf.dev.source-sha: "${GRAF_DEV_SOURCE_SHA:?GRAF_DEV_SOURCE_SHA is required}"
+  org.2brain.graf.dev.channel: dev
+
+x-server-build: &server-build
+  context: ..
+  dockerfile: infra/server/Dockerfile
+  args:
+    GRAF_DEV_SOURCE_SHA: "${GRAF_DEV_SOURCE_SHA:?GRAF_DEV_SOURCE_SHA is required}"
+
+x-server-env: &server-env
+  TWOBRAIN_ENV: development
+  TWOBRAIN_API_HOST: 0.0.0.0
+  TWOBRAIN_API_PORT: "8080"
+  TWOBRAIN_PUBLIC_BASE_URL: "${TWOBRAIN_PUBLIC_BASE_URL:?TWOBRAIN_PUBLIC_BASE_URL is required}"
+  TWOBRAIN_AUTH_BASE_URL: http://127.0.0.1:8081
+  GRAF_CREDENTIAL_ENCRYPTION_KEY_FILE: /run/secrets/graf_credential_encryption_key
+  TWOBRAIN_WEB_LOGIN_WORKSPACE_ID: 20000000-0000-0000-0000-000000000001
+  TWOBRAIN_EMAIL_LOGIN_DELIVERY_ENABLED: "false"
+  TWOBRAIN_LOCAL_HTTP_AUTH_COOKIE_ENABLED: "true"
+  TWOBRAIN_LOCAL_EMAIL_LOGIN_CODE: "000000"
+  TWOBRAIN_DATABASE_URL: postgresql+asyncpg://twobrain_rec:twobrain_rec@rec-postgres:5432/twobrain_rec
+  TWOBRAIN_MINIO_ENDPOINT: rec-minio:9000
+  TWOBRAIN_MINIO_ACCESS_KEY: twobrain_rec_api
+  TWOBRAIN_MINIO_SECRET_KEY: twobrain_rec_api_dev_secret
+  TWOBRAIN_MINIO_BUCKET: twobrain-rec-ingest
+  TWOBRAIN_MINIO_SECURE: "false"
+  TWOBRAIN_TEMPORAL_ADDRESS: rec-temporal:7233
+  TWOBRAIN_TEMPORAL_NAMESPACE: default
+  TWOBRAIN_PROCESSING_ENABLED: "true"
+  TWOBRAIN_PLAYBACK_NORMALIZATION_ENABLED: "true"
+  TWOBRAIN_PLAYBACK_NORMALIZATION_AUTOMATIC_DISPATCH_ENABLED: "true"
+  TWOBRAIN_OUTCOME_GENERATION_ENABLED: "false"
+  TWOBRAIN_MEDIASCRIBE_BASE_URL: ""
+  TWOBRAIN_MEDIASCRIBE_API_KEY_FILE: ""
+  TWOBRAIN_LITELLM_BASE_URL: ""
+  TWOBRAIN_LITELLM_API_KEY_FILE: ""
+  TWOBRAIN_LANGFUSE_BASE_URL: ""
+  TWOBRAIN_LANGFUSE_PUBLIC_KEY: ""
+  TWOBRAIN_LANGFUSE_SECRET_KEY: ""
+  TWOBRAIN_YANDEX_CLIENT_ID: ""
+  TWOBRAIN_YANDEX_CLIENT_SECRET_FILE: ""
+  TWOBRAIN_VK_CLIENT_ID: ""
+  TWOBRAIN_VK_CLIENT_SECRET_FILE: ""
+  TWOBRAIN_TELEGRAM_CLIENT_ID: ""
+  TWOBRAIN_TELEGRAM_CLIENT_SECRET_FILE: ""
+  TWOBRAIN_SUPPORT_INCIDENT_GITHUB_TOKEN_FILE: ""
+  GRAF_DEV_SOURCE_SHA: "${GRAF_DEV_SOURCE_SHA:?GRAF_DEV_SOURCE_SHA is required}"
+
 services:
   api:
+    labels: *dev-labels
     build:
-      context: ..
-      dockerfile: infra/server/Dockerfile
-    env_file:
-      - ../apps/server/.env.example
+      <<: *server-build
     environment:
-      TWOBRAIN_DATABASE_URL: postgresql+asyncpg://twobrain_rec:twobrain_rec@rec-postgres:5432/twobrain_rec
-      TWOBRAIN_MINIO_ENDPOINT: rec-minio:9000
-      TWOBRAIN_MINIO_ACCESS_KEY: twobrain_rec_api
-      TWOBRAIN_MINIO_SECRET_KEY: twobrain_rec_api_dev_secret
-      TWOBRAIN_MINIO_BUCKET: twobrain-rec-ingest
-      TWOBRAIN_MINIO_SECURE: "false"
+      <<: *server-env
+    volumes:
+      - "${GRAF_CREDENTIAL_ENCRYPTION_KEY_FILE:?GRAF_CREDENTIAL_ENCRYPTION_KEY_FILE is required}:/run/secrets/graf_credential_encryption_key:ro"
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8081:8080"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/v1/health/live', timeout=2)"]
+      interval: 5s
+      timeout: 5s
+      retries: 18
+      start_period: 20s
     depends_on:
       rec-migrate:
         condition: service_completed_successfully
@@ -25,24 +77,14 @@ services:
         condition: service_completed_successfully
 
   rec-processing-worker:
+    labels: *dev-labels
     build:
-      context: ..
-      dockerfile: infra/server/Dockerfile
-    env_file:
-      - ../apps/server/.env.example
+      <<: *server-build
     environment:
+      <<: *server-env
       TWOBRAIN_PROCESSING_ENABLED: "true"
-      TWOBRAIN_DATABASE_URL: postgresql+asyncpg://twobrain_rec:twobrain_rec@rec-postgres:5432/twobrain_rec
-      TWOBRAIN_MINIO_ENDPOINT: rec-minio:9000
-      TWOBRAIN_MINIO_ACCESS_KEY: twobrain_rec_api
-      TWOBRAIN_MINIO_SECRET_KEY: twobrain_rec_api_dev_secret
-      TWOBRAIN_MINIO_BUCKET: twobrain-rec-ingest
-      TWOBRAIN_MINIO_SECURE: "false"
-      TWOBRAIN_TEMPORAL_ADDRESS: rec-temporal:7233
-      TWOBRAIN_OUTCOME_GENERATION_ENABLED: ${TWOBRAIN_OUTCOME_GENERATION_ENABLED:-false}
-      TWOBRAIN_LITELLM_BASE_URL: ${TWOBRAIN_LITELLM_BASE_URL:-}
-      TWOBRAIN_LANGFUSE_BASE_URL: https://cloud.langfuse.com
-      TWOBRAIN_LANGFUSE_ENVIRONMENT: development
+    volumes:
+      - "${GRAF_CREDENTIAL_ENCRYPTION_KEY_FILE:?GRAF_CREDENTIAL_ENCRYPTION_KEY_FILE is required}:/run/secrets/graf_credential_encryption_key:ro"
     command: ["python", "-m", "twobrain_rec_server.workflows.worker"]
     healthcheck:
       test: ["CMD", "python", "/app/scripts/verify_processing_worker_ready.py"]
@@ -61,22 +103,15 @@ services:
         condition: service_healthy
 
   rec-maintenance:
+    labels: *dev-labels
     build:
-      context: ..
-      dockerfile: infra/server/Dockerfile
+      <<: *server-build
     restart: unless-stopped
-    env_file:
-      - ../apps/server/.env.example
     environment:
+      <<: *server-env
       TWOBRAIN_WEB_RUNTIME_ENABLED: "false"
-      TWOBRAIN_DATABASE_URL: postgresql+asyncpg://twobrain_rec:twobrain_rec@rec-postgres:5432/twobrain_rec
-      TWOBRAIN_MINIO_ENDPOINT: rec-minio:9000
-      TWOBRAIN_MINIO_ACCESS_KEY: twobrain_rec_api
-      TWOBRAIN_MINIO_SECRET_KEY: twobrain_rec_api_dev_secret
-      TWOBRAIN_MINIO_BUCKET: twobrain-rec-ingest
-      TWOBRAIN_MINIO_SECURE: "false"
-      TWOBRAIN_TEMPORAL_ADDRESS: rec-temporal:7233
-      TWOBRAIN_OUTCOME_GENERATION_ENABLED: ${TWOBRAIN_OUTCOME_GENERATION_ENABLED:-false}
+    volumes:
+      - "${GRAF_CREDENTIAL_ENCRYPTION_KEY_FILE:?GRAF_CREDENTIAL_ENCRYPTION_KEY_FILE is required}:/run/secrets/graf_credential_encryption_key:ro"
     command: ["python", "-m", "twobrain_rec_server.workflows.maintenance_worker"]
     depends_on:
       rec-migrate:
@@ -89,9 +124,9 @@ services:
         condition: service_healthy
 
   rec-media-worker:
+    labels: *dev-labels
     build:
-      context: ..
-      dockerfile: infra/server/Dockerfile
+      <<: *server-build
       target: media-runtime
     init: true
     user: twobrain
@@ -103,18 +138,12 @@ services:
     pids_limit: 128
     cpus: "1.0"
     mem_limit: 1g
-    env_file:
-      - ../apps/server/.env.example
     environment:
+      <<: *server-env
       TWOBRAIN_PLAYBACK_NORMALIZATION_ENABLED: "true"
       TWOBRAIN_PLAYBACK_NORMALIZATION_AUTOMATIC_DISPATCH_ENABLED: "true"
-      TWOBRAIN_DATABASE_URL: postgresql+asyncpg://twobrain_rec:twobrain_rec@rec-postgres:5432/twobrain_rec
-      TWOBRAIN_MINIO_ENDPOINT: rec-minio:9000
       TWOBRAIN_MINIO_ACCESS_KEY: twobrain_rec_media
       TWOBRAIN_MINIO_SECRET_KEY: twobrain_rec_media_dev_secret
-      TWOBRAIN_MINIO_BUCKET: twobrain-rec-ingest
-      TWOBRAIN_MINIO_SECURE: "false"
-      TWOBRAIN_TEMPORAL_ADDRESS: rec-temporal:7233
       TWOBRAIN_PLAYBACK_NORMALIZATION_TASK_QUEUE: twobrain-rec-playback-normalization
       TWOBRAIN_PLAYBACK_NORMALIZATION_WORKER_CONCURRENCY: "1"
       TWOBRAIN_PLAYBACK_NORMALIZATION_WORK_DIRECTORY: /var/lib/twobrain-rec/playback-normalization
@@ -127,6 +156,7 @@ services:
       retries: 18
       start_period: 20s
     volumes:
+      - "${GRAF_CREDENTIAL_ENCRYPTION_KEY_FILE:?GRAF_CREDENTIAL_ENCRYPTION_KEY_FILE is required}:/run/secrets/graf_credential_encryption_key:ro"
       - rec-media-work:/var/lib/twobrain-rec/playback-normalization
     depends_on:
       rec-migrate:
@@ -141,7 +171,12 @@ services:
       - rec-media-private
 
   rec-temporal:
-    image: temporalio/auto-setup:1.27.2
+    labels: *dev-labels
+    # Temporal Server 1.27.x can occasionally route a worker poll to an
+    # internal /_sys partition and reject it.  The upstream fix is in 1.28.0
+    # (temporalio/temporal#8363); keep Dev on the fixed server line while the
+    # production pin remains independently governed in docker-compose.yml.
+    image: temporalio/auto-setup:1.28.0
     environment:
       DB: postgres12
       DB_PORT: "5432"
@@ -155,7 +190,7 @@ services:
       rec-postgres:
         condition: service_healthy
     ports:
-      - "7233:7233"
+      - "127.0.0.1:7233:7233"
     healthcheck:
       test:
         - CMD-SHELL
@@ -169,31 +204,25 @@ services:
       - rec-media-private
 
   rec-migrate:
+    labels: *dev-labels
     build:
-      context: ..
-      dockerfile: infra/server/Dockerfile
-    env_file:
-      - ../apps/server/.env.example
+      <<: *server-build
     environment:
-      TWOBRAIN_DATABASE_URL: postgresql+asyncpg://twobrain_rec:twobrain_rec@rec-postgres:5432/twobrain_rec
-      TWOBRAIN_MINIO_ENDPOINT: rec-minio:9000
-      TWOBRAIN_MINIO_ACCESS_KEY: twobrain_rec_api
-      TWOBRAIN_MINIO_SECRET_KEY: twobrain_rec_api_dev_secret
-      TWOBRAIN_MINIO_BUCKET: twobrain-rec-ingest
-      TWOBRAIN_MINIO_SECURE: "false"
+      <<: *server-env
     command: ["alembic", "upgrade", "head"]
     depends_on:
       rec-postgres:
         condition: service_healthy
 
   rec-postgres:
+    labels: *dev-labels
     image: postgres:17-alpine
     environment:
       POSTGRES_DB: twobrain_rec
       POSTGRES_USER: twobrain_rec
       POSTGRES_PASSWORD: twobrain_rec
     ports:
-      - "54329:5432"
+      - "127.0.0.1:54329:5432"
     volumes:
       - rec-postgres-dev-data:/var/lib/postgresql/data
     healthcheck:
@@ -206,14 +235,15 @@ services:
       - rec-media-private
 
   rec-minio:
+    labels: *dev-labels
     image: minio/minio:RELEASE.2025-05-24T17-08-30Z
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: twobrain_rec_root
       MINIO_ROOT_PASSWORD: twobrain_rec_root_dev_secret
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "127.0.0.1:9002:9000"
+      - "127.0.0.1:9003:9001"
     volumes:
       - rec-minio-dev-data:/data
     healthcheck:
@@ -226,6 +256,7 @@ services:
       - rec-media-private
 
   rec-minio-init:
+    labels: *dev-labels
     image: minio/mc:RELEASE.2025-05-21T01-59-54Z
     depends_on:
       rec-minio:
@@ -257,5 +288,8 @@ networks:
 
 volumes:
   rec-postgres-dev-data:
+    name: graf-dev-postgres-data
   rec-minio-dev-data:
+    name: graf-dev-minio-data
   rec-media-work:
+    name: graf-dev-media-work

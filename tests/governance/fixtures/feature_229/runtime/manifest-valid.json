@@ -1,0 +1,14 @@
+{
+  "schema_version": "dev-manifest.v1",
+  "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "components": {
+    "backend": {"source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "version": "aaaaaaaaaaaa", "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+    "frontend": {"source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "version": "aaaaaaaaaaaa", "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"},
+    "processing_worker": {"source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "version": "aaaaaaaaaaaa", "digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222"},
+    "media_worker": {"source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "version": "aaaaaaaaaaaa", "digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333"},
+    "migration": {"source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "version": "aaaaaaaaaaaa", "digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444"},
+    "macos_app": {"source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "version": "aaaaaaaaaaaa", "digest": "sha256:5555555555555555555555555555555555555555555555555555555555555555"}
+  },
+  "app_identity": {"bundle_id": "pro.2brain.graf.dev", "channel": "dev"},
+  "dev_boundary": {"project": "graf-dev", "backend_origin": "http://127.0.0.1:8081", "frontend_origin": "http://127.0.0.1:8081"}
+}
