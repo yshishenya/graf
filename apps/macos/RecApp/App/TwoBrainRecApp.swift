@@ -1086,20 +1086,24 @@ private struct ContentView: View {
         if event.state == .active, event.bundleID == activeMeetingDetectionBundleID {
             lastMeetingDetectionEvidenceAt = event.observedAt
         }
-        guard let registry = meetingDetectionRegistry else { return }
-        let outputs = meetingDetectionDetector.handle(
-            event: event,
-            registry: registry,
-            settings: meetingDetectionSettings,
-            prerequisites: meetingDetectionPrerequisites()
-        )
-        processMeetingDetectionOutputs(outputs, registry: registry)
+        if let registry = meetingDetectionRegistry {
+            let outputs = meetingDetectionDetector.handle(
+                event: event,
+                registry: registry,
+                settings: meetingDetectionSettings,
+                prerequisites: meetingDetectionPrerequisites()
+            )
+            processMeetingDetectionOutputs(outputs, registry: registry)
+        }
         await advanceMeetingDetection(reason: "mic_event")
     }
 
     @MainActor
     private func advanceMeetingDetection(reason _: String) async {
-        guard let registry = meetingDetectionRegistry else { return }
+        guard let registry = meetingDetectionRegistry else {
+            stopStaleMeetingDetectionRecordingIfNeeded(now: Date())
+            return
+        }
         let outputs = meetingDetectionDetector.advance(
             registry: registry,
             settings: meetingDetectionSettings,

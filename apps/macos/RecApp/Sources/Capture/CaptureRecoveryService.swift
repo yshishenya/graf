@@ -172,7 +172,12 @@ public final class CaptureRecoveryService {
                 transcriptionURL: transcriptionURL,
                 reviewURL: reviewURL
             )
-            let stoppedAt = clock()
+            let recoveredDurationMs = tracks
+                .first(where: { $0.role == .mixedMeetingAudio })?
+                .durationMs ?? 0
+            let stoppedAt = recoveredDurationMs > 0
+                ? activeManifest.startedAt.addingTimeInterval(Double(recoveredDurationMs) / 1_000)
+                : clock()
             let manifest = manifestService.v5Manifest(
                 sessionId: activeManifest.sessionId,
                 directoryId: activeManifest.directoryId,
@@ -247,10 +252,10 @@ public final class CaptureRecoveryService {
     private func recoverReviewAudio(in directoryURL: URL, transcriptionURL: URL) throws -> URL {
         let finalURL = directoryURL.appendingPathComponent("meeting-review.m4a")
         let partialURL = directoryURL.appendingPathComponent("meeting-review.partial.m4a")
-        if Self.isValidReviewAudio(finalURL) {
+        if Self.isValidReviewAudio(finalURL, matching: transcriptionURL) {
             return finalURL
         }
-        if Self.isValidReviewAudio(partialURL) {
+        if Self.isValidReviewAudio(partialURL, matching: transcriptionURL) {
             try? FileManager.default.removeItem(at: finalURL)
             try FileManager.default.moveItem(at: partialURL, to: finalURL)
             try LocalCustodyFileProtection.apply(to: finalURL)
@@ -345,12 +350,19 @@ public final class CaptureRecoveryService {
         }
     }
 
-    private static func isValidReviewAudio(_ url: URL) -> Bool {
+    private static func isValidReviewAudio(_ url: URL, matching transcriptionURL: URL? = nil) -> Bool {
         guard let file = try? AVAudioFile(forReading: url) else { return false }
-        return file.length > 0 &&
+        guard file.length > 0 &&
             Int(file.fileFormat.sampleRate.rounded()) == Int(CanonicalRecordingWriter.canonicalSampleRate) &&
             file.fileFormat.channelCount == 1 &&
             (file.fileFormat.settings[AVFormatIDKey] as? NSNumber)?.intValue == Int(kAudioFormatMPEG4AAC)
+        else { return false }
+        guard let transcriptionURL,
+              let transcription = try? AVAudioFile(forReading: transcriptionURL)
+        else { return true }
+        let reviewDuration = Double(file.length) / file.fileFormat.sampleRate
+        let transcriptionDuration = Double(transcription.length) / transcription.fileFormat.sampleRate
+        return abs(reviewDuration - transcriptionDuration) <= 0.1
     }
 
     private static func fileSize(_ url: URL) throws -> Int64 {

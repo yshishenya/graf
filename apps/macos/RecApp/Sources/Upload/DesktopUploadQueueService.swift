@@ -187,6 +187,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 else {
                     continue
                 }
+                guard manifest.status != .active else { continue }
                 let item = try makeItem(
                     manifest: manifest,
                     directoryURL: directory,
@@ -1306,7 +1307,22 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         merged.supportIncidentSubmission = existing.supportIncidentSubmission
         merged.calendarContextEventId = existing.calendarContextEventId ?? refreshed.calendarContextEventId
         merged.calendarMatchAttemptId = existing.calendarMatchAttemptId ?? refreshed.calendarMatchAttemptId
-        merged.recordingMetadata = existing.recordingMetadata ?? refreshed.recordingMetadata
+        if let existingMetadata = existing.recordingMetadata,
+           var refreshedMetadata = refreshed.recordingMetadata {
+            refreshedMetadata.recordingStartedAt = existingMetadata.recordingStartedAt
+            refreshedMetadata.title = existingMetadata.title
+            refreshedMetadata.titleStatus = existingMetadata.titleStatus
+            refreshedMetadata.titleSource = existingMetadata.titleSource
+            refreshedMetadata.titleConfidence = existingMetadata.titleConfidence
+            refreshedMetadata.titleGeneratedAt = existingMetadata.titleGeneratedAt
+            refreshedMetadata.safeFileBasename = existingMetadata.safeFileBasename
+            refreshedMetadata.stableSuffix = existingMetadata.stableSuffix
+            refreshedMetadata.suppressedSources = existingMetadata.suppressedSources
+            refreshedMetadata.recordingDisplayTimeZoneOffsetMinutes = existingMetadata.recordingDisplayTimeZoneOffsetMinutes
+            merged.recordingMetadata = refreshedMetadata
+        } else {
+            merged.recordingMetadata = existing.recordingMetadata ?? refreshed.recordingMetadata
+        }
         return merged
     }
 
@@ -1589,6 +1605,9 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         manifest: LocalRecordingManifest,
         profile: ArtifactCompletenessProfile
     ) -> String {
+        if manifest.captureFailureCode == "recording_recovery_not_possible" {
+            return "recording_recovery_not_possible"
+        }
         if manifest.scopeApproval?.isAcceptedForMeetingRecording != true {
             return LocalRecordingFailureReason.scopeUnavailable.rawValue
         }
