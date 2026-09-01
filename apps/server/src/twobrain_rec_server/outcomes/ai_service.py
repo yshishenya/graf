@@ -91,7 +91,10 @@ from twobrain_rec_server.processing.fences import (
     meeting_is_deleted_or_deleting,
     normalize_db_timestamp,
 )
-from twobrain_rec_server.processing.results import effective_processing_result_query
+from twobrain_rec_server.processing.results import (
+    effective_processing_result_query,
+    latest_processing_result_query,
+)
 from twobrain_rec_server.storage.minio_client import get_storage
 from twobrain_rec_server.workflows.outcome_generation_workflow import (
     TranscriptSnapshotError,
@@ -2737,7 +2740,7 @@ async def _ensure_candidate_source_fence(
     expected_revision_id = latest_revision.id if latest_revision is not None else None
     latest_result = (
         await db.scalar(
-            effective_processing_result_query(
+            latest_processing_result_query(
                 workspace_id=attempt.workspace_id,
                 meeting_id=attempt.meeting_id,
                 media_revision_id=expected_revision_id,

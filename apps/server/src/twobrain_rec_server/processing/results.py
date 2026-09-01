@@ -6,7 +6,7 @@ from hashlib import sha256
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import and_, false, nullslast, select
+from sqlalchemy import and_, false, func, nullslast, select
 
 from twobrain_rec_server.db.models import ProcessingResult, ProcessingWorkflow
 from twobrain_rec_server.domain.statuses import ProcessingAvailabilityStatus, ProcessingResultStatus
@@ -97,7 +97,7 @@ def latest_processing_result_query(
 
     query = (
         select(ProcessingResult)
-        .join(
+        .outerjoin(
             ProcessingWorkflow,
             ProcessingWorkflow.id == ProcessingResult.processing_workflow_id,
         )
@@ -112,7 +112,10 @@ def latest_processing_result_query(
     return query.where(
         ProcessingResult.media_revision_id == media_revision_id,
     ).order_by(
-        ProcessingWorkflow.attempt_ordinal.desc(),
+        func.coalesce(
+            ProcessingWorkflow.attempt_ordinal,
+            ProcessingResult.result_version,
+        ).desc(),
         ProcessingResult.result_version.desc(),
         nullslast(ProcessingResult.imported_at.desc()),
         ProcessingResult.created_at.desc(),

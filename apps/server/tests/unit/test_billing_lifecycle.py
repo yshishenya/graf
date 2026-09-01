@@ -37,7 +37,11 @@ def test_subscription_cancellation_and_no_grace_projection() -> None:
 
 def test_subscription_resume_requires_active_paid_period_and_bumps_authority() -> None:
     paid_through = datetime(2026, 9, 1, tzinfo=UTC)
-    control = resume_auto_renewal(SubscriptionControl(paid_through, False, 2), expected_version=2)
+    control = resume_auto_renewal(
+        SubscriptionControl(paid_through, False, 2),
+        expected_version=2,
+        now=datetime(2026, 8, 6, tzinfo=UTC),
+    )
     assert control.recurring_allowed is True
     assert control.authority_version == 3
 
