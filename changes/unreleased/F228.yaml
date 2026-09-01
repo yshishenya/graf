@@ -1,0 +1,12 @@
+schema_version: 1
+feature_id: 228
+category: Changed
+summary: "Планируется управляемый процесс инвентаризации и поэтапного retirement legacy без массового удаления до review и отдельных safety slices."
+issue: 6238
+tasks: [T001, T002, T003, T004, T005, T006, T007, T008, T009, T010, T011, T012, T013, T014, T015, T016, T017, T018, T019, T020, T021, T022, T023, T024, T025, T026, T027, T028, T029, T030, T031, T032, T033, T034, T035]
+compatibility: "Не меняет runtime или production data; будущие migration, Temporal, MediaScribe и macOS/Sparkle retirement требуют отдельных feature, rehearsal и release gate."
+release_notes: "До implementation и review выпуск не заявляется. В release train включаются только готовые slices с immutable evidence на exact SHA."
+known_limitations:
+  - "Feature 220 — неслитой draft, а не инвентаризация или доказательство cleanup."
+  - "Наблюдаемые current-source matches являются кандидатами и не означают разрешение на удаление."
+  - "Feature 228 не удаляет legacy, не меняет reviewer-owned checklist и не выполняет production операции."

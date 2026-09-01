@@ -64,14 +64,35 @@ def _artifact_digest(path: Path) -> str:
                 hasher.update(chunk)
     elif path.is_dir():
         for child in sorted(path.rglob("*")):
+            if child.is_symlink():
+                relative = child.relative_to(path).as_posix().encode("utf-8")
+                target = os.readlink(child).encode("utf-8")
+                hasher.update(b"entry\0symlink\0")
+                hasher.update(len(relative).to_bytes(8, "big"))
+                hasher.update(relative)
+                hasher.update(len(target).to_bytes(8, "big"))
+                hasher.update(target)
+                hasher.update(b"\0end-entry\0")
+                continue
             if not child.is_file():
                 continue
             relative = child.relative_to(path).as_posix().encode("utf-8")
+            hasher.update(b"entry\0file\0")
             hasher.update(len(relative).to_bytes(8, "big"))
             hasher.update(relative)
             with child.open("rb") as handle:
+                before = os.fstat(handle.fileno())
+                size = before.st_size
+                hasher.update(size.to_bytes(8, "big"))
+                hasher.update((before.st_mode & 0o7777).to_bytes(4, "big"))
+                read = 0
                 for chunk in iter(lambda: handle.read(1024 * 1024), b""):
                     hasher.update(chunk)
+                    read += len(chunk)
+                after = os.fstat(handle.fileno())
+            if read != size or (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+                raise SystemExit(f"artifact changed while hashing: {child}")
+            hasher.update(b"\0end-entry\0")
     else:
         raise SystemExit(f"artifact path does not exist: {path}")
     return "sha256:" + hasher.hexdigest()
