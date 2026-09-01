@@ -411,6 +411,17 @@ async def grant_confirmed_renewal(
 ) -> str:
     """Project one GET-confirmed renewal into the append-only entitlement ledger."""
     await lock_storage_workspace(db, workspace_id)
+    # Keep the row-lock order identical to manual checkout: workspace,
+    # subscription, then operation. This prevents renewal confirmation from
+    # deadlocking with a checkout that already owns the subscription row.
+    workspace = await db.scalar(
+        select(Workspace).where(Workspace.id == workspace_id).with_for_update()
+    )
+    subscription = await db.scalar(
+        select(WorkspaceSubscription)
+        .where(WorkspaceSubscription.workspace_id == workspace_id)
+        .with_for_update()
+    )
     operation = await db.scalar(
         select(BillingOperation)
         .where(
@@ -447,17 +458,9 @@ async def grant_confirmed_renewal(
     if snapshot.get("plan_code") != "personal" or cycle not in {"month", "year"}:
         operation.state = "reconciliation_gap"
         return "snapshot_invalid"
-    subscription = await db.scalar(
-        select(WorkspaceSubscription)
-        .where(WorkspaceSubscription.workspace_id == workspace_id)
-        .with_for_update()
-    )
     if subscription is None:
         operation.state = "reconciliation_gap"
         return "subscription_missing"
-    workspace = await db.scalar(
-        select(Workspace).where(Workspace.id == workspace_id).with_for_update()
-    )
     owner = await db.scalar(
         select(WorkspaceMembership)
         .where(

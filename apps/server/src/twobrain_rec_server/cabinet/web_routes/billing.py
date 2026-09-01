@@ -1180,13 +1180,26 @@ async def billing_overview_page(
         }
     if billing_owner and pending_invoice is not None:
         pending_invoice_summary = {"safe_number": pending_invoice.safe_number}
-    operation_pending = billing_result == "pending" or (
-        latest_operation is not None
-        and not (
-            latest_operation.kind == "renewal"
-            and latest_operation.state == "scheduled"
+    # The query parameter is only a one-time notice; persisted operations are
+    # the sole source of truth for whether a new checkout is blocked.
+    blocking_operations = []
+    if db is not None:
+        scalars = getattr(db, "scalars", None)
+        if callable(scalars):
+            blocking_operations = list(
+                await scalars(_blocking_payment_operation_query(tenant_scope.workspace_id))
+            )
+        elif latest_operation is not None:
+            # Keep lightweight test doubles and read-only adapters compatible;
+            # production AsyncSession always takes the complete-query branch.
+            blocking_operations = [latest_operation]
+    operation_pending = any(
+        not (
+            operation.kind == "renewal"
+            and operation.state == "scheduled"
             and plan_code == "personal"
         )
+        for operation in blocking_operations
     )
     current_cycle = (
         subscription.cycle
@@ -1674,15 +1687,23 @@ async def billing_checkout_status_page(
         return RedirectResponse("/billing/history?result=not_found", status_code=303)
     operation_state = operation.state if operation is not None else None
     settings = request.app.state.settings
+    operation_actor = (
+        operation.request_snapshot.get("billing_actor_user_id")
+        if operation is not None
+        else None
+    )
+    actor_matches = operation_actor in {None, str(principal.user_id)}
     can_continue_payment = bool(
         operation is not None
         and settings.billing_checkout_enabled
         and not settings.billing_emergency_stop
+        and actor_matches
         and _initial_checkout_can_continue(operation)
     )
     can_refresh_payment = bool(
         operation is not None
         and operation.provider_id is not None
+        and operation.kind == "initial_checkout"
         and operation.state in {"provider_pending", "unknown"}
     )
     content = _page_shell(
@@ -1854,12 +1875,17 @@ async def continue_billing_checkout(
             _checkout_status_location(safe_number, result="unavailable"),
             status_code=303,
         )
+    if billing_actor_user_id is None:
+        operation.request_snapshot = {
+            **operation.request_snapshot,
+            "billing_actor_user_id": str(principal.user_id),
+        }
+        billing_actor_user_id = str(principal.user_id)
     if operation.provider_id is not None:
         confirmation_url = operation.request_snapshot.get("confirmation_url")
         return RedirectResponse(
             confirmation_url
-            if billing_actor_user_id == str(principal.user_id)
-            and is_allowed_confirmation_url(confirmation_url)
+            if is_allowed_confirmation_url(confirmation_url)
             else _checkout_status_location(safe_number, result="unchanged"),
             status_code=303,
         )
@@ -1876,11 +1902,6 @@ async def continue_billing_checkout(
             _checkout_status_location(safe_number, result="unchanged"),
             status_code=303,
         )
-    if "billing_actor_user_id" not in operation.request_snapshot:
-        operation.request_snapshot = {
-            **operation.request_snapshot,
-            "billing_actor_user_id": str(principal.user_id),
-        }
     operation.state = "scheduled"
     invoice.status = "pending"
     await db.commit()
@@ -2635,7 +2656,7 @@ async def billing_checkout_page(
         and blocking_operation.kind == "initial_checkout"
         and blocking_operation.state == "provider_pending"
         and blocking_operation.request_snapshot.get("billing_actor_user_id")
-        == str(principal.user_id)
+        in {None, str(principal.user_id)}
         and settings.billing_checkout_enabled
         and not settings.billing_emergency_stop
         else None

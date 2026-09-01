@@ -188,6 +188,7 @@ async def plan_due_renewals(
                 BillingOperation.kind == "initial_checkout",
                 BillingOperation.state.in_(CHECKOUT_BLOCKING_STATES),
             )
+            .with_for_update()
             .limit(1)
         )
         if initial_checkout is not None:
