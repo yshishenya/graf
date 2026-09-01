@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import uuid
 from pathlib import Path
 
 import pytest
@@ -33,6 +34,15 @@ def run_stubbed_ci(
 ) -> subprocess.CompletedProcess[str]:
     script = r'''
 source "$1"
+git() {
+  # The fixture supplies a synthetic classified diff. Keep the checkout
+  # snapshot clean so assertions exercise lane selection, not this test file's
+  # own uncommitted edit.
+  if [[ "$*" == "status --porcelain --untracked-files=all" ]]; then
+    return 0
+  fi
+  command git "$@"
+}
 changed_files() {
   [[ "$GRAF_TEST_DIFF_AVAILABLE" == "true" ]] || return 9
   printf '%s\n' "$GRAF_TEST_CHANGED_FILES"
@@ -388,8 +398,16 @@ def test_failing_stage_emits_one_final_failure() -> None:
 
 
 def test_full_claims_release_ready_only_after_success() -> None:
-    passed = run_stubbed_ci("", "--full")
-    failed = run_stubbed_ci("", "--full", fail_stage="server tests")
+    token = uuid.uuid4().hex[:12]
+    passed = run_stubbed_ci(
+        "", "--full", env={"GRAF_CI_CANDIDATE_ID": f"rc-20260901T000001Z-{token}"}
+    )
+    failed = run_stubbed_ci(
+        "",
+        "--full",
+        fail_stage="server tests",
+        env={"GRAF_CI_CANDIDATE_ID": f"rc-20260901T000002Z-{token}"},
+    )
 
     assert passed.returncode == 0, passed.stdout
     assert "ci_lane requested=full effective=full" in passed.stdout

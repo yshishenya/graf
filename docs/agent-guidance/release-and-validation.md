@@ -55,8 +55,10 @@ Every change must record one risk/validation lane in the final response or PR.
   lane before closeout/PR; add a full baseline before release when it helps
   resolve risk early.
 - **Release / deploy**: run the CD dry-run and execute only after the release
-  gate is met and approved. `--execute` runs one authoritative full after exact
-  SHA synchronization and before remote production actions.
+  gate is met and approved. The release operator runs exactly one authoritative
+  Full CI for the frozen candidate before `decide`; `--execute` synchronizes the
+  approved SHA and verifies/reuses that immutable evidence before remote
+  production actions. It must not launch a second Full CI for the same candidate.
 
 Do not rerun full local CI after every small edit inside a slice. Accumulate
 focused checks while developing, use the fast lane for PR feedback, and rely on
@@ -98,12 +100,79 @@ When the batch is approved for release, prepare the CalVer release metadata
 before the final validation:
 
 ```sh
-./scripts/prepare-release.sh YYYY.MM.DD.N
+GRAF_RELEASE_OPERATOR=<release-operator> ./scripts/prepare-release.sh YYYY.MM.DD.N
 ```
 
 Review the changelog and release metadata, commit that release-prep change, and
 use the resulting commit as the candidate. The full lane must run after this
 step, because release metadata is part of what will be shipped.
+
+Freeze the exact release boundary before starting Full CI:
+
+    infra/scripts/release-candidate.sh freeze \
+      --sha <exact-HEAD-40-hex> \
+      --features <feature[,feature,...]> \
+      --operator <release-operator> \
+      --output .dev/release/candidates/rc-<sha12>.json
+    infra/scripts/release-candidate.sh validate \
+      .dev/release/candidates/rc-<sha12>.json --current
+
+\`freeze\` requires a clean checkout, records the exact HEAD and changelog
+digest, and refuses to overwrite an existing candidate. It never creates a tag
+or GitHub Release. Full evidence must include \`candidate_id\`,
+\`authoritative_full=true\`, component SHA checks and artifact digests. Attach
+that evidence to a separate immutable decision record:
+
+    infra/scripts/release-candidate.sh decide .dev/release/candidates/rc-<sha12>.json \
+      --evidence path/to/full-evidence.json \
+      --calver YYYY.MM.DD.N \
+      --output .dev/release/decisions/<candidate-id>.decision.json
+
+`decide` validates the Full CI evidence, checks its candidate ID and exact SHA,
+and writes a separate create-once decision record; it never overwrites the
+frozen candidate. Only `go` from this decision record may proceed to tag/release
+preparation. A failed, stale, interrupted or mismatched run produces `no-go`.
+Changed HEAD or changelog, a failed/interrupted run, a component mismatch, or
+skipped gates produces \`no-go\`; create a new candidate after correction.
+
+After the GitHub Release is published, record the immutable link without
+editing either the candidate or decision:
+
+```sh
+infra/scripts/release-candidate.sh attest \
+  .dev/release/decisions/<candidate-id>.decision.json \
+  --release-url https://github.com/<owner>/<repo>/releases/tag/vYYYY.MM.DD.N \
+  --release-sha <exact-tag-commit-40-hex> \
+  --operator <release-operator> \
+  --output .dev/release/attestations/<candidate-id>.publication.json
+```
+
+The command resolves the repository from `origin`, queries GitHub to confirm
+that the non-draft Release and tag exist, and verifies that the tag resolves
+to the approved commit before creating a write-once attestation. The schema is
+`infra/release/publication-attestation.schema.json`.
+
+Every CI invocation emits one metadata-only evidence record after the run. By
+default it is written under the ignored `.dev/ci-evidence/` directory and the
+path is printed as `ci_evidence_path=...`. For a release candidate, bind the
+run explicitly:
+
+```sh
+GRAF_CI_CANDIDATE_FILE=.dev/release/candidates/rc-<sha12>.json \\
+infra/scripts/ci-local.sh --full
+```
+
+Для candidate-bound Full CI путь evidence выбирается самим harness как
+`.dev/ci-evidence/authoritative-<candidate-id>.json` и создаётся один раз.
+Перезапуск с тем же candidate не может создать вторую authoritative-запись;
+сначала разберите исходный результат и создайте новый candidate после
+исправления причины.
+
+The producer records the requested/start/end SHA, run identity, timestamps,
+lane, commands, scope, skipped gates, component SHAs and artifact digests.
+The record is written atomically and remains invalid for release if the target
+SHA changes, a stage fails, or the run is interrupted. It contains metadata
+only: never add logs, credentials, raw audio, transcripts or private paths.
 
 Run the full lane directly only for broad diagnosis:
 
@@ -112,11 +181,21 @@ infra/scripts/ci-local.sh --full
 ```
 
 The normal release path does not run a separate preflight full. After review and
-merge, run the CD dry-run and let `cd-remote.sh --execute` synchronize and pin
-the exact SHA, perform the one authoritative full, then re-check the unchanged
-worktree/local/remote SHA immediately before remote production actions. A direct preflight full remains available for diagnosis,
-but it is intentionally repeated by execute because no independently attested
-reuse artifact exists.
+merge, run the CD dry-run and pass the immutable decision record explicitly to
+the execute step:
+
+```sh
+infra/scripts/cd-remote.sh --dry-run --branch master
+infra/scripts/cd-remote.sh --execute --branch master \
+  --candidate .dev/release/decisions/<candidate-id>.decision.json
+```
+
+The execute step synchronizes and pins the exact SHA, then re-checks the
+unchanged worktree/local/remote SHA immediately before remote production
+actions. Release candidates and decisions are operator evidence and should
+remain under the ignored `.dev/release/` path (or an explicit external evidence
+directory). A direct full run remains available for diagnosis, but it is not
+the authoritative release run.
 
 ### 4. Production gate
 
@@ -129,15 +208,32 @@ infra/scripts/cd-remote.sh --dry-run --branch <branch>
 After explicit production approval, run:
 
 ```sh
-infra/scripts/cd-remote.sh --execute --branch <branch>
+infra/scripts/cd-remote.sh --execute --branch master \
+  --candidate .dev/release/decisions/<candidate-id>.decision.json \
+  --evidence .dev/ci-evidence/<full-run-id>.json
 ```
 
+For a production execution, pass the immutable decision record:
+
+```sh
+infra/scripts/cd-remote.sh --execute --branch master \
+  --candidate .dev/release/decisions/<candidate-id>.decision.json
+```
+
+Для production `--execute` обязательно передаётся `--candidate
+<candidate.decision.json>` (или задаётся `GRAF_RELEASE_CANDIDATE`). Скрипт
+проверяет текущий SHA и changelog digest, затем допускает только decision
+`status=go`; frozen/no-go/stale candidate блокируется до удалённых действий.
+
 `--execute` requires a clean tracked-and-untracked worktree, synchronizes and
-pins the SHA, runs `ci-local.sh --full`, re-checks the clean worktree plus local
-and remote SHA, and only then proceeds to the unchanged backup, restore
-rehearsal, migration/RLS, secret, deployment, health, smoke and guarded rollback
-gates. `--skip-local-ci` is an incident exception
-only: it requires explicit approval and a written reason for the accepted risk.
+pins the SHA, verifies the candidate's immutable Full CI evidence digest, and
+only then proceeds to the unchanged backup, restore rehearsal, migration/RLS,
+secret, deployment, health, smoke and guarded rollback gates. It does not run a
+second Full CI for a candidate that already has authoritative evidence.
+`--skip-local-ci` is an incident exception only: it requires
+`--skip-local-ci-evidence <json>` containing non-empty `reason`, `approved_by`
+and `approved_at` fields. The evidence is machine-readable and must identify
+the accepted risk; it never bypasses candidate, SHA or production gates.
 
 ### 5. Closeout
 
@@ -154,9 +250,10 @@ Use this rule when deciding whether to spend the longer run:
 - local edit: focused check;
 - ready slice or PR: `--fast`;
 - release candidate: reviewed and merged exact SHA;
-- approved production execution: `cd-remote.sh --execute` runs `--full` once
-  after synchronization and before remote actions;
-- direct `--full` before execute: diagnostic only and intentionally repeated.
+- approved production execution: `cd-remote.sh --execute` verifies the one
+  authoritative Full CI evidence record after synchronization and before remote
+  actions;
+- direct `--full` before execute: diagnostic only and not a release attestation.
 
 An interrupted run is not a passing full-CI result.
 Focused tests and the fast lane must not be counted as full CI in release
@@ -252,26 +349,48 @@ Use the exact production sequence:
    synced with `origin/<branch>`.
 2. Run `infra/scripts/cd-remote.sh --dry-run --branch <branch>`.
 3. Obtain explicit user approval for production.
-4. Run `infra/scripts/cd-remote.sh --execute --branch <branch>`. It runs
-   `infra/scripts/ci-local.sh --full` on the pinned commit before remote backup,
-   migration, deployment and smoke checks.
+4. Run `infra/scripts/cd-remote.sh --execute --branch <branch> \
+   --candidate .dev/release/decisions/<candidate-id>.decision.json \
+   --evidence .dev/ci-evidence/<full-run-id>.json`. It verifies the immutable
+   Full CI record on the pinned commit before remote backup, migration,
+   deployment and smoke checks.
 
-`--skip-local-ci` bypasses the full local CI only; it does not bypass production
-gates. It is reserved for an explicitly approved incident response that names
-the omitted check and accepted risk; it is never a normal speed optimization.
+`--skip-local-ci` bypasses the local Full CI invocation only; it does not bypass
+production gates. It is reserved for an explicitly approved incident response
+with machine-readable `--skip-local-ci-evidence <json>`; it is never a normal
+speed optimization.
 
 Batch small validated changes into an intentional release candidate when that
 reduces repeated release overhead. Two planned release windows per day are a
 useful operating rhythm, not a hard gate; an explicitly marked hotfix remains
 available when production risk requires it.
 
+### Release-train checklist
+
+- [ ] Release window, owner and included Feature IDs are recorded.
+- [ ] Each included PR has fast evidence on its own exact SHA.
+- [ ] \`prepare-release.sh YYYY.MM.DD.N\` assembled fragments and passed CalVer,
+      Russian notes, compatibility, limitations and rollback review.
+- [ ] \`release-candidate.sh freeze\` produced one immutable candidate manifest.
+- [ ] Exactly one authoritative Full CI identity passed for that candidate;
+      stale, cancelled, ambiguous and skipped-gate results do not qualify.
+- [ ] Candidate SHA and changelog digest are unchanged after Full CI.
+- [ ] CD dry-run passed; production execute and tag/GitHub Release wait for
+      explicit approval.
+
 ## Changelog
 
-Maintain `CHANGELOG.md` in the repository root.
+Maintain `CHANGELOG.md` in the repository root, but do not make it a parallel
+agent write target. During feature work each agent owns one
+`changes/unreleased/F<feature-id>.yaml` fragment. The release operator alone
+assembles fragments into `[Unreleased]` while freezing a release candidate.
 
 Every implemented feature slice that changes behavior, architecture, UX, QA
-expectations, operations, or release readiness must update `[Unreleased]` before
-merge.
+expectations, operations, or release readiness must update its fragment before
+merge. The fragment must contain a category, Russian summary, Feature ID,
+issue/task links, compatibility impact and known limitations. The root file is
+updated only by the release operator, preserving one writer and conflict-free
+parallel work.
 
 Keep entries grouped by:
 
@@ -283,6 +402,24 @@ Keep entries grouped by:
 - `Ops`
 
 Include feature, issue, or task references when available.
+
+## Legacy Definition of Done
+
+Every feature and PR must include a `Legacy Impact` classification (`remove`,
+`retain-with-exception` or `untouched`). New aliases, fallback names, flags,
+dependencies, fixtures, tests or documentation that preserve an old path are
+not accepted. A compatibility exception must name an owner, expiry date,
+removal trigger, risk, validation and retirement task. The release gate checks:
+
+```text
+legacy_new=0
+unowned_legacy=0
+expired_exceptions=0
+```
+
+Existing migrations, Temporal history, Sparkle/client compatibility and other
+production boundaries are retired in separate features with cutover and
+rollback evidence; this rule does not authorize mass deletion.
 
 ## Versioning
 
@@ -314,13 +451,13 @@ Use this versioning policy:
 Product release command:
 
 ```sh
-./scripts/prepare-release.sh YYYY.MM.DD.N
+GRAF_RELEASE_OPERATOR=<release-operator> ./scripts/prepare-release.sh YYYY.MM.DD.N
 ```
 
 For example:
 
 ```sh
-./scripts/prepare-release.sh 2026.06.18.1
+GRAF_RELEASE_OPERATOR=<release-operator> ./scripts/prepare-release.sh 2026.06.18.1
 ```
 
 Use `patch`, `minor`, or `major` only in repositories that are intentionally

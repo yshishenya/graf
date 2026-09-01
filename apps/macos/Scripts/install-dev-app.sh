@@ -9,6 +9,23 @@ DESTINATION_NAME=$(basename -- "$DESTINATION")
 TEMP_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/graf-dev-install.XXXXXX")
 trap 'rm -rf "$TEMP_ROOT"' EXIT INT TERM
 
+# Resolve lexical aliases before any filesystem mutation. A custom Dev path is
+# allowed, but it must never be the production bundle or anything below it.
+DESTINATION_CANONICAL=$(python3 - "$DESTINATION" <<'PY'
+import os
+import sys
+
+print(os.path.realpath(sys.argv[1]))
+PY
+)
+PRODUCTION_APP_CANONICAL=$(python3 - "/Applications/GRAF.app" <<'PY'
+import os
+import sys
+
+print(os.path.realpath(sys.argv[1]))
+PY
+)
+
 fail() {
   echo "GRAF Dev install: $1" >&2
   exit 1
@@ -16,12 +33,31 @@ fail() {
 
 [ "$DESTINATION_NAME" = "GRAF Dev.app" ] || fail "destination must end in GRAF Dev.app"
 [ "$DESTINATION_NAME" != "GRAF.app" ] || fail "production GRAF.app is not a Dev destination"
+[ "$DESTINATION_CANONICAL" != "$PRODUCTION_APP_CANONICAL" ] || fail "production GRAF.app is not a Dev destination"
+case "$DESTINATION_CANONICAL" in
+  "$PRODUCTION_APP_CANONICAL"/*) fail "Dev destination cannot be inside production GRAF.app" ;;
+esac
 [ -x "$BUILDER" ] || fail "Dev builder is missing or not executable"
 
 CANDIDATE="$TEMP_ROOT/GRAF Dev.app"
-GRAF_DEV_BUILD_DIR="$TEMP_ROOT/build" \
-GRAF_DEV_APP_BUNDLE="$CANDIDATE" \
-  sh "$BUILDER"
+LOCAL_ORIGIN="${GRAF_DEV_ORIGIN:-}"
+SOURCE_SHA="${GRAF_DEV_SOURCE_SHA:-$(git -C "$ROOT_DIR" rev-parse HEAD)}"
+MANIFEST_ID="${GRAF_DEV_MANIFEST_ID:-dev-$(printf '%s' "$SOURCE_SHA" | cut -c1-12)}"
+SOURCE_BUNDLE="${GRAF_DEV_APP_SOURCE_BUNDLE:-}"
+[ -n "$LOCAL_ORIGIN" ] || fail "GRAF_DEV_ORIGIN must be explicitly supplied"
+[ "$SOURCE_SHA" ] && printf '%s' "$SOURCE_SHA" | grep -Eq '^[0-9a-fA-F]{40}$' || fail "GRAF_DEV_SOURCE_SHA must be a 40-character git SHA"
+if [ -n "$SOURCE_BUNDLE" ]; then
+  [ "$(basename -- "$SOURCE_BUNDLE")" = "GRAF Dev.app" ] || fail "prebuilt Dev bundle must end in GRAF Dev.app"
+  [ -d "$SOURCE_BUNDLE" ] || fail "prebuilt Dev bundle is missing: $SOURCE_BUNDLE"
+  ditto --norsrc --noextattr --noqtn "$SOURCE_BUNDLE" "$CANDIDATE"
+else
+  GRAF_DEV_BUILD_DIR="$TEMP_ROOT/build" \
+  GRAF_DEV_APP_BUNDLE="$CANDIDATE" \
+  GRAF_DEV_SOURCE_SHA="$SOURCE_SHA" \
+  GRAF_DEV_MANIFEST_ID="$MANIFEST_ID" \
+  GRAF_DEV_ORIGIN="$LOCAL_ORIGIN" \
+    sh "$BUILDER"
+fi
 
 INFO_PLIST="$CANDIDATE/Contents/Info.plist"
 plutil -extract CFBundleDisplayName raw "$INFO_PLIST" | grep -Fxq "GRAF Dev" || fail "candidate display name is invalid"
@@ -30,8 +66,32 @@ plutil -extract CFBundleExecutable raw "$INFO_PLIST" | grep -Fxq "GRAF" || fail 
 [ ! -e "$CANDIDATE/Contents/MacOS/GRAF-dev" ] || fail "shell launcher cannot own the Dev bundle identity"
 plutil -extract LSEnvironment.GRAF_APP_CHANNEL raw "$INFO_PLIST" | grep -Fxq "dev" ||
   fail "candidate channel is not Dev"
-plutil -extract LSEnvironment.GRAF_CABINET_BASE_URL raw "$INFO_PLIST" | grep -Eq '^http://(127\.0\.0\.1|localhost):' ||
-  fail "candidate origin is not loopback"
+plutil -extract GRAFSourceSHA raw "$INFO_PLIST" | grep -Fxq "$SOURCE_SHA" ||
+  fail "candidate source SHA metadata is invalid"
+validate_loopback_url() {
+  python3 - "$1" "$2" <<'PY'
+from urllib.parse import urlsplit
+import sys
+
+label, raw = sys.argv[1:]
+try:
+    parsed = urlsplit(raw)
+    port = parsed.port
+except ValueError:
+    raise SystemExit(f"{label} has an invalid port")
+if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
+    raise SystemExit(f"{label} must use an HTTP loopback hostname")
+if parsed.username or parsed.password or parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
+    raise SystemExit(f"{label} contains forbidden URL userinfo or path components")
+if port is None or not 1 <= port <= 65535:
+    raise SystemExit(f"{label} must include a valid port")
+PY
+}
+
+CABINET_URL=$(plutil -extract LSEnvironment.GRAF_CABINET_BASE_URL raw "$INFO_PLIST") || fail "candidate cabinet URL is missing"
+UPLOAD_URL=$(plutil -extract LSEnvironment.GRAF_UPLOAD_BASE_URL raw "$INFO_PLIST") || fail "candidate upload URL is missing"
+validate_loopback_url cabinet "$CABINET_URL" || fail "candidate cabinet URL is not loopback-safe"
+validate_loopback_url upload "$UPLOAD_URL" || fail "candidate upload URL is not loopback-safe"
 if plutil -extract SUFeedURL raw "$INFO_PLIST" >/dev/null 2>&1 ||
    plutil -extract SUPublicEDKey raw "$INFO_PLIST" >/dev/null 2>&1; then
   fail "candidate production updater metadata must be absent"

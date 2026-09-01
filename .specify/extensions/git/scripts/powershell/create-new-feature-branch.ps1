@@ -511,6 +511,18 @@ if ((Get-Utf8ByteCount -Value $branchName) -gt $maxBranchLength) {
 
 if (-not $DryRun) {
     if ($hasGit) {
+        $claimScript = Join-Path $repoRoot 'scripts/claim-feature.py'
+        if ((Test-Path $claimScript) -and $env:GRAF_SKIP_FEATURE_CLAIM -ne '1') {
+            $claimArgs = @('--root', $repoRoot, '--allocate', '--branch', $branchName, '--slug', $branchSuffix, '--json')
+            if ($env:GRAF_UMBRELLA_ISSUE) {
+                $claimArgs += @('--issue-number', $env:GRAF_UMBRELLA_ISSUE)
+            }
+            $claimOutput = & python $claimScript @claimArgs 2>&1 | Out-String
+            if ($LASTEXITCODE -ne 0) {
+                Write-Error "Error: Feature ID/umbrella reservation failed before branch creation.`n$($claimOutput.Trim())"
+                exit 1
+            }
+        }
         $branchCreated = $false
         $branchCreateError = ''
         try {

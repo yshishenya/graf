@@ -7,8 +7,17 @@ MACOS_DIR="$ROOT_DIR/apps/macos"
 BUILD_DIR="${GRAF_DEV_BUILD_DIR:-$MACOS_DIR/.build/dev}"
 APP_BUNDLE="${GRAF_DEV_APP_BUNDLE:-$BUILD_DIR/GRAF Dev.app}"
 LOCAL_ORIGIN="${GRAF_DEV_ORIGIN:-}"
-SIGNING_IDENTITY="${GRAF_DEV_SIGN_IDENTITY:-GRAF Local Code Signing}"
+SIGNING_IDENTITY="${GRAF_DEV_SIGNING_IDENTITY:-${GRAF_DEV_SIGN_IDENTITY:-GRAF Local Code Signing}}"
+if [ -n "${GRAF_DEV_SIGNING_IDENTITY:-}" ] && [ -n "${GRAF_DEV_SIGN_IDENTITY:-}" ] &&
+  [ "$GRAF_DEV_SIGNING_IDENTITY" != "$GRAF_DEV_SIGN_IDENTITY" ]; then
+  echo "GRAF Dev build: signing identity variables disagree; use GRAF_DEV_SIGNING_IDENTITY" >&2
+  exit 1
+fi
 DEV_BUNDLE_ID="pro.2brain.graf.dev"
+CURRENT_SOURCE_SHA="$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || true)"
+SOURCE_SHA="${GRAF_DEV_SOURCE_SHA:-$CURRENT_SOURCE_SHA}"
+SOURCE_SHA_SHORT=$(printf '%s' "$SOURCE_SHA" | cut -c1-12)
+MANIFEST_ID="${GRAF_DEV_MANIFEST_ID:-dev-$SOURCE_SHA_SHORT}"
 
 fail() {
   echo "GRAF Dev build: $1" >&2
@@ -16,6 +25,17 @@ fail() {
 }
 
 [ -n "$LOCAL_ORIGIN" ] || fail "GRAF_DEV_ORIGIN must be explicitly supplied"
+if [ -z "$SOURCE_SHA" ] || ! printf '%s' "$SOURCE_SHA" | grep -Eq '^[0-9a-fA-F]{40}$'; then
+  fail "GRAF_DEV_SOURCE_SHA must be a 40-character git SHA"
+fi
+[ -n "$CURRENT_SOURCE_SHA" ] || fail "could not resolve the checked-out source SHA"
+[ "$SOURCE_SHA" = "$CURRENT_SOURCE_SHA" ] ||
+  fail "GRAF_DEV_SOURCE_SHA must match the checked-out HEAD"
+[ -z "$(git -C "$ROOT_DIR" status --porcelain --untracked-files=all)" ] ||
+  fail "source checkout must be clean; commit or stash local changes before building GRAF Dev"
+if [ -z "$MANIFEST_ID" ] || ! printf '%s' "$MANIFEST_ID" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$'; then
+  fail "GRAF_DEV_MANIFEST_ID contains unsupported characters"
+fi
 [ "$(basename -- "$APP_BUNDLE")" = "GRAF Dev.app" ] || fail "Dev bundle path must end in GRAF Dev.app"
 case "$LOCAL_ORIGIN" in
   http://127.0.0.1:*|http://localhost:*) ;;
@@ -97,6 +117,10 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<EOF
   <string>0.0.0-dev</string>
   <key>CFBundleVersion</key>
   <string>0.0.0-dev</string>
+  <key>GRAFSourceSHA</key>
+  <string>$SOURCE_SHA</string>
+  <key>GRAFManifestID</key>
+  <string>$MANIFEST_ID</string>
   <key>LSMinimumSystemVersion</key>
   <string>14.5</string>
   <key>NSHighResolutionCapable</key>

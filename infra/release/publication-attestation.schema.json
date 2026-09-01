@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/yshishenya/graf/blob/master/infra/release/publication-attestation.schema.json",
+  "title": "GRAF immutable release publication attestation",
+  "description": "Metadata-only link between a go decision and the published GitHub Release.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "attestation_id", "candidate_id", "decision_digest", "source_sha", "tag", "github_release_url", "release_target_sha", "attested_at", "attested_by"],
+  "properties": {
+    "schema_version": {"type": "integer", "const": 1},
+    "attestation_id": {"type": "string", "pattern": "^pa-rc-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}$"},
+    "candidate_id": {"type": "string", "pattern": "^rc-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}$"},
+    "decision_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "source_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "tag": {"type": "string", "pattern": "^v[0-9]{4}\\.[0-9]{2}\\.[0-9]{2}\\.[0-9]+$"},
+    "github_release_url": {"type": "string", "pattern": "^https://github\\.com/[^/]+/[^/]+/releases/tag/v[0-9]{4}\\.[0-9]{2}\\.[0-9]{2}\\.[0-9]+$"},
+    "release_target_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "attested_at": {"type": "string", "format": "date-time"},
+    "attested_by": {"type": "string", "minLength": 1, "maxLength": 160}
+  }
+}

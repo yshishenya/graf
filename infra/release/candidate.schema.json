@@ -1,0 +1,196 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/yshishenya/graf/blob/master/infra/release/candidate.schema.json",
+  "title": "GRAF immutable release candidate",
+  "description": "Metadata-only frozen candidate and its immutable go/no-go attestation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "candidate_id",
+    "source_sha",
+    "included_feature_ids",
+    "changelog_digest",
+    "frozen_at",
+    "frozen_by",
+    "status",
+    "full_run_id",
+    "full_evidence_digest",
+    "calver",
+    "tag",
+    "github_release_url",
+    "rollback_target",
+    "known_limitations",
+    "decision",
+    "decision_reason"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "candidate_id": {
+      "type": "string",
+      "pattern": "^rc-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}$"
+    },
+    "source_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "included_feature_ids": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[0-9]{3,}$"
+      }
+    },
+    "changelog_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "frozen_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "frozen_by": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "frozen",
+        "go",
+        "no-go",
+        "invalidated"
+      ]
+    },
+    "full_run_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1
+    },
+    "full_evidence_digest": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "calver": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^v[0-9]{4}\\.[0-9]{2}\\.[0-9]{2}\\.[0-9]+$"
+    },
+    "tag": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^v[0-9]{4}\\.[0-9]{2}\\.[0-9]{2}\\.[0-9]+$"
+    },
+    "github_release_url": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^https://github\\.com/[^/]+/[^/]+/releases/tag/v[0-9]{4}\\.[0-9]{2}\\.[0-9]{2}\\.[0-9]+$"
+    },
+    "rollback_target": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "known_limitations": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "decision": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "go",
+        "no-go",
+        null
+      ]
+    },
+    "decision_reason": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "frozen"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "full_run_id": {
+            "type": "null"
+          },
+          "full_evidence_digest": {
+            "type": "null"
+          },
+          "decision": {
+            "type": "null"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "go"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "full_run_id",
+          "full_evidence_digest",
+          "calver",
+          "tag",
+          "decision"
+        ],
+        "properties": {
+          "full_run_id": {
+            "type": "string"
+          },
+          "full_evidence_digest": {
+            "type": "string"
+          },
+          "calver": {
+            "type": "string"
+          },
+          "tag": {
+            "type": "string"
+          },
+          "decision": {
+            "const": "go"
+          }
+        }
+      }
+    }
+  ]
+}

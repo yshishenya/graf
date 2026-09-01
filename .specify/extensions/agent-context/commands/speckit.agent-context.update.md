@@ -15,7 +15,7 @@ The script reads the agent-context extension config at
 - `context_files` — optional project-relative paths for multiple coding agent context files. When non-empty, the script updates each listed file and the list takes precedence over `context_file`.
 - `context_markers.start` / `.end` — the delimiters surrounding the managed section. Defaults to `<!-- SPECKIT START -->` and `<!-- SPECKIT END -->` when the field is missing.
 
-It then creates, replaces, or appends the managed block so that the section points at the most recent plan path when one can be discovered (any `plan.md` under `specs/`, including nested scoped layouts such as `specs/<scope>/<feature>/plan.md`).
+It then creates, replaces, or appends the managed block so that the section points at the plan path declared by the active `.specify/feature.json` pointer.
 
 If `context_files` and `context_file` are empty, the command derives a default target from the active integration in `.specify/init-options.json` and `agent-context-defaults.json`; it reports nothing to do only when no mapped target exists. Context file paths must stay project-relative; absolute paths, Windows drive paths, backslash separators, and `..` path segments are rejected.
 
@@ -25,4 +25,6 @@ If `context_files` and `context_file` are empty, the command derives a default t
 - **PowerShell**: `.specify/extensions/agent-context/scripts/powershell/update-agent-context.ps1 [plan_path]`
 - **Python**: `.specify/extensions/agent-context/scripts/python/update_agent_context.py [plan_path]`
 
-When `plan_path` is omitted, the script first uses `feature_directory/plan.md` from `.specify/feature.json`; if unavailable, it falls back to the most recently modified `specs/**/plan.md` recursively.
+When `plan_path` is omitted, the script uses only `feature_directory/plan.md`
+from `.specify/feature.json`. If the active pointer or plan is unavailable, it
+fails closed and never selects a plan by modification time.

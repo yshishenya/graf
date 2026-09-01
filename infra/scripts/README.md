@@ -38,6 +38,11 @@ Release/Spec Kit governance documents also report partial coverage. The common
 whitespace check covers the merge-base diff and selected untracked files. It is
 the fast feedback lane, not a release gate.
 
+Every lane emits one metadata-only evidence record under the ignored
+`.dev/ci-evidence/` directory (or the path in `GRAF_CI_EVIDENCE_PATH`) and
+prints `ci_evidence_path=...`. Set `GRAF_CI_CANDIDATE_FILE` for the single
+authoritative Full CI run so its evidence is bound to the frozen candidate.
+
 GitHub Actions are disabled. No pull-request validation runs remotely. For an
 early full baseline, run locally:
 

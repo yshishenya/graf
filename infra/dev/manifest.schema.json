@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://graf.2brain.pro/schemas/dev-manifest.v1.json",
+  "title": "GRAF Dev manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "manifest_id",
+    "feature_id",
+    "source_sha",
+    "components",
+    "migration_head",
+    "app_identity",
+    "operator",
+    "created_at",
+    "parent_manifest_id",
+    "health",
+    "dev_boundary"
+  ],
+  "properties": {
+    "schema_version": {"const": "dev-manifest.v1"},
+    "manifest_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
+    "feature_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"},
+    "source_sha": {"type": "string", "pattern": "^[0-9a-fA-F]{40}$"},
+    "components": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["backend", "frontend", "worker", "macos_app"],
+      "properties": {
+        "backend": {"$ref": "#/$defs/component"},
+        "frontend": {"$ref": "#/$defs/component"},
+        "worker": {"$ref": "#/$defs/component"},
+        "macos_app": {"$ref": "#/$defs/component"}
+      }
+    },
+    "migration_head": {"type": "string", "minLength": 1, "maxLength": 256},
+    "app_identity": {"$ref": "#/$defs/appIdentity"},
+    "operator": {"type": "string", "minLength": 1, "maxLength": 128},
+    "created_at": {"type": "string", "format": "date-time"},
+    "promoted_at": {"type": ["string", "null"], "format": "date-time"},
+    "parent_manifest_id": {"type": ["string", "null"]},
+    "status": {"enum": ["ready", "promoting", "active", "degraded", "rollback_required", "blocked"]},
+    "health": {"$ref": "#/$defs/health"},
+    "dev_boundary": {"$ref": "#/$defs/devBoundary"}
+  },
+  "$defs": {
+    "component": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_sha", "version", "digest"],
+      "properties": {
+        "source_sha": {"type": "string", "pattern": "^[0-9a-fA-F]{40}$"},
+        "version": {"type": "string", "minLength": 1, "maxLength": 128},
+        "digest": {"type": "string", "pattern": "^sha256:[0-9a-fA-F]{64}$"}
+      }
+    },
+    "appIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bundle_id", "channel", "signing_identity", "designated_requirement", "entitlements_digest", "update_trust"],
+      "properties": {
+        "bundle_id": {"const": "pro.2brain.graf.dev"},
+        "channel": {"const": "dev"},
+        "signing_identity": {"type": "string", "minLength": 1, "maxLength": 256},
+        "designated_requirement": {"type": "string", "minLength": 1, "maxLength": 1024},
+        "entitlements_digest": {"type": "string", "pattern": "^sha256:[0-9a-fA-F]{64}$"},
+        "update_trust": {"type": "string", "minLength": 1, "maxLength": 256}
+      }
+    },
+    "health": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result", "checked_at", "checks"],
+      "properties": {
+        "result": {"enum": ["pass", "fail", "unknown"]},
+        "checked_at": {"type": "string", "format": "date-time"},
+        "checks": {"type": "object", "additionalProperties": {"type": "string"}}
+      }
+    },
+    "devBoundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["environment", "backend_origin", "frontend_origin", "data_root"],
+      "properties": {
+        "environment": {"const": "development"},
+        "backend_origin": {"type": "string", "pattern": "^https?://(localhost|127\\.0\\.0\\.1|\\[::1\\])(?::[0-9]{1,5})?$"},
+        "frontend_origin": {"type": "string", "pattern": "^https?://(localhost|127\\.0\\.0\\.1|\\[::1\\])(?::[0-9]{1,5})?$"},
+        "data_root": {"type": "string", "minLength": 1, "maxLength": 1024}
+      }
+    }
+  }
+}

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -54,6 +55,7 @@ def validate(root: Path, *, run_doctor: bool = True) -> list[str]:
                 cwd=root,
                 text=True,
                 capture_output=True,
+                env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
                 check=False,
             )
             if result.returncode:

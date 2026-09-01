@@ -2,6 +2,13 @@
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
+# Frozen Spec Kit extension digests must be independent of Python's runtime
+# caches.  Some governance checks import project-local extension helpers before
+# the frozen doctor runs; without this setting those imports create ignored
+# __pycache__ files inside the signed extension tree and make the doctor fail
+# on an otherwise unchanged checkout.
+export PYTHONDONTWRITEBYTECODE=1
+
 usage() {
   echo "usage: $0 --fast|--full|--help" >&2
 }
@@ -14,7 +21,8 @@ classify_path() {
     apps/macos/*)
       echo macos
       ;;
-    infra/docker-compose.yml|infra/server/*|infra/scripts/*.sh|infra/scripts/*.py|\
+    infra/docker-compose.yml|infra/server/*|infra/dev/*|infra/release/*|infra/scripts/*.sh|infra/scripts/*.py|\
+    harness/*|tests/governance/*|changes/unreleased/*|\
     docs/deployments/*|\
     scripts/*|.specify/*|.github/workflows/*|.github/actions/*|\
     Dockerfile*|docker-compose*|Makefile|pyproject.toml)
@@ -188,6 +196,9 @@ check_diff_whitespace() {
 
 main() (
   set -uo pipefail
+  local requested_sha="${GRAF_CI_REQUESTED_SHA:-}"
+  local observed_sha_start=""
+  local observed_sha_end=""
   local requested_mode="unselected"
   local effective_mode="unselected"
   local components="none"
@@ -204,11 +215,22 @@ main() (
   local has_infra=0
   local has_docs=0
   local has_unknown=0
+  local has_governance_tests=0
   local coverage="complete"
   local next_gate="unselected"
   local performance_required=0
   local performance_covered_by_changed_tests=0
   local performance_gate="report"
+  local run_id=""
+  local candidate_id="${GRAF_CI_CANDIDATE_ID:-}"
+  local started_at=""
+  local skipped_gates=""
+  local evidence_status_override=""
+  local evidence_reason_override=""
+  local dirty_worktree=0
+  local worktree_snapshot_start=""
+  local candidate_metadata=""
+  local evidence_path_override="${GRAF_CI_EVIDENCE_PATH:-}"
   local path
   local classification
   local performance_proof
@@ -216,11 +238,103 @@ main() (
 
   finish_ci() {
     local exit_status=$?
+    observed_sha_end="$(git rev-parse HEAD 2>/dev/null || true)"
+    local evidence_status="${evidence_status_override:-failed}"
+    local evidence_reason="${evidence_reason_override:-}"
+    if [[ -n "$observed_sha_start" && "$observed_sha_end" != "$observed_sha_start" ]]; then
+      printf 'ci_evidence_status=stale requested_sha=%s observed_sha_start=%s observed_sha_end=%s reason=target_changed_during_run\n' "${requested_sha:-$observed_sha_start}" "$observed_sha_start" "$observed_sha_end" >&2
+      exit_status=2
+      pipeline_result="fail"
+      evidence_status="stale"
+      evidence_reason="target_changed_during_run"
+    elif [[ -n "$evidence_status_override" ]]; then
+      exit_status=2
+      pipeline_result="fail"
+    elif [[ "$exit_status" -eq 130 || "$exit_status" -eq 143 ]]; then
+      evidence_status="cancelled"
+      evidence_reason="ci_runner_interrupted"
+    elif [[ "$exit_status" -eq 0 && "$pipeline_result" == "pass" ]]; then
+      evidence_status="passed"
+    else
+      evidence_reason="ci_stage_failed"
+    fi
     trap - EXIT INT TERM
     pipeline_completed="$(date +%s)"
     pipeline_duration=$((pipeline_completed - pipeline_started))
+    if [[ "$requested_mode" == "full" && -n "$candidate_id" && -n "$skipped_gates" \
+      && "$pipeline_result" == "pass" ]]; then
+      pipeline_result="fail"
+      exit_status=1
+      evidence_status="failed"
+      evidence_reason="full_candidate_skipped_gates"
+    fi
+    if [[ -n "$observed_sha_start" && "$effective_mode" != "help" ]]; then
+      local finished_at
+      local evidence_path
+      local evidence_args
+      local evidence_scope
+      local worktree_snapshot_end
+      finished_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      worktree_snapshot_end="$(git status --porcelain --untracked-files=all)"
+      if [[ "$worktree_snapshot_end" != "$worktree_snapshot_start" ]]; then
+        exit_status=2
+        pipeline_result="fail"
+        evidence_status="ambiguous"
+        evidence_reason="worktree_changed_during_run"
+      fi
+      if [[ "$requested_mode" == "full" && -n "$candidate_id" && "$dirty_worktree" -eq 0 ]]; then
+        # A candidate has exactly one authoritative Full CI identity.  Do not
+        # let a retry choose a second output path and become a competing proof.
+        evidence_path=".dev/ci-evidence/authoritative-${candidate_id}.json"
+      else
+        evidence_path="${evidence_path_override:-.dev/ci-evidence/${run_id}.json}"
+      fi
+      evidence_args=(
+        --output "$evidence_path" --run-id "$run_id" --lane "$effective_mode"
+        --requested-sha "${requested_sha:-$observed_sha_start}"
+        --observed-sha-start "$observed_sha_start" --observed-sha-end "$observed_sha_end"
+        --status "$evidence_status" --started-at "$started_at" --finished-at "$finished_at"
+        --command "infra/scripts/ci-local.sh --$requested_mode"
+        --scope "components=$components;reason=$selection_reason;coverage=$coverage"
+        --component-sha "repository=$observed_sha_start"
+      )
+      if [[ "$requested_mode" == "full" ]]; then
+        evidence_args+=(
+          --component-sha "backend=$observed_sha_start"
+          --component-sha "frontend=$observed_sha_start"
+          --component-sha "worker=$observed_sha_start"
+          --component-sha "macos_app=$observed_sha_start"
+        )
+      fi
+      if [[ "$dirty_worktree" -eq 1 ]]; then
+        evidence_scope="components=$components;reason=$selection_reason;coverage=$coverage;dirty_worktree=1"
+        evidence_args[${#evidence_args[@]}-2]="--scope"
+        evidence_args[${#evidence_args[@]}-1]="$evidence_scope"
+      fi
+      # Bind evidence to bytes produced by the run when available. The source
+      # revision digest remains a lightweight identity anchor; build outputs
+      # provide the artifact-level provenance required for release decisions.
+      [[ -f "$repo_root/CHANGELOG.md" ]] && evidence_args+=(--artifact "changelog=$repo_root/CHANGELOG.md")
+      [[ -d "$repo_root/apps/macos/.build" ]] && evidence_args+=(--artifact "macos-build=$repo_root/apps/macos/.build")
+      [[ -n "$evidence_reason" ]] && evidence_args+=(--reason "$evidence_reason")
+      [[ -n "$candidate_id" ]] && evidence_args+=(--candidate-id "$candidate_id")
+      [[ "$requested_mode" == "full" && -n "$candidate_id" && "$dirty_worktree" -eq 0 ]] && evidence_args+=(--authoritative-full)
+      while IFS= read -r skipped; do
+        [[ -n "$skipped" ]] && evidence_args+=(--skipped-gate "$skipped")
+      done <<< "$skipped_gates"
+      if python3 scripts/emit-ci-evidence.py "${evidence_args[@]}" >/dev/null; then
+        printf 'ci_evidence_path=%s run_id=%s status=%s\n' "$evidence_path" "$run_id" "$evidence_status"
+      else
+        printf 'ci_evidence_status=failed reason=evidence_write_failed\n' >&2
+        [[ "$exit_status" -eq 0 ]] && exit_status=1
+      fi
+    fi
     if [[ "$exit_status" -eq 0 && "$pipeline_result" == "pass" ]]; then
-      [[ "$requested_mode" == "full" ]] && next_gate="release_ready"
+      if [[ "$requested_mode" == "full" && -n "$candidate_id" && "$dirty_worktree" -eq 0 ]]; then
+        next_gate="release_ready"
+      elif [[ "$requested_mode" == "full" ]]; then
+        next_gate="diagnostic_only"
+      fi
       printf '\nci_local_result=pass mode=%s requested_mode=%s duration_seconds=%s next_gate=%s\n' \
         "$effective_mode" "$requested_mode" "$pipeline_duration" "$next_gate"
     else
@@ -241,9 +355,11 @@ main() (
   case "$1" in
     --fast)
       requested_mode="fast"
+      effective_mode="fast"
       ;;
     --full)
       requested_mode="full"
+      effective_mode="full"
       ;;
     --help|-h)
       requested_mode="help"
@@ -259,6 +375,67 @@ main() (
   esac
 
   cd "$repo_root" || return 1
+  observed_sha_start="$(git rev-parse HEAD)"
+  worktree_snapshot_start="$(git status --porcelain --untracked-files=all)"
+  started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  run_nonce="$(python3 -c 'import secrets; print(secrets.token_hex(6))')"
+  run_id="ci-${requested_mode}-${observed_sha_start:0:12}-${run_nonce}"
+  if [[ -z "$candidate_id" && -n "${GRAF_CI_CANDIDATE_FILE:-}" && -f "$GRAF_CI_CANDIDATE_FILE" ]]; then
+    candidate_metadata="$(python3 - "$GRAF_CI_CANDIDATE_FILE" <<'PY'
+import json
+import sys
+try:
+    value = json.loads(open(sys.argv[1], encoding="utf-8").read())
+except (OSError, UnicodeError, json.JSONDecodeError):
+    value = {}
+if isinstance(value, dict):
+    print(value.get("candidate_id", "") if isinstance(value.get("candidate_id"), str) else "")
+    print(value.get("source_sha", "") if isinstance(value.get("source_sha"), str) else "")
+else:
+    print()
+    print()
+PY
+  )"
+    candidate_id="$(printf '%s\n' "$candidate_metadata" | sed -n '1p')"
+    candidate_source_sha="$(printf '%s\n' "$candidate_metadata" | sed -n '2p')"
+    if [[ -z "$candidate_id" || ! "$candidate_source_sha" =~ ^[0-9a-fA-F]{40}$ ]]; then
+      printf 'ci_evidence_status=ambiguous reason=invalid_candidate_source_sha\n' >&2
+      pipeline_result="fail"
+      evidence_status_override="ambiguous"
+      evidence_reason_override="invalid_candidate_source_sha"
+      return 2
+    fi
+    requested_sha="$candidate_source_sha"
+  fi
+  if [[ -n "$requested_sha" && "$requested_sha" != "$observed_sha_start" ]]; then
+    printf 'ci_evidence_status=stale requested_sha=%s observed_sha_start=%s reason=target_changed\n' "$requested_sha" "$observed_sha_start" >&2
+    pipeline_result="fail"
+    evidence_status_override="stale"
+    evidence_reason_override="target_changed"
+    return 2
+  fi
+  if [[ -n "$(git status --porcelain --untracked-files=all)" ]]; then
+    if [[ "${GRAF_CI_ALLOW_DIRTY:-}" == "1" ]]; then
+      printf 'ci_evidence_status=ambiguous requested_sha=%s observed_sha_start=%s reason=dirty_worktree_opt_in\n' \
+        "${requested_sha:-$observed_sha_start}" "$observed_sha_start" >&2
+      # An explicit dirty diagnostic is still a real bounded run.  Continue
+      # through the selected stages, but force non-authoritative evidence so
+      # the result can never be mistaken for release proof.
+      dirty_worktree=1
+    else
+      printf 'ci_evidence_status=ambiguous requested_sha=%s observed_sha_start=%s reason=dirty_worktree\n' \
+        "${requested_sha:-$observed_sha_start}" "$observed_sha_start" >&2
+      pipeline_result="fail"
+      evidence_status_override="ambiguous"
+      evidence_reason_override="dirty_worktree"
+      return 2
+    fi
+    evidence_status_override="ambiguous"
+    evidence_reason_override="dirty_worktree"
+  fi
+  # These are harness controls, not test inputs.  Do not let a diagnostic
+  # invocation change nested CI contract tests or their evidence destination.
+  unset GRAF_CI_ALLOW_DIRTY GRAF_CI_EVIDENCE_PATH
   performance_proof="$(calendar_performance_test_path)" || return 1
 
   if ! changed_list="$(changed_files)"; then
@@ -273,6 +450,7 @@ main() (
   elif [[ -n "$changed_list" ]]; then
     while IFS= read -r path; do
       [[ -z "$path" ]] && continue
+      [[ "$path" == tests/governance/* ]] && has_governance_tests=1
       if performance_path "$path"; then
         performance_required=1
         if [[ "$requested_mode" == "fast" ]]; then
@@ -403,9 +581,26 @@ main() (
     "$requested_mode" "$effective_mode" "$components" "$selection_reason" "$performance_gate" \
     "$coverage" "$next_gate"
 
+  process_preflight=(python3 scripts/check-development-process.py)
+  if [[ -n "${GRAF_PR_BODY_FILE:-}" ]]; then
+    process_preflight+=(--pr-body "$GRAF_PR_BODY_FILE")
+  fi
+  # The pointer-dependent context check is optional in a clean release
+  # checkout, but fragment and changed-spec checks are repository-wide and
+  # must run on every canonical lane.
+  run_step "Development process preflight" "${process_preflight[@]}" || return $?
   run_step "Spec Kit governance" python3 scripts/check_spec_kit_governance.py || return $?
 
+  if [[ "$effective_mode" == "full" || "$has_governance_tests" -eq 1 || "$has_infra" -eq 1 ]]; then
+    run_step "governance tests" pytest -q tests/governance || return $?
+    run_step "portable harness self-test" env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=harness/src \
+      python3 -c 'from dev_harness.validators import self_test; raise SystemExit(self_test())' || return $?
+  fi
+
   if [[ "$effective_mode" == "full" ]]; then
+    # Full CI is the authoritative release gate. Check every tracked shell
+    # script regardless of path classification, including macOS helpers.
+    run_step "shell syntax" check_shell_syntax "$changed_list" || return $?
     run_step "macOS legacy audio architecture guard" sh apps/macos/Scripts/validate-no-legacy-audio-driver.sh || return $?
     if [[ "$(uname -s)" == "Darwin" ]]; then
       run_step "macOS Swift build" swift build --package-path apps/macos || return $?
@@ -413,6 +608,7 @@ main() (
       run_step "macOS contract validation" swift run --package-path apps/macos ContractValidation || return $?
     else
       printf '\n==> macOS Swift validation skipped (requires Darwin)\n'
+      skipped_gates="${skipped_gates}${skipped_gates:+$'\n'}macOS Swift validation (requires Darwin)"
     fi
     run_step "server tests" run_server_tests full "$performance_gate" || return $?
     run_step "server lint" bash -c "cd apps/server && PYTHONPATH=src uv run --extra dev ruff check ." || return $?
@@ -430,6 +626,7 @@ main() (
         run_step "macOS contract validation" swift run --package-path apps/macos ContractValidation || return $?
       else
         printf '\n==> macOS Swift validation skipped (requires Darwin)\n'
+        skipped_gates="${skipped_gates}${skipped_gates:+$'\n'}macOS Swift validation (requires Darwin)"
       fi
     fi
     if [[ "$has_server" -eq 1 ]]; then
@@ -448,8 +645,10 @@ main() (
       run_step "server lint" bash -c "cd apps/server && PYTHONPATH=src uv run --extra dev ruff check ." || return $?
       run_step "python compile" python3 -m compileall -q apps/server/src apps/server/tests apps/server/scripts || return $?
     fi
-    if [[ "$has_infra" -eq 1 ]]; then
+    if [[ "$has_infra" -eq 1 || "$has_macos" -eq 1 ]]; then
       run_step "shell syntax" check_shell_syntax "$changed_list" || return $?
+    fi
+    if [[ "$has_infra" -eq 1 ]]; then
       run_step "CI contracts" bash -c "cd apps/server && PYTHONPATH=src uv run --extra dev pytest -q \
         tests/contract/test_ci_cd_contract.py \
         tests/contract/test_local_postgres_test_runner.py" || return $?

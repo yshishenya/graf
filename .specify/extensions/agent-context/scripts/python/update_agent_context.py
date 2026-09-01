@@ -9,11 +9,9 @@ from the agent-context extension config:
 
 Usage: update_agent_context.py [plan_path]
 
-When ``plan_path`` is omitted, the script derives it from
-``.specify/feature.json`` (written by /speckit-specify). Falls back to the most
-recently modified ``plan.md`` found anywhere under ``specs/`` — scoped layouts
-nest it as ``specs/<scope>/<feature>/plan.md`` — only when feature.json is
-absent or its plan does not exist yet.
+When ``plan_path`` is omitted, the script derives it only from the active
+``.specify/feature.json`` pointer. If the pointer or its plan is unavailable,
+the update fails closed instead of guessing from timestamps.
 """
 
 from __future__ import annotations
@@ -139,66 +137,33 @@ def _validate_context_file(project_root: str, context_file: str) -> str | None:
 
 
 def _resolve_plan_path(project_root: str) -> str:
-    """Derive the plan path: feature.json first, then the mtime fallback."""
-    plan_path = ""
+    """Derive the plan path from the explicit active feature pointer only."""
     feature_json = Path(project_root) / ".specify" / "feature.json"
-    if feature_json.is_file():
-        feature_dir = ""
-        try:
-            with open(feature_json, "r", encoding="utf-8") as fh:
-                data = json.load(fh)
-            value = data.get("feature_directory", "")
-            feature_dir = value if isinstance(value, str) else ""
-        except Exception:
-            feature_dir = ""
-        # Normalize backslashes (written by PS on Windows) before path ops.
-        feature_dir = feature_dir.replace("\\", "/").rstrip("/")
-        if feature_dir:
-            # feature_directory may be relative or absolute (absolute paths
-            # outside the project root are preserved as-is), including
-            # drive-qualified paths (C:/...) written by PowerShell on Windows.
-            if feature_dir.startswith("/") or re.match(r"^[A-Za-z]:/", feature_dir):
-                candidate = Path(feature_dir) / "plan.md"
-            else:
-                candidate = Path(project_root) / feature_dir / "plan.md"
-            if candidate.is_file():
-                # Resolve symlinks before comparing so paths like /var/… vs
-                # /private/var/… (macOS) are treated as equivalent.
-                root = Path(project_root).resolve()
-                resolved = candidate.resolve()
-                try:
-                    plan_path = resolved.relative_to(root).as_posix()
-                except ValueError:
-                    plan_path = resolved.as_posix()
-
-    if not plan_path:
-        root = Path(project_root).resolve()
-        specs = root / "specs"
-
-        def _resolved_rel(p: Path) -> Path | None:
-            # Resolve symlinks before checking containment: relative_to() is
-            # lexical and would otherwise accept a plan reached through a specs/
-            # symlink that points outside the project, emitting an
-            # in-project-looking path for an out-of-project file (or picking it
-            # as "most recent").
-            try:
-                return p.resolve().relative_to(root)
-            except (OSError, ValueError):
-                return None
-
-        # Recurse (rather than the old one-level specs/*/plan.md glob) so scoped
-        # layouts created via SPECIFY_FEATURE_DIRECTORY, e.g.
-        # specs/<scope>/<feature>/plan.md, are still discovered when
-        # feature.json is absent (#3024). Mirrors the bash and PowerShell twins.
-        candidates = []
-        for p in specs.rglob("plan.md"):
-            rel = _resolved_rel(p)
-            if rel is not None:
-                candidates.append((p, rel))
-        candidates.sort(key=lambda pr: pr[0].stat().st_mtime, reverse=True)
-        if candidates:
-            plan_path = candidates[0][1].as_posix()
-    return plan_path
+    if not feature_json.is_file():
+        return ""
+    try:
+        data = json.loads(feature_json.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return ""
+    feature_dir = data.get("feature_directory", "") if isinstance(data, dict) else ""
+    if not isinstance(feature_dir, str) or not feature_dir.strip():
+        return ""
+    feature_dir = feature_dir.replace("\\", "/").rstrip("/")
+    if feature_dir.startswith("/") or re.match(r"^[A-Za-z]:/", feature_dir):
+        candidate = Path(feature_dir) / "plan.md"
+    else:
+        candidate = Path(project_root) / feature_dir / "plan.md"
+    if not candidate.is_file():
+        return ""
+    root = Path(project_root).resolve()
+    resolved = candidate.resolve()
+    try:
+        return resolved.relative_to(root).as_posix()
+    except ValueError:
+        # Never leak or follow a plan outside this checkout.  The active
+        # pointer is untrusted input and context updates must fail closed
+        # rather than writing a machine-specific external path into AGENTS.md.
+        return ""
 
 
 def _build_section(marker_start: str, marker_end: str, plan_path: str) -> str:
@@ -350,6 +315,9 @@ def main(argv: list[str] | None = None) -> int:
     plan_path = args[0] if args else ""
     if not plan_path:
         plan_path = _resolve_plan_path(project_root)
+    if not plan_path:
+        _err("agent-context: no active feature plan; refusing timestamp-based context selection.")
+        return 0
 
     section = _build_section(marker_start, marker_end, plan_path)
 

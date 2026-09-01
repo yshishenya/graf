@@ -3,7 +3,7 @@ set -eu
 ROOT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
 COMPOSE_FILE="$ROOT_DIR/infra/docker-compose.local.yml"
 SERVER_DIR="$ROOT_DIR/apps/server"
-LOCAL_CREDENTIAL_KEY_FILE="$ROOT_DIR/infra/secrets/graf_credential_encryption_key"
+LOCAL_CREDENTIAL_KEY_FILE="${GRAF_CREDENTIAL_ENCRYPTION_KEY_FILE:-$ROOT_DIR/infra/secrets/graf_credential_encryption_key}"
 export TWOBRAIN_ENV=development
 export TWOBRAIN_CALENDAR_ALLOW_UNCERTIFIED_YANDEX="${TWOBRAIN_CALENDAR_ALLOW_UNCERTIFIED_YANDEX:-true}"
 export TWOBRAIN_API_HOST=127.0.0.1
@@ -14,11 +14,12 @@ export TWOBRAIN_MINIO_ACCESS_KEY="${TWOBRAIN_MINIO_ACCESS_KEY:-twobrain_rec}"
 export TWOBRAIN_MINIO_SECRET_KEY="${TWOBRAIN_MINIO_SECRET_KEY:-twobrain_rec_dev_secret}"
 export TWOBRAIN_MINIO_BUCKET="${TWOBRAIN_MINIO_BUCKET:-twobrain-rec-ingest}"
 export TWOBRAIN_MINIO_SECURE=false
+export TWOBRAIN_TEMPORAL_ADDRESS="${TWOBRAIN_TEMPORAL_ADDRESS:-127.0.0.1:7233}"
 export TWOBRAIN_WEB_LOGIN_WORKSPACE_ID=20000000-0000-0000-0000-000000000001
 export TWOBRAIN_EMAIL_LOGIN_DELIVERY_ENABLED=false
 export TWOBRAIN_LOCAL_HTTP_AUTH_COOKIE_ENABLED=true
 export TWOBRAIN_LOCAL_EMAIL_LOGIN_CODE=000000
-export TWOBRAIN_PROCESSING_ENABLED=false
+export TWOBRAIN_PROCESSING_ENABLED="${TWOBRAIN_PROCESSING_ENABLED:-true}"
 export TWOBRAIN_OUTCOME_GENERATION_ENABLED=false
 export TWOBRAIN_BILLING_CHECKOUT_ENABLED=false
 export TWOBRAIN_PRODUCT_ANALYTICS_ENABLED=false
@@ -33,8 +34,8 @@ if [ ! -s "$LOCAL_CREDENTIAL_KEY_FILE" ]; then
     uv run python -c 'from cryptography.fernet import Fernet; from pathlib import Path; import sys; Path(sys.argv[1]).write_bytes(Fernet.generate_key() + b"\n")' "$LOCAL_CREDENTIAL_KEY_FILE"
   )
 fi
-export GRAF_CREDENTIAL_ENCRYPTION_KEY_FILE="${GRAF_CREDENTIAL_ENCRYPTION_KEY_FILE:-$LOCAL_CREDENTIAL_KEY_FILE}"
-docker compose -f "$COMPOSE_FILE" up -d --wait rec-postgres rec-minio
+export GRAF_CREDENTIAL_ENCRYPTION_KEY_FILE="$LOCAL_CREDENTIAL_KEY_FILE"
+docker compose -f "$COMPOSE_FILE" up -d --build --wait rec-postgres rec-minio rec-temporal rec-processing-worker
 (
   cd "$SERVER_DIR"
   uv run alembic upgrade head
