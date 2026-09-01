@@ -227,12 +227,15 @@ def _desktop_review_status(
     result: ProcessingResult | None,
     processing_status: ProcessingStatus,
     processing_workflow_id: object | None,
+    replacement_active: bool = False,
 ) -> str:
     if processing_status in {
         ProcessingStatus.FAILED_RETRYABLE,
         ProcessingStatus.FAILED_TERMINAL,
     }:
         return "failed"
+    if replacement_active:
+        return "processing"
     has_transcript = _transcript_artifact_available(result)
     has_diarization = _diarization_available(result)
     if (
@@ -819,7 +822,7 @@ async def get_desktop_recording_sync_state(
     )
     review_projection_result = review_result
     if replacement_active:
-        review_projection_result = await db.scalar(
+        replacement_result = await db.scalar(
             select(ProcessingResult)
             .where(
                 ProcessingResult.workspace_id == tenant_scope.workspace_id,
@@ -830,6 +833,12 @@ async def get_desktop_recording_sync_state(
             )
             .order_by(ProcessingResult.result_version.desc(), ProcessingResult.created_at.desc())
         )
+        if replacement_result is None:
+            review_projection_result = None
+        elif _transcript_available(replacement_result) and _diarization_available(
+            replacement_result
+        ):
+            review_projection_result = replacement_result
     effective_processing_status = (
         ProcessingStatus.FAILED_TERMINAL
         if terminal_input_result
@@ -847,6 +856,7 @@ async def get_desktop_recording_sync_state(
         ),
         processing_status=effective_processing_status,
         processing_workflow_id=review_workflow.id if review_workflow is not None else None,
+        replacement_active=replacement_active,
     )
     transcript_ready = _transcript_available(review_projection_result)
     diarization_ready = _diarization_available(review_projection_result)

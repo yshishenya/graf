@@ -99,7 +99,6 @@ from twobrain_rec_server.db.models import (
     MeetingOutcomeSet,
     MeetingShareGrant,
     MeetingSpeakerName,
-    MeetingSummarySlot,
     ProcessingDependencyState,
     ProcessingResult,
     ProcessingWorkflow,
@@ -1651,36 +1650,6 @@ async def latest_processing_result(
     )
     if media_revision is None:
         return None
-    # Browser processing reads are pinned to the meeting's accepted default
-    # summary slot. This keeps a newer unpromoted provider row from replacing
-    # the artifact currently selected by the owner.
-    if default_result_id := await db.scalar(
-        select(MeetingOutcomeSet.processing_result_id)
-        .join(
-            MeetingSummarySlot,
-            MeetingSummarySlot.current_outcome_set_id == MeetingOutcomeSet.id,
-        )
-        .where(
-            MeetingSummarySlot.workspace_id == workspace_id,
-            MeetingSummarySlot.meeting_id == meeting_id,
-            MeetingSummarySlot.is_meeting_default.is_(True),
-            MeetingSummarySlot.template_key == MeetingOutcomeSet.template_key,
-            MeetingOutcomeSet.revision_state == "accepted",
-            MeetingOutcomeSet.status.in_({"available", "partial"}),
-            MeetingOutcomeSet.processing_result_id.is_not(None),
-        )
-    ):
-        pinned = await db.scalar(
-            select(ProcessingResult).where(
-                ProcessingResult.id == default_result_id,
-                ProcessingResult.workspace_id == workspace_id,
-                ProcessingResult.meeting_id == meeting_id,
-                ProcessingResult.media_revision_id == media_revision.id,
-                ProcessingResult.status == "imported",
-            )
-        )
-        if pinned is not None:
-            return pinned
     return await _latest_result(
         db,
         workspace_id=workspace_id,
