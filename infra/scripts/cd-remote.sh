@@ -168,14 +168,15 @@ PY
     echo "reason=authoritative_full_evidence_missing"
     exit 1
   }
-  if ! python3 - "$CANDIDATE_PATH" "$EVIDENCE_PATH" <<'PY'
+  if ! python3 - "$CANDIDATE_PATH" "$EVIDENCE_PATH" "${EXPECTED_SHA:-}" <<'PY'
 import hashlib
 import importlib.util
 import json
 import pathlib
 import sys
 
-candidate_path, evidence_path = map(pathlib.Path, sys.argv[1:])
+candidate_path, evidence_path = map(pathlib.Path, sys.argv[1:3])
+deploy_sha = sys.argv[3].lower()
 candidate = json.loads(candidate_path.read_text(encoding="utf-8"))
 evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
 expected = candidate.get("full_evidence_digest")
@@ -195,6 +196,8 @@ if evidence.get("candidate_id") != candidate.get("candidate_id"):
     raise SystemExit("authoritative Full CI evidence candidate ID differs from the decision record")
 if evidence.get("requested_sha") != candidate.get("source_sha"):
     raise SystemExit("authoritative Full CI evidence SHA differs from the decision record")
+if deploy_sha and candidate.get("source_sha", "").lower() != deploy_sha:
+    raise SystemExit("candidate source SHA differs from the deployed SHA")
 if evidence.get("lane") != "full" or evidence.get("authoritative_full") is not True:
     raise SystemExit("decision evidence is not an authoritative Full CI record")
 PY

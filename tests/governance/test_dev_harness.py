@@ -16,6 +16,12 @@ SPEC = importlib.util.spec_from_file_location("dev_harness", ROOT / "scripts" / 
 assert SPEC and SPEC.loader
 dev_harness = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(dev_harness)
+CONTRACTS_SPEC = importlib.util.spec_from_file_location(
+    "dev_harness_ci_contracts", ROOT / "harness/src/dev_harness/ci_contracts.py"
+)
+assert CONTRACTS_SPEC and CONTRACTS_SPEC.loader
+ci_contracts = importlib.util.module_from_spec(CONTRACTS_SPEC)
+CONTRACTS_SPEC.loader.exec_module(ci_contracts)
 
 
 def run(operation, root, **kwargs):
@@ -41,6 +47,52 @@ def test_build_promote_status_smoke_and_rollback(tmp_path):
     second = build(tmp_path, sha_b)
     run("promote", tmp_path, manifest=str(tmp_path / "manifests" / f"{second['manifest_id']}.json"), dry_run=False)
     assert run("rollback", tmp_path, manifest_id=None, dry_run=False)["manifest"]["source_sha"] == sha_a
+
+
+def test_portable_event_identity_resolves_nested_merge_group() -> None:
+    result = ci_contracts.resolve_event_identity(
+        {"merge_group": {"head_sha": "a" * 40, "base_sha": "b" * 40,
+                          "id": "mg-1", "pull_requests": [{"number": 7}]}},
+        "merge_group",
+    )
+    assert result["target_sha"] == "a" * 40
+    assert result["pull_request_numbers"] == [7]
+
+
+def test_portable_receipt_validator_rejects_stale_success() -> None:
+    sha = "a" * 40
+    receipt = {
+        "schema_version": 1, "status": "passed", "event_name": "pull_request",
+        "workflow": "governance", "run_id": "run-1", "run_attempt": 1,
+        "workflow_url": "https://github.com/example/project/actions/runs/1",
+        "target_sha": sha, "base_sha": "b" * 40, "pull_request_numbers": [1],
+        "merge_group_id": None, "requested_sha": sha, "observed_sha_start": sha,
+        "observed_sha_end": "c" * 40, "final_cleanliness": "pass",
+        "local_evidence_digest": "sha256:" + "d" * 64,
+        "started_at": "2026-01-01T00:00:00Z", "finished_at": "2026-01-01T00:01:00Z",
+    }
+    assert ci_contracts.ci_receipt(receipt)
+
+
+def test_portable_receipt_matches_canonical_fail_closed_contract() -> None:
+    sha = "a" * 40
+    good = {
+        "schema_version": 1, "status": "passed", "event_name": "pull_request",
+        "workflow": "governance", "run_id": "run-1", "run_attempt": 1,
+        "workflow_url": "https://github.com/example/project/actions/runs/1",
+        "target_sha": sha, "base_sha": "b" * 40, "pull_request_numbers": [1],
+        "merge_group_id": None, "requested_sha": sha, "observed_sha_start": sha,
+        "observed_sha_end": sha, "final_cleanliness": "pass",
+        "local_evidence_digest": "sha256:" + "c" * 64,
+        "started_at": "2026-01-01T00:00:00Z", "finished_at": "2026-01-01T00:01:00Z",
+    }
+    assert ci_contracts.ci_receipt(good) == []
+    assert ci_contracts.ci_receipt({**good, "raw_transcript": "private"})
+    assert ci_contracts.ci_receipt({**good, "workflow_url": "http://example.test"})
+    assert ci_contracts.ci_receipt({**good, "local_evidence_digest": "bad"})
+    assert ci_contracts.ci_receipt({**good, "merge_group_id": "mg/1"})
+    assert ci_contracts.ci_receipt({**good, "conclusion": "failed"})
+    assert ci_contracts.ci_receipt({**good, "observed_sha_end": "d" * 40})
 
 
 def test_live_rollback_publishes_pointer_only_after_verified_adapter(monkeypatch, tmp_path):
@@ -122,12 +174,11 @@ def test_live_build_does_not_claim_existing_metadata_is_a_live_artifact(monkeypa
             return {"mode": "live", "app_bundle_digest": "sha256:" + "3" * 64}
 
     monkeypatch.setattr(dev_harness, "GrafLocalAdapter", FakeAdapter)
-    with pytest.raises(dev_harness.HarnessError, match="active live Dev app artifact"):
-        run(
-            "build", tmp_path, sha=sha, feature_id="216", operator="test",
-            migration_head="dev-head", dry_run=False, live=True,
-        )
-    assert calls == []
+    run(
+        "build", tmp_path, sha=sha, feature_id="216", operator="test",
+        migration_head="dev-head", dry_run=False, live=True,
+    )
+    assert calls == [sha]
     assert json.loads((tmp_path / "manifests" / f"{first['manifest_id']}.json").read_text()) == active_before
 
 
@@ -159,12 +210,11 @@ def test_live_build_rebuilds_when_existing_app_digest_drifted(monkeypatch, tmp_p
             return {"mode": "live", "app_bundle_digest": manifest["components"]["macos_app"]["digest"]}
 
     monkeypatch.setattr(dev_harness, "GrafLocalAdapter", FakeAdapter)
-    with pytest.raises(dev_harness.HarnessError, match="active live Dev app artifact"):
-        run(
-            "build", tmp_path, sha=sha, feature_id="216", operator="test",
-            migration_head="dev-head", dry_run=False, live=True,
-        )
-    assert calls == []
+    run(
+        "build", tmp_path, sha=sha, feature_id="216", operator="test",
+        migration_head="dev-head", dry_run=False, live=True,
+    )
+    assert calls == [sha]
 
 
 def test_metadata_only_promote_refuses_live_active_target(tmp_path):

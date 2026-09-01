@@ -9,6 +9,7 @@
     "schema_version",
     "candidate_id",
     "source_sha",
+    "train_id",
     "included_feature_ids",
     "changelog_digest",
     "frozen_at",
@@ -36,6 +37,10 @@
     "source_sha": {
       "type": "string",
       "pattern": "^[0-9a-f]{40}$"
+    },
+    "train_id": {
+      "type": ["string", "null"],
+      "pattern": "^train-[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
     },
     "included_feature_ids": {
       "type": "array",
@@ -189,6 +194,16 @@
           "decision": {
             "const": "go"
           }
+        }
+      }
+    },
+    {
+      "if": {"required": ["status"], "properties": {"status": {"enum": ["no-go", "invalidated"]}}},
+      "then": {
+        "required": ["decision", "decision_reason"],
+        "properties": {
+          "decision": {"const": "no-go"},
+          "decision_reason": {"type": "string", "minLength": 1}
         }
       }
     }

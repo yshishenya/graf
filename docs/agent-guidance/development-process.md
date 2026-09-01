@@ -34,6 +34,10 @@ constitution and linked guidance; this file only routes a feature through them.
   `tasks.md`, `quickstart.md`, relevant contracts and risk guidance.
 - Do not load all historical specs, all worktrees or complete CI logs into the
   prompt. Use bounded summaries and links.
+- The optional Spec Kit context updater writes only the ignored
+  `.dev/active-feature-context.md`; it must never replace the stable root
+  `AGENTS.md` with a current feature plan. `.specify/feature.json` remains the
+  authoritative per-worktree pointer.
 - Every state-changing command prints Feature ID, task and exact SHA in
   metadata-only output.
 - If the active pointer is missing, malformed or points outside the current
@@ -85,6 +89,12 @@ permission trust. Production app, data and origins are always rejected.
 - A product release requires CalVer tag, GitHub Release and Russian notes with
   changes, validation, compatibility/migration impact, known limitations and
   links. Production execute still requires explicit approval.
+
+After Feature 227 is reviewed and merged, PR checks will remain bound to the
+PR target SHA, `merge_group` checks will bind the synthetic merge SHA, and a
+release train will record both that SHA and the actual post-merge `master` SHA.
+Only the frozen post-merge candidate may receive one authoritative Full CI;
+cancelled, superseded or drifted receipts are not release evidence.
 
 ## Files agents may change
 

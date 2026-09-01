@@ -33,6 +33,22 @@ automatically on a pull request: the author must run the selected local lane and
 record its result in the PR. Use `--full` only for a release candidate or early
 broad diagnosis; do not run it after every small edit.
 
+After Feature 227 is merged and the operator has enabled the required checks,
+the remote workflow must validate PR and `merge_group` target identity before
+merge-queue enforcement. A synthetic merge SHA is provenance only; the release
+candidate is frozen on the resulting exact `master` SHA.
+
+For a batched release window, create a metadata-only train manifest with
+`infra/scripts/release-candidate.sh train-freeze`, then run
+`train-validate <manifest> --current`. A train must include the synthetic
+merge SHA, post-merge `source_sha`, included PRs, Feature IDs, receipt
+references and the changelog digest. Freeze the linked candidate with
+`freeze ... --train <manifest>`, run the one authoritative Full CI, and bind
+that receipt with `train-attest <manifest> --candidate <candidate> --evidence
+<full-evidence>`. Only the resulting `*-go.json` train may be passed to
+`decide ... --train <train-go>`. Every record is create-once; if `master` or
+the changelog changes, validation fails and a new train must be frozen.
+
 Use targeted tests during development, but do not replace the feature
 quickstart or canonical local gate with a narrow command when the change touches
 shared behavior, privacy, auth, storage, infrastructure, user-facing flows,
@@ -194,8 +210,9 @@ The execute step synchronizes and pins the exact SHA, then re-checks the
 unchanged worktree/local/remote SHA immediately before remote production
 actions. Release candidates and decisions are operator evidence and should
 remain under the ignored `.dev/release/` path (or an explicit external evidence
-directory). A direct full run remains available for diagnosis, but it is not
-the authoritative release run.
+directory). A direct full run prints `next_gate=full_diagnostic_only` when no
+candidate is supplied; it remains available for diagnosis, but it is not the
+authoritative release run.
 
 ### 4. Production gate
 

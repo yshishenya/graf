@@ -84,7 +84,11 @@ def test_signed_app_identity_is_measured_from_codesign_output(monkeypatch, tmp_p
     def fake_combined(command, *, cwd, env=None):
         return outputs[command[1]]
 
+    def fake_run(command, *, cwd, env=None):
+        return outputs["-d"]
+
     monkeypatch.setattr(dev_harness, "_run_command_combined", fake_combined)
+    monkeypatch.setattr(dev_harness, "_run_command", fake_run)
     signer, requirement, entitlements_digest = adapter._measure_signed_app_identity(tmp_path / "GRAF Dev.app")
 
     assert signer == "GRAF Local Code Signing"
@@ -171,6 +175,18 @@ def test_pid_ownership_requires_matching_process_start_token(monkeypatch, tmp_pa
     assert adapter._pid_owned(record) is True
     assert adapter._pid_owned(dict(record, start_token="Tue Aug 31 01:02:03 2026")) is False
     assert adapter._pid_owned({"pid": 77, "command": record["command"]}) is False
+
+
+def test_process_command_captures_post_exec_command(monkeypatch, tmp_path):
+    adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
+
+    def fake_ps(command, **_kwargs):
+        assert command == ["ps", "-p", "303", "-o", "command="]
+        return "uv run uvicorn twobrain_rec_server.main:create_app --factory\n"
+
+    monkeypatch.setattr(dev_harness.subprocess, "check_output", fake_ps)
+
+    assert adapter._process_command(303) == "uv run uvicorn twobrain_rec_server.main:create_app --factory"
 
 
 def test_app_snapshot_rejects_production_destination_before_copy(monkeypatch, tmp_path):

@@ -458,7 +458,8 @@ def package_safety(package_root: Path) -> list[str]:
         re.IGNORECASE,
     )
     credential_assignment = re.compile(
-        r"\b(?:api[_-]?key|secret|password|bearer)\s*[:=]\s*['\"]?"
+        r"(?:\b(?:api[_ -]?key|secret|password|(?:[A-Za-z0-9]+_)?token|cookie|signed[-_ ]?url|bearer)\s*[:=]\s*['\"]?"
+        r"|\bauthorization\s*:\s*bearer\s+['\"]?)"
         r"[A-Za-z0-9][A-Za-z0-9_./+=:-]{7,}",
         re.IGNORECASE,
     )
@@ -487,6 +488,9 @@ def package_safety(package_root: Path) -> list[str]:
 
 
 def self_test() -> int:
+    from dev_harness.ci_contracts import self_test as ci_contracts_self_test
+
+    ci_contracts_self_test()
     sha = "a" * 40
     digest = "sha256:" + "b" * 64
     good_evidence = {
@@ -516,7 +520,10 @@ def self_test() -> int:
     ))
     assert ci_evidence(dict(good_evidence, started_at="2026-08-31T00:00:00.1234567Z")) == []
     assert any("forbidden private or credential" in error for error in ci_evidence(
-        dict(good_evidence, scope="Authorization: Bearer abcdefghijkl")
+        dict(good_evidence, scope="Authorization: " + "Bearer abcdefghijkl")
+    ))
+    assert any("forbidden private or credential" in error for error in ci_evidence(
+        dict(good_evidence, scope="authorization: bearer x")
     ))
 
     good_pr = (
@@ -592,6 +599,20 @@ def self_test() -> int:
         documentation = package / "README.md"
         documentation.write_text("api" + '_key = "RealCredential123456"\n', encoding="utf-8")
         assert package_safety(package)
+        env_package = root / "env-package"
+        env_package.mkdir()
+        (env_package / "README.md").write_text(
+            "GITHUB_" + "TO" + "KEN=abcdefghijk\n"
+            "SIGNED_" + "URL=https://example.invalid/path\n",
+            encoding="utf-8",
+        )
+        assert package_safety(env_package)
+        bearer_package = root / "bearer-package"
+        bearer_package.mkdir()
+        (bearer_package / "README.md").write_text(
+            "Authorization: " + "Bearer abcdefgh\n", encoding="utf-8"
+        )
+        assert package_safety(bearer_package)
     print("harness-check: self-test OK")
     return 0
 

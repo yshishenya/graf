@@ -3,10 +3,7 @@
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 # Frozen Spec Kit extension digests must be independent of Python's runtime
-# caches.  Some governance checks import project-local extension helpers before
-# the frozen doctor runs; without this setting those imports create ignored
-# __pycache__ files inside the signed extension tree and make the doctor fail
-# on an otherwise unchanged checkout.
+# caches.  Governance imports must not dirty the checkout during a gate.
 export PYTHONDONTWRITEBYTECODE=1
 
 usage() {
@@ -194,6 +191,18 @@ check_diff_whitespace() {
   done <<<"$changed_file_list"
 }
 
+check_final_cleanliness() {
+  local status
+  status="$(git -C "$repo_root" status --porcelain --untracked-files=all)"
+  if [[ "$status" != "$initial_tree_state" ]]; then
+    printf 'ci_evidence_status=ambiguous reason=tree_changed_during_run\n' >&2
+    evidence_status_override="ambiguous"
+    evidence_reason_override="tree_changed_during_run"
+    pipeline_result="fail"
+    return 2
+  fi
+}
+
 main() (
   set -uo pipefail
   local requested_sha="${GRAF_CI_REQUESTED_SHA:-}"
@@ -229,8 +238,11 @@ main() (
   local evidence_reason_override=""
   local dirty_worktree=0
   local worktree_snapshot_start=""
-  local candidate_metadata=""
   local evidence_path_override="${GRAF_CI_EVIDENCE_PATH:-}"
+  local initial_tree_state=""
+  local candidate_file="${GRAF_CI_CANDIDATE_FILE:-}"
+  local candidate_source_sha=""
+  local candidate_metadata=""
   local path
   local classification
   local performance_proof
@@ -247,13 +259,13 @@ main() (
       pipeline_result="fail"
       evidence_status="stale"
       evidence_reason="target_changed_during_run"
-    elif [[ -n "$evidence_status_override" ]]; then
+    elif [[ "$evidence_status_override" == "stale" ]]; then
       exit_status=2
       pipeline_result="fail"
     elif [[ "$exit_status" -eq 130 || "$exit_status" -eq 143 ]]; then
       evidence_status="cancelled"
       evidence_reason="ci_runner_interrupted"
-    elif [[ "$exit_status" -eq 0 && "$pipeline_result" == "pass" ]]; then
+    elif [[ "$exit_status" -eq 0 && "$pipeline_result" == "pass" && -z "$evidence_status_override" ]]; then
       evidence_status="passed"
     else
       evidence_reason="ci_stage_failed"
@@ -261,6 +273,14 @@ main() (
     trap - EXIT INT TERM
     pipeline_completed="$(date +%s)"
     pipeline_duration=$((pipeline_completed - pipeline_started))
+    local worktree_snapshot_end
+    worktree_snapshot_end="$(git status --porcelain --untracked-files=all)"
+    if [[ "$worktree_snapshot_end" != "$worktree_snapshot_start" ]]; then
+      exit_status=2
+      pipeline_result="fail"
+      evidence_status="ambiguous"
+      evidence_reason="worktree_changed_during_run"
+    fi
     if [[ "$requested_mode" == "full" && -n "$candidate_id" && -n "$skipped_gates" \
       && "$pipeline_result" == "pass" ]]; then
       pipeline_result="fail"
@@ -272,16 +292,7 @@ main() (
       local finished_at
       local evidence_path
       local evidence_args
-      local evidence_scope
-      local worktree_snapshot_end
       finished_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-      worktree_snapshot_end="$(git status --porcelain --untracked-files=all)"
-      if [[ "$worktree_snapshot_end" != "$worktree_snapshot_start" ]]; then
-        exit_status=2
-        pipeline_result="fail"
-        evidence_status="ambiguous"
-        evidence_reason="worktree_changed_during_run"
-      fi
       if [[ "$requested_mode" == "full" && -n "$candidate_id" && "$dirty_worktree" -eq 0 ]]; then
         # A candidate has exactly one authoritative Full CI identity.  Do not
         # let a retry choose a second output path and become a competing proof.
@@ -307,9 +318,8 @@ main() (
         )
       fi
       if [[ "$dirty_worktree" -eq 1 ]]; then
-        evidence_scope="components=$components;reason=$selection_reason;coverage=$coverage;dirty_worktree=1"
         evidence_args[${#evidence_args[@]}-2]="--scope"
-        evidence_args[${#evidence_args[@]}-1]="$evidence_scope"
+        evidence_args[${#evidence_args[@]}-1]="components=$components;reason=$selection_reason;coverage=$coverage;dirty_worktree=1"
       fi
       # Bind evidence to bytes produced by the run when available. The source
       # revision digest remains a lightweight identity anchor; build outputs
@@ -330,10 +340,13 @@ main() (
       fi
     fi
     if [[ "$exit_status" -eq 0 && "$pipeline_result" == "pass" ]]; then
-      if [[ "$requested_mode" == "full" && -n "$candidate_id" && "$dirty_worktree" -eq 0 ]]; then
-        next_gate="release_ready"
-      elif [[ "$requested_mode" == "full" ]]; then
-        next_gate="diagnostic_only"
+      if [[ "$requested_mode" == "full" ]]; then
+        if [[ -n "$candidate_id" && "$dirty_worktree" -eq 0 ]]; then
+          next_gate="release_ready"
+        else
+          # A direct or dirty full run is diagnosis only until a clean candidate is frozen.
+          next_gate="full_diagnostic_only"
+        fi
       fi
       printf '\nci_local_result=pass mode=%s requested_mode=%s duration_seconds=%s next_gate=%s\n' \
         "$effective_mode" "$requested_mode" "$pipeline_duration" "$next_gate"
@@ -376,65 +389,109 @@ main() (
 
   cd "$repo_root" || return 1
   observed_sha_start="$(git rev-parse HEAD)"
-  worktree_snapshot_start="$(git status --porcelain --untracked-files=all)"
+  initial_tree_state="$(git status --porcelain --untracked-files=all)"
+  worktree_snapshot_start="$initial_tree_state"
   started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   run_nonce="$(python3 -c 'import secrets; print(secrets.token_hex(6))')"
   run_id="ci-${requested_mode}-${observed_sha_start:0:12}-${run_nonce}"
-  if [[ -z "$candidate_id" && -n "${GRAF_CI_CANDIDATE_FILE:-}" && -f "$GRAF_CI_CANDIDATE_FILE" ]]; then
-    candidate_metadata="$(python3 - "$GRAF_CI_CANDIDATE_FILE" <<'PY'
+  if [[ "$requested_mode" == "full" && -n "$candidate_id" && -z "$candidate_file" ]]; then
+    printf 'ci_evidence_status=ambiguous reason=candidate_file_required\n' >&2
+    evidence_status_override="ambiguous"
+    evidence_reason_override="candidate_file_required"
+    pipeline_result="fail"
+    return 2
+  fi
+  if [[ -n "$candidate_file" ]]; then
+    if [[ ! -f "$candidate_file" ]]; then
+      printf 'ci_evidence_status=ambiguous reason=candidate_file_missing\n' >&2
+      evidence_status_override="ambiguous"
+      evidence_reason_override="candidate_file_missing"
+      pipeline_result="fail"
+      return 2
+    fi
+candidate_metadata="$(python3 - "$candidate_file" <<'PY'
 import json
+import re
 import sys
 try:
     value = json.loads(open(sys.argv[1], encoding="utf-8").read())
 except (OSError, UnicodeError, json.JSONDecodeError):
-    value = {}
-if isinstance(value, dict):
-    print(value.get("candidate_id", "") if isinstance(value.get("candidate_id"), str) else "")
-    print(value.get("source_sha", "") if isinstance(value.get("source_sha"), str) else "")
-else:
-    print()
-    print()
+    raise SystemExit(1)
+if not isinstance(value, dict):
+    raise SystemExit(1)
+candidate_id = value.get("candidate_id")
+source_sha = value.get("source_sha")
+if not isinstance(candidate_id, str) or not re.fullmatch(r"[A-Za-z0-9._:-]{1,160}", candidate_id):
+    raise SystemExit(1)
+if not isinstance(source_sha, str) or len(source_sha) != 40 or any(char not in "0123456789abcdefABCDEF" for char in source_sha):
+    raise SystemExit(1)
+print(candidate_id)
+print(source_sha.lower())
 PY
-  )"
-    candidate_id="$(printf '%s\n' "$candidate_metadata" | sed -n '1p')"
-    candidate_source_sha="$(printf '%s\n' "$candidate_metadata" | sed -n '2p')"
-    if [[ -z "$candidate_id" || ! "$candidate_source_sha" =~ ^[0-9a-fA-F]{40}$ ]]; then
-      printf 'ci_evidence_status=ambiguous reason=invalid_candidate_source_sha\n' >&2
-      pipeline_result="fail"
+    )" || {
+      printf 'ci_evidence_status=ambiguous reason=candidate_file_invalid\n' >&2
       evidence_status_override="ambiguous"
-      evidence_reason_override="invalid_candidate_source_sha"
+      evidence_reason_override="candidate_file_invalid"
+      pipeline_result="fail"
+      return 2
+    }
+    candidate_id="${candidate_metadata%%$'\n'*}"
+    candidate_source_sha="${candidate_metadata#*$'\n'}"
+    if [[ -n "${GRAF_CI_CANDIDATE_ID:-}" && "$candidate_id" != "$GRAF_CI_CANDIDATE_ID" ]]; then
+      printf 'ci_evidence_status=ambiguous reason=candidate_id_mismatch\n' >&2
+      evidence_status_override="ambiguous"
+      evidence_reason_override="candidate_id_mismatch"
+      pipeline_result="fail"
       return 2
     fi
-    requested_sha="$candidate_source_sha"
+    if [[ -z "$requested_sha" ]]; then
+      requested_sha="$candidate_source_sha"
+    elif [[ "${requested_sha,,}" != "${candidate_source_sha,,}" ]]; then
+      printf 'ci_evidence_status=stale requested_sha=%s candidate_source_sha=%s reason=candidate_source_sha_mismatch\n' "$requested_sha" "$candidate_source_sha" >&2
+      evidence_status_override="stale"
+      evidence_reason_override="candidate_source_sha_mismatch"
+      pipeline_result="fail"
+      return 2
+    fi
+    if [[ "${candidate_source_sha,,}" != "${observed_sha_start,,}" ]]; then
+      printf 'ci_evidence_status=stale candidate_source_sha=%s observed_sha_start=%s reason=candidate_source_sha_mismatch\n' "$candidate_source_sha" "$observed_sha_start" >&2
+      evidence_status_override="stale"
+      evidence_reason_override="candidate_source_sha_mismatch"
+      pipeline_result="fail"
+      return 2
+    fi
   fi
-  if [[ -n "$requested_sha" && "$requested_sha" != "$observed_sha_start" ]]; then
+  if [[ -n "$requested_sha" && "${requested_sha,,}" != "${observed_sha_start,,}" ]]; then
     printf 'ci_evidence_status=stale requested_sha=%s observed_sha_start=%s reason=target_changed\n' "$requested_sha" "$observed_sha_start" >&2
     pipeline_result="fail"
     evidence_status_override="stale"
     evidence_reason_override="target_changed"
     return 2
   fi
-  if [[ -n "$(git status --porcelain --untracked-files=all)" ]]; then
+  if [[ -n "$initial_tree_state" ]]; then
     if [[ "${GRAF_CI_ALLOW_DIRTY:-}" == "1" ]]; then
       printf 'ci_evidence_status=ambiguous requested_sha=%s observed_sha_start=%s reason=dirty_worktree_opt_in\n' \
         "${requested_sha:-$observed_sha_start}" "$observed_sha_start" >&2
-      # An explicit dirty diagnostic is still a real bounded run.  Continue
-      # through the selected stages, but force non-authoritative evidence so
-      # the result can never be mistaken for release proof.
       dirty_worktree=1
+      evidence_status_override="ambiguous"
+      evidence_reason_override="dirty_worktree"
+    elif [[ "$requested_mode" == "full" && -n "$candidate_id" && -n "$initial_tree_state" ]]; then
+      printf 'ci_evidence_status=ambiguous reason=dirty_worktree_before_run\n' >&2
+      evidence_status_override="ambiguous"
+      evidence_reason_override="dirty_worktree_before_run"
+      pipeline_result="fail"
+      return 2
+    elif [[ "$requested_mode" == "full" && -z "$candidate_id" ]]; then
+      printf 'ci_diagnostic=dirty_worktree reason=release_candidate_required_for_clean_gate\n' >&2
     else
       printf 'ci_evidence_status=ambiguous requested_sha=%s observed_sha_start=%s reason=dirty_worktree\n' \
         "${requested_sha:-$observed_sha_start}" "$observed_sha_start" >&2
-      pipeline_result="fail"
       evidence_status_override="ambiguous"
       evidence_reason_override="dirty_worktree"
+      pipeline_result="fail"
       return 2
     fi
-    evidence_status_override="ambiguous"
-    evidence_reason_override="dirty_worktree"
   fi
-  # These are harness controls, not test inputs.  Do not let a diagnostic
-  # invocation change nested CI contract tests or their evidence destination.
   unset GRAF_CI_ALLOW_DIRTY GRAF_CI_EVIDENCE_PATH
   performance_proof="$(calendar_performance_test_path)" || return 1
 
@@ -585,10 +642,14 @@ PY
   if [[ -n "${GRAF_PR_BODY_FILE:-}" ]]; then
     process_preflight+=(--pr-body "$GRAF_PR_BODY_FILE")
   fi
-  # The pointer-dependent context check is optional in a clean release
-  # checkout, but fragment and changed-spec checks are repository-wide and
-  # must run on every canonical lane.
-  run_step "Development process preflight" "${process_preflight[@]}" || return $?
+  if [[ -f "$repo_root/.specify/feature.json" ]]; then
+    run_step "Development process preflight" "${process_preflight[@]}" || return $?
+  else
+    # Feature context is per-worktree and intentionally absent from clean
+    # merged/release checkouts. The repository-wide Spec Kit gate still runs;
+    # do not invent an active feature just to execute a release lane.
+    printf '\n==> Development process preflight skipped (release checkout without active feature pointer)\n'
+  fi
   run_step "Spec Kit governance" python3 scripts/check_spec_kit_governance.py || return $?
 
   if [[ "$effective_mode" == "full" || "$has_governance_tests" -eq 1 || "$has_infra" -eq 1 ]]; then
@@ -661,6 +722,10 @@ PY
     run_step "active CI documentation consistency" check_active_docs || return $?
   fi
 
+  # All tests, builds and artifact-producing stages have completed.  Evidence
+  # must never claim success if any tracked or non-ignored file appeared after
+  # the initial clean-worktree gate.
+  run_step "final cleanliness" check_final_cleanliness || return $?
   pipeline_result="pass"
   return 0
 )

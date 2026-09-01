@@ -81,7 +81,12 @@ def validate(root: Path) -> list[str]:
             errors.append(f"cannot read current HEAD: {exc}")
     if not isinstance(data.get("owned_paths"), list) or not all(isinstance(item, str) and item for item in data["owned_paths"]):
         errors.append("owned_paths must be a non-empty list of relative paths")
-    elif any(Path(item).is_absolute() or ".." in Path(item).parts for item in data["owned_paths"]):
+    elif any(
+        Path(item).is_absolute()
+        or Path(item) == Path(".")
+        or ".." in Path(item).parts
+        for item in data["owned_paths"]
+    ):
         errors.append("owned_paths must stay relative to this worktree")
     else:
         owned = [Path(item) for item in data["owned_paths"]]

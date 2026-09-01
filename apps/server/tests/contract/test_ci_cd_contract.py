@@ -402,6 +402,7 @@ def test_full_claims_release_ready_only_after_success() -> None:
     passed = run_stubbed_ci(
         "", "--full", env={"GRAF_CI_CANDIDATE_ID": f"rc-20260901T000001Z-{token}"}
     )
+    diagnostic = run_stubbed_ci("", "--full")
     failed = run_stubbed_ci(
         "",
         "--full",
@@ -414,6 +415,10 @@ def test_full_claims_release_ready_only_after_success() -> None:
     assert "next_gate=full_in_progress" in passed.stdout
     assert "ci_local_result=pass mode=full" in passed.stdout
     assert "next_gate=release_ready" in passed.stdout
+
+    assert diagnostic.returncode == 0, diagnostic.stdout
+    assert "ci_local_result=pass mode=full" in diagnostic.stdout
+    assert "next_gate=full_diagnostic_only" in diagnostic.stdout
 
     assert failed.returncode == 17
     assert "ci_lane requested=full effective=full" in failed.stdout

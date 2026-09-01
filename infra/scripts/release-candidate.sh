@@ -7,7 +7,10 @@ root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 usage() {
   cat >&2 <<'EOF'
 usage:
-  release-candidate.sh freeze --sha <exact-HEAD-40-hex> --features <id,id,...> --operator <name> [--output <path>] [--dry-run]
+  release-candidate.sh freeze --sha <exact-HEAD-40-hex> --features <id,id,...> --operator <name> [--train <train.json>] [--output <path>] [--dry-run]
+  release-candidate.sh train-freeze --source-sha <post-merge-40-hex> --base-sha <base-40-hex> --prs <number,...> --features <id,id,...> --operator <name> [--synthetic-merge-sha <40-hex>] [--merge-groups <id,...>] [--pr-receipts <ref,...>] [--merge-group-receipts <ref,...>] [--changelog-digest <sha256:...>] [--rollback-target <ref>] [--output <path>] [--dry-run]
+  release-candidate.sh train-validate <train.json> [--current]
+  release-candidate.sh train-attest <train.json> --candidate <candidate.json> --evidence <full-evidence.json> [--output <path>]
   release-candidate.sh status <candidate.json>
   release-candidate.sh validate <candidate.json> [--current]
   release-candidate.sh decide <candidate.json> --evidence <full-evidence.json> --calver <YYYY.MM.DD.N> [--tag <tag>] [--output <path>]
@@ -47,7 +50,7 @@ DECISION_LOCK_RE = re.compile(
 CALVER_RE = re.compile(r"^v?[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+$")
 TAG_RE = re.compile(r"^v[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+$")
 REQUIRED = (
-    "schema_version", "candidate_id", "source_sha", "included_feature_ids",
+    "schema_version", "candidate_id", "source_sha", "train_id", "included_feature_ids",
     "changelog_digest", "frozen_at", "frozen_by", "status", "full_run_id",
     "full_evidence_digest", "calver", "tag", "github_release_url",
     "rollback_target", "known_limitations", "decision", "decision_reason",
@@ -188,6 +191,8 @@ def validate_candidate(data):
         die("invalid candidate_id")
     if not isinstance(data["source_sha"], str) or not SHA_RE.fullmatch(data["source_sha"]):
         die("invalid source_sha")
+    if data["train_id"] is not None and (not isinstance(data["train_id"], str) or not re.fullmatch(r"train-[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", data["train_id"])):
+        die("invalid train_id")
     ids = data["included_feature_ids"]
     if not isinstance(ids, list) or not ids or len(set(ids)) != len(ids) or any(not isinstance(x, str) or not re.fullmatch(r"[0-9]{3,}", x) for x in ids):
         die("included_feature_ids must contain unique numeric strings")
@@ -223,6 +228,47 @@ def validate_candidate(data):
         die("go candidate requires full evidence, CalVer and tag")
     if data["status"] == "go" and data["decision"] != "go":
         die("go candidate requires decision=go")
+    if data["status"] in {"no-go", "invalidated"} and data["decision"] != "no-go":
+        die(f"{data['status']} candidate requires decision=no-go")
+
+def validate_train(data):
+    """Validate the generic train contract without importing third-party code."""
+    validator_path = root / "scripts/validate-release-train.py"
+    schema_path = root / "infra/release/train.schema.json"
+    if not validator_path.is_file() or not schema_path.is_file():
+        die("release-train validator or schema is missing")
+    spec = importlib.util.spec_from_file_location("release_train_validator", validator_path)
+    if spec is None or spec.loader is None:
+        die("cannot load release-train validator")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    errors = module.validate(data)
+    if errors:
+        die("train manifest validation failed: " + "; ".join(errors))
+
+def parse_csv(value, field):
+    if value is None:
+        return []
+    items = [item.strip() for item in value.split(",") if item.strip()]
+    if len(items) != len(set(items)):
+        die(f"{field} must not contain duplicates")
+    return items
+
+def parse_positive_ints(value, field):
+    items = parse_csv(value, field)
+    if not items:
+        return []
+    if any(not re.fullmatch(r"[1-9][0-9]*", item) for item in items):
+        die(f"{field} must contain positive numeric values")
+    return [int(item) for item in items]
+
+def train_current(data, path, exempt_paths=()):
+    require_metadata_identity(path, data.get("train_id"), "train")
+    if data["source_sha"] != current_sha():
+        die(f"train source SHA {data['source_sha']} differs from current HEAD; train is stale")
+    if data["changelog_digest"] != digest(root / "CHANGELOG.md"):
+        die("train changelog digest differs from current CHANGELOG.md; train is stale")
+    require_clean_source((path, metadata_identity_path(path), *exempt_paths))
 
 def current_sha():
     try:
@@ -230,12 +276,50 @@ def current_sha():
     except subprocess.CalledProcessError as exc:
         die(f"cannot resolve current HEAD: {exc}")
 
-def require_current(data, exempt_paths=()):
+def origin_master_sha():
+    try:
+        return subprocess.check_output(
+            ["git", "-C", str(root), "rev-parse", "--verify", "origin/master^{commit}"],
+            text=True,
+        ).strip().lower()
+    except (OSError, subprocess.CalledProcessError) as exc:
+        die(f"cannot resolve origin/master; fetch the release branch before train freeze: {exc}")
+
+def require_current(data, record_path=None, exempt_paths=()):
+    if record_path is not None:
+        require_metadata_identity(record_path, data.get("candidate_id"), "candidate")
     if data["source_sha"] != current_sha():
         die(f"candidate source SHA {data['source_sha']} differs from current HEAD; candidate is stale")
     if data["changelog_digest"] != digest(root / "CHANGELOG.md"):
         die("candidate changelog digest differs from current CHANGELOG.md; candidate is stale")
+    if record_path is not None:
+        exempt_paths = (*exempt_paths, metadata_identity_path(record_path))
     require_clean_source(exempt_paths)
+
+def metadata_identity_path(path):
+    path = pathlib.Path(path).resolve()
+    return path.with_name("." + path.name + ".identity.json")
+
+def require_metadata_identity(path, expected_id, kind):
+    """Reject edits to ignored immutable release metadata.
+
+    `.dev` is intentionally ignored, so Git status cannot prove that a
+    candidate or train still contains the bytes that were frozen.  The
+    create-once sidecar is the local immutable digest anchor for `--current`
+    checks; a missing or mismatching sidecar fails closed.
+    """
+    path = pathlib.Path(path).resolve()
+    identity_path = metadata_identity_path(path)
+    if not identity_path.is_file():
+        die(f"{kind} immutable metadata identity is missing: {identity_path}")
+    identity = load(identity_path)
+    if identity.get("record_id") != expected_id or identity.get("path") != str(path):
+        die(f"{kind} immutable metadata identity does not match {path}")
+    expected_digest = identity.get("digest")
+    if not isinstance(expected_digest, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", expected_digest):
+        die(f"{kind} immutable metadata identity has an invalid digest")
+    if expected_digest != digest(path):
+        die(f"{kind} metadata drift detected: {path}")
 
 def github_origin_repo():
     try:
@@ -270,8 +354,25 @@ def verify_github_release(release_url, expected_tag, expected_sha):
         ))
     except (OSError, subprocess.CalledProcessError, UnicodeError, json.JSONDecodeError) as exc:
         die(f"cannot verify published GitHub Release/tag: {exc}")
-    if release.get("draft") or release.get("tag_name") != expected_tag:
-        die("GitHub Release is missing, draft, or has a different tag")
+    if release.get("draft") or release.get("prerelease") or release.get("tag_name") != expected_tag:
+        die("GitHub Release is missing, draft, prerelease, or has a different tag")
+    title = release.get("name")
+    body = release.get("body")
+    if not isinstance(title, str) or not title.strip() or not title.startswith(expected_tag):
+        die("GitHub Release title must start with the stable release tag")
+    if not isinstance(body, str) or not body.strip():
+        die("GitHub Release notes are empty")
+    note = body.lower()
+    required_note_groups = (
+        ("измен", "добав", "fixed", "changed"),
+        ("провер", "validation", "test", "ci"),
+        ("совместим", "миграц", "compatib", "migration"),
+        ("огранич", "known limitation", "limitation"),
+    )
+    if any(not any(marker in note for marker in group) for group in required_note_groups):
+        die("GitHub Release notes must include changes, validation, compatibility/migration and limitations")
+    if not re.search(r"(?:#\d+|https://github\.com/[^/]+/[^/]+/(?:issues|pull)/\d+)", body):
+        die("GitHub Release notes must link related GitHub issues or PRs")
     tag_object = ref.get("object") if isinstance(ref, dict) else None
     if not isinstance(tag_object, dict) or not isinstance(tag_object.get("sha"), str):
         die("GitHub tag reference is malformed")
@@ -301,11 +402,6 @@ def require_clean_source(exempt_paths=()):
     # written after freeze must still invalidate the candidate.  Callers name
     # the exact files that are being produced by the current operation.
     allowed = {pathlib.Path(path).resolve() for path in exempt_paths}
-    generated_roots = {
-        (root / ".dev" / "ci-evidence").resolve(),
-        (root / ".dev" / "release" / "candidates").resolve(),
-        (root / ".dev" / "release" / "decisions").resolve(),
-    }
     dirty = []
     for line in output.splitlines():
         if len(line) < 4:
@@ -319,49 +415,42 @@ def require_clean_source(exempt_paths=()):
         if path in allowed or DECISION_LOCK_RE.fullmatch(relative):
             continue
         dirty.append(relative)
-    # Git status collapses ignored directories such as `.dev/` to one `!!`
-    # entry and cannot reveal an unexpected file inside them. Walk the ignored
-    # metadata tree directly, while allowing only documented evidence/record
-    # roots. A stray `.dev` file must invalidate the candidate.
-    dev_root = root / ".dev"
-    if dev_root.is_dir():
-        for candidate in sorted(dev_root.rglob("*")):
-            if not candidate.is_file() and not candidate.is_symlink():
-                continue
-            resolved = candidate.resolve()
-            if any(resolved == prefix or prefix in resolved.parents for prefix in generated_roots):
-                continue
-            if resolved in allowed:
-                continue
-            relative = candidate.relative_to(root).as_posix()
-            if relative not in dirty:
-                dirty.append(relative)
     if dirty:
         die("source tree is dirty after candidate freeze: " + ", ".join(dirty))
 
-def changelog_sections():
+def changelog_calvers():
     try:
         text = (root / "CHANGELOG.md").read_text(encoding="utf-8")
     except OSError as exc:
         die(f"cannot read CHANGELOG.md: {exc}")
-    matches = list(re.finditer(
-        r"^## \[(v?[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+)\][^\n]*\n",
-        text,
-        re.MULTILINE,
-    ))
-    sections = []
-    for index, match in enumerate(matches):
-        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
-        sections.append(("v" + match.group(1).lstrip("v"), text[match.end():end]))
-    return sections
+    return {
+        "v" + value.lstrip("v")
+        for value in re.findall(
+            r"^## \[(v?[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+)\]",
+            text,
+            re.MULTILINE,
+        )
+    }
 
-def changelog_calvers():
-    return {version for version, _body in changelog_sections()}
+def changelog_top_calver():
+    try:
+        text = (root / "CHANGELOG.md").read_text(encoding="utf-8")
+    except OSError as exc:
+        die(f"cannot read CHANGELOG.md: {exc}")
+    unreleased = re.search(r"^## \[Unreleased\].*?(?=^## \[|\Z)", text, re.MULTILINE | re.DOTALL)
+    remainder = text[unreleased.end():] if unreleased else text
+    match = re.search(r"^## \[(v?[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+)\]", remainder, re.MULTILINE)
+    return "v" + match.group(1).lstrip("v") if match else None
 
-def current_release_section():
-    """Return the first prepared CalVer section, not historical release text."""
-    sections = changelog_sections()
-    return sections[0] if sections else None
+def tag_is_fresh(tag):
+    if subprocess.run(["git", "-C", str(root), "show-ref", "--verify", "--quiet", f"refs/tags/{tag}"]).returncode == 0:
+        return False
+    try:
+        remote = subprocess.run(["git", "-C", str(root), "ls-remote", "--tags", "origin", f"refs/tags/{tag}"],
+                                check=True, capture_output=True, text=True)
+    except (OSError, subprocess.CalledProcessError):
+        return True
+    return not bool(remote.stdout.strip())
 
 def feature_exists(feature_id):
     specs = root / "specs"
@@ -373,47 +462,34 @@ def feature_exists(feature_id):
     )
 
 def changelog_mentions_feature(feature_id):
-    section = current_release_section()
-    if section is None:
-        return False
-    _version, text = section
+    try:
+        text = (root / "CHANGELOG.md").read_text(encoding="utf-8")
+    except OSError as exc:
+        die(f"cannot read CHANGELOG.md: {exc}")
+    # Only the first prepared release section is part of the candidate. A
+    # historical mention must never make an unlisted feature look released.
+    match = re.search(r"^## \[Unreleased\].*?(?=^## \[|\Z)", text, re.MULTILINE | re.DOTALL)
+    top = match.group(0) if match else text
+    first_release = re.search(r"^## \[v?[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+\].*?(?=^## \[|\Z)", text, re.MULTILINE | re.DOTALL)
+    if first_release:
+        top = first_release.group(0)
     return bool(re.search(
         rf"(?:Фича|Feature|feature_id|feature:)\s*[:#]?\s*`?{re.escape(feature_id)}\b",
-        text,
+        top,
         re.IGNORECASE,
     ))
 
-def prepared_feature_ids():
-    section = current_release_section()
-    if section is None:
-        return set()
-    _version, text = section
-    return set(re.findall(
-        r"(?:Фича|Feature|feature_id|feature:)\s*[:#]?\s*`?([0-9]{3,})\b",
-        text,
-        re.IGNORECASE,
-    ))
-
-def prepared_limitations():
-    section = current_release_section()
-    if section is None:
-        return []
-    _version, text = section
-    limitations = []
-    for line in text.splitlines():
-        marker = "ограничения:"
-        if marker in line.lower():
-            value = line.lower().split(marker, 1)[1].strip()
-            if value:
-                limitations.append(value)
-    return limitations
-
-def metadata_path_reference(path):
-    """Keep retained identity metadata portable and free of machine paths."""
-    try:
-        return pathlib.Path(path).resolve().relative_to(root).as_posix()
-    except ValueError:
-        return "<external>"
+def require_git_commit_relationship(base_sha, synthetic_sha, source_sha):
+    for label, value in (("base", base_sha), ("synthetic merge", synthetic_sha), ("source", source_sha)):
+        try:
+            subprocess.run(["git", "-C", str(root), "cat-file", "-e", f"{value}^{{commit}}"], check=True,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except (OSError, subprocess.CalledProcessError):
+            die(f"train {label} SHA does not resolve to a local commit")
+    for descendant_label, descendant in (("synthetic merge", synthetic_sha), ("source", source_sha)):
+        if subprocess.run(["git", "-C", str(root), "merge-base", "--is-ancestor", base_sha, descendant]).returncode == 0:
+            return
+    die("train base SHA must be an ancestor of the synthetic merge or source commit")
 
 def decision_identity_path(candidate_id):
     return DECISION_DIR / f".{candidate_id}.decision-identity.json"
@@ -465,12 +541,245 @@ if op in {"status", "validate"}:
     data = load(path)
     validate_candidate(data)
     if op == "validate" and len(args) == 2:
-        require_current(data, exempt_paths=(pathlib.Path(args[0]).resolve(),))
+        require_current(data, pathlib.Path(args[0]).resolve(), exempt_paths=(pathlib.Path(args[0]).resolve(),))
     print("release-candidate: OK" if op == "validate" else json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True))
     raise SystemExit(0)
 
+if op == "train-validate":
+    if not args:
+        die("train-validate expects a train manifest path")
+    if len(args) > 2 or (len(args) == 2 and args[1] != "--current"):
+        die("train-validate expects <train.json> [--current]")
+    train_path = pathlib.Path(args[0]).resolve()
+    train = load(train_path)
+    validate_train(train)
+    if len(args) == 2:
+        train_current(train, train_path)
+    print("release-train: OK" if len(args) == 2 else json.dumps(train, ensure_ascii=False, indent=2, sort_keys=True))
+    raise SystemExit(0)
+
+if op == "train-freeze":
+    values = {
+        "source_sha": None,
+        "base_sha": None,
+        "synthetic_merge_sha": None,
+        "prs": None,
+        "features": None,
+        "merge_groups": None,
+        "pr_receipts": None,
+        "merge_group_receipts": None,
+        "changelog_digest": None,
+        "rollback_target": "previous-successful-release",
+        "operator": None,
+        "output": None,
+        "dry_run": False,
+    }
+    aliases = {
+        "--source-sha": "source_sha",
+        "--base-sha": "base_sha",
+        "--synthetic-merge-sha": "synthetic_merge_sha",
+        "--prs": "prs",
+        "--included-prs": "prs",
+        "--features": "features",
+        "--merge-groups": "merge_groups",
+        "--pr-receipts": "pr_receipts",
+        "--merge-group-receipts": "merge_group_receipts",
+        "--changelog-digest": "changelog_digest",
+        "--rollback-target": "rollback_target",
+        "--operator": "operator",
+        "--output": "output",
+    }
+    i = 0
+    while i < len(args):
+        item = args[i]
+        if item == "--dry-run":
+            values["dry_run"] = True
+        elif item in aliases:
+            i += 1
+            if i >= len(args):
+                die(f"{item} requires a value")
+            values[aliases[item]] = args[i]
+        else:
+            die(f"unknown train-freeze option {item}")
+        i += 1
+    source_sha = (values["source_sha"] or "").lower()
+    base_sha = (values["base_sha"] or "").lower()
+    synthetic_value = values["synthetic_merge_sha"]
+    synthetic_sha = synthetic_value.lower() if isinstance(synthetic_value, str) else None
+    if not SHA_RE.fullmatch(source_sha):
+        die("train-freeze requires --source-sha with an exact 40-character SHA")
+    if not SHA_RE.fullmatch(base_sha):
+        die("train-freeze requires --base-sha with an exact 40-character SHA")
+    if not SHA_RE.fullmatch(synthetic_sha or ""):
+        die("train-freeze requires --synthetic-merge-sha with an exact 40-character SHA")
+    if synthetic_sha == source_sha:
+        die("source SHA must remain distinct from synthetic merge SHA")
+    if not values["operator"] or not str(values["operator"]).strip():
+        die("train-freeze requires --operator")
+    prs = parse_positive_ints(values["prs"], "--prs")
+    features = parse_csv(values["features"], "--features")
+    if not prs:
+        die("train-freeze requires at least one included PR")
+    if not features or any(not re.fullmatch(r"[0-9]{3,}", item) for item in features):
+        die("--features must contain unique numeric IDs")
+    merge_groups = parse_csv(values["merge_groups"], "--merge-groups")
+    receipts = parse_csv(values["pr_receipts"], "--pr-receipts")
+    merge_receipts = parse_csv(values["merge_group_receipts"], "--merge-group-receipts")
+    if len(receipts) != len(prs):
+        die("--pr-receipts must provide one receipt reference for every included PR")
+    if len(merge_receipts) != len(merge_groups):
+        die("--merge-group-receipts must provide one receipt reference for every merge group")
+    if any(not re.fullmatch(r"[A-Za-z0-9._:-]{1,512}", item) for item in receipts + merge_receipts):
+        die("receipt references must be bounded metadata identifiers")
+    if any(not re.fullmatch(r"[A-Za-z0-9._:-]{1,256}", item) for item in merge_groups):
+        die("merge-group IDs must be bounded metadata identifiers")
+    if current_sha() != source_sha:
+        die("HEAD differs from requested post-merge source SHA")
+    if origin_master_sha() != source_sha:
+        die("train source SHA must match origin/master")
+    require_git_commit_relationship(base_sha, synthetic_sha, source_sha)
+    try:
+        status = subprocess.check_output(
+            ["git", "-C", str(root), "status", "--porcelain", "--untracked-files=all"], text=True
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        die(f"cannot inspect worktree cleanliness: {exc}")
+    if status:
+        die("worktree must be clean before train freeze")
+    changelog_digest = values["changelog_digest"] or digest(root / "CHANGELOG.md")
+    if not re.fullmatch(r"sha256:[0-9a-fA-F]{64}", changelog_digest):
+        die("--changelog-digest must be sha256:<64 hex>")
+    if changelog_digest != digest(root / "CHANGELOG.md"):
+        die("changelog digest does not match current CHANGELOG.md")
+    train_id = "train-" + dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + source_sha[:12]
+    train = {
+        "schema_version": 1,
+        "train_id": train_id,
+        "created_at": dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "operator": str(values["operator"]).strip(),
+        "source_sha": source_sha,
+        "base_sha": base_sha,
+        "synthetic_merge_sha": synthetic_sha,
+        "included_prs": prs,
+        "feature_ids": sorted(features, key=int),
+        "merge_group_ids": merge_groups,
+        "pr_receipts": receipts,
+        "merge_group_receipts": merge_receipts,
+        "changelog_digest": changelog_digest,
+        "authoritative_full_ci_receipt": None,
+        "decision": "pending",
+        "rollback_target": str(values["rollback_target"]).strip(),
+    }
+    validate_train(train)
+    output = pathlib.Path(values["output"] or (root / ".dev/release/trains" / f"{train_id}.json"))
+    text = json.dumps(train, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    print(text, end="")
+    if not values["dry_run"]:
+        identity_path = metadata_identity_path(output)
+        if identity_path.exists():
+            die(f"refusing to overwrite existing immutable metadata identity {identity_path}")
+        write_create_once(output, text)
+        try:
+            write_create_once(identity_path, json.dumps(
+                {"record_id": train["train_id"], "path": str(output.resolve()), "digest": digest(output)},
+                ensure_ascii=False, indent=2, sort_keys=True,
+            ) + "\n")
+        except BaseException:
+            with contextlib.suppress(OSError):
+                output.unlink()
+            raise
+    raise SystemExit(0)
+
+if op == "train-attest":
+    if not args:
+        die("train-attest expects train manifest path")
+    values = {"train": args[0], "candidate": None, "evidence": None, "output": None}
+    i = 1
+    while i < len(args):
+        item = args[i]
+        if item in {"--candidate", "--evidence", "--output"}:
+            i += 1
+            if i >= len(args):
+                die(f"{item} requires a value")
+            values[item[2:]] = args[i]
+        else:
+            die(f"unknown train-attest option {item}")
+        i += 1
+    if not values["candidate"] or not values["evidence"]:
+        die("train-attest requires --candidate and --evidence")
+    train_path = pathlib.Path(values["train"]).resolve()
+    train = load(train_path)
+    validate_train(train)
+    train_attestation_identity = DECISION_DIR / f".{train['train_id']}.train-attestation-identity.json"
+    train_attestation_lock = acquire_decision_lock(train["train_id"])
+    if train_attestation_identity.exists():
+        die(f"train already has an immutable attestation identity {train_attestation_identity}")
+    if train.get("decision") != "pending":
+        die("train-attest accepts only a pending train manifest")
+    candidate_path = pathlib.Path(values["candidate"]).resolve()
+    candidate = load(candidate_path)
+    validate_candidate(candidate)
+    if candidate.get("train_id") != train.get("train_id"):
+        die("candidate train_id does not match train manifest")
+    if candidate.get("source_sha") != train.get("source_sha"):
+        die("candidate source SHA does not match train source SHA")
+    evidence_path = pathlib.Path(values["evidence"]).resolve()
+    train_current(train, train_path, (candidate_path, evidence_path))
+    evidence = load(evidence_path)
+    validator = root / "scripts/validate-ci-evidence.py"
+    spec = importlib.util.spec_from_file_location("ci_evidence", validator)
+    if spec is None or spec.loader is None:
+        die("CI evidence validator is missing")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    errors = module.validate(evidence)
+    if evidence.get("candidate_id") != candidate.get("candidate_id"):
+        errors.append("evidence candidate_id differs from candidate")
+    if evidence.get("requested_sha") != train.get("source_sha"):
+        errors.append("evidence requested_sha differs from train source SHA")
+    if evidence.get("lane") != "full" or evidence.get("status") != "passed" or evidence.get("authoritative_full") is not True:
+        errors.append("train-attest requires passed authoritative Full CI evidence")
+    if errors:
+        die("cannot attest train: " + "; ".join(errors))
+    output = pathlib.Path(values["output"] or (train_path.parent / f"{train['train_id']}-go.json"))
+    receipt = {
+        "run_id": evidence["run_id"],
+        "receipt_digest": digest(evidence_path),
+        "target_sha": evidence["requested_sha"],
+        "status": "passed",
+        "lane": "full",
+    }
+    record = dict(train)
+    record["authoritative_full_ci_receipt"] = receipt
+    record["decision"] = "go"
+    validate_train(record)
+    if output.exists():
+        die(f"refusing to overwrite existing immutable record {output}")
+    text = json.dumps(record, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    identity_path = metadata_identity_path(output)
+    if identity_path.exists() or train_attestation_identity.exists():
+        die(f"refusing to overwrite existing immutable metadata identity {identity_path}")
+    write_create_once(output, text)
+    try:
+        write_create_once(train_attestation_identity, json.dumps(
+            {"record_id": record["train_id"], "path": str(output.resolve()), "digest": digest(output)},
+            ensure_ascii=False, indent=2, sort_keys=True,
+        ) + "\n")
+        write_create_once(identity_path, json.dumps(
+            {"record_id": record["train_id"], "path": str(output.resolve()), "digest": digest(output)},
+            ensure_ascii=False, indent=2, sort_keys=True,
+        ) + "\n")
+    except BaseException:
+        with contextlib.suppress(OSError):
+            output.unlink()
+        with contextlib.suppress(OSError):
+            train_attestation_identity.unlink()
+        raise
+    print(json.dumps(record, ensure_ascii=False, indent=2, sort_keys=True))
+    raise SystemExit(0)
+
 if op == "freeze":
-    values = {"sha": None, "features": None, "operator": None, "output": None, "dry_run": False}
+    values = {"sha": None, "features": None, "operator": None, "train": None, "output": None, "dry_run": False}
     i = 0
     while i < len(args):
         item = args[i]
@@ -480,6 +789,8 @@ if op == "freeze":
             i += 1; values["features"] = args[i] if i < len(args) else None
         elif item == "--operator":
             i += 1; values["operator"] = args[i] if i < len(args) else None
+        elif item == "--train":
+            i += 1; values["train"] = args[i] if i < len(args) else None
         elif item == "--output":
             i += 1; values["output"] = args[i] if i < len(args) else None
         elif item == "--dry-run":
@@ -503,43 +814,71 @@ if op == "freeze":
     missing_features = [feature_id for feature_id in feature_ids if not feature_exists(feature_id)]
     if missing_features:
         die("cannot freeze nonexistent feature IDs: " + ", ".join(missing_features))
-    declared_features = prepared_feature_ids()
-    if set(feature_ids) != declared_features:
-        die(
-            "included feature IDs must exactly match the current prepared CHANGELOG.md section: "
-            f"requested={','.join(sorted(feature_ids, key=int))}; "
-            f"declared={','.join(sorted(declared_features, key=int)) or '<none>'}"
-        )
-    limitations = prepared_limitations()
-    candidate_stamp = dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
-    output = pathlib.Path(values["output"] or (CANDIDATE_DIR / f"rc-{candidate_stamp}-{sha[:12]}.json"))
+    unlisted_features = [feature_id for feature_id in feature_ids if not changelog_mentions_feature(feature_id)]
+    if unlisted_features:
+        die("included feature IDs are absent from the prepared CHANGELOG.md: " + ", ".join(unlisted_features))
+    train_id = None
+    if values["train"]:
+        train_path = pathlib.Path(values["train"]).resolve()
+        train = load(train_path)
+        validate_train(train)
+        train_current(train, train_path)
+        if train.get("decision") != "pending":
+            die("candidate freeze requires a pending train manifest")
+        if train.get("source_sha") != sha:
+            die("train source SHA differs from candidate SHA")
+        train_features = sorted(train.get("feature_ids", []), key=int)
+        if train_features != sorted(feature_ids, key=int):
+            die("candidate feature IDs must exactly match the release train feature set")
+        train_id = train["train_id"]
+    candidate_identity = json.dumps(
+        {"source_sha": sha, "features": sorted(feature_ids, key=int), "train_id": train_id,
+         "changelog_digest": digest(root / "CHANGELOG.md")},
+        ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+    ).encode("utf-8")
+    candidate_stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    candidate_id = f"rc-{candidate_stamp}-{hashlib.sha256(candidate_identity).hexdigest()[:12]}"
+    output = pathlib.Path(values["output"] or (CANDIDATE_DIR / f"{candidate_id}.json"))
     candidate = {
         "schema_version": 1,
-        "candidate_id": f"rc-{candidate_stamp}-{sha[:12]}",
-        "source_sha": sha, "included_feature_ids": sorted(feature_ids, key=int),
+        "candidate_id": candidate_id,
+        "source_sha": sha, "train_id": train_id,
+        "included_feature_ids": sorted(feature_ids, key=int),
         "changelog_digest": digest(root / "CHANGELOG.md"),
         "frozen_at": dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "frozen_by": values["operator"], "status": "frozen", "full_run_id": None,
         "full_evidence_digest": None, "calver": None, "tag": None, "github_release_url": None,
         "rollback_target": "previous-successful-release",
-        "known_limitations": limitations,
+        "known_limitations": ["Full CI and publication are separate release-operator gates."],
         "decision": None, "decision_reason": "Candidate metadata frozen; Full CI has not run.",
     }
     validate_candidate(candidate)
     text = json.dumps(candidate, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     print(text, end="")
     if not values["dry_run"]:
+        identity_path = metadata_identity_path(output)
+        if identity_path.exists():
+            die(f"refusing to overwrite existing immutable metadata identity {identity_path}")
         write_create_once(output, text)
+        try:
+            write_create_once(identity_path, json.dumps(
+                {"record_id": candidate["candidate_id"], "path": str(output.resolve()), "digest": digest(output)},
+                ensure_ascii=False, indent=2, sort_keys=True,
+            ) + "\n")
+        except BaseException:
+            with contextlib.suppress(OSError):
+                output.unlink()
+            raise
     raise SystemExit(0)
 
 if op == "decide":
     if not args:
         die("decide expects candidate path")
-    values = {"candidate": args[0], "evidence": None, "calver": None, "tag": None, "output": None}
+    values = {"candidate": args[0], "evidence": None, "calver": None, "tag": None, "train": None, "output": None}
     i = 1
     while i < len(args):
         item = args[i]
-        if item in {"--evidence", "--calver", "--tag", "--output"}:
+        if item in {"--evidence", "--calver", "--tag", "--train", "--output"}:
             i += 1
             if i >= len(args):
                 die(f"{item} requires a value")
@@ -559,7 +898,7 @@ if op == "decide":
     identity_path = decision_identity_path(candidate["candidate_id"])
     if identity_path.exists():
         identity = load(identity_path)
-        if identity.get("candidate_id") != candidate["candidate_id"]:
+        if identity.get("record_id", identity.get("candidate_id")) != candidate["candidate_id"]:
             die(f"decision identity sidecar belongs to another candidate: {identity_path}")
         die(f"candidate already has an immutable decision identity {identity_path}")
     for existing in DECISION_DIR.glob(f"*{candidate['candidate_id']}*.json"):
@@ -575,31 +914,62 @@ if op == "decide":
             die(f"candidate already has an immutable decision record {existing}")
     if not values["evidence"]:
         die("--evidence is required")
+    train = None
+    if candidate.get("train_id") is not None:
+        if not values["train"]:
+            die("candidate linked to a release train requires --train")
+        train_path = pathlib.Path(values["train"]).resolve()
+        train = load(train_path)
+        validate_train(train)
+        train_current(train, train_path)
+        if train.get("train_id") != candidate["train_id"]:
+            die("train manifest does not match candidate train_id")
+        if train.get("source_sha") != candidate["source_sha"]:
+            die("train source SHA differs from candidate source SHA")
+        if sorted(train.get("feature_ids", []), key=int) != sorted(candidate["included_feature_ids"], key=int):
+            die("candidate feature IDs must remain bound to the linked release train")
+        receipt = train.get("authoritative_full_ci_receipt")
+        if train.get("decision") != "go" or not isinstance(receipt, dict):
+            die("linked train must have a go decision with authoritative Full CI receipt")
     evidence_path = pathlib.Path(values["evidence"]).resolve()
+    canonical_evidence_path = (root / ".dev" / "ci-evidence" / f"authoritative-{candidate['candidate_id']}.json").resolve()
+    if evidence_path != canonical_evidence_path:
+        die("release decision requires the candidate's canonical authoritative Full CI evidence path")
     evidence = load(evidence_path)
     errors = []
-    validator = root / "scripts/validate-ci-evidence.py"
-    if validator.is_file():
-        spec = importlib.util.spec_from_file_location("ci_evidence", validator)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        errors = module.validate(evidence)
+    if not isinstance(evidence, dict):
+        errors.append("evidence must be a JSON object")
     else:
-        errors = ["CI evidence validator is missing"]
-    evidence_object = evidence if isinstance(evidence, dict) else {}
-    if evidence_object.get("requested_sha") != candidate["source_sha"]:
-        errors.append("evidence requested_sha differs from candidate source_sha")
-    if evidence_object.get("candidate_id") != candidate["candidate_id"]:
-        errors.append("evidence candidate_id differs from candidate_id")
-    if evidence_object.get("lane") != "full":
-        errors.append("release decision requires lane=full evidence")
-    if evidence_object.get("authoritative_full") is not True:
-        errors.append("release decision requires authoritative_full=true evidence")
+        validator = root / "scripts/validate-ci-evidence.py"
+        if validator.is_file():
+            spec = importlib.util.spec_from_file_location("ci_evidence", validator)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            errors = module.validate(evidence)
+        else:
+            errors = ["CI evidence validator is missing"]
+        if evidence.get("requested_sha") != candidate["source_sha"]:
+            errors.append("evidence requested_sha differs from candidate source_sha")
+        if evidence.get("candidate_id") != candidate["candidate_id"]:
+            errors.append("evidence candidate_id differs from candidate_id")
+        if evidence.get("lane") != "full":
+            errors.append("release decision requires lane=full evidence")
+        if evidence.get("authoritative_full") is not True:
+            errors.append("release decision requires authoritative_full=true evidence")
+        if train is not None:
+            receipt = train["authoritative_full_ci_receipt"]
+            if receipt.get("run_id") != evidence.get("run_id"):
+                errors.append("train Full CI receipt run_id differs from evidence")
+            if receipt.get("target_sha") != evidence.get("requested_sha"):
+                errors.append("train Full CI receipt target differs from evidence")
+            if receipt.get("receipt_digest") != digest(evidence_path):
+                errors.append("train Full CI receipt digest differs from evidence")
     # Full CI can finish while the operator is preparing the decision.  The
     # candidate must still describe the exact checkout at the point of go/no-go.
     if not errors:
         require_current(
             candidate,
+            candidate_path,
             exempt_paths=(
                 candidate_path,
                 evidence_path,
@@ -612,28 +982,27 @@ if op == "decide":
         if not calver:
             die("go requires --calver YYYY.MM.DD.N")
         calver = validate_calver(calver)
-        versions = changelog_calvers()
-        if calver not in versions:
+        top_calver = changelog_top_calver()
+        if calver != top_calver:
             die(f"CalVer {calver} is not bound to a release section in CHANGELOG.md")
-        current_section = current_release_section()
-        if current_section is None or calver != current_section[0]:
-            die(f"CalVer {calver} is not bound to the current prepared release section in CHANGELOG.md")
         tag = values["tag"] or calver
         if not TAG_RE.fullmatch(tag):
             die("tag must be vYYYY.MM.DD.N")
         if tag != calver:
             die("tag must equal the normalized CalVer")
+        if not tag_is_fresh(tag):
+            die(f"release tag {tag} already exists locally or on origin")
     else:
         calver = None; tag = None
     output = pathlib.Path(values["output"] or (DECISION_DIR / f"{candidate['candidate_id']}.decision.json"))
     if output.resolve() == candidate_path.resolve():
         die("decision output must be separate from the immutable candidate")
     if decision == "go":
-        require_clean_source((candidate_path, evidence_path, output))
+        require_clean_source((candidate_path, metadata_identity_path(candidate_path), evidence_path, output))
     record = dict(candidate)
     record.update({
         "status": decision,
-        "full_run_id": evidence_object.get("run_id") if isinstance(evidence_object.get("run_id"), str) else None,
+        "full_run_id": evidence.get("run_id") if isinstance(evidence, dict) and isinstance(evidence.get("run_id"), str) else None,
         "full_evidence_digest": digest(evidence_path), "calver": calver, "tag": tag,
         "github_release_url": None, "decision": decision,
         "decision_reason": "Authoritative Full CI passed for frozen candidate." if decision == "go" else "No-go: " + "; ".join(errors),
@@ -641,7 +1010,7 @@ if op == "decide":
     validate_candidate(record)
     text = json.dumps(record, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     identity = json.dumps(
-        {"candidate_id": candidate["candidate_id"], "decision": decision, "output": metadata_path_reference(output)},
+        {"candidate_id": candidate["candidate_id"], "decision": decision, "output": str(output)},
         ensure_ascii=False,
         indent=2,
         sort_keys=True,
@@ -650,12 +1019,25 @@ if op == "decide":
     # identity, avoiding a stranded identity when --output is already present.
     if output.exists():
         die(f"refusing to overwrite existing immutable record {output}")
-    write_create_once(identity_path, identity)
+    output_identity_path = metadata_identity_path(output)
+    if output_identity_path.exists():
+        die(f"refusing to overwrite existing immutable metadata identity {output_identity_path}")
     try:
         write_create_once(output, text)
+        identity_record = {
+            "record_id": candidate["candidate_id"],
+            "candidate_id": candidate["candidate_id"],
+            "path": str(output.resolve()),
+            "digest": digest(output),
+        }
+        identity_text = json.dumps(identity_record, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+        write_create_once(identity_path, identity_text)
+        write_create_once(output_identity_path, identity_text)
     except BaseException:
         with contextlib.suppress(OSError):
+            output.unlink()
             identity_path.unlink()
+            output_identity_path.unlink()
         raise
     print(text, end="")
     release_decision_lock()
@@ -714,7 +1096,7 @@ if op == "attest":
     }
     text = json.dumps(record, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     identity = json.dumps(
-        {"candidate_id": decision["candidate_id"], "attestation_id": record["attestation_id"], "output": metadata_path_reference(output)},
+        {"candidate_id": decision["candidate_id"], "attestation_id": record["attestation_id"], "output": str(output)},
         ensure_ascii=False,
         indent=2,
         sort_keys=True,

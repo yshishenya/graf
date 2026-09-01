@@ -173,6 +173,21 @@ def test_agent_context_accepts_four_digit_feature_directory(tmp_path: Path) -> N
     assert not any("feature_directory must match" in error for error in errors)
 
 
+def test_context_updater_target_stays_outside_root_instruction_chain() -> None:
+    config = (ROOT / ".specify/extensions/agent-context/agent-context-config.yml").read_text(
+        encoding="utf-8"
+    )
+    assert 'context_file: ".dev/active-feature-context.md"' in config
+
+
+def test_issue_canon_pr_template_keeps_feature_and_legacy_gates() -> None:
+    template = (ROOT / ".specify/extensions/github-issue-canon/templates/github/pull_request_template.md").read_text(
+        encoding="utf-8"
+    )
+    for marker in ("## Feature identity", "Exact source SHA", "## Legacy Impact"):
+        assert marker in template
+
+
 def test_changelog_required_fields_must_be_top_level(tmp_path: Path) -> None:
     validator = load_script("validate-changelog-fragments")
     directory = tmp_path / "changes" / "unreleased"
@@ -249,6 +264,11 @@ def test_feature_claim_rejects_corrupt_shared_state_and_keeps_offline_draft_expl
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+        subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=root, check=True)
+        subprocess.run(["git", "config", "user.name", "Governance Test"], cwd=root, check=True)
+        (root / ".keep").write_text("fixture\n", encoding="utf-8")
+        subprocess.run(["git", "add", ".keep"], cwd=root, check=True)
+        subprocess.run(["git", "commit", "-qm", "fixture"], cwd=root, check=True)
         common = Path(
             subprocess.check_output(["git", "rev-parse", "--git-common-dir"], cwd=root, text=True).strip()
         )
@@ -276,6 +296,11 @@ def test_feature_claim_can_upgrade_matching_offline_draft(monkeypatch) -> None:
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+        subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=root, check=True)
+        subprocess.run(["git", "config", "user.name", "Governance Test"], cwd=root, check=True)
+        (root / ".keep").write_text("fixture\n", encoding="utf-8")
+        subprocess.run(["git", "add", ".keep"], cwd=root, check=True)
+        subprocess.run(["git", "commit", "-qm", "fixture"], cwd=root, check=True)
         validator.claim(root, 216, issue_number=None, branch="draft/216-x", slug="x", offline=True)
         monkeypatch.setattr(validator, "_github_ids", lambda *args, **kwargs: set())
         monkeypatch.setattr(validator, "_github_umbrella", lambda *args, **kwargs: None)
@@ -362,6 +387,14 @@ def test_package_safety_allows_documentation_examples_but_rejects_credentials(tm
     assert validator.package_safety(tmp_path) == []
 
     (tmp_path / "config.py").write_text('password = "not-a-real-but-long-value"\n', encoding="utf-8")
+    errors = validator.package_safety(tmp_path)
+    assert any("forbidden secret/private content" in error for error in errors)
+
+    (tmp_path / "env.py").write_text(
+        "GITHUB_" + "TOKEN=abcdefghijk\n"
+        "SIGNED_" + "URL=https://example.invalid/path\n",
+        encoding="utf-8",
+    )
     errors = validator.package_safety(tmp_path)
     assert any("forbidden secret/private content" in error for error in errors)
 

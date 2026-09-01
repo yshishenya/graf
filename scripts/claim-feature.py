@@ -264,6 +264,42 @@ def _write_claims_atomic(path: Path, claims: dict[str, object]) -> None:
             pass
 
 
+def _write_active_pointer(
+    root: Path,
+    *,
+    feature_id: int,
+    branch: str,
+    slug: str,
+    owner: str,
+    risk_lane: str,
+    source_sha: str | None,
+) -> None:
+    """Persist the complete per-worktree context immediately after claiming."""
+    if not source_sha or not re.fullmatch(r"[0-9a-f]{40}", source_sha):
+        raise SystemExit("feature-claim: cannot persist active pointer without the current HEAD SHA")
+    pointer = root / ".specify" / "feature.json"
+    pointer.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema_version": 1,
+        "feature_directory": f"specs/{feature_id:03d}-{slug}",
+        "feature_id": f"{feature_id:03d}",
+        "owner": owner,
+        "risk_lane": risk_lane,
+        "owned_paths": [f"specs/{feature_id:03d}-{slug}", ".specify"],
+        "branch": branch,
+        "source_sha": source_sha,
+    }
+    temporary = pointer.with_name(f".{pointer.name}.{os.getpid()}.tmp")
+    try:
+        temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        os.replace(temporary, pointer)
+    finally:
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
+
+
 def _parse_ids(values: Iterable[str]) -> set[int]:
     result: set[int] = set()
     for value in values:
@@ -295,7 +331,14 @@ def _canonical_slug(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
 
 
-def _assert_clean_worktree(root: Path) -> None:
+def _assert_clean_worktree(root: Path, allowed_paths: Iterable[str] = (".specify/feature.json",)) -> None:
+    """Require a clean worktree, except for claim metadata we own.
+
+    Claiming a feature atomically refreshes ``.specify/feature.json``.  Keep
+    that exception in the default contract so callers (and test doubles) can
+    use the one-argument form without accidentally weakening the dirty-tree
+    gate for any other path.
+    """
     try:
         status = subprocess.run(
             ["git", "status", "--porcelain", "--untracked-files=all"],
@@ -303,15 +346,22 @@ def _assert_clean_worktree(root: Path) -> None:
         ).stdout.strip()
     except (OSError, subprocess.CalledProcessError) as exc:
         raise SystemExit(f"feature-claim: cannot inspect worktree cleanliness: {exc}") from exc
-    if status:
+    allowed = {str(Path(path)) for path in allowed_paths}
+    dirty = [line for line in status.splitlines() if line[3:].strip().split(" -> ", 1)[-1] not in allowed]
+    if dirty:
         raise SystemExit("feature-claim: worktree must be clean before claiming a feature")
 
 
-def claim(root: Path, feature_id: int, *, issue_number: int | None, branch: str, slug: str, offline: bool) -> dict[str, object]:
+def claim(root: Path, feature_id: int, *, issue_number: int | None, branch: str, slug: str, offline: bool,
+          owner: str = "codex", risk_lane: str = "significant-feature") -> dict[str, object]:
     if feature_id <= 0:
         raise SystemExit("feature-claim: feature_id must be greater than zero")
     if not branch or not slug:
         raise SystemExit("feature-claim: branch and slug are required")
+    if not owner.strip() or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._ -]{0,159}", owner):
+        raise SystemExit("feature-claim: owner must be a bounded non-empty identity")
+    if risk_lane not in {"tiny-low-risk", "active-spec-kit", "significant-feature", "high-risk-product", "release-deploy"}:
+        raise SystemExit("feature-claim: risk_lane is invalid")
     branch_match = re.search(r"(?:^|/)(\d{3,})-([A-Za-z0-9][A-Za-z0-9-]*)$", branch)
     if not branch_match or int(branch_match.group(1)) != feature_id:
         raise SystemExit(f"feature-claim: branch must be bound to Feature {feature_id:03d}")
@@ -380,7 +430,7 @@ def claim(root: Path, feature_id: int, *, issue_number: int | None, branch: str,
         claims[key] = requested_claim
         _write_claims_atomic(claims_path, claims)
         fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-    return {
+    result = {
         "schema_version": 1,
         "feature_id": f"{feature_id:03d}",
         "issue_number": issue_number,
@@ -389,6 +439,11 @@ def claim(root: Path, feature_id: int, *, issue_number: int | None, branch: str,
         "source_sha": _git_sha(root),
         "status": "draft" if offline else "reserved",
     }
+    _write_active_pointer(
+        root, feature_id=feature_id, branch=branch, slug=slug, owner=owner,
+        risk_lane=risk_lane, source_sha=result["source_sha"],
+    )
+    return result
 
 
 def _git_sha(root: Path) -> str | None:
@@ -422,6 +477,9 @@ def self_test() -> int:
             raise AssertionError("occupied ID was accepted")
         draft = claim(root, 216, issue_number=None, branch="draft/216-x", slug="x", offline=True)
         assert draft["status"] == "draft"
+        # The pointer is intentionally an uncommitted per-worktree artifact;
+        # this self-test exercises shared claim idempotency independently.
+        (root / ".specify" / "feature.json").unlink()
         assert _local_claim_ids(root) == {216}
         linked = root.parent / "linked-worktree"
         subprocess.run(["git", "worktree", "add", "-q", str(linked), "HEAD"], cwd=root, check=True)
@@ -435,6 +493,7 @@ def self_test() -> int:
             subprocess.run(["git", "worktree", "remove", "--force", str(linked)], cwd=root, check=True)
         retry = claim(root, 216, issue_number=None, branch="draft/216-x", slug="x", offline=True)
         assert retry["status"] == "draft"
+        (root / ".specify" / "feature.json").unlink()
         try:
             claim(root, 216, issue_number=None, branch="draft/216-other", slug="other", offline=True)
         except SystemExit as exc:
@@ -452,6 +511,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--issue-number", type=int)
     parser.add_argument("--branch", default="")
     parser.add_argument("--slug", default="")
+    parser.add_argument("--owner", default=os.environ.get("GRAF_FEATURE_OWNER", "codex"))
+    parser.add_argument("--risk-lane", default="significant-feature")
     parser.add_argument("--offline", action="store_true")
     parser.add_argument("--allocate", action="store_true", help="atomically allocate a fresh ID and create its umbrella issue")
     parser.add_argument("--self-test", action="store_true")
@@ -503,6 +564,10 @@ def main(argv: list[str] | None = None) -> int:
                 "issue_number": issue_number, "branch": args.branch, "slug": args.slug,
                 "source_sha": _git_sha(root), "status": "reserved",
             }
+            _write_active_pointer(
+                root, feature_id=feature_id, branch=args.branch, slug=args.slug,
+                owner=args.owner, risk_lane=args.risk_lane, source_sha=result["source_sha"],
+            )
         output = json.dumps(result, ensure_ascii=False, sort_keys=True)
         print(output if args.json else f"feature-claim: {output}")
         return 0
