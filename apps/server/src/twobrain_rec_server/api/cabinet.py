@@ -3580,26 +3580,20 @@ async def _summary_type_runtime(
         processing_result_id=None,
         template_key=template_key,
     )
-    latest_result = await latest_processing_result(
-        db,
-        workspace_id=meeting.workspace_id,
-        meeting_id=meeting.id,
+    source_revision = await latest_media_revision_for_meeting(
+        db, workspace_id=meeting.workspace_id, meeting_id=meeting.id
+    )
+    latest_result = (
+        await latest_operational_processing_result(
+            db,
+            workspace_id=meeting.workspace_id,
+            meeting_id=meeting.id,
+            media_revision_id=source_revision.id,
+        )
+        if source_revision is not None
+        else None
     )
     source_result = latest_result
-    if outcome is None and source_result is None:
-        source_revision = await latest_media_revision_for_meeting(
-            db, workspace_id=meeting.workspace_id, meeting_id=meeting.id
-        )
-        source_result = (
-            await latest_operational_processing_result(
-                db,
-                workspace_id=meeting.workspace_id,
-                meeting_id=meeting.id,
-                media_revision_id=source_revision.id,
-            )
-            if source_revision is not None
-            else None
-        )
     attempt = await db.scalar(
         select(MeetingOutcomeGenerationAttempt)
         .where(
