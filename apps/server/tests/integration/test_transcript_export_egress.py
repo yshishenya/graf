@@ -831,7 +831,7 @@ def test_export_capability_never_pairs_an_accepted_summary_with_a_newer_result(c
     assert capability["processing_result_id"] == str(newer_result_id)
     assert capability["transcript"]["state"] == "available"
     assert capability["summary"] == {
-        "state": "missing",
+        "state": "available",
         "reason": "stored_summary_revision_stale",
     }
     assert capability["combined"]["state"] == "missing"
@@ -858,7 +858,7 @@ def test_export_capability_never_pairs_an_accepted_summary_with_a_newer_result(c
     assert candidate.json()["current_outcome_set_id"] == str(accepted_id)
     assert len(temporal.starts) == 1
 
-    denied = client.post(
+    summary_export = client.post(
         f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
         headers=auth_headers(),
         json={
@@ -868,14 +868,15 @@ def test_export_capability_never_pairs_an_accepted_summary_with_a_newer_result(c
             "outcome_set_id": str(accepted_id),
         },
     )
-    assert denied.status_code == 409
-    assert denied.json()["code"] == "export_unavailable"
-    assert "content-disposition" not in denied.headers
-    assert any(
-        event.event_type == "content_export_denied"
-        and event.policy_reason == "stored_summary_revision_stale"
-        for event in audit_events(client, seeds.ready_id)
+    assert summary_export.status_code == 200
+    exported_payload = summary_export.json()
+    summary_payload = exported_payload["summary"]
+    assert summary_payload["processing_result_id"] != str(newer_result_id)
+    assert (
+        exported_payload["revisions"]["processing_result_id"]
+        == summary_payload["processing_result_id"]
     )
+    assert all(not item["evidence_turn_ids"] for item in summary_payload["items"])
 
 
 def test_export_capability_uses_newest_media_revision_before_summary_acceptance(client) -> None:
@@ -989,7 +990,7 @@ def test_export_capability_uses_newest_media_revision_before_summary_acceptance(
     assert payload["processing_result_id"] == str(newer_result_id)
     assert payload["outcome_set_id"] == str(accepted_id)
     assert payload["summary"] == {
-        "state": "missing",
+        "state": "available",
         "reason": "stored_summary_revision_stale",
     }
     transcript_export = client.post(

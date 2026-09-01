@@ -1169,17 +1169,67 @@ def test_previous_terminal_input_result_does_not_mask_active_attempt() -> None:
     result.diarization_status = ProcessingAvailabilityStatus.AVAILABLE.value
     result.segment_count = 1
     result.diarization_segment_count = 1
-    assert not view_models.transcript_available(
+    assert view_models.transcript_available(
         result,
         media_revision_id=media_revision_id,
-        processing_workflow_id=current.id,
     )
-    assert view_models.review_status(
+
+
+def test_latest_workflow_status_does_not_hide_effective_complete_result() -> None:
+    meeting = _meeting(ProcessingStatus.POLLING)
+    result = ProcessingResult(
+        id=uuid4(),
+        meeting_id=meeting.id,
+        workspace_id=meeting.workspace_id,
+        media_revision_id=uuid4(),
+        processing_workflow_id=uuid4(),
+        mediascribe_job_id=uuid4(),
+        status=ProcessingResultStatus.IMPORTED.value,
+        transcript_status=ProcessingAvailabilityStatus.AVAILABLE.value,
+        diarization_status=ProcessingAvailabilityStatus.AVAILABLE.value,
+        summary_status=SummaryStatus.NOT_REQUESTED.value,
+        segment_count=1,
+        diarization_segment_count=1,
+    )
+    latest_workflow = ProcessingWorkflow(
+        id=uuid4(),
+        meeting_id=meeting.id,
+        workspace_id=meeting.workspace_id,
+        media_revision_id=result.media_revision_id,
+        workflow_id="processing/replacement/2",
+        purpose="transcription",
+        status=ProcessingStatus.POLLING.value,
+        attempt_ordinal=2,
+    )
+
+    projection = view_models.processing_state(
         meeting,
         result=result,
-        workflow=current,
-        media_revision_id=media_revision_id,
-    ) == "processing"
+        workflow=latest_workflow,
+        media_revision_id=result.media_revision_id,
+    )
+    item = view_models.build_list_item(
+        meeting,
+        media_revision=MediaRevision(
+            id=result.media_revision_id,
+            workspace_id=meeting.workspace_id,
+            meeting_id=meeting.id,
+            local_media_revision_id="replacement-content-continuity",
+            revision_number=1,
+            source_kind=MediaRevisionSourceKind.INITIAL_MIXED_RECORDING.value,
+            status="accepted",
+        ),
+        result=result,
+        workflow=latest_workflow,
+    )
+
+    assert projection.state == "processing"
+    assert projection.transcript_available is True
+    assert projection.diarization_available is True
+    assert projection.content_available is True
+    assert item.status == "processing"
+    assert item.transcript_available is True
+    assert item.diarization_available is True
 
 
 def test_transcript_mapping_uses_timestamp_speaker_and_source_role_truth() -> None:

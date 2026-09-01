@@ -8,7 +8,7 @@ from uuid import UUID
 
 from sqlalchemy import and_, false, nullslast, select
 
-from twobrain_rec_server.db.models import ProcessingResult
+from twobrain_rec_server.db.models import ProcessingResult, ProcessingWorkflow
 from twobrain_rec_server.domain.statuses import ProcessingAvailabilityStatus, ProcessingResultStatus
 from twobrain_rec_server.processing.reasons import (
     FAILURE_SOURCE_INPUT_AUDIO,
@@ -57,17 +57,24 @@ def effective_processing_result_query(
     an explicit workflow lineage are never user-visible.
     """
 
-    query = select(ProcessingResult).where(
-        ProcessingResult.workspace_id == workspace_id,
-        ProcessingResult.meeting_id == meeting_id,
-        ProcessingResult.status == ProcessingResultStatus.IMPORTED.value,
+    query = (
+        select(ProcessingResult)
+        .join(
+            ProcessingWorkflow,
+            ProcessingWorkflow.id == ProcessingResult.processing_workflow_id,
+        )
+        .where(
+            ProcessingResult.workspace_id == workspace_id,
+            ProcessingResult.meeting_id == meeting_id,
+            complete_processing_result_clause(),
+        )
     )
     if media_revision_id is None:
         return query.where(false())
     return query.where(
         ProcessingResult.media_revision_id == media_revision_id,
-        ProcessingResult.processing_workflow_id.is_not(None),
     ).order_by(
+        ProcessingWorkflow.attempt_ordinal.desc(),
         ProcessingResult.result_version.desc(),
         nullslast(ProcessingResult.imported_at.desc()),
         ProcessingResult.created_at.desc(),

@@ -197,6 +197,12 @@ from twobrain_rec_server.processing.fences import (
     meeting_is_deleted_or_deleting,
     normalize_db_timestamp,
 )
+from twobrain_rec_server.processing.store import (
+    latest_media_revision_for_meeting,
+)
+from twobrain_rec_server.processing.store import (
+    latest_processing_result as latest_operational_processing_result,
+)
 from twobrain_rec_server.workflows.temporal_client import (
     cancel_invitation_delivery_workflow,
     connect_temporal_client,
@@ -1157,7 +1163,9 @@ async def refresh_meeting_summary_type_route(
         template_key=template_key,
     )
     if entry is None:
-        raise ProblemDetail(status=404, code="summary_type_not_found", title="Summary type not found")
+        raise ProblemDetail(
+            status=404, code="summary_type_not_found", title="Summary type not found"
+        )
     if entry.availability_state != "available":
         raise ProblemDetail(
             status=409,
@@ -3055,7 +3063,6 @@ async def get_shared_meeting_content_export_capabilities_route(
         db,
         workspace_id=workspace_id,
         meeting_id=meeting_id,
-        prefer_latest=True,
     )
     grant = await _shared_summary_grant(
         db,
@@ -3125,7 +3132,6 @@ async def create_shared_meeting_content_export_route(
         db,
         workspace_id=workspace_id,
         meeting_id=meeting_id,
-        prefer_latest=True,
     )
     generated = await create_content_export(
         db,
@@ -3189,7 +3195,6 @@ async def get_meeting_content_export_capabilities_route(
         db,
         workspace_id=tenant_scope.workspace_id,
         meeting_id=meeting_id,
-        prefer_latest=True,
     )
     return await content_export_capabilities(db, meeting=meeting, access=decision, result=result)
 
@@ -3239,7 +3244,6 @@ async def create_meeting_content_export_route(
         db,
         workspace_id=tenant_scope.workspace_id,
         meeting_id=meeting_id,
-        prefer_latest=True,
     )
     generated = await create_content_export(
         db,
@@ -3580,8 +3584,22 @@ async def _summary_type_runtime(
         db,
         workspace_id=meeting.workspace_id,
         meeting_id=meeting.id,
-        prefer_latest=True,
     )
+    source_result = latest_result
+    if outcome is None and source_result is None:
+        source_revision = await latest_media_revision_for_meeting(
+            db, workspace_id=meeting.workspace_id, meeting_id=meeting.id
+        )
+        source_result = (
+            await latest_operational_processing_result(
+                db,
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                media_revision_id=source_revision.id,
+            )
+            if source_revision is not None
+            else None
+        )
     attempt = await db.scalar(
         select(MeetingOutcomeGenerationAttempt)
         .where(
@@ -3598,15 +3616,15 @@ async def _summary_type_runtime(
             if latest_result is None or outcome.processing_result_id == latest_result.id
             else "stale"
         )
-    elif latest_result is None:
+    elif source_result is None:
         result_state = "absent"
         source_state = "not_ready"
-    elif getattr(latest_result, "transcript_status", None) in {"failed", "error"}:
+    elif getattr(source_result, "transcript_status", None) in {"failed", "error"}:
         result_state = "absent"
         source_state = "transcript_failed"
     elif (
-        getattr(latest_result, "transcript_status", None) == "empty"
-        or getattr(latest_result, "segment_count", None) == 0
+        getattr(source_result, "transcript_status", None) == "empty"
+        or getattr(source_result, "segment_count", None) == 0
     ):
         result_state = "absent"
         source_state = "empty"
@@ -4566,9 +4584,7 @@ async def _shared_summary_outcome(
     """Read the grant's immutable summary pin; backfill one old grant once."""
 
     metadata = (
-        grant.metadata_json
-        if grant is not None and isinstance(grant.metadata_json, dict)
-        else {}
+        grant.metadata_json if grant is not None and isinstance(grant.metadata_json, dict) else {}
     )
     pin = _shared_summary_pin(grant)
     if pin is not None:

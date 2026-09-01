@@ -37,12 +37,21 @@ from twobrain_rec_server.db.models import (
     CalendarParticipant,
     CalendarSource,
     ExternalCalendar,
+    MediaScribeJob,
     Meeting,
     MeetingOutcomeItem,
     MeetingOutcomeSet,
     MeetingSummarySlot,
     ProcessingResult,
+    ProcessingWorkflow,
     RecordingCalendarContextLink,
+)
+from twobrain_rec_server.domain.statuses import (
+    MediaScribeJobStatus,
+    ProcessingAvailabilityStatus,
+    ProcessingResultStatus,
+    ProcessingStatus,
+    SummaryStatus,
 )
 
 
@@ -80,22 +89,22 @@ def test_cabinet_ready_detail_returns_ordered_transcript_speakers_and_provenance
 def test_missing_canonical_object_projects_automatic_recovery_in_api_and_web(client) -> None:
     seeds = seed_cabinet_meetings(client)
     add_retained_playback_m4a(client, seeds.ready_id, b"\x00\x00\x00\x18ftypM4A stale")
-    client.app_state["storage"].delete_object(
-        f"tests/cabinet/{seeds.ready_id}/meeting-review.m4a"
-    )
+    client.app_state["storage"].delete_object(f"tests/cabinet/{seeds.ready_id}/meeting-review.m4a")
 
-    api_response = client.get(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}", headers=auth_headers()
-    )
+    api_response = client.get(f"/api/v1/cabinet/meetings/{seeds.ready_id}", headers=auth_headers())
     web_response = client.get(f"/meetings/{seeds.ready_id}", headers=auth_headers())
 
     assert api_response.status_code == 200
-    assert api_response.json()["playback"] | {
-        "state": "preparing",
-        "reason_code": "canonical_artifact_missing",
-        "automatic_recovery": True,
-        "can_play": False,
-    } == api_response.json()["playback"]
+    assert (
+        api_response.json()["playback"]
+        | {
+            "state": "preparing",
+            "reason_code": "canonical_artifact_missing",
+            "automatic_recovery": True,
+            "can_play": False,
+        }
+        == api_response.json()["playback"]
+    )
     assert web_response.status_code == 200
     assert 'data-playback-state="preparing"' in web_response.text
     assert 'data-playback-reason="canonical_artifact_missing"' in web_response.text
@@ -178,7 +187,7 @@ def test_098_calendar_roster_stays_separate_from_transcript_speakers_and_permiss
         assert CALENDAR_ROSTER_EMAIL_SENTINEL not in response.text
 
 
-def test_cabinet_processing_failed_and_partial_detail_states_are_truthful(client) -> None:
+def test_cabinet_processing_failed_and_incomplete_detail_states_are_truthful(client) -> None:
     seeds = seed_cabinet_meetings(client)
 
     processing = client.get(
@@ -204,11 +213,11 @@ def test_cabinet_processing_failed_and_partial_detail_states_are_truthful(client
     assert SAFE_TRANSCRIPT_TEXT not in str(failed)
     assert failed["notes_action_truth"]["summary"]["state"] == "blocked"
     assert failed["notes_action_truth"]["decisions"]["state"] == "blocked"
-    assert partial["processing"]["state"] == "partial"
+    assert partial["processing"]["state"] == "failed"
     assert partial["transcript"]["available"] is False
     assert partial["speakers"]["available"] is False
-    assert partial["notes_action_truth"]["summary"]["state"] == "deferred"
-    assert partial["notes_action_truth"]["followups"]["state"] == "deferred"
+    assert partial["notes_action_truth"]["summary"]["state"] == "blocked"
+    assert partial["notes_action_truth"]["followups"]["state"] == "blocked"
 
 
 def test_manual_upload_detail_handoff_keeps_processing_truth_separate_from_review_readiness(
@@ -323,6 +332,78 @@ def test_cabinet_and_desktop_sync_review_states_match_for_result_states(client) 
         )
         assert sync_payload["review"]["web_url"] == f"/meetings/{meeting_id}"
         assert sync_payload["review"]["desktop_url"] == f"/desktop/meetings/{meeting_id}"
+
+
+def test_cabinet_detail_keeps_complete_content_during_partial_replacement(client) -> None:
+    meeting_id = seed_cabinet_meetings(client).ready_id
+
+    async def seed_partial_replacement() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.get(Meeting, meeting_id)
+            previous = await db.scalar(
+                select(ProcessingWorkflow).where(ProcessingWorkflow.meeting_id == meeting_id)
+            )
+            previous_result = await db.scalar(
+                select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
+            )
+            assert meeting is not None and previous is not None and previous_result is not None
+            previous.attempt_ordinal = 1
+            replacement = ProcessingWorkflow(
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                media_revision_id=previous_result.media_revision_id,
+                workflow_id=f"processing/{previous_result.media_revision_id}/2",
+                status=ProcessingStatus.POLLING.value,
+                attempt_ordinal=2,
+            )
+            db.add(replacement)
+            await db.flush()
+            replacement_job = MediaScribeJob(
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                media_revision_id=previous_result.media_revision_id,
+                processing_workflow_id=replacement.id,
+                external_job_id="fixture-replacement-partial-job",
+                status=MediaScribeJobStatus.TRANSCRIBING.value,
+            )
+            db.add(replacement_job)
+            await db.flush()
+            db.add(
+                ProcessingResult(
+                    workspace_id=meeting.workspace_id,
+                    meeting_id=meeting.id,
+                    media_revision_id=previous_result.media_revision_id,
+                    mediascribe_job_id=replacement_job.id,
+                    processing_workflow_id=replacement.id,
+                    result_version=1,
+                    status=ProcessingResultStatus.IMPORTED.value,
+                    transcript_status=ProcessingAvailabilityStatus.AVAILABLE.value,
+                    diarization_status=ProcessingAvailabilityStatus.UNAVAILABLE.value,
+                    summary_status=SummaryStatus.NOT_REQUESTED.value,
+                    segment_count=1,
+                    diarization_segment_count=0,
+                )
+            )
+            meeting.processing_status = ProcessingStatus.POLLING.value
+            await db.commit()
+
+    asyncio.run(seed_partial_replacement())
+
+    response = client.get(
+        f"/api/v1/cabinet/meetings/{meeting_id}",
+        headers=auth_headers(),
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["processing"]["state"] == "processing"
+    assert payload["processing"]["transcript_available"] is True
+    assert payload["processing"]["diarization_available"] is True
+    assert payload["transcript"]["available"] is True
+    assert [segment["text"] for segment in payload["transcript"]["segments"]] == [
+        SAFE_TRANSCRIPT_TEXT,
+        SAFE_SECOND_TRANSCRIPT_TEXT,
+    ]
 
 
 def test_cabinet_summary_reported_without_stored_output_is_blocked(client) -> None:
@@ -444,9 +525,7 @@ def test_browser_and_embedded_review_use_default_slot_before_newer_result(client
 
     asyncio.run(remove_default_marker())
 
-    no_default_api = client.get(
-        f"/api/v1/cabinet/meetings/{meeting_id}", headers=auth_headers()
-    )
+    no_default_api = client.get(f"/api/v1/cabinet/meetings/{meeting_id}", headers=auth_headers())
     assert no_default_api.status_code == 200
     assert no_default_api.json()["notes_action_truth"]["summary"]["state"] != "available"
 
@@ -618,6 +697,16 @@ def test_cabinet_owner_default_audio_download_has_web_embedded_parity(client) ->
         assert response.status_code == 200, surface
         assert f'href="/api/v1/cabinet/meetings/{seeds.ready_id}/downloads/audio"' in response.text
         assert "Скачать аудио…" in response.text
+        assert response.text.count("Повторно обработать запись") >= 1
+        assert 'data-processing-reprocess-available="true"' in response.text
+
+    add_workspace_user(client)
+    set_meeting_visibility(client, seeds.ready_id, "team")
+    for path in (f"/meetings/{seeds.ready_id}", f"/desktop/meetings/{seeds.ready_id}"):
+        shared = client.get(path, headers=shared_auth_headers())
+        assert shared.status_code == 200, path
+        assert "data-processing-reprocess-dialog" not in shared.text
+        assert 'data-processing-reprocess-available="false"' in shared.text
 
 
 def test_098_ambiguous_owner_detail_renders_safe_chooser_with_web_embedded_parity(client) -> None:
@@ -639,9 +728,9 @@ def test_098_ambiguous_owner_detail_renders_safe_chooser_with_web_embedded_parit
         assert (
             response.text.count("Несколько встреч подходят по времени. GRAF ничего не выбрал.") == 1
         )
-        assert response.text.count(
-            '<fieldset aria-describedby="calendar-context-choice-help">'
-        ) == 1
+        assert (
+            response.text.count('<fieldset aria-describedby="calendar-context-choice-help">') == 1
+        )
         assert response.text.count("<legend>Выберите встречу</legend>") == 1
         assert response.text.count('type="radio" name="event_id"') == 2
         assert response.text.count('name="event_id"') == 2

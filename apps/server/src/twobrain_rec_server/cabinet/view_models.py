@@ -102,6 +102,7 @@ from twobrain_rec_server.processing.results import (
     result_is_terminal_input,
     result_lineage_is_current,
 )
+from twobrain_rec_server.workflows.temporal_client import processing_workflow_id
 
 if TYPE_CHECKING:
     from twobrain_rec_server.auth.account_closure import AccountCloseView
@@ -2043,36 +2044,20 @@ def _result_lineage_matches(
     result: ProcessingResult | None,
     *,
     media_revision_id: UUID | None = None,
-    processing_workflow_id: UUID | None = None,
 ) -> bool:
-    """Keep public artifact flags pinned to the current revision lineage.
-
-    A replacement attempt owns the user-visible state. Results from an older
-    attempt stay hidden even when they belong to the same media revision.
-    """
-
-    if result is None:
-        return False
-    if media_revision_id is not None:
-        return bool(
-            processing_workflow_id is not None
-            and result_lineage_is_current(result, media_revision_id=media_revision_id)
-            and result.processing_workflow_id == processing_workflow_id
-        )
-    return False
+    """Keep public artifact flags pinned to the accepted revision lineage."""
+    return result_lineage_is_current(result, media_revision_id=media_revision_id)
 
 
 def _transcript_artifact_available(
     result: ProcessingResult | None,
     *,
     media_revision_id: UUID | None = None,
-    processing_workflow_id: UUID | None = None,
 ) -> bool:
     return bool(
         _result_lineage_matches(
             result,
             media_revision_id=media_revision_id,
-            processing_workflow_id=processing_workflow_id,
         )
         and result.status == ProcessingResultStatus.IMPORTED.value
         and canonical_speech_available(result)
@@ -2083,7 +2068,6 @@ def transcript_available(
     result: ProcessingResult | None,
     *,
     media_revision_id: UUID | None = None,
-    processing_workflow_id: UUID | None = None,
 ) -> bool:
     """Return the first user-usable transcript milestone, never transcript-only."""
 
@@ -2091,12 +2075,10 @@ def transcript_available(
         _transcript_artifact_available(
             result,
             media_revision_id=media_revision_id,
-            processing_workflow_id=processing_workflow_id,
         )
         and _diarization_artifact_available(
             result,
             media_revision_id=media_revision_id,
-            processing_workflow_id=processing_workflow_id,
         )
     )
 
@@ -2126,7 +2108,6 @@ def previous_recurring_meeting_readiness(
         and transcript_available(
             result,
             media_revision_id=result.media_revision_id,
-            processing_workflow_id=result.processing_workflow_id,
         )
     ):
         return PreviousRecurringMeetingReadiness.TRANSCRIPT_READY
@@ -2144,13 +2125,11 @@ def _diarization_artifact_available(
     result: ProcessingResult | None,
     *,
     media_revision_id: UUID | None = None,
-    processing_workflow_id: UUID | None = None,
 ) -> bool:
     return bool(
         _result_lineage_matches(
             result,
             media_revision_id=media_revision_id,
-            processing_workflow_id=processing_workflow_id,
         )
         and result.status == ProcessingResultStatus.IMPORTED.value
         and result.diarization_status == ProcessingAvailabilityStatus.AVAILABLE.value
@@ -2162,13 +2141,40 @@ def diarization_available(
     result: ProcessingResult | None,
     *,
     media_revision_id: UUID | None = None,
-    processing_workflow_id: UUID | None = None,
 ) -> bool:
     return _diarization_artifact_available(
         result,
         media_revision_id=media_revision_id,
-        processing_workflow_id=processing_workflow_id,
     )
+
+
+def _review_status_without_complete_result(
+    meeting: Meeting,
+    *,
+    lifecycle_status: str,
+) -> MeetingReviewStatus:
+    if meeting.status == MeetingStatus.DRAFT.value:
+        return "local_only"
+    if meeting.status == MeetingStatus.UPLOADING.value:
+        return "uploading"
+    if meeting.status in {MeetingStatus.FAILED.value, MeetingStatus.DEGRADED.value}:
+        return "failed"
+    if lifecycle_status in PROCESSING_STATUSES:
+        return "processing"
+    if lifecycle_status == ProcessingStatus.NOT_SUBMITTED.value:
+        return "submitted"
+    if lifecycle_status in {
+        ProcessingStatus.BLOCKED.value,
+        ProcessingStatus.BLOCKED_UNKNOWN.value,
+    }:
+        return "blocked"
+    if lifecycle_status in {
+        ProcessingStatus.FAILED_RETRYABLE.value,
+        ProcessingStatus.FAILED_TERMINAL.value,
+        ProcessingStatus.PROCESSED.value,
+    }:
+        return "failed"
+    return "unavailable"
 
 
 def review_status(
@@ -2180,18 +2186,15 @@ def review_status(
 ) -> MeetingReviewStatus:
     if meeting_is_deleted_or_deleting(meeting):
         return "deleted_future"
-    processing_workflow_id = workflow.id if workflow is not None else None
     # ``partial`` is an internal lifecycle state.  It must remain observable
     # as state, but it must not promote transcript-only rows to user content.
     has_transcript = _transcript_artifact_available(
         result,
         media_revision_id=media_revision_id,
-        processing_workflow_id=processing_workflow_id,
     )
     has_diarization = _diarization_artifact_available(
         result,
         media_revision_id=media_revision_id,
-        processing_workflow_id=processing_workflow_id,
     )
     lifecycle_status = workflow.status if workflow is not None else meeting.processing_status
     # A terminal provider outcome owns the projection even when a malformed or
@@ -2202,8 +2205,9 @@ def review_status(
         and _result_lineage_matches(
             result,
             media_revision_id=media_revision_id,
-            processing_workflow_id=processing_workflow_id,
         )
+        and workflow is not None
+        and result.processing_workflow_id == workflow.id
         and (
             result_is_terminal_input(result)
             or (
@@ -2220,35 +2224,19 @@ def review_status(
         )
     ):
         return "failed"
+    if workflow is not None and (result is None or result.processing_workflow_id != workflow.id):
+        return _review_status_without_complete_result(
+            meeting,
+            lifecycle_status=lifecycle_status,
+        )
     if has_transcript and has_diarization:
         return "ready"
     if has_transcript or has_diarization:
         return "partial"
-
-    if meeting.status == MeetingStatus.DRAFT.value:
-        return "local_only"
-    if meeting.status == MeetingStatus.UPLOADING.value:
-        return "uploading"
-    if meeting.status in {MeetingStatus.FAILED.value, MeetingStatus.DEGRADED.value}:
-        return "failed"
-
-    if lifecycle_status in PROCESSING_STATUSES:
-        return "processing"
-    if lifecycle_status == ProcessingStatus.NOT_SUBMITTED.value:
-        return "submitted"
-    if lifecycle_status == ProcessingStatus.BLOCKED.value:
-        return "blocked"
-    if lifecycle_status == ProcessingStatus.BLOCKED_UNKNOWN.value:
-        return "blocked"
-    if lifecycle_status in {
-        ProcessingStatus.FAILED_RETRYABLE.value,
-        ProcessingStatus.FAILED_TERMINAL.value,
-    }:
-        return "failed"
-    if lifecycle_status == ProcessingStatus.CANCELED.value:
-        return "unavailable"
-
-    return "unavailable"
+    return _review_status_without_complete_result(
+        meeting,
+        lifecycle_status=lifecycle_status,
+    )
 
 
 def governance_summary(
@@ -2395,7 +2383,6 @@ def build_list_item(
     playback: PlaybackPreparationState | None = None,
 ) -> MeetingListItem:
     current_media_revision_id = media_revision.id if media_revision is not None else None
-    current_workflow_id = workflow.id if workflow is not None else None
     status = review_status(
         meeting,
         result=result,
@@ -2438,12 +2425,10 @@ def build_list_item(
         transcript_available=transcript_available(
             result,
             media_revision_id=current_media_revision_id,
-            processing_workflow_id=current_workflow_id,
         ),
         diarization_available=diarization_available(
             result,
             media_revision_id=current_media_revision_id,
-            processing_workflow_id=current_workflow_id,
         ),
         notes_available=notes_truth.summary.state == "available",
         notes_action_truth=notes_truth,
@@ -2547,8 +2532,21 @@ def processing_state(
     result: ProcessingResult | None,
     workflow: ProcessingWorkflow | None,
     media_revision_id: UUID | None = None,
+    reprocess_available: bool = False,
 ) -> ProcessingReviewState:
-    processing_workflow_id = workflow.id if workflow is not None else None
+    attempt_ordinal = int(workflow.attempt_ordinal or 1) if workflow is not None else 1
+    expected_workflow_id = (
+        processing_workflow_id(workflow.media_revision_id, attempt_ordinal)
+        if workflow is not None and workflow.media_revision_id is not None
+        else None
+    )
+    public_workflow_id = (
+        workflow.workflow_id
+        if reprocess_available
+        and workflow is not None
+        and workflow.workflow_id == expected_workflow_id
+        else None
+    )
     status = review_status(
         meeting,
         result=result,
@@ -2558,18 +2556,15 @@ def processing_state(
     has_transcript = transcript_available(
         result,
         media_revision_id=media_revision_id,
-        processing_workflow_id=processing_workflow_id,
     )
     has_diarization = diarization_available(
         result,
         media_revision_id=media_revision_id,
-        processing_workflow_id=processing_workflow_id,
     )
     summary_available = bool(
         _result_lineage_matches(
             result,
             media_revision_id=media_revision_id,
-            processing_workflow_id=processing_workflow_id,
         )
         and result.summary_status == SummaryStatus.AVAILABLE.value
     )
@@ -2582,6 +2577,9 @@ def processing_state(
         reason_code = result.failure_reason
     return ProcessingReviewState(
         state=status,
+        workflow_id=public_workflow_id,
+        attempt_ordinal=attempt_ordinal,
+        reprocess_available=public_workflow_id is not None,
         stage=stage_for_status(
             status, workflow.status if workflow is not None else meeting.processing_status
         ),
@@ -2675,10 +2673,14 @@ def _same_result_transcript_rows(
     """Require visible rows to come from one result, allowing diarization-only display rows."""
 
     transcript_result_ids = {
-        row.processing_result_id for row in transcript_segments if row.processing_result_id is not None
+        row.processing_result_id
+        for row in transcript_segments
+        if row.processing_result_id is not None
     }
     diarization_result_ids = {
-        row.processing_result_id for row in diarization_segments if row.processing_result_id is not None
+        row.processing_result_id
+        for row in diarization_segments
+        if row.processing_result_id is not None
     }
     if not transcript_result_ids or len(transcript_result_ids) != 1:
         return False
@@ -3397,6 +3399,7 @@ def build_review_response(
     outcome_items: list[MeetingOutcomeItem] | None = None,
     speaker_names: dict[str, str] | None = None,
     can_rename_speakers: bool = False,
+    reprocess_available: bool = False,
 ) -> MeetingReviewResponse:
     current_media_revision_id = media_revision.id if media_revision is not None else None
     current_lineage = result_lineage_is_current(
@@ -3462,8 +3465,14 @@ def build_review_response(
     if not row_visibility:
         item.transcript_available = False
     status = cast(MeetingReviewStatus, item.status)
+    content_status = review_status(
+        meeting,
+        result=safe_result,
+        workflow=None,
+        media_revision_id=current_media_revision_id,
+    )
     notes_truth = notes_action_truth_state(
-        status=status,
+        status=content_status,
         result=safe_result,
         outcome_set=safe_outcome_set,
         outcome_items=safe_outcome_items,
@@ -3481,6 +3490,7 @@ def build_review_response(
         result=safe_result,
         workflow=workflow,
         media_revision_id=current_media_revision_id,
+        reprocess_available=reprocess_available,
     )
     if not row_visibility:
         processing_projection.transcript_available = False
@@ -3504,7 +3514,7 @@ def build_review_response(
             language=safe_result.language if safe_result is not None else None,
             transcript_segments=transcript_segments,
             diarization_segments=diarization_segments,
-            status=status,
+            status=content_status,
             playback_available=playback.available,
             playback_duration_seconds=playback.duration_seconds,
             speaker_names=speaker_names,

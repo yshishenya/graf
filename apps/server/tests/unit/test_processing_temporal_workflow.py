@@ -77,6 +77,14 @@ class PreNormalizationMediaScribeProcessingWorkflow:
 
 
 def _payload() -> dict[str, str]:
+    return {
+        "processing_workflow_id": "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
+        "meeting_id": "meeting-1",
+        "workspace_id": "workspace-1",
+    }
+
+
+def _legacy_payload() -> dict[str, str]:
     return {"meeting_id": "meeting-1", "workspace_id": "workspace-1"}
 
 
@@ -110,6 +118,9 @@ async def test_recovery_workflow_uses_durable_timer_and_bounded_activity_options
 
     assert len(calls) == 2
     assert all(call["single_step"] == "true" for call in calls)
+    assert all(
+        call["processing_workflow_id"] == _payload()["processing_workflow_id"] for call in calls
+    )
     assert any(event.HasField("timer_started_event_attributes") for event in history.events)
 
     scheduled = next(
@@ -489,7 +500,7 @@ async def test_legacy_history_replays_without_recovery_commands() -> None:
         ):
             handle = await env.client.start_workflow(
                 LegacyMediaScribeProcessingWorkflow.run,
-                _payload(),
+                _legacy_payload(),
                 id=f"processing-legacy-test/{uuid4()}",
                 task_queue=task_queue,
             )

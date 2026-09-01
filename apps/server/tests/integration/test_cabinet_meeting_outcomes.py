@@ -4,6 +4,7 @@ import asyncio
 import importlib
 import re
 from datetime import UTC, datetime
+from decimal import Decimal
 from uuid import UUID, uuid4
 
 from sqlalchemy import select
@@ -21,15 +22,20 @@ from tests.fixtures.cabinet import (
 from twobrain_rec_server.cabinet import queries
 from twobrain_rec_server.cabinet.egress import current_outcome_set
 from twobrain_rec_server.db.models import (
+    DiarizationSegment,
     MediaRevision,
+    MediaScribeJob,
     Meeting,
     MeetingOutcomeGenerationAttempt,
     MeetingOutcomeItem,
     MeetingOutcomeSet,
     MeetingSummarySlot,
     ProcessingResult,
+    ProcessingWorkflow,
     SummaryTemplate,
+    TranscriptSegment,
 )
+from twobrain_rec_server.domain.statuses import ProcessingStatus
 from twobrain_rec_server.outcomes.store import OUTCOME_GENERATOR_VERSION
 from twobrain_rec_server.outcomes.templates import BUILT_IN_BY_KEY
 
@@ -340,8 +346,41 @@ def test_source_revision_marks_every_saved_type_stale_without_cross_slot_generat
         headers=auth_headers(),
     )
     assert capability.status_code == 200
-    assert capability.json()["processing_result_id"] == str(newer_result_id)
-    assert capability.json()["summary"]["reason"] == "stored_summary_revision_stale"
+    capability_payload = capability.json()
+    assert capability_payload["processing_result_id"] == str(newer_result_id)
+    assert capability_payload["summary"] == {
+        "state": "available",
+        "reason": "stored_summary_revision_stale",
+    }
+    assert capability_payload["combined"] == {
+        "state": "missing",
+        "reason": "combined_components_unavailable",
+    }
+
+    summary_export = client.post(
+        f"/api/v1/cabinet/meetings/{meeting_id}/content-exports",
+        headers=auth_headers(),
+        json={
+            "content_scope": "summary",
+            "format": "json",
+            "processing_result_id": capability_payload["processing_result_id"],
+            "outcome_set_id": capability_payload["outcome_set_id"],
+        },
+    )
+    assert summary_export.status_code == 200
+
+    combined_export = client.post(
+        f"/api/v1/cabinet/meetings/{meeting_id}/content-exports",
+        headers=auth_headers(),
+        json={
+            "content_scope": "combined",
+            "format": "json",
+            "processing_result_id": capability_payload["processing_result_id"],
+            "outcome_set_id": capability_payload["outcome_set_id"],
+        },
+    )
+    assert combined_export.status_code == 409
+    assert combined_export.json()["code"] == "export_unavailable"
 
     async def read_slots() -> dict[str, UUID | None]:
         async with client.app_state["sessionmaker"]() as db:
@@ -356,6 +395,49 @@ def test_source_revision_marks_every_saved_type_stale_without_cross_slot_generat
         **current_ids,
         "personal-retired-v1": retired_id,
     }
+
+
+def test_baseline_outcome_uses_effective_complete_result_while_newer_result_is_partial(
+    client,
+) -> None:
+    meeting_id = create_outcome_ready_meeting(client, "effective-outcome-source")
+
+    async def seed_partial_result() -> UUID:
+        async with client.app_state["sessionmaker"]() as db:
+            current = await db.scalar(
+                select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
+            )
+            assert current is not None
+            partial = ProcessingResult(
+                workspace_id=current.workspace_id,
+                meeting_id=current.meeting_id,
+                media_revision_id=current.media_revision_id,
+                mediascribe_job_id=current.mediascribe_job_id,
+                processing_workflow_id=current.processing_workflow_id,
+                result_version=current.result_version + 1,
+                status="imported",
+                transcript_status="available",
+                diarization_status="unavailable",
+                summary_status=current.summary_status,
+                language=current.language,
+                segment_count=current.segment_count,
+                diarization_segment_count=0,
+                source_result_hash="partial-result-must-not-drive-outcomes",
+                imported_at=datetime.now(UTC),
+            )
+            db.add(partial)
+            await db.commit()
+            return current.id
+
+    effective_result_id = asyncio.run(seed_partial_result())
+    outcome_set = asyncio.run(
+        _service_module().ensure_outcomes_for_meeting(
+            client.app_state["sessionmaker"], meeting_id=meeting_id
+        )
+    )
+
+    assert outcome_set is not None
+    assert outcome_set.processing_result_id == effective_result_id
 
 
 def test_ensure_missing_summary_type_is_one_click_and_idempotent(client) -> None:
@@ -645,6 +727,158 @@ def test_cabinet_detail_shows_stored_outcomes_instead_of_deferred_placeholders(c
     assert payload["meeting"]["notes_available"] is True
     assert payload["transcript"]["available"] is True
     assert payload["playback"]["available"] is True
+
+
+def test_active_replacement_keeps_stored_outcomes_available(client) -> None:
+    meeting_id = create_outcome_ready_meeting(client, "outcomes-during-active-replacement")
+    asyncio.run(_generate_and_store(client, meeting_id, _service_module()))
+
+    async def seed_active_replacement() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.get(Meeting, meeting_id)
+            current = await db.scalar(
+                select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
+            )
+            assert meeting is not None and current is not None
+            db.add(
+                ProcessingWorkflow(
+                    workspace_id=current.workspace_id,
+                    meeting_id=current.meeting_id,
+                    media_revision_id=current.media_revision_id,
+                    workflow_id=f"processing/{current.media_revision_id}/2",
+                    status=ProcessingStatus.POLLING.value,
+                    attempt_ordinal=2,
+                )
+            )
+            meeting.processing_status = ProcessingStatus.POLLING.value
+            await db.commit()
+
+    asyncio.run(seed_active_replacement())
+
+    response = client.get(f"/api/v1/cabinet/meetings/{meeting_id}", headers=auth_headers())
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["processing"]["state"] == "processing"
+    assert payload["meeting"]["notes_available"] is True
+    assert payload["notes_action_truth"]["source_basis"] == "stored_output"
+    assert payload["notes_action_truth"]["summary"]["state"] == "available"
+
+
+def test_web_and_embedded_keep_previous_outcomes_visible_after_result_replacement(client) -> None:
+    meeting_id = create_outcome_ready_meeting(client, "outcomes-after-result-replacement")
+    asyncio.run(_generate_and_store(client, meeting_id, _service_module()))
+    previous_outcome_text = asyncio.run(_first_outcome_text(client, meeting_id))
+    result_b_text = "Синтетическая расшифровка результата B."
+
+    async def publish_complete_result_b() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            result_a = await db.scalar(
+                select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
+            )
+            assert result_a is not None
+            job_a = await db.get(MediaScribeJob, result_a.mediascribe_job_id)
+            assert job_a is not None
+            workflow_b = ProcessingWorkflow(
+                workspace_id=result_a.workspace_id,
+                meeting_id=result_a.meeting_id,
+                media_revision_id=result_a.media_revision_id,
+                workflow_id=f"processing/{result_a.media_revision_id}/2",
+                status="processed",
+                attempt_ordinal=2,
+            )
+            db.add(workflow_b)
+            await db.flush()
+            job_b = MediaScribeJob(
+                workspace_id=result_a.workspace_id,
+                meeting_id=result_a.meeting_id,
+                media_revision_id=result_a.media_revision_id,
+                processing_workflow_id=workflow_b.id,
+                external_job_id="customer-visible-result-b-job",
+                status="ready",
+                mic_track_artifact_id=job_a.mic_track_artifact_id,
+                incoming_track_artifact_id=job_a.incoming_track_artifact_id,
+            )
+            db.add(job_b)
+            await db.flush()
+            result_b = ProcessingResult(
+                workspace_id=result_a.workspace_id,
+                meeting_id=result_a.meeting_id,
+                media_revision_id=result_a.media_revision_id,
+                mediascribe_job_id=job_b.id,
+                processing_workflow_id=workflow_b.id,
+                result_version=1,
+                status=result_a.status,
+                transcript_status=result_a.transcript_status,
+                diarization_status=result_a.diarization_status,
+                summary_status=result_a.summary_status,
+                language=result_a.language,
+                segment_count=1,
+                diarization_segment_count=1,
+                source_result_hash="customer-visible-result-b",
+                imported_at=datetime.now(UTC),
+            )
+            db.add(result_b)
+            await db.flush()
+            db.add_all(
+                [
+                    TranscriptSegment(
+                        processing_result_id=result_b.id,
+                        workspace_id=result_b.workspace_id,
+                        meeting_id=result_b.meeting_id,
+                        sequence=0,
+                        start_seconds=Decimal("0"),
+                        end_seconds=Decimal("1"),
+                        text=result_b_text,
+                        source_role="mic",
+                        source_role_original="microphone",
+                    ),
+                    DiarizationSegment(
+                        processing_result_id=result_b.id,
+                        workspace_id=result_b.workspace_id,
+                        meeting_id=result_b.meeting_id,
+                        sequence=0,
+                        start_seconds=Decimal("0"),
+                        end_seconds=Decimal("1"),
+                        speaker_label="Speaker B",
+                        text=result_b_text,
+                        source_role="mic",
+                    ),
+                ]
+            )
+            await db.commit()
+
+    asyncio.run(publish_complete_result_b())
+
+    for path in (f"/meetings/{meeting_id}", f"/desktop/meetings/{meeting_id}"):
+        response = client.get(path, headers=auth_headers())
+        assert response.status_code == 200, path
+        outcomes = _outcomes_panel(response.text)
+        assert result_b_text in response.text
+        assert previous_outcome_text in outcomes
+        assert "По предыдущей версии расшифровки" in outcomes
+
+    capability = client.get(
+        f"/api/v1/cabinet/meetings/{meeting_id}/content-exports",
+        headers=auth_headers(),
+    )
+    assert capability.status_code == 200
+    capability_payload = capability.json()
+    assert capability_payload["summary"]["reason"] == "stored_summary_revision_stale"
+    summary_export = client.post(
+        f"/api/v1/cabinet/meetings/{meeting_id}/content-exports",
+        headers=auth_headers(),
+        json={
+            "content_scope": "summary",
+            "format": "json",
+            "processing_result_id": capability_payload["processing_result_id"],
+            "outcome_set_id": capability_payload["outcome_set_id"],
+        },
+    )
+    assert summary_export.status_code == 200
+    items = summary_export.json()["summary"]["items"]
+    assert items
+    assert all(not item["evidence_turn_ids"] for item in items)
 
 
 def test_pointerless_legacy_outcome_cannot_attach_to_new_revision_result(client) -> None:

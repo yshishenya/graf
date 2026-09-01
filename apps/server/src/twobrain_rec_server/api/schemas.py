@@ -388,10 +388,10 @@ class MeetingTargetBrowserServicePattern(BaseModel):
     host_category: Literal["first_party", "enterprise_domain", "unknown"] = Field(
         alias="hostCategory"
     )
-    pattern_class: Literal[
-        "meeting_room", "join_intent", "landing", "settings", "unsupported"
-    ] = Field(
-        alias="patternClass",
+    pattern_class: Literal["meeting_room", "join_intent", "landing", "settings", "unsupported"] = (
+        Field(
+            alias="patternClass",
+        )
     )
 
 
@@ -733,9 +733,9 @@ class CalendarRosterSnapshotItem(BaseModel):
     display_name: Annotated[SafeClientText, Field(max_length=240)] | None = None
     email_present: bool = False
     workspace_relation: Annotated[SafeClientText, Field(min_length=1, max_length=80)] = "unknown"
-    recipient_candidate_class: Annotated[
-        SafeClientText, Field(min_length=1, max_length=80)
-    ] = "unknown"
+    recipient_candidate_class: Annotated[SafeClientText, Field(min_length=1, max_length=80)] = (
+        "unknown"
+    )
 
 
 class CalendarContextRosterView(BaseModel):
@@ -1070,7 +1070,12 @@ class ProcessingStatusResponse(BaseModel):
     summary_status: str = "not_requested"
     retry_class: Literal["none", "retryable", "unknown_outcome", "terminal"] = "none"
     next_attempt_at: datetime | None = None
-    next_attempt_source: Literal["provider_retry_after", "provider_next_retry_at", "server_fallback", "manual_override"] | None = None
+    next_attempt_source: (
+        Literal[
+            "provider_retry_after", "provider_next_retry_at", "server_fallback", "manual_override"
+        ]
+        | None
+    ) = None
     schedule_generation: int = Field(default=0, ge=0)
     server_time: datetime | None = None
     manual_action: Literal[
@@ -1121,6 +1126,29 @@ class ProcessingAttemptResponse(ProcessingStatusResponse):
     """Result of an explicitly authorized new business attempt admission."""
 
     attempt_result: Literal["created", "already_in_flight"]
+    dispatch: Literal["started", "reused"] | None = None
+
+
+class ProcessingReprocessRequest(BaseModel):
+    """Optimistic fence for one owner-confirmed replacement attempt."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_workflow_id: Annotated[
+        str,
+        StringConstraints(
+            strip_whitespace=True,
+            max_length=80,
+            pattern=r"^processing/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:/[1-9][0-9]*)?$",
+        ),
+    ]
+    expected_media_revision_id: UUID
+
+
+class ProcessingReprocessResponse(ProcessingStatusResponse):
+    """Result of predecessor/successor admission for a ready recording."""
+
+    request_result: Literal["created", "replayed", "already_in_flight"]
     dispatch: Literal["started", "reused"] | None = None
 
 
@@ -2238,6 +2266,9 @@ class MeetingProvenance(BaseModel):
 
 class ProcessingReviewState(BaseModel):
     state: MeetingReviewStatus
+    workflow_id: str | None = None
+    attempt_ordinal: int = Field(default=1, ge=1)
+    reprocess_available: bool = False
     stage: str | None = None
     reason_code: str | None = None
     reason_label: str | None = None
@@ -2259,9 +2290,9 @@ class TranscriptSegmentView(BaseModel):
     source_role: SourceRoleView
     text: str
     speaker_key: str = ""
-    attribution_state: Literal[
-        "confirmed", "unconfirmed", "unknown", "mixed", "uncertain"
-    ] = "unknown"
+    attribution_state: Literal["confirmed", "unconfirmed", "unknown", "mixed", "uncertain"] = (
+        "unknown"
+    )
     result_state: Literal["accepted", "degraded_provider_result"] = "accepted"
     provider_speaker_key: str | None = None
     processing_result_id: UUID | None = None
@@ -2281,9 +2312,9 @@ class TranscriptSpeakerTurnView(BaseModel):
     source_role: SourceRoleView
     text: str
     speaker_key: str = ""
-    attribution_state: Literal[
-        "confirmed", "unconfirmed", "unknown", "mixed", "uncertain"
-    ] = "unknown"
+    attribution_state: Literal["confirmed", "unconfirmed", "unknown", "mixed", "uncertain"] = (
+        "unknown"
+    )
     result_state: Literal["accepted", "degraded_provider_result"] = "accepted"
     provider_speaker_key: str | None = None
     processing_result_id: UUID | None = None

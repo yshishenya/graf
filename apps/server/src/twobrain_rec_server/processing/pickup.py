@@ -126,6 +126,7 @@ async def _start_closed_same_job_recovery(
     started = await start_processing_workflow(
         temporal_client=temporal_client,
         settings=settings,
+        processing_workflow_row_id=recovered.id,
         meeting_id=recovered.meeting_id,
         media_revision_id=recovered.media_revision_id,
         workspace_id=recovered.workspace_id,
@@ -293,6 +294,7 @@ async def pick_up_processing(
                     started = await start_processing_workflow(
                         temporal_client=temporal_client,
                         settings=settings,
+                        processing_workflow_row_id=workflow.id,
                         meeting_id=meeting.id,
                         media_revision_id=workflow.media_revision_id,
                         workspace_id=workspace_id,
@@ -521,6 +523,7 @@ async def pick_up_processing(
             started = await start_processing_workflow(
                 temporal_client=temporal_client,
                 settings=settings,
+                processing_workflow_row_id=workflow.id,
                 meeting_id=meeting.id,
                 media_revision_id=media_revision_id,
                 workspace_id=workspace_id,

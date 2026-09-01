@@ -1,6 +1,6 @@
 {% import "cabinet/components/sections.html" as sections %}
 
-<main id="cabinet-main" class="main detail-page-main" tabindex="-1" data-meeting-id="{{ meeting_id }}" data-media-revision-id="{{ media_revision_id }}" data-local-media-revision-id="{{ local_media_revision_id }}" data-processing-status-url="{% if media_revision_id %}/api/v1/meetings/{{ meeting_id }}/processing{% endif %}" data-processing-check-url="{% if media_revision_id %}/api/v1/meetings/{{ meeting_id }}/processing/check{% endif %}" data-processing-attempt-url="{% if media_revision_id %}/api/v1/meetings/{{ meeting_id }}/processing/attempt{% endif %}" data-playback-poll-url="{{ playback_poll_url }}" data-playback-poll-active="{{ playback_poll_active }}" data-processing-state="{{ processing_state }}" data-processing-reason-code="{{ processing_reason_code }}" data-stored-outcomes-available="{{ 'true' if stored_outcomes_available else 'false' }}">
+<main id="cabinet-main" class="main detail-page-main" tabindex="-1" data-meeting-id="{{ meeting_id }}" data-media-revision-id="{{ media_revision_id }}" data-local-media-revision-id="{{ local_media_revision_id }}" data-processing-status-url="{% if media_revision_id %}/api/v1/meetings/{{ meeting_id }}/processing{% endif %}" data-processing-check-url="{% if media_revision_id %}/api/v1/meetings/{{ meeting_id }}/processing/check{% endif %}" data-processing-attempt-url="{% if media_revision_id %}/api/v1/meetings/{{ meeting_id }}/processing/attempt{% endif %}" data-processing-reprocess-url="{% if reprocess_available %}/api/v1/meetings/{{ meeting_id }}/processing/reprocess{% endif %}" data-processing-workflow-id="{{ processing_workflow_id }}" data-processing-attempt-ordinal="{{ processing_attempt_ordinal }}" data-processing-reprocess-available="{{ 'true' if reprocess_available else 'false' }}" data-playback-poll-url="{{ playback_poll_url }}" data-playback-poll-active="{{ playback_poll_active }}" data-processing-state="{{ processing_state }}" data-processing-reason-code="{{ processing_reason_code }}" data-stored-outcomes-available="{{ 'true' if stored_outcomes_available else 'false' }}">
   <p class="sr-only" id="playback-live-status" data-playback-live-status role="status" aria-live="polite" aria-atomic="true">{{ playback_live_label }}</p>
   <div class="meeting-detail-header" data-meeting-detail-header>
     <div class="topline">
@@ -26,6 +26,9 @@
   </div>
   <section class="detail-main">
     {{ calendar_context_chooser }}
+    <section class="cabinet-banner" data-processing-reprocess-continuity hidden>
+      <p><strong>Готовим обновлённую версию. Текущая остаётся доступной.</strong></p>
+    </section>
     {% if media_revision_id %}
     <section class="processing-recovery" data-processing-recovery data-state="{% if processing_state in ['failed', 'blocked'] %}terminal{% elif processing_state == 'ready' %}ready{% else %}active{% endif %}"{% if processing_state == 'ready' %} hidden{% endif %} aria-labelledby="processing-recovery-title" aria-busy="{{ 'true' if processing_state not in ['ready', 'failed', 'blocked'] else 'false' }}">
       <div class="processing-recovery-header">
@@ -45,6 +48,7 @@
       <div class="processing-recovery-actions">
         <button type="button" class="button primary" data-processing-check aria-describedby="processing-recovery-copy" aria-busy="true" disabled>Проверить обработку</button>
         <button type="button" class="button primary" data-processing-new-attempt aria-describedby="processing-recovery-copy" aria-busy="false" hidden>Начать обработку заново</button>
+        <button type="button" class="button primary" data-processing-reprocess-open aria-describedby="processing-recovery-copy" aria-haspopup="dialog" aria-controls="processing-reprocess-dialog" aria-busy="false" hidden>Повторно обработать запись</button>
         <a class="button primary" href="{{ base_path }}#manual-upload" data-processing-upload-another data-default-href="{{ base_path }}#manual-upload" data-no-archive-href="{{ base_path }}?archive_audio=false#manual-upload" hidden>Загрузить другой файл</a>
         <button type="button" class="button quiet" data-processing-refresh{% if processing_state not in ['failed', 'blocked'] %} hidden{% endif %}>Обновить страницу</button>
         <a class="button quiet" href="{{ base_path }}">К списку встреч</a>
@@ -59,14 +63,9 @@
     </section>
     {% endif %}
     <section class="tab-panel{% if outcomes_selected %} active{% endif %}" role="tabpanel" id="detail-panel-outcomes" aria-labelledby="detail-tab-outcomes" data-detail-panel="outcomes"{% if not outcomes_selected %} hidden{% endif %} data-summary-result-state="{{ summary_lifecycle.result_state }}" data-summary-generation-state="{{ summary_lifecycle.generation_state }}" data-summary-source-state="{{ summary_lifecycle.source_state }}" data-summary-availability-state="{{ summary_lifecycle.availability_state }}" data-summary-reason-code="{{ summary_lifecycle.reason_code }}">
-      {% if summary_source_stale %}
-      <div class="cabinet-banner summary-source-stale-notice" role="status" data-summary-source-stale>
-        <p>Итоги относятся к предыдущей версии расшифровки.</p>
-      </div>
-      {% endif %}
       {% if summary_controls_available %}
       <div class="summary-format-toolbar" data-summary-format-controls data-meeting-id="{{ meeting_id }}" data-summary-result-state="{{ summary_lifecycle.result_state }}" data-summary-generation-state="{{ summary_lifecycle.generation_state }}" data-summary-source-state="{{ summary_lifecycle.source_state }}" data-summary-availability-state="{{ summary_lifecycle.availability_state }}" data-summary-reason-code="{{ summary_lifecycle.reason_code }}" data-current-outcome-set-id="{{ current_outcome_set_id }}" data-current-summary-format-key="{{ current_summary_format_key }}" data-current-summary-format-template-id="{{ current_summary_format_template_id }}" data-current-summary-format-version="{{ current_summary_format_version }}" data-current-template-id="{{ current_summary_format_id }}" data-current-template-key="{{ current_summary_format_key }}" data-current-template-version="{{ current_summary_format_version }}" data-current-template-name="{{ current_summary_format }}">
-        <h2>Итоги</h2>
+        <h2>Итоги{% if summary_source_stale %} <span class="summary-source-stale-notice" data-summary-source-stale>По предыдущей версии расшифровки</span>{% endif %}</h2>
         <div class="summary-format-picker">
           <button type="button" class="summary-format-button" data-summary-format-button aria-haspopup="listbox" aria-controls="summary-format-listbox" aria-expanded="false">
             <span>Формат: <strong data-summary-format-label>{{ current_summary_format }}</strong></span>
@@ -85,6 +84,9 @@
       </div>
       {% else %}
       <h2 class="sr-only">Итоги</h2>
+      {% if summary_source_stale %}
+      <p class="cabinet-banner summary-source-stale-notice" role="status" data-summary-source-stale>По предыдущей версии расшифровки</p>
+      {% endif %}
       {% endif %}
       <div class="summary-candidate-status" data-summary-candidate-status hidden>
         <p class="summary-candidate-live" data-summary-candidate-live role="status" aria-live="polite" aria-atomic="true"></p>

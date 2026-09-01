@@ -46,8 +46,10 @@ def test_cabinet_list_returns_only_authorized_workspace_meetings(client) -> None
         "ready",
         "processing",
         "failed",
-        "partial",
     }
+    partial = next(item for item in payload["items"] if item["meeting_id"] == str(seeds.partial_id))
+    assert partial["status"] == "failed"
+    assert partial["transcript_available"] is False
 
 
 def test_browser_and_embedded_lists_default_to_started_desc_and_normalize_unknown_sort(

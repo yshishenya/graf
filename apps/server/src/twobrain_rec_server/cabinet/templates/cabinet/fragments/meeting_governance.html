@@ -31,11 +31,53 @@
       <span class="meeting-action-item__body"><strong>Сведения о встрече</strong></span>
     </button>
   {% endif %}
+  {% if reprocess_available %}
+    <button type="button" class="meeting-action-item" role="menuitem" tabindex="-1"
+            data-processing-reprocess-open aria-haspopup="dialog"
+            aria-controls="processing-reprocess-dialog">
+      <span class="meeting-action-item__icon">{{ icons.icon("transcript") }}</span>
+      <span class="meeting-action-item__body">
+        <strong>Повторно обработать запись</strong>
+        <small>Подготовить новую версию</small>
+      </span>
+    </button>
+  {% endif %}
   {% if delete_action %}
     <div class="meeting-actions-divider" role="separator"></div>
     {{ delete_action }}
   {% endif %}
 </div>
+
+{% if reprocess_available %}
+  <dialog class="meeting-details-dialog" id="processing-reprocess-dialog"
+          data-processing-reprocess-dialog aria-modal="true"
+          aria-labelledby="processing-reprocess-dialog-title"
+          aria-describedby="processing-reprocess-dialog-copy">
+    <form class="meeting-details-dialog__surface" data-processing-reprocess-form
+          aria-busy="false">
+      <div class="meeting-details-dialog__header">
+        <div>
+          <h2 id="processing-reprocess-dialog-title" tabindex="-1">Повторно обработать запись?</h2>
+          <div id="processing-reprocess-dialog-copy">
+            <p>GRAF заново подготовит расшифровку, спикеров и итоги.</p>
+            <p>Текущая версия останется доступной, пока новая не будет готова.</p>
+            <p>Исходная запись не изменится.</p>
+          </div>
+        </div>
+        <button type="button" class="icon-button" data-processing-reprocess-cancel
+                aria-label="Закрыть подтверждение">{{ icons.icon("x") }}</button>
+      </div>
+      <p data-processing-reprocess-error role="alert" hidden></p>
+      <div class="processing-recovery-actions">
+        <button type="button" class="button quiet" data-processing-reprocess-cancel>Отмена</button>
+        <button type="submit" class="button primary" data-processing-reprocess-submit
+                aria-describedby="processing-reprocess-dialog-copy">
+          Запустить повторную обработку
+        </button>
+      </div>
+    </form>
+  </dialog>
+{% endif %}
 
 {% if meeting_details_available %}
   <dialog class="meeting-details-dialog" id="meeting-details-dialog"

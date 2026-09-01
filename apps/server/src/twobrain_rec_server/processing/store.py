@@ -93,7 +93,11 @@ from twobrain_rec_server.processing.recovery import (
     schedule_retry,
     schedule_retry_with_settings,
 )
-from twobrain_rec_server.processing.results import result_is_terminal_input
+from twobrain_rec_server.processing.results import (
+    effective_processing_result_query,
+    result_is_complete,
+    result_is_terminal_input,
+)
 
 
 class ProcessingLifecycleBlocked(RuntimeError):
@@ -305,6 +309,7 @@ async def claim_processing_manual_check(
     workspace_id: UUID,
     meeting_id: UUID,
     media_revision_id: UUID | None,
+    owner_user_id: UUID | None = None,
     command_key: str | None = None,
     expected_schedule_generation: int | None = None,
 ) -> ProcessingManualCheckClaim:
@@ -395,6 +400,23 @@ async def claim_processing_manual_check(
                 command_version=0,
             ),
         )
+    if (
+        owner_user_id is not None
+        and int(workflow.attempt_ordinal or 1) > 1
+        and meeting.created_by_user_id != owner_user_id
+    ):
+        return ProcessingManualCheckClaim(
+            request_result="not_safe",
+            command_id=_processing_manual_command_id(
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+                workflow_id=workflow.workflow_id,
+                command_key=command_key,
+                command_version=int(workflow.manual_command_version or 0),
+            ),
+            workflow=workflow,
+        )
 
     command_version = int(workflow.manual_command_version or 0)
     command_id = _processing_manual_command_id(
@@ -441,7 +463,11 @@ async def claim_processing_manual_check(
         workflow.schedule_generation = int(workflow.schedule_generation or 0) + 1
         workflow.next_attempt_at = None
         workflow.next_attempt_source = None
-        workflow.retry_class = "unknown_outcome" if status_value == ProcessingStatus.BLOCKED_UNKNOWN.value else "retryable"
+        workflow.retry_class = (
+            "unknown_outcome"
+            if status_value == ProcessingStatus.BLOCKED_UNKNOWN.value
+            else "retryable"
+        )
         workflow.status = ProcessingStatus.WAITING_RETRY.value
         workflow.last_reason_code = "manual_check_claim_expired"
         status_value = ProcessingStatus.WAITING_RETRY.value
@@ -609,7 +635,9 @@ async def release_processing_manual_check_claim(
     await set_workflow_status(
         db,
         workflow,
-        ProcessingStatus.BLOCKED_UNKNOWN if unknown_reconciliation else ProcessingStatus.WAITING_RETRY,
+        ProcessingStatus.BLOCKED_UNKNOWN
+        if unknown_reconciliation
+        else ProcessingStatus.WAITING_RETRY,
         reason_code=reason_code,
     )
     return True
@@ -1016,8 +1044,12 @@ async def prepare_closed_workflow_same_job_recovery(
             purpose=current.purpose,
             archive_audio=bool(current.archive_audio),
             transient_state=("processing" if not current.archive_audio else "not_applicable"),
-            transient_admitted_at=current.transient_admitted_at if not current.archive_audio else None,
-            transient_hard_deadline=current.transient_hard_deadline if not current.archive_audio else None,
+            transient_admitted_at=current.transient_admitted_at
+            if not current.archive_audio
+            else None,
+            transient_hard_deadline=current.transient_hard_deadline
+            if not current.archive_audio
+            else None,
             source_fingerprint=current.source_fingerprint,
             deletion_epoch_at_start=current.deletion_epoch_at_start,
             status=ProcessingStatus.STARTING.value,
@@ -1058,9 +1090,11 @@ async def reconcile_closed_processing_workflow_result(
         meeting_id=current.meeting_id,
         media_revision_id=current.media_revision_id,
     )
-    from twobrain_rec_server.processing.results import result_is_complete
-
-    target = ProcessingStatus.PROCESSED if result_is_complete(result) else ProcessingStatus.FAILED_TERMINAL
+    target = (
+        ProcessingStatus.PROCESSED
+        if result_is_complete(result)
+        else ProcessingStatus.FAILED_TERMINAL
+    )
     return await set_workflow_status(
         db,
         current,
@@ -1116,7 +1150,10 @@ async def _reserve_processing_attempt_quota(
             if reservation.expires_at is None or reservation.expires_at > now:
                 return True
             await release_free_usage(db, reservation_id=reservation.id)
-        if reservation.state == "released" and reservation.committed_seconds >= reservation.declared_seconds:
+        if (
+            reservation.state == "released"
+            and reservation.committed_seconds >= reservation.declared_seconds
+        ):
             return True
 
     subscription = await db.scalar(
@@ -1182,6 +1219,10 @@ async def create_processing_attempt(
     workspace_id: UUID,
     meeting_id: UUID,
     deadline_seconds: int | None = None,
+    owner_user_id: UUID | None = None,
+    expected_media_revision_id: UUID | None = None,
+    expected_workflow_id: str | None = None,
+    allow_processed: bool = False,
 ) -> ProcessingAttemptCreation:
     """Admit exactly one fresh attempt after a confirmed terminal failure.
 
@@ -1199,6 +1240,8 @@ async def create_processing_attempt(
     )
     if meeting is None:
         return ProcessingAttemptCreation(result="meeting_not_found")
+    if owner_user_id is not None and meeting.created_by_user_id != owner_user_id:
+        return ProcessingAttemptCreation(result="meeting_not_found")
     if meeting_is_deleted_or_deleting(meeting):
         return ProcessingAttemptCreation(result="deletion_closed")
 
@@ -1209,6 +1252,11 @@ async def create_processing_attempt(
     )
     if media_revision is None:
         return ProcessingAttemptCreation(result="source_unavailable")
+    if expected_media_revision_id is not None and media_revision.id != expected_media_revision_id:
+        return ProcessingAttemptCreation(
+            result="stale_meeting_view",
+            media_revision_id=media_revision.id,
+        )
     try:
         source_fingerprint = source_fingerprint_for_revision(media_revision)
     except ValueError:
@@ -1262,12 +1310,15 @@ async def create_processing_attempt(
     ).all()
     # Purge reconciliation locks the same workflow rows. Check the shared
     # revision source only after that lock so retry cannot race a deletion.
-    if await load_processing_source(
-        db,
-        workspace_id=workspace_id,
-        meeting_id=meeting_id,
-        media_revision_id=media_revision.id,
-    ) is None:
+    if (
+        await load_processing_source(
+            db,
+            workspace_id=workspace_id,
+            meeting_id=meeting_id,
+            media_revision_id=media_revision.id,
+        )
+        is None
+    ):
         return ProcessingAttemptCreation(
             result="source_unavailable",
             media_revision_id=media_revision.id,
@@ -1278,6 +1329,47 @@ async def create_processing_attempt(
             media_revision_id=media_revision.id,
         )
     current = workflows[0]
+    if allow_processed:
+        published_result = await db.scalar(
+            effective_processing_result_query(
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision.id,
+            )
+        )
+        if published_result is None:
+            return ProcessingAttemptCreation(
+                result="not_eligible",
+                workflow=current,
+                media_revision_id=media_revision.id,
+                attempt_ordinal=int(current.attempt_ordinal or 1),
+            )
+    if expected_workflow_id is not None:
+        predecessor = next(
+            (row for row in workflows if row.workflow_id == expected_workflow_id),
+            None,
+        )
+        if predecessor is None:
+            return ProcessingAttemptCreation(
+                result="stale_meeting_view",
+                workflow=current,
+                media_revision_id=media_revision.id,
+                attempt_ordinal=int(current.attempt_ordinal or 1),
+            )
+        predecessor_ordinal = int(predecessor.attempt_ordinal or 1)
+        current_ordinal = int(current.attempt_ordinal or 1)
+        if current.id != predecessor.id:
+            return ProcessingAttemptCreation(
+                result=(
+                    "replayed"
+                    if current_ordinal == predecessor_ordinal + 1
+                    and current.last_reason_code == "user_reprocess"
+                    else "stale_meeting_view"
+                ),
+                workflow=current,
+                media_revision_id=media_revision.id,
+                attempt_ordinal=current_ordinal,
+            )
     current_status = getattr(current.status, "value", current.status)
     current_result = await latest_processing_result(
         db,
@@ -1315,6 +1407,15 @@ async def create_processing_attempt(
             or current_result.failure_reason == MEDIASCRIBE_MALFORMED_RESPONSE
         )
     )
+    published_reprocess = bool(
+        allow_processed
+        and expected_workflow_id is not None
+        and current.workflow_id == expected_workflow_id
+        and current_status == ProcessingStatus.PROCESSED.value
+        and current_result is not None
+        and current_result.processing_workflow_id == current.id
+        and result_is_complete(current_result)
+    )
     if current_status == ProcessingStatus.BLOCKED_UNKNOWN.value and not terminal_result_is_terminal:
         return ProcessingAttemptCreation(
             result="unknown_outcome",
@@ -1330,7 +1431,8 @@ async def create_processing_attempt(
             attempt_ordinal=int(current.attempt_ordinal or 1),
         )
     recoverable_block = current_status == ProcessingStatus.BLOCKED.value and (
-        current.last_reason_code in {
+        current.last_reason_code
+        in {
             BLOCKED_FREE_PROCESSING_EXHAUSTED,
             BLOCKED_TEMPORAL_UNAVAILABLE,
         }
@@ -1339,6 +1441,7 @@ async def create_processing_attempt(
         current_status != ProcessingStatus.FAILED_TERMINAL.value
         and not terminal_result_is_terminal
         and not recoverable_block
+        and not published_reprocess
     ):
         return ProcessingAttemptCreation(
             result=(
@@ -1352,6 +1455,7 @@ async def create_processing_attempt(
         )
     if (
         not terminal_result_is_terminal
+        and not published_reprocess
         and (
             current.last_reason_code in _PROCESSING_NEW_ATTEMPT_CONFIGURATION_REASONS
             or (
@@ -1469,8 +1573,7 @@ async def create_processing_attempt(
         transient_state="processing" if not current.archive_audio else "not_applicable",
         transient_admitted_at=transient_admitted_at if not current.archive_audio else None,
         transient_hard_deadline=(
-            current.transient_hard_deadline
-            or transient_admitted_at + TRANSIENT_HARD_LIFETIME
+            current.transient_hard_deadline or transient_admitted_at + TRANSIENT_HARD_LIFETIME
             if not current.archive_audio
             else None
         ),
@@ -1478,6 +1581,8 @@ async def create_processing_attempt(
         last_reason_code=(
             "user_resume_existing_provider_job"
             if resumable_provider_job is not None
+            else "user_reprocess"
+            if published_reprocess
             else "user_new_attempt"
         ),
         started_at=now,
@@ -2391,6 +2496,7 @@ async def mark_mediascribe_submission_unknown(
     current.submission_claim_token = None
     current.submission_claimed_at = None
     await db.commit()
+
 
 async def persist_mediascribe_submission(
     db: AsyncSession,

@@ -10,7 +10,6 @@ from twobrain_rec_server.api.schemas import ProcessingArtifactProjection, Proces
 from twobrain_rec_server.db.models import MeetingOutcomeSet, MeetingSummarySlot, ProcessingResult
 from twobrain_rec_server.domain.statuses import (
     OutcomeSetStatus,
-    ProcessingAvailabilityStatus,
     ProcessingResultStatus,
     ProcessingStatus,
 )
@@ -24,7 +23,11 @@ from twobrain_rec_server.processing.reasons import (
     MEDIASCRIBE_AUTH_FAILED,
     NO_RECOGNIZABLE_SPEECH,
 )
-from twobrain_rec_server.processing.results import result_is_complete, result_lineage_is_current
+from twobrain_rec_server.processing.results import (
+    effective_processing_result_query,
+    result_is_complete,
+    result_lineage_is_current,
+)
 
 
 async def get_content_safe_processing_status(
@@ -56,11 +59,18 @@ async def get_content_safe_processing_status(
         media_revision_id=media_revision_id,
         processing_workflow_id=workflow.id if workflow is not None else None,
     )
-    result = await store.latest_processing_result(
+    workflow_result = await store.latest_processing_result(
         db,
         workspace_id=workspace_id,
         meeting_id=meeting_id,
         media_revision_id=media_revision_id,
+    )
+    effective_result = await db.scalar(
+        effective_processing_result_query(
+            workspace_id=workspace_id,
+            meeting_id=meeting_id,
+            media_revision_id=media_revision_id,
+        )
     )
     try:
         state = (
@@ -70,15 +80,15 @@ async def get_content_safe_processing_status(
         )
     except ValueError:
         state = ProcessingStatus.BLOCKED
-    same_result_lineage = result_lineage_is_current(
-        result,
+    workflow_result_lineage = result_lineage_is_current(
+        workflow_result,
         media_revision_id=media_revision_id,
     )
-    safe_result = (
-        result
-        if same_result_lineage
+    safe_workflow_result = (
+        workflow_result
+        if workflow_result_lineage
         and workflow is not None
-        and result.processing_workflow_id == workflow.id
+        and workflow_result.processing_workflow_id == workflow.id
         else None
     )
     preparation = await store.load_manual_upload_preparation(
@@ -89,33 +99,33 @@ async def get_content_safe_processing_status(
         revision=media_revision,
     )
     result_terminal_input = bool(
-        safe_result is not None
-        and safe_result.status == ProcessingResultStatus.IMPORTED.value
+        safe_workflow_result is not None
+        and safe_workflow_result.status == ProcessingResultStatus.IMPORTED.value
         and (
-            safe_result.failure_reason == NO_RECOGNIZABLE_SPEECH
+            safe_workflow_result.failure_reason == NO_RECOGNIZABLE_SPEECH
             or (
-                safe_result.failure_reason == INVALID_AUDIO_PAYLOAD
-                and safe_result.failure_source == FAILURE_SOURCE_INPUT_AUDIO
+                safe_workflow_result.failure_reason == INVALID_AUDIO_PAYLOAD
+                and safe_workflow_result.failure_source == FAILURE_SOURCE_INPUT_AUDIO
             )
         )
         and workflow is not None
-        and safe_result.processing_workflow_id == workflow.id
+        and safe_workflow_result.processing_workflow_id == workflow.id
     )
     result_requires_new_upload = bool(
         result_terminal_input
-        and safe_result is not None
-        and safe_result.failure_reason == INVALID_AUDIO_PAYLOAD
-        and safe_result.failure_source == FAILURE_SOURCE_INPUT_AUDIO
+        and safe_workflow_result is not None
+        and safe_workflow_result.failure_reason == INVALID_AUDIO_PAYLOAD
+        and safe_workflow_result.failure_source == FAILURE_SOURCE_INPUT_AUDIO
     )
     current_workflow_imported_result = bool(
-        safe_result is not None
-        and safe_result.status == ProcessingResultStatus.IMPORTED.value
+        safe_workflow_result is not None
+        and safe_workflow_result.status == ProcessingResultStatus.IMPORTED.value
         and workflow is not None
-        and safe_result.processing_workflow_id == workflow.id
+        and safe_workflow_result.processing_workflow_id == workflow.id
         and not result_terminal_input
     )
     current_workflow_complete_result = bool(
-        current_workflow_imported_result and result_is_complete(safe_result)
+        current_workflow_imported_result and result_is_complete(safe_workflow_result)
     )
     current_workflow_incomplete_result = bool(
         current_workflow_imported_result and not current_workflow_complete_result
@@ -145,32 +155,22 @@ async def get_content_safe_processing_status(
         state = ProcessingStatus.FAILED_TERMINAL
     elif preparation is not None and preparation.state == "cancelled":
         state = ProcessingStatus.CANCELED
-    transcript_available = (
-        same_result_lineage
-        and result.transcript_status == ProcessingAvailabilityStatus.AVAILABLE.value
-        and result.segment_count > 0
-        and result.diarization_status == ProcessingAvailabilityStatus.AVAILABLE.value
-        and result.diarization_segment_count > 0
-    )
-    diarization_available = (
-        same_result_lineage
-        and result.diarization_status == ProcessingAvailabilityStatus.AVAILABLE.value
-        and result.diarization_segment_count > 0
-    )
+    transcript_available = result_is_complete(effective_result)
+    diarization_available = transcript_available
     updated_at = None
     if workflow is not None:
         updated_at = workflow.updated_at
-    elif result is not None:
-        updated_at = result.updated_at
+    elif effective_result is not None:
+        updated_at = effective_result.updated_at
     reason_code = (
-        safe_result.failure_reason
-        if current_workflow_imported_result and safe_result is not None
+        safe_workflow_result.failure_reason
+        if current_workflow_imported_result and safe_workflow_result is not None
         else preparation.reason_code
         if preparation is not None and preparation.state != "ready"
         else workflow.last_reason_code
         if workflow is not None and workflow.last_reason_code
-        else safe_result.failure_reason
-        if safe_result is not None
+        else safe_workflow_result.failure_reason
+        if safe_workflow_result is not None
         else None
     )
     if result_terminal_input or (
@@ -288,7 +288,7 @@ async def get_content_safe_processing_status(
         manual_action = "new_attempt"
     elif state in {ProcessingStatus.BLOCKED, ProcessingStatus.FAILED_RETRYABLE}:
         manual_action = "contact_support"
-    summary_state = store.summary_status_from_result(safe_result).value
+    summary_state = store.summary_status_from_result(effective_result).value
     terminal_without_usable_transcript = (
         state
         in {
@@ -304,8 +304,8 @@ async def get_content_safe_processing_status(
         else "available"
         if transcript_available
         else "processing"
-        if safe_result is None
-        else safe_result.transcript_status
+        if safe_workflow_result is None
+        else safe_workflow_result.transcript_status
     )
     diarization_artifact_state = (
         "unavailable"
@@ -313,11 +313,11 @@ async def get_content_safe_processing_status(
         else "available"
         if diarization_available
         else "processing"
-        if safe_result is None
-        else safe_result.diarization_status
+        if safe_workflow_result is None
+        else safe_workflow_result.diarization_status
     )
 
-    if safe_result is not None:
+    if effective_result is not None:
         default_slot = await db.scalar(
             select(MeetingSummarySlot).where(
                 MeetingSummarySlot.workspace_id == workspace_id,

@@ -2676,7 +2676,7 @@ def test_terminal_playback_copy_renders_as_plain_status_without_user_work() -> N
     assert "<audio" not in page
     forbidden = (
         "retry",
-        "reprocess",
+        "reprocess-playback",
         "backfill",
         "повторить",
         "загрузить заново",

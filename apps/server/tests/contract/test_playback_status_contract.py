@@ -134,7 +134,7 @@ def test_terminal_source_truth_is_safe_and_has_no_repair_action(client) -> None:
     assert playback["can_play"] is False
     assert playback["action"] == "disabled"
     assert "<audio" not in html.text
-    forbidden = ("retry", "reprocess", "backfill", "повторить", "загрузить заново")
+    forbidden = ("retry", "reprocess-playback", "backfill", "повторить", "загрузить заново")
     assert not any(word in html.text.casefold() for word in forbidden)
 
 
@@ -314,5 +314,5 @@ def test_playback_recovery_has_no_public_mutation_endpoint_or_repair_control(cli
     playback_paths = [path for path in schema["paths"] if "playback" in path]
     assert playback_paths
     assert all(set(schema["paths"][path]) <= {"get"} for path in playback_paths)
-    forbidden = ("retry", "reprocess", "backfill", "повторить", "конвертировать")
+    forbidden = ("retry", "reprocess-playback", "backfill", "повторить", "конвертировать")
     assert not any(word in html.text.casefold() for word in forbidden)

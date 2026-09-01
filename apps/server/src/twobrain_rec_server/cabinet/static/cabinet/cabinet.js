@@ -18,6 +18,7 @@
   let processingRecoveryStatusController = null;
   let processingRecoveryActionRequest = null;
   let processingRecoveryGeneration = 0;
+  let processingReprocessReturnFocus = null;
   const processingListProjectionRequests = new Map();
   const processingListProjectionLastFetchedAt = new Map();
   const processingListProjectionStates = new Map();
@@ -1411,7 +1412,24 @@
     return Math.max(0, Math.ceil((deadline - (now + offset)) / 1000));
   };
 
-  const processingCountdownCopy = (seconds, source) => {
+  const processingCountdownDuration = (seconds) => {
+    const bounded = Math.max(0, Math.floor(seconds));
+    const hours = Math.floor(bounded / 3600);
+    const minutes = Math.floor((bounded % 3600) / 60);
+    const rest = bounded % 60;
+    return hours > 0
+      ? `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(rest).padStart(2, "0")}`
+      : `${String(minutes).padStart(2, "0")}:${String(rest).padStart(2, "0")}`;
+  };
+
+  const processingCountdownCopy = (seconds, source, nextAttemptAt = null, replacement = false) => {
+    if (replacement && Number.isFinite(seconds) && processingTimestamp(nextAttemptAt) !== null) {
+      const time = new Intl.DateTimeFormat("ru-RU", {
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(new Date(nextAttemptAt));
+      return `GRAF повторит попытку автоматически в ${time} (через ${processingCountdownDuration(seconds)}).`;
+    }
     const prefix = source === "server_fallback" ? "Примерно через" : "Следующая проверка через";
     if (!Number.isFinite(seconds) || seconds <= 0) return "Следующая проверка доступна сейчас.";
     if (seconds >= 3600) {
@@ -1607,6 +1625,83 @@
     const reasonCopy = processingTerminalReasonCopy[reason] || "";
     const projectionState = String(projection?.state || "").toLowerCase();
     const inFlight = projection?.attempt_in_flight === true;
+    const replacementAttemptOrdinal = Number(projection?.attempt_ordinal ?? 0);
+    const replacement = Number.isSafeInteger(replacementAttemptOrdinal)
+      && replacementAttemptOrdinal > 1
+      && projection?.content_available === true;
+    if (replacement && processingTerminalFailure(projection)) {
+      return {
+        state: "terminal",
+        title: "Не удалось подготовить новую версию",
+        copy: "Текущая расшифровка и итоги не изменились.",
+        canCheck: false,
+        canStartNewAttempt: false,
+        canReprocess: true,
+        reprocessLabel: "Повторно обработать запись",
+        showRefresh: false,
+        showCountdown: false,
+      };
+    }
+    if (replacement && retryClass === "retryable") {
+      if (inFlight) {
+        return {
+          state: "active",
+          title: "Готовим новую версию",
+          copy: "Текущая расшифровка и итоги остаются доступными.",
+          canCheck: false,
+          showRefresh: false,
+          showCountdown: false,
+        };
+      }
+      const reliableTime = processingTimestamp(projection?.next_attempt_at) !== null
+        && processingTimestamp(projection?.server_time) !== null;
+      if (reliableTime) {
+        return {
+          state: "retryable",
+          title: "Временная ошибка",
+          copy: "GRAF повторит попытку автоматически. Текущая версия не изменится.",
+          canCheck: ["check_now", "retry_preparation"].includes(projection?.manual_action),
+          checkLabel: "Повторить сейчас",
+          busyLabel: "Повторяем…",
+          showRefresh: false,
+          showCountdown: true,
+        };
+      }
+      return {
+        state: "unknown",
+        title: "Ждём актуальный статус",
+        copy: "Текущая версия остаётся доступной.",
+        canCheck: projection?.manual_action === "check_now",
+        checkLabel: "Проверить статус",
+        busyLabel: "Проверяем…",
+        showRefresh: false,
+        showCountdown: false,
+      };
+    }
+    if (replacement && retryClass === "unknown_outcome") {
+      return {
+        state: "unknown",
+        title: "Ждём актуальный статус",
+        copy: "Текущая версия остаётся доступной.",
+        canCheck: projection?.manual_action === "check_now" && !inFlight,
+        checkLabel: "Проверить статус",
+        busyLabel: "Проверяем…",
+        showRefresh: false,
+        showCountdown: projection?.next_attempt_at != null,
+      };
+    }
+    if (replacement && (inFlight || projectionState !== "processed")) {
+      return {
+        state: "active",
+        title: "Готовим новую версию",
+        copy: "Текущая расшифровка и итоги остаются доступными.",
+        canCheck: projection?.manual_action === "check_now" && !inFlight,
+        checkLabel: "Проверить статус",
+        busyLabel: "Проверяем…",
+        showRefresh: false,
+        showCountdown: false,
+      };
+    }
     if (projection?.manual_action === "retry_preparation") {
       return {
         state: "retryable",
@@ -1820,7 +1915,17 @@
         return null;
       }
       countdown.hidden = false;
-      countdown.textContent = processingCountdownCopy(seconds, projection?.next_attempt_source);
+      countdown.textContent = processingCountdownCopy(
+        seconds,
+        projection?.next_attempt_source,
+        projection?.next_attempt_at,
+        Number(projection?.attempt_ordinal ?? detail.dataset.processingAttemptOrdinal ?? 0) > 1
+          && (
+            projection?.content_available === true
+            || detail.dataset.processingTranscriptContentReady === "true"
+            || detail.dataset.processingTranscriptVisible === "true"
+          ),
+      );
       countdown.dataset.seconds = String(seconds);
       return seconds;
     };
@@ -1867,11 +1972,16 @@
   const refreshProcessingDetailContentOnce = async (detail, projection) => {
     const transcriptReady = processingTranscriptReady(projection);
     const summaryReady = processingSummaryState(projection).toLowerCase() === "available";
+    const attemptOrdinal = Number(projection?.attempt_ordinal ?? 0);
+    const refreshReplacement = Number.isSafeInteger(attemptOrdinal)
+      && attemptOrdinal > 1
+      && String(projection?.state || "").toLowerCase() === "processed"
+      && detail.dataset.processingPublishedAttempt !== String(attemptOrdinal);
     const refreshTranscript = transcriptReady
       && detail.dataset.processingTranscriptContentReady !== "true";
     const refreshSummary = summaryReady
       && detail.dataset.processingSummaryContentReady !== "true";
-    if (!refreshTranscript && !refreshSummary) return false;
+    if (!refreshTranscript && !refreshSummary && !refreshReplacement) return false;
     const pollUrl = detail.dataset.playbackPollUrl;
     if (!pollUrl) return false;
     const refreshGeneration = processingRecoveryGeneration;
@@ -1882,6 +1992,7 @@
       projection?.updated_at || "",
       transcriptReady,
       summaryReady,
+      refreshReplacement,
     ].join("|");
     if (detail.dataset.processingContentRefreshClaim === refreshClaim) return false;
     detail.dataset.processingContentRefreshClaim = refreshClaim;
@@ -1937,6 +2048,9 @@
         refreshTranscript ? "true" : detail.dataset.processingTranscriptContentReady || "false";
       nextDetail.dataset.processingSummaryContentReady =
         refreshSummary ? "true" : detail.dataset.processingSummaryContentReady || "false";
+      if (refreshReplacement) {
+        nextDetail.dataset.processingPublishedAttempt = String(attemptOrdinal);
+      }
       if (discardStaleRefresh()) return false;
       releaseRefreshClaim();
       stopProcessingRecoveryCountdown();
@@ -1954,6 +2068,13 @@
     if (!processingProjectionMatchesDetail(detail, projection) || processingProjectionIsStale(detail, projection)) return false;
     const updatedAt = processingTimestamp(projection?.updated_at);
     if (updatedAt !== null) detail.dataset.processingProjectionUpdatedAt = projection.updated_at;
+    if (typeof projection?.workflow_id === "string" && projection.workflow_id) {
+      detail.dataset.processingWorkflowId = projection.workflow_id;
+    }
+    const attemptOrdinal = Number(projection?.attempt_ordinal);
+    if (Number.isSafeInteger(attemptOrdinal) && attemptOrdinal > 0) {
+      detail.dataset.processingAttemptOrdinal = String(attemptOrdinal);
+    }
     const scheduleGeneration = Number(projection?.schedule_generation);
     detail.dataset.processingScheduleGeneration = Number.isSafeInteger(scheduleGeneration) && scheduleGeneration >= 0
       ? String(scheduleGeneration)
@@ -2044,6 +2165,17 @@
     const recovery = detail.querySelector("[data-processing-recovery]");
     if (!recovery) return true;
     const copy = processingRecoveryCopy(projection, transcriptReady);
+    const replacementAttempt = Number(
+      projection?.attempt_ordinal ?? detail.dataset.processingAttemptOrdinal ?? 0,
+    ) > 1 && (
+      projection?.content_available === true
+      || detail.dataset.processingTranscriptContentReady === "true"
+      || detail.dataset.processingTranscriptVisible === "true"
+    );
+    const continuity = detail.querySelector("[data-processing-reprocess-continuity]");
+    if (continuity) {
+      continuity.hidden = !replacementAttempt || copy === null || copy?.canReprocess === true;
+    }
     const showSurface = copy !== null;
     recovery.hidden = !showSurface;
     recovery.dataset.state = copy?.state || "ready";
@@ -2059,6 +2191,7 @@
     }
     const check = recovery.querySelector("[data-processing-check]");
     const newAttempt = recovery.querySelector("[data-processing-new-attempt]");
+    const reprocess = recovery.querySelector("[data-processing-reprocess-open]");
     const uploadAnother = recovery.querySelector("[data-processing-upload-another]");
     const refresh = recovery.querySelector("[data-processing-refresh]");
     const busyAction = recovery.dataset.processingBusyAction || "";
@@ -2079,6 +2212,14 @@
       newAttempt.disabled = busy || !copy?.canStartNewAttempt;
       newAttempt.setAttribute("aria-busy", busy && busyAction === "new_attempt" ? "true" : "false");
       newAttempt.textContent = busy && busyAction === "new_attempt" ? "Запускаем…" : "Начать обработку заново";
+    }
+    if (reprocess) {
+      const canReprocess = copy?.canReprocess === true
+        && detail.dataset.processingReprocessAvailable === "true";
+      reprocess.hidden = !canReprocess && !(busy && busyAction === "reprocess");
+      reprocess.disabled = busy || !canReprocess;
+      reprocess.setAttribute("aria-busy", busy && busyAction === "reprocess" ? "true" : "false");
+      reprocess.textContent = copy?.reprocessLabel || "Повторно обработать запись";
     }
     if (uploadAnother) {
       uploadAnother.hidden = !copy?.canUploadAnother;
@@ -2112,12 +2253,15 @@
       if (!detail.isConnected) return;
       const check = detail.querySelector("[data-processing-check]");
       const newAttempt = detail.querySelector("[data-processing-new-attempt]");
+      const reprocess = detail.querySelector("[data-processing-reprocess-open]");
       const title = detail.querySelector("[data-processing-recovery-title]");
       const titleVisible = title && !title.hidden && !title.closest("[hidden]");
       const target = check && !check.hidden && !check.disabled
         ? check
         : newAttempt && !newAttempt.hidden && !newAttempt.disabled
         ? newAttempt
+        : reprocess && !reprocess.hidden && !reprocess.disabled
+        ? reprocess
         : titleVisible
         ? title
         : detail;
@@ -2139,6 +2283,7 @@
     else delete recovery.dataset.processingBusyAction;
     const check = recovery.querySelector("[data-processing-check]");
     const newAttempt = recovery.querySelector("[data-processing-new-attempt]");
+    const reprocess = recovery.querySelector("[data-processing-reprocess-open]");
     if (check) {
       if (busy && action === "check") check.hidden = false;
       check.disabled = busy;
@@ -2153,6 +2298,12 @@
       newAttempt.disabled = busy;
       newAttempt.setAttribute("aria-busy", busy && action === "new_attempt" ? "true" : "false");
       newAttempt.textContent = busy && action === "new_attempt" ? "Запускаем…" : "Начать обработку заново";
+    }
+    if (reprocess) {
+      if (busy && action === "reprocess") reprocess.hidden = false;
+      reprocess.disabled = busy;
+      reprocess.setAttribute("aria-busy", busy && action === "reprocess" ? "true" : "false");
+      reprocess.textContent = "Повторно обработать запись";
     }
   };
 
@@ -2507,6 +2658,167 @@
         focusProcessingRecovery(detail);
       }
     }
+  };
+
+  const restoreProcessingReprocessFocus = () => {
+    if (!(processingReprocessReturnFocus instanceof HTMLElement)) return;
+    const menu = processingReprocessReturnFocus.closest('[role="menu"]');
+    if (menu?.hidden) {
+      menu.hidden = false;
+      document.querySelector('[data-meeting-panel-open="more"]')
+        ?.setAttribute("aria-expanded", "true");
+    }
+    if (isUsableFocusTarget(processingReprocessReturnFocus)) {
+      processingReprocessReturnFocus.focus({ preventScroll: true });
+    } else {
+      restoreMeetingActionFocus(processingReprocessReturnFocus);
+    }
+    processingReprocessReturnFocus = null;
+  };
+
+  const setProcessingReprocessDialogBusy = (dialog, busy) => {
+    const form = dialog.querySelector("[data-processing-reprocess-form]");
+    const submit = dialog.querySelector("[data-processing-reprocess-submit]");
+    form?.setAttribute("aria-busy", busy ? "true" : "false");
+    if (submit) {
+      submit.disabled = busy;
+      submit.textContent = busy ? "Запускаем…" : "Запустить повторную обработку";
+    }
+    dialog.querySelectorAll("[data-processing-reprocess-cancel]").forEach((button) => {
+      button.disabled = busy;
+    });
+  };
+
+  const setProcessingReprocessError = (dialog, message = "") => {
+    const error = dialog.querySelector("[data-processing-reprocess-error]");
+    if (!error) return;
+    error.hidden = !message;
+    error.textContent = message;
+  };
+
+  const runProcessingReprocess = async (detail, dialog) => {
+    if (processingRecoveryActionRequest !== null) return;
+    const submit = dialog.querySelector("[data-processing-reprocess-submit]");
+    const reprocessUrl = detail.dataset.processingReprocessUrl;
+    if (
+      !csrfToken
+      || !detail.dataset.meetingId
+      || !detail.dataset.processingWorkflowId
+      || !detail.dataset.mediaRevisionId
+      || !reprocessUrl
+    ) {
+      setProcessingReprocessError(
+        dialog,
+        "Не удалось подтвердить актуальную версию встречи. Обновите страницу и попробуйте снова.",
+      );
+      return;
+    }
+    const generation = ++processingRecoveryGeneration;
+    resetProcessingRecoveryCountdown(detail);
+    stopProcessingRecoveryPolling();
+    abortProcessingRecoveryStatusRequest();
+    setProcessingRecoveryBusy(detail, true, "reprocess");
+    setProcessingReprocessDialogBusy(dialog, true);
+    setProcessingReprocessError(dialog);
+    const request = fetch(reprocessUrl, {
+      method: "POST",
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        "X-CSRF-Token": csrfToken,
+      },
+      body: JSON.stringify({
+        expected_workflow_id: detail.dataset.processingWorkflowId,
+        expected_media_revision_id: detail.dataset.mediaRevisionId,
+      }),
+    });
+    processingRecoveryActionRequest = request;
+    let recoveryHandled = false;
+    try {
+      const response = await request;
+      if (generation !== processingRecoveryGeneration || processingRecoveryActionRequest !== request) return;
+      if (await recoverMeetingDetailFromResponse(response, { actionProblemCodes: detailActionProblemCodes })) {
+        recoveryHandled = true;
+        return;
+      }
+      const payload = response.status === 204 ? null : await response.json().catch(() => null);
+      if (!response.ok) {
+        const failure = new Error(`processing_reprocess_${response.status}`);
+        failure.status = response.status;
+        throw failure;
+      }
+      processingRecoveryActionRequest = null;
+      const projection = processingProjectionFromActionPayload(detail, payload);
+      if (projection) renderProcessingProjection(detail, projection);
+      setProcessingReprocessDialogBusy(dialog, false);
+      dialog.close();
+      processingReprocessReturnFocus = null;
+      await refreshProcessingStatus({ force: true, generation });
+      if (detail.isConnected) focusProcessingRecovery(detail);
+    } catch (error) {
+      if (generation !== processingRecoveryGeneration || processingRecoveryActionRequest !== request) return;
+      processingRecoveryActionRequest = null;
+      setProcessingRecoveryBusy(detail, false, "reprocess");
+      setProcessingReprocessDialogBusy(dialog, false);
+      setProcessingReprocessError(
+        dialog,
+        Number(error?.status || 0) === 409
+          ? "Страница встречи устарела. Закройте окно, обновите статус и подтвердите запуск снова."
+          : Number(error?.status || 0) === 401 || Number(error?.status || 0) === 403
+          ? "Сессия больше не подтверждена. Обновите страницу и войдите снова."
+          : "Повторная обработка не запущена. Попробуйте ещё раз позже.",
+      );
+      submit?.focus({ preventScroll: true });
+      scheduleProcessingStatusRetry(generation);
+    } finally {
+      if (processingRecoveryActionRequest === request) processingRecoveryActionRequest = null;
+      if (recoveryHandled) processingReprocessReturnFocus = null;
+    }
+  };
+
+  const initProcessingReprocess = () => {
+    const dialog = document.querySelector("[data-processing-reprocess-dialog]");
+    const detail = document.querySelector("[data-processing-reprocess-url]");
+    if (!dialog || !detail || typeof dialog.showModal !== "function") return;
+    const closeDialog = (restoreFocus = true) => {
+      if (processingRecoveryActionRequest !== null) return;
+      if (dialog.open) dialog.close();
+      setProcessingReprocessDialogBusy(dialog, false);
+      setProcessingReprocessError(dialog);
+      if (restoreFocus) restoreProcessingReprocessFocus();
+      else processingReprocessReturnFocus = null;
+    };
+    document.querySelectorAll("[data-processing-reprocess-open]").forEach((opener) => {
+      if (opener.dataset.processingReprocessReady === "true") return;
+      opener.dataset.processingReprocessReady = "true";
+      opener.addEventListener("click", () => {
+        processingReprocessReturnFocus = opener;
+        setProcessingReprocessDialogBusy(dialog, false);
+        setProcessingReprocessError(dialog);
+        dialog.showModal();
+        dialog.querySelector("#processing-reprocess-dialog-title")?.focus({ preventScroll: true });
+      });
+    });
+    if (dialog.dataset.processingReprocessReady === "true") return;
+    dialog.dataset.processingReprocessReady = "true";
+    dialog.querySelectorAll("[data-processing-reprocess-cancel]").forEach((button) => {
+      button.addEventListener("click", () => closeDialog(true));
+    });
+    dialog.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      closeDialog(true);
+    });
+    dialog.addEventListener("click", (event) => {
+      if (event.target === dialog) closeDialog(true);
+    });
+    const keepFocusInsideDialog = (event) => trapModalFocus(dialog, event);
+    dialog.addEventListener("keydown", keepFocusInsideDialog);
+    dialog.querySelector("[data-processing-reprocess-form]")?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      void runProcessingReprocess(detail, dialog);
+    });
   };
 
   const initProcessingRecovery = () => {
@@ -6605,6 +6917,7 @@
     initSummaryFormats();
     initSummaryTemplateSettings();
     initMeetingContextPanels();
+    initProcessingReprocess();
     initShareDialogs();
     initSourceNavigation();
     initPlayback();

@@ -74,6 +74,75 @@ def test_cabinet_js_wires_csrf_header_for_unsafe_htmx_requests() -> None:
     assert "DELETE" in script
 
 
+def test_owner_reprocess_action_uses_confirmed_predecessor_and_revision_contract() -> None:
+    templates = ROOT / "src/twobrain_rec_server/cabinet/templates/cabinet"
+    governance = (templates / "fragments/meeting_governance.html").read_text()
+    detail = (templates / "pages/meeting_detail_content.html").read_text()
+    script = (STATIC_DIR / "cabinet.js").read_text()
+
+    action = governance.index("data-processing-reprocess-open")
+    deletion = governance.index("{{ delete_action }}")
+    assert action < deletion
+    assert "{% if reprocess_available %}" in governance
+    assert "Повторно обработать запись" in governance
+    assert 'aria-controls="processing-reprocess-dialog"' in governance
+    assert "Повторно обработать запись?" in governance
+    assert "GRAF заново подготовит расшифровку, спикеров и итоги." in governance
+    assert "Текущая версия останется доступной, пока новая не будет готова." in governance
+    assert "Исходная запись не изменится." in governance
+    assert "Запустить повторную обработку" in governance
+    assert "data-processing-reprocess-reason" not in governance
+
+    assert "data-processing-reprocess-url=" in detail
+    assert "data-processing-workflow-id=" in detail
+    assert "data-processing-reprocess-available=" in detail
+    assert "/processing/reprocess" in detail
+
+    request = script[
+        script.index("const runProcessingReprocess") :
+        script.index("const initProcessingReprocess")
+    ]
+    assert 'method: "POST"' in request
+    assert '"Content-Type": "application/json"' in request
+    assert "expected_workflow_id: detail.dataset.processingWorkflowId" in request
+    assert "expected_media_revision_id: detail.dataset.mediaRevisionId" in request
+    assert 'submit.textContent = busy ? "Запускаем…"' in script
+    assert "processingRecoveryActionRequest !== null" in request
+    assert "reason" not in request
+
+
+def test_replacement_status_copy_keeps_same_attempt_retry_distinct_from_fresh_action() -> None:
+    templates = ROOT / "src/twobrain_rec_server/cabinet/templates/cabinet"
+    detail = (templates / "pages/meeting_detail_content.html").read_text()
+    script = (STATIC_DIR / "cabinet.js").read_text()
+
+    assert "Готовим обновлённую версию. Текущая остаётся доступной." in detail
+    assert 'data-processing-countdown aria-live="off"' in detail
+    assert "data-processing-reprocess-open" in detail
+    assert "По предыдущей версии расшифровки" in detail
+    assert "refreshReplacement" in script
+    assert "processingPublishedAttempt" in script
+
+    status_copy = script[
+        script.index("const processingTerminalReasonCopy") :
+        script.index("const renderProcessingCountdown")
+    ]
+    for copy in (
+        "Готовим новую версию",
+        "Текущая расшифровка и итоги остаются доступными.",
+        "Временная ошибка",
+        "Ждём актуальный статус",
+        "Не удалось подготовить новую версию",
+        "Текущая расшифровка и итоги не изменились.",
+        "Повторить сейчас",
+        "Проверить статус",
+    ):
+        assert copy in status_copy
+    assert 'reprocessLabel: "Повторно обработать запись"' in status_copy
+    assert "schedule_generation: Number.parseInt(detail.dataset.processingScheduleGeneration" in script
+    assert "processingRecoveryCountdownTimer = window.setInterval(update, 1000)" in script
+
+
 def test_tooltip_does_not_enter_layout_flow() -> None:
     css = (STATIC_DIR / "cabinet.css").read_text()
     tooltip_body = css[css.index(".cabinet-tooltip__body {") : css.index(".cabinet-tooltip:hover")]

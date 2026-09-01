@@ -324,7 +324,7 @@ async def build_export_snapshot(
     # Summary is an independent value stream.  It may be exported while the
     # transcript remains an internal transcript-only/diarization-pending result;
     # do not manufacture transcript evidence in that case.
-    if not transcript_visible:
+    if not transcript_requested or not transcript_visible:
         transcript_rows = []
         diarization_rows = []
     speaker_names = speaker_names_for_result(
@@ -357,16 +357,34 @@ async def build_export_snapshot(
         outcome_set_id=selection.outcome_set_id,
         turns=turns,
         pinned_summary_revision=pinned_summary_revision,
+        require_matching_result=selection.content_scope == "combined",
     )
+    metadata_result = result
+    if (
+        selection.content_scope == "summary"
+        and summary is not None
+        and summary.processing_result_id != str(result.id)
+    ):
+        metadata_result = await db.scalar(
+            select(ProcessingResult).where(
+                ProcessingResult.id == UUID(summary.processing_result_id),
+                ProcessingResult.workspace_id == meeting.workspace_id,
+                ProcessingResult.meeting_id == meeting.id,
+            )
+        )
+        if metadata_result is None:
+            raise _stale_selection()
     return ExportSnapshot(
         selection=selection,
         meeting_id=str(meeting.id),
         meeting_title=_safe_title(meeting.title),
-        language=result.language,
+        language=metadata_result.language,
         duration_seconds=max(meeting.duration_seconds, 0),
-        processing_result_id=str(result.id),
-        processing_result_version=result.result_version,
-        media_revision_id=str(result.media_revision_id) if result.media_revision_id else None,
+        processing_result_id=str(metadata_result.id),
+        processing_result_version=metadata_result.result_version,
+        media_revision_id=(
+            str(metadata_result.media_revision_id) if metadata_result.media_revision_id else None
+        ),
         raw_segments=raw_segments,
         canonical_turns=turns,
         summary=summary,
@@ -462,6 +480,7 @@ async def _load_summary_revision(
     outcome_set_id: UUID | None,
     turns: tuple[CanonicalExportTurn, ...],
     pinned_summary_revision: tuple[str, UUID] | None = None,
+    require_matching_result: bool = False,
 ) -> SummaryExportRevision | None:
     if outcome_set_id is None:
         return None
@@ -506,7 +525,6 @@ async def _load_summary_revision(
                 MeetingOutcomeSet.id == outcome_set_id,
                 MeetingOutcomeSet.workspace_id == meeting.workspace_id,
                 MeetingOutcomeSet.meeting_id == meeting.id,
-                MeetingOutcomeSet.processing_result_id == result.id,
                 MeetingOutcomeSet.lifecycle_state == "active",
                 or_(
                     MeetingOutcomeSet.revision_state.is_(None),
@@ -514,7 +532,9 @@ async def _load_summary_revision(
                 ),
             )
         )
-    if outcome_set is None:
+    if outcome_set is None or (
+        require_matching_result and outcome_set.processing_result_id != result.id
+    ):
         raise _stale_selection()
     rows = list(
         (
@@ -579,7 +599,7 @@ async def _load_summary_revision(
     )
     return SummaryExportRevision(
         outcome_set_id=str(outcome_set.id),
-        processing_result_id=str(result.id),
+        processing_result_id=str(outcome_set.processing_result_id),
         revision_token=revision_token,
         status=outcome_set.status,
         category_states=category_states,
