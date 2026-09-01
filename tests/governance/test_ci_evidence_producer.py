@@ -113,6 +113,25 @@ def test_producer_hashes_supplied_artifact_bytes(tmp_path: Path) -> None:
     assert evidence["artifact_digests"]["bundle"] == expected
 
 
+def test_producer_directory_digest_frames_file_contents(tmp_path: Path) -> None:
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("emit_ci_evidence", PRODUCER)
+    assert spec and spec.loader
+    producer = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(producer)
+
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    (first / "a").write_bytes(b"X" + len(b"b").to_bytes(8, "big") + b"b" + b"Y")
+    (second / "a").write_bytes(b"X")
+    (second / "b").write_bytes(b"Y")
+
+    assert producer._artifact_digest(first) != producer._artifact_digest(second)
+
+
 def test_producer_refuses_overwrite_unless_explicitly_non_authoritative(tmp_path: Path) -> None:
     sha = "a" * 40
     output = tmp_path / "evidence.json"

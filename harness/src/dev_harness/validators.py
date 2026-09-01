@@ -91,6 +91,11 @@ def fragments(root: Path) -> list[str]:
     directory = root / "changes" / "unreleased"
     errors: list[str] = []
     seen: set[str] = set()
+    credential_assignment = re.compile(
+        r"\b(?:api[_-]?key|secret|password|token|bearer|cookie|signed[-_ ]?url)"
+        r"\s*[:=]\s*['\"]?[A-Za-z0-9][A-Za-z0-9_./+=:-]{7,}",
+        re.IGNORECASE,
+    )
     for path in sorted(directory.glob("F*.yaml")) if directory.is_dir() else []:
         text = path.read_text(encoding="utf-8", errors="ignore")
         match = re.search(r"^feature_id:\s*(\d{3,})\s*$", text, re.MULTILINE)
@@ -112,7 +117,7 @@ def fragments(root: Path) -> list[str]:
             r"/(?:Users|home)/|"
             "BEGIN " + r"PRIVATE KEY|sk-[A-Za-z0-9]|signed-url|raw audio|transcript text"
         )
-        if re.search(forbidden_literals, text, re.I):
+        if re.search(forbidden_literals, text, re.I) or credential_assignment.search(text):
             errors.append(f"{path}: forbidden secret/private content")
     return errors
 
