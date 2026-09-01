@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.1.13] - 2026-09-01
+
+### Добавлено
+
+- Добавлены portable CI contracts для receipts, release-train lineage и
+  authoritative Full CI.
+- Добавлены bounded context, Feature ID allocation и package-content safety
+  проверки.
+
+### Исправлено
+
+- Усилены fail-closed проверки SHA, RFC3339, placeholders, signed URLs,
+  bearer/unquoted credentials и stale PR evidence.
+
+### Совместимость
+
+- Python 3.9+; CLI и validator API обратно совместимы с `v0.1.12`.
+- Откат: immutable `v0.1.12`.
+
+### Проверки
+
+- Self-test, clean sample smoke-test, package-safety и context-budget — PASS.
+- Публичный immutable release создан из exact commit
+  `6a8257186aee878087b68fd77716ddce595a012d`.
+
 ## [0.1.12] - 2026-09-01
 
 ### Исправлено
