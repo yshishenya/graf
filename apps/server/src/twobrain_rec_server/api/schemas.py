@@ -1138,6 +1138,7 @@ class ProcessingReprocessRequest(BaseModel):
         str,
         StringConstraints(
             strip_whitespace=True,
+            max_length=80,
             pattern=r"^processing/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:/[1-9][0-9]*)?$",
         ),
     ]

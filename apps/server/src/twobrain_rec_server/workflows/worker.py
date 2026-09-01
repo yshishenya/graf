@@ -210,7 +210,11 @@ async def _load_processing_workflow_for_activity(
             active_only=active_only,
         )
     else:
-        query = select(ProcessingWorkflow).where(ProcessingWorkflow.id == processing_workflow_id)
+        query = select(ProcessingWorkflow).where(
+            ProcessingWorkflow.id == processing_workflow_id,
+            ProcessingWorkflow.workspace_id == workspace_id,
+            ProcessingWorkflow.meeting_id == meeting_id,
+        )
         if active_only:
             query = query.where(
                 ProcessingWorkflow.status.notin_(

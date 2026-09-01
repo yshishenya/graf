@@ -102,6 +102,7 @@ from twobrain_rec_server.processing.results import (
     result_is_terminal_input,
     result_lineage_is_current,
 )
+from twobrain_rec_server.workflows.temporal_client import processing_workflow_id
 
 if TYPE_CHECKING:
     from twobrain_rec_server.auth.account_closure import AccountCloseView
@@ -2535,8 +2536,7 @@ def processing_state(
 ) -> ProcessingReviewState:
     attempt_ordinal = int(workflow.attempt_ordinal or 1) if workflow is not None else 1
     expected_workflow_id = (
-        f"processing/{workflow.media_revision_id}"
-        f"{'/' + str(attempt_ordinal) if attempt_ordinal > 1 else ''}"
+        processing_workflow_id(workflow.media_revision_id, attempt_ordinal)
         if workflow is not None and workflow.media_revision_id is not None
         else None
     )

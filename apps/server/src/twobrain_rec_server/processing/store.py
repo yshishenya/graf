@@ -1363,6 +1363,7 @@ async def create_processing_attempt(
                 result=(
                     "replayed"
                     if current_ordinal == predecessor_ordinal + 1
+                    and current.last_reason_code == "user_reprocess"
                     else "stale_meeting_view"
                 ),
                 workflow=current,
