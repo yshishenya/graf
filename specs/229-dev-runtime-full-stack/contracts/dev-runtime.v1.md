@@ -52,7 +52,8 @@ Required metadata-only check names are:
 
 `backend_health`, `frontend_reachability`, `auth_session_bootstrap`,
 `representative_api`, `temporal_readiness`, `processing_worker_readiness`,
-`media_worker_readiness`, `app_identity`, and `exact_source_sha`.
+`media_worker_readiness`, `database_readiness`, `storage_readiness`,
+`app_identity`, and `exact_source_sha`.
 
 Every required check must be `pass`. A provider call is not required for this
 local contract; provider credentials are never placed in the desktop app or

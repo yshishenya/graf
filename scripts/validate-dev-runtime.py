@@ -23,10 +23,13 @@ def validate(root: Path) -> list[str]:
         return ["active Feature pointer is unreadable"]
     if str(feature.get("feature_id")) != "229":
         errors.append("active feature is not Feature 229")
-    owned = feature.get("owned_paths", [])
-    for required in ("infra/docker-compose.dev.yml", "scripts/dev-harness.py", "infra/scripts/start-dev-runtime.sh"):
-        if required not in owned:
-            errors.append(f"Feature 229 ownership misses {required}")
+    owned = feature.get("owned_paths")
+    if not isinstance(owned, list) or not all(isinstance(path, str) for path in owned):
+        errors.append("active Feature owned_paths must be a list of strings")
+    else:
+        for required in ("infra/docker-compose.dev.yml", "scripts/dev-harness.py", "infra/scripts/start-dev-runtime.sh"):
+            if required not in owned:
+                errors.append(f"Feature 229 ownership misses {required}")
     compose = root / "infra" / "docker-compose.dev.yml"
     text = compose.read_text(encoding="utf-8") if compose.exists() else ""
     if "name: graf-dev" not in text:
@@ -41,8 +44,7 @@ def validate(root: Path) -> list[str]:
                 if path.is_file() and FORBIDDEN_EVIDENCE.search(path.read_text(encoding="utf-8", errors="replace")):
                     # Fixture names may explain the forbidden class, but their
                     # contents must remain metadata-only and credential-free.
-                    if path.name not in {"manifest-valid.json", "manifest-mixed-sha.json", "manifest-production-origin.json"}:
-                        errors.append(f"forbidden evidence content in {path.relative_to(root)}")
+                    errors.append(f"forbidden evidence content in {path.relative_to(root)}")
     return errors
 
 

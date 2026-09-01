@@ -16,7 +16,9 @@ def test_compose_is_explicitly_namespaced_and_loopback_only():
 
 
 def test_dev_temporal_server_includes_reserved_partition_poll_fix():
-    match = re.search(r"image:\s*temporalio/auto-setup:(\d+)\.(\d+)\.(\d+)", COMPOSE)
+    temporal = re.search(r"(?ms)^  rec-temporal:\n(.*?)(?=^  \S|\Z)", COMPOSE)
+    assert temporal, "Dev Compose must define rec-temporal"
+    match = re.search(r"^\s*image:\s*temporalio/auto-setup:(\d+)\.(\d+)\.(\d+)", temporal.group(1), re.MULTILINE)
     assert match, "Dev Compose must pin an explicit Temporal Server image"
     assert tuple(int(part) for part in match.groups()) >= (1, 28, 0)
 

@@ -106,7 +106,9 @@ def _active_feature_id() -> str:
     return feature_id
 
 
-def state_dir() -> Path:
+def state_dir(*, live: bool = False) -> Path:
+    base = Path.home() / ("Library/Application Support" if sys.platform == "darwin" else ".cache") / "GRAF Dev"
+    global_path = (base / _repo_identity() / "harness").resolve()
     raw = os.environ.get("GRAF_DEV_STATE_DIR")
     if raw:
         path = Path(raw).expanduser()
@@ -115,9 +117,10 @@ def state_dir() -> Path:
         # lock because they also share one loopback runtime and one installed
         # /Applications/GRAF Dev.app.  Tests and operators can still inject an
         # explicit state directory through GRAF_DEV_STATE_DIR.
-        base = Path.home() / ("Library/Application Support" if sys.platform == "darwin" else ".cache") / "GRAF Dev"
-        path = base / _repo_identity() / "harness"
+        path = global_path
     path = path.resolve()
+    if live and path != global_path:
+        raise HarnessError("live Dev operations require the repository-global state directory")
     lowered = str(path).lower()
     production_app = Path(os.path.realpath(PRODUCTION_APP_PATH))
     if production_app == path or production_app in path.parents:
@@ -143,7 +146,7 @@ def _assert_dev_environment() -> None:
 
 
 def _is_loopback_origin(value: str) -> bool:
-    return bool(re.match(r"^https?://(localhost|127\.0\.0\.1|\[::1\])(?::[0-9]{1,5})?$", value))
+    return bool(re.match(r"^http://(localhost|127\.0\.0\.1)(?::[0-9]{1,5})?$", value))
 
 
 def _safe_id(value: str, label: str = "identifier") -> str:
@@ -268,11 +271,7 @@ def _run_command_combined(command: list[str], *, cwd: Path, env: Optional[Dict[s
 
 def _origin_parts(origin: str) -> tuple[str, int]:
     parsed = urlsplit(origin)
-    if parsed.scheme not in {"http", "https"} or parsed.hostname not in {
-        "localhost",
-        "127.0.0.1",
-        "::1",
-    }:
+    if parsed.scheme != "http" or parsed.hostname not in {"localhost", "127.0.0.1"}:
         raise HarnessError(f"origin is not loopback: {origin}")
     try:
         port = parsed.port
@@ -1180,7 +1179,7 @@ def build_manifest(sha: str, feature_id: str, operator: str = "local", migration
 
 
 def operation_build(args: argparse.Namespace) -> Dict[str, Any]:
-    root = state_dir()
+    root = state_dir(live=bool(getattr(args, "live", False)))
     feature_id = args.feature_id or os.environ.get("GRAF_FEATURE_ID") or _active_feature_id()
     migration_head = args.migration_head
     if migration_head in {None, "", "unknown"}:
@@ -1198,6 +1197,12 @@ def operation_build(args: argparse.Namespace) -> Dict[str, Any]:
             "manifest": active,
             "idempotent": True,
         }
+    existing_path = _manifest_path(root, manifest["manifest_id"])
+    if existing_path.exists():
+        existing = _read_json(existing_path)
+        if existing == manifest:
+            return {"operation": "build", "dry_run": bool(args.dry_run), "status": existing.get("status", "built"), "adapter": {"mode": "existing"}, "manifest": existing, "idempotent": True}
+        raise HarnessError("manifest identity already exists with different metadata")
     adapter_info: Dict[str, str] = {"mode": "metadata-only"}
     if getattr(args, "live", False) and not args.dry_run:
         adapter_info = GrafLocalAdapter(_repo_root(), root).build(manifest)
@@ -1206,13 +1211,13 @@ def operation_build(args: argparse.Namespace) -> Dict[str, Any]:
         adapter_info = {"mode": "live-dry-run"}
     if not args.dry_run:
         _mkdirs(root)
-        _write_json(_manifest_path(root, manifest["manifest_id"]), manifest)
+        _write_json(existing_path, manifest)
     return {"operation": "build", "dry_run": bool(args.dry_run), "adapter": adapter_info, "manifest": manifest}
 
 
 def operation_promote(args: argparse.Namespace) -> Dict[str, Any]:
     _assert_dev_environment()
-    root = state_dir()
+    root = state_dir(live=bool(getattr(args, "live", False)))
     candidate = _read_json(Path(args.manifest).resolve())
     _validate_manifest(candidate)
     if candidate.get("migration_head") in {None, "", "unknown"}:
@@ -1268,18 +1273,18 @@ def operation_promote(args: argparse.Namespace) -> Dict[str, Any]:
 
 def operation_status(args: argparse.Namespace) -> Dict[str, Any]:
     _assert_dev_environment()
-    root = state_dir()
+    root = state_dir(live=bool(getattr(args, "live", False)))
     active = _load_active(root)
     if active is None:
         return {"operation": "status", "status": "blocked", "reason": "no active Dev manifest", "state_dir": str(root)}
-    return {"operation": "status", "status": active.get("status", "active"), "manifest": active}
+    return {"operation": "status", "status": active.get("status", "active"), "state_dir": str(root), "manifest": active}
 
 
 def operation_smoke(args: argparse.Namespace) -> Dict[str, Any]:
     _assert_dev_environment()
     if not getattr(args, "live", False) and not getattr(args, "fixture", False):
         raise HarnessError("smoke requires an explicit --live or --fixture mode")
-    root = state_dir()
+    root = state_dir(live=bool(getattr(args, "live", False)))
     active = _load_active(root)
     if active is None:
         raise HarnessError("smoke requires an active Dev manifest")
@@ -1311,6 +1316,8 @@ def operation_smoke(args: argparse.Namespace) -> Dict[str, Any]:
 
 def operation_rollback(args: argparse.Namespace) -> Dict[str, Any]:
     _assert_dev_environment()
+    # Rollback may inspect an explicitly isolated fixture; live promotion/build
+    # remain pinned to the repository-global runtime state.
     root = state_dir()
     with state_lock(root):
         active = _load_active(root)
@@ -1367,7 +1374,7 @@ def operation_rollback(args: argparse.Namespace) -> Dict[str, Any]:
 def operation_reset_data(args: argparse.Namespace) -> Dict[str, Any]:
     if not args.confirm_dev_reset:
         raise HarnessError("reset-data requires --confirm-dev-reset")
-    root = state_dir()
+    root = state_dir(live=bool(getattr(args, "live", False)))
     _assert_dev_environment()
     with state_lock(root):
         if not args.dry_run:
