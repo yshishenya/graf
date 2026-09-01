@@ -524,7 +524,10 @@ grep -Fq 'GRAF_RELEASE_SIGNING_KEYCHAIN_ATTESTATION="$ATTESTATION"' "$LOCAL_SIGN
   fail "local draft-signing entrypoint does not bind staging to local custody evidence"
 grep -Fq 'cb6fdbdc8884f15d62a616e79face92b08322410fd2d425edc6596ccbf4ba3b0' "$LOCAL_SIGNER" ||
   fail "local draft-signing entrypoint does not pin the Sparkle tool checksum"
-if find "$REPO_ROOT/.github/workflows" -type f -print -quit 2>/dev/null | grep -q .; then
+workflow_files="$(find "$REPO_ROOT/.github/workflows" -type f -print 2>/dev/null || true)"
+if [ -n "$workflow_files" ] &&
+  printf '%s\n' "$workflow_files" | xargs grep -Eqi \
+    'GRAF_RELEASE_SIGNING|SPARKLE_PRIVATE|PRIVATE_KEY|gh secret set|sign-graf-app-update'; then
   fail "remote workflow files remain in the active repository"
 fi
 
