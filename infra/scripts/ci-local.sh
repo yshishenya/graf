@@ -468,6 +468,9 @@ PY
     evidence_reason_override="target_changed"
     return 2
   fi
+  # Do not leak this invocation's candidate controls into nested contract
+  # tests; those tests must be able to exercise their own stale-SHA cases.
+  unset GRAF_CI_REQUESTED_SHA GRAF_CI_CANDIDATE_FILE GRAF_CI_CANDIDATE_ID
   if [[ -n "$initial_tree_state" ]]; then
     if [[ "${GRAF_CI_ALLOW_DIRTY:-}" == "1" ]]; then
       printf 'ci_evidence_status=ambiguous requested_sha=%s observed_sha_start=%s reason=dirty_worktree_opt_in\n' \
