@@ -244,6 +244,7 @@ def _desktop_review_status(
             ProcessingStatus.SUBMITTED.value,
             ProcessingStatus.POLLING.value,
             ProcessingStatus.IMPORTING.value,
+            ProcessingStatus.WAITING_RETRY.value,
         }:
             return "processing"
         if lifecycle_status in {
@@ -268,6 +269,7 @@ def _desktop_review_status(
         ProcessingStatus.SUBMITTED.value,
         ProcessingStatus.POLLING.value,
         ProcessingStatus.IMPORTING.value,
+        ProcessingStatus.WAITING_RETRY.value,
     }:
         return "processing"
     if lifecycle_status == ProcessingStatus.NOT_SUBMITTED.value:
