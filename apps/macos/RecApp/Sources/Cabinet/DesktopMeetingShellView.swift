@@ -490,7 +490,6 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     }
 
     private var custodyDetailSummaries: [DesktopUploadCustodySummary] {
-        guard !cabinetConfigured else { return [] }
         return DesktopUploadCustodySummary.summaries(for: uploadQueueItems)
     }
 

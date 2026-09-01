@@ -143,7 +143,7 @@
     const localOnly = localRecordingRows.filter((item) => {
       if (!item.meetingId) return true;
       const serverRow = allRows().find((row) => row.dataset.meetingId === item.meetingId);
-      if (!serverRow) return true;
+      if (!serverRow || item.uploadComplete !== true) return true;
       serverRow.dataset.grafLocalRecordingId = item.id;
       return false;
     });

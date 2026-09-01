@@ -9,6 +9,7 @@ public struct MacOSAudioOwnershipLogStreamConfiguration: Equatable, Sendable {
     public let arguments: [String]
     public let snapshotArguments: [String]
     public let snapshotTimeoutNanoseconds: UInt64
+    public let liveRefreshTimeoutNanoseconds: UInt64
     public let restartDelayNanoseconds: UInt64
 
     public init(
@@ -16,6 +17,7 @@ public struct MacOSAudioOwnershipLogStreamConfiguration: Equatable, Sendable {
         arguments: [String]? = nil,
         snapshotArguments: [String]? = nil,
         snapshotTimeoutNanoseconds: UInt64 = 3_500_000_000,
+        liveRefreshTimeoutNanoseconds: UInt64 = 300_000_000_000,
         restartDelayNanoseconds: UInt64 = 1_000_000_000
     ) {
         self.executableURL = executableURL
@@ -26,6 +28,7 @@ public struct MacOSAudioOwnershipLogStreamConfiguration: Equatable, Sendable {
             "show", "--last", "2h", "--style", "compact", "--predicate", Self.snapshotPredicate,
         ]
         self.snapshotTimeoutNanoseconds = snapshotTimeoutNanoseconds
+        self.liveRefreshTimeoutNanoseconds = liveRefreshTimeoutNanoseconds
         self.restartDelayNanoseconds = restartDelayNanoseconds
     }
 }

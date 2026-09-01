@@ -178,6 +178,11 @@ public final class CaptureRecoveryService {
             let stoppedAt = recoveredDurationMs > 0
                 ? activeManifest.startedAt.addingTimeInterval(Double(recoveredDurationMs) / 1_000)
                 : clock()
+            let privacySegments = finalizedPrivacySegments(
+                activeManifest.privacySegments ?? [],
+                stoppedAt: stoppedAt,
+                startedAt: activeManifest.startedAt
+            )
             let manifest = manifestService.v5Manifest(
                 sessionId: activeManifest.sessionId,
                 directoryId: activeManifest.directoryId,
@@ -187,7 +192,7 @@ public final class CaptureRecoveryService {
                 scopeApproval: activeManifest.scopeApproval,
                 permissions: activeManifest.permissions,
                 microphoneSelection: activeManifest.microphoneSelection,
-                privacySegments: activeManifest.privacySegments ?? [],
+                privacySegments: privacySegments,
                 targetMuteCapability: activeManifest.targetMuteCapability,
                 meetingMuteTruthEvidence: activeManifest.meetingMuteTruthEvidence ?? [],
                 limitationCopyShownAt: activeManifest.limitationCopyShownAt,
@@ -347,6 +352,22 @@ public final class CaptureRecoveryService {
     private func removeRecoveryPartials(in directoryURL: URL) {
         for name in ["meeting-transcription.partial.wav", "meeting-review.partial.m4a"] {
             try? FileManager.default.removeItem(at: directoryURL.appendingPathComponent(name))
+        }
+    }
+
+    private func finalizedPrivacySegments(
+        _ segments: [ProductPrivacySegment],
+        stoppedAt: Date,
+        startedAt: Date
+    ) -> [ProductPrivacySegment] {
+        let endMonotonicMs = Int(max(0, stoppedAt.timeIntervalSince(startedAt) * 1_000))
+        return segments.map { segment in
+            guard segment.endedAt == nil else { return segment }
+            return segment.finalized(
+                endedAt: stoppedAt,
+                endMonotonicMs: max(segment.startMonotonicMs, endMonotonicMs),
+                treatment: .silenced
+            )
         }
     }
 

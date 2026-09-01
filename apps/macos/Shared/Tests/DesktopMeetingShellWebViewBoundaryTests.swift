@@ -301,7 +301,8 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
         XCTAssertTrue(cabinetSource.contains("data-graf-local-recording-row"))
         XCTAssertTrue(cabinetSource.contains("send.textContent = \"Отправить\""))
         XCTAssertTrue(cabinetSource.contains("renderLocalRecordingRows"))
-        XCTAssertTrue(shellSource.contains("guard !cabinetConfigured else { return [] }"))
+        XCTAssertTrue(cabinetSource.contains("item.uploadComplete !== true"))
+        XCTAssertTrue(shellSource.contains("DesktopUploadCustodySummary.summaries(for: uploadQueueItems)"))
     }
 
     func testOfflineStatesExposeOnlySafeSameOriginRetryFromWorkspace() throws {

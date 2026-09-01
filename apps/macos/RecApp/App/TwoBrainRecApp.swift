@@ -2234,6 +2234,7 @@ private struct ContentView: View {
         recordingStopInProgress = true
         localRecordingActive = false
         liveRecordingLevels = .inactive
+        let recordingDirectory = await localRecordingWriter.currentDirectoryURLAsync()
         defer {
             recordingStopInProgress = false
             if activeMeetingDetectionBundleID == detectorBundleID {
@@ -2245,7 +2246,6 @@ private struct ContentView: View {
 
         do {
             _ = try captureController.requestStop(reason: reason)
-            let recordingDirectory = await localRecordingWriter.currentDirectoryURLAsync()
             enqueueLocalRecordingAsSaving(directoryURL: recordingDirectory)
             let systemAudioSession = try await systemAudioCaptureService.stop()
             activeMicrophoneSampleSource?.stop()
@@ -2296,10 +2296,27 @@ private struct ContentView: View {
             let releasedSystemAudioSession = await systemAudioCaptureService.releaseForTermination()
             activeMicrophoneSampleSource?.stop()
             activeMicrophoneSampleSource = nil
-            await finalizeLocalRecordingForFailure(
-                reason: "stop_failure_cleanup",
-                failureReason: releasedSystemAudioSession?.failureReason ?? .none
-            )
+            let finalizedManifest = recordingDirectory.flatMap { directoryURL in
+                try? LocalRecordingManifestService().read(
+                    from: directoryURL.appendingPathComponent("manifest.json")
+                )
+            }
+            if let finalizedManifest,
+               finalizedManifest.status != .active {
+                localRecordingManifest = finalizedManifest
+                enqueueLocalRecordingForUpload(
+                    manifest: finalizedManifest,
+                    directoryURL: recordingDirectory,
+                    reason: "stop_failure_cleanup",
+                    calendarContextEventId: activeCalendarContextEventId,
+                    calendarMatchAttemptId: activeCalendarMatchAttemptId
+                )
+            } else {
+                await finalizeLocalRecordingForFailure(
+                    reason: "stop_failure_cleanup",
+                    failureReason: releasedSystemAudioSession?.failureReason ?? .none
+                )
+            }
             clearActiveCalendarMatchState()
             localRecordingActive = false
             liveRecordingLevels = .inactive
@@ -2377,9 +2394,10 @@ private struct ContentView: View {
         Task {
             do {
                 if !(await localRecordingWriter.isRecordingAsync()) {
-                    _ = CaptureRecoveryService().recoverIncompleteRecordings(
-                        in: LocalRecordingStore().rootURL
-                    )
+                    let recoveryRoot = LocalRecordingStore().rootURL
+                    _ = await Task.detached(priority: .utility) {
+                        CaptureRecoveryService().recoverIncompleteRecordings(in: recoveryRoot)
+                    }.value
                 }
                 _ = try service.scanAndEnqueueCompletedRecordings()
                 _ = try service.applyRetentionExpiry()

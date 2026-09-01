@@ -878,6 +878,7 @@ public struct EmbeddedCabinetLocalRecordingRow: Codable, Equatable, Sendable {
     public let progressPercent: Int?
     public let canSend: Bool
     public let canDelete: Bool
+    public let uploadComplete: Bool
 
     public static func rows(for items: [DesktopUploadQueueItem]) -> [Self] {
         items.compactMap { item in
@@ -910,7 +911,8 @@ public struct EmbeddedCabinetLocalRecordingRow: Codable, Equatable, Sendable {
                 canSend: !damaged
                     && item.artifactProfile.isUploadable
                     && ![.saving, .uploading, .uploaded].contains(item.state),
-                canDelete: damaged
+                canDelete: damaged,
+                uploadComplete: item.state == .uploaded
             )
         }
     }
