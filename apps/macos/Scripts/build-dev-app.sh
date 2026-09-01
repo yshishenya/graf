@@ -14,7 +14,8 @@ if [ -n "${GRAF_DEV_SIGNING_IDENTITY:-}" ] && [ -n "${GRAF_DEV_SIGN_IDENTITY:-}"
   exit 1
 fi
 DEV_BUNDLE_ID="pro.2brain.graf.dev"
-SOURCE_SHA="${GRAF_DEV_SOURCE_SHA:-$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || true)}"
+CURRENT_SOURCE_SHA="$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || true)"
+SOURCE_SHA="${GRAF_DEV_SOURCE_SHA:-$CURRENT_SOURCE_SHA}"
 SOURCE_SHA_SHORT=$(printf '%s' "$SOURCE_SHA" | cut -c1-12)
 MANIFEST_ID="${GRAF_DEV_MANIFEST_ID:-dev-$SOURCE_SHA_SHORT}"
 
@@ -27,6 +28,9 @@ fail() {
 if [ -z "$SOURCE_SHA" ] || ! printf '%s' "$SOURCE_SHA" | grep -Eq '^[0-9a-fA-F]{40}$'; then
   fail "GRAF_DEV_SOURCE_SHA must be a 40-character git SHA"
 fi
+[ -n "$CURRENT_SOURCE_SHA" ] || fail "could not resolve the checked-out source SHA"
+[ "$SOURCE_SHA" = "$CURRENT_SOURCE_SHA" ] ||
+  fail "GRAF_DEV_SOURCE_SHA must match the checked-out HEAD"
 [ -z "$(git -C "$ROOT_DIR" status --porcelain --untracked-files=all)" ] ||
   fail "source checkout must be clean; commit or stash local changes before building GRAF Dev"
 if [ -z "$MANIFEST_ID" ] || ! printf '%s' "$MANIFEST_ID" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$'; then

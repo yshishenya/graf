@@ -220,6 +220,8 @@ main() (
   local skipped_gates=""
   local evidence_status_override=""
   local evidence_reason_override=""
+  local dirty_worktree=0
+  local evidence_path_override="${GRAF_CI_EVIDENCE_PATH:-}"
   local path
   local classification
   local performance_proof
@@ -261,13 +263,14 @@ main() (
       local finished_at
       local evidence_path
       local evidence_args
+      local evidence_scope
       finished_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
       if [[ "$requested_mode" == "full" && -n "$candidate_id" ]]; then
         # A candidate has exactly one authoritative Full CI identity.  Do not
         # let a retry choose a second output path and become a competing proof.
         evidence_path=".dev/ci-evidence/authoritative-${candidate_id}.json"
       else
-        evidence_path="${GRAF_CI_EVIDENCE_PATH:-.dev/ci-evidence/${run_id}.json}"
+        evidence_path="${evidence_path_override:-.dev/ci-evidence/${run_id}.json}"
       fi
       evidence_args=(
         --output "$evidence_path" --run-id "$run_id" --lane "$effective_mode"
@@ -278,6 +281,11 @@ main() (
         --scope "components=$components;reason=$selection_reason;coverage=$coverage"
         --component-sha "repository=$observed_sha_start"
       )
+      if [[ "$dirty_worktree" -eq 1 ]]; then
+        evidence_scope="components=$components;reason=$selection_reason;coverage=$coverage;dirty_worktree=1"
+        evidence_args[${#evidence_args[@]}-2]="--scope"
+        evidence_args[${#evidence_args[@]}-1]="$evidence_scope"
+      fi
       # Bind evidence to bytes produced by the run when available. The source
       # revision digest remains a lightweight identity anchor; build outputs
       # provide the artifact-level provenance required for release decisions.
@@ -364,15 +372,24 @@ PY
     if [[ "${GRAF_CI_ALLOW_DIRTY:-}" == "1" ]]; then
       printf 'ci_evidence_status=ambiguous requested_sha=%s observed_sha_start=%s reason=dirty_worktree_opt_in\n' \
         "${requested_sha:-$observed_sha_start}" "$observed_sha_start" >&2
+      # An explicit dirty diagnostic is still a real bounded run.  Continue
+      # through the selected stages, but force non-authoritative evidence so
+      # the result can never be mistaken for release proof.
+      dirty_worktree=1
     else
       printf 'ci_evidence_status=ambiguous requested_sha=%s observed_sha_start=%s reason=dirty_worktree\n' \
         "${requested_sha:-$observed_sha_start}" "$observed_sha_start" >&2
+      pipeline_result="fail"
+      evidence_status_override="ambiguous"
+      evidence_reason_override="dirty_worktree"
+      return 2
     fi
-    pipeline_result="fail"
     evidence_status_override="ambiguous"
     evidence_reason_override="dirty_worktree"
-    return 2
   fi
+  # These are harness controls, not test inputs.  Do not let a diagnostic
+  # invocation change nested CI contract tests or their evidence destination.
+  unset GRAF_CI_ALLOW_DIRTY GRAF_CI_EVIDENCE_PATH
   performance_proof="$(calendar_performance_test_path)" || return 1
 
   if ! changed_list="$(changed_files)"; then

@@ -615,7 +615,7 @@ class GrafLocalAdapter:
         # Keep the original in place so install-dev-app.sh can still compare
         # designated requirements before replacing it.  The copy is a local
         # rollback snapshot, never evidence or application data.
-        shutil.copytree(destination, backup)
+        shutil.copytree(destination, backup, symlinks=True)
         return backup
 
     @staticmethod
@@ -636,7 +636,7 @@ class GrafLocalAdapter:
             else:
                 destination.unlink()
         if backup is not None:
-            shutil.copytree(backup, destination)
+            shutil.copytree(backup, destination, symlinks=True)
             shutil.rmtree(backup)
 
     def _restore_runtime(
@@ -1138,7 +1138,24 @@ def operation_status(args: argparse.Namespace) -> Dict[str, Any]:
     active = _load_active(root)
     if active is None:
         return {"operation": "status", "status": "blocked", "reason": "no active Dev manifest", "state_dir": str(root)}
-    return {"operation": "status", "status": active.get("status", "active"), "manifest": active}
+    status = active.get("status", "active")
+    pointer_path = root / "active-manifest.json"
+    if pointer_path.exists():
+        pointer = _read_json(pointer_path)
+        if pointer.get("runtime_mode") == "live":
+            try:
+                runtime = _read_json(root / "runtime.json") if (root / "runtime.json").exists() else None
+            except HarnessError:
+                runtime = None
+            if not GrafLocalAdapter(_repo_root(), root)._runtime_is_live(runtime):
+                status = "degraded"
+                return {
+                    "operation": "status",
+                    "status": status,
+                    "reason": "live Dev runtime is not running or is no longer owned",
+                    "manifest": active,
+                }
+    return {"operation": "status", "status": status, "manifest": active}
 
 
 def operation_smoke(args: argparse.Namespace) -> Dict[str, Any]:

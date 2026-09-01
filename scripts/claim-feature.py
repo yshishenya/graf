@@ -487,6 +487,8 @@ def main(argv: list[str] | None = None) -> int:
                 raise SystemExit(
                     f"feature-claim: generated branch {args.branch!r} is not the next collision-free Feature {feature_id:03d}; retry bootstrap"
                 )
+            if _canonical_slug(branch_match.group(2)) != _canonical_slug(args.slug):
+                raise SystemExit("feature-claim: branch suffix must match the requested slug")
             issue_number = args.issue_number or _create_github_umbrella(root, feature_id, args.slug)
             requested = {"issue_number": issue_number, "branch": args.branch, "slug": args.slug}
             claims[f"{feature_id:03d}"] = requested

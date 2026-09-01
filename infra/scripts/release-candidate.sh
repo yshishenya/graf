@@ -317,19 +317,29 @@ def require_clean_source(exempt_paths=()):
     if dirty:
         die("source tree is dirty after candidate freeze: " + ", ".join(dirty))
 
-def changelog_calvers():
+def changelog_sections():
     try:
         text = (root / "CHANGELOG.md").read_text(encoding="utf-8")
     except OSError as exc:
         die(f"cannot read CHANGELOG.md: {exc}")
-    return {
-        "v" + value.lstrip("v")
-        for value in re.findall(
-            r"^## \[(v?[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+)\]",
-            text,
-            re.MULTILINE,
-        )
-    }
+    matches = list(re.finditer(
+        r"^## \[(v?[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+)\][^\n]*\n",
+        text,
+        re.MULTILINE,
+    ))
+    sections = []
+    for index, match in enumerate(matches):
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        sections.append(("v" + match.group(1).lstrip("v"), text[match.end():end]))
+    return sections
+
+def changelog_calvers():
+    return {version for version, _body in changelog_sections()}
+
+def current_release_section():
+    """Return the first prepared CalVer section, not historical release text."""
+    sections = changelog_sections()
+    return sections[0] if sections else None
 
 def feature_exists(feature_id):
     specs = root / "specs"
@@ -341,15 +351,22 @@ def feature_exists(feature_id):
     )
 
 def changelog_mentions_feature(feature_id):
-    try:
-        text = (root / "CHANGELOG.md").read_text(encoding="utf-8")
-    except OSError as exc:
-        die(f"cannot read CHANGELOG.md: {exc}")
+    section = current_release_section()
+    if section is None:
+        return False
+    _version, text = section
     return bool(re.search(
         rf"(?:Фича|Feature|feature_id|feature:)\s*[:#]?\s*`?{re.escape(feature_id)}\b",
         text,
         re.IGNORECASE,
     ))
+
+def metadata_path_reference(path):
+    """Keep retained identity metadata portable and free of machine paths."""
+    try:
+        return pathlib.Path(path).resolve().relative_to(root).as_posix()
+    except ValueError:
+        return "<external>"
 
 def decision_identity_path(candidate_id):
     return DECISION_DIR / f".{candidate_id}.decision-identity.json"
@@ -544,6 +561,9 @@ if op == "decide":
         versions = changelog_calvers()
         if calver not in versions:
             die(f"CalVer {calver} is not bound to a release section in CHANGELOG.md")
+        current_section = current_release_section()
+        if current_section is None or calver != current_section[0]:
+            die(f"CalVer {calver} is not bound to the current prepared release section in CHANGELOG.md")
         tag = values["tag"] or calver
         if not TAG_RE.fullmatch(tag):
             die("tag must be vYYYY.MM.DD.N")
@@ -567,7 +587,7 @@ if op == "decide":
     validate_candidate(record)
     text = json.dumps(record, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     identity = json.dumps(
-        {"candidate_id": candidate["candidate_id"], "decision": decision, "output": str(output)},
+        {"candidate_id": candidate["candidate_id"], "decision": decision, "output": metadata_path_reference(output)},
         ensure_ascii=False,
         indent=2,
         sort_keys=True,
@@ -640,7 +660,7 @@ if op == "attest":
     }
     text = json.dumps(record, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     identity = json.dumps(
-        {"candidate_id": decision["candidate_id"], "attestation_id": record["attestation_id"], "output": str(output)},
+        {"candidate_id": decision["candidate_id"], "attestation_id": record["attestation_id"], "output": metadata_path_reference(output)},
         ensure_ascii=False,
         indent=2,
         sort_keys=True,
