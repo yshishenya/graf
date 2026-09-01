@@ -47,12 +47,60 @@ def test_checkout_uses_amount_specific_yookassa_actions_without_js() -> None:
     html = (TEMPLATE_ROOT / "billing_checkout_content.html").read_text(encoding="utf-8")
     assert 'name="cycle" value="month"' in html
     assert 'name="cycle" value="year"' in html
+    assert 'name="cycle" value="{{ checkout_cycle }}"' in html
     assert 'action="/billing/checkout/preview" method="post"' in html
     assert "checkout_preview" in html
     assert "monthly_price_label|default" in html
     assert "annual_price_label|default" in html
     assert "annual_saving_label" in html
     assert "Перейти к оплате" not in html
+
+
+def test_billing_overview_declares_landmark_order_and_single_primary_contract() -> None:
+    html = (TEMPLATE_ROOT / "billing_overview_content.html").read_text(encoding="utf-8")
+    ordered_ids = (
+        "billing-summary-title",
+        "billing-offer-title",
+        "billing-workspace-title",
+        "billing-method-title",
+        "billing-history-title",
+    )
+    assert [html.index(section_id) for section_id in ordered_ids] == sorted(
+        html.index(section_id) for section_id in ordered_ids
+    )
+    assert 'class="cabinet-main billing-page billing-overview"' in html
+    assert "data-billing-primary" in html
+    assert 'role="status"' in html
+    assert 'role="alert"' in html
+
+
+def test_plans_and_checkout_use_named_period_navigation_and_native_coupon_disclosure() -> None:
+    plans = (TEMPLATE_ROOT / "billing_plans_content.html").read_text(encoding="utf-8")
+    checkout = (TEMPLATE_ROOT / "billing_checkout_content.html").read_text(encoding="utf-8")
+
+    assert 'aria-label="Период тарифа"' in plans
+    assert 'aria-current="true"' in plans
+    assert 'href="/billing/plans?cycle=month"' in plans
+    assert 'href="/billing/plans?cycle=year"' in plans
+    assert 'aria-label="Период оплаты"' in checkout
+    assert 'action="/billing/checkout/preview" method="post"' in checkout
+    assert 'name="cycle" value="month"' in checkout
+    assert 'name="cycle" value="year"' in checkout
+    assert '<details class="billing-coupon"' in checkout
+    assert '<summary' in checkout
+    assert checkout.count("data-billing-primary") == 1
+
+
+def test_billing_css_scopes_reflow_and_forced_color_contracts() -> None:
+    css = (
+        ROOT / "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css"
+    ).read_text(encoding="utf-8")
+    assert ".billing-page" in css
+    assert ".billing-plan-grid" in css
+    assert ".billing-checkout-card" in css
+    assert "@media (max-width: 760px)" in css
+    assert "@media (forced-colors: active)" in css
+    assert '.billing-period-switch :is(a, button)[aria-current="true"] { outline: 2px solid Highlight;' in css
 
 
 def test_checkout_renders_server_calculated_promo_amounts() -> None:
@@ -88,7 +136,9 @@ def test_checkout_renders_server_calculated_promo_amounts() -> None:
     assert "−79 ₽ (10%)" in html
     assert "711 ₽" in html
     assert 'Оплатить 711 ₽ в YooKassa — месяц' in html
-    assert 'Оплатить 7 900 ₽ в YooKassa — год' in html
+    assert 'action="/billing/checkout/preview"' in html
+    assert 'name="promo_code" value="SAVE10"' in html
+    assert 'name="cycle" value="year"' in html
     assert "Следующее списание" in html
     assert "referral" not in html.lower()
 

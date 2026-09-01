@@ -25,6 +25,26 @@ def test_billing_ia_contract_matches_current_server_route_namespace() -> None:
     assert "`/account/workspaces/{ws}/billing`" not in contract
 
 
+def test_feature_210_contract_keeps_preview_non_mutating_and_desktop_routes_shared() -> None:
+    ui_contract = (ROOT / "specs/210-krisp-billing-page/contracts/ui-contract.md").read_text(
+        encoding="utf-8"
+    )
+    desktop_contract = (
+        ROOT / "specs/210-krisp-billing-page/contracts/desktop-web-parity.md"
+    ).read_text(encoding="utf-8")
+    route = (ROOT / "apps/server/src/twobrain_rec_server/cabinet/web_routes/billing.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "do not\ncreate financial state" in ui_contract
+    assert "No new billing route is introduced" in desktop_contract
+    assert '@router.post("/billing/checkout/preview"' in route
+    assert '@router.post("/billing/checkout/start"' in route
+    assert route.index('@router.post("/billing/checkout/preview"') < route.index(
+        '@router.post("/billing/checkout/start"'
+    )
+
+
 def test_storage_degraded_state_does_not_redirect_back_to_itself() -> None:
     source = (ROOT / "apps/server/src/twobrain_rec_server/cabinet/web_routes/billing.py").read_text(
         encoding="utf-8"

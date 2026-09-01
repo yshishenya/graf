@@ -802,7 +802,7 @@ def test_browser_email_login_flow_sets_cookie_binds_browser_device_and_opens_mee
     assert 'class="auth-panel"' in start.text
     assert start.text.count('class="code-slot"') == 6
     assert 'class="code-slots"' in start.text
-    assert 'data-code-hidden' in start.text
+    assert "data-code-hidden" in start.text
     assert 'name="code"' in start.text
     assert "data-code-form" in start.text
     assert 'src="/static/cabinet/cabinet.js?v=' in start.text
@@ -904,18 +904,14 @@ def test_parallel_browser_email_login_attempts_keep_independent_nonce_cookies(cl
             data={"email": BROWSER_OWNER_EMAIL, "next": "/meetings"},
         )
         state_match = re.search(r'name="state" value="([^"]+)"', start.text)
-        code_match = re.search(
-            r"Код для локальной проверки: <strong>(\d{6})</strong>", start.text
-        )
+        code_match = re.search(r"Код для локальной проверки: <strong>(\d{6})</strong>", start.text)
         assert state_match is not None and code_match is not None
         cookie_name, browser_nonce = _bind_email_auth_attempt_cookie(
             client,
             start,
             state_nonce=state_match.group(1),
         )
-        attempts.append(
-            (state_match.group(1), code_match.group(1), cookie_name, browser_nonce)
-        )
+        attempts.append((state_match.group(1), code_match.group(1), cookie_name, browser_nonce))
 
     assert attempts[0][2] != attempts[1][2]
     assert attempts[0][3] != attempts[1][3]
@@ -2604,9 +2600,7 @@ def test_personal_owner_continues_existing_checkout_without_second_operation(
             calls.append(kwargs)
             return {
                 "id": "payment-recovery-9",
-                "confirmation": {
-                    "confirmation_url": "https://yookassa.test/checkout/recovery-9"
-                },
+                "confirmation": {"confirmation_url": "https://yookassa.test/checkout/recovery-9"},
             }
 
     session = client.portal.call(seed)
@@ -2631,7 +2625,7 @@ def test_personal_owner_continues_existing_checkout_without_second_operation(
     assert len(calls) == 1
     assert calls[0]["idempotence_key"] == "existing-provider-key"
 
-    async def read_result() -> tuple[int, int, str, str | None]:
+    async def read_result() -> tuple[int, int, str, str | None, str | None]:
         async with client.app_state["sessionmaker"]() as db:
             operations = tuple(
                 await db.scalars(
@@ -2652,9 +2646,22 @@ def test_personal_owner_continues_existing_checkout_without_second_operation(
                 len(invoices),
                 operations[0].state,
                 operations[0].provider_id,
+                operations[0].request_snapshot.get("billing_actor_user_id"),
             )
 
-    assert client.portal.call(read_result) == (1, 1, "provider_pending", "payment-recovery-9")
+    assert client.portal.call(read_result) == (
+        1,
+        1,
+        "provider_pending",
+        "payment-recovery-9",
+        str(USER_ID),
+    )
+
+    checkout = client.get("/billing/checkout")
+    assert checkout.status_code == 200
+    assert "https://yookassa.test/checkout/recovery-9" in checkout.text
+    assert "Продолжить этот платёж в ЮKassa" in checkout.text
+    assert len(calls) == 1
 
 
 def test_desktop_billing_handoff_sets_browser_session_once(client, tmp_path) -> None:

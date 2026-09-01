@@ -215,7 +215,7 @@ async def test_planner_persists_approved_catalog_and_receipt_snapshot() -> None:
         enabled_for_checkout=True,
         policy_snapshot={"offer_version": "personal-v7"},
     )
-    db = PlanningDb([subscription, catalog, UUID(int=1), "billing@2brain.pro", None])
+    db = PlanningDb([subscription, None, catalog, UUID(int=1), "billing@2brain.pro", None])
 
     planned = await plan_due_renewals(db, now=datetime(2026, 8, 8, tzinfo=UTC))
 
@@ -234,6 +234,33 @@ async def test_planner_persists_approved_catalog_and_receipt_snapshot() -> None:
         "policy_snapshot": {"offer_version": "personal-v7"},
     }
     assert invoice.receipt_contact_snapshot == "billing@2brain.pro"
+
+
+@pytest.mark.asyncio
+async def test_planner_skips_renewal_while_initial_checkout_is_unresolved() -> None:
+    subscription = WorkspaceSubscription(
+        workspace_id=WORKSPACE_ID,
+        billing_owner_id=OWNER_ID,
+        state="personal",
+        plan_code="personal",
+        cycle="month",
+        paid_through=PAID_THROUGH,
+        recurring_allowed=True,
+    )
+
+    class BlockingPlanningDb(PlanningDb):
+        blocker_query = None
+
+        async def scalar(self, query: object) -> object:
+            self.blocker_query = query
+            return UUID(int=9)
+
+    db = BlockingPlanningDb([subscription])
+
+    assert await plan_due_renewals(db, now=datetime(2026, 8, 8, tzinfo=UTC)) == ()
+    query = str(db.blocker_query.compile(compile_kwargs={"literal_binds": True}))
+    assert "initial_checkout" in query
+    assert not db.added
 
 
 @pytest.mark.asyncio

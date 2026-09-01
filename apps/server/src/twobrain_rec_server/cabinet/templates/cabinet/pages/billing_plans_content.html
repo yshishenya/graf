@@ -1,26 +1,64 @@
 {% import "cabinet/components/sections.html" as sections %}
-<main id="cabinet-main" class="cabinet-main" tabindex="-1">
+{% set selected_cycle = selected_cycle|default("year") %}
+<main id="cabinet-main" class="cabinet-main billing-page billing-plans-page" tabindex="-1">
   <div class="cabinet-workspace settings-page">
-    <div class="settings-page__content">
-      <header class="cabinet-topbar settings-page__topbar"><div class="page-title"><h1>Тарифы</h1><p class="muted">Сравнение условий без скрытых лимитов и автоматического перехода на оплату.</p></div></header>
-      <section class="settings-section cabinet-card" aria-labelledby="billing-plans-title">
-        <h2 id="billing-plans-title">Доступные уровни</h2>
-        <div class="settings-choice-list">
-          {% for item in plans %}
-          <article class="settings-choice-row">
-            <div><h3>{{ item.label }}</h3><p>{% if item.processing_mode == "unlimited" %}Без лимита по минутам и встречам.{% else %}{{ item.processing_label }} в календарный месяц без переноса.{% endif %}</p><p class="muted">Playback-хранилище: {{ item.storage_label }}. При заполнении можно обработать встречу без сохранения аудио.</p>{% if item.monthly_amount_label and billing_enabled %}<p>Месяц: <strong>{{ item.monthly_amount_label }}</strong> · год: <strong>{{ item.annual_amount_label }}</strong>{% if item.annual_saving_label %} · {{ item.annual_saving_label }}{% endif %}</p>{% elif item.monthly_amount_label %}<p class="muted">Цена появится после включения биллинга.</p>{% endif %}</div>
-            {% if item.is_current %}<span class="muted">Текущий тариф</span>{% elif item.code == "personal" and billing_owner and billing_enabled and item.catalog_ready %}<a class="button quiet" href="/billing/checkout">Выбрать «Личный»</a>{% elif item.code == "personal" %}<span class="muted">Цена появится после утверждения версии каталога.</span>{% elif item.code == "trial" and billing_owner and trial_state == "eligible" %}<form action="/billing/trial/activate" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<input type="hidden" name="confirmation" value="start_trial"><button class="button quiet" type="submit">Начать 7 дней бесплатно</button></form>{% elif item.code == "trial" %}<span class="muted">Пробный период недоступен</span>{% else %}<span class="muted">Доступен без оплаты</span>{% endif %}
-          </article>
-          {% endfor %}
+    <div class="settings-page__content billing-page__content billing-page__content--wide">
+      <header class="cabinet-topbar settings-page__topbar billing-page__header"><div class="page-title"><h1>Выберите подходящий тариф</h1><p class="muted">Только реальные условия GRAF. Оплата начнётся лишь после отдельного подтверждения.</p></div></header>
+
+      <nav class="billing-period-switch" aria-label="Период тарифа">
+        <a href="/billing/plans?cycle=month"{% if selected_cycle == "month" %} aria-current="true"{% endif %}>Ежемесячно</a>
+        <a href="/billing/plans?cycle=year"{% if selected_cycle == "year" %} aria-current="true"{% endif %}>Ежегодно</a>
+      </nav>
+
+      <section class="billing-plan-grid" aria-label="Доступные тарифы">
+        {% for item in plans %}
+        {% set price_label = item.annual_amount_label if selected_cycle == "year" else item.monthly_amount_label %}
+        {% if item.code in ["free", "trial"] %}{% set price_label = "0 ₽" %}{% endif %}
+        <article class="billing-plan-card{% if item.code == 'personal' %} billing-plan-card--featured{% endif %}{% if item.is_current %} is-current{% endif %}"{% if item.is_current %} aria-current="true"{% endif %}>
+          <div class="billing-plan-card__heading">
+            <h2>{{ item.label }}</h2>
+            {% if item.is_current %}<span class="billing-plan-badge">Текущий тариф</span>{% elif item.code == "personal" %}<span class="billing-plan-badge">Больше возможностей</span>{% endif %}
+          </div>
+          <p class="billing-plan-card__price"><strong>{{ price_label|default("Цена уточняется", true) }}</strong><span>{% if item.code == "free" %}без оплаты{% elif item.code == "trial" %}7 дней{% elif selected_cycle == "year" %}в год{% else %}в месяц{% endif %}</span></p>
+          {% if selected_cycle == "year" and item.annual_saving_label %}<p class="billing-plan-card__saving">{{ item.annual_saving_label }}</p>{% endif %}
+          <ul class="billing-feature-list">
+            <li>{% if item.processing_mode == "unlimited" %}Без лимита по минутам и встречам{% else %}{{ item.processing_label }} в календарный месяц{% endif %}</li>
+            <li>Playback-хранилище {{ item.storage_label }}</li>
+            <li>Обработка без сохранения аудио при заполненном архиве</li>
+          </ul>
+          <div class="billing-plan-card__action">
+            {% if item.code == "personal" and item.is_current %}<span class="muted">Подключён сейчас{% if not billing_owner %}; оплатой управляет текущий владелец биллинга{% endif %}</span>
+            {% elif item.code == "personal" and current_plan_code|default(None) == "personal" %}<span class="muted">Другой период оплаты; текущие условия не изменятся без отдельного подтверждения.</span>
+            {% elif item.code == "personal" and operation_pending|default(False) %}<span class="muted">Платёж проверяется; новую оплату пока не предлагаем.</span>
+            {% elif item.is_current and billing_owner %}<span class="muted">Подключён сейчас</span>
+            {% elif item.code == "personal" and (billing_owner or billing_role|default(None) == "owner") and billing_enabled and item.catalog_ready %}<a class="button" href="/billing/checkout?cycle={{ selected_cycle }}">Выбрать «Личный»</a>
+            {% elif item.code == "personal" and not item.catalog_ready %}<span class="muted">Цена появится после утверждения версии каталога.</span>
+            {% elif item.code == "personal" and not billing_enabled %}<span class="muted">Оплата временно недоступна: магазин не включён.</span>
+            {% elif item.code == "personal" %}<span class="muted">Оплата временно недоступна.</span>
+            {% elif item.code == "trial" and billing_owner and trial_state == "eligible" and not operation_pending|default(False) %}<form action="/billing/trial/activate" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<input type="hidden" name="confirmation" value="start_trial"><button class="button quiet" type="submit">Начать 7 дней бесплатно</button></form>
+            {% elif item.code == "trial" %}<span class="muted">Пробный период недоступен</span>
+            {% else %}<span class="muted">Доступен без оплаты</span>{% endif %}
+          </div>
+        </article>
+        {% endfor %}
+      </section>
+
+      <section class="billing-section billing-comparison" aria-labelledby="billing-comparison-title">
+        <h2 id="billing-comparison-title">Сравнение возможностей</h2>
+        <div class="billing-comparison__table" role="table" aria-label="Сравнение тарифов">
+          <div role="row" class="billing-comparison__row billing-comparison__row--head"><span role="columnheader">Возможность</span>{% for item in plans %}<span role="columnheader">{{ item.label }}</span>{% endfor %}</div>
+          <div role="row" class="billing-comparison__row"><span role="rowheader">Обработка</span>{% for item in plans %}<span role="cell" data-plan-label="{{ item.label }}">{% if item.processing_mode == "unlimited" %}Без лимита{% else %}{{ item.processing_label }}{% endif %}</span>{% endfor %}</div>
+          <div role="row" class="billing-comparison__row"><span role="rowheader">Хранилище</span>{% for item in plans %}<span role="cell" data-plan-label="{{ item.label }}">{{ item.storage_label }}</span>{% endfor %}</div>
+          <div role="row" class="billing-comparison__row"><span role="rowheader">Без сохранения аудио</span>{% for item in plans %}<span role="cell" data-plan-label="{{ item.label }}">Доступно</span>{% endfor %}</div>
         </div>
       </section>
-      <section class="settings-section cabinet-card" aria-labelledby="billing-plan-boundary-title">
-        <h2 id="billing-plan-boundary-title">Важно о хранении</h2>
-        <p>Платная обработка не ограничена по времени, но архив имеет конечную ёмкость. Дополнительное хранилище выбирает итоговую ёмкость 5, 20, 100 или 500 GB и оплачивается отдельно после утверждения ценовой версии.</p>
-        <a class="button quiet" href="/billing/storage">Настроить хранилище</a>
+
+      <section class="billing-section billing-row-section" aria-labelledby="billing-plan-boundary-title">
+        <div><h2 id="billing-plan-boundary-title">Важно о хранении</h2><p>Платная обработка не ограничена по времени, но архив имеет конечную ёмкость. Дополнительное хранилище оплачивается отдельно только после утверждения ценовой версии.</p></div>
+        {% if billing_owner %}<a class="button quiet" href="/billing/storage">Настроить хранилище</a>{% endif %}
       </section>
-      {% if support_email %}<p class="billing-help"><a class="button quiet" href="mailto:{{ support_email|e }}">Связаться с нами</a></p>{% endif %}
-      <p class="billing-help"><a class="button quiet" href="/billing/history">Нужна помощь с оплатой?</a></p>
+      {% if support_email|default(None) %}<p class="billing-help"><a class="button quiet" href="mailto:{{ support_email|e }}">Связаться с нами</a></p>{% endif %}
+      {% if billing_owner %}<p class="billing-help"><a class="button quiet" href="/billing/history">Нужна помощь с оплатой?</a></p>{% endif %}
     </div>
   </div>
 </main>
