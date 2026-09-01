@@ -67,18 +67,21 @@ def _artifact_digest(path: Path) -> str:
             if not child.is_file():
                 continue
             relative = child.relative_to(path).as_posix().encode("utf-8")
-            size = child.stat().st_size
-            hasher.update(b"file\0")
+            hasher.update(b"entry\0file\0")
             hasher.update(len(relative).to_bytes(8, "big"))
             hasher.update(relative)
-            hasher.update(size.to_bytes(8, "big"))
-            read = 0
             with child.open("rb") as handle:
+                before = os.fstat(handle.fileno())
+                size = before.st_size
+                hasher.update(size.to_bytes(8, "big"))
+                read = 0
                 for chunk in iter(lambda: handle.read(1024 * 1024), b""):
                     hasher.update(chunk)
                     read += len(chunk)
-            if read != size:
+                after = os.fstat(handle.fileno())
+            if read != size or (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
                 raise SystemExit(f"artifact changed while hashing: {child}")
+            hasher.update(b"\0end-entry\0")
     else:
         raise SystemExit(f"artifact path does not exist: {path}")
     return "sha256:" + hasher.hexdigest()
