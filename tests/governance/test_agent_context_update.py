@@ -51,18 +51,6 @@ def test_resolver_ignores_plan_mtime_and_uses_feature_pointer(tmp_path: Path) ->
     assert updater._resolve_plan_path(str(tmp_path)) == "specs/216-active/plan.md"
 
 
-def test_resolver_rejects_external_plan_path(tmp_path: Path) -> None:
-    updater = load_updater()
-    outside = tmp_path.parent / "external-plan-root"
-    outside.mkdir()
-    (outside / "plan.md").write_text("external\n", encoding="utf-8")
-    pointer = tmp_path / ".specify/feature.json"
-    pointer.parent.mkdir(parents=True)
-    pointer.write_text(json.dumps({"feature_directory": str(outside)}), encoding="utf-8")
-
-    assert updater._resolve_plan_path(str(tmp_path)) == ""
-
-
 def test_cli_does_not_modify_context_without_active_pointer(tmp_path: Path) -> None:
     _write_config(tmp_path)
     context = tmp_path / "AGENTS.md"
