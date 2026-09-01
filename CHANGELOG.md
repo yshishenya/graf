@@ -9,6 +9,26 @@
 ## [Unreleased]
 
 ### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- _Пока нет записей._
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.09.01.1] - 2026-09-01
+
+### Добавлено
 - Владелец готовой записи может запустить повторную обработку через меню
   «Ещё». Действие требует подтверждения, защищено от повторного запуска из
   двух вкладок и недоступно получателям общей ссылки.
@@ -21,6 +41,10 @@
   отсчёт и действие «Повторить сейчас», которое продолжает ту же попытку без
   создания параллельной задачи. После окончательной ошибки владелец может
   запустить новую повторную обработку.
+- Процесс разработки переводится на изолированные worktree, единый Dev-манифест, SHA-привязанную проверку и отдельные changelog fragments. (Фича 216, issue #6090, tasks [T001, T002, T003, T004]); совместимость: Не меняет продуктовый runtime; требует нового agent preflight и release-train правил.; release notes: В релизе описать правила Dev, CI, release train и Legacy Impact на русском языке; повторный идентичный Feature ID claim должен быть идемпотентным; publication attestation проверяет GitHub Release и tag по origin и exact SHA.; ограничения: Полный live Dev promote ожидает отдельного безопасного восстановления локального migration state; production volume не затрагивается.
+- CI получает merge-group validation, stale-SHA protection и provenance редкого release train. (Фича 227, issue #6207, tasks [T001, T002, T003, T004, T005, T006, T007, T008, T009, T010, T011, T012, T013, T014, T015, T016, T017, T018, T019, T020, T021, T022, T023, T024, T025, T026, T027, T028, T029, T030, T031]); совместимость: PR feedback остаётся bounded fast lane; production release по-прежнему требует frozen candidate, одного authoritative Full CI и отдельного approval.; release notes: Synthetic merge SHA, post-merge master SHA и release candidate связываются отдельными metadata-only receipts; устаревшие проверки блокируются.; ограничения: Merge queue rollout остаётся ограничен governance workflow; production deployment и публикация release train требуют отдельного operator approval.
+- Планируется управляемый процесс инвентаризации и поэтапного retirement legacy без массового удаления до review и отдельных safety slices. (Фича 228, issue #6238, tasks [T001, T002, T003, T004, T005, T006, T007, T008, T009, T010, T011, T012, T013, T014, T015, T016, T017, T018, T019, T020, T021, T022, T023, T024, T025, T026, T027, T028, T029, T030, T031, T032, T033, T034, T035]); совместимость: Не меняет runtime или production data; будущие migration, Temporal, MediaScribe и macOS/Sparkle retirement требуют отдельных feature, rehearsal и release gate.; release notes: До implementation и review выпуск не заявляется. В release train включаются только готовые slices с immutable evidence на exact SHA.; ограничения: Feature 220 — неслитой draft, а не инвентаризация или доказательство cleanup.; Наблюдаемые current-source matches являются кандидатами и не означают разрешение на удаление.; Feature 228 не удаляет legacy, не меняет reviewer-owned checklist и не выполняет production операции.
+- Полноценный изолированный Dev runtime GRAF связывает backend, server-rendered frontend, Temporal и workers одним exact SHA. (Фича 229, issue #6276, tasks [T001, T002, T003, T004, T005, T006, T007, T008, T010, T011, T012, T013, T014, T015, T016, T017, T018, T019, T020, T021, T022, T023, T024, T025, T026, T027, T028, T029, T030, T031, T032, T033, T034, T035]); совместимость: Старый start-local.sh остаётся неактивным исключением до отдельной retirement-задачи; production deploy и migration не выполняются.; release notes: Dev promotion и rollback сериализованы lock, migration mismatch блокируется без destructive repair, рабочий runtime и app не смешивают SHA или production state.; ограничения: ["Требуется Docker Desktop, uv, локальная signing identity и отдельный Dev namespace."]
 
 ### Исправлено
 - _Пока нет записей._
