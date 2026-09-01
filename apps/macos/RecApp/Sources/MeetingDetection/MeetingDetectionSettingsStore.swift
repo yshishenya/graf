@@ -11,118 +11,85 @@ public extension Notification.Name {
 }
 
 public struct MeetingDetectionSettings: Codable, Equatable, Sendable {
-    public var detectionMode: MeetingDetectionMode
     public var uploadMode: MeetingDetectionUploadMode
     public var unknownIdentityUploadAllowed: Bool
-    public var targetScopedAutoRecordEnabled: Bool
-    public var autoRecordTargetIds: Set<String>
     public var automaticRecordingRules: [String: AutomaticRecordingRule]
-    public var assistedAutoStartAcknowledgement: AssistedAutoStartAcknowledgement?
-    public var automaticRecordingDefaultsApplied: Bool
 
     public init(
-        detectionMode: MeetingDetectionMode = .detectAndAsk,
         uploadMode: MeetingDetectionUploadMode = .automaticCandidateUpload,
         unknownIdentityUploadAllowed: Bool = true,
-        targetScopedAutoRecordEnabled: Bool = false,
-        autoRecordTargetIds: Set<String> = [],
-        automaticRecordingRules: [String: AutomaticRecordingRule] = [:],
-        assistedAutoStartAcknowledgement: AssistedAutoStartAcknowledgement? = nil,
-        automaticRecordingDefaultsApplied: Bool = false
+        automaticRecordingRules: [String: AutomaticRecordingRule] = [:]
     ) {
-        self.detectionMode = detectionMode
         self.uploadMode = uploadMode
         self.unknownIdentityUploadAllowed = unknownIdentityUploadAllowed
-        self.targetScopedAutoRecordEnabled = targetScopedAutoRecordEnabled
-        self.autoRecordTargetIds = autoRecordTargetIds
         self.automaticRecordingRules = automaticRecordingRules
-        self.assistedAutoStartAcknowledgement = assistedAutoStartAcknowledgement
-        self.automaticRecordingDefaultsApplied = automaticRecordingDefaultsApplied
     }
 
     private enum CodingKeys: String, CodingKey {
-        case detectionMode
         case uploadMode
         case unknownIdentityUploadAllowed
-        case targetScopedAutoRecordEnabled
         case autoRecordTargetIds
         case automaticRecordingRules
-        case assistedAutoStartAcknowledgement
-        case automaticRecordingDefaultsApplied
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        detectionMode = try container.decode(MeetingDetectionMode.self, forKey: .detectionMode)
-        uploadMode = try container.decode(MeetingDetectionUploadMode.self, forKey: .uploadMode)
-        unknownIdentityUploadAllowed = try container.decode(Bool.self, forKey: .unknownIdentityUploadAllowed)
-        targetScopedAutoRecordEnabled = try container.decode(Bool.self, forKey: .targetScopedAutoRecordEnabled)
-        autoRecordTargetIds = try container.decode(Set<String>.self, forKey: .autoRecordTargetIds)
+        uploadMode = try container.decodeIfPresent(
+            MeetingDetectionUploadMode.self,
+            forKey: .uploadMode
+        ) ?? .automaticCandidateUpload
+        unknownIdentityUploadAllowed = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .unknownIdentityUploadAllowed
+        ) ?? true
         let decodedRules = try container.decodeIfPresent(
             [String: AutomaticRecordingRule].self,
             forKey: .automaticRecordingRules
         ) ?? [:]
-        // Legacy target selections do not prove target-specific permanent intent.
-        // Materialize them as ask; the old fields remain only for compatibility.
+        let legacyTargetIDs = try container.decodeIfPresent(
+            Set<String>.self,
+            forKey: .autoRecordTargetIds
+        ) ?? []
+        // ponytail: legacy keys are read once as safe `ask`; remove this decoder
+        // only after supported installs can no longer contain the old document.
         automaticRecordingRules = decodedRules.isEmpty
-            ? Dictionary(uniqueKeysWithValues: autoRecordTargetIds.map { ($0, .ask) })
+            ? Dictionary(uniqueKeysWithValues: legacyTargetIDs.map { ($0, .ask) })
             : decodedRules
-        assistedAutoStartAcknowledgement = try container.decodeIfPresent(
-            AssistedAutoStartAcknowledgement.self,
-            forKey: .assistedAutoStartAcknowledgement
-        )
-        // A file written before this feature is already user-controlled. Never
-        // reinterpret its existing target selection as a fresh-install default.
-        automaticRecordingDefaultsApplied = try container.decodeIfPresent(
-            Bool.self,
-            forKey: .automaticRecordingDefaultsApplied
-        ) ?? true
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(uploadMode, forKey: .uploadMode)
+        try container.encode(unknownIdentityUploadAllowed, forKey: .unknownIdentityUploadAllowed)
+        try container.encode(automaticRecordingRules, forKey: .automaticRecordingRules)
     }
 
     public var policySummary: MeetingDetectionPolicySummary {
         MeetingDetectionPolicySummary(
-            detectionMode: detectionMode,
+            detectionMode: .detectAndAsk,
             uploadMode: uploadMode,
             unknownIdentityUploadAllowed: unknownIdentityUploadAllowed
         )
-    }
-
-    public func allowsAssistedAutoStart(
-        policy: AssistedAutoStartPolicySnapshot?,
-        at now: Date = Date()
-    ) -> Bool {
-        guard let policy, let assistedAutoStartAcknowledgement else { return false }
-        return assistedAutoStartAcknowledgement.matches(policy, at: now)
     }
 
     public func allowsDetectorAssistedStart(
         reason: MeetingDetectionStartReason,
         targetID: String
     ) -> Bool {
-        guard detectionMode == .detectAndAsk else { return false }
         guard recordingRule(for: targetID) != .never else { return false }
         guard reason == .savedTargetPolicy else { return true }
-        return targetScopedAutoRecordEnabled && recordingRule(for: targetID) == .always
+        return recordingRule(for: targetID) == .always
     }
 
     public func recordingRule(for targetID: String) -> AutomaticRecordingRule {
         if let rule = automaticRecordingRules[targetID] {
             return rule
         }
-        guard automaticRecordingRules.isEmpty else { return .ask }
-        // Programmatic legacy callers are kept source-compatible; decoded legacy
-        // files are normalized to ask in init(from:).
-        return targetScopedAutoRecordEnabled && autoRecordTargetIds.contains(targetID)
-            ? .always
-            : .ask
+        return .ask
     }
 
     public mutating func setRecordingRule(_ rule: AutomaticRecordingRule, for targetID: String) {
         automaticRecordingRules[targetID] = rule
-        targetScopedAutoRecordEnabled = automaticRecordingRules.values.contains(.always)
-        autoRecordTargetIds = Set(
-            automaticRecordingRules.compactMap { $0.value == .always ? $0.key : nil }
-        )
     }
 }
 
@@ -155,24 +122,17 @@ public final class MeetingDetectionSettingsStore: @unchecked Sendable {
         try queue.sync { try saveLocked(settings) }
     }
 
-    /// Applies clean-install defaults once, without touching an existing
-    /// user-controlled settings file or creating policy acknowledgement.
+    /// Adds only missing verified applications as `ask` and preserves every
+    /// existing explicit rule. This also creates the first-install document.
     public func applyFirstInstallDefaults(targetIDs: Set<String>) throws -> MeetingDetectionSettings? {
         guard !targetIDs.isEmpty else { return nil }
         return try queue.sync {
-            // A missing file is the only unambiguous fresh-install signal. A
-            // file with marker=false may already contain an explicit user edit.
-            guard !FileManager.default.fileExists(atPath: settingsURL.path) else { return nil }
             let current = try loadLocked()
-            guard !current.automaticRecordingDefaultsApplied else { return nil }
             var updated = current
-            updated.detectionMode = .detectAndAsk
-            updated.targetScopedAutoRecordEnabled = true
-            updated.autoRecordTargetIds = targetIDs
-            updated.automaticRecordingRules = Dictionary(
-                uniqueKeysWithValues: targetIDs.map { ($0, .ask) }
-            )
-            updated.automaticRecordingDefaultsApplied = true
+            for targetID in targetIDs where updated.automaticRecordingRules[targetID] == nil {
+                updated.automaticRecordingRules[targetID] = .ask
+            }
+            guard updated != current else { return nil }
             try saveLocked(updated)
             return updated
         }

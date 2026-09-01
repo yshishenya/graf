@@ -135,6 +135,102 @@
 
   const currentList = () => document.querySelector("[data-meeting-list]");
   const allRows = () => Array.from(currentList()?.querySelectorAll("[data-meeting-row]") || []);
+  let localRecordingRows = [];
+  const renderLocalRecordingRows = () => {
+    const host = currentList();
+    if (!host) return;
+    host.querySelectorAll("[data-graf-local-recording-row]").forEach((row) => row.remove());
+    const localOnly = localRecordingRows.filter((item) => {
+      if (!item.meetingId) return true;
+      const serverRow = allRows().find((row) => row.dataset.meetingId === item.meetingId);
+      if (!serverRow || item.uploadComplete !== true) return true;
+      serverRow.dataset.grafLocalRecordingId = item.id;
+      return false;
+    });
+    let list = host.querySelector("ol.meeting-list");
+    const emptyState = host.querySelector(":scope > .empty-state");
+    if (!localOnly.length) {
+      host.querySelector("ol[data-graf-local-recording-list]")?.remove();
+      if (emptyState) emptyState.hidden = false;
+      return;
+    }
+    if (!list) {
+      list = document.createElement("ol");
+      list.className = "meeting-list";
+      list.setAttribute("role", "list");
+      list.setAttribute("aria-label", "Встречи");
+      list.dataset.grafLocalRecordingList = "";
+      host.append(list);
+    }
+    if (emptyState) emptyState.hidden = true;
+    const date = new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+    localOnly.slice().reverse().forEach((item) => {
+      const row = document.createElement("li");
+      row.className = "meeting-row cabinet-row is-local-recording";
+      row.dataset.meetingRow = "";
+      row.dataset.grafLocalRecordingRow = "";
+      row.dataset.grafLocalRecordingId = item.id;
+
+      const selection = document.createElement("span");
+      selection.className = "row-select-hit row-contextual-placeholder";
+      selection.setAttribute("aria-hidden", "true");
+      const icon = document.createElement("span");
+      icon.className = "row-icon";
+      icon.dataset.mediaKind = "recording";
+      icon.setAttribute("aria-hidden", "true");
+      icon.textContent = "●";
+      const content = document.createElement("div");
+      content.className = "meeting-content";
+      const heading = document.createElement("span");
+      heading.className = "meeting-heading";
+      const title = document.createElement("strong");
+      title.className = "meeting-title row-title";
+      title.textContent = item.title || "Запись";
+      const duration = document.createElement("span");
+      duration.className = "meeting-duration muted";
+      const minutes = Math.floor(item.durationSeconds / 60);
+      const seconds = item.durationSeconds % 60;
+      duration.textContent = minutes ? `${minutes} мин ${seconds ? `${seconds} с` : ""}`.trim() : `${seconds} с`;
+      heading.append(title, duration);
+      const meta = document.createElement("span");
+      meta.className = "row-meta";
+      meta.textContent = item.status;
+      content.append(heading, meta);
+      const actions = document.createElement("span");
+      actions.className = "row-delete-form upload-activity-actions";
+      if (item.canSend) {
+        const send = document.createElement("button");
+        send.className = "button quiet upload-activity-action";
+        send.type = "button";
+        send.textContent = "Отправить";
+        send.dataset.grafLocalRecordingAction = "send";
+        send.dataset.grafLocalRecordingId = item.id;
+        actions.append(send);
+      }
+      if (item.canDelete) {
+        const remove = document.createElement("button");
+        remove.className = "row-delete icon-button";
+        remove.type = "button";
+        remove.textContent = "Удалить";
+        remove.setAttribute("aria-label", `Удалить локальную запись ${item.title || "Запись"}`);
+        remove.dataset.grafLocalRecordingAction = "delete";
+        remove.dataset.grafLocalRecordingId = item.id;
+        actions.append(remove);
+      }
+      const time = document.createElement("span");
+      time.className = "meeting-date";
+      const startedAt = new Date(item.startedAt);
+      time.textContent = Number.isNaN(startedAt.getTime()) ? "На этом Mac" : date.format(startedAt);
+      row.append(selection, icon, content, actions, time);
+      list.prepend(row);
+    });
+  };
+  window.GRAFLocalRecordings = {
+    update(rows) {
+      localRecordingRows = Array.isArray(rows) ? rows : [];
+      renderLocalRecordingRows();
+    },
+  };
   const rowPrimaryFocusTarget = (row) => row?.querySelector("[data-meeting-open]") || null;
   const selectableRows = () => allRows().filter((row) => row.querySelector("[data-meeting-select]"));
   const selectedRows = () => selectableRows().filter((row) => row.querySelector("[data-meeting-select]")?.checked);
@@ -7012,6 +7108,7 @@
       source.setAttribute("aria-expanded", "true");
     }
     if (target instanceof Element && (target.id === "meeting-list-region" || target.matches("[data-meeting-list]"))) {
+      renderLocalRecordingRows();
       if (pendingDeleteRows.length) {
         const pendingMeetingIds = new Set(pendingDeleteRows.map((row) => row.dataset.meetingId));
         pendingDeleteRows = allRows().filter((row) => pendingMeetingIds.has(row.dataset.meetingId));

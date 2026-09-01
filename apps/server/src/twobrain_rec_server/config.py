@@ -1,5 +1,4 @@
 import re
-from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -138,17 +137,6 @@ class Settings(BaseSettings):
     product_analytics_rollback_approved: bool = False
     product_analytics_live_provider_delivery_approved: bool = False
     product_analytics_campaign_readiness_approved: bool = False
-
-    assisted_auto_start_enabled: bool = False
-    # Global scope is an explicit internal-deployment attestation. An empty
-    # workspace ID never becomes a wildcard by itself.
-    assisted_auto_start_all_workspaces: bool = False
-    assisted_auto_start_all_workspaces_approved: bool = False
-    assisted_auto_start_workspace_id: UUID | None = None
-    assisted_auto_start_policy_version: str | None = None
-    assisted_auto_start_acknowledgement_version: str | None = None
-    assisted_auto_start_policy_issued_at: datetime | None = None
-    assisted_auto_start_policy_expires_at: datetime | None = None
 
     mediascribe_base_url: AnyUrl | None = None
     mediascribe_api_key_file: Path | None = None
@@ -328,11 +316,6 @@ class Settings(BaseSettings):
         "product_analytics_posthog_project_key_file",
         "product_analytics_yandex_counter_id",
         "product_analytics_yandex_oauth_token_file",
-        "assisted_auto_start_workspace_id",
-        "assisted_auto_start_policy_version",
-        "assisted_auto_start_acknowledgement_version",
-        "assisted_auto_start_policy_issued_at",
-        "assisted_auto_start_policy_expires_at",
         mode="before",
     )
     @classmethod
@@ -429,50 +412,6 @@ class Settings(BaseSettings):
             or self.retention_source_audio_policy_version == "unconfigured"
         ):
             raise ValueError("source audio retention requires an explicit policy version")
-        return self
-
-    @model_validator(mode="after")
-    def validate_assisted_auto_start_safety(self) -> "Settings":
-        if not self.assisted_auto_start_enabled:
-            return self
-        if self.assisted_auto_start_all_workspaces:
-            if not self.assisted_auto_start_all_workspaces_approved:
-                raise ValueError(
-                    "global assisted auto-start requires explicit all-workspaces approval"
-                )
-            if self.assisted_auto_start_workspace_id is not None:
-                raise ValueError(
-                    "global assisted auto-start cannot include a workspace ID"
-                )
-        elif self.assisted_auto_start_workspace_id is None:
-            raise ValueError(
-                "assisted auto-start requires workspace or approved global scope"
-            )
-        if (
-            self.assisted_auto_start_policy_issued_at is None
-            or self.assisted_auto_start_policy_expires_at is None
-            or not self.assisted_auto_start_policy_version
-            or not self.assisted_auto_start_acknowledgement_version
-        ):
-            raise ValueError(
-                "assisted auto-start requires policy, acknowledgement, and expiry"
-            )
-        for value in (
-            self.assisted_auto_start_policy_version,
-            self.assisted_auto_start_acknowledgement_version,
-        ):
-            if len(value) > 64 or any(
-                character not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-"
-                for character in value
-            ):
-                raise ValueError("assisted auto-start versions must be safe codes")
-        if (
-            self.assisted_auto_start_policy_issued_at.tzinfo is None
-            or self.assisted_auto_start_policy_expires_at.tzinfo is None
-        ):
-            raise ValueError("assisted auto-start policy dates must include a timezone")
-        if self.assisted_auto_start_policy_issued_at >= self.assisted_auto_start_policy_expires_at:
-            raise ValueError("assisted auto-start policy expiry must follow issue time")
         return self
 
     @model_validator(mode="after")

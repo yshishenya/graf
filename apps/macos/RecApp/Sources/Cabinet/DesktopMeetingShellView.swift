@@ -490,7 +490,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     }
 
     private var custodyDetailSummaries: [DesktopUploadCustodySummary] {
-        DesktopUploadCustodySummary.summaries(for: uploadQueueItems)
+        return DesktopUploadCustodySummary.summaries(for: uploadQueueItems)
     }
 
     private var attentionCustodySummaries: [DesktopUploadCustodySummary] {
@@ -675,7 +675,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         switch item.state {
         case .uploaded:
             return "checkmark.circle"
-        case .uploading, .queued, .retrying:
+        case .saving, .uploading, .queued, .retrying:
             return "speaker.wave.2"
         case .blocked, .degraded, .failed:
             return "exclamationmark.circle"
@@ -688,7 +688,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         switch item.state {
         case .uploaded:
             return .green
-        case .uploading, .queued:
+        case .saving, .uploading, .queued:
             return DesktopMeetingShellChrome.shellAccentColor
         case .retrying, .degraded:
             return .orange

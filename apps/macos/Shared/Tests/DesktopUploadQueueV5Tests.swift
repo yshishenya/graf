@@ -8,6 +8,96 @@ import TwoBrainRecShared
 import XCTest
 
 final class DesktopUploadQueueTests: XCTestCase {
+    func testSavingStateRoundTripsAndCannotUpload() throws {
+        let data = try JSONEncoder().encode(UploadItemState.saving)
+        let decoded = try JSONDecoder().decode(UploadItemState.self, from: data)
+
+        XCTAssertEqual(decoded, .saving)
+        XCTAssertEqual(decoded.displayName, "Сохраняется")
+        XCTAssertFalse(decoded.isTerminal)
+        XCTAssertFalse(decoded.canAutomaticallyRetry)
+        XCTAssertLessThan(decoded.sortPriority, UploadItemState.uploading.sortPriority)
+    }
+
+    func testSavingItemBecomesReadyWithTheSameIdentity() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let directory = try LocalRecordingStore(rootURL: root).createDirectory(sessionId: "saving-session")
+        let manifestService = LocalRecordingManifestService(clock: { Date(timeIntervalSince1970: 10) })
+        let active = manifestService.activeV5Manifest(
+            sessionId: "saving-session",
+            directoryId: directory.directoryId,
+            startedAt: Date(timeIntervalSince1970: 10),
+            scopeApproval: captureScope(sourceDisplayName: "Synthetic Meeting"),
+            permissions: SystemAudioPermissionSnapshot(
+                microphone: .granted,
+                systemAudio: .granted,
+                evaluatedAt: Date(timeIntervalSince1970: 9)
+            )
+        )
+        try manifestService.write(active, to: directory.manifestURL)
+        let queue = DesktopUploadQueueService(
+            queueURL: root.appendingPathComponent("queue.json"),
+            recordingsRootURL: root,
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 100) }
+        )
+
+        let saving = try queue.enqueueSaving(manifest: active, directoryURL: directory.directoryURL)
+        _ = try makeV5RecordingPackage(
+            root: root,
+            directoryId: directory.directoryId,
+            sessionId: active.sessionId
+        )
+        let final = try manifestService.read(from: directory.manifestURL)
+        let queued = try queue.enqueue(manifest: final, directoryURL: directory.directoryURL)
+
+        XCTAssertEqual(saving.state, .saving)
+        XCTAssertEqual(queued.state, .queued)
+        XCTAssertEqual(queued.id, saving.id)
+        XCTAssertEqual(try queue.loadItems().count, 1)
+        XCTAssertTrue(queued.artifactProfile.isUploadable)
+    }
+
+    func testDamagedItemCannotBeSentAndCanBeDeletedLocally() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let directory = try LocalRecordingStore(rootURL: root).createDirectory(sessionId: "damaged-session")
+        let manifestService = LocalRecordingManifestService(clock: { Date(timeIntervalSince1970: 10) })
+        var damaged = manifestService.activeV5Manifest(
+            sessionId: "damaged-session",
+            directoryId: directory.directoryId,
+            startedAt: Date(timeIntervalSince1970: 10),
+            scopeApproval: captureScope(sourceDisplayName: "Synthetic Meeting"),
+            permissions: SystemAudioPermissionSnapshot(
+                microphone: .granted,
+                systemAudio: .granted,
+                evaluatedAt: Date(timeIntervalSince1970: 9)
+            )
+        )
+        damaged.status = .failed
+        damaged.transcriptionReadiness = .failed
+        damaged.failureReason = .finalizationFailed
+        damaged.captureFailureCode = "recording_recovery_not_possible"
+        try manifestService.write(damaged, to: directory.manifestURL)
+        let queue = DesktopUploadQueueService(
+            queueURL: root.appendingPathComponent("queue.json"),
+            recordingsRootURL: root,
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 100) }
+        )
+
+        let blocked = try XCTUnwrap(queue.scanAndEnqueueCompletedRecordings().first)
+        let retry = try queue.retry(itemId: blocked.id)
+        let deleted = try queue.deleteLocalCopy(itemId: blocked.id)
+
+        XCTAssertEqual(blocked.state, .blocked)
+        XCTAssertFalse(blocked.artifactProfile.isUploadable)
+        XCTAssertEqual(retry.state, .blocked)
+        XCTAssertEqual(deleted.state, .terminalDeleted)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.directoryURL.path))
+    }
+
     func testFollowUpReasonsRemainBoundedAcrossRepeatedRetries() {
         var localPurgeReason = "initial"
         var scheduledReason = "initial"

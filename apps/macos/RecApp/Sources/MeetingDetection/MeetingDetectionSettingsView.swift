@@ -6,28 +6,21 @@ public struct MeetingDetectionSettingsView: View {
     public static let windowTitle = "Настройки"
     public static let sidebarTitle = "Встречи"
     public static let pageTitle = "Автозапись"
-    public static let promptToggleTitle = "Запрашивать запись"
-    public static let promptToggleDetail =
-        "Если выключено, запросы не показываются и запись не запускается. Определение встреч продолжает работать."
-    public static let assistedAutoStartTitle = "Разрешить запуск записи после таймера"
-    public static let assistedAutoStartDetail =
-        "Разрешает автоматический запуск после 8-секундного таймера, если действуют политика и разрешения workspace."
     public static let autoRecordSectionTitle = "Приложения"
     public static let applyToAllTitle = "Для всех приложений"
-    public static let technicalHintIcon = "info.circle"
     private let store: MeetingDetectionSettingsStore
     private let registryStore: MeetingTargetRegistryStore
     private let notificationCenter: NotificationCenter
 
     @State private var settings: MeetingDetectionSettings
     @State private var promptCapableTargets: [MeetingTargetRegistryTarget] = []
-    @State private var currentPolicy: AssistedAutoStartPolicySnapshot? = nil
     @State private var saveError: String?
 
     public init(
         store: MeetingDetectionSettingsStore = MeetingDetectionSettingsStore(),
         registryStore: MeetingTargetRegistryStore = MeetingTargetRegistryStore(
-            cacheURL: MeetingDetectionAppModule.targetRegistryCacheURL()
+            cacheURL: MeetingDetectionAppModule.targetRegistryCacheURL(),
+            bundledRegistryURL: MeetingDetectionAppModule.bundledTargetRegistryURL
         ),
         notificationCenter: NotificationCenter = .default
     ) {
@@ -100,24 +93,6 @@ public struct MeetingDetectionSettingsView: View {
                     .font(.headline)
 
                 Form {
-                    Section {
-                        technicalToggle(
-                            title: Self.assistedAutoStartTitle,
-                            detail: "\(Self.assistedAutoStartDetail)\n\n\(assistedAutoStartPolicyStatus)",
-                            binding: assistedAutoStartBinding,
-                            isDisabled: currentPolicy?.isActive() != true
-                        )
-                        .toggleStyle(.switch)
-
-                        technicalToggle(
-                            title: Self.promptToggleTitle,
-                            detail: Self.promptToggleDetail,
-                            binding: recordingPromptBinding
-                        )
-                        .toggleStyle(.switch)
-                        .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.meetingDetectionRecordingToggle)
-                    }
-
                     Section(header: Text(Self.autoRecordSectionTitle).fontWeight(.medium)) {
                         VStack(alignment: .leading, spacing: 6) {
                             Text(Self.applyToAllTitle)
@@ -168,65 +143,6 @@ public struct MeetingDetectionSettingsView: View {
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-
-    private var recordingPromptBinding: Binding<Bool> {
-        Binding(
-            get: { settings.detectionMode == .detectAndAsk },
-            set: { enabled in
-                updateSettings { draft in
-                    draft.detectionMode = enabled ? .detectAndAsk : .detectOnly
-                }
-            }
-        )
-    }
-
-    private func technicalToggle(
-        title: String,
-        detail: String,
-        binding: Binding<Bool>,
-        isDisabled: Bool = false
-    ) -> some View {
-        HStack(spacing: 8) {
-            Toggle(title, isOn: binding)
-                .fontWeight(.medium)
-                .disabled(isDisabled)
-                .accessibilityLabel(title)
-            TechnicalHintView(detail: detail)
-                .frame(width: 20, height: 20)
-                .accessibilityLabel("Подробнее о настройке")
-                .accessibilityHint(detail)
-        }
-    }
-
-    private var assistedAutoStartBinding: Binding<Bool> {
-        Binding(
-            get: { settings.allowsAssistedAutoStart(policy: currentPolicy) },
-            set: { enabled in
-                updateSettings { draft in
-                    if enabled, let policy = currentPolicy, policy.isActive() {
-                        draft.assistedAutoStartAcknowledgement = AssistedAutoStartAcknowledgement(
-                            policyRef: policy.policyRef,
-                            subjectRef: policy.acknowledgementSubjectRef,
-                            deviceRef: policy.deviceRef,
-                            acknowledgementVersion: policy.acknowledgementVersion
-                        )
-                    } else {
-                        draft.assistedAutoStartAcknowledgement = nil
-                    }
-                }
-            }
-        )
-    }
-
-    private var assistedAutoStartPolicyStatus: String {
-        guard let policy = currentPolicy, policy.isActive() else {
-            return "Политика workspace не разрешает автозапуск. Ручная запись доступна отдельно."
-        }
-        if settings.allowsAssistedAutoStart(policy: policy) {
-            return "Разрешено по правилам \(policy.policyVersion) до \(policy.expiresAt.formatted(date: .abbreviated, time: .omitted))."
-        }
-        return "Нужно ваше явное разрешение для правил \(policy.policyVersion)."
     }
 
     private var bulkRuleBinding: Binding<AutomaticRecordingRule?> {
@@ -281,19 +197,17 @@ public struct MeetingDetectionSettingsView: View {
     }
 
     private func reloadRegistryTargets() {
-        guard let registry = try? registryStore.loadCache().registry else {
+        guard let registry = try? registryStore.resolve().document else {
             promptCapableTargets = []
-            currentPolicy = nil
             return
         }
-        currentPolicy = registry.assistedAutoStartPolicy
         promptCapableTargets = Self.promptCapableTargets(in: registry)
     }
 
     private static func loadPromptCapableTargets(
         from registryStore: MeetingTargetRegistryStore
     ) -> [MeetingTargetRegistryTarget] {
-        guard let registry = try? registryStore.loadCache().registry else {
+        guard let registry = try? registryStore.resolve().document else {
             return []
         }
         return promptCapableTargets(in: registry)
@@ -305,124 +219,6 @@ public struct MeetingDetectionSettingsView: View {
         return registry.targets
             .filter(\.isVerifiedNativePromptTarget)
             .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
-    }
-}
-
-private struct TechnicalHintView: NSViewRepresentable {
-    let detail: String
-
-    func makeNSView(context: Context) -> TechnicalHintNSView {
-        let view = TechnicalHintNSView(detail: detail)
-        return view
-    }
-
-    func updateNSView(_ nsView: TechnicalHintNSView, context: Context) {
-        nsView.detail = detail
-    }
-}
-
-@MainActor
-private final class TechnicalHintNSView: NSImageView {
-    var detail: String {
-        didSet { updatePopoverContent() }
-    }
-
-    private var hintPopover: NSPopover?
-    private var showHintWorkItem: DispatchWorkItem?
-
-    init(detail: String) {
-        self.detail = detail
-        super.init(frame: .zero)
-        image = NSImage(
-            systemSymbolName: MeetingDetectionSettingsView.technicalHintIcon,
-            accessibilityDescription: "Подробнее о настройке"
-        )
-        imageScaling = .scaleProportionallyUpOrDown
-        contentTintColor = .secondaryLabelColor
-        setAccessibilityLabel("Подробнее о настройке")
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func updateTrackingAreas() {
-        trackingAreas.forEach(removeTrackingArea)
-        addTrackingArea(
-            NSTrackingArea(
-                rect: bounds,
-                options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
-                owner: self,
-                userInfo: nil
-            )
-        )
-        super.updateTrackingAreas()
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        super.mouseEntered(with: event)
-        showHintWorkItem?.cancel()
-        let workItem = DispatchWorkItem { [weak self] in
-            self?.presentHintPopover()
-        }
-        showHintWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: workItem)
-    }
-
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        bounds.contains(point) ? self : nil
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        super.mouseExited(with: event)
-        showHintWorkItem?.cancel()
-        hintPopover?.performClose(nil)
-        hintPopover = nil
-    }
-
-    private func presentHintPopover() {
-        guard window != nil, hintPopover == nil else { return }
-
-        let font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
-        let textBounds = (detail as NSString).boundingRect(
-            with: NSSize(width: 280, height: CGFloat.greatestFiniteMagnitude),
-            options: [.usesLineFragmentOrigin, .usesFontLeading],
-            attributes: [.font: font]
-        )
-        let contentSize = NSSize(
-            width: 304,
-            height: max(44, ceil(textBounds.height) + 24)
-        )
-
-        let label = NSTextField(wrappingLabelWithString: detail)
-        label.font = font
-        label.textColor = .labelColor
-        label.translatesAutoresizingMaskIntoConstraints = false
-
-        let container = NSView()
-        container.addSubview(label)
-        NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
-            label.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
-            label.topAnchor.constraint(equalTo: container.topAnchor, constant: 12),
-            label.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -12)
-        ])
-
-        let controller = NSViewController()
-        controller.view = container
-        controller.preferredContentSize = contentSize
-
-        let popover = NSPopover()
-        popover.behavior = .transient
-        popover.animates = false
-        popover.contentViewController = controller
-        hintPopover = popover
-        popover.show(relativeTo: bounds, of: self, preferredEdge: .minX)
-    }
-
-    private func updatePopoverContent() {
-        hintPopover?.performClose(nil)
-        hintPopover = nil
     }
 }
 

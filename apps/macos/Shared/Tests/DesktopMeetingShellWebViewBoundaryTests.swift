@@ -230,6 +230,81 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
         ])
     }
 
+    func testEmbeddedLocalRecordingRowsExposeOnlyBoundedCopyAndAllowedActions() throws {
+        let saving = makeQueueItem(
+            id: "saving-row",
+            state: .saving,
+            retryMode: .manualOnly,
+            createdAt: Date(timeIntervalSince1970: 100)
+        )
+        var failed = makeQueueItem(
+            id: "failed-row",
+            state: .blocked,
+            retryMode: .manualOnly,
+            createdAt: Date(timeIntervalSince1970: 90)
+        )
+        failed.failureReason = "recording_recovery_not_possible"
+        let rows = EmbeddedCabinetLocalRecordingRow.rows(for: [saving, failed])
+        let encoded = try JSONEncoder().encode(rows)
+        let json = String(decoding: encoded, as: UTF8.self)
+
+        XCTAssertEqual(rows.map(\.status), ["Сохраняется", "Запись повреждена"])
+        XCTAssertFalse(rows[0].canSend)
+        XCTAssertFalse(rows[1].canSend)
+        XCTAssertFalse(rows[0].canDelete)
+        XCTAssertTrue(rows[1].canDelete)
+        XCTAssertFalse(json.contains("directoryPath"))
+        XCTAssertFalse(json.contains("manifestPath"))
+        XCTAssertFalse(json.contains("sessionId"))
+        XCTAssertNil(EmbeddedCabinetLocalRecordingBridge.allowedAction(
+            from: ["action": "send", "id": "saving-row"],
+            rows: rows
+        ))
+        XCTAssertNil(
+            EmbeddedCabinetLocalRecordingBridge.allowedAction(
+                from: ["action": "delete", "id": "saving-row"],
+                rows: rows
+            )
+        )
+        XCTAssertEqual(
+            EmbeddedCabinetLocalRecordingBridge.allowedAction(
+                from: ["action": "delete", "id": "failed-row"],
+                rows: rows
+            )?.id,
+            "failed-row"
+        )
+        XCTAssertNil(EmbeddedCabinetLocalRecordingBridge.allowedAction(
+            from: ["action": "send", "id": "unknown"],
+            rows: rows
+        ))
+        XCTAssertNil(EmbeddedCabinetLocalRecordingBridge.allowedAction(
+            from: ["action": "open_path", "id": "saving-row"],
+            rows: rows
+        ))
+    }
+
+    func testCabinetListOwnsLocalRecordingStatesAndUsesSendCopy() throws {
+        let root = try repositoryRootForMeetingShellBoundaryTests()
+        let cabinetSource = try String(
+            contentsOf: root.appendingPathComponent(
+                "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js"
+            ),
+            encoding: .utf8
+        )
+        let shellSource = try String(
+            contentsOf: root.appendingPathComponent(
+                "apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift"
+            ),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(cabinetSource.contains("data-graf-local-recording-row"))
+        XCTAssertTrue(cabinetSource.contains("send.textContent = \"Отправить\""))
+        XCTAssertTrue(cabinetSource.contains("renderLocalRecordingRows"))
+        XCTAssertTrue(cabinetSource.contains("item.uploadComplete !== true"))
+        XCTAssertTrue(shellSource.contains("DesktopUploadCustodySummary.summaries(for: uploadQueueItems)"))
+    }
+
     func testOfflineStatesExposeOnlySafeSameOriginRetryFromWorkspace() throws {
         let configuration = try XCTUnwrap(DesktopCabinetConfiguration(
             rawBaseURL: "https://rec.2brain.dev",

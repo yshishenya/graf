@@ -111,6 +111,105 @@ public final class CanonicalRecordingWriter: @unchecked Sendable {
         }
     }
 
+    public static func rebuildReviewAudio(
+        from transcriptionURL: URL,
+        to reviewURL: URL
+    ) throws -> Int64 {
+        let inputFile = try AVAudioFile(forReading: transcriptionURL)
+        guard inputFile.length > 0,
+              Int(inputFile.processingFormat.sampleRate.rounded()) == Int(transcriptionSampleRate),
+              inputFile.processingFormat.channelCount == 1
+        else {
+            throw CanonicalRecordingWriterError.finalizationFailed
+        }
+        let temporaryURL = reviewURL.deletingLastPathComponent()
+            .appendingPathComponent("meeting-review.recovery.m4a")
+        try? FileManager.default.removeItem(at: temporaryURL)
+        var outputFile: AVAudioFile? = try AVAudioFile(
+            forWriting: temporaryURL,
+            settings: [
+                AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
+                AVSampleRateKey: canonicalSampleRate,
+                AVNumberOfChannelsKey: 1,
+                AVEncoderBitRateKey: reviewBitRate
+            ],
+            commonFormat: .pcmFormatFloat32,
+            interleaved: false
+        )
+        let converter = try PTSBoundedPCMConverter(
+            inputSampleRate: transcriptionSampleRate,
+            outputSampleRate: canonicalSampleRate
+        )
+        let inputCapacity: AVAudioFrameCount = 8_192
+        guard let inputBuffer = AVAudioPCMBuffer(
+            pcmFormat: inputFile.processingFormat,
+            frameCapacity: inputCapacity
+        ) else {
+            throw CanonicalRecordingWriterError.finalizationFailed
+        }
+
+        do {
+            while inputFile.framePosition < inputFile.length {
+                try inputFile.read(into: inputBuffer, frameCount: inputCapacity)
+                guard inputBuffer.frameLength > 0, let channel = inputBuffer.floatChannelData?[0] else { break }
+                try writeRecoveredReviewSamples(
+                    converter.convert(Array(UnsafeBufferPointer(
+                        start: channel,
+                        count: Int(inputBuffer.frameLength)
+                    ))),
+                    to: outputFile!
+                )
+            }
+            try writeRecoveredReviewSamples(try converter.flush(), to: outputFile!)
+            outputFile = nil
+            try? FileManager.default.removeItem(at: reviewURL)
+            try FileManager.default.moveItem(at: temporaryURL, to: reviewURL)
+            try LocalCustodyFileProtection.apply(to: reviewURL)
+            let reopened = try AVAudioFile(forReading: reviewURL)
+            guard reopened.length > 0 else { throw CanonicalRecordingWriterError.noFrames }
+            return reopened.length
+        } catch {
+            try? FileManager.default.removeItem(at: temporaryURL)
+            throw error
+        }
+    }
+
+    private static func writeRecoveredReviewSamples(
+        _ samples: [Float],
+        to file: AVAudioFile
+    ) throws {
+        guard !samples.isEmpty else { return }
+        guard samples.count <= Int(UInt32.max),
+              let buffer = AVAudioPCMBuffer(
+                pcmFormat: file.processingFormat,
+                frameCapacity: AVAudioFrameCount(samples.count)
+              ), let channel = buffer.floatChannelData?[0]
+        else {
+            throw CanonicalRecordingWriterError.finalizationFailed
+        }
+        buffer.frameLength = AVAudioFrameCount(samples.count)
+        channel.update(from: samples, count: samples.count)
+        try file.write(from: buffer)
+    }
+
+    static func pcm16MonoWAVHeader(dataByteCount: UInt32) -> Data {
+        var header = Data()
+        header.append(contentsOf: [0x52, 0x49, 0x46, 0x46])
+        header.appendLittleEndian(UInt32(36) + dataByteCount)
+        header.append(contentsOf: [0x57, 0x41, 0x56, 0x45])
+        header.append(contentsOf: [0x66, 0x6d, 0x74, 0x20])
+        header.appendLittleEndian(UInt32(16))
+        header.appendLittleEndian(UInt16(1))
+        header.appendLittleEndian(UInt16(1))
+        header.appendLittleEndian(UInt32(transcriptionSampleRate))
+        header.appendLittleEndian(UInt32(transcriptionSampleRate * 2))
+        header.appendLittleEndian(UInt16(2))
+        header.appendLittleEndian(UInt16(16))
+        header.append(contentsOf: [0x64, 0x61, 0x74, 0x61])
+        header.appendLittleEndian(dataByteCount)
+        return header
+    }
+
     deinit {
         if !finalized {
             abort()
@@ -386,9 +485,16 @@ private final class PTSBoundedPCMConverter {
     }
 
     func flush() throws -> [Float] {
+        let expectedOutputFrameCount = Int64(
+            (Double(submittedInputFrameCount) * outputSampleRate / inputSampleRate).rounded()
+        )
+        let remainingFrameCount = max(
+            0,
+            expectedOutputFrameCount - deliveredOutputFrameCount - Int64(pendingConverterOutput.count)
+        )
         let converted = try runConverter(
             samples: nil,
-            outputCapacity: 4_096,
+            outputCapacity: max(4_096, Int(remainingFrameCount) + 4_096),
             endOfStream: true
         )
         pendingConverterOutput.append(contentsOf: converted)
@@ -477,9 +583,12 @@ private final class CanonicalConverterInputState: @unchecked Sendable {
 }
 
 private final class CanonicalPCM16WAVWriter {
+    private static let checkpointFrameCount = Int(CanonicalRecordingWriter.transcriptionSampleRate * 10)
+
     private let url: URL
     private let handle: FileHandle
     private var closed = false
+    private var lastCheckpointFrameCount = 0
     private(set) var frameCount = 0
 
     init(url: URL) throws {
@@ -491,37 +600,41 @@ private final class CanonicalPCM16WAVWriter {
 
     func write(_ samples: [Float]) throws {
         guard !closed, !samples.isEmpty else { return }
-        var data = Data()
-        data.reserveCapacity(samples.count * MemoryLayout<Int16>.size)
-        for sample in samples {
-            var value = Int16(max(-1, min(1, sample)) * Float(Int16.max)).littleEndian
-            withUnsafeBytes(of: &value) { data.append(contentsOf: $0) }
+        var offset = 0
+        while offset < samples.count {
+            let untilCheckpoint = Self.checkpointFrameCount - (frameCount - lastCheckpointFrameCount)
+            let count = min(samples.count - offset, max(1, untilCheckpoint))
+            var data = Data()
+            data.reserveCapacity(count * MemoryLayout<Int16>.size)
+            for sample in samples[offset..<(offset + count)] {
+                var value = Int16(max(-1, min(1, sample)) * Float(Int16.max)).littleEndian
+                withUnsafeBytes(of: &value) { data.append(contentsOf: $0) }
+            }
+            try handle.write(contentsOf: data)
+            frameCount += count
+            offset += count
+            if frameCount - lastCheckpointFrameCount >= Self.checkpointFrameCount {
+                try checkpoint()
+            }
         }
-        try handle.write(contentsOf: data)
-        frameCount += samples.count
     }
 
     func close() throws {
         guard !closed else { return }
-        let dataByteCount = UInt32(frameCount * MemoryLayout<Int16>.size)
-        var header = Data()
-        header.append(contentsOf: [0x52, 0x49, 0x46, 0x46])
-        header.appendLittleEndian(UInt32(36) + dataByteCount)
-        header.append(contentsOf: [0x57, 0x41, 0x56, 0x45])
-        header.append(contentsOf: [0x66, 0x6d, 0x74, 0x20])
-        header.appendLittleEndian(UInt32(16))
-        header.appendLittleEndian(UInt16(1))
-        header.appendLittleEndian(UInt16(1))
-        header.appendLittleEndian(UInt32(CanonicalRecordingWriter.transcriptionSampleRate))
-        header.appendLittleEndian(UInt32(CanonicalRecordingWriter.transcriptionSampleRate * 2))
-        header.appendLittleEndian(UInt16(2))
-        header.appendLittleEndian(UInt16(16))
-        header.append(contentsOf: [0x64, 0x61, 0x74, 0x61])
-        header.appendLittleEndian(dataByteCount)
-        try handle.seek(toOffset: 0)
-        try handle.write(contentsOf: header)
+        try checkpoint()
         try handle.close()
         closed = true
+    }
+
+    private func checkpoint() throws {
+        let dataByteCount = UInt32(frameCount * MemoryLayout<Int16>.size)
+        try handle.seek(toOffset: 0)
+        try handle.write(contentsOf: CanonicalRecordingWriter.pcm16MonoWAVHeader(
+            dataByteCount: dataByteCount
+        ))
+        try handle.synchronize()
+        try handle.seek(toOffset: UInt64(44) + UInt64(dataByteCount))
+        lastCheckpointFrameCount = frameCount
     }
 
     func abort() {

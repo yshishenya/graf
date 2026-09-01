@@ -10,7 +10,6 @@ public enum MeetingTargetRegistryError: Error, Equatable, CustomStringConvertibl
     case unsafePromptTarget(String)
     case unsafeBrowserTarget(String)
     case invalidNonTargetRule
-    case invalidAssistedAutoStartPolicy
     case expired
     case noUsableRegistry
 
@@ -34,8 +33,6 @@ public enum MeetingTargetRegistryError: Error, Equatable, CustomStringConvertibl
             "unsafe_browser_target:\(id)"
         case .invalidNonTargetRule:
             "invalid_non_target_rule"
-        case .invalidAssistedAutoStartPolicy:
-            "invalid_assisted_auto_start_policy"
         case .expired:
             "expired"
         case .noUsableRegistry:
@@ -110,20 +107,6 @@ public enum MeetingTargetRegistryValidator {
             )
         }
         try document.nonTargetRules.forEach(validate(rule:))
-        if let policy = document.assistedAutoStartPolicy {
-            guard policy.enabled,
-                  policy.scope == .workspace || policy.scope == .allWorkspaces,
-                  policy.policyRef.range(of: #"^sha256:[0-9a-f]{64}$"#, options: .regularExpression) != nil,
-                  policy.acknowledgementSubjectRef.range(of: #"^sha256:[0-9a-f]{64}$"#, options: .regularExpression) != nil,
-                  policy.deviceRef.range(of: #"^sha256:[0-9a-f]{64}$"#, options: .regularExpression) != nil,
-                  !policy.policyVersion.isEmpty,
-                  !policy.acknowledgementVersion.isEmpty,
-                  policy.expiresAt > policy.issuedAt,
-                  policy.noticeMode == "internal_no_participant_notice"
-            else {
-                throw MeetingTargetRegistryError.invalidAssistedAutoStartPolicy
-            }
-        }
     }
 
     private static func validate(
@@ -196,6 +179,7 @@ public final class MeetingTargetRegistryStore: @unchecked Sendable {
     public typealias Clock = @Sendable () -> Date
 
     private let cacheURL: URL
+    private let bundledRegistryURL: URL?
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
     private let clock: Clock
@@ -203,11 +187,13 @@ public final class MeetingTargetRegistryStore: @unchecked Sendable {
 
     public init(
         cacheURL: URL,
+        bundledRegistryURL: URL? = nil,
         decoder: JSONDecoder = MeetingDetectionCoding.decoder(),
         encoder: JSONEncoder = MeetingDetectionCoding.encoder(),
         clock: @escaping Clock = Date.init
     ) {
         self.cacheURL = cacheURL
+        self.bundledRegistryURL = bundledRegistryURL
         self.decoder = decoder
         self.encoder = encoder
         self.clock = clock
@@ -232,6 +218,17 @@ public final class MeetingTargetRegistryStore: @unchecked Sendable {
                     document: cache.registry,
                     source: .remoteCache,
                     etag: cache.etag ?? cache.registry.etag
+                )
+            }
+            if let bundledRegistryURL,
+               let bundled = try? decodeValidatedRegistry(
+                   from: Data(contentsOf: bundledRegistryURL),
+                   now: clock()
+               ) {
+                return MeetingTargetRegistryResolution(
+                    document: bundled,
+                    source: .bundled,
+                    etag: bundled.etag
                 )
             }
             throw MeetingTargetRegistryError.noUsableRegistry

@@ -21,23 +21,28 @@ Use this file with `.specify/memory/constitution.md`,
   one-action stop path.
 - No user or admin setting may make active capture invisible.
 - Target-scoped automatic recording is a protected MVP capability. The active
-  contract is owned by Feature `124-restore-automatic-recording` and uses the
-  verified native macOS meeting-app registry, the `Автозапись` settings page,
-  one reversible checkbox per prompt-capable app, and `Выбрать все` / `Снять
-  все` actions. The preference is stored by exact target identity, never as a
-  global “record everything” switch.
-- A first-time prompt for a verified target shows the designed eight-second
-  countdown and starts recording when it expires. `Записать сейчас` starts
-  immediately, `Пропустить` suppresses this prompt, and `Всегда писать это
-  приложение` persists the target-scoped rule for future detections. These
-  controls must remain visible, accessible, reversible, and routed through the
-  existing capture prerequisites, workspace policy, local indicator, and
-  one-action Stop gates.
+  contract is advanced by Feature `214-reliable-auto-recording` and uses the
+  verified native macOS meeting-app registry and the `Автозапись` settings
+  page. Each app has exactly one local state: `Всегда`, `Спрашивать` or
+  `Никогда`; a new installation defaults every app to `Спрашивать`.
+- In `Спрашивать`, the prompt shows the designed eight-second countdown and
+  starts the current recording when it expires. `Записать` starts immediately
+  and `Не записывать` suppresses the current recording. With `Запомнить выбор`,
+  those actions persist `Всегда` and `Никогда` respectively; without it the
+  setting does not change. `Всегда` bypasses the prompt and `Никогда` shows no
+  prompt. All states remain visible, accessible and reversible in settings.
+- The three-state preference is client-owned. Server assisted-auto-start policy
+  and acknowledgement are not start gates and must be removed only after a
+  compatible client that ignores them has shipped. General workspace recording
+  and consent restrictions, approved-target detection, permissions, local
+  storage, visible indicator and one-action Stop remain mandatory.
+- A bulk `Для всех приложений` choice applies one of the same three values to
+  currently known apps. It is not a fourth state or a global “record arbitrary
+  audio” switch.
 - Removing or materially weakening the target list, per-app permission,
-  countdown, automatic start, or prompt checkbox requires a new approved Spec
-  Kit feature with migration/compatibility notes, focused regression tests, and
-  explicit product-owner approval. A later recording-flow refactor must not
-  treat these behaviors as legacy or optional cleanup.
+  countdown, automatic start, remembrance choice or three-state settings
+  requires a new approved Spec Kit feature with migration/compatibility notes,
+  focused regression tests, and explicit product-owner approval.
 
 ## Audio, Artifacts, And Diagnostics
 

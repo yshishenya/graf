@@ -19,6 +19,76 @@ public struct LocalRecordingManifestService: Sendable {
         self.decoder = decoder
     }
 
+    public func activeV5Manifest(
+        sessionId: String,
+        directoryId: String,
+        startedAt: Date,
+        scopeApproval: CaptureScopeApproval? = nil,
+        permissions: SystemAudioPermissionSnapshot? = nil,
+        microphoneSelection: RecordingMicrophoneSelection? = nil,
+        targetMuteCapability: TargetMuteCapability? = nil,
+        meetingMuteTruthEvidence: [MeetingMuteTruthEvidence] = [],
+        limitationCopyShownAt: Date? = nil
+    ) -> LocalRecordingManifest {
+        let tracks = [
+            LocalRecordingTrack(
+                trackId: "canonical-media",
+                role: .mixedMeetingAudio,
+                sourceKind: .canonicalMix,
+                mediaScribeField: .mediaFile,
+                status: .recording,
+                fileName: "meeting-transcription.wav",
+                format: "wav-pcm-s16le",
+                sampleRate: CanonicalRecordingWriter.transcriptionSampleRate,
+                channelCount: 1,
+                bitsPerSample: 16,
+                durationMs: 0,
+                byteCount: 0,
+                frameCount: 0
+            ),
+            LocalRecordingTrack(
+                trackId: "review-playback",
+                role: .reviewPlayback,
+                sourceKind: .canonicalMix,
+                mediaScribeField: .playbackFile,
+                status: .recording,
+                fileName: "meeting-review.m4a",
+                format: "m4a-aac-lc",
+                sampleRate: CanonicalRecordingWriter.canonicalSampleRate,
+                channelCount: 1,
+                durationMs: 0,
+                byteCount: 0,
+                frameCount: 0
+            )
+        ]
+        let createdAt = clock()
+        return LocalRecordingManifest(
+            sessionId: sessionId,
+            createdAt: createdAt,
+            startedAt: startedAt,
+            stoppedAt: startedAt,
+            status: .active,
+            directoryId: directoryId,
+            transcriptionReadiness: .degraded,
+            tracks: tracks,
+            scopeApproval: scopeApproval,
+            permissions: permissions,
+            microphoneSelection: microphoneSelection,
+            meetingMuteTruth: MuteTruthDecision.mvpDecision(
+                sessionId: sessionId,
+                privacySegments: [],
+                targetEvidence: meetingMuteTruthEvidence,
+                targetCapability: targetMuteCapability,
+                decidedAt: createdAt
+            ),
+            meetingMuteTruthEvidence: meetingMuteTruthEvidence,
+            targetMuteCapability: targetMuteCapability,
+            limitationCopyShownAt: limitationCopyShownAt,
+            echoProcessor: .webrtcAEC3,
+            echoProcessingHealth: EchoProcessingHealth(state: .active)
+        )
+    }
+
     /// New capture has one canonical ASR WAV and one playback-only M4A.
     public func v5Manifest(
         sessionId: String,

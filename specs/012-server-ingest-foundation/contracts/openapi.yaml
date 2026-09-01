@@ -2565,6 +2565,79 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/meetings/{meeting_id}/processing/reprocess:
+    post:
+      tags:
+      - processing
+      summary: Reprocess Meeting
+      operationId: reprocess_meeting_api_v1_meetings__meeting_id__processing_reprocess_post
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProcessingReprocessRequest'
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProcessingReprocessResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/meetings/{meeting_id}/processing/check:
     post:
       tags:
@@ -9851,68 +9924,6 @@ components:
       - label
       - action
       title: ArtifactEgressState
-    AssistedAutoStartPolicy:
-      properties:
-        scope:
-          type: string
-          enum:
-          - workspace
-          - all_workspaces
-          title: Scope
-          default: workspace
-        policyRef:
-          type: string
-          pattern: ^sha256:[0-9a-f]{64}$
-          title: Policyref
-        acknowledgementSubjectRef:
-          type: string
-          pattern: ^sha256:[0-9a-f]{64}$
-          title: Acknowledgementsubjectref
-        deviceRef:
-          type: string
-          pattern: ^sha256:[0-9a-f]{64}$
-          title: Deviceref
-        policyVersion:
-          type: string
-          maxLength: 64
-          minLength: 1
-          pattern: ^[A-Za-z0-9._-]+$
-          title: Policyversion
-        acknowledgementVersion:
-          type: string
-          maxLength: 64
-          minLength: 1
-          pattern: ^[A-Za-z0-9._-]+$
-          title: Acknowledgementversion
-        enabled:
-          type: boolean
-          const: true
-          title: Enabled
-        issuedAt:
-          type: string
-          format: date-time
-          title: Issuedat
-        expiresAt:
-          type: string
-          format: date-time
-          title: Expiresat
-        noticeMode:
-          type: string
-          const: internal_no_participant_notice
-          title: Noticemode
-      additionalProperties: false
-      type: object
-      required:
-      - policyRef
-      - acknowledgementSubjectRef
-      - deviceRef
-      - policyVersion
-      - acknowledgementVersion
-      - enabled
-      - issuedAt
-      - expiresAt
-      - noticeMode
-      title: AssistedAutoStartPolicy
     AuthCallbackResponse:
       properties:
         user_id:
@@ -12903,10 +12914,6 @@ components:
             $ref: '#/components/schemas/MeetingTargetNonTargetRule'
           type: array
           title: Nontargetrules
-        assistedAutoStartPolicy:
-          anyOf:
-          - $ref: '#/components/schemas/AssistedAutoStartPolicy'
-          - type: 'null'
         etag:
           anyOf:
           - type: string
@@ -15016,6 +15023,176 @@ components:
       - reused_count
       - blocked_count
       title: ProcessingPickupResponse
+    ProcessingReprocessRequest:
+      properties:
+        expected_workflow_id:
+          type: string
+          maxLength: 80
+          pattern: ^processing/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:/[1-9][0-9]*)?$
+          title: Expected Workflow Id
+        expected_media_revision_id:
+          type: string
+          format: uuid
+          title: Expected Media Revision Id
+      additionalProperties: false
+      type: object
+      required:
+      - expected_workflow_id
+      - expected_media_revision_id
+      title: ProcessingReprocessRequest
+      description: Optimistic fence for one owner-confirmed replacement attempt.
+    ProcessingReprocessResponse:
+      properties:
+        meeting_id:
+          type: string
+          format: uuid
+          title: Meeting Id
+        media_revision_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Media Revision Id
+        workspace_id:
+          type: string
+          format: uuid
+          title: Workspace Id
+        state:
+          $ref: '#/components/schemas/ProcessingStatus'
+        archive_audio:
+          type: boolean
+          title: Archive Audio
+          default: true
+        transient_state:
+          type: string
+          title: Transient State
+          default: not_applicable
+        transient_purge_due_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Transient Purge Due At
+        reason_code:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason Code
+        workflow_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Workflow Id
+        attempt_ordinal:
+          type: integer
+          minimum: 1.0
+          title: Attempt Ordinal
+          default: 1
+        mediascribe_job_id_present:
+          type: boolean
+          title: Mediascribe Job Id Present
+          default: false
+        content_available:
+          type: boolean
+          title: Content Available
+          default: false
+        transcript_available:
+          type: boolean
+          title: Transcript Available
+          default: false
+        diarization_available:
+          type: boolean
+          title: Diarization Available
+          default: false
+        summary_status:
+          type: string
+          title: Summary Status
+          default: not_requested
+        retry_class:
+          type: string
+          enum:
+          - none
+          - retryable
+          - unknown_outcome
+          - terminal
+          title: Retry Class
+          default: none
+        next_attempt_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Next Attempt At
+        next_attempt_source:
+          anyOf:
+          - type: string
+            enum:
+            - provider_retry_after
+            - provider_next_retry_at
+            - server_fallback
+            - manual_override
+          - type: 'null'
+          title: Next Attempt Source
+        schedule_generation:
+          type: integer
+          minimum: 0.0
+          title: Schedule Generation
+          default: 0
+        server_time:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Server Time
+        manual_action:
+          type: string
+          enum:
+          - none
+          - check_now
+          - retry_preparation
+          - new_attempt
+          - upload_another
+          - contact_support
+          title: Manual Action
+          default: none
+        attempt_in_flight:
+          type: boolean
+          title: Attempt In Flight
+          default: false
+        artifacts:
+          additionalProperties:
+            $ref: '#/components/schemas/ProcessingArtifactProjection'
+          type: object
+          title: Artifacts
+        updated_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Updated At
+        request_result:
+          type: string
+          enum:
+          - created
+          - replayed
+          - already_in_flight
+          title: Request Result
+        dispatch:
+          anyOf:
+          - type: string
+            enum:
+            - started
+            - reused
+          - type: 'null'
+          title: Dispatch
+      type: object
+      required:
+      - meeting_id
+      - workspace_id
+      - state
+      - request_result
+      title: ProcessingReprocessResponse
+      description: Result of predecessor/successor admission for a ready recording.
     ProcessingReviewState:
       properties:
         state:
@@ -15032,6 +15209,20 @@ components:
           - unavailable
           - deleted_future
           title: State
+        workflow_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Workflow Id
+        attempt_ordinal:
+          type: integer
+          minimum: 1.0
+          title: Attempt Ordinal
+          default: 1
+        reprocess_available:
+          type: boolean
+          title: Reprocess Available
+          default: false
         stage:
           anyOf:
           - type: string

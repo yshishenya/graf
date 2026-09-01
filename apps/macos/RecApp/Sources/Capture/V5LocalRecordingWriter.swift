@@ -214,6 +214,20 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             let timeline = RecordingAudioTimeline(echoProcessor: echoProcessor) { [canonicalWriter] chunk in
                 try canonicalWriter.append(chunk)
             }
+            try manifestService.write(
+                manifestService.activeV5Manifest(
+                    sessionId: sessionId,
+                    directoryId: directory.directoryId,
+                    startedAt: startedAt,
+                    scopeApproval: scopeApproval,
+                    permissions: permissions,
+                    microphoneSelection: microphoneSelection,
+                    targetMuteCapability: targetMuteCapability,
+                    meetingMuteTruthEvidence: meetingMuteTruthEvidence,
+                    limitationCopyShownAt: limitationCopyShownAt
+                ),
+                to: directory.manifestURL
+            )
             let timer = DispatchSource.makeTimerSource(queue: queue)
             let active = V5ActiveRecording(
                 sessionId: sessionId,
@@ -368,7 +382,6 @@ public final class LocalRecordingWriter: @unchecked Sendable {
     private func pausePrivacyOnQueue(startedAt: Date) throws {
         guard let active else { throw LocalRecordingWriterError.notRecording }
         guard active.activePrivacySegment == nil else { return }
-        active.privacySource?.update(state: .paused)
         active.activePrivacySegment = ProductPrivacySegment(
             segmentId: "\(active.sessionId)-privacy-\(active.privacySegments.count + 1)",
             sessionId: active.sessionId,
@@ -379,12 +392,39 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             initiator: .user,
             diagnosticSafe: true
         )
+        do {
+            try persistPrivacyCheckpointOnQueue(for: active)
+        } catch {
+            active.activePrivacySegment = nil
+            throw error
+        }
+        active.privacySource?.update(state: .paused)
     }
 
     private func resumePrivacyOnQueue(endedAt: Date) throws {
         guard let active else { throw LocalRecordingWriterError.notRecording }
         active.privacySource?.update(state: .capturing)
         finalizePrivacySegment(for: active, endedAt: endedAt)
+        // Keep the last durable checkpoint conservative if this write fails:
+        // an open segment is safer than losing evidence of user-requested mute.
+        try? persistPrivacyCheckpointOnQueue(for: active)
+    }
+
+    private func persistPrivacyCheckpointOnQueue(for active: V5ActiveRecording) throws {
+        var manifest = try manifestService.read(from: active.directory.manifestURL)
+        var segments = active.privacySegments
+        if let activeSegment = active.activePrivacySegment {
+            segments.append(activeSegment)
+        }
+        manifest.privacySegments = segments
+        manifest.meetingMuteTruth = MuteTruthDecision.mvpDecision(
+            sessionId: active.sessionId,
+            privacySegments: segments,
+            targetEvidence: active.meetingMuteTruthEvidence,
+            targetCapability: active.targetMuteCapability,
+            decidedAt: Date()
+        )
+        try manifestService.write(manifest, to: active.directory.manifestURL)
     }
 
     private func drainAvailable(
@@ -744,7 +784,7 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         return min(1, sqrt(meanSquare))
     }
 
-    private static func sha256(of url: URL) throws -> String {
+    static func sha256(of url: URL) throws -> String {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
         var hasher = SHA256()

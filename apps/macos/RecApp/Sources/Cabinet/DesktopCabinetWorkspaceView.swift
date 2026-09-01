@@ -17,6 +17,8 @@ public struct DesktopCabinetWorkspaceView: View {
     private let onCheckForUpdates: EmbeddedCabinetWebView.CheckForUpdatesAction
     private let onOpenMeetingDetectionSettings: EmbeddedCabinetWebView.OpenMeetingDetectionSettingsAction
     private let supportIncidentBridge: EmbeddedCabinetSupportIncidentBridge?
+    private let localRecordingRows: [EmbeddedCabinetLocalRecordingRow]
+    private let onLocalRecordingAction: EmbeddedCabinetWebView.LocalRecordingAction
     private let externalCabinetState: Binding<DesktopCabinetState>?
     @StateObject private var navigationController = EmbeddedCabinetNavigationController()
     @State private var internalCabinetState: DesktopCabinetState
@@ -34,6 +36,8 @@ public struct DesktopCabinetWorkspaceView: View {
         onCheckForUpdates: @escaping EmbeddedCabinetWebView.CheckForUpdatesAction = {},
         onOpenMeetingDetectionSettings: @escaping EmbeddedCabinetWebView.OpenMeetingDetectionSettingsAction = {},
         supportIncidentBridge: EmbeddedCabinetSupportIncidentBridge? = nil,
+        localRecordingRows: [EmbeddedCabinetLocalRecordingRow] = [],
+        onLocalRecordingAction: @escaping EmbeddedCabinetWebView.LocalRecordingAction = { _, _ in },
         initialState: DesktopCabinetState? = nil
     ) {
         let resolvedInitialState = initialState ?? (configuration == nil ? .notConfigured : .loading)
@@ -46,6 +50,8 @@ public struct DesktopCabinetWorkspaceView: View {
         self.onCheckForUpdates = onCheckForUpdates
         self.onOpenMeetingDetectionSettings = onOpenMeetingDetectionSettings
         self.supportIncidentBridge = supportIncidentBridge
+        self.localRecordingRows = localRecordingRows
+        self.onLocalRecordingAction = onLocalRecordingAction
         self.externalCabinetState = cabinetState
         _internalCabinetState = State(initialValue: cabinetState?.wrappedValue ?? resolvedInitialState)
         _currentRoute = currentRoute
@@ -120,6 +126,8 @@ public struct DesktopCabinetWorkspaceView: View {
                 onCheckForUpdates: onCheckForUpdates,
                 onOpenMeetingDetectionSettings: onOpenMeetingDetectionSettings,
                 supportIncidentBridge: supportIncidentBridge,
+                localRecordingRows: localRecordingRows,
+                onLocalRecordingAction: onLocalRecordingAction,
                 fallbackRequest: configuration.urlRequest(for: configuration.meetingsURL()),
                 navigationController: navigationController
             )
