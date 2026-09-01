@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import uuid
@@ -397,17 +398,40 @@ def test_failing_stage_emits_one_final_failure() -> None:
     assert result.stdout.count("ci_local_result=fail") == 1
 
 
-def test_full_claims_release_ready_only_after_success() -> None:
+def test_full_claims_release_ready_only_after_success(tmp_path: Path) -> None:
     token = uuid.uuid4().hex[:12]
+    source_sha = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
+    ).strip()
+    passed_candidate = tmp_path / "passed-candidate.json"
+    failed_candidate = tmp_path / "failed-candidate.json"
+    passed_id = f"rc-20260901T000001Z-{token}"
+    failed_id = f"rc-20260901T000002Z-{token}"
+    passed_candidate.write_text(
+        json.dumps({"candidate_id": passed_id, "source_sha": source_sha}) + "\n",
+        encoding="utf-8",
+    )
+    failed_candidate.write_text(
+        json.dumps({"candidate_id": failed_id, "source_sha": source_sha}) + "\n",
+        encoding="utf-8",
+    )
     passed = run_stubbed_ci(
-        "", "--full", env={"GRAF_CI_CANDIDATE_ID": f"rc-20260901T000001Z-{token}"}
+        "",
+        "--full",
+        env={
+            "GRAF_CI_CANDIDATE_ID": passed_id,
+            "GRAF_CI_CANDIDATE_FILE": str(passed_candidate),
+        },
     )
     diagnostic = run_stubbed_ci("", "--full")
     failed = run_stubbed_ci(
         "",
         "--full",
         fail_stage="server tests",
-        env={"GRAF_CI_CANDIDATE_ID": f"rc-20260901T000002Z-{token}"},
+        env={
+            "GRAF_CI_CANDIDATE_ID": failed_id,
+            "GRAF_CI_CANDIDATE_FILE": str(failed_candidate),
+        },
     )
 
     assert passed.returncode == 0, passed.stdout
