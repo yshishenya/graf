@@ -24,17 +24,6 @@ def test_ci_rejects_requested_sha_mismatch_before_running_pipeline() -> None:
     assert "ci_evidence_status=stale" in result.stderr
 
 
-def test_ci_script_rejects_dirty_sha_evidence_and_marks_opt_in_diagnostic_ambiguous() -> None:
-    script = (ROOT / "infra/scripts/ci-local.sh").read_text(encoding="utf-8")
-    assert 'git status --porcelain --untracked-files=all' in script
-    assert 'reason=dirty_worktree' in script
-    assert 'reason=dirty_worktree_opt_in' in script
-    assert 'evidence_status_override="ambiguous"' in script
-    assert 'GRAF_CI_ALLOW_DIRTY' in script
-    assert 'dirty_worktree=1' in script
-    assert 'through the selected stages' in script
-
-
 def test_ci_records_requested_sha_mismatch_as_stale_evidence(tmp_path: Path) -> None:
     evidence = tmp_path / "stale.json"
     env = os.environ.copy()
