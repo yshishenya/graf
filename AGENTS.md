@@ -104,6 +104,12 @@ reset or discard user changes. Feature work writes an owned changelog fragment
 under `changes/unreleased/`; the release operator alone assembles root
 `CHANGELOG.md` for a frozen release candidate.
 
+For a sole-owner public repository with no independent collaborator, GitHub
+required-approval count may be `0`; merge eligibility then comes from recorded
+owner/agent review, reviewer-owned Spec Kit checklists, convergence and all
+required checks. Agent review comments are evidence, not a reason to bypass
+linear history, stale-SHA, status-check or release gates.
+
 <!-- SPECKIT RELEASE VERSIONING START -->
 ## Правила релизов и версий
 
