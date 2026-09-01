@@ -2625,7 +2625,7 @@ async def _current_source_identity(
     expected_revision_id = latest_revision.id if latest_revision is not None else None
     latest_result = (
         await db.scalar(
-            effective_processing_result_query(
+            latest_processing_result_query(
                 workspace_id=workspace_id,
                 meeting_id=meeting_id,
                 media_revision_id=expected_revision_id,

@@ -1,0 +1,9 @@
+schema_version: 1
+feature_id: 216
+category: Fixed
+summary: "Разделены пользовательские и lifecycle-источники результатов: неполные замены больше не публикуются и не затмевают последнюю подтверждённую запись."
+issue: 6090
+tasks: [T001]
+compatibility: "Поведение API не меняется; reprocess endpoint остаётся доступным, но не рекламируется в OpenAPI как отдельный competing normalization route."
+known_limitations: []
+release_notes: "Lifecycle fences теперь видят incomplete replacements, а desktop/cabinet projections согласованно показывают processing/failed состояния."

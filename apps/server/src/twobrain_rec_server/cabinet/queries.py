@@ -1582,11 +1582,21 @@ async def _latest_result(
     meeting_id: UUID,
     media_revision_id: UUID | None = None,
 ) -> ProcessingResult | None:
+    query = effective_processing_result_query(
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        media_revision_id=media_revision_id,
+    )
+    # Within one workflow, imported_at is the durable publication order. A
+    # later result_version may be an unpromoted/provider replacement; keep the
+    # already published artifact until its own outcome lineage is accepted.
     return await db.scalar(
-        effective_processing_result_query(
-            workspace_id=workspace_id,
-            meeting_id=meeting_id,
-            media_revision_id=media_revision_id,
+        query.order_by(None).order_by(
+            ProcessingWorkflow.attempt_ordinal.desc(),
+            nullslast(ProcessingResult.imported_at.desc()),
+            ProcessingResult.result_version.desc(),
+            ProcessingResult.created_at.desc(),
+            ProcessingResult.id.desc(),
         )
     )
 
