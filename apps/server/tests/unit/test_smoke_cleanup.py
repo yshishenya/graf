@@ -88,7 +88,6 @@ def test_smoke_artifact_cleanup_deletes_processing_rows_before_meeting() -> None
         "select id from processing_workflows where meeting_id=:meeting_id",
         '"processing_dependency_states",\n            processing_dependency_delete',
         "delete from dispatch_intents where meeting_id=:meeting_id",
-        "update meetings set current_outcome_set_id=null where id=:meeting_id",
         "update meeting_summary_slots\n               set current_outcome_set_id=null",
         "delete from meeting_outcome_generation_attempts",
         "delete from meeting_outcome_items",
@@ -269,3 +268,19 @@ def test_smoke_artifact_cleanup_locks_revisions_before_dependency_delete() -> No
     )
 
     assert revision_lock < dependency_delete
+
+
+def test_smoke_artifact_cleanup_clears_cross_lineage_foreign_keys_without_counting_updates() -> None:
+    script = (
+        Path(__file__).resolve().parents[2]
+        / "scripts"
+        / "cleanup_smoke_artifacts.py"
+    ).read_text(encoding="utf-8")
+
+    pointer_clear = script.index("set current_outcome_set_id=null")
+    supersession_clear = script.index("set supersedes_outcome_set_id=null")
+    delete_loop = script.index("for table_name, sql in ordered_meeting_deletes")
+    assert pointer_clear < delete_loop
+    assert supersession_clear < delete_loop
+    assert "where current_outcome_set_id in (select id from lineage)" in script
+    assert "where supersedes_outcome_set_id in (select id from lineage)" in script
