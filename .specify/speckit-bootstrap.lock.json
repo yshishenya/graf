@@ -1,14 +1,14 @@
 {
-  "bootstrap_version": "0.9.7",
+  "bootstrap_version": "0.9.9",
   "extensions": {
     "agent_context": {
       "manifest_hash": "sha256:9a1dc02d2d0139bb03860392ecacef79183be2c442feda2f9ccaa4e5907b1e47",
-      "tree_sha256": "2d453c9f7347e8d39ec1b467733cfcf0b4f6b835159ed8b4684c1ad4e60477a2",
+      "tree_sha256": "e39e45b3f34b71d92fea9ee88f75c23a5276d1e99cbd64b3736d5cf2f0dfcb52",
       "version": "1.0.0"
     },
     "git": {
       "manifest_hash": "sha256:89711dec9716473fba4afc54f7224bcb28ebd3c55fb5aaa30df854ab02b07a75",
-      "tree_sha256": "86508aea7e49e7f3995a895492e0d0234e7309a4368198ef721ab71e189e898b",
+      "tree_sha256": "c2f3d297346efd3768873bdf9962f0fcd7c2a45dad0d9c1fc1a28e73686a7bc0",
       "version": "1.0.0"
     }
   },

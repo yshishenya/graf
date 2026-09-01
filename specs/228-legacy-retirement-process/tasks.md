@@ -63,6 +63,7 @@ protected-domain evidence item and passes only with a bounded scope fence.
 - [ ] T020 [P] [US3] Add migration and persistent-data contract fixtures to `tests/governance/test_retirement_slice.py`.
 - [ ] T021 [P] [US3] Add Temporal replay/history compatibility contract fixtures to `tests/governance/test_retirement_slice.py`.
 - [ ] T022 [P] [US3] Add macOS/Sparkle signing/appcast continuity contract fixtures to `tests/governance/test_retirement_slice.py`.
+- [ ] T036 [P] [US3] Add historical MediaScribe dual-track/drain cutoff, canonical-source, unavailable-outcome and bounded-cleanup negative fixtures to `tests/governance/test_retirement_slice.py`.
 - [ ] T023 [US3] Implement protected-domain and rollback/abort validation in `scripts/validate-retirement-slice.py`.
 - [ ] T024 [US3] Add a retirement slice template and per-domain rehearsal references in `docs/agent-guidance/legacy-retirement.md`.
 - [ ] T025 [US3] Create task-backed child issues only for owner/reviewer-approved `remove` records using `.specify/extensions/github-issue-canon/`; leave candidate and blocked records open.

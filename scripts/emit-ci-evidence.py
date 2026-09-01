@@ -84,6 +84,7 @@ def _artifact_digest(path: Path) -> str:
                 before = os.fstat(handle.fileno())
                 size = before.st_size
                 hasher.update(size.to_bytes(8, "big"))
+                hasher.update((before.st_mode & 0o7777).to_bytes(4, "big"))
                 read = 0
                 for chunk in iter(lambda: handle.read(1024 * 1024), b""):
                     hasher.update(chunk)

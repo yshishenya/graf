@@ -132,6 +132,26 @@ def test_producer_directory_digest_frames_file_contents(tmp_path: Path) -> None:
     assert producer._artifact_digest(first) != producer._artifact_digest(second)
 
 
+def test_producer_directory_digest_frames_file_modes(tmp_path: Path) -> None:
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("emit_ci_evidence", PRODUCER)
+    assert spec and spec.loader
+    producer = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(producer)
+
+    executable = tmp_path / "executable"
+    non_executable = tmp_path / "non-executable"
+    executable.mkdir()
+    non_executable.mkdir()
+    (executable / "app").write_bytes(b"same")
+    (non_executable / "app").write_bytes(b"same")
+    (executable / "app").chmod(0o755)
+    (non_executable / "app").chmod(0o644)
+
+    assert producer._artifact_digest(executable) != producer._artifact_digest(non_executable)
+
+
 def test_producer_refuses_overwrite_unless_explicitly_non_authoritative(tmp_path: Path) -> None:
     sha = "a" * 40
     output = tmp_path / "evidence.json"

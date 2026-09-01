@@ -25,7 +25,7 @@ review и не меняет checkbox state.
 
 - [ ] CHK009 Can each success criterion be objectively demonstrated without exposing user or production data? [Measurability, Spec §SC-001–SC-008]
 - [ ] CHK010 Are incomplete discovery, stale SHA, forbidden metadata, expired exceptions and missing rollback handled as explicit failure states? [Coverage, Spec §Edge Cases]
-- [ ] CHK011 Are migration, Temporal, MediaScribe, macOS/Sparkle and rollback domains covered by domain-appropriate evidence requirements? [Coverage, Spec §FR-010–FR-012]
+- [ ] CHK011 Are migration, Temporal, MediaScribe (T036), macOS/Sparkle and rollback domains covered by domain-appropriate evidence requirements? [Coverage, Spec §FR-010–FR-012]
 - [ ] CHK012 Are release-train and individual fast-CI evidence requirements explicitly non-interchangeable? [Consistency, Spec §US5, FR-016]
 
 ## Agent Context and Governance
