@@ -171,7 +171,9 @@ def _assert_dev_environment() -> None:
 
 
 def _is_loopback_origin(value: str) -> bool:
-    return bool(re.match(r"^https?://(localhost|127\.0\.0\.1|\[::1\])(?::[0-9]{1,5})?$", value))
+    # Keep the manifest contract identical to build-dev-app.sh: the current
+    # macOS adapter accepts only HTTP IPv4/localhost loopback origins.
+    return bool(re.match(r"^http://(localhost|127\.0\.0\.1):[0-9]{1,5}$", value))
 
 
 def _safe_id(value: str, label: str = "identifier") -> str:
@@ -371,8 +373,11 @@ class GrafLocalAdapter:
                 )
             ):
                 env.pop(key, None)
+        # Credentials belong to the repository-global Dev state, not to a
+        # disposable source worktree.  Every promoted SHA must use the same
+        # encryption key while the shared Dev database remains in place.
         env["GRAF_CREDENTIAL_ENCRYPTION_KEY_FILE"] = str(
-            self.root / "infra" / "secrets" / "graf_credential_encryption_key"
+            self.state / "credentials" / "graf_credential_encryption_key"
         )
         host, port = _origin_parts(backend)
         env["TWOBRAIN_API_HOST"] = host
@@ -1107,22 +1112,13 @@ def operation_build(args: argparse.Namespace) -> Dict[str, Any]:
                 except HarnessError:
                     artifact_is_valid = False
             if not artifact_is_valid:
-                # Metadata-only builds are deliberately not treated as live
-                # builds. Rebuild the missing artifact before claiming
-                # idempotent live success, including when an artifact was
-                # modified after its manifest was written.
-                adapter_info = GrafLocalAdapter(_repo_root(), root).build(manifest)
-                _validate_manifest(manifest)
-                _write_json(_manifest_path(root, manifest["manifest_id"]), manifest)
-                return {
-                    "operation": "build",
-                    "dry_run": False,
-                    "status": active.get("status", "active"),
-                    "adapter": adapter_info,
-                    "manifest": manifest,
-                    "idempotent": True,
-                    "repaired_live_artifact": True,
-                }
+                # Never replace active metadata while the old runtime/app is
+                # still live.  A missing or drifted bundle requires an
+                # explicit stop and verified re-promotion transaction.
+                raise HarnessError(
+                    "active live Dev app artifact is missing or drifted; "
+                    "stop the live target and perform a verified re-promotion"
+                )
         return {
             "operation": "build",
             "dry_run": bool(args.dry_run),
@@ -1157,6 +1153,13 @@ def operation_promote(args: argparse.Namespace) -> Dict[str, Any]:
             raise HarnessError("candidate parent manifest is stale; rebuild from current active Dev manifest")
         if active is None and expected_parent is not None:
             raise HarnessError("candidate parent manifest is unavailable")
+        if active and not getattr(args, "live", False) and not args.dry_run:
+            pointer = _read_json(root / "active-manifest.json") if (root / "active-manifest.json").exists() else {}
+            if pointer.get("runtime_mode") == "live" or (root / "runtime.json").exists():
+                raise HarnessError(
+                    "active live Dev target requires --live promotion; "
+                    "metadata-only promotion is blocked until runtime replacement is verified"
+                )
         if active and candidate.get("migration_head") != active.get("migration_head"):
             raise HarnessError(
                 "candidate migration_head differs from active Dev manifest; rebuild against the current database schema"

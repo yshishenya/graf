@@ -134,14 +134,22 @@ def legacy(spec: Path) -> list[str]:
     if len(classifications) != 1:
         return [f"{spec}: Legacy Impact classification is invalid"]
     if classifications[0].lower() == "retain-with-exception":
-        for token in ("owner", "expiry", "trigger", "retirement task"):
+        field_patterns = {
+            "owner": r"owner",
+            "expiry": r"expiry",
+            "removal trigger": r"removal[ \t]+trigger",
+            "risk": r"risk",
+            "validation": r"validation",
+            "retirement task": r"retirement[ \t]+task",
+        }
+        for token, pattern in field_patterns.items():
             field = re.search(
-                rf"^[ \t]*(?:[-*][ \t]*)?(?:\*\*)?{re.escape(token)}(?:\*\*)?[ \t]*:[ \t]*(\S.*)$",
+                rf"^[ \t]*(?:[-*][ \t]*)?(?:\*\*)?{pattern}(?:\*\*)?[ \t]*:[ \t]*(\S.*)$",
                 section,
                 re.IGNORECASE | re.MULTILINE,
             )
             if not field:
-                return [f"{spec}: compatibility exception needs owner, expiry, trigger and retirement task"]
+                return [f"{spec}: compatibility exception needs owner, expiry, removal trigger, risk, validation and retirement task"]
             if token == "expiry":
                 value = field.group(1).strip().strip("`'\"")
                 try:
@@ -461,7 +469,7 @@ def package_safety(package_root: Path) -> list[str]:
             continue
         if path.is_dir() or ".git" in path.parts:
             continue
-        if path.suffix in {".pyc", ".pyo"} or ".egg-info" in path.parts or path.name in {".DS_Store"}:
+        if "build" in path.parts or path.suffix in {".pyc", ".pyo"} or ".egg-info" in path.parts or path.name in {".DS_Store"}:
             errors.append(f"generated artifact is not publishable: {relative}")
             continue
         try:
@@ -560,7 +568,8 @@ def self_test() -> int:
         (root / "specs/001-example/spec.md").write_text(
             "# Example\n\n## Legacy Impact\n\n"
             "Classification: retain-with-exception\n"
-            "owner: platform\nexpiry: 2099-12-31\ntrigger: migration complete\n"
+            "owner: platform\nexpiry: 2099-12-31\nRemoval trigger: migration complete\n"
+            "Risk: bounded compatibility risk\nValidation: focused migration test\n"
             "retirement task: T999\n",
             encoding="utf-8",
         )
@@ -568,7 +577,8 @@ def self_test() -> int:
         (root / "specs/001-example/spec.md").write_text(
             "# Example\n\n## Legacy Impact\n\n"
             "Classification: retain-with-exception\n"
-            "owner: platform\nexpiry: yesterday\ntrigger: migration complete\n"
+            "owner: platform\nexpiry: yesterday\nRemoval trigger: migration complete\n"
+            "Risk: bounded compatibility risk\nValidation: focused migration test\n"
             "retirement task: T999\n",
             encoding="utf-8",
         )

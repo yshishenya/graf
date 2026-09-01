@@ -75,6 +75,7 @@ def test_build_same_active_sha_is_idempotent_and_preserves_active_record(tmp_pat
     sha = "a" * 40
     first = build(tmp_path, sha)
     run("promote", tmp_path, manifest=str(tmp_path / "manifests" / f"{first['manifest_id']}.json"), dry_run=False)
+    active_before = json.loads((tmp_path / "manifests" / f"{first['manifest_id']}.json").read_text())
     rebuilt = run("build", tmp_path, sha=sha, feature_id="216", operator="test", migration_head="dev-head", dry_run=False)
     assert rebuilt["idempotent"] is True
     assert rebuilt["manifest"]["status"] == "active"
@@ -109,6 +110,7 @@ def test_live_build_does_not_claim_existing_metadata_is_a_live_artifact(monkeypa
     sha = "2" * 40
     first = build(tmp_path, sha)
     run("promote", tmp_path, manifest=str(tmp_path / "manifests" / f"{first['manifest_id']}.json"), dry_run=False)
+    active_before = json.loads((tmp_path / "manifests" / f"{first['manifest_id']}.json").read_text())
     calls = []
 
     class FakeAdapter:
@@ -120,13 +122,13 @@ def test_live_build_does_not_claim_existing_metadata_is_a_live_artifact(monkeypa
             return {"mode": "live", "app_bundle_digest": "sha256:" + "3" * 64}
 
     monkeypatch.setattr(dev_harness, "GrafLocalAdapter", FakeAdapter)
-    result = run(
-        "build", tmp_path, sha=sha, feature_id="216", operator="test",
-        migration_head="dev-head", dry_run=False, live=True,
-    )
-    assert result["idempotent"] is True
-    assert result["repaired_live_artifact"] is True
-    assert calls == [sha]
+    with pytest.raises(dev_harness.HarnessError, match="active live Dev app artifact"):
+        run(
+            "build", tmp_path, sha=sha, feature_id="216", operator="test",
+            migration_head="dev-head", dry_run=False, live=True,
+        )
+    assert calls == []
+    assert json.loads((tmp_path / "manifests" / f"{first['manifest_id']}.json").read_text()) == active_before
 
 
 def test_live_build_rebuilds_when_existing_app_digest_drifted(monkeypatch, tmp_path):
@@ -157,13 +159,24 @@ def test_live_build_rebuilds_when_existing_app_digest_drifted(monkeypatch, tmp_p
             return {"mode": "live", "app_bundle_digest": manifest["components"]["macos_app"]["digest"]}
 
     monkeypatch.setattr(dev_harness, "GrafLocalAdapter", FakeAdapter)
-    result = run(
-        "build", tmp_path, sha=sha, feature_id="216", operator="test",
-        migration_head="dev-head", dry_run=False, live=True,
+    with pytest.raises(dev_harness.HarnessError, match="active live Dev app artifact"):
+        run(
+            "build", tmp_path, sha=sha, feature_id="216", operator="test",
+            migration_head="dev-head", dry_run=False, live=True,
+        )
+    assert calls == []
+
+
+def test_metadata_only_promote_refuses_live_active_target(tmp_path):
+    first = build(tmp_path, "4" * 40)
+    run("promote", tmp_path, manifest=str(tmp_path / "manifests" / f"{first['manifest_id']}.json"), dry_run=False)
+    (tmp_path / "active-manifest.json").write_text(
+        json.dumps({"schema_version": dev_harness.POINTER_VERSION, "runtime_mode": "live", "manifest_id": first["manifest_id"]}),
+        encoding="utf-8",
     )
-    assert result["idempotent"] is True
-    assert result["repaired_live_artifact"] is True
-    assert calls == [sha]
+    second = build(tmp_path, "5" * 40)
+    with pytest.raises(dev_harness.HarnessError, match="metadata-only promotion is blocked"):
+        run("promote", tmp_path, manifest=str(tmp_path / "manifests" / f"{second['manifest_id']}.json"), dry_run=False)
 
 
 def test_reset_refuses_owned_live_runtime(monkeypatch, tmp_path):

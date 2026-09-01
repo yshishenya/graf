@@ -128,13 +128,19 @@ read_feature_json_feature_directory() {
     return 0
 }
 
-# Persist a feature_directory value to .specify/feature.json.
+# Persist a feature context to .specify/feature.json. The optional metadata
+# arguments let the bootstrap produce a complete pointer immediately; older
+# callers that pass only the directory retain the legacy minimal behavior.
 # Writes only when the file is missing or the value differs from what's stored.
 # Accepts the raw (possibly relative) path — callers should pass the original
 # user-supplied value, not the normalized absolute path.
 _persist_feature_json() {
     local repo_root="$1"
     local feature_dir_value="$2"
+    local feature_id="${3:-}"
+    local branch="${4:-}"
+    local owner="${5:-${USER:-local}}"
+    local risk_lane="${6:-active-spec-kit}"
     local fj="$repo_root/.specify/feature.json"
 
     # Strip repo_root prefix if the value is absolute and under repo_root
@@ -145,7 +151,7 @@ _persist_feature_json() {
     # Read current value (if any) and skip write when unchanged
     local current_val
     current_val=$(read_feature_json_feature_directory "$repo_root")
-    if [[ "$current_val" == "$feature_dir_value" ]]; then
+    if [[ "$current_val" == "$feature_dir_value" && -z "$feature_id" ]]; then
         return 0
     fi
 
@@ -154,9 +160,27 @@ _persist_feature_json() {
 
     # Write feature.json — prefer jq for safe JSON, fall back to printf
     if command -v jq >/dev/null 2>&1; then
-        jq -cn --arg fd "$feature_dir_value" '{feature_directory:$fd}' > "$fj"
+        if [[ -n "$feature_id" && -n "$branch" ]]; then
+            local source_sha
+            source_sha=$(git -C "$repo_root" rev-parse HEAD 2>/dev/null || true)
+            jq -cn \
+                --arg fd "$feature_dir_value" --arg id "$feature_id" --arg br "$branch" \
+                --arg sha "$source_sha" --arg own "$owner" --arg lane "$risk_lane" \
+                '{schema_version:1,feature_directory:$fd,feature_id:$id,branch:$br,source_sha:$sha,owner:$own,risk_lane:$lane,owned_paths:[$fd]}' > "$fj"
+        else
+            jq -cn --arg fd "$feature_dir_value" '{feature_directory:$fd}' > "$fj"
+        fi
     else
-        printf '{"feature_directory":"%s"}\n' "$(json_escape "$feature_dir_value")" > "$fj"
+        if [[ -n "$feature_id" && -n "$branch" ]]; then
+            local source_sha
+            source_sha=$(git -C "$repo_root" rev-parse HEAD 2>/dev/null || true)
+            printf '{"schema_version":1,"feature_directory":"%s","feature_id":"%s","branch":"%s","source_sha":"%s","owner":"%s","risk_lane":"%s","owned_paths":["%s"]}\n' \
+                "$(json_escape "$feature_dir_value")" "$(json_escape "$feature_id")" \
+                "$(json_escape "$branch")" "$(json_escape "$source_sha")" "$(json_escape "$owner")" \
+                "$(json_escape "$risk_lane")" "$(json_escape "$feature_dir_value")" > "$fj"
+        else
+            printf '{"feature_directory":"%s"}\n' "$(json_escape "$feature_dir_value")" > "$fj"
+        fi
     fi
 }
 

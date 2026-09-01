@@ -8,7 +8,7 @@
     },
     "git": {
       "manifest_hash": "sha256:89711dec9716473fba4afc54f7224bcb28ebd3c55fb5aaa30df854ab02b07a75",
-      "tree_sha256": "79b079184765b50cc526177258ffba41756dc7303e326561fe74fb80ad25fda1",
+            "tree_sha256": "c2f3d297346efd3768873bdf9962f0fcd7c2a45dad0d9c1fc1a28e73686a7bc0",
       "version": "1.0.0"
     }
   },

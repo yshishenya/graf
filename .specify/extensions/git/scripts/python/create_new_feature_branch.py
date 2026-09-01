@@ -557,7 +557,7 @@ def main(argv: list[str]) -> int:
             # before the branch exists. The generic extension remains usable in
             # standalone repositories where this script is absent.
             claim_script = repo_root / "scripts" / "claim-feature.py"
-            if claim_script.is_file() and not os.environ.get("GRAF_SKIP_FEATURE_CLAIM"):
+            if claim_script.is_file() and os.environ.get("GRAF_SKIP_FEATURE_CLAIM", "") != "1":
                 claim_command = [
                     sys.executable, str(claim_script), "--root", str(repo_root),
                     "--allocate", "--branch", branch_name, "--slug", branch_suffix,

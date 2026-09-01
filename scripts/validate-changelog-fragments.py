@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 
-REQUIRED = ("schema_version", "feature_id", "category", "summary", "issue", "tasks", "compatibility", "release_notes")
+REQUIRED = ("schema_version", "feature_id", "category", "summary", "issue", "tasks", "compatibility", "release_notes", "known_limitations")
 CATEGORIES = {"Added", "Changed", "Fixed", "Security", "Docs", "Ops"}
 FORBIDDEN = ("/Users/", "/home/", "BEGIN PRIVATE KEY", "sk-", "signed-url", "raw audio", "transcript text")
 CREDENTIAL_ASSIGNMENT_RE = re.compile(
@@ -23,6 +23,34 @@ def _field(text: str, name: str) -> re.Match[str] | None:
     return re.search(rf"^{re.escape(name)}[ \t]*:[ \t]*(.*)$", text, re.MULTILINE)
 
 
+def _fields(text: str, name: str) -> list[re.Match[str]]:
+    return list(re.finditer(rf"^{re.escape(name)}[ \t]*:[ \t]*(.*)$", text, re.MULTILINE))
+
+
+def _has_value_or_block(text: str, name: str) -> bool:
+    matches = _fields(text, name)
+    for match in matches:
+        if match.group(1).strip():
+            return True
+        following = text[match.end():]
+        next_top_level = re.search(r"^\S", following, re.MULTILINE)
+        block = following[: next_top_level.start()] if next_top_level else following
+        if re.search(r"^[ \t]{2,}-[ \t]*\S", block, re.MULTILINE):
+            return True
+    return False
+
+
+def _field_payload(text: str, name: str) -> str:
+    matches = _fields(text, name)
+    if not matches:
+        return ""
+    match = matches[0]
+    following = text[match.end():]
+    next_top_level = re.search(r"^\S", following, re.MULTILINE)
+    block = following[: next_top_level.start()] if next_top_level else following
+    return match.group(1).strip() + "\n" + block
+
+
 def validate(root: Path) -> list[str]:
     directory = root / "changes" / "unreleased"
     if not directory.is_dir():
@@ -34,10 +62,13 @@ def validate(root: Path) -> list[str]:
         missing = [
             key
             for key in REQUIRED
-            if (match := _field(text, key)) is None or not match.group(1).strip()
+            if not _has_value_or_block(text, key)
         ]
         if missing:
             errors.append(f"{path}: missing {', '.join(missing)}")
+        for key in REQUIRED:
+            if len(_fields(text, key)) > 1:
+                errors.append(f"{path}: duplicate top-level field {key}")
         match = re.search(r"^feature_id[ \t]*:[ \t]*(\d+)[ \t]*$", text, re.MULTILINE)
         if match:
             feature_id = int(match.group(1))
@@ -59,6 +90,11 @@ def validate(root: Path) -> list[str]:
         summary = re.search(r"^summary[ \t]*:[ \t]*(.+)$", text, re.MULTILINE)
         if not summary or not summary.group(1).strip() or not re.search(r"[А-Яа-яЁё]", summary.group(1)):
             errors.append(f"{path}: summary must be a non-empty Russian entry")
+        release_notes = _field_payload(text, "release_notes")
+        if not release_notes.strip() or not re.search(r"[А-Яа-яЁё]", release_notes):
+            errors.append(f"{path}: release_notes must be a non-empty Russian entry")
+        if not _has_value_or_block(text, "known_limitations"):
+            errors.append(f"{path}: known_limitations must be non-empty")
         if not re.search(r"^issue[ \t]*:[ \t]*#?\d+[ \t]*$", text, re.MULTILINE):
             errors.append(f"{path}: issue must contain a GitHub number")
         if not re.search(r"^tasks[ \t]*:[ \t]*.+T\d{3,}", text, re.MULTILINE):

@@ -383,6 +383,31 @@ def changelog_mentions_feature(feature_id):
         re.IGNORECASE,
     ))
 
+def prepared_feature_ids():
+    section = current_release_section()
+    if section is None:
+        return set()
+    _version, text = section
+    return set(re.findall(
+        r"(?:Фича|Feature|feature_id|feature:)\s*[:#]?\s*`?([0-9]{3,})\b",
+        text,
+        re.IGNORECASE,
+    ))
+
+def prepared_limitations():
+    section = current_release_section()
+    if section is None:
+        return []
+    _version, text = section
+    limitations = []
+    for line in text.splitlines():
+        marker = "ограничения:"
+        if marker in line.lower():
+            value = line.lower().split(marker, 1)[1].strip()
+            if value:
+                limitations.append(value)
+    return limitations
+
 def metadata_path_reference(path):
     """Keep retained identity metadata portable and free of machine paths."""
     try:
@@ -478,20 +503,26 @@ if op == "freeze":
     missing_features = [feature_id for feature_id in feature_ids if not feature_exists(feature_id)]
     if missing_features:
         die("cannot freeze nonexistent feature IDs: " + ", ".join(missing_features))
-    unlisted_features = [feature_id for feature_id in feature_ids if not changelog_mentions_feature(feature_id)]
-    if unlisted_features:
-        die("included feature IDs are absent from the prepared CHANGELOG.md: " + ", ".join(unlisted_features))
-    output = pathlib.Path(values["output"] or (CANDIDATE_DIR / f"rc-{sha[:12]}.json"))
+    declared_features = prepared_feature_ids()
+    if set(feature_ids) != declared_features:
+        die(
+            "included feature IDs must exactly match the current prepared CHANGELOG.md section: "
+            f"requested={','.join(sorted(feature_ids, key=int))}; "
+            f"declared={','.join(sorted(declared_features, key=int)) or '<none>'}"
+        )
+    limitations = prepared_limitations()
+    candidate_stamp = dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+    output = pathlib.Path(values["output"] or (CANDIDATE_DIR / f"rc-{candidate_stamp}-{sha[:12]}.json"))
     candidate = {
         "schema_version": 1,
-        "candidate_id": f"rc-{dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{sha[:12]}",
+        "candidate_id": f"rc-{candidate_stamp}-{sha[:12]}",
         "source_sha": sha, "included_feature_ids": sorted(feature_ids, key=int),
         "changelog_digest": digest(root / "CHANGELOG.md"),
         "frozen_at": dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "frozen_by": values["operator"], "status": "frozen", "full_run_id": None,
         "full_evidence_digest": None, "calver": None, "tag": None, "github_release_url": None,
         "rollback_target": "previous-successful-release",
-        "known_limitations": ["Full CI and publication are separate release-operator gates."],
+        "known_limitations": limitations,
         "decision": None, "decision_reason": "Candidate metadata frozen; Full CI has not run.",
     }
     validate_candidate(candidate)
