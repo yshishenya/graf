@@ -45,8 +45,9 @@ dev_state="$(./infra/scripts/dev-harness.sh status --json | jq -r '.state_dir')"
 `GRAF Dev.app`. `promote --live` использует `start-local.sh`, поднимает только
 локальные Postgres/MinIO, запускает backend и атомарно устанавливает один
 `/Applications/GRAF Dev.app`. `smoke --live` проверяет live/ready API,
-server-rendered `/login`, public auth providers и соответствие установленного
-app exact SHA/origin/bundle ID. Live adapter отказывает, если SHA не совпадает
+server-rendered `/login`, public auth providers, healthy Temporal и processing
+worker, а также соответствие установленного app exact SHA/origin/bundle ID.
+Live adapter отказывает, если SHA не совпадает
 с текущим `HEAD`, origin не loopback или отсутствует Developer signing
 identity. Он не предназначен для production/staging и не запускается в CI.
 
@@ -64,11 +65,15 @@ The first failed/partial operation therefore leaves the previous active
 manifest untouched. Re-promoting the active manifest is idempotent.
 
 `rollback` selects the manifest's parent unless an explicit manifest ID is
-provided. `reset-data` is intentionally limited to metadata-only Dev state and
-requires `--confirm-dev-reset`; it never removes production or application
-data. `smoke --fixture` proves the deterministic contract without network
-access; real health probes and Compose/macOS actions are opt-in through the
-GRAF adapter above.
+provided. Live rollback restores the target source checkout, app and backend,
+then runs smoke before publishing the active pointer; failed compensation
+leaves the pointer untouched and fails closed. `reset-data` is intentionally
+limited to metadata-only Dev state and requires `--confirm-dev-reset`; it first
+requires the owned backend to be stopped (or a verified rollback) and refuses
+both a live runtime and an unowned/stale `runtime.json`. It never removes
+production or application data. `smoke --fixture` proves the deterministic
+contract without network access; real health probes and Compose/macOS actions
+are opt-in through the GRAF adapter above.
 
 The live adapter records both the backend launch command and the macOS `ps`
 start-time token in `runtime.json`. Stop and rollback signal a process only when

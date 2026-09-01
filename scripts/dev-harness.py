@@ -54,6 +54,7 @@ APP_IDENTITY_FIELDS = {
 }
 HEALTH_FIELDS = {"result", "checked_at", "checks"}
 BOUNDARY_FIELDS = {"environment", "backend_origin", "frontend_origin", "data_root"}
+MANIFEST_STATUSES = {"ready", "promoting", "active", "degraded", "rollback_required", "blocked"}
 SENSITIVE_KEY_RE = re.compile(
     r"(?:api[_-]?key|access[_-]?token|refresh[_-]?token|password|secret|credential|"
     r"private[_-]?key|raw[_-]?transcript|transcript[_-]?text|signed[_-]?url)",
@@ -812,6 +813,30 @@ class GrafLocalAdapter:
         backend = str(manifest["dev_boundary"]["backend_origin"])
         frontend = str(manifest["dev_boundary"]["frontend_origin"])
         checks: Dict[str, str] = {}
+
+        def service_health(service: str) -> str:
+            try:
+                output = _run_command(
+                    ["docker", "compose", "-f", str(self.compose_file), "ps", "--format", "json", service],
+                    cwd=self.root,
+                    env=self._env(manifest),
+                )
+                try:
+                    parsed = json.loads(output)
+                except json.JSONDecodeError:
+                    parsed = None
+                rows = parsed if isinstance(parsed, list) else ([parsed] if isinstance(parsed, dict) else [])
+                matches = [
+                    row for row in rows
+                    if isinstance(row, dict) and row.get("Service") == service
+                ]
+                if len(matches) != 1:
+                    return "fail"
+                row = matches[0]
+                return "pass" if row.get("State") == "running" and row.get("Health") == "healthy" else "fail"
+            except (HarnessError, TypeError, ValueError):
+                return "fail"
+
         def probe(origin: str, path: str, headers: Optional[Dict[str, str]] = None) -> str:
             try:
                 return "pass" if self._wait_http(origin, path, headers=headers) == 200 else "fail"
@@ -819,33 +844,11 @@ class GrafLocalAdapter:
                 return "fail"
 
         checks["backend_health"] = probe(backend, "/api/v1/health/live")
+        checks["temporal_health"] = service_health("rec-temporal")
         checks["worker_dependencies"] = probe(
             backend, "/api/v1/health/ready/internal", headers={"X-Internal-Health-Check": "true"}
         )
-        try:
-            worker_output = _run_command(
-                ["docker", "compose", "-f", str(self.compose_file), "ps", "--format", "json", "rec-processing-worker"],
-                cwd=self.root,
-                env=self._env(manifest),
-            )
-            try:
-                parsed = json.loads(worker_output)
-            except json.JSONDecodeError:
-                parsed = None
-            rows = parsed if isinstance(parsed, list) else ([parsed] if isinstance(parsed, dict) else [])
-            worker_rows = [
-                row for row in rows
-                if isinstance(row, dict) and row.get("Service") == "rec-processing-worker"
-            ]
-            if len(worker_rows) != 1:
-                checks["worker_dependencies"] = "fail"
-            else:
-                worker_row = worker_rows[0]
-                if worker_row.get("State") != "running" or worker_row.get("Health") != "healthy":
-                    checks["worker_dependencies"] = "fail"
-        except HarnessError:
-            checks["worker_dependencies"] = "fail"
-        except (TypeError, ValueError):
+        if service_health("rec-processing-worker") != "pass":
             checks["worker_dependencies"] = "fail"
         checks["frontend_reachability"] = probe(frontend, "/login")
         checks["auth_session_bootstrap"] = probe(backend, "/api/v1/auth/providers")
@@ -940,18 +943,37 @@ def _load_active(root: Path) -> Optional[Dict[str, Any]]:
 
 
 def _validate_manifest(manifest: Dict[str, Any]) -> None:
+    if not isinstance(manifest, dict):
+        raise HarnessError("manifest must be a JSON object")
     unknown = sorted(set(manifest) - MANIFEST_FIELDS)
     if unknown:
         raise HarnessError("manifest contains unsupported fields: " + ", ".join(unknown))
-    required = {"schema_version", "manifest_id", "feature_id", "source_sha", "components", "migration_head", "app_identity", "operator", "created_at", "parent_manifest_id", "health", "dev_boundary"}
+    required = {"schema_version", "manifest_id", "feature_id", "source_sha", "components", "migration_head", "app_identity", "operator", "created_at", "promoted_at", "parent_manifest_id", "status", "health", "dev_boundary"}
     missing = sorted(required - set(manifest))
     if missing:
         raise HarnessError("manifest missing required fields: " + ", ".join(missing))
     if manifest["schema_version"] != SCHEMA_VERSION:
         raise HarnessError("unsupported manifest schema")
+    if manifest["status"] not in MANIFEST_STATUSES:
+        raise HarnessError("manifest status is invalid")
     _safe_id(str(manifest["manifest_id"]), "manifest_id")
     _safe_id(str(manifest["feature_id"]), "feature_id")
     source_sha = _sha(str(manifest["source_sha"]))
+    migration_head = manifest["migration_head"]
+    if not isinstance(migration_head, str) or not migration_head or len(migration_head) > 256:
+        raise HarnessError("manifest migration_head is invalid")
+    operator = manifest["operator"]
+    if not isinstance(operator, str) or not operator.strip() or len(operator) > 128:
+        raise HarnessError("manifest operator is invalid")
+    for key in ("created_at", "promoted_at"):
+        value = manifest[key]
+        if value is not None:
+            if not isinstance(value, str) or not value.strip():
+                raise HarnessError(f"manifest {key} is invalid")
+            try:
+                dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+            except ValueError as exc:
+                raise HarnessError(f"manifest {key} is invalid") from exc
     components = manifest["components"]
     if not isinstance(components, dict):
         raise HarnessError("manifest components must be an object")
@@ -967,7 +989,7 @@ def _validate_manifest(manifest: Dict[str, Any]) -> None:
             raise HarnessError(f"manifest component {name} contains unsupported fields: {', '.join(unknown_fields)}")
         if _sha(str(component.get("source_sha", ""))) != source_sha:
             raise HarnessError(f"component {name} does not match manifest source SHA")
-        if not component.get("version"):
+        if not isinstance(component.get("version"), str) or not component["version"] or len(component["version"]) > 128:
             raise HarnessError(f"component {name} has no version")
         if not re.fullmatch(r"sha256:[0-9a-fA-F]{64}", str(component.get("digest", ""))):
             raise HarnessError(f"component {name} has invalid digest")
@@ -977,7 +999,10 @@ def _validate_manifest(manifest: Dict[str, Any]) -> None:
     unknown_identity = sorted(set(identity) - APP_IDENTITY_FIELDS) if isinstance(identity, dict) else []
     if unknown_identity:
         raise HarnessError("manifest app identity contains unsupported fields: " + ", ".join(unknown_identity))
-    if not identity.get("signing_identity") or not identity.get("designated_requirement"):
+    for key in ("signing_identity", "designated_requirement", "update_trust"):
+        if not isinstance(identity.get(key), str) or not identity[key] or len(identity[key]) > (1024 if key == "designated_requirement" else 256):
+            raise HarnessError(f"manifest app identity is incomplete: {key}")
+    if not re.fullmatch(r"sha256:[0-9a-fA-F]{64}", str(identity.get("entitlements_digest", ""))):
         raise HarnessError("manifest app identity is incomplete")
     boundary = manifest["dev_boundary"]
     if not isinstance(boundary, dict) or boundary.get("environment") != "development":
@@ -989,7 +1014,7 @@ def _validate_manifest(manifest: Dict[str, Any]) -> None:
         if not _is_loopback_origin(str(boundary.get(key, ""))):
             raise HarnessError(f"manifest {key} must be loopback-only")
     data_root = str(boundary.get("data_root", ""))
-    if not data_root or any(token in data_root.lower() for token in ("production", "prod-data", "prod_data")):
+    if not data_root or len(data_root) > 1024 or any(token in data_root.lower() for token in ("production", "prod-data", "prod_data")):
         raise HarnessError("manifest data root is outside the Dev boundary")
     health = manifest["health"]
     if not isinstance(health, dict) or health.get("result") not in {"pass", "fail", "unknown"}:
@@ -999,6 +1024,16 @@ def _validate_manifest(manifest: Dict[str, Any]) -> None:
         raise HarnessError("manifest health contains unsupported fields: " + ", ".join(unknown_health))
     if isinstance(health, dict) and not isinstance(health.get("checks"), dict):
         raise HarnessError("manifest health checks must be an object")
+    if isinstance(health, dict):
+        checked_at = health.get("checked_at")
+        if not isinstance(checked_at, str) or not checked_at.strip():
+            raise HarnessError("manifest health checked_at is invalid")
+        try:
+            dt.datetime.fromisoformat(checked_at.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise HarnessError("manifest health checked_at is invalid") from exc
+        if any(not isinstance(key, str) or not isinstance(value, str) for key, value in health["checks"].items()):
+            raise HarnessError("manifest health checks must contain string values")
     if SENSITIVE_KEY_RE.search(json.dumps(manifest, ensure_ascii=False, sort_keys=True)):
         raise HarnessError("manifest contains a forbidden secret or private-content field")
 
@@ -1062,10 +1097,20 @@ def operation_build(args: argparse.Namespace) -> Dict[str, Any]:
     if active and active.get("manifest_id") == manifest["manifest_id"]:
         if getattr(args, "live", False) and not args.dry_run:
             artifact = root / "artifacts" / str(manifest["manifest_id"]) / "GRAF Dev.app"
-            if not artifact.is_dir():
+            artifact_is_valid = False
+            if artifact.is_dir():
+                try:
+                    artifact_is_valid = (
+                        _tree_digest(artifact)
+                        == str(active.get("components", {}).get("macos_app", {}).get("digest", ""))
+                    )
+                except HarnessError:
+                    artifact_is_valid = False
+            if not artifact_is_valid:
                 # Metadata-only builds are deliberately not treated as live
                 # builds. Rebuild the missing artifact before claiming
-                # idempotent live success.
+                # idempotent live success, including when an artifact was
+                # modified after its manifest was written.
                 adapter_info = GrafLocalAdapter(_repo_root(), root).build(manifest)
                 _validate_manifest(manifest)
                 _write_json(_manifest_path(root, manifest["manifest_id"]), manifest)
@@ -1197,6 +1242,7 @@ def operation_smoke(args: argparse.Namespace) -> Dict[str, Any]:
             "frontend_reachability": "pass",
             "auth_session_bootstrap": "pass",
             "representative_api": "pass",
+            "temporal_health": "pass",
             "worker_dependencies": "pass",
             "app_origin": "pass",
             "mode": "fixture" if args.fixture else "metadata-only; use --live for local probes",
@@ -1274,6 +1320,10 @@ def operation_reset_data(args: argparse.Namespace) -> Dict[str, Any]:
                     "cannot reset Dev metadata while the owned live backend is running; "
                     "stop or rollback the live runtime first"
                 )
+            raise HarnessError(
+                "cannot reset Dev metadata while runtime ownership cannot be proven; "
+                "stop the Dev backend and remove or repair runtime.json first"
+            )
         if not args.dry_run:
             _atomic_write(root / "last-reset.json", json.dumps({"operation": "reset-data", "scope": "metadata-only-dev-state", "at": now()}, indent=2) + "\n")
             with contextlib.suppress(FileNotFoundError):

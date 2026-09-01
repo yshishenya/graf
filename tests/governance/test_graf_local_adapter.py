@@ -106,7 +106,8 @@ def test_live_smoke_checks_server_rendered_frontend_auth_and_one_app(monkeypatch
 
     def fake_plutil(command, *, cwd, env=None):
         if command[:2] == ["docker", "compose"] and "ps" in command:
-            return json.dumps({"Service": "rec-processing-worker", "State": "running", "Health": "healthy"})
+            service = command[-1]
+            return json.dumps({"Service": service, "State": "running", "Health": "healthy"})
         if command[2] == "GRAFSourceSHA":
             return sha
         if command[2] == "CFBundleIdentifier":
@@ -118,6 +119,7 @@ def test_live_smoke_checks_server_rendered_frontend_auth_and_one_app(monkeypatch
 
     assert checks == {
         "backend_health": "pass",
+        "temporal_health": "pass",
         "worker_dependencies": "pass",
         "frontend_reachability": "pass",
         "auth_session_bootstrap": "pass",

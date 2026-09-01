@@ -6,6 +6,7 @@ import multiprocessing
 from pathlib import Path
 import os
 import subprocess
+from types import SimpleNamespace
 
 import pytest
 
@@ -89,6 +90,21 @@ def test_manifest_rejects_unknown_and_sensitive_fields(tmp_path):
         run("promote", tmp_path, manifest=str(path), dry_run=False)
 
 
+def test_manifest_runtime_validator_requires_schema_fields_and_status(tmp_path):
+    manifest = build(tmp_path, "1" * 40)
+    manifest.pop("status")
+    path = tmp_path / "missing-status.json"
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(dev_harness.HarnessError, match="manifest missing required fields: status"):
+        run("promote", tmp_path, manifest=str(path), dry_run=False)
+
+    manifest = build(tmp_path, "2" * 40)
+    manifest["status"] = "not-a-status"
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(dev_harness.HarnessError, match="manifest status is invalid"):
+        run("promote", tmp_path, manifest=str(path), dry_run=False)
+
+
 def test_live_build_does_not_claim_existing_metadata_is_a_live_artifact(monkeypatch, tmp_path):
     sha = "2" * 40
     first = build(tmp_path, sha)
@@ -113,6 +129,43 @@ def test_live_build_does_not_claim_existing_metadata_is_a_live_artifact(monkeypa
     assert calls == [sha]
 
 
+def test_live_build_rebuilds_when_existing_app_digest_drifted(monkeypatch, tmp_path):
+    sha = "3" * 40
+    first = build(tmp_path, sha)
+    run("promote", tmp_path, manifest=str(tmp_path / "manifests" / f"{first['manifest_id']}.json"), dry_run=False)
+    bundle = tmp_path / "artifacts" / first["manifest_id"] / "GRAF Dev.app" / "Contents"
+    bundle.mkdir(parents=True)
+    marker = bundle / "marker"
+    marker.write_text("before", encoding="utf-8")
+    active_path = tmp_path / "manifests" / f"{first['manifest_id']}.json"
+    active = json.loads(active_path.read_text(encoding="utf-8"))
+    active["components"]["macos_app"]["digest"] = dev_harness._tree_digest(bundle.parent)
+    active_path.write_text(json.dumps(active), encoding="utf-8")
+    marker.write_text("after", encoding="utf-8")
+    calls = []
+
+    class FakeAdapter:
+        def __init__(self, _root, state):
+            self.state = state
+
+        def build(self, manifest):
+            calls.append(manifest["source_sha"])
+            rebuilt = self.state / "artifacts" / manifest["manifest_id"] / "GRAF Dev.app"
+            (rebuilt / "Contents").mkdir(parents=True, exist_ok=True)
+            (rebuilt / "Contents" / "marker").write_text("rebuilt", encoding="utf-8")
+            manifest["components"]["macos_app"]["digest"] = dev_harness._tree_digest(rebuilt)
+            return {"mode": "live", "app_bundle_digest": manifest["components"]["macos_app"]["digest"]}
+
+    monkeypatch.setattr(dev_harness, "GrafLocalAdapter", FakeAdapter)
+    result = run(
+        "build", tmp_path, sha=sha, feature_id="216", operator="test",
+        migration_head="dev-head", dry_run=False, live=True,
+    )
+    assert result["idempotent"] is True
+    assert result["repaired_live_artifact"] is True
+    assert calls == [sha]
+
+
 def test_reset_refuses_owned_live_runtime(monkeypatch, tmp_path):
     build(tmp_path, "4" * 40)
     dev_harness._write_json(tmp_path / "runtime.json", {"pid": 42, "source_sha": "4" * 40})
@@ -126,6 +179,22 @@ def test_reset_refuses_owned_live_runtime(monkeypatch, tmp_path):
 
     monkeypatch.setattr(dev_harness, "GrafLocalAdapter", FakeAdapter)
     with pytest.raises(dev_harness.HarnessError, match="cannot reset Dev metadata"):
+        run("reset_data", tmp_path, confirm_dev_reset=True, dry_run=False)
+
+
+def test_reset_refuses_runtime_with_unproven_ownership(monkeypatch, tmp_path):
+    build(tmp_path, "5" * 40)
+    dev_harness._write_json(tmp_path / "runtime.json", {"pid": 42, "source_sha": "5" * 40})
+
+    class FakeAdapter:
+        def __init__(self, _root, _state):
+            pass
+
+        def _runtime_is_live(self, _record):
+            return False
+
+    monkeypatch.setattr(dev_harness, "GrafLocalAdapter", FakeAdapter)
+    with pytest.raises(dev_harness.HarnessError, match="runtime ownership cannot be proven"):
         run("reset_data", tmp_path, confirm_dev_reset=True, dry_run=False)
 
 
@@ -218,6 +287,23 @@ def test_repository_identity_failure_is_fail_closed(monkeypatch, tmp_path):
     monkeypatch.setattr(dev_harness.subprocess, "run", fail_git)
     with pytest.raises(dev_harness.HarnessError, match="repository-global Git metadata"):
         dev_harness.state_dir()
+
+
+def test_repository_identity_is_shared_by_linked_worktrees(monkeypatch, tmp_path):
+    common = tmp_path / "repo" / ".git"
+    common.mkdir(parents=True)
+    roots = [tmp_path / "worktree-a", tmp_path / "worktree-b"]
+
+    def fake_run(_command, *, cwd, **_kwargs):
+        assert cwd in roots
+        return SimpleNamespace(stdout=str(common) + "\n")
+
+    monkeypatch.setattr(dev_harness.subprocess, "run", fake_run)
+    monkeypatch.setattr(dev_harness, "_repo_root", lambda: roots[0])
+    first = dev_harness._repository_identity()
+    monkeypatch.setattr(dev_harness, "_repo_root", lambda: roots[1])
+    second = dev_harness._repository_identity()
+    assert first == second
 
 
 def _promote_worker(root: str, manifest: str, queue) -> None:
