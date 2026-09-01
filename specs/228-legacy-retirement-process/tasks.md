@@ -51,7 +51,7 @@ evidence.
 - [ ] T016 [P] [US2] Add synthetic alias, fallback, flag, dependency, fixture and documentation changed-path fixtures in `tests/governance/test_validator_safety.py`.
 - [ ] T017 [US2] Implement `retain-with-exception` validation against the registry owner, expiry, trigger, validation and linked task/issue in `scripts/validate-legacy-registry.py`.
 - [ ] T018 [US2] Add a narrow active-path taxonomy and documented archival/evidence exclusions to `scripts/legacy-inventory.py` and `docs/agent-guidance/legacy-retirement.md`.
-- [ ] T019 [US2] Update `.github/pull_request_template.md` and `docs/agent-guidance/development-process.md` with the bounded Legacy Impact declaration without adding active context to root `AGENTS.md`.
+- [ ] T019 [US2] Update `.github/pull_request_template.md` and `docs/agent-guidance/development-process.md` with the bounded Legacy Impact declaration, extend `scripts/validate-pr-metadata.py` for complete exception fields, and add negative validator fixtures without adding active context to root `AGENTS.md`.
 
 ## Phase 5: User Story 3 — Prepare one safe retirement slice (P1)
 
