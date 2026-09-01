@@ -30,7 +30,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--non-authoritative",
         action="store_true",
-        help="mark diagnostic evidence as non-authoritative; publication remains create-only",
+        help="allow replacing an existing output for diagnostic evidence; cannot be used for authoritative Full CI",
     )
     parser.add_argument("--component-sha", action="append", default=[], metavar="NAME=SHA")
     parser.add_argument(
@@ -89,7 +89,7 @@ def _artifacts(values: list[str]) -> dict[str, str]:
     return result
 
 
-def _write_evidence(evidence: dict[str, object], output: Path) -> None:
+def _write_evidence(evidence: dict[str, object], output: Path, *, allow_overwrite: bool) -> None:
     """Write atomically, with an O_EXCL-equivalent create-only publication."""
     fd, temporary = tempfile.mkstemp(prefix=f".{output.name}.", suffix=".tmp", dir=output.parent)
     try:
@@ -98,10 +98,13 @@ def _write_evidence(evidence: dict[str, object], output: Path) -> None:
             handle.write("\n")
             handle.flush()
             os.fsync(handle.fileno())
-        # Linking the fully written temp inode is atomic and fails if any
-        # process has already published this evidence path. Diagnostic output
-        # is create-only too: an old record may already be authoritative.
-        os.link(temporary, output)
+        if allow_overwrite:
+            os.replace(temporary, output)
+            temporary = ""
+        else:
+            # Linking the fully written temp inode is atomic and fails if any
+            # process has already published this evidence path.
+            os.link(temporary, output)
     except FileExistsError as exc:
         raise SystemExit(f"refusing to overwrite existing evidence {output}; use --non-authoritative for diagnostics") from exc
     finally:
@@ -146,7 +149,7 @@ def emit(args: argparse.Namespace) -> dict[str, object]:
         evidence["reason"] = args.reason
     output = args.output
     output.parent.mkdir(parents=True, exist_ok=True)
-    _write_evidence(evidence, output)
+    _write_evidence(evidence, output, allow_overwrite=args.non_authoritative)
     return evidence
 
 
