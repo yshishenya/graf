@@ -72,6 +72,8 @@ def resolve_event_identity(event: dict[str, Any], event_name: str | None = None)
         target = _sha(_same(event.get("head_sha"), group.get("head_sha"), "merge_group.head_sha"), "merge_group.head_sha")
         base = _sha(_same(event.get("base_sha"), group.get("base_sha"), "merge_group.base_sha"), "merge_group.base_sha")
         group_id = _same(_same(event.get("id"), event.get("merge_group_id"), "merge_group.id"), group.get("id"), "merge_group.id")
+        if group_id is None:
+            group_id = f"mg-{target[:12]}"
         if not isinstance(group_id, str) or not _GROUP_ID.fullmatch(group_id):
             raise IdentityError("merge_group.id is required and must be safe")
         root_rows, nested_rows = event.get("pull_requests"), group.get("pull_requests")
@@ -82,11 +84,14 @@ def resolve_event_identity(event: dict[str, Any], event_name: str | None = None)
         if root_numbers is not None and nested_numbers is not None and root_numbers != nested_numbers:
             raise IdentityError("conflicting values for merge_group.pull_request_numbers")
         rows = rows if rows is not None else (root_numbers if root_numbers is not None else nested_numbers)
-        if not isinstance(rows, list) or not rows:
-            raise IdentityError("merge_group.pull_requests mapping is required")
-        numbers = [_positive(row.get("number") if isinstance(row, dict) else row, "merge_group.pull_requests.number") for row in rows]
-        if len(numbers) != len(set(numbers)):
-            raise IdentityError("merge_group.pull_requests contains duplicate PR numbers")
+        if rows is None:
+            numbers = []
+        elif not isinstance(rows, list) or not rows:
+            raise IdentityError("merge_group.pull_requests mapping is required when present")
+        else:
+            numbers = [_positive(row.get("number") if isinstance(row, dict) else row, "merge_group.pull_requests.number") for row in rows]
+            if len(numbers) != len(set(numbers)):
+                raise IdentityError("merge_group.pull_requests contains duplicate PR numbers")
         return {"schema_version": 1, "event_name": name, "target_sha": target, "base_sha": base,
                 "pull_request_numbers": numbers, "merge_group_id": group_id,
                 "concurrency_key": f"merge-group-{group_id}"}
@@ -144,6 +149,8 @@ def ci_receipt(data: Any) -> list[str]:
         errors.append("pull_request events require exactly one pull request number")
     elif event == "merge_group" and not pull_numbers:
         errors.append("merge_group events require a complete PR mapping")
+    elif event == "workflow_dispatch" and pull_numbers:
+        errors.append("workflow_dispatch receipts cannot contain pull request numbers")
     group_id = data.get("merge_group_id")
     if event == "merge_group" and (not isinstance(group_id, str) or not _GROUP_ID.fullmatch(group_id)):
         errors.append("merge_group_id is required for merge_group events")

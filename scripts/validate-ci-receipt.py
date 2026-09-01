@@ -104,6 +104,8 @@ def validate(data: dict[str, Any]) -> list[str]:
         errors.append("pull_request events require exactly one pull request number")
     elif event == "merge_group" and not prs:
         errors.append("merge_group events require a complete PR mapping")
+    elif event == "workflow_dispatch" and prs:
+        errors.append("workflow_dispatch receipts cannot contain pull request numbers")
     group_id = data.get("merge_group_id")
     if event == "merge_group" and (not isinstance(group_id, str) or not group_id.strip()):
         errors.append("merge_group_id is required for merge_group events")

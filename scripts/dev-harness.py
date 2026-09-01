@@ -335,6 +335,15 @@ class GrafLocalAdapter:
                 "current GRAF adapter supports the server-rendered frontend on the backend origin"
             )
         env = os.environ.copy()
+        # Start from a scrubbed operator environment.  Explicit development
+        # values are added below, so a production TWOBRAIN_* secret cannot
+        # survive merely because it has a name not covered by the old allowlist.
+        for key in tuple(env):
+            if key.startswith("TWOBRAIN_") or any(
+                marker in key
+                for marker in ("API_KEY", "TOKEN", "PASSWORD_FILE", "SECRET_FILE", "CREDENTIAL_FILE", "GITHUB_TOKEN")
+            ):
+                env.pop(key, None)
         env.update(
             {
                 "GRAF_BACKEND_ORIGIN": backend,
@@ -358,21 +367,6 @@ class GrafLocalAdapter:
                 "TWOBRAIN_PUBLIC_ANALYTICS_ENABLED": "false",
             }
         )
-        # Do not let an operator's production credentials or provider endpoints
-        # bleed into the explicitly local process environment.
-        for key in tuple(env):
-            if any(
-                marker in key
-                for marker in (
-                    "API_KEY",
-                    "TOKEN",
-                    "PASSWORD_FILE",
-                    "SECRET_FILE",
-                    "CREDENTIAL_FILE",
-                    "GITHUB_TOKEN",
-                )
-            ):
-                env.pop(key, None)
         # Credentials belong to the repository-global Dev state, not to a
         # disposable source worktree.  Every promoted SHA must use the same
         # encryption key while the shared Dev database remains in place.
@@ -455,8 +449,8 @@ class GrafLocalAdapter:
         requirement_match = re.search(r"^designated => (.+)$", requirement_output, re.MULTILINE)
         if not requirement_match or not requirement_match.group(1).strip():
             raise HarnessError("signed Dev app has no designated requirement")
-        entitlements = _run_command_combined(
-            ["codesign", "-d", "--entitlements", ":-", str(app_bundle)], cwd=self.root
+        entitlements = _run_command(
+            ["codesign", "-d", "--entitlements", "-", "--xml", str(app_bundle)], cwd=self.root
         )
         if "<plist" not in entitlements:
             raise HarnessError("signed Dev app has no readable entitlements")
@@ -582,16 +576,6 @@ class GrafLocalAdapter:
             raise HarnessError(f"could not start local backend: {exc}") from exc
         finally:
             log_handle.close()
-        _write_json(
-            runtime,
-            {
-                "pid": process.pid,
-                "source_sha": manifest["source_sha"],
-                "started_at": now(),
-                "command": self._process_command(process.pid),
-                "start_token": self._process_start_token(process.pid),
-            },
-        )
         try:
             self._wait_http(str(manifest["dev_boundary"]["backend_origin"]), "/api/v1/health/live", timeout=90)
         except HarnessError:
@@ -766,7 +750,7 @@ class GrafLocalAdapter:
         else:
             if app_backup is not None:
                 shutil.rmtree(app_backup)
-        return {"mode": "live", "backend": "started", "app": "installed"}
+        return {"mode": "live", "backend": "started", "app": "installed", "checks": checks}
 
     def rollback(self, active: Dict[str, Any], target: Dict[str, Any]) -> Dict[str, Any]:
         """Restore one previously built Dev target and prove it before commit."""
@@ -1136,13 +1120,29 @@ def operation_build(args: argparse.Namespace) -> Dict[str, Any]:
                 except HarnessError:
                     artifact_is_valid = False
             if not artifact_is_valid:
-                # Never replace active metadata while the old runtime/app is
-                # still live.  A missing or drifted bundle requires an
-                # explicit stop and verified re-promotion transaction.
-                raise HarnessError(
-                    "active live Dev app artifact is missing or drifted; "
-                    "stop the live target and perform a verified re-promotion"
-                )
+                pointer = _read_json(root / "active-manifest.json") if (root / "active-manifest.json").exists() else {}
+                if pointer.get("runtime_mode") == "live" or (root / "runtime.json").exists():
+                    # Never replace active metadata while the old runtime/app
+                    # is live. A missing artifact requires a verified
+                    # re-promotion transaction instead.
+                    raise HarnessError(
+                        "active live Dev app artifact is missing or drifted; "
+                        "stop the live target and perform a verified re-promotion"
+                    )
+                adapter_info = GrafLocalAdapter(_repo_root(), root).build(manifest)
+                manifest.update({
+                    "status": active.get("status", "active"),
+                    "promoted_at": active.get("promoted_at"),
+                    "parent_manifest_id": active.get("parent_manifest_id"),
+                    "health": active.get("health", manifest["health"]),
+                })
+                _validate_manifest(manifest)
+                _mkdirs(root)
+                _write_json(_manifest_path(root, manifest["manifest_id"]), manifest)
+                return {
+                    "operation": "build", "dry_run": False, "status": manifest["status"],
+                    "adapter": adapter_info, "manifest": manifest, "idempotent": False,
+                }
         return {
             "operation": "build",
             "dry_run": bool(args.dry_run),
@@ -1159,7 +1159,19 @@ def operation_build(args: argparse.Namespace) -> Dict[str, Any]:
         adapter_info = {"mode": "live-dry-run"}
     if not args.dry_run:
         _mkdirs(root)
-        _write_json(_manifest_path(root, manifest["manifest_id"]), manifest)
+        manifest_path = _manifest_path(root, manifest["manifest_id"])
+        if manifest_path.exists():
+            existing = _read_json(manifest_path)
+            if existing != manifest:
+                raise HarnessError(
+                    "a ready Dev manifest already exists for this SHA; "
+                    "refusing to overwrite its feature metadata"
+                )
+            return {
+                "operation": "build", "dry_run": False, "status": existing.get("status", "ready"),
+                "adapter": {"mode": "existing-ready"}, "manifest": existing, "idempotent": True,
+            }
+        _write_json(manifest_path, manifest)
     return {"operation": "build", "dry_run": bool(args.dry_run), "adapter": adapter_info, "manifest": manifest}
 
 

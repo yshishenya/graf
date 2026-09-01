@@ -81,7 +81,7 @@
       "uniqueItems": true,
       "items": {"type": "string", "pattern": "^[A-Za-z0-9._:-]{1,256}$"}
     },
-    "pr_receipts": {"type": "array", "items": {"$ref": "#/$defs/receipt_reference"}},
+    "pr_receipts": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/receipt_reference"}},
     "merge_group_receipts": {"type": "array", "items": {"$ref": "#/$defs/receipt_reference"}},
     "changelog_digest": {"$ref": "#/$defs/digest"},
     "authoritative_full_ci_receipt": {
@@ -89,5 +89,11 @@
     },
     "decision": {"type": "string", "enum": ["pending", "go", "no-go"]},
     "rollback_target": {"type": "string", "minLength": 1, "maxLength": 200}
-  }
+  },
+  "allOf": [
+    {
+      "if": {"required": ["decision"], "properties": {"decision": {"const": "go"}}},
+      "then": {"properties": {"authoritative_full_ci_receipt": {"$ref": "#/$defs/full_receipt_ref"}}}
+    }
+  ]
 }

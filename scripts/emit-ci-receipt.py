@@ -42,13 +42,14 @@ def _write_once(value: dict[str, Any], output: Path) -> None:
 
 def build(identity: dict[str, Any], evidence: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
     status = evidence.get("status")
-    if status not in {"passed", "failed", "stale", "cancelled", "ambiguous"}:
+    if status not in {"passed", "failed", "stale", "cancelled", "superseded", "ambiguous"}:
         raise SystemExit("evidence status is invalid")
     final_cleanliness = {
         "passed": "pass",
         "failed": "fail",
         "stale": "stale",
         "cancelled": "ambiguous",
+        "superseded": "ambiguous",
         "ambiguous": "ambiguous",
     }[status]
     receipt: dict[str, Any] = {

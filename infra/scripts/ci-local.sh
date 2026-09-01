@@ -475,7 +475,7 @@ PY
       dirty_worktree=1
       evidence_status_override="ambiguous"
       evidence_reason_override="dirty_worktree"
-    elif [[ "$requested_mode" == "full" && -n "$candidate_file" && -n "$initial_tree_state" ]]; then
+    elif [[ "$requested_mode" == "full" && -n "$candidate_id" && -n "$initial_tree_state" ]]; then
       printf 'ci_evidence_status=ambiguous reason=dirty_worktree_before_run\n' >&2
       evidence_status_override="ambiguous"
       evidence_reason_override="dirty_worktree_before_run"

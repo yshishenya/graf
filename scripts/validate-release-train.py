@@ -70,10 +70,11 @@ def validate(data: dict[str, Any]) -> list[str]:
     synthetic = _sha(data.get("synthetic_merge_sha"), "synthetic_merge_sha", errors)
     if source and synthetic and source == synthetic:
         errors.append("source_sha must remain distinct from synthetic_merge_sha")
-    _list(data.get("included_prs"), "included_prs", errors, positive=True)
+    included_prs = _list(data.get("included_prs"), "included_prs", errors, positive=True)
     features = _list(data.get("feature_ids"), "feature_ids", errors)
     if features is not None and any(not isinstance(item, str) or not re.fullmatch(r"[0-9]{3,}", item) for item in features):
         errors.append("feature_ids must contain numeric strings")
+    merge_group_ids = data.get("merge_group_ids")
     for key in ("merge_group_ids", "pr_receipts", "merge_group_receipts"):
         value = data.get(key)
         if not isinstance(value, list):
@@ -94,6 +95,12 @@ def validate(data: dict[str, Any]) -> list[str]:
                 _sha(item.get("target_sha"), f"{key}[{index}].target_sha", errors)
             else:
                 errors.append(f"{key}[{index}] must be a safe reference or object")
+    pr_receipts = data.get("pr_receipts")
+    merge_group_receipts = data.get("merge_group_receipts")
+    if isinstance(included_prs, list) and isinstance(pr_receipts, list) and len(pr_receipts) != len(included_prs):
+        errors.append("pr_receipts must cover every included PR")
+    if isinstance(merge_group_ids, list) and isinstance(merge_group_receipts, list) and len(merge_group_receipts) != len(merge_group_ids):
+        errors.append("merge_group_receipts must cover every merge group")
     digest = data.get("changelog_digest")
     if not isinstance(digest, str) or not re.fullmatch(r"sha256:[0-9a-fA-F]{64}", digest):
         errors.append("changelog_digest must be sha256:<64 hex>")
@@ -112,7 +119,7 @@ def validate(data: dict[str, Any]) -> list[str]:
             errors.append("authoritative_full_ci_receipt target_sha must match source_sha")
         if receipt.get("status") != "passed":
             errors.append("authoritative_full_ci_receipt.status must be passed")
-        if "lane" in receipt and receipt.get("lane") != "full":
+        if receipt.get("lane") != "full":
             errors.append("authoritative_full_ci_receipt.lane must be full")
     decision = data.get("decision")
     if decision not in DECISIONS:
@@ -142,11 +149,15 @@ def main() -> int:
     args = parser.parse_args()
     if args.self_test:
         sha = "a" * 40
-        good = {"schema_version": 1, "train_id": "train-1", "source_sha": sha, "base_sha": "b" * 40, "synthetic_merge_sha": "c" * 40, "included_prs": [1, 2, 3], "feature_ids": ["216", "227"], "merge_group_ids": ["mg-1"], "pr_receipts": ["pr-1"], "merge_group_receipts": ["mg-1"], "changelog_digest": "sha256:" + "d" * 64, "authoritative_full_ci_receipt": {"run_id": "full-1", "receipt_digest": "sha256:" + "f" * 64, "target_sha": sha, "status": "passed", "lane": "full"}, "decision": "go", "rollback_target": "e" * 40}
+        good = {"schema_version": 1, "train_id": "train-1", "source_sha": sha, "base_sha": "b" * 40, "synthetic_merge_sha": "c" * 40, "included_prs": [1, 2, 3], "feature_ids": ["216", "227"], "merge_group_ids": ["mg-1"], "pr_receipts": ["pr-1", "pr-2", "pr-3"], "merge_group_receipts": ["mg-1"], "changelog_digest": "sha256:" + "d" * 64, "authoritative_full_ci_receipt": {"run_id": "full-1", "receipt_digest": "sha256:" + "f" * 64, "target_sha": sha, "status": "passed", "lane": "full"}, "decision": "go", "rollback_target": "e" * 40}
         assert validate(good) == []
         assert validate(dict(good, source_sha=good["synthetic_merge_sha"]))
         assert validate(dict(good, decision="go", authoritative_full_ci_receipt=None))
         assert validate(dict(good, authoritative_full_ci_receipt="full-1"))
+        missing_lane = dict(good)
+        missing_lane["authoritative_full_ci_receipt"] = dict(good["authoritative_full_ci_receipt"])
+        missing_lane["authoritative_full_ci_receipt"].pop("lane")
+        assert any("lane must be full" in error for error in validate(missing_lane))
         print("release-train self-test: OK")
         return 0
     if args.manifest is None:

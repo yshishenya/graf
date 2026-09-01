@@ -172,7 +172,7 @@ jobs:
               group = group if isinstance(group, dict) else payload
               base = group.get("base_sha")
               value = group.get("id", group.get("merge_group_id"))
-              group_id = value if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9._:-]{1,256}", value) else None
+              group_id = value if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9._:-]{1,256}", value) else f"mg-{target[:12]}"
               rows = group.get("pull_requests")
               if isinstance(rows, list):
                   prs = [row.get("number") if isinstance(row, dict) else row for row in rows]

@@ -90,6 +90,11 @@ def resolve(event: dict[str, Any], *, event_name: str | None = None) -> dict[str
             group.get("id"),
             "merge_group.id",
         )
+        if group_id is None:
+            # GitHub's checks_requested merge_group payload omits an ID.  The
+            # head SHA is the stable event identity; membership is resolved
+            # separately against GitHub's associated-PR API.
+            group_id = f"mg-{target_sha[:12]}"
         if not isinstance(group_id, str) or not group_id.strip():
             raise IdentityError("merge_group.id is required")
         group_id = group_id.strip()
@@ -106,17 +111,23 @@ def resolve(event: dict[str, Any], *, event_name: str | None = None) -> dict[str
             raise IdentityError("conflicting values for merge_group.pull_request_numbers")
         if rows is None:
             rows = root_numbers if root_numbers is not None else nested_numbers
-        if not isinstance(rows, list) or not rows:
-            raise IdentityError("merge_group.pull_requests mapping is required")
-        numbers: list[int] = []
-        for row in rows:
-            if isinstance(row, dict):
-                value = row.get("number")
-            else:
-                value = row
-            numbers.append(_positive_int(value, "merge_group.pull_requests.number"))
-        if len(set(numbers)) != len(numbers):
-            raise IdentityError("merge_group.pull_requests contains duplicate PR numbers")
+        if rows is None:
+            # Real GitHub payloads do not include PR membership. The workflow
+            # must fill this from the authoritative associated-PR API before
+            # emitting a terminal receipt.
+            numbers = []
+        elif not isinstance(rows, list) or not rows:
+            raise IdentityError("merge_group.pull_requests mapping is required when present")
+        else:
+            numbers = []
+            for row in rows:
+                if isinstance(row, dict):
+                    value = row.get("number")
+                else:
+                    value = row
+                numbers.append(_positive_int(value, "merge_group.pull_requests.number"))
+            if len(set(numbers)) != len(numbers):
+                raise IdentityError("merge_group.pull_requests contains duplicate PR numbers")
         return {
             "schema_version": 1,
             "event_name": name,

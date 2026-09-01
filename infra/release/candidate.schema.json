@@ -196,6 +196,16 @@
           }
         }
       }
+    },
+    {
+      "if": {"required": ["status"], "properties": {"status": {"enum": ["no-go", "invalidated"]}}},
+      "then": {
+        "required": ["decision", "decision_reason"],
+        "properties": {
+          "decision": {"const": "no-go"},
+          "decision_reason": {"type": "string", "minLength": 1}
+        }
+      }
     }
   ]
 }

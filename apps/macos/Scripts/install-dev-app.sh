@@ -68,6 +68,8 @@ plutil -extract LSEnvironment.GRAF_APP_CHANNEL raw "$INFO_PLIST" | grep -Fxq "de
   fail "candidate channel is not Dev"
 plutil -extract GRAFSourceSHA raw "$INFO_PLIST" | grep -Fxq "$SOURCE_SHA" ||
   fail "candidate source SHA metadata is invalid"
+plutil -extract GRAFManifestID raw "$INFO_PLIST" | grep -Fxq "$MANIFEST_ID" ||
+  fail "candidate manifest ID metadata is invalid"
 validate_loopback_url() {
   python3 - "$1" "$2" <<'PY'
 from urllib.parse import urlsplit
@@ -92,6 +94,8 @@ CABINET_URL=$(plutil -extract LSEnvironment.GRAF_CABINET_BASE_URL raw "$INFO_PLI
 UPLOAD_URL=$(plutil -extract LSEnvironment.GRAF_UPLOAD_BASE_URL raw "$INFO_PLIST") || fail "candidate upload URL is missing"
 validate_loopback_url cabinet "$CABINET_URL" || fail "candidate cabinet URL is not loopback-safe"
 validate_loopback_url upload "$UPLOAD_URL" || fail "candidate upload URL is not loopback-safe"
+[ "$CABINET_URL" = "$LOCAL_ORIGIN" ] || fail "candidate cabinet URL does not match requested Dev origin"
+[ "$UPLOAD_URL" = "$LOCAL_ORIGIN" ] || fail "candidate upload URL does not match requested Dev origin"
 if plutil -extract SUFeedURL raw "$INFO_PLIST" >/dev/null 2>&1 ||
    plutil -extract SUPublicEDKey raw "$INFO_PLIST" >/dev/null 2>&1; then
   fail "candidate production updater metadata must be absent"

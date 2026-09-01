@@ -67,8 +67,10 @@ def verify(
     if not isinstance(identity, dict) or identity.get("event_name") != "merge_group":
         raise MappingError("merge-group identity is required")
     expected = identity.get("pull_request_numbers")
-    if expected is not None:
+    if expected:
         expected = _number_rows(expected, "identity pull_request_numbers")
+    else:
+        expected = None
     payload_numbers = _number_rows(pull_requests, "event mapping") if pull_requests else []
 
     # Real merge-group identities must be backed by the API response. The

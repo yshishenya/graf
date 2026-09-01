@@ -24,6 +24,26 @@ def validate(path: Path) -> list[str]:
     except (OSError, UnicodeError) as exc:
         return [f"cannot read workflow: {exc}"]
     errors: list[str] = []
+    checkout_refs: list[str] = []
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        if not re.search(r"uses:\s*actions/checkout@v4\s*$", line):
+            continue
+        step_indent = len(line) - len(line.lstrip())
+        for following in lines[index + 1:]:
+            indent = len(following) - len(following.lstrip())
+            if following.strip().startswith("-") and indent <= step_indent:
+                break
+            ref_match = re.match(r"^\s*ref:\s*(.*)$", following)
+            if ref_match:
+                checkout_refs.append(ref_match.group(1).strip())
+                break
+    exact_identity = (
+        bool(checkout_refs)
+        and any("github.event.pull_request.head.sha" in value for value in checkout_refs)
+        and any("github.event.merge_group.head_sha" in value for value in checkout_refs)
+        and any("inputs.requested_sha" in value for value in checkout_refs)
+    )
     required = {
         "name": r"(?m)^name:\s*governance-fast\s*$",
         "pull_request trigger": r"(?m)^\s*pull_request:\s*$",
@@ -34,7 +54,7 @@ def validate(path: Path) -> list[str]:
         # The workflow resolves PR, merge-group, and manual events to one
         # exact SHA expression. Keep the PR head SHA as a required branch of
         # that expression rather than accepting an unbound ref.
-        "exact checkout ref": r"(?m)^\s*ref:\s*\$\{\{[^\n]*github\.event\.pull_request\.head\.sha",
+        "exact checkout ref": r"(?m)^\s*ref:\s*\$\{\{",
         "requested SHA env": r"GRAF_CI_REQUESTED_SHA:\s*\$\{\{",
         "bounded fast lane": r"infra/scripts/ci-local\.sh\s+--fast",
         "PR metadata gate": r"(?ms)name:\s*Validate pull request metadata.*?if:\s*\$\{\{\s*github\.event_name\s*==\s*'pull_request'\s*\}\}.*?scripts/validate-pr-metadata\.py",
@@ -49,6 +69,8 @@ def validate(path: Path) -> list[str]:
     for label, pattern in required.items():
         if not re.search(pattern, text):
             errors.append(f"missing workflow invariant: {label}")
+    if not exact_identity:
+        errors.append("checkout ref must bind pull-request, merge-group, and manual exact SHA identities")
     for forbidden in FORBIDDEN:
         if forbidden in text:
             errors.append(f"forbidden command in workflow: {forbidden}")
@@ -89,7 +111,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha || inputs.requested_sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || inputs.requested_sha }}
       - run: gh api --paginate --slurp repos/o/r/commits/$GRAF_CI_REQUESTED_SHA/pulls
       - run: python3 scripts/verify-merge-group-mapping.py --authoritative-response "$RUNNER_TEMP/graf-merge-group-api.json"
       - name: Validate pull request metadata

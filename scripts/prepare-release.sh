@@ -137,6 +137,8 @@ for path in sorted((root / "changes" / "unreleased").glob("F*.yaml")):
                 index += 1
                 continue
             name, raw = match.groups()
+            if name in result:
+                raise SystemExit(f"duplicate fragment field {name}: {path}")
             index += 1
             if raw in {"|", ">", "|-", ">-", "|+", ">+"}:
                 block = []
