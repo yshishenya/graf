@@ -47,14 +47,21 @@ infra/scripts/release-candidate.sh train-validate \
   .dev/release/trains/train-<sha12>.json --current
 
 infra/scripts/release-candidate.sh freeze --sha <post-merge-master-sha> \
-  --features 227 --operator release-operator \
+  --features 216,227 --train .dev/release/trains/train-<sha12>.json \
+  --operator release-operator \
   --output .dev/release/candidates/rc-<sha12>.json
 infra/scripts/release-candidate.sh validate \
   .dev/release/candidates/rc-<sha12>.json --current
 GRAF_CI_CANDIDATE_FILE=.dev/release/candidates/rc-<sha12>.json \
   infra/scripts/ci-local.sh --full
+infra/scripts/release-candidate.sh train-attest \
+  .dev/release/trains/train-<sha12>.json \
+  --candidate .dev/release/candidates/rc-<sha12>.json \
+  --evidence .dev/ci-evidence/authoritative-<candidate-id>.json \
+  --output .dev/release/trains/train-<sha12>-go.json
 infra/scripts/release-candidate.sh decide \
   .dev/release/candidates/rc-<sha12>.json \
+  --train .dev/release/trains/train-<sha12>-go.json \
   --evidence .dev/ci-evidence/authoritative-<candidate-id>.json \
   --calver YYYY.MM.DD.N \
   --output .dev/release/decisions/<candidate-id>.decision.json

@@ -93,6 +93,8 @@ def validate(data: dict[str, Any]) -> list[str]:
                 if not isinstance(item.get("receipt_digest"), str) or not re.fullmatch(r"sha256:[0-9a-fA-F]{64}", item["receipt_digest"]):
                     errors.append(f"{key}[{index}].receipt_digest is invalid")
                 _sha(item.get("target_sha"), f"{key}[{index}].target_sha", errors)
+                if item.get("status") != "passed":
+                    errors.append(f"{key}[{index}].status must be passed")
             else:
                 errors.append(f"{key}[{index}] must be a safe reference or object")
     pr_receipts = data.get("pr_receipts")
@@ -158,6 +160,9 @@ def main() -> int:
         missing_lane["authoritative_full_ci_receipt"] = dict(good["authoritative_full_ci_receipt"])
         missing_lane["authoritative_full_ci_receipt"].pop("lane")
         assert any("lane must be full" in error for error in validate(missing_lane))
+        failed_receipt = dict(good)
+        failed_receipt["pr_receipts"] = [{"run_id": "pr-1", "receipt_digest": "sha256:" + "f" * 64, "target_sha": sha, "status": "failed"}, "pr-2", "pr-3"]
+        assert any("pr_receipts[0].status must be passed" in error for error in validate(failed_receipt))
         print("release-train self-test: OK")
         return 0
     if args.manifest is None:

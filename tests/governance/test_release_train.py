@@ -222,6 +222,10 @@ def test_train_attest_binds_authoritative_full_ci_to_candidate(tmp_path: Path) -
     decision = root / "decision.json"
     canonical_evidence = root / ".dev" / "ci-evidence" / f"authoritative-{candidate_data['candidate_id']}.json"
     shutil.copy2(evidence, canonical_evidence)
+    second = _run(root, "train-attest", str(train), "--candidate", str(candidate), "--evidence", str(evidence), "--output", str(root / "second-go.json"))
+    assert second.returncode != 0
+    assert "immutable attestation identity" in second.stderr
+
     decided = _run(
         root,
         "decide",

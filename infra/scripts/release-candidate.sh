@@ -710,6 +710,10 @@ if op == "train-attest":
     train_path = pathlib.Path(values["train"]).resolve()
     train = load(train_path)
     validate_train(train)
+    train_attestation_identity = DECISION_DIR / f".{train['train_id']}.train-attestation-identity.json"
+    train_attestation_lock = acquire_decision_lock(train["train_id"])
+    if train_attestation_identity.exists():
+        die(f"train already has an immutable attestation identity {train_attestation_identity}")
     if train.get("decision") != "pending":
         die("train-attest accepts only a pending train manifest")
     candidate_path = pathlib.Path(values["candidate"]).resolve()
@@ -753,10 +757,14 @@ if op == "train-attest":
         die(f"refusing to overwrite existing immutable record {output}")
     text = json.dumps(record, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     identity_path = metadata_identity_path(output)
-    if identity_path.exists():
+    if identity_path.exists() or train_attestation_identity.exists():
         die(f"refusing to overwrite existing immutable metadata identity {identity_path}")
     write_create_once(output, text)
     try:
+        write_create_once(train_attestation_identity, json.dumps(
+            {"record_id": record["train_id"], "path": str(output.resolve()), "digest": digest(output)},
+            ensure_ascii=False, indent=2, sort_keys=True,
+        ) + "\n")
         write_create_once(identity_path, json.dumps(
             {"record_id": record["train_id"], "path": str(output.resolve()), "digest": digest(output)},
             ensure_ascii=False, indent=2, sort_keys=True,
@@ -764,6 +772,8 @@ if op == "train-attest":
     except BaseException:
         with contextlib.suppress(OSError):
             output.unlink()
+        with contextlib.suppress(OSError):
+            train_attestation_identity.unlink()
         raise
     print(json.dumps(record, ensure_ascii=False, indent=2, sort_keys=True))
     raise SystemExit(0)

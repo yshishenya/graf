@@ -265,7 +265,7 @@ main() (
     elif [[ "$exit_status" -eq 130 || "$exit_status" -eq 143 ]]; then
       evidence_status="cancelled"
       evidence_reason="ci_runner_interrupted"
-    elif [[ "$exit_status" -eq 0 && "$pipeline_result" == "pass" ]]; then
+    elif [[ "$exit_status" -eq 0 && "$pipeline_result" == "pass" && -z "$evidence_status_override" ]]; then
       evidence_status="passed"
     else
       evidence_reason="ci_stage_failed"

@@ -26,6 +26,7 @@ def test_governance_workflow_binds_merge_group_identity_and_receipt() -> None:
     for marker in (
         "merge_group:",
         "github.event.merge_group.head_sha",
+        "format('merge-group-{0}', github.event.merge_group.head_sha || github.sha)",
         "scripts/ci-event-identity.py",
         "scripts/emit-ci-receipt.py",
         "scripts/validate-ci-receipt.py",
@@ -48,6 +49,7 @@ def test_governance_workflow_validates_pr_metadata_against_event_sha() -> None:
     assert 'github.event.pull_request.head.sha' in source
     assert '--expected-sha "$EXPECTED_SHA"' in source
     assert '.specify/feature.json' not in source
+    assert "types: [opened, synchronize, reopened, ready_for_review, edited]" in source
 
 
 def test_governance_workflow_has_fail_closed_terminal_validators() -> None:
