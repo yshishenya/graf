@@ -336,6 +336,7 @@ def test_cabinet_and_desktop_sync_review_states_match_for_result_states(client) 
 
 def test_cabinet_detail_keeps_complete_content_during_partial_replacement(client) -> None:
     meeting_id = seed_cabinet_meetings(client).ready_id
+    add_retained_playback_m4a(client, meeting_id, b"\x00\x00\x00\x18ftypM4A replacement")
 
     async def seed_partial_replacement() -> None:
         async with client.app_state["sessionmaker"]() as db:
@@ -404,6 +405,40 @@ def test_cabinet_detail_keeps_complete_content_during_partial_replacement(client
         SAFE_TRANSCRIPT_TEXT,
         SAFE_SECOND_TRANSCRIPT_TEXT,
     ]
+
+    for path in (f"/meetings/{meeting_id}", f"/desktop/meetings/{meeting_id}"):
+        active = client.get(path, headers=auth_headers())
+        assert active.status_code == 200, path
+        assert 'data-processing-replacement-active="true"' in active.text
+        assert "Готовим новую версию" in active.text
+        assert "Временная ошибка" not in active.text
+        assert SAFE_TRANSCRIPT_TEXT in active.text
+        assert 'class="playback-bar detail-playback"' in active.text
+
+    async def fail_replacement() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            replacement = await db.scalar(
+                select(ProcessingWorkflow)
+                .where(ProcessingWorkflow.meeting_id == meeting_id)
+                .order_by(ProcessingWorkflow.attempt_ordinal.desc())
+            )
+            meeting = await db.get(Meeting, meeting_id)
+            assert replacement is not None and meeting is not None
+            replacement.status = ProcessingStatus.FAILED_TERMINAL.value
+            meeting.processing_status = ProcessingStatus.FAILED_TERMINAL.value
+            await db.commit()
+
+    asyncio.run(fail_replacement())
+
+    for path in (f"/meetings/{meeting_id}", f"/desktop/meetings/{meeting_id}"):
+        failed = client.get(path, headers=auth_headers())
+        assert failed.status_code == 200, path
+        assert 'data-processing-replacement-active="false"' in failed.text
+        assert "Не удалось подготовить новую версию" in failed.text
+        assert "Текущая версия не изменилась." in failed.text
+        assert "Попробовать снова" in failed.text
+        assert SAFE_TRANSCRIPT_TEXT in failed.text
+        assert 'class="playback-bar detail-playback"' in failed.text
 
 
 def test_cabinet_summary_reported_without_stored_output_is_blocked(client) -> None:

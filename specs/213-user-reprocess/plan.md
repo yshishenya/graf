@@ -1,12 +1,12 @@
 # Implementation Plan: Повторная обработка записи пользователем
 
-**Branch**: `codex/213-user-reprocess` | **Date**: 2026-08-30 | **Spec**: [spec.md](spec.md)
+**Branch**: `codex/213-reprocess-ux` | **Date**: 2026-09-02 | **Spec**: [spec.md](spec.md)
 
 **Input**: Feature specification from `/specs/213-user-reprocess/spec.md`
 
 ## Summary
 
-Добавить владельцу готовой встречи действие `Повторно обработать запись` в обычное меню `Ещё`. Переиспользовать существующие ProcessingWorkflow, MediaScribe job, Temporal workflow, статус, таймер и ручную проверку. Во время новой попытки все пользовательские каналы продолжают использовать последний полный результат с расшифровкой и диаризацией; новый полный результат автоматически становится текущим. Административных страниц, операторских ролей, причин и отдельного аудита нет.
+Оставить действие `Повторно обработать запись` в обычном меню `Ещё`, но упростить путь владельца: коротко предупредить о сбросе ручных имён после успеха, скрыть прежнее содержимое и плеер под одним нейтральным индикатором, а при окончательной ошибке вернуть прежнюю версию и предложить повторный запуск. Переиспользовать существующие ProcessingWorkflow, status polling, complete-result selector и fragment response; новых сущностей и зависимостей нет.
 
 ## Technical Context
 
@@ -24,7 +24,7 @@
 
 **Performance Goals**: launch returns without waiting for MediaScribe; no polling faster than the existing cadence; user-facing result selection stays one indexed query
 
-**Constraints**: owner-only action; one active attempt per meeting/revision; no second quota charge for the same revision; no partial transcript; transcript and diarization become visible together; outcomes remain independent; no fake progress or browser-owned retry
+**Constraints**: owner-only action; one active attempt per meeting/revision; no second quota charge for the same revision; no partial transcript; transcript, speaker UI and player swap together; manual speaker names are result-scoped and are never reconciled; outcomes remain independent; no fake progress or browser-owned retry
 
 **Scale/Scope**: one endpoint, one corrected shared result selector, exact Temporal row identity and existing cabinet components
 
@@ -35,11 +35,11 @@
 - **Spec-first / high-risk governance**: PASS — scope clarification removed admin work and plan/contracts/tasks are refreshed before code.
 - **Privacy and secrets**: PASS — no meeting content, provider payload or credential enters the new request/status contract.
 - **Authorization**: PASS — launch and replacement retry revalidate `Meeting.created_by_user_id` against the principal.
-- **Published-result safety**: PASS — customer content uses one complete-result selector; operational latest workflow cannot hide the prior complete result.
+- **Published-result safety**: PASS — the complete-result selector keeps the prior result durably available; only the owner's presentation hides it during an active replacement and restores it after terminal failure.
 - **Temporal durability**: PASS — durable workflow state precedes Temporal RPC; exact row UUID is carried to activities; existing duplicate and unknown-POST recovery remains.
 - **Deletion/source precedence**: PASS — existing meeting lock, deletion epoch, accepted revision and fingerprint fences are unchanged.
 - **AI/outcomes**: PASS — new transcript does not wait for outcomes; current outcome slots and CAS remain independent.
-- **Accessibility and honest status**: PASS — existing focus/live-region/countdown patterns are reused.
+- **Accessibility and honest status**: PASS — existing dialog focus and polite live region are reused; hidden content leaves the accessibility tree and replacement retry internals stay out of user copy.
 - **Minimality**: PASS — no meeting publication pointer, command table, admin UI, queue, scheduler, workflow type or dependency is introduced.
 
 ## Design
@@ -64,9 +64,11 @@ No persistent publication pointer is added because import already commits comple
 
 Add `processing_workflow_id` to all new processing payloads. The activity and its error-persistence path load that exact row and verify payload lineage. A nullable legacy fallback preserves replay of old histories without changing workflow command order.
 
-### 4. Existing UI and retry
+### 4. Existing UI and replacement presentation
 
-Reuse the meeting `Ещё` menu, dialog infrastructure, processing status block, `GET /processing`, `POST /processing/check`, server time and `schedule_generation`. Add only the launch confirmation and replacement-specific copy.
+Reuse the meeting `Ещё` menu, dialog infrastructure, processing status block, `GET /processing` polling and the existing full meeting-detail fragment response. A server-rendered replacement marker prevents a stale-content flash after refresh; the same marker is updated from status projections after launch. While active, CSS hides the old detail content and adjacent player and the status card collapses to one neutral title. On terminal failure the marker clears, revealing the unchanged DOM. On success the main detail and adjacent player are replaced in the same JavaScript turn from one response so speaker labels cannot diverge.
+
+Normal `result_not_ready`, automatic retry timing, unknown provider outcome and temporary status-fetch failures keep the same neutral presentation. Replacement-specific manual check/countdown actions are not exposed; initial-processing recovery remains unchanged.
 
 ## Validation Plan
 
@@ -75,7 +77,7 @@ Reuse the meeting `Ещё` menu, dialog infrastructure, processing status block,
 3. **Readers**: detail, full share, exports, egress, desktop sync and outcomes use the same effective result.
 4. **Admission**: owner, non-owner, stale revision, missing source, replay, two tabs, active coalescing, terminal fresh request and no second quota charge.
 5. **Temporal**: exact workflow row, legacy payload replay, delayed old activity, ambiguous start and same-job manual retry.
-6. **UX/a11y**: menu eligibility, confirmation, busy state, quiet countdown, `Повторить сейчас`, refresh and terminal recovery.
+6. **UX/a11y**: minimal warning, server-rendered and dynamic hiding, neutral wait across retry/status failures, terminal restoration, atomic main/player replacement, web/embedded parity and keyboard/screen-reader behavior.
 7. **Repository gates**: feature quickstart and focused tests during implementation, then `infra/scripts/ci-local.sh --fast`. Full CI is reserved for an approved frozen release candidate/deploy.
 
 ## Project Structure

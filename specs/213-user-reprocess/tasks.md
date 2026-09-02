@@ -103,3 +103,17 @@
 5. Run focused checks, quickstart and fast CI.
 
 No admin implementation, publication pointer, command table, new queue, workflow type or dependency is included.
+
+## Phase 7: Simplified replacement UX
+
+**Goal**: Hide the owner's stale version behind one neutral state, restore it on terminal failure and publish transcript/player speaker labels together.
+
+This phase supersedes only the replacement-presentation portions of completed T021, T023 and T026; their server-side result-selection and initial-recovery behavior remains valid.
+
+- [X] T031 [P] [US1] Update the approved warning and replacement-state contract tests in `apps/server/tests/contract/test_cabinet_static_assets_contract.py` and `apps/server/tests/contract/test_recording_workflow_accessibility.py`
+- [X] T032 [P] [US2] Add web/embedded active, terminal-restoration and result-scoped speaker-name coverage in `apps/server/tests/integration/test_cabinet_meeting_detail.py` and `apps/server/tests/integration/test_speaker_names.py`
+- [X] T033 [US1] Replace the confirmation copy with the minimal manual-name warning in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/fragments/meeting_governance.html`
+- [X] T034 [US2] Add server-rendered and dynamic replacement visibility markers and neutral replacement styling in `apps/server/src/twobrain_rec_server/cabinet/rendering.py`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/meeting_detail_content.html`, `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css` and `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`
+- [X] T035 [US2] Replace the main detail and adjacent player from one response so new speaker labels publish together in `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`
+- [X] T036 [US3] Keep expected retries and temporary status-fetch failures under the neutral indicator, restore old content on terminal failure and expose `Попробовать снова` in `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`
+- [ ] T037 Run the focused Feature 213 quickstart, JavaScript syntax, `git diff --check` and `infra/scripts/ci-local.sh --fast`; record that full CI remains the release-candidate gate in `specs/213-user-reprocess/quickstart.md`

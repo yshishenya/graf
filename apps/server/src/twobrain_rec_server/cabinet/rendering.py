@@ -1045,6 +1045,20 @@ def _render_meeting_detail_content(
     reprocess_available = bool(
         shared_workspace_id is None and review.processing.reprocess_available
     )
+    replacement_attempt = bool(
+        shared_workspace_id is None
+        and review.access is not None
+        and review.access.state == "owner"
+        and review.processing.attempt_ordinal > 1
+        and review.processing.content_available
+    )
+    replacement_active = bool(
+        replacement_attempt
+        and review.processing.state not in {"ready", "failed", "blocked"}
+    )
+    replacement_failed = bool(
+        replacement_attempt and review.processing.state in {"failed", "blocked"}
+    )
     more_actions_available = (
         content_export_available
         or review.governance.download.state == "available"
@@ -1094,6 +1108,14 @@ def _render_meeting_detail_content(
         processing_workflow_id=review.processing.workflow_id or "",
         processing_attempt_ordinal=review.processing.attempt_ordinal,
         reprocess_available=reprocess_available,
+        replacement_attempt=replacement_attempt,
+        replacement_active=replacement_active,
+        replacement_failed=replacement_failed,
+        processing_published_attempt=(
+            review.processing.attempt_ordinal
+            if replacement_attempt and review.processing.state == "ready"
+            else ""
+        ),
         processing_reason_code=review.processing.reason_code or "",
         processing_reason_label=_ui_text(review.processing.reason_label or ""),
         transcript_available=review.transcript.available,

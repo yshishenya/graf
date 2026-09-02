@@ -10,64 +10,44 @@ Place the action before deletion. Show it only to the meeting creator when a com
 
 ## Confirmation
 
-Title: `Повторно обработать запись?`
+Title: `Подготовить новую версию?`
 
 Body:
 
-```text
-GRAF заново подготовит расшифровку, спикеров и итоги.
-Текущая версия останется доступной, пока новая не будет готова.
-Исходная запись не изменится.
-```
+`Имена спикеров, заданные вручную, будут сброшены после успешной обработки.`
 
 Actions:
 
 - `Отмена`;
-- `Запустить повторную обработку`;
-- submitting state `Запускаем…`, disabled against repeated activation.
+- `Подготовить`;
+- submitting state `Готовим…`, disabled against repeated activation.
 
 No reason field or extra checkbox. Escape and cancel close the dialog and restore focus to the invoking menu item.
 
-## Active replacement
+## Active replacement and expected waiting
 
 ```text
 Готовим новую версию
-Текущая расшифровка и итоги остаются доступными.
-Этап: Ожидаем результат обработки
-Обновлено: 12:04
 ```
 
-Action: `Проверить статус`.
+The owner's previous outcomes, transcript, speaker controls and player are hidden. No action, stage, timestamp, percentage, countdown or explanatory paragraph is shown. The same state covers normal provider waiting, `result_not_ready`, automatic retry, unknown provider outcome and a temporary status-fetch failure.
 
-## Temporary failure with reliable time
+The previous complete result remains stored and available to shared recipients and server-side exports until publication succeeds.
 
-```text
-Временная ошибка
-GRAF повторит попытку автоматически в 12:10 (через 04:32).
-Текущая версия не изменится.
-```
-
-Actions: `Повторить сейчас`, `Проверить статус`.
-
-After a server-accepted retry, discard the old countdown generation. The browser timer displays server state and never starts work.
-
-## No reliable retry time
-
-```text
-Ждём актуальный статус
-Текущая версия остаётся доступной.
-```
-
-Action: `Проверить статус`. No exact countdown.
+Temporary inability to fetch status does not replace the indicator with an error; polling continues automatically.
 
 ## Terminal failure
 
 ```text
 Не удалось подготовить новую версию
-Текущая расшифровка и итоги не изменились.
+Текущая версия не изменилась.
 ```
 
-Action: `Повторно обработать запись`, opening a fresh confirmation bound to the workflow currently shown by the page.
+The previous outcomes, transcript, manual speaker names and player are visible again. Action: `Попробовать снова`, opening the same confirmation bound to the workflow currently shown by the page.
+
+## Successful publication
+
+Replace the main meeting detail and adjacent player from one server fragment in the same browser turn. Both surfaces use the new processing result and its speaker labels; manual names from the previous result are not copied.
 
 ## Transcript published, outcomes pending
 
@@ -82,8 +62,8 @@ Show `По предыдущей версии расшифровки` next to the
 
 - Reuse the existing accessible menu and dialog behavior.
 - Every action is keyboard reachable with visible focus.
-- Status transitions are announced once through a polite live region.
-- Per-second countdown text is outside the live region.
+- Replacement start, successful publication and terminal failure are announced once through a polite live region.
+- Hidden prior content is absent from keyboard and screen-reader navigation.
 - `aria-busy` is used only while a request is in flight.
 - Color is not the only status signal.
 - The responsive server-rendered page works in browser and embedded macOS cabinet; no native Swift control is added.

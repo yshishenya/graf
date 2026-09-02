@@ -99,6 +99,7 @@ def test_legacy_ordinal_name_stays_unresolved_after_new_processing_result(
     stable_key = _renameable_keys_from_html(page.text)[0]
 
     assert 'value="Старое имя"' not in page.text
+    assert "SPEAKER_00" in page.text
     assert stable_key.startswith("provider:")
 
     saved = client.post(

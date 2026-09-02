@@ -438,6 +438,12 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
 .detail-main { min-width: 0; display: grid; gap: 16px; }
 .tabs { display: flex; gap: 18px; border-bottom: 1px solid var(--line); margin-bottom: 16px; }
 .meeting-detail-tabs { padding-top: 4px; }
+.detail-page-main[data-processing-replacement-active="true"] .action-row,
+.detail-page-main[data-processing-replacement-active="true"] .meeting-detail-tabs,
+.detail-page-main[data-processing-replacement-active="true"] .detail-main > :not([data-processing-recovery]):not([data-processing-live]),
+.detail-page-main[data-processing-replacement-active="true"] + .detail-playback {
+  display: none;
+}
 .detail-page-main [data-transcript-turn],
 .detail-page-main [data-outcome-source] {
   scroll-margin-top: calc(var(--meeting-detail-header-scroll-margin) + var(--meeting-detail-header-offset));
@@ -702,6 +708,20 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
 .processing-recovery[data-state="ready"] { border-color: var(--success-border); background: var(--success-surface); }
 .processing-recovery[data-state="unknown"] { border-color: var(--warning-border); background: var(--warning-surface); }
 .processing-recovery[data-state="terminal"] { border-color: var(--danger-border); background: var(--danger-surface); }
+.processing-recovery[data-processing-replacement="true"][data-state="active"] {
+  margin: 0;
+  border-color: var(--line);
+  background: var(--surface);
+}
+.processing-recovery[data-processing-replacement="true"][data-state="active"] :is(
+  .processing-recovery-kicker,
+  .processing-recovery-copy,
+  .processing-recovery-countdown,
+  .processing-stage-list,
+  .processing-recovery-actions
+) {
+  display: none;
+}
 .processing-recovery-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .processing-recovery-header > div { min-width: 0; }
 .processing-recovery-kicker { margin: 0 0 4px; color: var(--muted); font-size: var(--font-size-helper); font-weight: 700; }
