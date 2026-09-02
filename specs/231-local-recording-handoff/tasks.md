@@ -31,6 +31,7 @@
 ## Phase 5: Convergence
 
 - [X] T011 Require the local playback file to remain readable both when projecting the row action and when authorizing native open per FR-004 (partial)
+- [X] T012 Make the existing feature-pointer and release-attestation governance tests independent of another active feature and already-published CalVer tags after clean-SHA fast-CI convergence
 
 ## Dependencies & Execution Order
 
