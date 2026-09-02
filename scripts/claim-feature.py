@@ -577,7 +577,15 @@ def main(argv: list[str] | None = None) -> int:
             if args.issue_number is not None:
                 _github_umbrella(root, args.issue_number, requested_feature_id)
             _validate_claims(claims, claims_path)
-            occupied = _ids_from_specs(root) | _ids_from_refs(_git_refs(root, strict=True)) | set(int(key) for key in claims)
+            refs = _git_refs(root, strict=True)
+            # The caller creates the requested branch before invoking
+            # ``--allocate``; that branch is the claim being made, not a
+            # competing reservation.  Exclude its local and origin refs.
+            refs = [
+                ref for ref in refs
+                if ref != args.branch and not ref.endswith(f"/{args.branch}")
+            ]
+            occupied = _ids_from_specs(root) | _ids_from_refs(refs) | set(int(key) for key in claims)
             # Probe only the next candidate.  GitHub issue history is large;
             # exact marker searches preserve freshness without a slow full scan.
             occupied |= _github_ids(
