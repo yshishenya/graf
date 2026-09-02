@@ -57,10 +57,10 @@ For a replacement attempt, owner-only action fields are returned only after crea
 
 ## POST `/api/v1/meetings/{meeting_id}/processing/check`
 
-Reuse the existing same-attempt manual check.
+Reuse the existing same-attempt manual check for initial-processing recovery and backend compatibility. The simplified replacement UI does not expose this action.
 
-- `schedule_generation` fences stale countdowns;
+- `schedule_generation` fences stale commands;
 - `command_id` keeps the Temporal update idempotent;
-- `Повторить сейчас` wakes the same workflow and job;
+- a direct authorized check wakes the same workflow and job;
 - a replacement attempt requires creator ownership;
 - an already-running or newer generation returns current state without parallel work.

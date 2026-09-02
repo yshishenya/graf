@@ -86,11 +86,15 @@ def test_owner_reprocess_action_uses_confirmed_predecessor_and_revision_contract
     assert "{% if reprocess_available %}" in governance
     assert "Повторно обработать запись" in governance
     assert 'aria-controls="processing-reprocess-dialog"' in governance
-    assert "Повторно обработать запись?" in governance
-    assert "GRAF заново подготовит расшифровку, спикеров и итоги." in governance
-    assert "Текущая версия останется доступной, пока новая не будет готова." in governance
-    assert "Исходная запись не изменится." in governance
-    assert "Запустить повторную обработку" in governance
+    assert "Подготовить новую версию?" in governance
+    assert (
+        "Имена спикеров, заданные вручную, будут сброшены после успешной обработки."
+        in governance
+    )
+    assert "GRAF заново подготовит расшифровку, спикеров и итоги." not in governance
+    assert "Текущая версия останется доступной" not in governance
+    assert "Исходная запись не изменится." not in governance
+    assert "\n          Подготовить\n" in governance
     assert "data-processing-reprocess-reason" not in governance
 
     assert "data-processing-reprocess-url=" in detail
@@ -106,17 +110,19 @@ def test_owner_reprocess_action_uses_confirmed_predecessor_and_revision_contract
     assert '"Content-Type": "application/json"' in request
     assert "expected_workflow_id: detail.dataset.processingWorkflowId" in request
     assert "expected_media_revision_id: detail.dataset.mediaRevisionId" in request
-    assert 'submit.textContent = busy ? "Запускаем…"' in script
+    assert 'submit.textContent = busy ? "Готовим…" : "Подготовить"' in script
     assert "processingRecoveryActionRequest !== null" in request
     assert "reason" not in request
 
 
-def test_replacement_status_copy_keeps_same_attempt_retry_distinct_from_fresh_action() -> None:
+def test_replacement_status_uses_one_neutral_state_until_terminal_outcome() -> None:
     templates = ROOT / "src/twobrain_rec_server/cabinet/templates/cabinet"
     detail = (templates / "pages/meeting_detail_content.html").read_text()
     script = (STATIC_DIR / "cabinet.js").read_text()
 
-    assert "Готовим обновлённую версию. Текущая остаётся доступной." in detail
+    assert "data-processing-replacement-active=" in detail
+    assert "data-processing-published-attempt=" in detail
+    assert "data-processing-reprocess-continuity" not in detail
     assert 'data-processing-countdown aria-live="off"' in detail
     assert "data-processing-reprocess-open" in detail
     assert "По предыдущей версии расшифровки" in detail
@@ -129,16 +135,24 @@ def test_replacement_status_copy_keeps_same_attempt_retry_distinct_from_fresh_ac
     ]
     for copy in (
         "Готовим новую версию",
-        "Текущая расшифровка и итоги остаются доступными.",
-        "Временная ошибка",
-        "Ждём актуальный статус",
         "Не удалось подготовить новую версию",
-        "Текущая расшифровка и итоги не изменились.",
-        "Повторить сейчас",
-        "Проверить статус",
+        "Текущая версия не изменилась.",
+        "Попробовать снова",
     ):
         assert copy in status_copy
-    assert 'reprocessLabel: "Повторно обработать запись"' in status_copy
+    replacement_copy = status_copy[
+        status_copy.index("const replacementAttemptOrdinal") :
+        status_copy.index('if (projection?.manual_action === "retry_preparation")')
+    ]
+    for forbidden in (
+        "Временная ошибка",
+        "Ждём актуальный статус",
+        "Повторить сейчас",
+        "Проверить статус",
+        "Текущая версия остаётся доступной",
+    ):
+        assert forbidden not in replacement_copy
+    assert 'reprocessLabel: "Попробовать снова"' in status_copy
     assert "schedule_generation: Number.parseInt(detail.dataset.processingScheduleGeneration" in script
     assert "processingRecoveryCountdownTimer = window.setInterval(update, 1000)" in script
 
@@ -234,7 +248,10 @@ const source = script.slice(
   script.indexOf("const processingProjectionFromActionPayload"),
 );
 const detail = {
-  dataset: { processingStatusUrl: "/api/v1/meetings/meeting-a/processing" },
+  dataset: {
+    processingStatusUrl: "/api/v1/meetings/meeting-a/processing",
+    processingReplacementActive: "true",
+  },
   isConnected: true,
 };
 const recovery = { closest: () => detail };
@@ -275,8 +292,8 @@ vm.runInThisContext(`
 `);
 (async () => {
   await global.refreshProcessingStatus();
-  if (failures !== 1 || timers.length !== 1 || timers[0].delay !== 15000) {
-    throw new Error("transient status failure did not schedule one bounded retry");
+  if (failures !== 0 || timers.length !== 1 || timers[0].delay !== 15000) {
+    throw new Error("replacement status failure escaped the neutral state");
   }
   timers.shift().callback();
   await new Promise((resolve) => setImmediate(resolve));
@@ -285,7 +302,7 @@ vm.runInThisContext(`
     throw new Error("hidden retry did not render the later terminal projection");
   }
   await global.refreshProcessingStatus({ force: true });
-  if (failures !== 1 || timers.length !== 0 || responses.length !== 0) {
+  if (failures !== 0 || timers.length !== 0 || responses.length !== 0) {
     throw new Error("terminal projection restarted polling after a transient refresh failure");
   }
 })().catch((error) => {
@@ -734,12 +751,23 @@ const source = script.slice(
 );
 let fetchCount = 0;
 let replaceCount = 0;
+let playbackReplaceCount = 0;
+let pauseCount = 0;
 let initCount = 0;
 let stopCount = 0;
 let failNext = true;
 let staleDetail = null;
 const scheduled = [];
 const nextDetail = { dataset: {} };
+const nextPlayback = { kind: "next-playback" };
+const currentPlayback = {
+  matches: (selector) => selector === ".detail-playback",
+  querySelector: (selector) => selector === "audio" ? { pause() { pauseCount += 1; } } : null,
+  replaceWith(node) {
+    if (node !== nextPlayback) throw new Error("unexpected playback fragment");
+    playbackReplaceCount += 1;
+  },
+};
 const detail = {
   dataset: {
     playbackPollUrl: "/meetings/meeting-1",
@@ -748,7 +776,9 @@ const detail = {
     processingScheduleGeneration: "1",
     processingTranscriptContentReady: "false",
     processingSummaryContentReady: "false",
+    processingPublishedAttempt: "1",
   },
+  nextElementSibling: currentPlayback,
   isConnected: true,
   replaceWith(node) {
     if (node !== nextDetail) throw new Error("unexpected detail fragment");
@@ -781,7 +811,13 @@ global.fetch = async () => {
   };
 };
 global.DOMParser = class {
-  parseFromString() { return { querySelector() { return nextDetail; } }; }
+  parseFromString() {
+    return {
+      querySelector(selector) {
+        return selector === ".detail-playback" ? nextPlayback : nextDetail;
+      },
+    };
+  }
 };
 let processingRecoveryPollTimer = null;
 let processingRecoveryGeneration = 0;
@@ -793,6 +829,9 @@ vm.runInThisContext(`${source}; global.refreshProcessingDetailContentOnce = refr
     media_revision_id: "revision-1",
     transcript_ready: true,
     summary_status: "available",
+    attempt_ordinal: 2,
+    state: "processed",
+    content_available: true,
   };
   await global.refreshProcessingDetailContentOnce(detail, projection);
   if (
@@ -806,7 +845,14 @@ vm.runInThisContext(`${source}; global.refreshProcessingDetailContentOnce = refr
   scheduled.shift()();
   await new Promise((resolve) => setImmediate(resolve));
   scheduled.shift()();
-  if (fetchCount !== 2 || replaceCount !== 1 || initCount !== 1 || stopCount !== 2) {
+  if (
+    fetchCount !== 2
+    || replaceCount !== 1
+    || playbackReplaceCount !== 1
+    || pauseCount !== 1
+    || initCount !== 1
+    || stopCount !== 2
+  ) {
     throw new Error(`unexpected refresh counts: ${fetchCount}/${replaceCount}/${initCount}`);
   }
   if (nextDetail.dataset.processingTranscriptContentReady !== "true") {
@@ -814,6 +860,9 @@ vm.runInThisContext(`${source}; global.refreshProcessingDetailContentOnce = refr
   }
   if (nextDetail.dataset.processingSummaryContentReady !== "true") {
     throw new Error("summary refresh marker was not preserved");
+  }
+  if (nextDetail.dataset.processingPublishedAttempt !== "2") {
+    throw new Error("replacement publication marker was not preserved");
   }
   await global.refreshProcessingDetailContentOnce(nextDetail, projection);
   if (fetchCount !== 2) throw new Error("ready content refreshed more than once");
@@ -959,6 +1008,99 @@ vm.runInThisContext(`${source}; global.refreshProcessingDetailContentOnce = refr
     assert completed.returncode == 0, completed.stderr
 
 
+def test_processing_fragment_refresh_resumes_bounded_status_polling_after_retries() -> None:
+    script_path = STATIC_DIR / "cabinet.js"
+    harness = r"""
+const fs = require("fs");
+const vm = require("vm");
+const script = fs.readFileSync(process.argv[1], "utf8");
+const source = script.slice(
+  script.indexOf("const refreshProcessingDetailContentOnce"),
+  script.indexOf("const renderProcessingProjection"),
+);
+let fetchCount = 0;
+let statusRefreshes = [];
+const scheduled = [];
+const detail = {
+  dataset: {
+    playbackPollUrl: "/meetings/meeting-1",
+    meetingId: "meeting-1",
+    mediaRevisionId: "revision-1",
+    processingScheduleGeneration: "1",
+    processingTranscriptContentReady: "false",
+    processingSummaryContentReady: "false",
+    processingPublishedAttempt: "1",
+  },
+  isConnected: true,
+};
+const projection = {
+  meeting_id: "meeting-1",
+  media_revision_id: "revision-1",
+  transcript_ready: true,
+  summary_status: "available",
+  attempt_ordinal: 2,
+  state: "processed",
+  content_available: true,
+};
+const processingTranscriptReady = (value) => value.transcript_ready === true;
+const processingSummaryState = (value) => value.summary_status;
+const processingProjectionMatchesDetail = (node, value) => (
+  node.dataset.meetingId === value.meeting_id
+  && node.dataset.mediaRevisionId === value.media_revision_id
+);
+const recoverMeetingDetailFromResponse = async () => false;
+const stopProcessingRecoveryCountdown = () => {};
+const stopProcessingRecoveryPolling = () => { processingRecoveryPollTimer = null; };
+const refreshProcessingStatus = (options) => { statusRefreshes.push(options); };
+let processingRecoveryPollTimer = null;
+let processingRecoveryGeneration = 4;
+global.fetch = async () => {
+  fetchCount += 1;
+  return { ok: false, text: async () => "" };
+};
+global.window = {
+  setTimeout(callback, delay) { scheduled.push({ callback, delay }); return scheduled.length; },
+};
+vm.runInThisContext(`${source}; global.refreshProcessingDetailContentOnce = refreshProcessingDetailContentOnce;`);
+
+const flushRetry = async () => {
+  const next = scheduled.shift();
+  if (!next) throw new Error("missing scheduled retry");
+  next.callback();
+  await new Promise((resolve) => setImmediate(resolve));
+};
+(async () => {
+  await global.refreshProcessingDetailContentOnce(detail, projection, { resetRetryBudget: true });
+  if (fetchCount !== 1 || scheduled.length !== 1 || scheduled[0].delay !== 2000) {
+    throw new Error("first fragment retry was not scheduled");
+  }
+  await flushRetry();
+  if (fetchCount !== 2 || scheduled[0]?.delay !== 4000) throw new Error("second retry was not bounded");
+  await flushRetry();
+  if (fetchCount !== 3 || scheduled[0]?.delay !== 6000) throw new Error("third retry was not bounded");
+  await flushRetry();
+  if (fetchCount !== 4 || scheduled.length !== 1 || scheduled[0].delay !== 15000) {
+    throw new Error("fragment refresh did not resume status polling after bounded retries");
+  }
+  scheduled.shift().callback();
+  if (statusRefreshes.length !== 1 || statusRefreshes[0].force !== true || statusRefreshes[0].generation !== 4) {
+    throw new Error("status polling did not resume with the current generation");
+  }
+})().catch((error) => {
+  process.stderr.write(`${error.stack || error}\n`);
+  process.exitCode = 1;
+});
+"""
+    completed = subprocess.run(
+        ["node", "-e", harness, str(script_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
 def test_processing_terminal_projections_never_fall_back_to_active_copy() -> None:
     script_path = STATIC_DIR / "cabinet.js"
     harness = r"""
@@ -974,6 +1116,7 @@ const processingNewAttemptAllowed = (projection) => (
   && projection?.manual_action === "new_attempt"
   && projection?.attempt_in_flight !== true
 );
+const processingTerminalFailure = () => false;
 vm.runInThisContext(`${source}; global.processingRecoveryCopy = processingRecoveryCopy;`);
 const cases = [
   {
@@ -1054,6 +1197,14 @@ for (const testCase of cases) {
     throw new Error("terminal projection fell back to active processing copy");
   }
 }
+const unpublishedReplacement = global.processingRecoveryCopy(
+  { state: "processed", retry_class: "none", attempt_ordinal: 2, content_available: true },
+  true,
+  false,
+);
+if (unpublishedReplacement?.state !== "active" || unpublishedReplacement?.title !== "Готовим новую версию") {
+  throw new Error("processed replacement lost neutral surface before fragment installation");
+}
 """
     completed = subprocess.run(
         ["node", "-e", harness, str(script_path)],
@@ -1067,6 +1218,89 @@ for (const testCase of cases) {
     script = script_path.read_text(encoding="utf-8")
     assert 'payload?.code === "processing_quota_exceeded"' in script
     assert "Лимит расшифровки ещё не обновился" in script
+
+
+def test_summary_refresh_does_not_pause_or_replace_the_current_player() -> None:
+    script_path = STATIC_DIR / "cabinet.js"
+    harness = r"""
+const fs = require("fs");
+const vm = require("vm");
+const script = fs.readFileSync(process.argv[1], "utf8");
+const source = script.slice(
+  script.indexOf("const refreshProcessingDetailContentOnce"),
+  script.indexOf("const renderProcessingProjection"),
+);
+let pauseCount = 0;
+let playbackReplaceCount = 0;
+let detailReplaceCount = 0;
+let initCount = 0;
+const nextDetail = { dataset: {} };
+const currentPlayback = {
+  matches: (selector) => selector === ".detail-playback",
+  querySelector: (selector) => selector === "audio" ? { pause() { pauseCount += 1; } } : null,
+  replaceWith() { playbackReplaceCount += 1; },
+};
+const detail = {
+  dataset: {
+    playbackPollUrl: "/meetings/meeting-1",
+    meetingId: "meeting-1",
+    mediaRevisionId: "revision-1",
+    processingScheduleGeneration: "1",
+    processingTranscriptContentReady: "true",
+    processingSummaryContentReady: "false",
+    processingPublishedAttempt: "1",
+  },
+  nextElementSibling: currentPlayback,
+  isConnected: true,
+  replaceWith(node) {
+    if (node !== nextDetail) throw new Error("unexpected detail fragment");
+    detailReplaceCount += 1;
+    this.isConnected = false;
+  },
+};
+const processingTranscriptReady = (projection) => projection.transcript_ready === true;
+const processingSummaryState = (projection) => projection.summary_status;
+const processingProjectionMatchesDetail = (node, projection) => (
+  node.dataset.meetingId === projection.meeting_id
+  && node.dataset.mediaRevisionId === projection.media_revision_id
+);
+const recoverMeetingDetailFromResponse = async () => false;
+const stopProcessingRecoveryCountdown = () => {};
+const stopProcessingRecoveryPolling = () => {};
+const initCabinet = () => { initCount += 1; };
+global.fetch = async () => ({ ok: true, text: async () => "<main></main>" });
+global.DOMParser = class {
+  parseFromString() { return { querySelector() { return nextDetail; } }; }
+};
+let processingRecoveryPollTimer = null;
+let processingRecoveryGeneration = 0;
+global.window = { setTimeout(callback) { callback(); } };
+vm.runInThisContext(`${source}; global.refreshProcessingDetailContentOnce = refreshProcessingDetailContentOnce;`);
+(async () => {
+  await global.refreshProcessingDetailContentOnce(detail, {
+    meeting_id: "meeting-1",
+    media_revision_id: "revision-1",
+    transcript_ready: true,
+    summary_status: "available",
+    attempt_ordinal: 1,
+    state: "processed",
+  });
+  if (pauseCount !== 0 || playbackReplaceCount !== 0 || detailReplaceCount !== 1 || initCount !== 1) {
+    throw new Error(`summary refresh touched player: ${pauseCount}/${playbackReplaceCount}/${detailReplaceCount}/${initCount}`);
+  }
+})().catch((error) => {
+  process.stderr.write(`${error.stack || error}\n`);
+  process.exitCode = 1;
+});
+"""
+    completed = subprocess.run(
+        ["node", "-e", harness, str(script_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
 
 
 def test_storage_failure_recovery_links_directly_to_no_archive_upload() -> None:

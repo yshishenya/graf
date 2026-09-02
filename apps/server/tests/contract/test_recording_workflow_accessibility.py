@@ -145,6 +145,11 @@ def test_reprocess_confirmation_is_named_traps_focus_and_returns_to_exact_opener
     assert 'aria-modal="true"' in governance
     assert "data-processing-reprocess-cancel" in governance
     assert 'data-processing-reprocess-error role="alert"' in governance
+    assert "Подготовить новую версию?" in governance
+    assert (
+        "Имена спикеров, заданные вручную, будут сброшены после успешной обработки."
+        in governance
+    )
     assert 'data-processing-reprocess-open aria-describedby="processing-recovery-copy"' in detail
     assert 'dialog.addEventListener("cancel"' in script
     assert "trapModalFocus(dialog, event)" in script
@@ -153,21 +158,27 @@ def test_reprocess_confirmation_is_named_traps_focus_and_returns_to_exact_opener
     assert "processingReprocessReturnFocus.focus({ preventScroll: true })" in script
 
 
-def test_reprocess_countdown_stays_out_of_polite_live_region() -> None:
+def test_replacement_uses_one_polite_live_region_without_intermediate_copy() -> None:
     detail = _source(MEETING_DETAIL)
     script = _source(JAVASCRIPT)
 
     assert 'data-processing-countdown aria-live="off"' in detail
     assert 'data-processing-live role="status" aria-live="polite" aria-atomic="true"' in detail
-    continuity = detail.split("data-processing-reprocess-continuity", 1)[1].split("</section>", 1)[0]
-    assert "role=\"status\"" not in continuity
-    assert "aria-live" not in continuity
+    assert "data-processing-reprocess-continuity" not in detail
+    assert "data-processing-replacement-active" in detail
     assert "countdown.textContent = processingCountdownCopy" in script
     countdown = script[
         script.index("const renderProcessingCountdown") :
         script.index("const scheduleProcessingRecoveryPolling")
     ]
     assert "announceProcessingChange" not in countdown
+    replacement = script[
+        script.index("const replacementAttemptOrdinal") :
+        script.index('if (projection?.manual_action === "retry_preparation")')
+    ]
+    assert "Готовим новую версию" in replacement
+    assert "Временная ошибка" not in replacement
+    assert "Ждём актуальный статус" not in replacement
 
 
 def test_format_selector_exposes_one_labelled_listbox_with_bounded_quick_choices() -> None:
@@ -203,9 +214,11 @@ def test_processing_recovery_projection_keeps_artifacts_independent_and_refresh_
     styles = _source(STYLES)
 
     assert "data-processing-status-url" in detail
-    assert 'data-processing-recovery data-state=' in detail
+    assert "data-processing-replacement-active" in detail
+    assert "data-processing-published-attempt" in detail
+    assert "data-processing-recovery data-processing-replacement=" in detail
     assert 'aria-labelledby="processing-recovery-title"' in detail
-    assert 'data-state="{% if processing_state in [\'failed\', \'blocked\'] %}terminal{% elif processing_state == \'ready\' %}ready{% else %}active{% endif %}"' in detail
+    assert 'data-state="{% if processing_state in [\'failed\', \'blocked\', \'unavailable\'] %}terminal{% elif processing_state == \'ready\' %}ready{% else %}active{% endif %}"' in detail
     assert "{% if processing_state == 'ready' %} hidden{% endif %}" in detail
     assert "processing_reason_label" in detail
     assert 'data-processing-check aria-describedby="processing-recovery-copy"' in detail
@@ -248,6 +261,7 @@ def test_processing_recovery_projection_keeps_artifacts_independent_and_refresh_
     assert "command_id: processingClientCommandId()" in script
     assert "schedule_generation: Number.parseInt(detail.dataset.processingScheduleGeneration" in script
     assert "processingRecoveryActionRequest !== null" in script
+    assert '"replacement-active"' in script
     assert "transcriptReady = processingTranscriptReady(projection)" in script
     assert "const transcriptVisible = transcriptReady;" in script
     assert 'const terminalTranscript = ["failed", "unavailable"].includes(transcriptState)' in script
@@ -268,6 +282,9 @@ def test_processing_recovery_projection_keeps_artifacts_independent_and_refresh_
     assert "@media (prefers-reduced-motion: reduce)" in styles
     assert "@media (forced-colors: active)" in styles
     assert ".processing-stage-list" in styles
+    assert '[data-processing-replacement-active="true"] .meeting-detail-tabs' in styles
+    assert '[data-processing-replacement-active="true"] [data-meeting-status-label]' in styles
+    assert '[data-processing-replacement-active="true"] + .detail-playback' in styles
 
 
 def test_workflow_surfaces_cover_responsive_theme_motion_contrast_and_visible_focus() -> None:

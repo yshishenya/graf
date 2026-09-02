@@ -29,7 +29,7 @@ The activity loads `ProcessingWorkflow.id == processing_workflow_id` and checks 
 - Existing active-workflow indexes prevent parallel attempts.
 - One new replacement attempt creates one new `MediaScribeJob`.
 - Request replay and active-attempt coalescing create no provider side effect.
-- Automatic retry and `Повторить сейчас` use the same workflow/job and existing `schedule_generation` fencing.
+- Automatic retry and any authorized compatibility check use the same workflow/job and existing `schedule_generation` fencing; the replacement UI exposes neither retry timing nor a manual check.
 - Unknown MediaScribe POST outcome uses existing same-key reconciliation; blind resubmission is forbidden.
 - MediaScribe credentials remain worker-only.
 

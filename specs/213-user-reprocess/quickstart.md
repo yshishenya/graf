@@ -21,7 +21,7 @@ Required scenarios:
 - non-owner/shared recipient cannot launch;
 - the same media revision is not charged twice.
 
-## 2. Complete-result continuity
+## 2. Complete-result retention and owner visibility
 
 ```sh
 bash apps/server/scripts/run_local_postgres_tests.sh --focused -q \
@@ -34,13 +34,13 @@ bash apps/server/scripts/run_local_postgres_tests.sh --focused -q \
 
 Required matrix:
 
-| Previous result | New attempt | Expected visible result |
-|---|---|---|
-| complete A | active/no result | A |
-| complete A | transcript-only B | A |
-| complete A | terminal B | A |
-| complete A | complete B | B |
-| complete A version 2 | complete B version 1, newer attempt | B |
+| Previous result | New attempt | Owner detail | Stored/shared result |
+|---|---|---|---|
+| complete A | active/no result | one neutral indicator | A |
+| complete A | transcript-only B | one neutral indicator | A |
+| complete A | terminal B | restored A plus retry | A |
+| complete A | complete B | B in transcript and player together | B |
+| complete A version 2 | complete B version 1, newer attempt | B | B |
 
 Detail, full share, transcript export, transcript egress and desktop sync must agree on the same result ID.
 
@@ -59,7 +59,7 @@ Required scenarios:
 - new payload contains `processing_workflow_id`;
 - old history without the field replays;
 - delayed old activity cannot load the new attempt;
-- `Повторить сейчас` reuses the workflow/job and advances schedule generation;
+- automatic retry reuses the workflow/job and advances schedule generation;
 - stale manual command creates no work.
 
 ## 4. Cabinet UI and accessibility
@@ -75,10 +75,11 @@ node --check apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.
 Manual synthetic-data acceptance:
 
 1. Owner finds the action in `Ещё`; shared recipient does not.
-2. Cancel/Escape restores focus; confirm enters one busy state.
-3. Active and retryable states keep transcript, player and transcript export usable.
-4. Countdown is not announced every second.
-5. Terminal failure offers a fresh reprocess action.
+2. The dialog contains only the manual-name warning plus `Отмена` and `Подготовить`; Cancel/Escape restores focus.
+3. Active, `result_not_ready`, retryable, unknown-outcome and temporary status-fetch-failure states show only `Готовим новую версию`; prior owner content and player are hidden.
+4. Terminal failure restores the prior transcript, manual speaker names, outcomes and player and offers `Попробовать снова`.
+5. Successful publication swaps transcript and player together; both show labels from the new result.
+6. Browser and embedded macOS surfaces have the same flow; shared recipients continue to receive the last complete result while replacement is active.
 
 ## 5. Feature gate
 
@@ -111,3 +112,25 @@ Do not run release/deploy or production smoke without separate approval. Full CI
   server tests); coverage is intentionally partial and the next release gate is
   full CI on the exact release candidate.
 - Release, deployment and production smoke were not performed.
+
+## UX simplification evidence (2026-09-02)
+
+- Branch synchronized with `origin/master` at
+  `10008b6c8f236be151672e37773f706053656c06` before final validation.
+- The combined isolated-PostgreSQL Feature 213 matrix passed: `300 passed`.
+  It covers admission/idempotency, complete-result selection, Temporal identity,
+  web and embedded detail, terminal restoration, accessibility, artifact egress,
+  desktop sync and result-scoped speaker names.
+- The browser harness verifies that replacement publication pauses the old audio
+  and replaces the main detail plus adjacent player from the same fragment in
+  one JavaScript turn.
+- Ruff, `node --check`, development-process preflight and `git diff --check`:
+  PASS.
+- GitHub Actions `governance-fast` passed on implementation SHA
+  `c26d56abbe98b12aeb92e3cbdc034d8c6f5dafdf`: run
+  [33639708179](https://github.com/yshishenya/graf/actions/runs/33639708179).
+  The remote fast lane passed `1362` server tests, `117` changed-server tests,
+  `169` governance tests and `60` CI-contract tests with
+  `coverage=partial` and `next_gate=full_before_release`.
+- Full CI remains the frozen release-candidate gate; release, deployment and
+  production smoke were not performed.

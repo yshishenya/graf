@@ -12,13 +12,13 @@ CAS и выбора полного результата; новая таблиц
 
 **Rationale**: The user is fixing their own recording. No administrative file page, operator role or support console is required.
 
-Evidence board: [GRAF: повторная обработка готовой записи](https://www.figma.com/board/BsCTzFSaDybxmlQPQrDF5N). The board's operator/admin frames are superseded by this decision; the confirmation, status and continuity states remain applicable.
+Evidence board: [GRAF: повторная обработка готовой записи](https://www.figma.com/board/BsCTzFSaDybxmlQPQrDF5N). The board's operator/admin and detailed replacement-status frames are superseded by the product decisions recorded on 2026-09-02.
 
 ## 2. Naming and confirmation
 
-**Decision**: Action `Повторно обработать запись`; confirmation `Запустить повторную обработку`. Do not ask for a reason.
+**Decision**: Keep the menu action `Повторно обработать запись`; use confirmation `Подготовить новую версию?`, one warning about manual speaker-name reset after success, and primary action `Подготовить`. Do not ask for a reason or repeat what artifacts will be regenerated.
 
-**Rationale**: Reprocessing updates transcript, speakers and outcomes, so `Перезапустить транскрибацию` is too narrow. `Повторить сейчас` remains reserved for waking the same retryable attempt.
+**Rationale**: The menu label remains discoverable while the dialog contains only the consequence that requires informed consent. Internal retries need no user action.
 
 ## 3. Published result without a new pointer
 
@@ -59,7 +59,7 @@ The selector must:
 
 **Decision**: Reuse `ProcessingWorkflow`, `MediaScribeJob`, `start_processing_workflow()`, `GET /processing`, `POST /processing/check`, `schedule_generation`, provider idempotency and unknown-POST reconciliation. Add only one owner endpoint: `POST /api/v1/meetings/{meeting_id}/processing/reprocess`.
 
-Automatic retry and `Повторить сейчас` wake the same workflow/job. A new confirmed reprocess request after terminal completion creates a new workflow and job.
+Automatic retry keeps the same workflow/job. A new confirmed reprocess request after terminal completion creates a new workflow and job; replacement-specific `Повторить сейчас` and status-check controls are not exposed.
 
 ## 8. Authorization and quota
 
@@ -69,6 +69,14 @@ Automatic retry and `Повторить сейчас` wake the same workflow/job
 
 **Decision**: The effective transcript changes only when transcript and matching non-empty diarization are complete. Outcome generation follows the new effective result and retains its existing independent CAS. Prior outcomes stay readable with the previous-version label until matching outcomes publish.
 
-## 10. Deliberate exclusions
+## 10. Replacement visibility and speaker names
 
-No admin routes/templates, reasons, operator audit, new scheduler, new queue, new Temporal workflow type, version comparison, rollback UI, provider cancellation, transcoding or MediaScribe/model/post-processing changes.
+**Decision**: Keep the previous complete result and its manual speaker names in storage, but hide the owner's old outcomes, transcript, speaker UI and player while a replacement is non-terminal. Show only `Готовим новую версию`. Normal provider waiting, automatic retry and temporary status-fetch failure do not create distinct user-visible states.
+
+On terminal failure, reveal the unchanged old DOM and offer `Попробовать снова`. On publication, replace the main detail and player together from the same server fragment. Result-scoped manual names are not copied to the new result, so the new transcript and player both use the new result's labels.
+
+**Rationale**: This removes the stale-name mismatch without speaker reconciliation and avoids alarming users with expected retry mechanics. Keeping the old result server-side makes failure restoration immediate and lossless.
+
+## 11. Deliberate exclusions
+
+No admin routes/templates, reasons, operator audit, speaker-name reconciliation, new scheduler, new queue, new Temporal workflow type, version comparison, rollback UI, provider cancellation, transcoding or MediaScribe/model/post-processing changes.

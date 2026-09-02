@@ -1726,7 +1726,7 @@
     mediascribe_malformed_response: "Сервис транскрипции вернул некорректный ответ. Повторите обработку; если ошибка повторится, обратитесь к оператору.",
   };
 
-  const processingRecoveryCopy = (projection, transcriptReady) => {
+  const processingRecoveryCopy = (projection, transcriptReady, replacementPublished = false) => {
     const retryClass = String(projection?.retry_class || "none");
     const reason = String(projection?.reason_code || "").toLowerCase();
     const reasonCopy = processingTerminalReasonCopy[reason] || "";
@@ -1735,76 +1735,26 @@
     const replacementAttemptOrdinal = Number(projection?.attempt_ordinal ?? 0);
     const replacement = Number.isSafeInteger(replacementAttemptOrdinal)
       && replacementAttemptOrdinal > 1
-      && projection?.content_available === true;
+      && (projection?.content_available === true || transcriptReady);
     if (replacement && processingTerminalFailure(projection)) {
       return {
         state: "terminal",
         title: "Не удалось подготовить новую версию",
-        copy: "Текущая расшифровка и итоги не изменились.",
+        copy: "Текущая версия не изменилась.",
         canCheck: false,
         canStartNewAttempt: false,
         canReprocess: true,
-        reprocessLabel: "Повторно обработать запись",
+        reprocessLabel: "Попробовать снова",
         showRefresh: false,
         showCountdown: false,
       };
     }
-    if (replacement && retryClass === "retryable") {
-      if (inFlight) {
-        return {
-          state: "active",
-          title: "Готовим новую версию",
-          copy: "Текущая расшифровка и итоги остаются доступными.",
-          canCheck: false,
-          showRefresh: false,
-          showCountdown: false,
-        };
-      }
-      const reliableTime = processingTimestamp(projection?.next_attempt_at) !== null
-        && processingTimestamp(projection?.server_time) !== null;
-      if (reliableTime) {
-        return {
-          state: "retryable",
-          title: "Временная ошибка",
-          copy: "GRAF повторит попытку автоматически. Текущая версия не изменится.",
-          canCheck: ["check_now", "retry_preparation"].includes(projection?.manual_action),
-          checkLabel: "Повторить сейчас",
-          busyLabel: "Повторяем…",
-          showRefresh: false,
-          showCountdown: true,
-        };
-      }
-      return {
-        state: "unknown",
-        title: "Ждём актуальный статус",
-        copy: "Текущая версия остаётся доступной.",
-        canCheck: projection?.manual_action === "check_now",
-        checkLabel: "Проверить статус",
-        busyLabel: "Проверяем…",
-        showRefresh: false,
-        showCountdown: false,
-      };
-    }
-    if (replacement && retryClass === "unknown_outcome") {
-      return {
-        state: "unknown",
-        title: "Ждём актуальный статус",
-        copy: "Текущая версия остаётся доступной.",
-        canCheck: projection?.manual_action === "check_now" && !inFlight,
-        checkLabel: "Проверить статус",
-        busyLabel: "Проверяем…",
-        showRefresh: false,
-        showCountdown: projection?.next_attempt_at != null,
-      };
-    }
-    if (replacement && (inFlight || projectionState !== "processed")) {
+    if (replacement && (!replacementPublished || inFlight || projectionState !== "processed")) {
       return {
         state: "active",
         title: "Готовим новую версию",
-        copy: "Текущая расшифровка и итоги остаются доступными.",
-        canCheck: projection?.manual_action === "check_now" && !inFlight,
-        checkLabel: "Проверить статус",
-        busyLabel: "Проверяем…",
+        copy: "",
+        canCheck: false,
         showRefresh: false,
         showCountdown: false,
       };
@@ -2051,12 +2001,18 @@
       : false;
     const summaryState = processingSummaryState(projection);
     const terminalProjection = processingTerminalFailure(projection);
+    const attemptOrdinal = Number(projection?.attempt_ordinal ?? 0);
+    const replacementContentPending = Number.isSafeInteger(attemptOrdinal)
+      && attemptOrdinal > 1
+      && String(projection?.state || "").toLowerCase() === "processed"
+      && detail.dataset.processingPublishedAttempt !== String(attemptOrdinal);
     const shouldPoll = !terminalProjection && (
       (typeof processingTranscriptReady === "function" && !transcriptReady)
       || processingSummaryPending(summaryState)
       || projection?.retry_class === "retryable" && projection?.next_attempt_at != null
       || projection?.retry_class === "unknown_outcome"
       || projection?.attempt_in_flight === true
+      || replacementContentPending
     );
     if (!shouldPoll || !detail.dataset.processingStatusUrl) return;
     const remaining = processingServerSecondsRemaining(
@@ -2076,7 +2032,12 @@
     }, delay);
   };
 
-  const refreshProcessingDetailContentOnce = async (detail, projection) => {
+  const refreshProcessingDetailContentOnce = async (
+    detail,
+    projection,
+    { resetRetryBudget = false } = {},
+  ) => {
+    if (resetRetryBudget) delete detail.dataset.processingContentRefreshRetryCount;
     const transcriptReady = processingTranscriptReady(projection);
     const summaryReady = processingSummaryState(projection).toLowerCase() === "available";
     const attemptOrdinal = Number(projection?.attempt_ordinal ?? 0);
@@ -2120,16 +2081,25 @@
       releaseRefreshClaim();
       return true;
     };
-    const retryFragmentRefreshOnce = () => {
+    const retryFragmentRefresh = () => {
       releaseRefreshClaim();
-      if (
-        processingRecoveryPollTimer !== null
-        || detail.dataset.processingContentRefreshRetried === "true"
-      ) return;
-      detail.dataset.processingContentRefreshRetried = "true";
+      const retryCount = Number(detail.dataset.processingContentRefreshRetryCount || "0") + 1;
+      if (retryCount > 3) {
+        delete detail.dataset.processingContentRefreshRetryCount;
+        stopProcessingRecoveryPolling();
+        processingRecoveryPollTimer = window.setTimeout(() => {
+          processingRecoveryPollTimer = null;
+          if (detail.isConnected && refreshGeneration === processingRecoveryGeneration) {
+            void refreshProcessingStatus({ force: true, generation: refreshGeneration });
+          }
+        }, 15000);
+        return;
+      }
+      detail.dataset.processingContentRefreshRetryCount = String(retryCount);
+      if (processingRecoveryPollTimer !== null) stopProcessingRecoveryPolling();
       window.setTimeout(() => {
         if (detail.isConnected) void refreshProcessingDetailContentOnce(detail, projection);
-      }, 2000);
+      }, Math.min(2000 * retryCount, 8000));
     };
     try {
       const response = await fetch(pollUrl, {
@@ -2140,15 +2110,19 @@
       });
       if (discardStaleRefresh() || await recoverMeetingDetailFromResponse(response)) return false;
       if (!response.ok) {
-        retryFragmentRefreshOnce();
+        retryFragmentRefresh();
         return false;
       }
       const responseText = await response.text();
       if (discardStaleRefresh()) return false;
       const fragment = new DOMParser().parseFromString(responseText, "text/html");
       const nextDetail = fragment.querySelector("[data-playback-poll-url]");
-      if (!nextDetail) {
-        retryFragmentRefreshOnce();
+      const currentPlayback = detail.nextElementSibling?.matches?.(".detail-playback")
+        ? detail.nextElementSibling
+        : null;
+      const nextPlayback = fragment.querySelector(".detail-playback");
+      if (!nextDetail || (refreshReplacement && (!currentPlayback || !nextPlayback))) {
+        retryFragmentRefresh();
         return false;
       }
       nextDetail.dataset.processingTranscriptContentReady =
@@ -2162,11 +2136,15 @@
       releaseRefreshClaim();
       stopProcessingRecoveryCountdown();
       stopProcessingRecoveryPolling();
+      if (refreshReplacement) {
+        currentPlayback?.querySelector("audio")?.pause();
+        if (currentPlayback && nextPlayback) currentPlayback.replaceWith(nextPlayback);
+      }
       detail.replaceWith(nextDetail);
       window.setTimeout(initCabinet, 0);
       return true;
     } catch {
-      retryFragmentRefreshOnce();
+      retryFragmentRefresh();
       return false;
     }
   };
@@ -2271,7 +2249,6 @@
 
     const recovery = detail.querySelector("[data-processing-recovery]");
     if (!recovery) return true;
-    const copy = processingRecoveryCopy(projection, transcriptReady);
     const replacementAttempt = Number(
       projection?.attempt_ordinal ?? detail.dataset.processingAttemptOrdinal ?? 0,
     ) > 1 && (
@@ -2279,9 +2256,15 @@
       || detail.dataset.processingTranscriptContentReady === "true"
       || detail.dataset.processingTranscriptVisible === "true"
     );
-    const continuity = detail.querySelector("[data-processing-reprocess-continuity]");
-    if (continuity) {
-      continuity.hidden = !replacementAttempt || copy === null || copy?.canReprocess === true;
+    const replacementPublished = detail.dataset.processingPublishedAttempt === String(attemptOrdinal);
+    const copy = processingRecoveryCopy(projection, transcriptReady, replacementPublished);
+    const replacementActive = replacementAttempt
+      && !terminalProcessing
+      && (projectionState !== "processed" || !replacementPublished);
+    detail.dataset.processingReplacementActive = replacementActive ? "true" : "false";
+    recovery.dataset.processingReplacement = replacementAttempt ? "true" : "false";
+    if (replacementActive) {
+      detail.nextElementSibling?.querySelector?.("audio")?.pause();
     }
     const showSurface = copy !== null;
     recovery.hidden = !showSurface;
@@ -2339,17 +2322,23 @@
     }
     if (refresh) refresh.hidden = !copy?.showRefresh;
     const summaryAnnouncement = summaryCopy?.[0] || "";
-    const announcement = transcriptReady
+    const announcement = replacementActive
+      ? "Готовим новую версию."
+      : replacementAttempt && terminalProcessing
+      ? "Не удалось подготовить новую версию. Текущая версия не изменилась."
+      : transcriptReady
       ? `Расшифровка и спикеры готовы.${summaryAnnouncement ? ` ${summaryAnnouncement}` : ""}`
       : `${copy?.title || "Обработка записи"}. ${copy?.copy || ""}`;
-    const signature = [
-      projection?.state,
-      projection?.retry_class,
-      projection?.attempt_in_flight,
-      transcriptReady,
-      processingArtifactVisible(projection, "diarization"),
-      summaryState,
-    ].join("|");
+    const signature = replacementActive
+      ? "replacement-active"
+      : [
+        projection?.state,
+        projection?.retry_class,
+        projection?.attempt_in_flight,
+        transcriptReady,
+        processingArtifactVisible(projection, "diarization"),
+        summaryState,
+      ].join("|");
     announceProcessingChange(detail, announcement, signature);
     scheduleProcessingRecoveryPolling(detail, projection);
     return true;
@@ -2555,7 +2544,7 @@
       }
       const rendered = renderProcessingProjection(detail, projection);
       if (rendered && typeof refreshProcessingDetailContentOnce === "function") {
-        await refreshProcessingDetailContentOnce(detail, projection);
+        await refreshProcessingDetailContentOnce(detail, projection, { resetRetryBudget: true });
       }
       if (!rendered && requestGeneration === processingRecoveryGeneration) {
         processingRecoveryPollTimer = window.setTimeout(() => {
@@ -2568,7 +2557,9 @@
       if (processingRecoveryRequest !== null && processingRecoveryRequest !== request) return false;
       if (processingRecoveryRequest === request) processingRecoveryRequest = null;
       if (detail.isConnected && detail.dataset.processingTerminal !== "true") {
-        renderProcessingRecoveryFailure(detail);
+        if (detail.dataset.processingReplacementActive !== "true") {
+          renderProcessingRecoveryFailure(detail);
+        }
         processingRecoveryPollTimer = window.setTimeout(() => {
           processingRecoveryPollTimer = null;
           if (
@@ -2789,7 +2780,7 @@
     form?.setAttribute("aria-busy", busy ? "true" : "false");
     if (submit) {
       submit.disabled = busy;
-      submit.textContent = busy ? "Запускаем…" : "Запустить повторную обработку";
+      submit.textContent = busy ? "Готовим…" : "Подготовить";
     }
     dialog.querySelectorAll("[data-processing-reprocess-cancel]").forEach((button) => {
       button.disabled = busy;
@@ -2995,7 +2986,11 @@
     }
     const transcriptReady = processingTranscriptReady(projection);
     const summaryState = processingSummaryState(projection);
-    const text = retryClass === "retryable"
+    const replacement = Number(projection?.attempt_ordinal ?? 0) > 1
+      && projection?.content_available === true;
+    const text = replacement && !processingTerminalFailure(projection)
+      ? "Готовится новая версия"
+      : retryClass === "retryable"
       ? "Обработка временно приостановлена"
       : retryClass === "unknown_outcome"
       ? "Проверяем исходную попытку"

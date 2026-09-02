@@ -27,6 +27,6 @@
 ## Feature Readiness
 
 - [x] Every user story has an independent test
-- [x] The old result continuity rule covers every customer channel
+- [ ] The old-result retention and owner-visibility rules cover owner, shared, export and desktop channels
 - [x] Retry and new reprocessing attempts are not conflated
 - [x] The feature is ready for plan/tasks/implementation

@@ -57,11 +57,9 @@
           aria-busy="false">
       <div class="meeting-details-dialog__header">
         <div>
-          <h2 id="processing-reprocess-dialog-title" tabindex="-1">Повторно обработать запись?</h2>
+          <h2 id="processing-reprocess-dialog-title" tabindex="-1">Подготовить новую версию?</h2>
           <div id="processing-reprocess-dialog-copy">
-            <p>GRAF заново подготовит расшифровку, спикеров и итоги.</p>
-            <p>Текущая версия останется доступной, пока новая не будет готова.</p>
-            <p>Исходная запись не изменится.</p>
+            <p>Имена спикеров, заданные вручную, будут сброшены после успешной обработки.</p>
           </div>
         </div>
         <button type="button" class="icon-button" data-processing-reprocess-cancel
@@ -72,7 +70,7 @@
         <button type="button" class="button quiet" data-processing-reprocess-cancel>Отмена</button>
         <button type="submit" class="button primary" data-processing-reprocess-submit
                 aria-describedby="processing-reprocess-dialog-copy">
-          Запустить повторную обработку
+          Подготовить
         </button>
       </div>
     </form>

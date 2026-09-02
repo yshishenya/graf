@@ -977,6 +977,16 @@ def test_status_mapping_handles_ready_partial_processing_and_failed() -> None:
         )
         == "failed"
     )
+    assert (
+        view_models.review_status(
+            _meeting(ProcessingStatus.BLOCKED_UNKNOWN), result=None, workflow=None
+        )
+        == "processing"
+    )
+    assert (
+        view_models.review_status(_meeting(ProcessingStatus.CANCELED), result=None, workflow=None)
+        == "failed"
+    )
     for terminal_status in (MeetingStatus.ABORTED, MeetingStatus.EXPIRED):
         terminal = _meeting(ProcessingStatus.NOT_SUBMITTED)
         terminal.status = terminal_status.value

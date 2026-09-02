@@ -38,11 +38,15 @@ Partial transcript, missing/empty diarization, stale workflow, old revision and 
 
 ### MediaScribeJob
 
-Reuse the attempt-scoped job and idempotency key. A new replacement workflow creates a new job. Automatic retry and `Повторить сейчас` keep the same workflow and job.
+Reuse the attempt-scoped job and idempotency key. A new replacement workflow creates a new job. Automatic retry and any authorized compatibility check keep the same workflow and job; the replacement UI exposes no manual same-attempt retry.
 
 ### Outcome set and summary slot
 
 Reuse current outcome publication pointers and CAS. An outcome is aligned when its `processing_result_id` equals the current effective complete result. Otherwise it remains readable with `По предыдущей версии расшифровки`.
+
+### MeetingSpeakerName
+
+Reuse result-scoped speaker-name rows unchanged. A replacement does not copy or reconcile names. Rows for result A remain available while attempt B runs and are visible again if B fails; after complete result B publishes, only names scoped to B may affect its transcript and player.
 
 ## State transitions
 
