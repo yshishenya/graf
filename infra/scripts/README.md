@@ -19,8 +19,9 @@ cleanup, and final evidence are remote operations on `2brain.dev`.
 
 ## CI Lanes
 
-Use focused tests first while implementing. Before opening or updating a code
-PR, run the fast lane:
+Use focused tests first while implementing. GitHub Actions runs the required
+`governance-fast` gate for each PR. Run the local fast lane only when explicit
+diagnosis or offline fallback is needed:
 
 ```sh
 infra/scripts/ci-local.sh --fast
@@ -43,8 +44,11 @@ Every lane emits one metadata-only evidence record under the ignored
 prints `ci_evidence_path=...`. Set `GRAF_CI_CANDIDATE_FILE` for the single
 authoritative Full CI run so its evidence is bound to the frozen candidate.
 
-GitHub Actions are disabled. No pull-request validation runs remotely. For an
-early full baseline, run locally:
+GitHub Actions runs `governance-fast` automatically for every pull request and
+is the authoritative PR gate on the exact PR SHA. The workstation does not run
+CI automatically: local `ci-local.sh` is retained only for explicit diagnosis,
+offline fallback, or release-operator recovery. For an early full baseline,
+run locally only when it is intentionally requested:
 
 ```sh
 infra/scripts/ci-local.sh --full
@@ -66,8 +70,10 @@ infra/scripts/cd-remote.sh --execute
 
 The execute mode requires a clean tracked-and-untracked local worktree, verifies
 that the current branch matches `origin/<branch>`, pins the deployment to that
-exact commit SHA, runs one `infra/scripts/ci-local.sh --full`, and re-checks the
-clean worktree plus local/remote SHA before SSH. On `2brain.dev`, it
+exact commit SHA, and re-checks the clean worktree plus local/remote SHA before
+SSH. Release candidates must carry the immutable authoritative Full CI evidence
+from the release workflow; the workstation does not start a local Full CI run.
+On `2brain.dev`, it
 verifies the remote `origin/<branch>` still resolves to the pinned SHA before reset, then performs backup, restore
 rehearsal, production Compose secret-exposure scan, rebuild/up, runtime
 secret-environment scan, production smoke, and public health checks.

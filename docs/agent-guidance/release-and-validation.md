@@ -1,9 +1,10 @@
 # Release And Validation
 
-## Local Validation
+## Local Validation (manual fallback)
 
-Use the feature `quickstart.md` first when working inside a Spec Kit slice. For
-repository-wide local validation, use one explicit lane:
+Use the feature `quickstart.md` first when working inside a Spec Kit slice.
+The workstation does not run repository-wide CI automatically. For explicit
+diagnosis or offline fallback, use one local lane:
 
 ```sh
 # Fast feedback before a code PR.
@@ -31,9 +32,10 @@ remain the first check during implementation.
 GitHub Actions runs `governance-fast` automatically for each pull request and
 its exact-SHA result is the merge evidence. The workflow executes the bounded
 `ci-local.sh --fast` lane on a clean GitHub runner. Local `ci-local.sh` remains
-available for focused diagnosis and offline fallback, but local evidence alone
-cannot authorize a merge. Use `--full` only for a release candidate or early
-broad diagnosis; do not run it after every small edit.
+available only for an explicitly requested diagnosis or offline fallback; local
+evidence alone cannot authorize a merge. Use `--full` only for an early broad
+diagnosis or when the release workflow cannot provide the authoritative record;
+do not run it after every small edit.
 
 After Feature 227 is merged and the operator has enabled the required checks,
 the remote workflow must validate PR and `merge_group` target identity before
@@ -52,7 +54,7 @@ that receipt with `train-attest <manifest> --candidate <candidate> --evidence
 the changelog changes, validation fails and a new train must be frozen.
 
 Use targeted tests during development, but do not replace the feature
-quickstart or canonical local gate with a narrow command when the change touches
+quickstart or canonical GitHub gate with a narrow command when the change touches
 shared behavior, privacy, auth, storage, infrastructure, user-facing flows,
 UX/QA expectations, operations, release readiness, or shared code paths.
 
@@ -92,11 +94,8 @@ accumulated.
 
 1. Start with the feature `quickstart.md` when one exists.
 2. Run focused tests for the files and behavior being changed.
-3. Before calling a feature slice ready, run:
-
-   ```sh
-   infra/scripts/ci-local.sh --fast
-   ```
+3. Push the branch and wait for the required GitHub `governance-fast` check;
+   local CI is a manual fallback only.
 
 The fast lane is the normal feedback loop. It is not a release approval and it
 does not replace the full lane for a release candidate.

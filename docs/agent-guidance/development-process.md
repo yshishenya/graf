@@ -71,13 +71,14 @@ permission trust. Production app, data and origins are always rejected.
 
 ## CI and release rhythm
 
-- Focused tests are the inner loop.
+- Focused tests are the inner loop. The workstation does not start the
+  repository-wide local CI automatically.
 - GitHub Actions `governance-fast` is the PR-ready gate and must pass on the
   exact PR SHA. It runs the bounded `infra/scripts/ci-local.sh --fast` lane on
   the GitHub runner.
-- Local `infra/scripts/ci-local.sh --fast` / `--full` remain optional diagnostic
-  and offline fallback lanes; their evidence cannot replace the required
-  GitHub check.
+- Local `infra/scripts/ci-local.sh --fast` / `--full` remain optional commands
+  for explicit diagnosis and offline fallback; their evidence cannot replace
+  the required GitHub check.
 - Fast/full evidence requires a clean worktree so the recorded SHA identifies
   the tested bytes. `GRAF_CI_ALLOW_DIRTY=1` is diagnostic-only: its evidence is
   `ambiguous` and cannot authorize merge or release.
