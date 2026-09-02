@@ -94,3 +94,35 @@ No production deploy, migration, restart or release publication was executed.
 This establishes the first rollback-capable immutable baseline. T039 remains
 open until a second full manifest proves injected-failure compensation,
 explicit rollback, final promotion and the post-cycle production fingerprints.
+
+## Final immutable-image rehearsal
+
+- completed at: `2026-09-02T18:07:30Z`
+- final implementation SHA: `f208b1b22d08cc63e4d28821ce006e9fd88d37ca`
+- evidence-only candidate SHA: `f15a76388b5dfe2c139859dc57b8c7ca482b4959`;
+  its only repository change records the already-passed hardened baseline
+- GitHub `governance-fast`: PASS on the evidence candidate, run `33664086315`
+- controlled failure: candidate `rec-media-worker` container `38209eb554b6`
+  was selected by project, service and source-SHA labels and stopped during
+  promotion; readiness failed as expected
+- compensation: active pointer remained `dev-f208b1b22d08`; all nine actual
+  container image IDs matched that manifest and live smoke returned 13/13 PASS
+- explicit rollback: successful promotion to `dev-f15a76388b5d`, checkout of
+  the exact target SHA, rollback to `dev-f208b1b22d08`, and 13/13 PASS
+- final promotion: `dev-f15a76388b5d` active with all nine actual container
+  image IDs equal to the selected manifest and final live smoke 13/13 PASS
+- installed presentation: display/bundle name `GRAF Dev`, bundle ID
+  `pro.2brain.graf.dev`, channel `dev`; `AppIcon.icns` SHA-256 is
+  `0bde2fe5463d1632d28dadc0d2cce5c992d401248b51a705fbeca21b02ed2651`
+  and visual inspection confirms the separate yellow `DEV` badge
+- production app CDHash before and after:
+  `bde38a180c557dcb8624de32ad1841163a61439c`
+- production `Info.plist` SHA-256 before and after:
+  `caadd72e8966ec6dd006cbbd799fa95f36a6b2aa30415aa42ed290c58c115840`
+- production data content-tree SHA-256 before and after:
+  `fe98c4ae3473e073683a00ca754d874991c8e045e3349215eab5b38f6ac5ffd7`;
+  file count before and after: `21`
+
+No production deploy, migration, restart, data reset, state deletion or release
+publication was executed. The repository-global Dev state and volumes were
+preserved throughout the controlled cycle.
