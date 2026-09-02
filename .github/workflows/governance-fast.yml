@@ -171,17 +171,19 @@ jobs:
               for match in [re.match(r"^specs/(\d{3,})-[^/]+/", path)]
               if match is not None
           })
-          if not feature_ids:
-              raise SystemExit("no repository-owned feature spec changed in pull request")
           body_path.write_text(body, encoding="utf-8")
-          feature_id_path.write_text(",".join(feature_ids), encoding="ascii")
+          feature_id_path.write_text(",".join(feature_ids) if feature_ids else "scoped", encoding="ascii")
           PY
           feature_id="$(<"$feature_id_path")"
-          python3 scripts/validate-pr-metadata.py \
-            "$body_path" \
-            --feature-id "$feature_id" \
-            --expected-sha "$EXPECTED_SHA" \
-            --title "$PR_TITLE"
+          if [ "$feature_id" = scoped ]; then
+            python3 scripts/validate-pr-metadata.py \
+              "$body_path" --feature-id scoped --scoped \
+              --expected-sha "$EXPECTED_SHA" --title "$PR_TITLE"
+          else
+            python3 scripts/validate-pr-metadata.py \
+              "$body_path" --feature-id "$feature_id" \
+              --expected-sha "$EXPECTED_SHA" --title "$PR_TITLE"
+          fi
 
       - name: Run bounded fast lane
         id: fast_lane

@@ -77,16 +77,17 @@ def validate(
     feature_id: str,
     expected_sha: str | None = None,
     title: str | None = None,
+    scoped: bool = False,
 ) -> list[str]:
     sections = _sections(body)
     errors: list[str] = []
     expected_feature_ids = _expected_feature_ids(feature_id)
-    if not expected_feature_ids:
+    if not expected_feature_ids and not scoped:
         errors.append("expected Feature ID is required")
     title_match = TITLE_PREFIX_RE.match((title or "").strip())
-    if not title_match:
+    if not title_match and not scoped:
         errors.append("PR title must start with [F<feature-id>]")
-    elif not expected_feature_ids.issubset(set(TITLE_FEATURE_RE.findall(title_match.group(1)))):
+    elif title_match and not scoped and not expected_feature_ids.issubset(set(TITLE_FEATURE_RE.findall(title_match.group(1)))):
         errors.append(
             f"PR title Feature ID mismatch: expected {sorted('F' + value for value in expected_feature_ids)}, got {title_match.group(1)}"
         )
@@ -100,7 +101,13 @@ def validate(
         elif not _has_content(sections[section][0]):
             errors.append(f"empty PR section: {section}")
     declared_feature_ids = _declared_feature_ids(body, sections)
-    if not declared_feature_ids:
+    identity = "\n".join(sections.get("## Feature identity", []) + sections.get("## Feature IDs", []))
+    if scoped:
+        if not re.search(r"Feature ID\s*:\s*`?scoped\b", identity, re.IGNORECASE):
+            errors.append("scoped PR must declare Feature ID: scoped")
+        if declared_feature_ids:
+            errors.append("scoped PR must not declare concrete Feature IDs")
+    elif not declared_feature_ids:
         errors.append("Feature ID is required in PR body")
     elif declared_feature_ids != expected_feature_ids:
         errors.append(
@@ -197,6 +204,7 @@ def main() -> int:
     parser.add_argument("--feature-id")
     parser.add_argument("--expected-sha")
     parser.add_argument("--title")
+    parser.add_argument("--scoped", action="store_true")
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
     if args.self_test:
@@ -212,7 +220,7 @@ def main() -> int:
     except OSError as exc:
         print(f"pr-metadata: ERROR: {exc}", file=sys.stderr)
         return 1
-    errors = validate(body, args.feature_id, expected_sha=args.expected_sha, title=args.title)
+    errors = validate(body, args.feature_id, expected_sha=args.expected_sha, title=args.title, scoped=args.scoped)
     if errors:
         for error in errors:
             print(f"pr-metadata: ERROR: {error}", file=sys.stderr)

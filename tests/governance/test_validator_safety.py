@@ -410,6 +410,112 @@ def test_feature_claim_excludes_requested_branch_from_collision_refs() -> None:
     ]
 
 
+def test_feature_claim_allocate_reuses_requested_issue_in_second_probe(monkeypatch, tmp_path: Path) -> None:
+    validator = load_script("claim-feature")
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "Governance Test"], cwd=tmp_path, check=True)
+    (tmp_path / ".keep").write_text("fixture\n", encoding="utf-8")
+    subprocess.run(["git", "add", ".keep"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-qm", "fixture"], cwd=tmp_path, check=True)
+    seen: list[int | None] = []
+
+    monkeypatch.setattr(validator, "_github_umbrella", lambda *_args: None)
+    monkeypatch.setattr(validator, "_git_refs", lambda _root, strict=False: ["codex/001-old"])
+    monkeypatch.setattr(validator, "_github_ids", lambda _root, **kwargs: seen.append(kwargs.get("exclude_issue")) or set())
+
+    assert validator.main(
+        [
+            "--root",
+            str(tmp_path),
+            "--allocate",
+            "--issue-number",
+            "6090",
+            "--branch",
+            "codex/002-x",
+            "--slug",
+            "x",
+            "--json",
+        ]
+    ) == 0
+    assert seen == [6090, 6090]
+
+
+def _closeout_issue(comment: str) -> dict[str, object]:
+    return {
+        "number": 6337,
+        "title": "[231][P1][capture] T001: Реализовать путь локальной записи",
+        "body": "Spec tasks: T001",
+        "comments": [{"body": comment}],
+    }
+
+
+def _closeout_comment(*, sha: str = "a" * 40, result: str = "PASS", run: str = "123") -> str:
+    return f"""Готово.
+
+Что закрыто:
+- T001
+
+Почему это важно:
+- Проверяем трассируемость.
+
+Как проверено:
+- Exact source SHA: {sha}
+- governance-fast: {result} (https://github.com/yshishenya/graf/actions/runs/{run})
+
+Что не входит:
+- Legacy cleanup.
+
+Связи:
+- Spec task: T001
+- PR: #6383
+"""
+
+
+def test_issue_closeout_requires_positive_run_bound_governance_evidence() -> None:
+    validator = load_script("validate-issue-closeout")
+    tasks = "- [X] T001 Реализовать (Issue #6337)\n"
+    assert validator.validate(_closeout_issue(_closeout_comment()), tasks, expected_sha="a" * 40) == []
+    assert any(
+        "positive authoritative governance evidence" in error
+        for error in validator.validate(
+            _closeout_issue(_closeout_comment(result="FAIL")), tasks, expected_sha="a" * 40
+        )
+    )
+    assert any(
+        "positive authoritative governance evidence" in error
+        for error in validator.validate(
+            _closeout_issue(_closeout_comment(run="")), tasks, expected_sha="a" * 40
+        )
+    )
+
+
+def test_issue_closeout_requires_expected_sha_for_non_self_test_validation() -> None:
+    validator = load_script("validate-issue-closeout")
+    tasks = "- [X] T001 Реализовать (Issue #6337)\n"
+    errors = validator.validate(_closeout_issue(_closeout_comment()), tasks)
+    assert any("expected exact SHA is required" in error for error in errors)
+
+
+def test_issue_closeout_uses_only_canonical_task_ownership_fields() -> None:
+    validator = load_script("validate-issue-closeout")
+    issue = _closeout_issue(_closeout_comment()).copy()
+    issue["body"] = "Spec tasks: T001\nЗависимость: T002\nЗаметки: T003"
+    tasks = "- [X] T001 Реализовать (Issue #6337)\n- [ ] T002 Зависимость (Issue #999)\n"
+    assert validator.validate(issue, tasks, expected_sha="a" * 40) == []
+
+
+def test_issue_closeout_accepts_task_backed_and_umbrella_links() -> None:
+    validator = load_script("validate-issue-closeout")
+    tasks = "- [X] T001 Реализовать (Issue #6386; umbrella #6337)\n"
+    task_issue = _closeout_issue(_closeout_comment()).copy()
+    task_issue["number"] = 6386
+    assert validator.validate(task_issue, tasks, expected_sha="a" * 40) == []
+    umbrella_issue = _closeout_issue(_closeout_comment()).copy()
+    umbrella_issue["number"] = 6337
+    assert validator.validate(umbrella_issue, tasks, expected_sha="a" * 40) == []
+
+
 def test_package_safety_allows_documentation_examples_but_rejects_credentials(tmp_path: Path) -> None:
     validator = load_harness_validators()
     (tmp_path / "README.md").write_text("Use `secret:` and `password =` as field names.\n", encoding="utf-8")
@@ -629,6 +735,33 @@ def test_pr_metadata_cannot_choose_feature_id_from_untrusted_body() -> None:
         title="[F999] Чужая фича",
         expected_sha="a" * 40,
     ))
+
+
+def test_pr_metadata_allows_explicit_scoped_identity_without_feature_spec() -> None:
+    validator = load_script("validate-pr-metadata")
+    sha = "a" * 40
+    body = _valid_pr_body(sha).replace("F216", "scoped")
+    assert validator.validate(body, "scoped", expected_sha=sha, title="docs: Уточнить процесс", scoped=True) == []
+    assert any(
+        "scoped PR must declare" in error
+        for error in validator.validate(
+            body.replace("Feature ID: `scoped`", "Feature ID: `F216`"),
+            "scoped",
+            expected_sha=sha,
+            title="docs: Уточнить процесс",
+            scoped=True,
+        )
+    )
+    assert any(
+        "must not declare concrete Feature IDs" in error
+        for error in validator.validate(
+            body.replace("Feature ID: `scoped`", "Feature ID: `scoped`\n- Feature IDs: `F216`"),
+            "scoped",
+            expected_sha=sha,
+            title="docs: Уточнить процесс",
+            scoped=True,
+        )
+    )
 
 
 def test_pr_metadata_supports_release_train_feature_set() -> None:

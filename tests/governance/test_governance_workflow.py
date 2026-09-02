@@ -46,7 +46,8 @@ def test_governance_workflow_validates_pr_metadata_against_event_sha() -> None:
     assert "if: ${{ github.event_name == 'pull_request' }}" in source
     assert 'event_path, body_path, feature_id_path = map(Path, sys.argv[1:4])' in source
     assert 'git", "diff", "--name-only"' in source
-    assert 'no repository-owned feature spec changed in pull request' in source
+    assert 'feature_id_path.write_text(",".join(feature_ids) if feature_ids else "scoped"' in source
+    assert '--scoped' in source
     assert 'pull_request = event.get("pull_request")' in source
     assert 'github.event.pull_request.head.sha' in source
     assert '--expected-sha "$EXPECTED_SHA"' in source
