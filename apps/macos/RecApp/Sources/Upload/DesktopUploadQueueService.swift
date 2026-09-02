@@ -7,6 +7,7 @@ public enum DesktopUploadQueueServiceError: Error, CustomStringConvertible, Send
     case manifestMissing(URL)
     case packageNotFound(String)
     case localArtifactOutsideRecordingsRoot(String)
+    case localPlaybackUnavailable(String)
 
     public var description: String {
         switch self {
@@ -16,6 +17,8 @@ public enum DesktopUploadQueueServiceError: Error, CustomStringConvertible, Send
             return "package_not_found:\(id)"
         case .localArtifactOutsideRecordingsRoot(let path):
             return "local_artifact_outside_recordings_root:\(URL(fileURLWithPath: path).lastPathComponent)"
+        case .localPlaybackUnavailable(let itemId):
+            return "local_playback_unavailable:\(itemId)"
         }
     }
 }
@@ -416,6 +419,26 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             document.updatedAt = now
             try saveDocumentOnQueue(document)
             return deleted
+        }
+    }
+
+    public func localPlaybackURL(itemId: String) throws -> URL {
+        try queue.sync {
+            let document = try loadDocumentOnQueue()
+            guard let item = document.items.first(where: { $0.id == itemId }) else {
+                throw DesktopUploadQueueServiceError.packageNotFound(itemId)
+            }
+            let path = item.reviewAudioPath
+            guard item.artifactProfile.trackCompleteness.contains(where: {
+                      $0.transportRole == .playback && $0.present
+                  }),
+                  isInsideRecordingsRoot(path),
+                  FileManager.default.fileExists(atPath: path),
+                  FileManager.default.isReadableFile(atPath: path)
+            else {
+                throw DesktopUploadQueueServiceError.localPlaybackUnavailable(itemId)
+            }
+            return URL(fileURLWithPath: path)
         }
     }
 
@@ -1203,7 +1226,9 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             transcriptionURL: transcriptionURL
         )
         let state: UploadItemState = profile.isUploadable ? .queued : .blocked
-        let failureCategory: UploadFailureCategory = profile.isUploadable ? .none : .schemaIncompatibility
+        let failureCategory: UploadFailureCategory = profile.isUploadable
+            ? .none
+            : (manifest.isV5Package ? .localResource : .schemaIncompatibility)
         let retryMode: UploadRetryMode = profile.isUploadable ? .automatic : .manualOnly
         let retentionDeadline = Calendar.current.date(
             byAdding: .day,
@@ -1265,11 +1290,14 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         }
         if !refreshed.artifactProfile.isUploadable && existing.state == .blocked {
             merged.state = existing.state
-            merged.failureCategory = existing.failureCategory
-            merged.failureReason = Self.mostSpecificFailureReason(
-                existing: existing.failureReason,
-                refreshed: refreshed.failureReason
-            )
+            merged.failureCategory = refreshed.failureCategory
+            merged.failureReason = existing.failureCategory == .schemaIncompatibility
+                && refreshed.failureCategory == .localResource
+                ? refreshed.failureReason
+                : Self.mostSpecificFailureReason(
+                    existing: existing.failureReason,
+                    refreshed: refreshed.failureReason
+                )
             merged.retryMode = existing.retryMode
             merged.nextRetryAt = existing.nextRetryAt
             merged.retentionDecision = existing.retentionDecision
@@ -1610,6 +1638,10 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         if manifest.captureFailureCode == "recording_recovery_not_possible" {
             return "recording_recovery_not_possible"
         }
+        if let captureFailureCode = manifest.captureFailureCode?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !captureFailureCode.isEmpty {
+            return captureFailureCode
+        }
         if manifest.scopeApproval?.isAcceptedForMeetingRecording != true {
             return LocalRecordingFailureReason.scopeUnavailable.rawValue
         }
@@ -1658,7 +1690,10 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         let microphoneSize = fileSize(microphoneURL)
         let systemAudioSize = fileSize(systemAudioURL)
         let reviewAudio = reviewAudioURL.flatMap(reviewAudioArtifact)
-        let durationSeconds = max(1, Int(ceil(Double(max(0, manifest.stoppedAt.timeIntervalSince(manifest.startedAt))))))
+        let sessionDurationSeconds = max(
+            1,
+            Int(ceil(Double(max(0, manifest.stoppedAt.timeIntervalSince(manifest.startedAt)))))
+        )
         if manifest.isV5Package {
             let mediaURL = transcriptionURL ?? manifestURL
                 .deletingLastPathComponent()
@@ -1678,7 +1713,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 present: mediaAudio != nil,
                 byteCount: mediaAudio?.byteCount ?? fileSize(mediaURL),
                 sha256: mediaAudio?.sha256,
-                durationSeconds: mediaAudio?.durationSeconds ?? durationSeconds
+                durationSeconds: mediaAudio?.durationSeconds ?? sessionDurationSeconds
             )
             let playbackTrack = UploadTrackCompleteness(
                 transportRole: .playback,
@@ -1686,7 +1721,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 present: reviewAudio != nil,
                 byteCount: reviewAudio?.byteCount ?? (reviewAudioURL.map(fileSize) ?? 0),
                 sha256: reviewAudio?.sha256,
-                durationSeconds: reviewAudio?.durationSeconds ?? durationSeconds
+                durationSeconds: reviewAudio?.durationSeconds ?? sessionDurationSeconds
             )
             let tracks = [manifestTrack, mediaTrack, playbackTrack]
             let manifestTracksByRole = Dictionary(
@@ -1701,6 +1736,10 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 manifest.isComplete &&
                 integrityMatches &&
                 tracks.allSatisfy(\.uploadable)
+            let savedDurationSeconds = max(
+                mediaAudio?.durationSeconds ?? 0,
+                reviewAudio?.durationSeconds ?? 0
+            )
             return ArtifactCompletenessProfile(
                 schemaVersion: manifest.schemaVersion,
                 manifestPresent: manifestTrack.present,
@@ -1712,7 +1751,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 manifestSizeBytes: manifestSize,
                 microphoneSizeBytes: 0,
                 systemAudioSizeBytes: 0,
-                durationSeconds: durationSeconds,
+                durationSeconds: savedDurationSeconds > 0 ? savedDurationSeconds : sessionDurationSeconds,
                 trackCompleteness: tracks,
                 isUploadable: uploadable,
                 qualityWarningReason: uploadable ? Self.qualityWarningReason(for: manifest) : nil
@@ -1732,7 +1771,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             present: microphoneSize > 44,
             byteCount: microphoneSize,
             sha256: sha256Hex(url: microphoneURL),
-            durationSeconds: durationSeconds
+            durationSeconds: sessionDurationSeconds
         )
         let systemTrack = UploadTrackCompleteness(
             transportRole: .system,
@@ -1740,7 +1779,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             present: systemAudioSize > 44,
             byteCount: systemAudioSize,
             sha256: sha256Hex(url: systemAudioURL),
-            durationSeconds: durationSeconds
+            durationSeconds: sessionDurationSeconds
         )
         var tracks = [microphoneTrack, systemTrack, manifestTrack]
         if let reviewAudio {
@@ -1770,7 +1809,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             manifestSizeBytes: manifestSize,
             microphoneSizeBytes: microphoneSize,
             systemAudioSizeBytes: systemAudioSize,
-            durationSeconds: durationSeconds,
+            durationSeconds: sessionDurationSeconds,
             trackCompleteness: tracks,
             isUploadable: uploadable,
             qualityWarningReason: qualityWarningReason

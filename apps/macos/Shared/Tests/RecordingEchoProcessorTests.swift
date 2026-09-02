@@ -21,6 +21,22 @@ final class RecordingEchoProcessorTests: XCTestCase {
         XCTAssertThrowsError(try processor.process(render: invalid, capture: silence)) {
             XCTAssertEqual($0 as? RecordingEchoProcessorError, .invalidFrame)
         }
+        XCTAssertEqual(processor.terminalError, .invalidFrame)
+    }
+
+    func testFiniteOvershootIsClampedAtSharedAECBoundary() throws {
+        let processor = try RecordingEchoProcessor()
+        var render = [Float](repeating: 0, count: RecordingEchoProcessor.frameSamples)
+        var capture = render
+        render[0] = 1.25
+        capture[0] = -1.5
+
+        for _ in 0..<1_000 {
+            let output = try processor.process(render: render, capture: capture)
+            XCTAssertEqual(output.count, RecordingEchoProcessor.frameSamples)
+            XCTAssertTrue(output.allSatisfy(\.isFinite))
+        }
+        XCTAssertNil(processor.terminalError)
     }
 
     func testPinnedIdentityAndOptionalProcessingContract() throws {

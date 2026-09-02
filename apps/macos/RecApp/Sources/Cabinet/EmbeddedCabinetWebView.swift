@@ -874,8 +874,10 @@ public struct EmbeddedCabinetLocalRecordingRow: Codable, Equatable, Sendable {
     public let title: String
     public let startedAt: Date
     public let durationSeconds: Int
+    public let sessionDurationSeconds: Int
     public let status: String
     public let progressPercent: Int?
+    public let canOpen: Bool
     public let canSend: Bool
     public let canDelete: Bool
     public let uploadComplete: Bool
@@ -884,8 +886,22 @@ public struct EmbeddedCabinetLocalRecordingRow: Codable, Equatable, Sendable {
         items.compactMap { item in
             guard item.state != .terminalDeleted else { return nil }
             let damaged = item.failureReason == "recording_recovery_not_possible"
+            let startedAt = item.recordingMetadata?.recordingStartedAt ?? item.createdAt
+            let stoppedAt = item.recordingMetadata?.recordingStoppedAt
+            let sessionDurationSeconds = max(
+                item.artifactProfile.durationSeconds,
+                stoppedAt.map { max(1, Int(ceil($0.timeIntervalSince(startedAt)))) }
+                    ?? item.artifactProfile.durationSeconds
+            )
+            let hasPlayback = item.artifactProfile.trackCompleteness.contains {
+                $0.transportRole == .playback && $0.present
+            } && FileManager.default.fileExists(atPath: item.reviewAudioPath)
+                && FileManager.default.isReadableFile(atPath: item.reviewAudioPath)
+            let localCaptureFailure = item.failureCategory == .localResource && hasPlayback
             let status: String = if damaged {
                 "Запись повреждена"
+            } else if localCaptureFailure {
+                "Сохранена часть записи"
             } else if item.state == .uploading,
                       let percent = DesktopMeetingShellLocalQueuePolicy.progressPercent(for: item) {
                 "Отправляется · \(percent)%"
@@ -904,14 +920,16 @@ public struct EmbeddedCabinetLocalRecordingRow: Codable, Equatable, Sendable {
                 id: item.id,
                 meetingId: item.meetingId ?? item.serverTruth.meetingId,
                 title: item.recordingMetadata?.title ?? "Запись",
-                startedAt: item.recordingMetadata?.recordingStartedAt ?? item.createdAt,
+                startedAt: startedAt,
                 durationSeconds: max(1, item.artifactProfile.durationSeconds),
+                sessionDurationSeconds: sessionDurationSeconds,
                 status: status,
                 progressPercent: DesktopMeetingShellLocalQueuePolicy.progressPercent(for: item),
+                canOpen: hasPlayback,
                 canSend: !damaged
                     && item.artifactProfile.isUploadable
                     && ![.saving, .uploading, .uploaded].contains(item.state),
-                canDelete: damaged,
+                canDelete: damaged || [.degraded, .blocked, .failed].contains(item.state),
                 uploadComplete: item.state == .uploaded
             )
         }
@@ -920,6 +938,7 @@ public struct EmbeddedCabinetLocalRecordingRow: Codable, Equatable, Sendable {
 
 public enum EmbeddedCabinetLocalRecordingBridge {
     public static let messageHandlerName = "grafLocalRecording"
+    public static let openAction = "open"
     public static let sendAction = "send"
     public static let deleteAction = "delete"
 
@@ -945,7 +964,12 @@ public enum EmbeddedCabinetLocalRecordingBridge {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         guard let data = try? encoder.encode(rows) else { return "" }
-        return "window.GRAFLocalRecordings?.update(JSON.parse(atob('\(data.base64EncodedString())')));"
+        return """
+        (() => {
+          const bytes = Uint8Array.from(atob('\(data.base64EncodedString())'), character => character.charCodeAt(0));
+          window.GRAFLocalRecordings?.update(JSON.parse(new TextDecoder('utf-8').decode(bytes)));
+        })();
+        """
     }
 
     public static func allowedAction(
@@ -955,9 +979,9 @@ public enum EmbeddedCabinetLocalRecordingBridge {
         guard let object = body as? [String: Any],
               let action = object["action"] as? String,
               let id = object["id"] as? String,
-              [sendAction, deleteAction].contains(action),
+              [openAction, sendAction, deleteAction].contains(action),
               let row = rows.first(where: { $0.id == id }),
-              action == sendAction ? row.canSend : row.canDelete
+              action == openAction ? row.canOpen : (action == sendAction ? row.canSend : row.canDelete)
         else {
             return nil
         }

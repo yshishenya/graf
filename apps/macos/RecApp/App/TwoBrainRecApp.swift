@@ -2641,6 +2641,8 @@ private struct ContentView: View {
     private func handleLocalRecordingAction(_ action: String, itemId: String) {
         do {
             switch action {
+            case EmbeddedCabinetLocalRecordingBridge.openAction:
+                NSWorkspace.shared.open(try desktopUploadQueueService.localPlaybackURL(itemId: itemId))
             case EmbeddedCabinetLocalRecordingBridge.sendAction:
                 _ = try desktopUploadQueueService.retry(itemId: itemId)
                 uploadQueueItems = try desktopUploadQueueService.loadItems()
@@ -2782,7 +2784,15 @@ private struct ContentView: View {
                        recoveryAction: "Остановите запись и начните новую после проверки аудиоустройств."
                    ) {
                     captureSession = degraded
-                    recordingBlocker = "Запись остановила добавление звука: \(failureCode). Уже очищенная часть сохранится после Stop."
+                    recordingBlocker = "Запись остановлена: \(failureCode). Уже очищенная часть сохранена локально."
+                    Task { @MainActor in
+                        await stopManualRecording(
+                            reason: .failed,
+                            evidenceInitiator: .systemFailClosed,
+                            enqueueReason: "capture_integrity_failure"
+                        )
+                        recordingBlocker = "Запись остановлена: \(failureCode). Уже очищенная часть сохранена локально."
+                    }
                 }
             }
         }

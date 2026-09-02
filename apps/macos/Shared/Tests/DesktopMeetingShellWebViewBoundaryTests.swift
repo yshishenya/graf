@@ -231,6 +231,11 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
     }
 
     func testEmbeddedLocalRecordingRowsExposeOnlyBoundedCopyAndAllowedActions() throws {
+        let playbackRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: playbackRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: playbackRoot) }
+        try Data([0]).write(to: playbackRoot.appendingPathComponent("meeting-review.m4a"))
         let saving = makeQueueItem(
             id: "saving-row",
             state: .saving,
@@ -243,16 +248,35 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
             retryMode: .manualOnly,
             createdAt: Date(timeIntervalSince1970: 90)
         )
+        var playable = makeQueueItem(
+            id: "playable-row",
+            state: .blocked,
+            retryMode: .manualOnly,
+            createdAt: Date(timeIntervalSince1970: 80)
+        )
+        playable.directoryPath = playbackRoot.path
+        playable.artifactProfile.trackCompleteness = [
+            UploadTrackCompleteness(
+                transportRole: .playback,
+                fileName: "meeting-review.m4a",
+                present: true,
+                byteCount: 1,
+                sha256: String(repeating: "d", count: 64),
+                durationSeconds: 9
+            )
+        ]
+        playable.failureCategory = .localResource
         failed.failureReason = "recording_recovery_not_possible"
-        let rows = EmbeddedCabinetLocalRecordingRow.rows(for: [saving, failed])
+        let rows = EmbeddedCabinetLocalRecordingRow.rows(for: [saving, failed, playable])
         let encoded = try JSONEncoder().encode(rows)
         let json = String(decoding: encoded, as: UTF8.self)
 
-        XCTAssertEqual(rows.map(\.status), ["Сохраняется", "Запись повреждена"])
+        XCTAssertEqual(rows.map(\.status), ["Сохраняется", "Запись повреждена", "Сохранена часть записи"])
         XCTAssertFalse(rows[0].canSend)
         XCTAssertFalse(rows[1].canSend)
         XCTAssertFalse(rows[0].canDelete)
         XCTAssertTrue(rows[1].canDelete)
+        XCTAssertTrue(rows[2].canOpen)
         XCTAssertFalse(json.contains("directoryPath"))
         XCTAssertFalse(json.contains("manifestPath"))
         XCTAssertFalse(json.contains("sessionId"))
@@ -281,6 +305,16 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
             from: ["action": "open_path", "id": "saving-row"],
             rows: rows
         ))
+        XCTAssertEqual(
+            EmbeddedCabinetLocalRecordingBridge.allowedAction(
+                from: ["action": "open", "id": "playable-row"],
+                rows: rows
+            )?.id,
+            "playable-row"
+        )
+        let rowsScript = EmbeddedCabinetLocalRecordingBridge.rowsScript(rows)
+        XCTAssertTrue(rowsScript.contains("TextDecoder('utf-8')"))
+        XCTAssertFalse(rowsScript.contains("JSON.parse(atob("))
     }
 
     func testCabinetListOwnsLocalRecordingStatesAndUsesSendCopy() throws {
@@ -302,6 +336,9 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
         XCTAssertTrue(cabinetSource.contains("send.textContent = \"Отправить\""))
         XCTAssertTrue(cabinetSource.contains("renderLocalRecordingRows"))
         XCTAssertTrue(cabinetSource.contains("item.uploadComplete !== true"))
+        XCTAssertTrue(cabinetSource.contains("data-meeting-open"))
+        XCTAssertTrue(cabinetSource.contains("data-icon=\"audio\""))
+        XCTAssertFalse(cabinetSource.contains("serverRow.dataset.grafLocalRecordingId"))
         XCTAssertTrue(shellSource.contains("DesktopUploadCustodySummary.summaries(for: uploadQueueItems)"))
     }
 

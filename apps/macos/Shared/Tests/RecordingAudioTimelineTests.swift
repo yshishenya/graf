@@ -84,7 +84,10 @@ final class RecordingAudioTimelineTests: XCTestCase {
                 batch: batch(samples: Array(repeating: 0.2, count: 960), at: 0)
             )
         ) {
-            XCTAssertEqual($0 as? RecordingAudioTimelineError, .echoProcessingFailed)
+            XCTAssertEqual(
+                $0 as? RecordingAudioTimelineError,
+                .echoProcessingFailed(.captureFailed)
+            )
         }
         XCTAssertTrue(failedProcessor.finishPreservingAvailableAudio())
         XCTAssertEqual(collector.samples.count, 480)
