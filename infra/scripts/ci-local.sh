@@ -645,7 +645,7 @@ PY
 
   process_preflight=(python3 scripts/check-development-process.py)
   if [[ -n "${GRAF_PR_BODY_FILE:-}" ]]; then
-    process_preflight+=(--pr-body "$GRAF_PR_BODY_FILE")
+    process_preflight+=(--pr-body "$GRAF_PR_BODY_FILE" --pr-title "${GRAF_PR_TITLE:-}")
   fi
   if [[ -f "$repo_root/.specify/feature.json" ]]; then
     run_step "Development process preflight" "${process_preflight[@]}" || return $?

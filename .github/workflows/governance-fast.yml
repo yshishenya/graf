@@ -134,6 +134,7 @@ jobs:
         shell: bash
         env:
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
           set -euo pipefail
           body_path="$RUNNER_TEMP/graf-pr-body.md"
@@ -163,7 +164,8 @@ jobs:
           python3 scripts/validate-pr-metadata.py \
             "$body_path" \
             --feature-id "$feature_id" \
-            --expected-sha "$EXPECTED_SHA"
+            --expected-sha "$EXPECTED_SHA" \
+            --title "$PR_TITLE"
 
       - name: Run bounded fast lane
         id: fast_lane

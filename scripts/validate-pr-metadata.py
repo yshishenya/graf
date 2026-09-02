@@ -39,6 +39,8 @@ EVIDENCE_STATUS_RE = re.compile(
     r"\b(?:pass(?:ed)?|ok|fail(?:ed)?|blocked|skipped|not[ \t]+run|не[ \t]+запускал|не[ \t]+запущен)\b",
     re.IGNORECASE,
 )
+TITLE_PREFIX_RE = re.compile(r"^((?:\[F\d{3,}\])+)(?:\s|$)")
+TITLE_FEATURE_RE = re.compile(r"\[F(\d{3,})\]")
 
 
 def _sections(body: str) -> dict[str, list[str]]:
@@ -52,9 +54,21 @@ def _has_content(content: str) -> bool:
     return any(line.strip() not in {"", "-", "*", "_"} for line in content.splitlines())
 
 
-def validate(body: str, feature_id: str, expected_sha: str | None = None) -> list[str]:
+def validate(
+    body: str,
+    feature_id: str,
+    expected_sha: str | None = None,
+    title: str | None = None,
+) -> list[str]:
     sections = _sections(body)
     errors: list[str] = []
+    title_match = TITLE_PREFIX_RE.match((title or "").strip())
+    if not title_match:
+        errors.append("PR title must start with [F<feature-id>]")
+    elif feature_id not in TITLE_FEATURE_RE.findall(title_match.group(1)):
+        errors.append(
+            f"PR title Feature ID mismatch: expected F{feature_id}, got {title_match.group(1)}"
+        )
     for section in REQUIRED:
         if section not in sections:
             errors.append(f"missing PR section: {section}")
@@ -113,6 +127,7 @@ def validate(body: str, feature_id: str, expected_sha: str | None = None) -> lis
 
 def self_test() -> int:
     sha = "a" * 40
+    title = "[F216] Перестроить процесс"
     body = """## Feature identity
 - Feature ID: `F216`
 - Umbrella issue: `#6090`
@@ -134,14 +149,16 @@ def self_test() -> int:
 ## Перед merge
 - evidence recorded
 """.format(sha=sha)
-    assert validate(body, "216", expected_sha=sha) == []
-    assert validate(body.replace("F216", "F215"), "216")
-    assert validate(body.replace("F216", "F1024").replace("T042", "T1000"), "1024") == []
-    assert validate(body, "216", expected_sha="b" * 40)
-    assert validate(body.replace("Classification: `untouched`", "Classification: `remove` / `retain-with-exception` / `untouched`"), "216")
-    assert validate(body.replace("## Issues\n- Refs #6090", "## Issues\n"), "216")
-    assert validate(body.replace("Refs #6090", "Refs #___"), "216")
-    assert validate(body.replace("Refs #6090", "Refs #999"), "216")
+    assert validate(body, "216", expected_sha=sha, title=title) == []
+    assert validate(body.replace("F216", "F215"), "216", title=title)
+    assert validate(body.replace("F216", "F1024").replace("T042", "T1000"), "1024", title="[F1024] Перестроить процесс") == []
+    assert validate(body, "216", expected_sha="b" * 40, title=title)
+    assert validate(body.replace("Classification: `untouched`", "Classification: `remove` / `retain-with-exception` / `untouched`"), "216", title=title)
+    assert validate(body.replace("## Issues\n- Refs #6090", "## Issues\n"), "216", title=title)
+    assert validate(body.replace("Refs #6090", "Refs #___"), "216", title=title)
+    assert validate(body.replace("Refs #6090", "Refs #999"), "216", title=title)
+    assert validate(body, "216", title="Перестроить процесс")
+    assert validate(body, "216", title="[F215] Перестроить процесс")
     print("pr-metadata self-test: OK")
     return 0
 
@@ -151,6 +168,7 @@ def main() -> int:
     parser.add_argument("body", type=Path, nargs="?")
     parser.add_argument("--feature-id")
     parser.add_argument("--expected-sha")
+    parser.add_argument("--title")
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
     if args.self_test:
@@ -159,12 +177,14 @@ def main() -> int:
         parser.error("body is required unless --self-test is used")
     if not args.feature_id:
         parser.error("--feature-id is required unless --self-test is used")
+    if args.title is None:
+        parser.error("--title is required unless --self-test is used")
     try:
         body = args.body.read_text(encoding="utf-8")
     except OSError as exc:
         print(f"pr-metadata: ERROR: {exc}", file=sys.stderr)
         return 1
-    errors = validate(body, args.feature_id, expected_sha=args.expected_sha)
+    errors = validate(body, args.feature_id, expected_sha=args.expected_sha, title=args.title)
     if errors:
         for error in errors:
             print(f"pr-metadata: ERROR: {error}", file=sys.stderr)
