@@ -3,6 +3,14 @@
 Metadata-only operator evidence for T039. No production command, deploy,
 migration, data read or release publication is part of this rehearsal.
 
+## Evidence validity
+
+The rehearsal below predates the lifecycle hardening in follow-up PR #6384 and
+must not close T039. Its final candidate was `e3d95139d949ea780bc3134a404385ec27cd93d7`,
+while the hardened implementation continues in PR #6384. Repeat clean-state
+macOS smoke and injected-failure rollback on that PR's final exact SHA before
+marking T039 complete.
+
 ## Rehearsal baseline
 
 - captured at: `2026-09-02T12:29:38Z`

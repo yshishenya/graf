@@ -11,12 +11,22 @@ guard CommandLine.arguments.count == 3 else {
     fail("usage: dev-app-lifecycle.swift <status|terminate> <app-path>")
 }
 
+let expectedBundleIdentifier = "pro.2brain.graf.dev"
 let action = CommandLine.arguments[1]
-let destination = URL(fileURLWithPath: CommandLine.arguments[2])
-    .resolvingSymlinksInPath()
-    .standardizedFileURL.path
+let requestedDestination = URL(fileURLWithPath: CommandLine.arguments[2]).standardizedFileURL
+let destinationURL = requestedDestination.resolvingSymlinksInPath().standardizedFileURL
+guard requestedDestination.path == destinationURL.path else {
+    fail("Dev app destination must not be a symlink")
+}
+if FileManager.default.fileExists(atPath: destinationURL.path) {
+    guard Bundle(url: destinationURL)?.bundleIdentifier == expectedBundleIdentifier else {
+        fail("Dev app destination has an unexpected bundle identifier")
+    }
+}
+let destination = destinationURL.path
 let applications = NSWorkspace.shared.runningApplications.filter { application in
-    application.bundleURL?.resolvingSymlinksInPath().standardizedFileURL.path == destination
+    application.bundleIdentifier == expectedBundleIdentifier &&
+        application.bundleURL?.resolvingSymlinksInPath().standardizedFileURL.path == destination
 }
 
 switch action {
