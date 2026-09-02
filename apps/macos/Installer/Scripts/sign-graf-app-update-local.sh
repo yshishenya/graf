@@ -7,6 +7,7 @@ REPO_ROOT=$(git -C "$MACOS_DIR" rev-parse --show-toplevel)
 cd "$REPO_ROOT"
 PREPARE="$SCRIPT_DIR/prepare-app-update.sh"
 VERIFIER="$SCRIPT_DIR/verify-release-signing-custody.sh"
+STARTUP_VALIDATOR="$MACOS_DIR/Scripts/validate-packaged-app-launch.sh"
 SPARKLE_DIR="$MACOS_DIR/.build/artifacts/sparkle/Sparkle"
 SPARKLE_ARCHIVE_SHA256=cb6fdbdc8884f15d62a616e79face92b08322410fd2d425edc6596ccbf4ba3b0
 
@@ -200,6 +201,9 @@ EOF
 }
 extract_graf_app "$INPUT_DIR/$CANDIDATE_ASSET" "$APP_DIR/candidate" || fail "candidate asset is not a safe GRAF.app ZIP"
 extract_graf_app "$INPUT_DIR/$PREVIOUS_ASSET" "$APP_DIR/previous" || fail "predecessor asset is not a safe GRAF.app ZIP"
+[ -x "$STARTUP_VALIDATOR" ] || fail "packaged app launch validator is missing or not executable"
+"$STARTUP_VALIDATOR" "$APP_DIR/candidate/GRAF.app" 5 arm64 || fail "candidate arm64 packaged app launch failed"
+"$STARTUP_VALIDATOR" "$APP_DIR/candidate/GRAF.app" 5 x86_64 || fail "candidate x86_64 packaged app launch failed"
 
 DOWNLOAD_DIR="$WORK_ROOT/sparkle"
 ARCHIVE="$DOWNLOAD_DIR/Sparkle-for-Swift-Package-Manager.zip"

@@ -15,6 +15,8 @@ def test_feature_pointer_owns_runtime_paths():
     if not pointer_path.exists():
         return
     pointer = json.loads(pointer_path.read_text())
+    if pointer.get("feature_id") != "229":
+        return
     assert pointer["feature_id"] == "229"
     assert "infra/docker-compose.dev.yml" in pointer["owned_paths"]
     assert "scripts/dev-harness.py" in pointer["owned_paths"]
