@@ -144,7 +144,7 @@ retired in separate small features with cutover and rollback evidence.
 
 Before closing a task-backed issue, export its metadata and run
 `python3 scripts/validate-issue-closeout.py --issue-json /tmp/issue.json
---tasks specs/<feature>/tasks.md`. It must pass for every issue named by the
+--tasks specs/<feature>/tasks.md --expected-sha <PR-SHA>`. It must pass for every issue named by the
 feature. A closed issue without a detailed Russian closure comment is a process
 failure even when GitHub closed it automatically; add the comment and reconcile
 the task state before declaring the feature complete.

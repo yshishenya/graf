@@ -394,7 +394,7 @@ def test_feature_claim_bounded_lookup_uses_exact_candidate_search(monkeypatch, t
 
     monkeypatch.setattr(validator.subprocess, "run", fake_run)
     assert validator._github_ids(tmp_path, strict=True, candidates={234}) == set()
-    assert len(calls) == 4  # remote lookup plus three exact marker queries
+    assert len(calls) == 6  # remote lookup plus five exact marker queries
     assert all("234" in " ".join(call) for call in calls[1:])
 
 

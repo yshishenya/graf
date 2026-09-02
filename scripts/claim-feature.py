@@ -16,6 +16,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Iterable
 
@@ -82,6 +83,7 @@ def _github_ids(
     """
     result: set[int] = set()
     try:
+        deadline = time.monotonic() + GITHUB_COMMAND_TIMEOUT_SECONDS
         remote = subprocess.run(
             ["git", "config", "--get", "remote.origin.url"],
             cwd=root, check=True, capture_output=True, text=True,
@@ -95,7 +97,7 @@ def _github_ids(
             proc = subprocess.run(
                 ["gh", "api", "--paginate", "--slurp", endpoint],
                 cwd=root, check=True, capture_output=True, text=True,
-                timeout=GITHUB_COMMAND_TIMEOUT_SECONDS,
+                timeout=max(1, deadline - time.monotonic()),
             )
             pages = json.loads(proc.stdout or "[]")
         else:
@@ -106,11 +108,13 @@ def _github_ids(
                     f'repo:{repo} in:title "[{marker}]"',
                     f'repo:{repo} label:"feature:{marker}"',
                     f'repo:{repo} in:body "Feature ID: F{marker}"',
+                    f'repo:{repo} in:body "Feature ID: {marker}"',
+                    f'repo:{repo} in:body "feature_id: {marker}"',
                 ):
                     proc = subprocess.run(
                         ["gh", "api", "-X", "GET", "search/issues", "-f", f"q={query}", "-f", "per_page=100"],
                         cwd=root, check=True, capture_output=True, text=True,
-                        timeout=GITHUB_COMMAND_TIMEOUT_SECONDS,
+                        timeout=max(1, deadline - time.monotonic()),
                     )
                     pages.append(json.loads(proc.stdout or "{}"))
     except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired, json.JSONDecodeError, ValueError) as exc:
@@ -597,7 +601,12 @@ def main(argv: list[str] | None = None) -> int:
                 candidates={max(1, max(occupied, default=0) + 1)},
             )
             feature_id = _available_id(occupied, max(1, max(occupied, default=0) + 1))
-            while _github_ids(root, strict=True, candidates={feature_id}):
+            while _github_ids(
+                root,
+                exclude_issue=issue_number,
+                strict=True,
+                candidates={feature_id},
+            ):
                 feature_id += 1
             if requested_feature_id != feature_id:
                 raise SystemExit(
@@ -630,7 +639,7 @@ def main(argv: list[str] | None = None) -> int:
             # Suggestions are advisory; keep them bounded to the next local
             # candidate instead of scanning the complete historical backlog.
             suggestion = _available_id(occupied, max(1, max(occupied, default=0) + 1))
-            if _github_ids(root, candidates={suggestion}):
+            while _github_ids(root, candidates={suggestion}):
                 suggestion += 1
             print(json.dumps({"next_available": f"{suggestion:03d}", "occupied_count": len(occupied), "mode": "github-checked"}))
             return 0
