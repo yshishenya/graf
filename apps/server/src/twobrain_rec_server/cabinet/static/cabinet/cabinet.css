@@ -440,6 +440,7 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
 .meeting-detail-tabs { padding-top: 4px; }
 .detail-page-main[data-processing-replacement-active="true"] .action-row,
 .detail-page-main[data-processing-replacement-active="true"] .meeting-detail-tabs,
+.detail-page-main[data-processing-replacement-active="true"] [data-meeting-status-label],
 .detail-page-main[data-processing-replacement-active="true"] .detail-main > :not([data-processing-recovery]):not([data-processing-live]),
 .detail-page-main[data-processing-replacement-active="true"] + .detail-playback {
   display: none;

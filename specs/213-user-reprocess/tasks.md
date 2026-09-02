@@ -4,8 +4,8 @@
 
 ## Phase 1: Setup
 
-- [X] T001 Reuse the existing processing/cabinet fixtures for multiple workflow attempts and owner/shared-recipient views; no fixture-only abstraction was needed
-- [X] T002 Confirm no schema change is needed and the existing workflow identity is sufficient against current `origin/master` in `specs/213-user-reprocess/research.md`
+- [X] T001 Reuse the existing processing/cabinet fixtures for multiple workflow attempts and owner/shared-recipient views; no fixture-only abstraction was needed (Issue #6011)
+- [X] T002 Confirm no schema change is needed and the existing workflow identity is sufficient against current `origin/master` in `specs/213-user-reprocess/research.md` (Issue #6009)
 
 ## Phase 2: Foundational identity and result selection
 
@@ -13,15 +13,15 @@
 
 ### Tests
 
-- [X] T003 [P] Add predecessor/successor replay and stale-predecessor tests in `apps/server/tests/integration/test_processing_attempts.py`
-- [X] T004 [P] Add ordering/completeness tests for old-complete/new-active/partial/terminal/complete attempts in `apps/server/tests/unit/test_processing_results.py`
-- [X] T005 [P] Add new-payload, legacy-history replay and delayed-old-activity tests in `apps/server/tests/unit/test_processing_workflow_identity.py` and `apps/server/tests/unit/test_processing_temporal_workflow.py`
+- [X] T003 [P] Add predecessor/successor replay and stale-predecessor tests in `apps/server/tests/integration/test_processing_attempts.py` (Issue #6010)
+- [X] T004 [P] Add ordering/completeness tests for old-complete/new-active/partial/terminal/complete attempts in `apps/server/tests/unit/test_processing_results.py` (Issue #6012)
+- [X] T005 [P] Add new-payload, legacy-history replay and delayed-old-activity tests in `apps/server/tests/unit/test_processing_workflow_identity.py` and `apps/server/tests/unit/test_processing_temporal_workflow.py` (Issue #6013)
 
 ### Implementation
 
-- [X] T006 Add predecessor/successor CAS admission using the existing workflow ID and attempt ordinal in `apps/server/src/twobrain_rec_server/processing/store.py`
-- [X] T007 Make `effective_processing_result_query()` require `complete_processing_result_clause()` and order by workflow attempt then result version in `apps/server/src/twobrain_rec_server/processing/results.py`
-- [X] T008 Carry exact `processing_workflow_id` in all new Temporal starts and load/validate that row in activities and error persistence in `apps/server/src/twobrain_rec_server/workflows/temporal_client.py`, `apps/server/src/twobrain_rec_server/workflows/worker.py`, `apps/server/src/twobrain_rec_server/processing/pickup.py` and `apps/server/src/twobrain_rec_server/api/processing.py`
+- [X] T006 Add predecessor/successor CAS admission using the existing workflow ID and attempt ordinal in `apps/server/src/twobrain_rec_server/processing/store.py` (Issue #6016)
+- [X] T007 Make `effective_processing_result_query()` require `complete_processing_result_clause()` and order by workflow attempt then result version in `apps/server/src/twobrain_rec_server/processing/results.py` (Issue #6014)
+- [X] T008 Carry exact `processing_workflow_id` in all new Temporal starts and load/validate that row in activities and error persistence in `apps/server/src/twobrain_rec_server/workflows/temporal_client.py`, `apps/server/src/twobrain_rec_server/workflows/worker.py`, `apps/server/src/twobrain_rec_server/processing/pickup.py` and `apps/server/src/twobrain_rec_server/api/processing.py` (Issue #6015)
 
 **Checkpoint**: A new partial attempt cannot hide a complete result, and a delayed activity cannot attach to another workflow row.
 
@@ -31,15 +31,15 @@
 
 ### Tests
 
-- [X] T009 [P] Add owner/non-owner, stale revision, missing source and CSRF API contracts in `apps/server/tests/contract/test_processing_status_contract.py` and `apps/server/tests/integration/test_processing_attempts.py`
-- [X] T010 [P] Add replay, two-tab coalescing, terminal fresh request, provider-job and no-second-charge integration tests in `apps/server/tests/integration/test_processing_attempts.py`
-- [X] T011 [P] Add owner-only menu, confirmation and busy-state contracts in `apps/server/tests/contract/test_cabinet_static_assets_contract.py` and `apps/server/tests/integration/test_cabinet_meeting_detail.py`
+- [X] T009 [P] Add owner/non-owner, stale revision, missing source and CSRF API contracts in `apps/server/tests/contract/test_processing_status_contract.py` and `apps/server/tests/integration/test_processing_attempts.py` (Issue #6017)
+- [X] T010 [P] Add replay, two-tab coalescing, terminal fresh request, provider-job and no-second-charge integration tests in `apps/server/tests/integration/test_processing_attempts.py` (Issue #6018)
+- [X] T011 [P] Add owner-only menu, confirmation and busy-state contracts in `apps/server/tests/contract/test_cabinet_static_assets_contract.py` and `apps/server/tests/integration/test_cabinet_meeting_detail.py` (Issue #6020)
 
 ### Implementation
 
-- [X] T012 Extend processing attempt admission to accept a complete published result, return an existing immediate successor, coalesce active work and preserve ordinary terminal-recovery behavior in `apps/server/src/twobrain_rec_server/processing/store.py`
-- [X] T013 Add request/response schemas and owner-authorized `POST /api/v1/meetings/{meeting_id}/processing/reprocess` in `apps/server/src/twobrain_rec_server/api/schemas.py` and `apps/server/src/twobrain_rec_server/api/processing.py`
-- [X] T014 Add eligible owner action and confirmation to the existing `Ещё` menu/dialog components in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/fragments/meeting_governance.html`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/meeting_detail_content.html` and `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`
+- [X] T012 Extend processing attempt admission to accept a complete published result, return an existing immediate successor, coalesce active work and preserve ordinary terminal-recovery behavior in `apps/server/src/twobrain_rec_server/processing/store.py` (Issue #6019)
+- [X] T013 Add request/response schemas and owner-authorized `POST /api/v1/meetings/{meeting_id}/processing/reprocess` in `apps/server/src/twobrain_rec_server/api/schemas.py` and `apps/server/src/twobrain_rec_server/api/processing.py` (Issue #6022)
+- [X] T014 Add eligible owner action and confirmation to the existing `Ещё` menu/dialog components in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/fragments/meeting_governance.html`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/meeting_detail_content.html` and `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js` (Issue #6021)
 
 **Checkpoint**: One owner action creates one durable workflow; admin pages and reason fields remain untouched.
 
@@ -117,3 +117,46 @@ This phase supersedes only the replacement-presentation portions of completed T0
 - [X] T035 [US2] Replace the main detail and adjacent player from one response so new speaker labels publish together in `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`
 - [X] T036 [US3] Keep expected retries and temporary status-fetch failures under the neutral indicator, restore old content on terminal failure and expose `Попробовать снова` in `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`
 - [X] T037 Run the focused Feature 213 quickstart, JavaScript syntax, `git diff --check` and GitHub Actions `governance-fast`; record that full CI remains the release-candidate gate in `specs/213-user-reprocess/quickstart.md`
+
+## GitHub issue links
+
+The canonical task-to-issue mapping is kept here so closeout validation can
+prove that every checked task closes the intended GitHub issue.
+
+- T001 (Issue #6011)
+- T002 (Issue #6009)
+- T003 (Issue #6010)
+- T004 (Issue #6012)
+- T005 (Issue #6013)
+- T006 (Issue #6016)
+- T007 (Issue #6014)
+- T008 (Issue #6015)
+- T009 (Issue #6017)
+- T010 (Issue #6018)
+- T011 (Issue #6020)
+- T012 (Issue #6019)
+- T013 (Issue #6022)
+- T014 (Issue #6021)
+- T015 (Issue #6023)
+- T016 (Issue #6024)
+- T017 (Issue #6028)
+- T018 (Issue #6025)
+- T019 (Issue #6026)
+- T020 (Issue #6027)
+- T021 (Issue #6029)
+- T022 (Issue #6031)
+- T023 (Issue #6030)
+- T024 (Issue #6033)
+- T025 (Issue #6032)
+- T026 (Issue #6034)
+- T027 (Issue #6037)
+- T028 (Issue #6035)
+- T029 (Issue #6036)
+- T030 (Issue #6038)
+- T031 (Issue #6365)
+- T032 (Issue #6366)
+- T033 (Issue #6367)
+- T034 (Issue #6368)
+- T035 (Issue #6369)
+- T036 (Issue #6370)
+- T037 (Issue #6371)

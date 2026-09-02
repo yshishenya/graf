@@ -27,7 +27,7 @@
   <section class="detail-main">
     {{ calendar_context_chooser }}
     {% if media_revision_id %}
-    <section class="processing-recovery" data-processing-recovery data-processing-replacement="{{ 'true' if replacement_attempt else 'false' }}" data-state="{% if processing_state in ['failed', 'blocked'] %}terminal{% elif processing_state == 'ready' %}ready{% else %}active{% endif %}"{% if processing_state == 'ready' %} hidden{% endif %} aria-labelledby="processing-recovery-title" aria-busy="{{ 'true' if processing_state not in ['ready', 'failed', 'blocked'] else 'false' }}">
+    <section class="processing-recovery" data-processing-recovery data-processing-replacement="{{ 'true' if replacement_attempt else 'false' }}" data-state="{% if processing_state in ['failed', 'blocked', 'unavailable'] %}terminal{% elif processing_state == 'ready' %}ready{% else %}active{% endif %}"{% if processing_state == 'ready' %} hidden{% endif %} aria-labelledby="processing-recovery-title" aria-busy="{{ 'true' if processing_state not in ['ready', 'failed', 'blocked', 'unavailable'] else 'false' }}">
       <div class="processing-recovery-header">
         <div>
           <p class="processing-recovery-kicker">Обработка записи</p>

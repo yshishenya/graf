@@ -218,7 +218,7 @@ def test_processing_recovery_projection_keeps_artifacts_independent_and_refresh_
     assert "data-processing-published-attempt" in detail
     assert "data-processing-recovery data-processing-replacement=" in detail
     assert 'aria-labelledby="processing-recovery-title"' in detail
-    assert 'data-state="{% if processing_state in [\'failed\', \'blocked\'] %}terminal{% elif processing_state == \'ready\' %}ready{% else %}active{% endif %}"' in detail
+    assert 'data-state="{% if processing_state in [\'failed\', \'blocked\', \'unavailable\'] %}terminal{% elif processing_state == \'ready\' %}ready{% else %}active{% endif %}"' in detail
     assert "{% if processing_state == 'ready' %} hidden{% endif %}" in detail
     assert "processing_reason_label" in detail
     assert 'data-processing-check aria-describedby="processing-recovery-copy"' in detail
@@ -261,6 +261,7 @@ def test_processing_recovery_projection_keeps_artifacts_independent_and_refresh_
     assert "command_id: processingClientCommandId()" in script
     assert "schedule_generation: Number.parseInt(detail.dataset.processingScheduleGeneration" in script
     assert "processingRecoveryActionRequest !== null" in script
+    assert '"replacement-active"' in script
     assert "transcriptReady = processingTranscriptReady(projection)" in script
     assert "const transcriptVisible = transcriptReady;" in script
     assert 'const terminalTranscript = ["failed", "unavailable"].includes(transcriptState)' in script
@@ -282,6 +283,7 @@ def test_processing_recovery_projection_keeps_artifacts_independent_and_refresh_
     assert "@media (forced-colors: active)" in styles
     assert ".processing-stage-list" in styles
     assert '[data-processing-replacement-active="true"] .meeting-detail-tabs' in styles
+    assert '[data-processing-replacement-active="true"] [data-meeting-status-label]' in styles
     assert '[data-processing-replacement-active="true"] + .detail-playback' in styles
 
 

@@ -1023,6 +1023,7 @@ const processingNewAttemptAllowed = (projection) => (
   && projection?.manual_action === "new_attempt"
   && projection?.attempt_in_flight !== true
 );
+const processingTerminalFailure = () => false;
 vm.runInThisContext(`${source}; global.processingRecoveryCopy = processingRecoveryCopy;`);
 const cases = [
   {
@@ -1103,6 +1104,14 @@ for (const testCase of cases) {
     throw new Error("terminal projection fell back to active processing copy");
   }
 }
+const unpublishedReplacement = global.processingRecoveryCopy(
+  { state: "processed", retry_class: "none", attempt_ordinal: 2, content_available: true },
+  true,
+  false,
+);
+if (unpublishedReplacement?.state !== "active" || unpublishedReplacement?.title !== "Готовим новую версию") {
+  throw new Error("processed replacement lost neutral surface before fragment installation");
+}
 """
     completed = subprocess.run(
         ["node", "-e", harness, str(script_path)],
@@ -1116,6 +1125,89 @@ for (const testCase of cases) {
     script = script_path.read_text(encoding="utf-8")
     assert 'payload?.code === "processing_quota_exceeded"' in script
     assert "Лимит расшифровки ещё не обновился" in script
+
+
+def test_summary_refresh_does_not_pause_or_replace_the_current_player() -> None:
+    script_path = STATIC_DIR / "cabinet.js"
+    harness = r"""
+const fs = require("fs");
+const vm = require("vm");
+const script = fs.readFileSync(process.argv[1], "utf8");
+const source = script.slice(
+  script.indexOf("const refreshProcessingDetailContentOnce"),
+  script.indexOf("const renderProcessingProjection"),
+);
+let pauseCount = 0;
+let playbackReplaceCount = 0;
+let detailReplaceCount = 0;
+let initCount = 0;
+const nextDetail = { dataset: {} };
+const currentPlayback = {
+  matches: (selector) => selector === ".detail-playback",
+  querySelector: (selector) => selector === "audio" ? { pause() { pauseCount += 1; } } : null,
+  replaceWith() { playbackReplaceCount += 1; },
+};
+const detail = {
+  dataset: {
+    playbackPollUrl: "/meetings/meeting-1",
+    meetingId: "meeting-1",
+    mediaRevisionId: "revision-1",
+    processingScheduleGeneration: "1",
+    processingTranscriptContentReady: "true",
+    processingSummaryContentReady: "false",
+    processingPublishedAttempt: "1",
+  },
+  nextElementSibling: currentPlayback,
+  isConnected: true,
+  replaceWith(node) {
+    if (node !== nextDetail) throw new Error("unexpected detail fragment");
+    detailReplaceCount += 1;
+    this.isConnected = false;
+  },
+};
+const processingTranscriptReady = (projection) => projection.transcript_ready === true;
+const processingSummaryState = (projection) => projection.summary_status;
+const processingProjectionMatchesDetail = (node, projection) => (
+  node.dataset.meetingId === projection.meeting_id
+  && node.dataset.mediaRevisionId === projection.media_revision_id
+);
+const recoverMeetingDetailFromResponse = async () => false;
+const stopProcessingRecoveryCountdown = () => {};
+const stopProcessingRecoveryPolling = () => {};
+const initCabinet = () => { initCount += 1; };
+global.fetch = async () => ({ ok: true, text: async () => "<main></main>" });
+global.DOMParser = class {
+  parseFromString() { return { querySelector() { return nextDetail; } }; }
+};
+let processingRecoveryPollTimer = null;
+let processingRecoveryGeneration = 0;
+global.window = { setTimeout(callback) { callback(); } };
+vm.runInThisContext(`${source}; global.refreshProcessingDetailContentOnce = refreshProcessingDetailContentOnce;`);
+(async () => {
+  await global.refreshProcessingDetailContentOnce(detail, {
+    meeting_id: "meeting-1",
+    media_revision_id: "revision-1",
+    transcript_ready: true,
+    summary_status: "available",
+    attempt_ordinal: 1,
+    state: "processed",
+  });
+  if (pauseCount !== 0 || playbackReplaceCount !== 0 || detailReplaceCount !== 1 || initCount !== 1) {
+    throw new Error(`summary refresh touched player: ${pauseCount}/${playbackReplaceCount}/${detailReplaceCount}/${initCount}`);
+  }
+})().catch((error) => {
+  process.stderr.write(`${error.stack || error}\n`);
+  process.exitCode = 1;
+});
+"""
+    completed = subprocess.run(
+        ["node", "-e", harness, str(script_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
 
 
 def test_storage_failure_recovery_links_directly_to_no_archive_upload() -> None:

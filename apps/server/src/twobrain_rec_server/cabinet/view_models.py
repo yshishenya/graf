@@ -2163,15 +2163,15 @@ def _review_status_without_complete_result(
         return "processing"
     if lifecycle_status == ProcessingStatus.NOT_SUBMITTED.value:
         return "submitted"
-    if lifecycle_status in {
-        ProcessingStatus.BLOCKED.value,
-        ProcessingStatus.BLOCKED_UNKNOWN.value,
-    }:
+    if lifecycle_status == ProcessingStatus.BLOCKED.value:
         return "blocked"
+    if lifecycle_status == ProcessingStatus.BLOCKED_UNKNOWN.value:
+        return "processing"
     if lifecycle_status in {
         ProcessingStatus.FAILED_RETRYABLE.value,
         ProcessingStatus.FAILED_TERMINAL.value,
         ProcessingStatus.PROCESSED.value,
+        ProcessingStatus.CANCELED.value,
     }:
         return "failed"
     return "unavailable"

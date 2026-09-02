@@ -1726,7 +1726,7 @@
     mediascribe_malformed_response: "Сервис транскрипции вернул некорректный ответ. Повторите обработку; если ошибка повторится, обратитесь к оператору.",
   };
 
-  const processingRecoveryCopy = (projection, transcriptReady) => {
+  const processingRecoveryCopy = (projection, transcriptReady, replacementPublished = false) => {
     const retryClass = String(projection?.retry_class || "none");
     const reason = String(projection?.reason_code || "").toLowerCase();
     const reasonCopy = processingTerminalReasonCopy[reason] || "";
@@ -1749,7 +1749,7 @@
         showCountdown: false,
       };
     }
-    if (replacement && (inFlight || projectionState !== "processed")) {
+    if (replacement && (!replacementPublished || inFlight || projectionState !== "processed")) {
       return {
         state: "active",
         title: "Готовим новую версию",
@@ -2116,8 +2116,10 @@
       releaseRefreshClaim();
       stopProcessingRecoveryCountdown();
       stopProcessingRecoveryPolling();
-      currentPlayback?.querySelector("audio")?.pause();
-      if (currentPlayback && nextPlayback) currentPlayback.replaceWith(nextPlayback);
+      if (refreshReplacement) {
+        currentPlayback?.querySelector("audio")?.pause();
+        if (currentPlayback && nextPlayback) currentPlayback.replaceWith(nextPlayback);
+      }
       detail.replaceWith(nextDetail);
       window.setTimeout(initCabinet, 0);
       return true;
@@ -2227,7 +2229,6 @@
 
     const recovery = detail.querySelector("[data-processing-recovery]");
     if (!recovery) return true;
-    const copy = processingRecoveryCopy(projection, transcriptReady);
     const replacementAttempt = Number(
       projection?.attempt_ordinal ?? detail.dataset.processingAttemptOrdinal ?? 0,
     ) > 1 && (
@@ -2236,6 +2237,7 @@
       || detail.dataset.processingTranscriptVisible === "true"
     );
     const replacementPublished = detail.dataset.processingPublishedAttempt === String(attemptOrdinal);
+    const copy = processingRecoveryCopy(projection, transcriptReady, replacementPublished);
     const replacementActive = replacementAttempt
       && !terminalProcessing
       && (projectionState !== "processed" || !replacementPublished);
@@ -2307,14 +2309,16 @@
       : transcriptReady
       ? `Расшифровка и спикеры готовы.${summaryAnnouncement ? ` ${summaryAnnouncement}` : ""}`
       : `${copy?.title || "Обработка записи"}. ${copy?.copy || ""}`;
-    const signature = [
-      projection?.state,
-      projection?.retry_class,
-      projection?.attempt_in_flight,
-      transcriptReady,
-      processingArtifactVisible(projection, "diarization"),
-      summaryState,
-    ].join("|");
+    const signature = replacementActive
+      ? "replacement-active"
+      : [
+        projection?.state,
+        projection?.retry_class,
+        projection?.attempt_in_flight,
+        transcriptReady,
+        processingArtifactVisible(projection, "diarization"),
+        summaryState,
+      ].join("|");
     announceProcessingChange(detail, announcement, signature);
     scheduleProcessingRecoveryPolling(detail, projection);
     return true;
