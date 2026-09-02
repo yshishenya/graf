@@ -72,18 +72,21 @@ permission trust. Production app, data and origins are always rejected.
 ## CI and release rhythm
 
 - Focused tests are the inner loop.
-- `infra/scripts/ci-local.sh --fast` is the PR-ready gate and may repeat for a
-  new SHA.
+- GitHub Actions `governance-fast` is the PR-ready gate and must pass on the
+  exact PR SHA. It runs the bounded `infra/scripts/ci-local.sh --fast` lane on
+  the GitHub runner.
+- Local `infra/scripts/ci-local.sh --fast` / `--full` remain optional diagnostic
+  and offline fallback lanes; their evidence cannot replace the required
+  GitHub check.
 - Fast/full evidence requires a clean worktree so the recorded SHA identifies
   the tested bytes. `GRAF_CI_ALLOW_DIRTY=1` is diagnostic-only: its evidence is
   `ambiguous` and cannot authorize merge or release.
 - A release operator freezes one candidate SHA and metadata digest. Exactly one
   authoritative `--full` run belongs to that candidate; changed SHA makes
   evidence stale.
-- GitHub Actions are currently disabled and no repository workflow is active;
-  local evidence remains authoritative. Feature 227 owns the future
-  `merge_group` workflow, canonical concurrency and required-check rollout;
-  it must update the release-signing custody gate in the same reviewed slice.
+- GitHub Actions are enabled. The required `governance-fast` check is
+  authoritative for PR merge and validates exact SHA, concurrency cancellation
+  and metadata-only evidence. Local CI remains available only as fallback.
 - Use release windows (for example twice weekly) to batch completed features.
   Hotfixes are explicit exceptions with a reason and the same evidence rules.
 - A product release requires CalVer tag, GitHub Release and Russian notes with

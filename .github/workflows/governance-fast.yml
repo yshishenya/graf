@@ -42,6 +42,27 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Install frozen Spec Kit CLI and bootstrap
+        shell: bash
+        env:
+          SPECIFY_CLI_VERSION: "1.0.1"
+          SPECKIT_BOOTSTRAP_SHA256: bdbfa1d56ab567de209ed55e2d2992284315bac43597a7c9f63f4f95b330a71c
+        run: |
+          set -euo pipefail
+          python3 -m pip install --user --disable-pip-version-check "specify-cli==${SPECIFY_CLI_VERSION}"
+          bin_dir="$RUNNER_TEMP/graf-bin"
+          mkdir -p "$bin_dir"
+          curl --fail --location --silent --show-error \
+            "https://github.com/yshishenya/speckit-bootstrap/releases/download/v0.9.9/speckit-bootstrap" \
+            --output "$bin_dir/speckit-bootstrap"
+          printf '%s  %s\n' "$SPECKIT_BOOTSTRAP_SHA256" "$bin_dir/speckit-bootstrap" | sha256sum --check --status -
+          chmod 0755 "$bin_dir/speckit-bootstrap"
+          printf '%s\n' "$HOME/.local/bin" >> "$GITHUB_PATH"
+          printf '%s\n' "$bin_dir" >> "$GITHUB_PATH"
+          export PATH="$HOME/.local/bin:$bin_dir:$PATH"
+          specify --version
+          speckit-bootstrap --version
+
       - name: Resolve event identity
         id: identity
         shell: bash

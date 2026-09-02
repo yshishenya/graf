@@ -28,9 +28,11 @@ stage covers both committed/working-tree changes and selected untracked files.
 Fast is for iteration and PR feedback, never a release gate. Focused tests
 remain the first check during implementation.
 
-GitHub Actions are intentionally disabled for this repository. Nothing runs
-automatically on a pull request: the author must run the selected local lane and
-record its result in the PR. Use `--full` only for a release candidate or early
+GitHub Actions runs `governance-fast` automatically for each pull request and
+its exact-SHA result is the merge evidence. The workflow executes the bounded
+`ci-local.sh --fast` lane on a clean GitHub runner. Local `ci-local.sh` remains
+available for focused diagnosis and offline fallback, but local evidence alone
+cannot authorize a merge. Use `--full` only for a release candidate or early
 broad diagnosis; do not run it after every small edit.
 
 After Feature 227 is merged and the operator has enabled the required checks,
@@ -102,8 +104,9 @@ does not replace the full lane for a release candidate.
 ### 2. PR and merge
 
 The PR must record the selected risk/validation lane, commands, result, and
-commit SHA. GitHub Actions are disabled, so this evidence is supplied by the
-author. Do not run full CI after every local edit or every small commit.
+commit SHA. The required `governance-fast` GitHub check must be successful on
+that exact SHA; local evidence may supplement it but cannot replace it. Do not
+run full CI after every local edit or every small commit.
 
 Before merging a significant or high-risk slice, the fast lane and the feature
 quickstart must pass. If the change affects capture, privacy, auth, storage,

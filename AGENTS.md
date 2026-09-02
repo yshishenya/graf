@@ -91,9 +91,11 @@ third-party asset-provenance review.
 ## Validation and release
 
 Use `release-and-validation.md` for the selected lane and closeout evidence.
-Default anchors are explicit `infra/scripts/ci-local.sh --fast` / `--full`,
-`infra/scripts/cd-remote.sh --dry-run` before production execution, and
-`./scripts/prepare-release.sh YYYY.MM.DD.N` for product releases.
+Default PR validation is the required GitHub Actions `governance-fast` check,
+bound to the exact PR SHA. `infra/scripts/ci-local.sh --fast` / `--full` remain
+available as local diagnostic/fallback lanes; `infra/scripts/cd-remote.sh
+--dry-run` is required before production execution, and
+`./scripts/prepare-release.sh YYYY.MM.DD.N` prepares product releases.
 
 Public GRAF macOS distribution is Developer ID-only. Notarization, stapling,
 Gatekeeper, Sparkle signature, and live appcast checks are mandatory; the full
