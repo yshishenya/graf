@@ -1,14 +1,11 @@
 ---
 name: speckit-github-issue-canon-validate
-description: Validate GitHub issues against the project issue canon after task-to-issue
-  sync.
+description: Validate GitHub issues against the project issue canon after task-to-issue sync.
 compatibility: Requires spec-kit project structure with .specify/ directory
 metadata:
   author: github-spec-kit
-  source: extension:github-issue-canon
+  source: github-issue-canon:commands/speckit.github-issue-canon.validate.md
 ---
-
-# Github Issue Canon Validate Skill
 
 ## Outline
 

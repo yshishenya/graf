@@ -13,13 +13,13 @@
     }
   },
   "github_issue_canon": {
-    "archive_sha256": "184e31dc14759ae461318c586545922ea4f2c89493d900891907b15781426e67",
-    "installed_version": "0.3.2",
-    "manifest_hash": "sha256:45879bcf021fa1866444037fb8253bb19b48321a2a497ad2d44dd7db5e2ea0fe",
-    "ref": "344713a3d4d10673d3fd984b611ecfdc2c6ce1c8",
-    "source_url": "https://github.com/yshishenya/spec-kit-ext-github-issue-canon/releases/download/v0.3.2/github-issue-canon-0.3.2.zip",
-    "tree_sha256": "ef505ceb6e582cac7b5cf8d1d4582fe6c686aea636ac4e7712faf5770cd284f0",
-    "version": "v0.3.2"
+    "archive_sha256": "33859be1787f9e45b1534a5a0467c4a2b009abd0b978b3f9c51e7e88bbd6ac41",
+    "installed_version": "0.3.3",
+    "manifest_hash": "sha256:634ea19421b76e2d5b993f710a4711b0d27db00bb1e3bb9131b544e8051036f4",
+    "ref": "6be22459e21f5b63d93e5e3fc8e6253f9298e6e8",
+    "source_url": "https://github.com/yshishenya/spec-kit-ext-github-issue-canon/releases/download/v0.3.3/github-issue-canon-0.3.3.zip",
+    "tree_sha256": "0d2a4b83d99b14af01eab2757e2e1a7a04fabe704ef1500621bffbd9685811e2",
+    "version": "v0.3.3"
   },
   "ponytail": {
     "enabled": false,
@@ -39,9 +39,9 @@
     "speckit-git-initialize": "7972fcc5c60700dc253f8393677267c9375586e3f62d30fa26936f0d788a091c",
     "speckit-git-remote": "eb2e91b04e9d235e8fd35c3cf1bed196b0595bfc6e84d8307525fed9c4d8464a",
     "speckit-git-validate": "bd165d34a5b6f0186915c8e5b71b50ef51ed5003fd73ec2d8e6679d2309db5ea",
-    "speckit-github-issue-canon-ensure": "7dca2ed220c7d0324eb3dddba16e0f0a3a84b639aa96292d6c1542fdb579d87a",
-    "speckit-github-issue-canon-normalize": "efa1227811028585ad85141dc9d158f0b3f64520bee6bde5277d8a060bcfb597",
-    "speckit-github-issue-canon-validate": "873b6a5a33a440f65b90a3cd53d9fe7a20a73361192577e03546cec16a9ccd04",
+    "speckit-github-issue-canon-ensure": "2cbdc03123300dce102c9502f85d5a5b080edc30e2f2a8015457b19d93c66a3e",
+    "speckit-github-issue-canon-normalize": "35d043af12657651f82708ebb6dd16d668d8abdfdc9814e36da9e77dce236614",
+    "speckit-github-issue-canon-validate": "b186a44900a046516a3b18befdc6f97ac8ed4596e34fe1f88b87d3cdb2a94b40",
     "speckit-implement": "07efd8e7e11fa3805f88af93967c4de1583b4b2d85f515b1106a4e52e34c2a11",
     "speckit-plan": "76007ddc5bdde51702f5ef34b86aebb32ce3d56eb0ba026450bf3a890f4a154a",
     "speckit-specify": "0584a00b601a13da79ee6d6161deefa6399f2e49e42ccb7c3a95515a34b8ae5f",
