@@ -7,9 +7,9 @@ migration, data read or release publication is part of this rehearsal.
 
 The rehearsal below predates the lifecycle hardening in follow-up PR #6384 and
 must not close T039. Its final candidate was `e3d95139d949ea780bc3134a404385ec27cd93d7`,
-while the hardened implementation is validated at exact SHA
-`ad7b81f6f73ca9b4937d9f0c2958a7a9c17d0af5`. Repeat clean-state macOS smoke and
-injected-failure rollback on that hardened SHA before marking T039 complete.
+while the hardened implementation continues in PR #6384. Repeat clean-state
+macOS smoke and injected-failure rollback on that PR's final exact SHA before
+marking T039 complete.
 
 ## Rehearsal baseline
 
