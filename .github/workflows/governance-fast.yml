@@ -42,6 +42,13 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Configure fixture git identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
       - name: Install frozen Spec Kit CLI and bootstrap
         shell: bash
         env:
