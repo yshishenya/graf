@@ -603,7 +603,7 @@ def main(argv: list[str] | None = None) -> int:
             feature_id = _available_id(occupied, max(1, max(occupied, default=0) + 1))
             while _github_ids(
                 root,
-                exclude_issue=issue_number,
+                exclude_issue=args.issue_number,
                 strict=True,
                 candidates={feature_id},
             ):

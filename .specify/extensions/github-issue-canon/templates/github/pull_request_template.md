@@ -1,3 +1,5 @@
+<!-- Заголовок feature PR: [F<Feature ID>] <понятный результат> -->
+
 ## Кратко
 
 -
@@ -16,12 +18,16 @@
 ## Как проверено
 
 - Focused-проверки:
+- GitHub `governance-fast` на exact SHA — обязательный authoritative PR
+  gate (ссылка на успешный run):
 - `infra/scripts/ci-local.sh --fast`: requested/effective lane, components,
   coverage, next gate, result, duration:
 - `infra/scripts/ci-local.sh --full`: exact SHA, result, duration, collection
   count/digest (только для frozen release candidate):
 - `infra/scripts/cd-remote.sh --dry-run`: result / not applicable:
 - Exact source SHA и observed SHA в evidence:
+- Локальный `ci-local.sh` — только ручная диагностика/offline fallback; его
+  receipt не заменяет GitHub check:
 
 ## Risk / validation lane
 
@@ -57,7 +63,8 @@
       CalVer `vYYYY.MM.DD.N` для продукта/apps/services или SemVer
       `vMAJOR.MINOR.PATCH` для libraries/CLI/extensions/bootstrap.
 - [ ] Читаемый postfix релиза записан в GitHub Release title, а не в stable tag.
-- [ ] `CHANGELOG.md` обновлен понятной русской записью.
+- [ ] `changes/unreleased/F<feature-id>.yaml` добавлен и проверен; root
+      `CHANGELOG.md` меняет только release operator при freeze candidate.
 - [ ] Release notes включают validation evidence, compatibility/migration notes
       и known limitations.
 
