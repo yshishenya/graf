@@ -2001,12 +2001,18 @@
       : false;
     const summaryState = processingSummaryState(projection);
     const terminalProjection = processingTerminalFailure(projection);
+    const attemptOrdinal = Number(projection?.attempt_ordinal ?? 0);
+    const replacementContentPending = Number.isSafeInteger(attemptOrdinal)
+      && attemptOrdinal > 1
+      && String(projection?.state || "").toLowerCase() === "processed"
+      && detail.dataset.processingPublishedAttempt !== String(attemptOrdinal);
     const shouldPoll = !terminalProjection && (
       (typeof processingTranscriptReady === "function" && !transcriptReady)
       || processingSummaryPending(summaryState)
       || projection?.retry_class === "retryable" && projection?.next_attempt_at != null
       || projection?.retry_class === "unknown_outcome"
       || projection?.attempt_in_flight === true
+      || replacementContentPending
     );
     if (!shouldPoll || !detail.dataset.processingStatusUrl) return;
     const remaining = processingServerSecondsRemaining(
@@ -2026,7 +2032,12 @@
     }, delay);
   };
 
-  const refreshProcessingDetailContentOnce = async (detail, projection) => {
+  const refreshProcessingDetailContentOnce = async (
+    detail,
+    projection,
+    { resetRetryBudget = false } = {},
+  ) => {
+    if (resetRetryBudget) delete detail.dataset.processingContentRefreshRetryCount;
     const transcriptReady = processingTranscriptReady(projection);
     const summaryReady = processingSummaryState(projection).toLowerCase() === "available";
     const attemptOrdinal = Number(projection?.attempt_ordinal ?? 0);
@@ -2070,16 +2081,25 @@
       releaseRefreshClaim();
       return true;
     };
-    const retryFragmentRefreshOnce = () => {
+    const retryFragmentRefresh = () => {
       releaseRefreshClaim();
-      if (
-        processingRecoveryPollTimer !== null
-        || detail.dataset.processingContentRefreshRetried === "true"
-      ) return;
-      detail.dataset.processingContentRefreshRetried = "true";
+      const retryCount = Number(detail.dataset.processingContentRefreshRetryCount || "0") + 1;
+      if (retryCount > 3) {
+        delete detail.dataset.processingContentRefreshRetryCount;
+        stopProcessingRecoveryPolling();
+        processingRecoveryPollTimer = window.setTimeout(() => {
+          processingRecoveryPollTimer = null;
+          if (detail.isConnected && refreshGeneration === processingRecoveryGeneration) {
+            void refreshProcessingStatus({ force: true, generation: refreshGeneration });
+          }
+        }, 15000);
+        return;
+      }
+      detail.dataset.processingContentRefreshRetryCount = String(retryCount);
+      if (processingRecoveryPollTimer !== null) stopProcessingRecoveryPolling();
       window.setTimeout(() => {
         if (detail.isConnected) void refreshProcessingDetailContentOnce(detail, projection);
-      }, 2000);
+      }, Math.min(2000 * retryCount, 8000));
     };
     try {
       const response = await fetch(pollUrl, {
@@ -2090,7 +2110,7 @@
       });
       if (discardStaleRefresh() || await recoverMeetingDetailFromResponse(response)) return false;
       if (!response.ok) {
-        retryFragmentRefreshOnce();
+        retryFragmentRefresh();
         return false;
       }
       const responseText = await response.text();
@@ -2102,7 +2122,7 @@
         : null;
       const nextPlayback = fragment.querySelector(".detail-playback");
       if (!nextDetail || (refreshReplacement && (!currentPlayback || !nextPlayback))) {
-        retryFragmentRefreshOnce();
+        retryFragmentRefresh();
         return false;
       }
       nextDetail.dataset.processingTranscriptContentReady =
@@ -2124,7 +2144,7 @@
       window.setTimeout(initCabinet, 0);
       return true;
     } catch {
-      retryFragmentRefreshOnce();
+      retryFragmentRefresh();
       return false;
     }
   };
@@ -2524,7 +2544,7 @@
       }
       const rendered = renderProcessingProjection(detail, projection);
       if (rendered && typeof refreshProcessingDetailContentOnce === "function") {
-        await refreshProcessingDetailContentOnce(detail, projection);
+        await refreshProcessingDetailContentOnce(detail, projection, { resetRetryBudget: true });
       }
       if (!rendered && requestGeneration === processingRecoveryGeneration) {
         processingRecoveryPollTimer = window.setTimeout(() => {

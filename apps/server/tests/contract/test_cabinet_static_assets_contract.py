@@ -1008,6 +1008,99 @@ vm.runInThisContext(`${source}; global.refreshProcessingDetailContentOnce = refr
     assert completed.returncode == 0, completed.stderr
 
 
+def test_processing_fragment_refresh_resumes_bounded_status_polling_after_retries() -> None:
+    script_path = STATIC_DIR / "cabinet.js"
+    harness = r"""
+const fs = require("fs");
+const vm = require("vm");
+const script = fs.readFileSync(process.argv[1], "utf8");
+const source = script.slice(
+  script.indexOf("const refreshProcessingDetailContentOnce"),
+  script.indexOf("const renderProcessingProjection"),
+);
+let fetchCount = 0;
+let statusRefreshes = [];
+const scheduled = [];
+const detail = {
+  dataset: {
+    playbackPollUrl: "/meetings/meeting-1",
+    meetingId: "meeting-1",
+    mediaRevisionId: "revision-1",
+    processingScheduleGeneration: "1",
+    processingTranscriptContentReady: "false",
+    processingSummaryContentReady: "false",
+    processingPublishedAttempt: "1",
+  },
+  isConnected: true,
+};
+const projection = {
+  meeting_id: "meeting-1",
+  media_revision_id: "revision-1",
+  transcript_ready: true,
+  summary_status: "available",
+  attempt_ordinal: 2,
+  state: "processed",
+  content_available: true,
+};
+const processingTranscriptReady = (value) => value.transcript_ready === true;
+const processingSummaryState = (value) => value.summary_status;
+const processingProjectionMatchesDetail = (node, value) => (
+  node.dataset.meetingId === value.meeting_id
+  && node.dataset.mediaRevisionId === value.media_revision_id
+);
+const recoverMeetingDetailFromResponse = async () => false;
+const stopProcessingRecoveryCountdown = () => {};
+const stopProcessingRecoveryPolling = () => { processingRecoveryPollTimer = null; };
+const refreshProcessingStatus = (options) => { statusRefreshes.push(options); };
+let processingRecoveryPollTimer = null;
+let processingRecoveryGeneration = 4;
+global.fetch = async () => {
+  fetchCount += 1;
+  return { ok: false, text: async () => "" };
+};
+global.window = {
+  setTimeout(callback, delay) { scheduled.push({ callback, delay }); return scheduled.length; },
+};
+vm.runInThisContext(`${source}; global.refreshProcessingDetailContentOnce = refreshProcessingDetailContentOnce;`);
+
+const flushRetry = async () => {
+  const next = scheduled.shift();
+  if (!next) throw new Error("missing scheduled retry");
+  next.callback();
+  await new Promise((resolve) => setImmediate(resolve));
+};
+(async () => {
+  await global.refreshProcessingDetailContentOnce(detail, projection, { resetRetryBudget: true });
+  if (fetchCount !== 1 || scheduled.length !== 1 || scheduled[0].delay !== 2000) {
+    throw new Error("first fragment retry was not scheduled");
+  }
+  await flushRetry();
+  if (fetchCount !== 2 || scheduled[0]?.delay !== 4000) throw new Error("second retry was not bounded");
+  await flushRetry();
+  if (fetchCount !== 3 || scheduled[0]?.delay !== 6000) throw new Error("third retry was not bounded");
+  await flushRetry();
+  if (fetchCount !== 4 || scheduled.length !== 1 || scheduled[0].delay !== 15000) {
+    throw new Error("fragment refresh did not resume status polling after bounded retries");
+  }
+  scheduled.shift().callback();
+  if (statusRefreshes.length !== 1 || statusRefreshes[0].force !== true || statusRefreshes[0].generation !== 4) {
+    throw new Error("status polling did not resume with the current generation");
+  }
+})().catch((error) => {
+  process.stderr.write(`${error.stack || error}\n`);
+  process.exitCode = 1;
+});
+"""
+    completed = subprocess.run(
+        ["node", "-e", harness, str(script_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
 def test_processing_terminal_projections_never_fall_back_to_active_copy() -> None:
     script_path = STATIC_DIR / "cabinet.js"
     harness = r"""
