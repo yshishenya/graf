@@ -529,6 +529,13 @@ def test_issue_closeout_reads_task_issue_link_from_indented_continuation_line() 
     assert validator.validate(_closeout_issue(_closeout_comment()), tasks, expected_sha="a" * 40) == []
 
 
+def test_issue_closeout_rejects_unchecked_task_with_complete_closure_evidence() -> None:
+    validator = load_script("validate-issue-closeout")
+    tasks = "- [ ] T001 Реализовать (Issue #6337)\n"
+    errors = validator.validate(_closeout_issue(_closeout_comment()), tasks, expected_sha="a" * 40)
+    assert any("unchecked or missing tasks" in error for error in errors)
+
+
 def test_issue_closeout_rejects_wrapped_umbrella_issue_as_task_owner() -> None:
     validator = load_script("validate-issue-closeout")
     tasks = "- [X] T001 Реализовать\n  (umbrella issue #6337).\n"

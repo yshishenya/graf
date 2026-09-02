@@ -10,9 +10,11 @@ from pathlib import Path
 
 
 TASK_RE = re.compile(r"\bT\d{3,}\b")
-TASK_CHECKBOX_ROW_RE = re.compile(r"^[ \t]*-[ \t]+\[[xX ]\][ \t]+(T\d{3,})\b")
+TASK_CHECKBOX_ROW_RE = re.compile(
+    r"^[ \t]*-[ \t]+\[(?P<state>[xX ])\][ \t]+(?P<task>T\d{3,})\b"
+)
 TASK_MAPPING_ROW_RE = re.compile(
-    r"^[ \t]*-[ \t]+(T\d{3,})[ \t]+\(Issue\s+#\d+\b",
+    r"^[ \t]*-[ \t]+(?P<task>T\d{3,})[ \t]+\(Issue\s+#\d+\b",
     re.IGNORECASE,
 )
 CLOSURE_SECTIONS = ("Что закрыто", "Почему это важно", "Как проверено", "Что не входит", "Связи")
@@ -50,8 +52,9 @@ def _task_state(tasks_text: str) -> dict[str, tuple[bool, set[int]]]:
         match = row_match(logical_row[0])
         if not match:
             return
-        task = match.group(1)
-        checked = bool(TASK_CHECKBOX_ROW_RE.search(logical_row[0]))
+        task = match.group("task")
+        checkbox = TASK_CHECKBOX_ROW_RE.search(logical_row[0])
+        checked = bool(checkbox and checkbox.group("state").lower() == "x")
         # Only the canonical task-backed ``Issue #N`` link proves ownership.
         # An ``umbrella #N`` reference is intentionally informational and must
         # never make an umbrella issue look like the task's owner.
@@ -170,6 +173,7 @@ def self_test() -> int:
 - PR: #6373
 """}]
     assert validate(issue, "- [X] T001 Проверить (Issue #6373)\n", expected_sha="a" * 40) == []
+    assert validate(issue, "- [ ] T001 Проверить (Issue #6373)\n", expected_sha="a" * 40)
     assert validate(
         issue,
         "- [X] T001 Проверить\n"
