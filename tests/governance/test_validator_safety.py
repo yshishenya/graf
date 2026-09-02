@@ -505,7 +505,7 @@ def test_issue_closeout_uses_only_canonical_task_ownership_fields() -> None:
     assert validator.validate(issue, tasks, expected_sha="a" * 40) == []
 
 
-def test_issue_closeout_accepts_task_backed_and_umbrella_links() -> None:
+def test_issue_closeout_requires_task_backed_issue_link_not_umbrella_only() -> None:
     validator = load_script("validate-issue-closeout")
     tasks = "- [X] T001 Реализовать (Issue #6386; umbrella #6337)\n"
     task_issue = _closeout_issue(_closeout_comment()).copy()
@@ -513,7 +513,8 @@ def test_issue_closeout_accepts_task_backed_and_umbrella_links() -> None:
     assert validator.validate(task_issue, tasks, expected_sha="a" * 40) == []
     umbrella_issue = _closeout_issue(_closeout_comment()).copy()
     umbrella_issue["number"] = 6337
-    assert validator.validate(umbrella_issue, tasks, expected_sha="a" * 40) == []
+    errors = validator.validate(umbrella_issue, tasks, expected_sha="a" * 40)
+    assert any("is not linked to issue #6337" in error for error in errors)
 
 
 def test_package_safety_allows_documentation_examples_but_rejects_credentials(tmp_path: Path) -> None:

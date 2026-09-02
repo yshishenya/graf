@@ -12,7 +12,7 @@ from pathlib import Path
 TASK_RE = re.compile(r"\bT\d{3,}\b")
 CLOSURE_SECTIONS = ("Что закрыто", "Почему это важно", "Как проверено", "Что не входит", "Связи")
 SHA_RE = re.compile(r"\b[0-9a-f]{40}\b", re.IGNORECASE)
-ISSUE_LINK_RE = re.compile(r"(?:Issue|umbrella)\s+#(\d+)", re.IGNORECASE)
+TASK_ISSUE_LINK_RE = re.compile(r"\bIssue\s+#(\d+)", re.IGNORECASE)
 TITLE_TASK_RE = re.compile(r"\b(T\d{3,})\s*:", re.IGNORECASE)
 SPEC_TASK_FIELD_RE = re.compile(
     r"(?im)^[ \t]*(?:[-*][ \t]*)?Spec(?: Kit)? tasks?(?: IDs?)?[ \t]*:[ \t]*([^\n]+)$"
@@ -31,7 +31,10 @@ def _task_state(tasks_text: str) -> dict[str, tuple[bool, set[int]]]:
         if not match:
             continue
         checked = bool(re.search(r"- \[[xX]\]", line))
-        issues = {int(value) for value in ISSUE_LINK_RE.findall(line)}
+        # Only the canonical task-backed ``Issue #N`` link proves ownership.
+        # An ``umbrella #N`` reference is intentionally informational and must
+        # never make an umbrella issue look like the task's owner.
+        issues = {int(value) for value in TASK_ISSUE_LINK_RE.findall(line)}
         previous = states.get(match.group(0))
         states[match.group(0)] = (checked or (previous[0] if previous else False), issues | (previous[1] if previous else set()))
     return states
