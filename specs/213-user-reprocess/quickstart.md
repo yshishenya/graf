@@ -126,5 +126,11 @@ Do not run release/deploy or production smoke without separate approval. Full CI
   one JavaScript turn.
 - Ruff, `node --check`, development-process preflight and `git diff --check`:
   PASS.
-- The required GitHub Actions `governance-fast` result is recorded after push;
-  Full CI remains the frozen release-candidate gate.
+- GitHub Actions `governance-fast` passed on implementation SHA
+  `c26d56abbe98b12aeb92e3cbdc034d8c6f5dafdf`: run
+  [33639708179](https://github.com/yshishenya/graf/actions/runs/33639708179).
+  The remote fast lane passed `1362` server tests, `117` changed-server tests,
+  `169` governance tests and `60` CI-contract tests with
+  `coverage=partial` and `next_gate=full_before_release`.
+- Full CI remains the frozen release-candidate gate; release, deployment and
+  production smoke were not performed.
