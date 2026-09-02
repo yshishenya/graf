@@ -168,3 +168,24 @@ comparison on the exact PR SHA.
 This manifest is the archive-capable parent for the final evidence candidate.
 T038/T039 still require GitHub `governance-fast`, controlled candidate failure,
 automatic parent compensation and final promotion on the next exact PR SHA.
+
+## Image-bound server-source baseline
+
+- completed at: `2026-09-02T20:10:31Z`
+- implementation SHA: `4ffe5fea58edfa9a6e2e8396e6b93cafcf2c74cd`
+- focused validation: 56/56 PASS plus runtime, Spec Kit, agent-context,
+  compile, shell and Compose contract checks
+- migration preflight and identity seed executed inside the selected immutable
+  server image; checkout-side server source is no longer used by startup or
+  compensation
+- repository-global build lock covered image build, inspect, immutable tagging,
+  archive creation and manifest persistence
+- host runtime digest includes the harness, Compose/startup and macOS
+  install/lifecycle helpers; the expected one-time cutover from the prior host
+  orchestration stopped only owned Dev runtime and preserved state/volumes
+- `dev-4ffe5fea58ed` promoted successfully and passed the common 13/13 live
+  smoke contract
+
+This manifest is the parent for the final source-SHA candidate. The next exact
+PR SHA must fail after candidate startup, automatically restore this parent to
+13/13 without a cutover, then promote successfully and pass GitHub CI.
