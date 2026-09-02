@@ -72,7 +72,7 @@
 ### Операции
 - Universal build: `arm64 + x86_64`, macOS 14.5+.
 - Apple notarization ZIP: accepted, request `c94b951d-c563-4986-bf51-b7dc2de6e945`; PKG: accepted, request `da3d3810-0db7-4132-9749-965694d07a1e`.
-- SHA-256 ZIP: `ed8e5dfda6820e1fca1e024b0bc3d1a486b58ff56e4fc8f6c4c303c232af218d`; SHA-256 PKG: `0012dc55ee7f9a898d1cb67737dbcfc165291d413c59b256dcc076c6de64275f`.
+- SHA-256 ZIP: `90110554849d7eb407eed6a9a0cb212569fe80ccd6aa564dca7235e5ff79ef5d`; SHA-256 PKG: `0012dc55ee7f9a898d1cb67737dbcfc165291d413c59b256dcc076c6de64275f`.
 - Backend production работал на совместимом SHA `455990a33f51fe232a8fc3270c8d0a0d27db298b`; предыдущий desktop-релиз: `v2026.08.28.11`.
 - Обновление публиковалось отдельным Sparkle-релизом; server release `v2026.09.01.1` не заменяет desktop package.
 
