@@ -274,12 +274,14 @@ main() (
     pipeline_completed="$(date +%s)"
     pipeline_duration=$((pipeline_completed - pipeline_started))
     local worktree_snapshot_end
-    worktree_snapshot_end="$(git status --porcelain --untracked-files=all)"
-    if [[ "$worktree_snapshot_end" != "$worktree_snapshot_start" ]]; then
-      exit_status=2
-      pipeline_result="fail"
-      evidence_status="ambiguous"
-      evidence_reason="worktree_changed_during_run"
+    if [[ "$effective_mode" != "help" ]]; then
+      worktree_snapshot_end="$(git status --porcelain --untracked-files=all)"
+      if [[ "$worktree_snapshot_end" != "$worktree_snapshot_start" ]]; then
+        exit_status=2
+        pipeline_result="fail"
+        evidence_status="ambiguous"
+        evidence_reason="worktree_changed_during_run"
+      fi
     fi
     if [[ "$requested_mode" == "full" && -n "$candidate_id" && -n "$skipped_gates" \
       && "$pipeline_result" == "pass" ]]; then

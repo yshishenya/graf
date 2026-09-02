@@ -13,6 +13,7 @@ ORDINARY_VALIDATOR="$MACOS_DIR/Scripts/validate-app-updates.sh"
 PROVISIONER="$SCRIPT_DIR/provision-release-signing-custody.sh"
 VERIFIER="$SCRIPT_DIR/verify-release-signing-custody.sh"
 LOCAL_SIGNER="$SCRIPT_DIR/sign-graf-app-update-local.sh"
+STARTUP_VALIDATOR="$MACOS_DIR/Scripts/validate-packaged-app-launch.sh"
 
 fail() {
   echo "release-signing custody test failed: $*" >&2
@@ -33,6 +34,7 @@ fi
 [ -x "$PROVISIONER" ] || fail "release-signing provisioner is missing or not executable"
 [ -x "$VERIFIER" ] || fail "release-signing verifier is missing or not executable"
 [ -x "$LOCAL_SIGNER" ] || fail "local draft-signing entrypoint is missing or not executable"
+[ -x "$STARTUP_VALIDATOR" ] || fail "packaged app launch validator is missing or not executable"
 
 if GRAF_RELEASE_SIGNING_FIXTURE_CLASS=production "$0" --assert-fixture-class >/dev/null 2>&1; then
   fail "production-key fixture was accepted"
@@ -512,7 +514,7 @@ grep -Fq 'overall=ready' "$VERIFIER" ||
 grep -Fq 'origin/master commit' "$VERIFIER" ||
   fail "verifier does not bind the attestation to origin/master"
 
-for source in "$COMMON" "$PREPARE" "$BOOTSTRAP_VALIDATOR" "$BOOTSTRAP_BUILDER" "$ORDINARY_VALIDATOR" "$PROVISIONER" "$VERIFIER" "$LOCAL_SIGNER"; do
+for source in "$COMMON" "$PREPARE" "$BOOTSTRAP_VALIDATOR" "$BOOTSTRAP_BUILDER" "$ORDINARY_VALIDATOR" "$PROVISIONER" "$VERIFIER" "$LOCAL_SIGNER" "$STARTUP_VALIDATOR"; do
   sh -n "$source"
 done
 
@@ -522,6 +524,28 @@ grep -Fq 'GRAF_RELEASE_SIGNING_MODE=keychain' "$LOCAL_SIGNER" ||
   fail "local draft-signing entrypoint does not use the named Keychain signer"
 grep -Fq 'GRAF_RELEASE_SIGNING_KEYCHAIN_ATTESTATION="$ATTESTATION"' "$LOCAL_SIGNER" ||
   fail "local draft-signing entrypoint does not bind staging to local custody evidence"
+grep -Fq 'codesign --verify --deep --strict "$app_bundle"' "$LOCAL_SIGNER" ||
+  fail "local draft-signing entrypoint does not verify the downloaded candidate before launch"
+grep -Fq 'codesign --verify --deep --strict "$previous_app_bundle"' "$LOCAL_SIGNER" ||
+  fail "local draft-signing entrypoint does not verify the downloaded predecessor before launch"
+grep -Fq 'Authority=Developer ID Application:' "$LOCAL_SIGNER" ||
+  fail "local draft-signing entrypoint does not verify the downloaded candidate identity"
+grep -Fq 'EXPECTED_GRAF_TEAM_IDENTIFIER=94N8HYG672' "$LOCAL_SIGNER" ||
+  fail "local draft-signing entrypoint does not pin the trusted GRAF signing team"
+grep -Fq 'downloaded predecessor app is not signed by the trusted GRAF team' "$LOCAL_SIGNER" ||
+  fail "local draft-signing entrypoint does not verify predecessor team continuity before launch"
+grep -Fq 'codesign -R="$previous_requirement" --verify "$app_bundle"' "$LOCAL_SIGNER" ||
+  fail "local draft-signing entrypoint does not verify predecessor identity continuity before launch"
+grep -Fq 'GRAF_LOG_DIRECTORY="$LOG_DIRECTORY"' "$STARTUP_VALIDATOR" ||
+  fail "packaged-app launch validator does not isolate the application log directory"
+grep -Fq 'GRAF_APPLICATION_SUPPORT_DIRECTORY="$APPLICATION_SUPPORT_DIRECTORY"' "$STARTUP_VALIDATOR" ||
+  fail "packaged-app launch validator does not isolate application support storage"
+grep -Fq 'event=app_launch_finished' "$STARTUP_VALIDATOR" ||
+  fail "packaged-app launch validator does not require a startup readiness marker"
+grep -Fq '"$STARTUP_VALIDATOR" "$APP_DIR/candidate/GRAF.app" 5 arm64' "$LOCAL_SIGNER" ||
+  fail "local draft-signing entrypoint does not validate the arm64 packaged candidate launch"
+grep -Fq '"$STARTUP_VALIDATOR" "$APP_DIR/candidate/GRAF.app" 5 x86_64' "$LOCAL_SIGNER" ||
+  fail "local draft-signing entrypoint does not validate the x86_64 packaged candidate launch"
 grep -Fq 'cb6fdbdc8884f15d62a616e79face92b08322410fd2d425edc6596ccbf4ba3b0' "$LOCAL_SIGNER" ||
   fail "local draft-signing entrypoint does not pin the Sparkle tool checksum"
 workflow_files="$(find "$REPO_ROOT/.github/workflows" -type f -print 2>/dev/null || true)"

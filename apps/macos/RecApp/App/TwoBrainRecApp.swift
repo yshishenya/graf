@@ -3344,6 +3344,11 @@ private enum AppLog {
     private static let writer = BoundedLogFileWriter(fileURL: fileURL)
 
     static let fileURL: URL = {
+        if let override = ProcessInfo.processInfo.environment["GRAF_LOG_DIRECTORY"],
+           !override.isEmpty {
+            return URL(fileURLWithPath: override, isDirectory: true)
+                .appendingPathComponent("graf.log")
+        }
         let base = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Logs/GRAF", isDirectory: true)
         return base.appendingPathComponent("graf.log")

@@ -1,11 +1,38 @@
 import Foundation
-import TwoBrainRecAppCore
+@testable import TwoBrainRecAppCore
 import TwoBrainRecShared
 
 #if canImport(XCTest)
 import XCTest
 
 final class MeetingTargetRegistryTests: XCTestCase {
+    func testPackagedBaselineRegistryResolvesFromMainResourceDirectory() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let expected = root
+            .appendingPathComponent("TwoBrainRecMacOS_TwoBrainRecAppCore.bundle", isDirectory: true)
+            .appendingPathComponent("Resources", isDirectory: true)
+            .appendingPathComponent("meeting-target-registry-baseline.json")
+        try FileManager.default.createDirectory(
+            at: expected.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("{}".utf8).write(to: expected)
+
+        XCTAssertEqual(
+            MeetingDetectionAppModule.packagedTargetRegistryURL(resourceURL: root),
+            expected
+        )
+    }
+
+    func testMissingPackagedBaselineRegistryReturnsNil() {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        XCTAssertNil(MeetingDetectionAppModule.packagedTargetRegistryURL(resourceURL: root))
+        XCTAssertNil(MeetingDetectionAppModule.packagedTargetRegistryURL(resourceURL: nil))
+    }
+
     func testPackagedBaselineRegistryIsBundledAndValid() throws {
         let url = try XCTUnwrap(MeetingDetectionAppModule.bundledTargetRegistryURL)
         let document = try MeetingDetectionCoding.decoder().decode(
