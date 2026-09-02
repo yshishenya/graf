@@ -32,6 +32,11 @@ fail() {
   exit 1
 }
 
+assert_app_stopped() {
+  APP_STATE=$(swift "$APP_LIFECYCLE" status "$DESTINATION") || fail "could not inspect the Dev app process"
+  [ "$APP_STATE" = "stopped" ] || fail "Dev app is running; use dev-harness promote or rollback"
+}
+
 # ``codesign -d`` writes human-readable diagnostics to stderr. Hash only the
 # canonical entitlements plist so paths in those diagnostics cannot make an
 # otherwise identical candidate and installed app appear different.
@@ -50,8 +55,7 @@ case "$DESTINATION_CANONICAL" in
 esac
 [ -x "$BUILDER" ] || fail "Dev builder is missing or not executable"
 [ -f "$APP_LIFECYCLE" ] || fail "Dev app lifecycle helper is missing"
-APP_STATE=$(swift "$APP_LIFECYCLE" status "$DESTINATION") || fail "could not inspect the Dev app process"
-[ "$APP_STATE" = "stopped" ] || fail "Dev app is running; use dev-harness promote or rollback"
+assert_app_stopped
 
 CANDIDATE="$TEMP_ROOT/GRAF Dev.app"
 LOCAL_ORIGIN="${GRAF_DEV_ORIGIN:-}"
@@ -144,6 +148,7 @@ STAGED_DESTINATION="$INSTALL_PARENT/.GRAF Dev.app.new.$$"
 BACKUP_DESTINATION="$INSTALL_PARENT/.GRAF Dev.app.previous.$$"
 rm -rf "$STAGED_DESTINATION" "$BACKUP_DESTINATION"
 ditto --norsrc --noextattr --noqtn "$CANDIDATE" "$STAGED_DESTINATION"
+assert_app_stopped
 
 if [ -e "$DESTINATION" ]; then
   mv "$DESTINATION" "$BACKUP_DESTINATION"

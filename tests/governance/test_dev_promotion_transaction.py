@@ -16,3 +16,12 @@ def test_runtime_compensation_refuses_unowned_processes():
     assert "refusing to terminate unverified Dev backend pid" in source
     assert "refusing to restore over unverified Dev backend pid" in source
     assert "deadline = time.monotonic() + RUNTIME_CLEANUP_TIMEOUT_SECONDS" in source
+
+
+def test_app_swap_rechecks_lifecycle_and_allows_cleanup_grace():
+    installer = (ROOT / "apps/macos/Scripts/install-dev-app.sh").read_text()
+    harness = (ROOT / "scripts/dev-harness.py").read_text()
+    assert installer.count('assert_app_stopped') >= 2
+    assert "APP_STOP_TIMEOUT_SECONDS = 30" in harness
+    assert "deadline = time.monotonic() + APP_STOP_TIMEOUT_SECONDS" in harness
+    assert "if not self._app_is_running(destination):" in harness

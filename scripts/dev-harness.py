@@ -42,6 +42,7 @@ PRODUCTION_APP_PATH = Path("/Applications/GRAF.app")
 SCHEMA_VERSION = "dev-manifest.v1"
 POINTER_VERSION = "dev-active-pointer.v1"
 PROCESS_STOP_TIMEOUT_SECONDS = 10
+APP_STOP_TIMEOUT_SECONDS = 30
 RUNTIME_CLEANUP_TIMEOUT_SECONDS = 60
 PROBE_RETRY_DELAY_SECONDS = 0.2
 RUNTIME_READY_SERVICES = (
@@ -773,11 +774,13 @@ class GrafLocalAdapter:
             ["swift", str(self.app_lifecycle_script), "terminate", str(destination)],
             cwd=self.root,
         )
-        deadline = time.monotonic() + PROCESS_STOP_TIMEOUT_SECONDS
+        deadline = time.monotonic() + APP_STOP_TIMEOUT_SECONDS
         while time.monotonic() < deadline:
             if not self._app_is_running(destination):
                 return True
             time.sleep(PROBE_RETRY_DELAY_SECONDS)
+        if not self._app_is_running(destination):
+            return True
         raise HarnessError("GRAF Dev.app did not exit after graceful termination")
 
     def _launch_dev_app(self, destination: Path) -> None:
