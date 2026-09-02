@@ -65,6 +65,7 @@ public final class CalendarTrayModel: ObservableObject {
     }
 }
 
+@MainActor
 public struct CalendarTrayView: View {
     @ObservedObject private var model: CalendarTrayModel
     private let onOpenCalendar: () -> Void
