@@ -10,9 +10,18 @@ from pathlib import Path
 
 
 TASK_RE = re.compile(r"\bT\d{3,}\b")
+TASK_CHECKBOX_ROW_RE = re.compile(
+    r"^[ \t]*-[ \t]+\[(?P<state>[xX ])\][ \t]+(?P<task>T\d{3,})\b"
+)
+TASK_MAPPING_ROW_RE = re.compile(
+    r"^[ \t]*-[ \t]+(?P<task>T\d{3,})[ \t]+\(Issue\s+#\d+\b",
+    re.IGNORECASE,
+)
 CLOSURE_SECTIONS = ("Что закрыто", "Почему это важно", "Как проверено", "Что не входит", "Связи")
 SHA_RE = re.compile(r"\b[0-9a-f]{40}\b", re.IGNORECASE)
-TASK_ISSUE_LINK_RE = re.compile(r"\bIssue\s+#(\d+)", re.IGNORECASE)
+# The opening parenthesis is part of the canonical mapping syntax.  Requiring
+# it prevents ``umbrella issue #N`` prose from becoming task ownership.
+TASK_ISSUE_LINK_RE = re.compile(r"\(\s*Issue\s+#(\d+)\b", re.IGNORECASE)
 TITLE_TASK_RE = re.compile(r"\b(T\d{3,})\s*:", re.IGNORECASE)
 SPEC_TASK_FIELD_RE = re.compile(
     r"(?im)^[ \t]*(?:[-*][ \t]*)?Spec(?: Kit)? tasks?(?: IDs?)?[ \t]*:[ \t]*([^\n]+)$"
@@ -25,18 +34,51 @@ AUTHORITATIVE_PASS_RE = re.compile(
 
 
 def _task_state(tasks_text: str) -> dict[str, tuple[bool, set[int]]]:
+    """Read checked state and Issue links from each logical task row.
+
+    Task metadata may wrap onto indented continuation lines.  Aggregate those
+    lines before extracting the task-backed Issue link so wrapped rows remain
+    traceable without treating unrelated prose as ownership.
+    """
     states: dict[str, tuple[bool, set[int]]] = {}
-    for line in tasks_text.splitlines():
-        match = TASK_RE.search(line)
+    row: list[str] = []
+
+    def row_match(line: str) -> re.Match[str] | None:
+        return TASK_CHECKBOX_ROW_RE.search(line) or TASK_MAPPING_ROW_RE.search(line)
+
+    def consume(logical_row: list[str]) -> None:
+        if not logical_row:
+            return
+        match = row_match(logical_row[0])
         if not match:
-            continue
-        checked = bool(re.search(r"- \[[xX]\]", line))
+            return
+        task = match.group("task")
+        checkbox = TASK_CHECKBOX_ROW_RE.search(logical_row[0])
+        checked = bool(checkbox and checkbox.group("state").lower() == "x")
         # Only the canonical task-backed ``Issue #N`` link proves ownership.
         # An ``umbrella #N`` reference is intentionally informational and must
         # never make an umbrella issue look like the task's owner.
-        issues = {int(value) for value in TASK_ISSUE_LINK_RE.findall(line)}
-        previous = states.get(match.group(0))
-        states[match.group(0)] = (checked or (previous[0] if previous else False), issues | (previous[1] if previous else set()))
+        issues = {
+            int(value)
+            for line in logical_row
+            for value in TASK_ISSUE_LINK_RE.findall(line)
+        }
+        previous = states.get(task)
+        states[task] = (
+            checked or (previous[0] if previous else False),
+            issues | (previous[1] if previous else set()),
+        )
+
+    for line in tasks_text.splitlines():
+        if row_match(line):
+            consume(row)
+            row = [line]
+        elif row and (not line.strip() or line.startswith((" ", "\t"))):
+            row.append(line)
+        else:
+            consume(row)
+            row = []
+    consume(row)
     return states
 
 
@@ -131,6 +173,33 @@ def self_test() -> int:
 - PR: #6373
 """}]
     assert validate(issue, "- [X] T001 Проверить (Issue #6373)\n", expected_sha="a" * 40) == []
+    assert validate(issue, "- [ ] T001 Проверить (Issue #6373)\n", expected_sha="a" * 40)
+    assert validate(
+        issue,
+        "- [X] T001 Проверить\n"
+        "  (Issue #6373; umbrella #6385).\n",
+        expected_sha="a" * 40,
+    ) == []
+    assert validate(
+        issue,
+        "- [X] T001 Проверить\n"
+        "\n"
+        "## GitHub issue links\n"
+        "- T001 (Issue #6373)\n",
+        expected_sha="a" * 40,
+    ) == []
+    assert validate(
+        issue,
+        "- [X] T001 Проверить\n"
+        "  (umbrella #6373).\n",
+        expected_sha="a" * 40,
+    )
+    assert validate(
+        issue,
+        "- [X] T001 Проверить\n"
+        "  (umbrella issue #6373).\n",
+        expected_sha="a" * 40,
+    )
     assert validate(issue, "- [X] T001 Проверить (Issue #999)\n", expected_sha="a" * 40)
     assert validate(issue, "- [X] T001 Проверить (Issue #6373)\n", expected_sha="b" * 40)
     print("issue-closeout self-test: OK")
