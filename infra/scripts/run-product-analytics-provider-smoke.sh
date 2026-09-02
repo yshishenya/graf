@@ -5,10 +5,13 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
 
 docker compose -f infra/posthog/docker-compose.posthog.yml config >/dev/null
-deploy_branch="${TWOBRAIN_DEPLOY_BRANCH:-$(git branch --show-current || true)}"
+deploy_branch="${TWOBRAIN_DEPLOY_BRANCH:-${GITHUB_REF_NAME:-$(git branch --show-current || true)}}"
 if [[ -z "$deploy_branch" ]]; then
   deploy_branch="$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || true)"
   deploy_branch="${deploy_branch#origin/}"
+fi
+if [[ -z "$deploy_branch" ]] && git show-ref --verify --quiet refs/remotes/origin/master; then
+  deploy_branch="master"
 fi
 if [[ -z "$deploy_branch" ]]; then
   echo "provider_smoke_result=blocked"

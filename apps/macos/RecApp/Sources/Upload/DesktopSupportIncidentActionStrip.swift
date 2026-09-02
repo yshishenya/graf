@@ -66,6 +66,7 @@ public enum DesktopSupportIncidentActionCopy {
     }
 }
 
+@MainActor
 struct DesktopSupportIncidentActionStrip: View {
     let summary: DesktopUploadCustodySummary
     var leadingPadding: CGFloat = 0
