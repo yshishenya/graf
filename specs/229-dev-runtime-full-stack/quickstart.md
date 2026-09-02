@@ -115,11 +115,17 @@ staging/install/runtime/smoke в test fixture. Проверить:
 сигнализируется. В `runtime.json` и `docker inspect` image IDs обязаны совпасть
 с выбранным manifest; совпадения одного source-SHA label недостаточно.
 
-Если Docker cleanup удалил image из rollback manifest, восстановить exact IDs
-из локального immutable archive, не пересобирая candidate:
+Если Docker cleanup удалил image из rollback manifest, сначала получить именно
+target rollback, а затем восстановить его exact IDs из локального immutable
+archive, не пересобирая candidate:
 
 ```sh
-./infra/scripts/dev-harness.sh rehydrate --manifest "$MANIFEST"
+ROLLBACK_JSON="$(./infra/scripts/dev-harness.sh rollback --dry-run)"
+TARGET_MANIFEST_ID="$(printf '%s' "$ROLLBACK_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin)["manifest"]["manifest_id"])')"
+TARGET_SHA="$(printf '%s' "$ROLLBACK_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin)["manifest"]["source_sha"])')"
+TARGET_MANIFEST="$DEV_STATE/manifests/$TARGET_MANIFEST_ID.json"
+test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+./infra/scripts/dev-harness.sh rehydrate --manifest "$TARGET_MANIFEST"
 ```
 
 Команда требует checkout exact manifest SHA, загружает archive под общим Dev

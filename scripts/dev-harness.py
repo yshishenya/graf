@@ -96,6 +96,7 @@ COMPOSE_IMAGE_COMPONENTS = {
     ),
 }
 RUNTIME_DEFINITION_PATHS = (
+    "scripts/dev-harness.py",
     "infra/docker-compose.dev.yml",
     "infra/scripts/start-dev-runtime.sh",
     "infra/scripts/dev-migration-preflight.py",
@@ -1071,6 +1072,17 @@ class GrafLocalAdapter:
         else:
             _write_json(runtime, previous)
 
+    def _mark_rollback_required(self, manifest: Dict[str, Any]) -> None:
+        blocked = dict(manifest)
+        blocked["status"] = "rollback_required"
+        blocked["health"] = {
+            "result": "fail",
+            "checked_at": now(),
+            "checks": {"compensation": "fail"},
+        }
+        _validate_manifest(blocked)
+        _write_json(_manifest_path(self.state, str(blocked["manifest_id"])), blocked)
+
     def promote(self, manifest: Dict[str, Any]) -> Dict[str, str]:
         self._assert_supported()
         self._assert_source_matches_checkout(manifest)
@@ -1121,6 +1133,7 @@ class GrafLocalAdapter:
                 except Exception as exc:  # pragma: no cover - defensive path
                     compensation_errors.append(f"app relaunch failed: {exc}")
             if compensation_errors:
+                self._mark_rollback_required(previous_manifest or manifest)
                 raise HarnessError("live promotion failed; compensation failed: " + "; ".join(compensation_errors)) from failure
             raise
         else:
@@ -1176,6 +1189,7 @@ class GrafLocalAdapter:
                 except Exception as exc:  # pragma: no cover - defensive path
                     compensation_errors.append(f"app relaunch failed: {exc}")
             if compensation_errors:
+                self._mark_rollback_required(active)
                 raise HarnessError("live rollback failed; compensation failed: " + "; ".join(compensation_errors)) from failure
             raise
         else:

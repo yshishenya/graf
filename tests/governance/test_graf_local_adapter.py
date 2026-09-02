@@ -215,6 +215,10 @@ def test_runtime_definition_digest_includes_tracked_server_source(monkeypatch, t
     assert adapter._runtime_definition_digest() != before
 
 
+def test_runtime_definition_paths_include_host_harness():
+    assert "scripts/dev-harness.py" in dev_harness.RUNTIME_DEFINITION_PATHS
+
+
 def test_manifest_image_preflight_rejects_server_source_sha_mismatch(monkeypatch, tmp_path):
     candidate = manifest(tmp_path, "a" * 40, feature="229")
     adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
@@ -616,6 +620,64 @@ def test_live_promote_restores_app_and_restarts_previous_backend_on_smoke_failur
         ("start", old_sha, old["components"]["backend"]["digest"]),
         "start-app",
     ]
+
+
+def test_live_promote_marks_active_manifest_when_compensation_fails(monkeypatch, tmp_path):
+    old = manifest(tmp_path, "a" * 40, feature="229")
+    candidate = manifest(tmp_path, "b" * 40, feature="229")
+    adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
+    (tmp_path / "manifests").mkdir()
+    dev_harness._write_json(tmp_path / "manifests" / f"{old['manifest_id']}.json", old)
+    dev_harness._write_json(
+        tmp_path / "active-manifest.json",
+        {
+            "schema_version": dev_harness.POINTER_VERSION,
+            "manifest_id": old["manifest_id"],
+            "runtime_mode": "live",
+            "updated_at": dev_harness.now(),
+        },
+    )
+    dev_harness._write_json(
+        tmp_path / "runtime.json",
+        {
+            "pid": 101,
+            "source_sha": old["source_sha"],
+            "command": str(adapter.start_script),
+            "runtime_definition_digest": "sha256:" + "d" * 64,
+        },
+    )
+    monkeypatch.setattr(adapter, "_assert_supported", lambda: None)
+    monkeypatch.setattr(adapter, "_assert_source_matches_checkout", lambda _: None)
+    monkeypatch.setattr(adapter, "_compose_config", lambda _: None)
+    monkeypatch.setattr(adapter, "_assert_manifest_images", lambda *_: None)
+    monkeypatch.setattr(adapter, "_runtime_is_live", lambda _: True)
+    monkeypatch.setattr(adapter, "_runtime_definition_digest", lambda: "sha256:" + "d" * 64)
+    monkeypatch.setattr(adapter, "_app_is_running", lambda _: False)
+    monkeypatch.setattr(adapter, "_snapshot_app", lambda: None)
+    monkeypatch.setattr(adapter, "_stop_previous", lambda: None)
+    monkeypatch.setattr(adapter, "_terminate_dev_app", lambda _: False)
+    monkeypatch.setattr(adapter, "_install_app", lambda *_: None)
+    monkeypatch.setattr(adapter, "_start_backend", lambda *_: None)
+    monkeypatch.setattr(adapter, "_launch_dev_app", lambda _: None)
+    monkeypatch.setattr(adapter, "_restore_app", lambda _: None)
+    monkeypatch.setattr(
+        adapter,
+        "_restore_runtime",
+        lambda *_: (_ for _ in ()).throw(dev_harness.HarnessError("injected restore failure")),
+    )
+    monkeypatch.setattr(adapter, "smoke", lambda _: {"backend_health": "fail", "mode": "live"})
+
+    with pytest.raises(dev_harness.HarnessError, match="compensation failed"):
+        adapter.promote(candidate)
+
+    blocked = dev_harness._load_active(tmp_path)
+    assert blocked is not None
+    assert blocked["status"] == "rollback_required"
+    assert blocked["health"] == {
+        "result": "fail",
+        "checked_at": blocked["health"]["checked_at"],
+        "checks": {"compensation": "fail"},
+    }
 
 
 def test_live_rollback_reinstalls_target_and_verifies_before_return(monkeypatch, tmp_path):
