@@ -53,7 +53,8 @@ jobs:
           venv_dir="$RUNNER_TEMP/graf-specify-venv"
           python3 -m venv "$venv_dir"
           "$venv_dir/bin/python" -m pip install --disable-pip-version-check \
-            "specify-cli @ git+https://github.com/github/spec-kit.git@${SPEC_KIT_REF}"
+            "specify-cli @ git+https://github.com/github/spec-kit.git@${SPEC_KIT_REF}" \
+            "pytest==9.1.1"
           bin_dir="$RUNNER_TEMP/graf-bin"
           mkdir -p "$bin_dir"
           curl --fail --location --silent --show-error \
