@@ -1,6 +1,6 @@
 # Feature Specification: Полноценная изолированная Dev-среда GRAF
 
-**Feature Branch**: `codex/229-dev-runtime-full-stack`
+**Feature Branch**: `codex/229-immutable-runtime-images`
 
 **Created**: 2026-09-01
 
@@ -25,6 +25,15 @@ processing-путь. Дополнительный риск создаёт ста
 его состояние от production и старого local state и обеспечить атомарные
 promotion/rollback. Фича не меняет продуктовую семантику записи, приватности,
 аутентификации или обработки встреч.
+
+## Роли и цели проверки
+
+- Разработчик собирает один exact-SHA кандидат и использует его для проверки
+  связного локального пользовательского пути.
+- Dev operator выполняет promotion, smoke и rollback только через общий
+  lock-protected adapter и сохраняет production/старый local state неизменными.
+- Reviewer проверяет требования, exact-SHA evidence, failure compensation и
+  production-before/after fingerprints до признания кандидата release-ready.
 
 ## User Scenarios & Testing
 
@@ -142,6 +151,9 @@ rollback к ранее проверенному кандидату.
   и active pointer не обновляется.
 - Runtime record содержит чужой PID или не подтверждается command/start token:
   process не завершается автоматически; требуется ручная проверка владельца.
+- Если compensation не может восстановить предыдущие immutable image digests,
+  app или owned runtime, операция получает terminal `rollback_required`, не
+  меняет active pointer и не заявляет успешный rollback.
 - Оператор пытается использовать public/production endpoint, secret, signed URL,
   raw audio или transcript в evidence: операция блокируется и сохраняет только
   metadata-only receipt.
@@ -156,7 +168,9 @@ rollback к ранее проверенному кандидату.
   not inherit `processing_enabled=false`.
 - **FR-002**: Build MUST require a clean checkout and bind manifest, backend,
   frontend, worker images/runtime and macOS app to the same full 40-character
-  `source_sha`; a mismatch MUST fail closed before promotion.
+  `source_sha`; built runtime images MUST be referenced by immutable image ID or
+  digest, and a mutable tag or identity mismatch MUST fail closed before
+  promotion.
 - **FR-003**: Dev Compose project name, volume names, network names, ports and
   data root MUST be explicitly namespaced for the single Dev runtime and MUST
   be distinct from production and the historical local runtime.
@@ -181,11 +195,12 @@ rollback к ранее проверенному кандидату.
   installed app, run smoke, and update the active manifest only after all
   required checks pass.
 - **FR-009**: A failed or cancelled promotion MUST leave the previous active
-  manifest, app and owned runtime recoverable; compensation MUST refuse to
-  signal unowned processes.
+  manifest, app and owned runtime recoverable from the previous manifest's
+  immutable image digests; compensation MUST refuse to signal unowned processes.
 - **FR-010**: Rollback MUST select a previously validated parent or explicitly
   selected manifest, require checkout of its exact SHA, restore app and runtime
-  atomically and run the same smoke checks before declaring success.
+  from that manifest's immutable image digests atomically and run the same smoke
+  checks before declaring success.
 - **FR-011**: Live smoke MUST check API liveness/readiness, server-rendered
   `/login`, auth provider bootstrap, representative API route, database and
   storage readiness, migration readiness, Temporal readiness, processing

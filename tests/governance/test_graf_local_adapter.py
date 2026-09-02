@@ -79,6 +79,131 @@ def test_live_build_runs_compose_backend_and_signed_app_adapter(monkeypatch, tmp
     assert result["app_bundle_digest"].startswith("sha256:")
 
 
+def test_feature_229_build_records_and_preserves_every_compose_image(monkeypatch, tmp_path):
+    sha = "b" * 40
+    fake_root = tmp_path / "root"
+    adapter = dev_harness.GrafLocalAdapter(fake_root, tmp_path / "state")
+    for path in (
+        adapter.compose_file,
+        adapter.start_script,
+        adapter.build_app_script,
+        adapter.install_app_script,
+        adapter.app_lifecycle_script,
+    ):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    monkeypatch.setattr(dev_harness.sys, "platform", "darwin")
+    calls = []
+    image_id = "sha256:" + "1" * 64
+
+    def fake_run(command, *, cwd, env=None):
+        calls.append(command)
+        if command[:2] == ["git", "rev-parse"]:
+            return sha
+        if command[:3] == ["docker", "image", "inspect"]:
+            return image_id
+        if command[0] == "sh" and command[-1] == str(adapter.build_app_script):
+            bundle = Path(env["GRAF_DEV_APP_BUNDLE"])
+            (bundle / "Contents").mkdir(parents=True)
+            (bundle / "Contents" / "Info.plist").write_text("metadata", encoding="utf-8")
+        return ""
+
+    monkeypatch.setattr(dev_harness, "_run_command", fake_run)
+    monkeypatch.setattr(
+        adapter,
+        "_measure_signed_app_identity",
+        lambda _: ("GRAF Local Code Signing", "identifier pro.2brain.graf.dev", "sha256:" + "e" * 64),
+    )
+    candidate = manifest(tmp_path, sha, feature="229")
+
+    adapter.build(candidate)
+
+    assert candidate["components"]["storage_init"]["digest"] == image_id
+    tag_calls = [command for command in calls if command[:3] == ["docker", "image", "tag"]]
+    assert len(tag_calls) == len(dev_harness.COMPOSE_IMAGE_COMPONENTS)
+
+
+def test_feature_229_env_pins_every_compose_service_to_manifest_image_id(tmp_path):
+    candidate = manifest(tmp_path, "a" * 40, feature="229")
+    adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
+
+    env = adapter._env(candidate)
+
+    for _service, (component, variable, _fallback, _source_bound) in dev_harness.COMPOSE_IMAGE_COMPONENTS.items():
+        assert env[variable] == candidate["components"][component]["digest"]
+
+
+def test_pre_hardening_manifest_is_readable_but_cannot_start_without_init_image(tmp_path):
+    previous = manifest(tmp_path, "a" * 40, feature="229")
+    previous["components"].pop("storage_init")
+    adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
+
+    dev_harness._validate_manifest(previous)
+    with pytest.raises(dev_harness.HarnessError, match="rec-minio-init; rebuild the candidate"):
+        adapter._env(previous)
+
+
+def test_manifest_image_preflight_rejects_server_source_sha_mismatch(monkeypatch, tmp_path):
+    candidate = manifest(tmp_path, "a" * 40, feature="229")
+    adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
+    env = adapter._env(candidate)
+
+    def fake_run(command, *, cwd, env=None):
+        if command[3:5] == ["--format", "{{.Id}}"]:
+            return command[-1]
+        return "b" * 40
+
+    monkeypatch.setattr(dev_harness, "_run_command", fake_run)
+
+    with pytest.raises(dev_harness.HarnessError, match="source SHA mismatch for api"):
+        adapter._assert_manifest_images(candidate, env)
+
+
+def test_promote_checks_required_images_before_stopping_active_runtime(monkeypatch, tmp_path):
+    candidate = manifest(tmp_path, "a" * 40, feature="229")
+    adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
+    calls = []
+    monkeypatch.setattr(adapter, "_assert_supported", lambda: None)
+    monkeypatch.setattr(adapter, "_assert_source_matches_checkout", lambda _: None)
+    monkeypatch.setattr(adapter, "_compose_config", lambda _: None)
+    monkeypatch.setattr(adapter, "_runtime_is_live", lambda _: False)
+    monkeypatch.setattr(adapter, "_app_is_running", lambda _: False)
+    monkeypatch.setattr(adapter, "_snapshot_app", lambda: None)
+    monkeypatch.setattr(adapter, "_stop_previous", lambda: calls.append("stop"))
+    monkeypatch.setattr(
+        adapter,
+        "_assert_manifest_images",
+        lambda *_: (_ for _ in ()).throw(dev_harness.HarnessError("required image missing")),
+        raising=False,
+    )
+
+    with pytest.raises(dev_harness.HarnessError, match="required image missing"):
+        adapter.promote(candidate)
+
+    assert calls == []
+
+
+def test_service_readiness_rejects_container_from_different_image(monkeypatch, tmp_path):
+    candidate = manifest(tmp_path, "a" * 40, feature="229")
+    adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
+    env = adapter._env(candidate)
+
+    def fake_run(command, *, cwd, env=None):
+        if command[:2] == ["docker", "compose"] and "-q" in command:
+            return "container-id"
+        if command[:2] == ["docker", "inspect"]:
+            if ".Image" in command[-2]:
+                return "sha256:" + "f" * 64
+            return candidate["source_sha"]
+        if command[:2] == ["docker", "compose"] and "--format" in command:
+            return json.dumps({"State": "running", "Health": "healthy"})
+        raise AssertionError(command)
+
+    monkeypatch.setattr(dev_harness, "_run_command", fake_run)
+
+    assert adapter._compose_service_ready("api", env) == "fail"
+
+
 def test_signed_app_identity_is_measured_from_codesign_output(monkeypatch, tmp_path):
     adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
     outputs = {
@@ -394,8 +519,8 @@ def test_live_promote_relaunches_new_app_and_restores_previous_launch_state(monk
 def test_live_promote_restores_app_and_restarts_previous_backend_on_smoke_failure(monkeypatch, tmp_path):
     old_sha = "a" * 40
     candidate_sha = "b" * 40
-    old = manifest(tmp_path, old_sha)
-    candidate = manifest(tmp_path, candidate_sha)
+    old = manifest(tmp_path, old_sha, feature="229")
+    candidate = manifest(tmp_path, candidate_sha, feature="229")
     adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
     app = tmp_path / "GRAF Dev.app"
     (app / "Contents").mkdir(parents=True)
@@ -425,6 +550,7 @@ def test_live_promote_restores_app_and_restarts_previous_backend_on_smoke_failur
     monkeypatch.setattr(adapter, "_assert_supported", lambda: None)
     monkeypatch.setattr(adapter, "_assert_source_matches_checkout", lambda _: None)
     monkeypatch.setattr(adapter, "_compose_config", lambda _: None)
+    monkeypatch.setattr(adapter, "_assert_manifest_images", lambda *_: None)
     monkeypatch.setattr(adapter, "_runtime_is_live", lambda _: True)
     monkeypatch.setattr(adapter, "_pid_alive", lambda _: True)
     monkeypatch.setattr(adapter, "_pid_owned", lambda _: True)
@@ -437,8 +563,8 @@ def test_live_promote_restores_app_and_restarts_previous_backend_on_smoke_failur
         calls.append(("install", manifest_value["source_sha"]))
         marker.write_text("new", encoding="utf-8")
 
-    def fake_start(manifest_value, _env):
-        calls.append(("start", manifest_value["source_sha"]))
+    def fake_start(manifest_value, runtime_env):
+        calls.append(("start", manifest_value["source_sha"], runtime_env["GRAF_DEV_API_IMAGE"]))
         dev_harness._write_json(
             tmp_path / "runtime.json",
             {
@@ -461,11 +587,11 @@ def test_live_promote_restores_app_and_restarts_previous_backend_on_smoke_failur
         "stop",
         "stop-app",
         ("install", candidate_sha),
-        ("start", candidate_sha),
+        ("start", candidate_sha, candidate["components"]["backend"]["digest"]),
         "start-app",
         "stop-app",
         "stop",
-        ("start", old_sha),
+        ("start", old_sha, old["components"]["backend"]["digest"]),
         "start-app",
     ]
 

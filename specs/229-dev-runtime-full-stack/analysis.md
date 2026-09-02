@@ -56,3 +56,36 @@ open; their markers are intentionally unchecked and require a separate reviewer.
 
 No `taskstoissues` or production operation is performed in this implementation
 turn; existing issue links remain the external tracker source of truth.
+
+---
+
+## Re-analysis: immutable image hardening
+
+Дата: 2026-09-02
+Base: `b0c06935bc1af90be6f92981357a61af3d80bb19`
+
+| ID | Category | Severity | Status | Evidence |
+|---|---|---:|---|---|
+| I1 | Runtime identity | CRITICAL | Resolved | Candidate, compensation and rollback Compose services receive image IDs from the selected manifest; running container `.Image` must equal that ID. |
+| I2 | Recovery ordering | CRITICAL | Resolved | Candidate and previous image existence, exact ID and server-image source SHA are checked before the active runtime is stopped. |
+| I3 | One-shot service | HIGH | Resolved | New manifests record `rec-minio-init` separately as `storage_init`; pre-hardening manifests remain readable but fail closed for live restore when that ID is absent. |
+| I4 | Reproducibility | HIGH | Resolved | Build preserves every recorded image under an immutable local tag so a later mutable `latest` retag does not make the selected image dangling. |
+| I5 | Process consistency | MEDIUM | Resolved | Quickstart uses repository-global live state and exact-SHA GitHub `governance-fast`; stale disposable-state and local-CI instructions were removed. |
+| I6 | Version consistency | MEDIUM | Resolved | Plan and Compose both pin Dev Temporal `1.28.0`. |
+
+### Coverage and gate
+
+| Metric | Result |
+|---|---:|
+| Functional requirements checked | 14 |
+| Buildable success criteria checked | 7 |
+| Tasks checked | 41 |
+| Requirements with task coverage | 100% |
+| Critical findings remaining | 0 |
+| High findings remaining | 0 |
+| Medium findings remaining | 0 |
+
+Constitution alignment remains PASS: no production path, provider boundary,
+capture behavior, public signing rule or deletion behavior changed. The analyze
+pass did not edit reviewer-owned checklist markers. Remaining evidence gates are
+T038 exact-SHA GitHub CI, T039 live app/runtime rehearsal and T040 convergence.

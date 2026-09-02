@@ -24,4 +24,6 @@ def test_feature_pointer_owns_runtime_paths():
 def test_manifest_schema_has_full_service_identity_set():
     schema = json.loads((ROOT / "infra/dev/manifest.schema.json").read_text())
     required = set(schema["properties"]["components"]["required"])
+    properties = set(schema["properties"]["components"]["properties"])
     assert {"processing_worker", "media_worker", "temporal", "migration", "database", "storage"} <= required
+    assert "storage_init" in properties

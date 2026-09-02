@@ -1,7 +1,7 @@
 # Quickstart: полноценный Dev runtime GRAF
 
 Проверка Feature 229 после реализации. Live-команды выполняются только на
-macOS, с loopback origins и явным Dev state; production не запускается и не
+macOS, с loopback origins и единым repository-global Dev state; production не запускается и не
 изменяется.
 
 ## Предварительные условия
@@ -25,20 +25,25 @@ python3 scripts/check_spec_kit_governance.py
 ```
 
 Ожидается чистый branch checkout, `source_sha` pointer равен `HEAD`,
-`feature_id=229`, `base_sha=836cbba8f1c53695dd9e06a21f58bf74365286ef` и отсутствие
-изменений за пределами owned paths.
+`feature_id=229`, hardening base равен
+`b0c06935bc1af90be6f92981357a61af3d80bb19` и нет изменений за пределами
+owned paths.
 
-## 2. Выбрать изолированный Dev state
+## 2. Проверить единый repository-global Dev state
 
 ```sh
-export GRAF_DEV_STATE_DIR="$(mktemp -d /tmp/graf-dev-229.XXXXXX)"
+unset GRAF_DEV_STATE_DIR
 export GRAF_DEV_COMPOSE_PROJECT="graf-dev"
 export GRAF_BACKEND_ORIGIN="http://127.0.0.1:8081"
 export GRAF_FRONTEND_ORIGIN="$GRAF_BACKEND_ORIGIN"
+DEV_STATE="$HOME/Library/Application Support/GRAF Dev/$(basename "$(git rev-parse --show-toplevel)")/harness"
+./infra/scripts/dev-harness.sh status --json || true
 ```
 
-Adapter должен сам проверить namespace; переменные не должны позволять выбрать
-production-looking path, origin или volume.
+Все worktree используют один lock, один runtime и один state. Live adapter
+обязан отклонить отдельный `GRAF_DEV_STATE_DIR`. Старый state не удаляется;
+архивировать или заменить его можно только отдельным явным operator action
+после проверки ownership и остановки runtime.
 
 ## 3. Build exact-SHA candidate
 
@@ -47,14 +52,16 @@ SHA="$(git rev-parse HEAD)"
 ./infra/scripts/dev-harness.sh build --sha "$SHA" --feature-id 229 --live
 ```
 
-Ожидается manifest в `GRAF_DEV_STATE_DIR` с одним `source_sha`, component
-identities, resolved migration head и Dev boundary. Active pointer на этом шаге
-ещё не меняется.
+Ожидается manifest в `$DEV_STATE` с одним `source_sha`, immutable image ID для
+каждого Compose service, component identities, resolved migration head и Dev
+boundary. Active pointer на этом шаге ещё не меняется. Pre-hardening manifest
+остаётся читаемым, но не может использоваться для live rollback без полного
+набора image IDs; такой переход блокируется до остановки runtime.
 
 ## 4. Promote and live smoke
 
 ```sh
-MANIFEST="$(find "$GRAF_DEV_STATE_DIR/manifests" -maxdepth 1 -name 'dev-*.json' -print | sort | tail -n 1)"
+MANIFEST="$(find "$DEV_STATE/manifests" -maxdepth 1 -name 'dev-*.json' -print | sort | tail -n 1)"
 ./infra/scripts/dev-harness.sh promote --manifest "$MANIFEST" --live
 ./infra/scripts/dev-harness.sh status --json
 ./infra/scripts/dev-harness.sh smoke --json --live
@@ -104,19 +111,27 @@ staging/install/runtime/smoke в test fixture. Проверить:
 восстановимы. Если прежняя app была запущена, compensation возвращает её в
 запущенное состояние; если была закрыта — не открывает. Rollback разрешён
 только после checkout exact target SHA и ownership-проверки; чужой PID не
-сигнализируется.
+сигнализируется. В `runtime.json` и `docker inspect` image IDs обязаны совпасть
+с выбранным manifest; совпадения одного source-SHA label недостаточно.
 
 ## 7. Contract and repository validation
 
 ```sh
-python3 -m pytest tests/governance/test_dev_runtime.py tests/governance/test_dev_migration_preflight.py
-docker compose -f infra/docker-compose.dev.yml config --quiet
+uv run --directory apps/server --extra dev pytest -q \
+  ../../tests/governance/test_dev_runtime.py \
+  ../../tests/governance/test_dev_migration_preflight.py \
+  ../../tests/governance/test_dev_rollback.py \
+  ../../tests/governance/test_graf_local_adapter.py
+GRAF_DEV_SOURCE_SHA="$(git rev-parse HEAD)" \
+TWOBRAIN_PUBLIC_BASE_URL=http://127.0.0.1:8081 \
+GRAF_CREDENTIAL_ENCRYPTION_KEY_FILE=/tmp/graf-dev-config-key \
+  docker compose -f infra/docker-compose.dev.yml config --quiet
 python3 -m compileall -q scripts infra/scripts
-infra/scripts/ci-local.sh --fast
 ```
 
-Fast lane выполняется на exact implementation SHA и не является доказательством
-release-ready Full CI. Full CI запускается позже один раз для frozen release
+После focused checks обновить PR и дождаться GitHub Actions
+`governance-fast` на exact implementation SHA. Локальный fast/full CI для этого
+среза не запускается. Full CI запускается позже один раз для frozen release
 candidate по правилам F227.
 
 ## Evidence and cleanup

@@ -11,11 +11,24 @@ STATE_ROOT="${GRAF_DEV_STATE_ROOT:-${GRAF_DEV_STATE_DIR:-$HOME/Library/Applicati
 SERVER_ROOT="$ROOT_DIR/apps/server"
 
 fail() { echo "GRAF Dev runtime: $1" >&2; exit 1; }
+require_image_id() {
+  printf '%s' "$2" | grep -Eq '^sha256:[0-9a-fA-F]{64}$' || fail "$1 must be an immutable Docker image ID"
+}
 
 [ -f "$COMPOSE_FILE" ] || fail "full-stack Compose file is missing"
 [ -n "$SOURCE_SHA" ] && printf '%s' "$SOURCE_SHA" | grep -Eq '^[0-9a-fA-F]{40}$' || fail "GRAF_DEV_SOURCE_SHA must be a full 40-character SHA"
 case "$PROJECT" in graf-dev) ;; *) fail "Compose project must be the isolated graf-dev namespace" ;; esac
 case "$STATE_ROOT" in *production*|*prod-data*|*prod_data*) fail "production-looking state root is forbidden" ;; esac
+
+require_image_id GRAF_DEV_API_IMAGE "${GRAF_DEV_API_IMAGE:-}"
+require_image_id GRAF_DEV_PROCESSING_WORKER_IMAGE "${GRAF_DEV_PROCESSING_WORKER_IMAGE:-}"
+require_image_id GRAF_DEV_MAINTENANCE_IMAGE "${GRAF_DEV_MAINTENANCE_IMAGE:-}"
+require_image_id GRAF_DEV_MEDIA_WORKER_IMAGE "${GRAF_DEV_MEDIA_WORKER_IMAGE:-}"
+require_image_id GRAF_DEV_MIGRATION_IMAGE "${GRAF_DEV_MIGRATION_IMAGE:-}"
+require_image_id GRAF_DEV_TEMPORAL_IMAGE "${GRAF_DEV_TEMPORAL_IMAGE:-}"
+require_image_id GRAF_DEV_DATABASE_IMAGE "${GRAF_DEV_DATABASE_IMAGE:-}"
+require_image_id GRAF_DEV_STORAGE_IMAGE "${GRAF_DEV_STORAGE_IMAGE:-}"
+require_image_id GRAF_DEV_STORAGE_INIT_IMAGE "${GRAF_DEV_STORAGE_INIT_IMAGE:-}"
 
 command -v docker >/dev/null 2>&1 || fail "docker is required"
 command -v uv >/dev/null 2>&1 || fail "uv is required"
