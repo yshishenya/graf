@@ -48,7 +48,7 @@ process-lifecycle checks plus exact-artifact release validation.
 
 - [X] T009 [US1] Add the Russian user-facing hotfix and manual-repair changelog fragment in `changes/unreleased/F232.yaml`
 - [X] T010 [US1] Run ten production-like candidate launches, arm64/x86_64 checks and missing-resource launch per `specs/232-macos-resource-bundle-hotfix/quickstart.md`
-- [ ] T011 [US3] Run the feature quickstart and `infra/scripts/ci-local.sh --fast`, recording metadata-only results in `specs/232-macos-resource-bundle-hotfix/validation/pre-pr.md`
+- [X] T011 [US3] Run the feature quickstart and `infra/scripts/ci-local.sh --fast`, recording metadata-only results in `specs/232-macos-resource-bundle-hotfix/validation/pre-pr.md`
 
 ## Phase 5: PR and exact-SHA candidate
 

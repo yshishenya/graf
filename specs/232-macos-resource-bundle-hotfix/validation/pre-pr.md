@@ -4,10 +4,10 @@ Date: 2026-09-02
 
 Lane: `release-deploy` with high-risk macOS startup behavior.
 
-Source baseline: `455990a33f51fe232a8fc3270c8d0a0d27db298b`
-(`origin/master`). The implementation is intentionally uncommitted pending the
-required owner approval, so this document is development evidence rather than
-an exact-SHA release receipt.
+Validated implementation commit:
+`8d6ac5af3674f0a89f9662b68e1e499eff0736ba`. This is PR evidence, not an
+exact-SHA release receipt; the authoritative Full CI remains deferred to the
+later combined frozen release candidate.
 
 ## Passed focused checks
 
@@ -40,15 +40,17 @@ an exact-SHA release receipt.
 
 ## Repository gate status
 
-The diagnostic dirty-worktree fast run completed its macOS, governance,
-CI-contract, build, shell, compose, deployment-evidence, documentation and
-whitespace stages. Its receipt is
-`.dev/ci-evidence/ci-fast-455990a33f51-6bfcdd23f6fa.json` and is intentionally
-`ambiguous`; it is not valid PR or release evidence because the implementation
-was not yet committed.
+Clean `infra/scripts/ci-local.sh --fast` passed on the validated implementation
+commit in 108 seconds:
 
-T011 remains open. After owner approval, commit the reviewed diff and run a
-clean `infra/scripts/ci-local.sh --fast` on that exact commit before opening the
-PR. Full CI, candidate freeze, notarization, stapling, Gatekeeper, manual repair,
-Sparkle continuity, public publication and re-download checks remain release
-gates after merge.
+- governance: 169 passed;
+- macOS Swift: 783 passed;
+- CI contracts: 60 passed;
+- build, contract validation, shell, compose, deployment-evidence,
+  documentation, whitespace and final cleanliness: passed;
+- coverage: `partial`; next gate: `full_before_release`;
+- receipt: `.dev/ci-evidence/ci-fast-8d6ac5af3674-02333d4c3aaf.json`.
+
+Full CI, candidate freeze, notarization, stapling, Gatekeeper, manual repair,
+Sparkle continuity, public publication and re-download checks remain deferred
+to the later combined release and are not part of this PR publication step.
