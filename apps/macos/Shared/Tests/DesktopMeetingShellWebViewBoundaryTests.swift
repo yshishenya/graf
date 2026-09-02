@@ -256,6 +256,7 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
             retryMode: .manualOnly,
             createdAt: Date(timeIntervalSince1970: 80)
         )
+        failed.directoryPath = playbackRoot.appendingPathComponent("failed-package", isDirectory: true).path
         playable.directoryPath = playbackRoot.path
         playable.artifactProfile.trackCompleteness = [
             UploadTrackCompleteness(
@@ -268,6 +269,8 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
             )
         ]
         playable.failureCategory = .localResource
+        playable.captureFailureCode = "aec_capture_failed"
+        playable.artifactProfile.isUploadable = false
         failed.failureReason = "recording_recovery_not_possible"
         let rows = EmbeddedCabinetLocalRecordingRow.rows(
             for: [saving, failed, playable],

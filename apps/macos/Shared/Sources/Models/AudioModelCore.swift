@@ -1567,6 +1567,10 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
     public var state: UploadItemState
     public var failureCategory: UploadFailureCategory
     public var failureReason: String?
+    /// Safe machine-readable capture failure marker copied from the recording manifest.
+    /// This is distinct from `failureCategory`, which also covers post-capture
+    /// upload failures such as a missing local track.
+    public var captureFailureCode: String?
     public var retryMode: UploadRetryMode
     public var attemptCount: Int
     public var nextRetryAt: Date?
@@ -1614,6 +1618,7 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
         state: UploadItemState,
         failureCategory: UploadFailureCategory = .none,
         failureReason: String? = nil,
+        captureFailureCode: String? = nil,
         retryMode: UploadRetryMode,
         attemptCount: Int = 0,
         nextRetryAt: Date? = nil,
@@ -1646,6 +1651,7 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
         self.state = state
         self.failureCategory = failureCategory
         self.failureReason = failureReason
+        self.captureFailureCode = captureFailureCode
         self.retryMode = retryMode
         self.attemptCount = max(0, attemptCount)
         self.nextRetryAt = nextRetryAt
@@ -1760,6 +1766,7 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
         case state
         case failureCategory
         case failureReason
+        case captureFailureCode
         case retryMode
         case attemptCount
         case nextRetryAt
@@ -1798,6 +1805,7 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
             state: try container.decode(UploadItemState.self, forKey: .state),
             failureCategory: try container.decodeIfPresent(UploadFailureCategory.self, forKey: .failureCategory) ?? .none,
             failureReason: try container.decodeIfPresent(String.self, forKey: .failureReason),
+            captureFailureCode: try container.decodeIfPresent(String.self, forKey: .captureFailureCode),
             retryMode: try container.decode(UploadRetryMode.self, forKey: .retryMode),
             attemptCount: try container.decodeIfPresent(Int.self, forKey: .attemptCount) ?? 0,
             nextRetryAt: try container.decodeIfPresent(Date.self, forKey: .nextRetryAt),

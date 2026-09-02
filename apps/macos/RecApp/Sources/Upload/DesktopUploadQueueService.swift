@@ -398,7 +398,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             guard isInsideRecordingsRoot(item.directoryPath) else {
                 throw DesktopUploadQueueServiceError.localArtifactOutsideRecordingsRoot(item.directoryPath)
             }
-            guard Self.canDeleteLocalCopy(item: item) else {
+            guard Self.canDeleteLocalCopy(item: item, recordingsRootURL: recordingsRootURL) else {
                 throw DesktopUploadQueueServiceError.localDeletionUnavailable(itemId)
             }
             if FileManager.default.fileExists(atPath: item.directoryPath) {
@@ -473,8 +473,14 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         return true
     }
 
-    public static func canDeleteLocalCopy(item: DesktopUploadQueueItem) -> Bool {
-        item.failureReason == "recording_recovery_not_possible"
+    public static func canDeleteLocalCopy(
+        item: DesktopUploadQueueItem,
+        recordingsRootURL: URL
+    ) -> Bool {
+        guard isInsideRecordingsRoot(item.directoryPath, rootURL: recordingsRootURL) else {
+            return false
+        }
+        return item.failureReason == "recording_recovery_not_possible"
             || [.degraded, .blocked, .failed].contains(item.state)
     }
 
@@ -1308,6 +1314,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 manifest: manifest,
                 profile: profile
             ),
+            captureFailureCode: manifest.captureFailureCode,
             retryMode: retryMode,
             nextRetryAt: profile.isUploadable ? now : nil,
             retentionDeadline: retentionDeadline,

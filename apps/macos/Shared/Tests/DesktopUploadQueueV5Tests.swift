@@ -1933,6 +1933,44 @@ final class DesktopUploadQueueTests: XCTestCase {
         XCTAssertFalse(row.showsPartialDuration)
     }
 
+    func testPostCaptureLocalFileLossIsNotProjectedAsPartialCapture() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let package = try makeV5RecordingPackage(
+            root: root,
+            directoryId: "post-capture-file-loss",
+            sessionId: "post-capture-file-loss-session"
+        )
+        let queueURL = root.appendingPathComponent("queue.json")
+        let service = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 100) }
+        )
+        _ = try service.scanAndEnqueueCompletedRecordings()
+        try FileManager.default.removeItem(at: package.transcriptionURL)
+
+        let refreshed = try DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 101) }
+        ).scanAndEnqueueCompletedRecordings()
+        let item = try XCTUnwrap(refreshed.first)
+        let row = try XCTUnwrap(
+            EmbeddedCabinetLocalRecordingRow.rows(
+                for: [item],
+                recordingsRootURL: root
+            ).first
+        )
+
+        XCTAssertEqual(item.failureCategory, .localResource)
+        XCTAssertNil(item.captureFailureCode)
+        XCTAssertEqual(row.status, "Не удалось отправить")
+        XCTAssertFalse(row.showsPartialDuration)
+    }
+
     func testDeleteLocalCopyRechecksCurrentStateAfterRetryWasAccepted() throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -1963,7 +2001,12 @@ final class DesktopUploadQueueTests: XCTestCase {
             clock: { Date(timeIntervalSince1970: 101) }
         )
 
-        XCTAssertFalse(DesktopUploadQueueService.canDeleteLocalCopy(item: item))
+        XCTAssertFalse(
+            DesktopUploadQueueService.canDeleteLocalCopy(
+                item: item,
+                recordingsRootURL: root
+            )
+        )
         XCTAssertThrowsError(try refreshedService.deleteLocalCopy(itemId: item.id)) { error in
             XCTAssertEqual(
                 String(describing: error),

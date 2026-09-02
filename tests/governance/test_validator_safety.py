@@ -619,6 +619,33 @@ def test_pr_metadata_requires_matching_feature_id_prefix_in_title() -> None:
     assert validator.validate(body, "216", title="[F215][F216] Подготовить release train") == []
 
 
+def test_pr_metadata_cannot_choose_feature_id_from_untrusted_body() -> None:
+    validator = load_script("validate-pr-metadata")
+    body = _valid_pr_body().replace("F216", "F999")
+
+    assert any("mismatch" in error for error in validator.validate(
+        body,
+        "216",
+        title="[F999] Чужая фича",
+        expected_sha="a" * 40,
+    ))
+
+
+def test_pr_metadata_supports_release_train_feature_set() -> None:
+    validator = load_script("validate-pr-metadata")
+    body = _valid_pr_body().replace(
+        "## Feature identity\n- Feature ID: `F216`",
+        "## Feature IDs\n- F216\n- F227",
+    )
+
+    assert validator.validate(
+        body,
+        "216,227",
+        title="[F216][F227] Подготовить release train",
+        expected_sha="a" * 40,
+    ) == []
+
+
 def test_pr_metadata_rejects_placeholder_legacy_and_empty_sections() -> None:
     validator = load_script("validate-pr-metadata")
     body = _valid_pr_body()

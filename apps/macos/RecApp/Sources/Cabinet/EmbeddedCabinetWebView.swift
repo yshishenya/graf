@@ -897,7 +897,8 @@ public struct EmbeddedCabinetLocalRecordingRow: Codable, Equatable, Sendable {
                 stoppedAt.map { max(1, Int(ceil($0.timeIntervalSince(startedAt)))) }
                     ?? item.artifactProfile.durationSeconds
             )
-            let localCaptureFailure = item.failureCategory == .localResource
+            let localCaptureFailure = item.captureFailureCode?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                && !item.artifactProfile.isUploadable
                 && [.degraded, .blocked, .failed].contains(item.state)
             let canOpen = DesktopUploadQueueService.canProjectLocalPlayback(
                 item: item,
@@ -938,7 +939,10 @@ public struct EmbeddedCabinetLocalRecordingRow: Codable, Equatable, Sendable {
                 canSend: !damaged
                     && item.artifactProfile.isUploadable
                     && ![.saving, .uploading, .uploaded].contains(item.state),
-                canDelete: DesktopUploadQueueService.canDeleteLocalCopy(item: item),
+                canDelete: DesktopUploadQueueService.canDeleteLocalCopy(
+                    item: item,
+                    recordingsRootURL: recordingsRootURL
+                ),
                 uploadComplete: item.state == .uploaded
             )
         }

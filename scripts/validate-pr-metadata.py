@@ -41,6 +41,7 @@ EVIDENCE_STATUS_RE = re.compile(
 )
 TITLE_PREFIX_RE = re.compile(r"^((?:\[F\d{3,}\])+)(?:\s|$)")
 TITLE_FEATURE_RE = re.compile(r"\[F(\d{3,})\]")
+FEATURE_ID_RE = re.compile(r"\bF(\d{3,})\b")
 
 
 def _sections(body: str) -> dict[str, list[str]]:
@@ -54,6 +55,23 @@ def _has_content(content: str) -> bool:
     return any(line.strip() not in {"", "-", "*", "_"} for line in content.splitlines())
 
 
+def _expected_feature_ids(value: str) -> set[str]:
+    return {match.group(1) for match in re.finditer(r"\bF?(\d{3,})\b", value)}
+
+
+def _declared_feature_ids(body: str, sections: dict[str, list[str]]) -> set[str]:
+    # Restrict the declaration to the dedicated identity section so that a
+    # reference to another feature in release notes cannot change ownership.
+    identity = "\n".join(
+        sections.get("## Feature identity", []) + sections.get("## Feature IDs", [])
+    )
+    declared = set(FEATURE_ID_RE.findall(identity))
+    if declared:
+        return declared
+    marker = re.search(r"Feature ID:\s*`?F?(\d{3,})", body)
+    return {marker.group(1)} if marker else set()
+
+
 def validate(
     body: str,
     feature_id: str,
@@ -62,25 +80,35 @@ def validate(
 ) -> list[str]:
     sections = _sections(body)
     errors: list[str] = []
+    expected_feature_ids = _expected_feature_ids(feature_id)
+    if not expected_feature_ids:
+        errors.append("expected Feature ID is required")
     title_match = TITLE_PREFIX_RE.match((title or "").strip())
     if not title_match:
         errors.append("PR title must start with [F<feature-id>]")
-    elif feature_id not in TITLE_FEATURE_RE.findall(title_match.group(1)):
+    elif not expected_feature_ids.issubset(set(TITLE_FEATURE_RE.findall(title_match.group(1)))):
         errors.append(
-            f"PR title Feature ID mismatch: expected F{feature_id}, got {title_match.group(1)}"
+            f"PR title Feature ID mismatch: expected {sorted('F' + value for value in expected_feature_ids)}, got {title_match.group(1)}"
         )
     for section in REQUIRED:
+        if section == "## Feature identity" and "## Feature IDs" in sections:
+            continue
         if section not in sections:
             errors.append(f"missing PR section: {section}")
         elif len(sections[section]) > 1:
             errors.append(f"duplicate PR section: {section}")
         elif not _has_content(sections[section][0]):
             errors.append(f"empty PR section: {section}")
-    marker = re.search(r"Feature ID:\s*`?F?(\d{3,})", body)
-    if not marker:
+    declared_feature_ids = _declared_feature_ids(body, sections)
+    if not declared_feature_ids:
         errors.append("Feature ID is required in PR body")
-    elif marker.group(1) != feature_id:
-        errors.append(f"Feature ID mismatch: expected {feature_id}, got {marker.group(1)}")
+    elif declared_feature_ids != expected_feature_ids:
+        errors.append(
+            "Feature ID mismatch: expected "
+            + ", ".join(sorted("F" + value for value in expected_feature_ids))
+            + ", got "
+            + ", ".join(sorted("F" + value for value in declared_feature_ids))
+        )
     umbrella_match = re.search(r"Umbrella issue:\s*`?#([1-9]\d*)\b", body)
     if not umbrella_match:
         errors.append("umbrella issue is required")

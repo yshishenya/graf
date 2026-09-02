@@ -134,18 +134,21 @@ jobs:
         shell: bash
         env:
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
           set -euo pipefail
           body_path="$RUNNER_TEMP/graf-pr-body.md"
           feature_id_path="$RUNNER_TEMP/graf-feature-id"
-          python3 - "$GITHUB_EVENT_PATH" "$body_path" "$feature_id_path" <<'PY'
+          python3 - "$GITHUB_EVENT_PATH" "$body_path" "$feature_id_path" "$BASE_SHA" "$EXPECTED_SHA" <<'PY'
           import json
           import re
+          import subprocess
           import sys
           from pathlib import Path
 
-          event_path, body_path, feature_id_path = map(Path, sys.argv[1:])
+          event_path, body_path, feature_id_path = map(Path, sys.argv[1:4])
+          base_sha, expected_sha = sys.argv[4:]
           try:
               event = json.loads(event_path.read_text(encoding="utf-8"))
           except (OSError, UnicodeError, json.JSONDecodeError) as exc:
@@ -154,11 +157,24 @@ jobs:
           body = pull_request.get("body") if isinstance(pull_request, dict) else None
           if not isinstance(body, str) or not body.strip():
               raise SystemExit("pull_request.body is required for metadata validation")
-          marker = re.search(r"Feature ID:\s*`?F?(\d{3,})", body)
-          if marker is None:
-              raise SystemExit("Feature ID is required in pull request body")
+          diff = subprocess.run(
+              ["git", "diff", "--name-only", f"{base_sha}...{expected_sha}", "--", "specs"],
+              check=False,
+              capture_output=True,
+              text=True,
+          )
+          if diff.returncode != 0:
+              raise SystemExit(f"cannot determine changed feature specs: {diff.stderr.strip()}")
+          feature_ids = sorted({
+              match.group(1)
+              for path in diff.stdout.splitlines()
+              for match in [re.match(r"^specs/(\d{3,})-[^/]+/", path)]
+              if match is not None
+          })
+          if not feature_ids:
+              raise SystemExit("no repository-owned feature spec changed in pull request")
           body_path.write_text(body, encoding="utf-8")
-          feature_id_path.write_text(marker.group(1), encoding="ascii")
+          feature_id_path.write_text(",".join(feature_ids), encoding="ascii")
           PY
           feature_id="$(<"$feature_id_path")"
           python3 scripts/validate-pr-metadata.py \
