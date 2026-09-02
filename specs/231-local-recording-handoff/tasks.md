@@ -33,6 +33,7 @@
 - [X] T011 Require the local playback file to remain readable both when projecting the row action and when authorizing native open per FR-004 (partial)
 - [X] T012 Make the existing feature-pointer and release-attestation governance tests independent of another active feature and already-published CalVer tags after clean-SHA fast-CI convergence
 - [X] T013 Enforce the existing Feature ID canon in PR titles across repository guidance, template, validator and governance workflow per Feature 216 FR-003 (partial)
+- [X] T014 Revalidate local deletion state at the queue-service boundary, preserve zero saved-audio duration, and keep frequent cabinet row projection free of audio parsing/hashing after review findings (FR-004, FR-005, FR-013)
 
 ## Dependencies & Execution Order
 

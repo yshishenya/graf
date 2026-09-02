@@ -1079,7 +1079,10 @@ public struct ArtifactCompletenessProfile: Codable, Equatable, Sendable {
         self.manifestSizeBytes = manifestSizeBytes
         self.microphoneSizeBytes = microphoneSizeBytes
         self.systemAudioSizeBytes = systemAudioSizeBytes
-        self.durationSeconds = max(1, durationSeconds)
+        // A finalized package may contain only its manifest when capture fails
+        // before the first audio frame. Preserve that truthful zero instead of
+        // substituting the wall-clock session duration at the model boundary.
+        self.durationSeconds = max(0, durationSeconds)
         self.trackCompleteness = trackCompleteness
         self.isUploadable = isUploadable
         self.qualityWarningReason = qualityWarningReason

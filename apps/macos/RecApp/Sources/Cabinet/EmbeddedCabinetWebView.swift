@@ -899,7 +899,7 @@ public struct EmbeddedCabinetLocalRecordingRow: Codable, Equatable, Sendable {
             )
             let localCaptureFailure = item.failureCategory == .localResource
                 && [.degraded, .blocked, .failed].contains(item.state)
-            let canOpen = DesktopUploadQueueService.canOpenLocalPlayback(
+            let canOpen = DesktopUploadQueueService.canProjectLocalPlayback(
                 item: item,
                 recordingsRootURL: recordingsRootURL
             )
@@ -929,7 +929,7 @@ public struct EmbeddedCabinetLocalRecordingRow: Codable, Equatable, Sendable {
                 meetingId: item.meetingId ?? item.serverTruth.meetingId,
                 title: item.recordingMetadata?.title ?? "Запись",
                 startedAt: startedAt,
-                durationSeconds: max(1, item.artifactProfile.durationSeconds),
+                durationSeconds: max(0, item.artifactProfile.durationSeconds),
                 sessionDurationSeconds: sessionDurationSeconds,
                 status: status,
                 progressPercent: DesktopMeetingShellLocalQueuePolicy.progressPercent(for: item),
@@ -938,7 +938,7 @@ public struct EmbeddedCabinetLocalRecordingRow: Codable, Equatable, Sendable {
                 canSend: !damaged
                     && item.artifactProfile.isUploadable
                     && ![.saving, .uploading, .uploaded].contains(item.state),
-                canDelete: damaged || [.degraded, .blocked, .failed].contains(item.state),
+                canDelete: DesktopUploadQueueService.canDeleteLocalCopy(item: item),
                 uploadComplete: item.state == .uploaded
             )
         }

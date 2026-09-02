@@ -1895,6 +1895,85 @@ final class DesktopUploadQueueTests: XCTestCase {
         XCTAssertEqual(refreshed.failureReason, "aec_capture_failed")
     }
 
+    func testV5CaptureFailureWithoutSavedAudioPreservesZeroDuration() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let package = try makeV5RecordingPackage(
+            root: root,
+            directoryId: "capture-failed-without-audio",
+            sessionId: "capture-failed-without-audio-session"
+        )
+        try FileManager.default.removeItem(at: package.transcriptionURL)
+        try FileManager.default.removeItem(at: package.reviewURL)
+        let manifestService = LocalRecordingManifestService()
+        var manifest = try manifestService.read(from: package.manifestURL)
+        manifest.stoppedAt = manifest.startedAt.addingTimeInterval(40)
+        manifest.status = .failed
+        manifest.failureReason = .captureFailed
+        manifest.captureFailureCode = "aec_capture_failed"
+        try manifestService.write(manifest, to: package.manifestURL)
+        let service = DesktopUploadQueueService(
+            queueURL: root.appendingPathComponent("queue.json"),
+            recordingsRootURL: root,
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 100) }
+        )
+
+        let item = try XCTUnwrap(service.scanAndEnqueueCompletedRecordings().first)
+        let row = try XCTUnwrap(
+            EmbeddedCabinetLocalRecordingRow.rows(
+                for: [item],
+                recordingsRootURL: root
+            ).first
+        )
+
+        XCTAssertEqual(item.artifactProfile.durationSeconds, 0)
+        XCTAssertEqual(row.durationSeconds, 0)
+        XCTAssertFalse(row.canOpen)
+        XCTAssertFalse(row.showsPartialDuration)
+    }
+
+    func testDeleteLocalCopyRechecksCurrentStateAfterRetryWasAccepted() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let package = try makeRecordingPackage(
+            root: root,
+            directoryId: "delete-race-package",
+            sessionId: "delete-race-session"
+        )
+        let queueURL = root.appendingPathComponent("queue.json")
+        let initialService = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 100) }
+        )
+        var item = try XCTUnwrap(initialService.scanAndEnqueueCompletedRecordings().first)
+        item.state = .queued
+        item.failureCategory = .none
+        item.failureReason = nil
+        try JSONEncoder.uploadQueueTestEncoder
+            .encode(DesktopUploadQueueDocument(updatedAt: item.updatedAt, items: [item]))
+            .write(to: queueURL, options: [.atomic])
+
+        let refreshedService = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 101) }
+        )
+
+        XCTAssertFalse(DesktopUploadQueueService.canDeleteLocalCopy(item: item))
+        XCTAssertThrowsError(try refreshedService.deleteLocalCopy(itemId: item.id)) { error in
+            XCTAssertEqual(
+                String(describing: error),
+                "local_deletion_unavailable:\(item.id)"
+            )
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: package.directoryURL.path))
+        XCTAssertEqual(try refreshedService.loadItems().first?.state, .queued)
+    }
+
     func testLocalPlaybackRejectsMissingTrackAndPathOutsideRecordingRoot() throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }

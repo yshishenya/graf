@@ -8,6 +8,7 @@ public enum DesktopUploadQueueServiceError: Error, CustomStringConvertible, Send
     case packageNotFound(String)
     case localArtifactOutsideRecordingsRoot(String)
     case localPlaybackUnavailable(String)
+    case localDeletionUnavailable(String)
 
     public var description: String {
         switch self {
@@ -19,6 +20,8 @@ public enum DesktopUploadQueueServiceError: Error, CustomStringConvertible, Send
             return "local_artifact_outside_recordings_root:\(URL(fileURLWithPath: path).lastPathComponent)"
         case .localPlaybackUnavailable(let itemId):
             return "local_playback_unavailable:\(itemId)"
+        case .localDeletionUnavailable(let itemId):
+            return "local_deletion_unavailable:\(itemId)"
         }
     }
 }
@@ -395,6 +398,9 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             guard isInsideRecordingsRoot(item.directoryPath) else {
                 throw DesktopUploadQueueServiceError.localArtifactOutsideRecordingsRoot(item.directoryPath)
             }
+            guard Self.canDeleteLocalCopy(item: item) else {
+                throw DesktopUploadQueueServiceError.localDeletionUnavailable(itemId)
+            }
             if FileManager.default.fileExists(atPath: item.directoryPath) {
                 try FileManager.default.removeItem(atPath: item.directoryPath)
             }
@@ -440,19 +446,44 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         item: DesktopUploadQueueItem,
         recordingsRootURL: URL
     ) -> Bool {
-        let path = item.reviewAudioPath
-        guard let playbackTrack = item.artifactProfile.trackCompleteness.first(where: {
-                  $0.transportRole == .playback && $0.present
-              }),
-              isInsideRecordingsRoot(path, rootURL: recordingsRootURL),
-              FileManager.default.fileExists(atPath: path),
-              FileManager.default.isReadableFile(atPath: path),
-              let artifact = reviewAudioArtifact(URL(fileURLWithPath: path)),
+        guard canProjectLocalPlayback(item: item, recordingsRootURL: recordingsRootURL),
+              let playbackTrack = playbackTrack(for: item),
+              let artifact = reviewAudioArtifact(URL(fileURLWithPath: item.reviewAudioPath)),
               artifact.byteCount == playbackTrack.byteCount
         else {
             return false
         }
         return playbackTrack.sha256 == nil || playbackTrack.sha256 == artifact.sha256
+    }
+
+    /// Projects the inexpensive part of the playback contract for frequent UI refreshes.
+    /// Full audio parsing and hashing remain reserved for the native-open authorization path.
+    public static func canProjectLocalPlayback(
+        item: DesktopUploadQueueItem,
+        recordingsRootURL: URL
+    ) -> Bool {
+        guard let playbackTrack = playbackTrack(for: item),
+              isInsideRecordingsRoot(item.reviewAudioPath, rootURL: recordingsRootURL),
+              FileManager.default.fileExists(atPath: item.reviewAudioPath),
+              FileManager.default.isReadableFile(atPath: item.reviewAudioPath),
+              fileSize(URL(fileURLWithPath: item.reviewAudioPath)) == playbackTrack.byteCount
+        else {
+            return false
+        }
+        return true
+    }
+
+    public static func canDeleteLocalCopy(item: DesktopUploadQueueItem) -> Bool {
+        item.failureReason == "recording_recovery_not_possible"
+            || [.degraded, .blocked, .failed].contains(item.state)
+    }
+
+    private static func playbackTrack(
+        for item: DesktopUploadQueueItem
+    ) -> UploadTrackCompleteness? {
+        item.artifactProfile.trackCompleteness.first(where: {
+            $0.transportRole == .playback && $0.present
+        })
     }
 
     @discardableResult
@@ -1768,7 +1799,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 manifestSizeBytes: manifestSize,
                 microphoneSizeBytes: 0,
                 systemAudioSizeBytes: 0,
-                durationSeconds: savedDurationSeconds > 0 ? savedDurationSeconds : sessionDurationSeconds,
+                durationSeconds: savedDurationSeconds,
                 trackCompleteness: tracks,
                 isUploadable: uploadable,
                 qualityWarningReason: uploadable ? Self.qualityWarningReason(for: manifest) : nil
