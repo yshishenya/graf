@@ -43,6 +43,14 @@ Closure rules:
   immediately after merge if it is missing;
 - if a GitHub issue is closed but `tasks.md` is still open, verify the
   implementation and evidence before marking the task complete.
+- Before closing a task-backed issue, export its metadata with
+  `gh issue view <number> --json number,title,state,body,comments > /tmp/issue.json`
+  and run `python3 scripts/validate-issue-closeout.py --issue-json /tmp/issue.json
+  --tasks specs/<feature>/tasks.md`. A non-zero result is a hard stop. This
+  check is metadata-only and never closes or reopens an issue for you.
+- If GitHub auto-closed an issue, run the same check immediately; add the
+  required Russian closure comment first, and reopen the issue when tasks or
+  evidence are incomplete.
 
 PR rules:
 

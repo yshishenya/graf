@@ -61,6 +61,11 @@ def _ids_from_refs(refs: Iterable[str]) -> set[int]:
     return result
 
 
+def _refs_without_requested_branch(refs: Iterable[str], branch: str) -> list[str]:
+    """Exclude the local/origin refs for the branch currently being claimed."""
+    return [ref for ref in refs if ref != branch and not ref.endswith(f"/{branch}")]
+
+
 def _github_ids(
     root: Path,
     *,
@@ -581,10 +586,7 @@ def main(argv: list[str] | None = None) -> int:
             # The caller creates the requested branch before invoking
             # ``--allocate``; that branch is the claim being made, not a
             # competing reservation.  Exclude its local and origin refs.
-            refs = [
-                ref for ref in refs
-                if ref != args.branch and not ref.endswith(f"/{args.branch}")
-            ]
+            refs = _refs_without_requested_branch(refs, args.branch)
             occupied = _ids_from_specs(root) | _ids_from_refs(refs) | set(int(key) for key in claims)
             # Probe only the next candidate.  GitHub issue history is large;
             # exact marker searches preserve freshness without a slow full scan.

@@ -20,8 +20,9 @@ constitution and linked guidance; this file only routes a feature through them.
 2. Check `git status --short --branch`, exact `HEAD`, remote and
    `.specify/feature.json`.
 3. Reserve a collision-free Feature ID and umbrella GitHub issue before branch
-   or spec creation. Check local specs, visible refs, issues and PRs. Never use
-   only the local maximum.
+   or spec creation. The online allocator checks the candidate with bounded
+   exact GitHub searches, ignores the requested branch ref, and fails closed on
+   lookup errors. Never use only the local maximum.
 4. Run the full significant/high-risk sequence:
    `specify → clarify → plan → checklist → tasks → analyze → taskstoissues →
    implement → converge → quickstart → fast validation`.
@@ -140,3 +141,10 @@ retired in separate small features with cutover and rollback evidence.
 | Failed smoke | keep previous manifest active, capture reason, fix or rollback |
 | Checklist/analyze blocker | reviewer updates requirements/design; implementation does not bypass |
 | Legacy exception expired | block merge/release and create/execute retirement task |
+
+Before closing a task-backed issue, export its metadata and run
+`python3 scripts/validate-issue-closeout.py --issue-json /tmp/issue.json
+--tasks specs/<feature>/tasks.md`. It must pass for every issue named by the
+feature. A closed issue without a detailed Russian closure comment is a process
+failure even when GitHub closed it automatically; add the comment and reconcile
+the task state before declaring the feature complete.
