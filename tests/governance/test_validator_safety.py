@@ -381,6 +381,35 @@ def test_feature_claim_github_timeout_fails_closed(monkeypatch, tmp_path: Path) 
         raise AssertionError("GitHub timeout was not treated as a fail-closed error")
 
 
+def test_feature_claim_bounded_lookup_uses_exact_candidate_search(monkeypatch, tmp_path: Path) -> None:
+    validator = load_script("claim-feature")
+    calls: list[list[str]] = []
+
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        if command[:2] == ["git", "config"]:
+            return subprocess.CompletedProcess(command, 0, stdout="https://github.com/example/project.git\n")
+        assert "--paginate" not in command
+        return subprocess.CompletedProcess(command, 0, stdout=json.dumps({"total_count": 0, "items": []}))
+
+    monkeypatch.setattr(validator.subprocess, "run", fake_run)
+    assert validator._github_ids(tmp_path, strict=True, candidates={234}) == set()
+    assert len(calls) == 6  # remote lookup plus five exact marker queries
+    assert all("234" in " ".join(call) for call in calls[1:])
+
+
+def test_feature_claim_excludes_requested_branch_from_collision_refs() -> None:
+    validator = load_script("claim-feature")
+    refs = [
+        "codex/234-process-closeout",
+        "origin/codex/234-process-closeout",
+        "origin/codex/235-other",
+    ]
+    assert validator._refs_without_requested_branch(refs, "codex/234-process-closeout") == [
+        "origin/codex/235-other"
+    ]
+
+
 def test_package_safety_allows_documentation_examples_but_rejects_credentials(tmp_path: Path) -> None:
     validator = load_harness_validators()
     (tmp_path / "README.md").write_text("Use `secret:` and `password =` as field names.\n", encoding="utf-8")

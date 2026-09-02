@@ -16,6 +16,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Iterable
 
@@ -61,10 +62,28 @@ def _ids_from_refs(refs: Iterable[str]) -> set[int]:
     return result
 
 
-def _github_ids(root: Path, *, exclude_issue: int | None = None, strict: bool = False) -> set[int]:
-    """Read every visible issue/PR marker through the paginated GitHub API."""
+def _refs_without_requested_branch(refs: Iterable[str], branch: str) -> list[str]:
+    """Exclude the local/origin refs for the branch currently being claimed."""
+    return [ref for ref in refs if ref != branch and not ref.endswith(f"/{branch}")]
+
+
+def _github_ids(
+    root: Path,
+    *,
+    exclude_issue: int | None = None,
+    strict: bool = False,
+    candidates: Iterable[int] | None = None,
+) -> set[int]:
+    """Read feature markers, using bounded exact searches when possible.
+
+    The repository has thousands of historical issues, so a full pagination
+    scan is intentionally retained only for offline suggestions/tests. Claims
+    and allocation pass the one candidate they are about to reserve; those
+    checks stay fast and avoid an unbounded GitHub API walk.
+    """
     result: set[int] = set()
     try:
+        deadline = time.monotonic() + GITHUB_COMMAND_TIMEOUT_SECONDS
         remote = subprocess.run(
             ["git", "config", "--get", "remote.origin.url"],
             cwd=root, check=True, capture_output=True, text=True,
@@ -72,13 +91,32 @@ def _github_ids(root: Path, *, exclude_issue: int | None = None, strict: bool = 
         match = re.search(r"github\.com[:/]([^/ :]+/[^/ .]+?)(?:\.git)?$", remote)
         if not match:
             raise ValueError("remote.origin.url is not a GitHub repository")
-        endpoint = f"repos/{match.group(1)}/issues?state=all&per_page=100"
-        proc = subprocess.run(
-            ["gh", "api", "--paginate", "--slurp", endpoint],
-            cwd=root, check=True, capture_output=True, text=True,
-            timeout=GITHUB_COMMAND_TIMEOUT_SECONDS,
-        )
-        pages = json.loads(proc.stdout or "[]")
+        repo = match.group(1)
+        if candidates is None:
+            endpoint = f"repos/{repo}/issues?state=all&per_page=100"
+            proc = subprocess.run(
+                ["gh", "api", "--paginate", "--slurp", endpoint],
+                cwd=root, check=True, capture_output=True, text=True,
+                timeout=max(1, deadline - time.monotonic()),
+            )
+            pages = json.loads(proc.stdout or "[]")
+        else:
+            pages = []
+            for candidate in sorted({int(value) for value in candidates if int(value) > 0}):
+                marker = f"{candidate:03d}"
+                for query in (
+                    f'repo:{repo} in:title "[{marker}]"',
+                    f'repo:{repo} label:"feature:{marker}"',
+                    f'repo:{repo} in:body "Feature ID: F{marker}"',
+                    f'repo:{repo} in:body "Feature ID: {marker}"',
+                    f'repo:{repo} in:body "feature_id: {marker}"',
+                ):
+                    proc = subprocess.run(
+                        ["gh", "api", "-X", "GET", "search/issues", "-f", f"q={query}", "-f", "per_page=100"],
+                        cwd=root, check=True, capture_output=True, text=True,
+                        timeout=max(1, deadline - time.monotonic()),
+                    )
+                    pages.append(json.loads(proc.stdout or "{}"))
     except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired, json.JSONDecodeError, ValueError) as exc:
         if strict:
             raise SystemExit(
@@ -87,6 +125,8 @@ def _github_ids(root: Path, *, exclude_issue: int | None = None, strict: bool = 
             ) from exc
         return result
     rows = [row for page in pages if isinstance(page, list) for row in page]
+    if candidates is not None:
+        rows.extend(row for page in pages if isinstance(page, dict) for row in page.get("items", []) if isinstance(row, dict))
     for row in rows:
         if exclude_issue is not None and row.get("number") == exclude_issue:
             continue
@@ -393,7 +433,7 @@ def claim(root: Path, feature_id: int, *, issue_number: int | None, branch: str,
     )
     occupied = _ids_from_specs(root) | _ids_from_refs(refs) | set(int(key) for key in local_claims)
     if not offline:
-        occupied |= _github_ids(root, exclude_issue=issue_number, strict=True)
+        occupied |= _github_ids(root, exclude_issue=issue_number, strict=True, candidates={feature_id})
     if feature_id in occupied and not (same_local_claim or draft_upgrade):
         conflicts = sorted(
             [f"spec/branch ref containing {feature_id:03d}"],
@@ -546,9 +586,28 @@ def main(argv: list[str] | None = None) -> int:
             if args.issue_number is not None:
                 _github_umbrella(root, args.issue_number, requested_feature_id)
             _validate_claims(claims, claims_path)
-            occupied = _ids_from_specs(root) | _ids_from_refs(_git_refs(root, strict=True)) | set(int(key) for key in claims)
-            occupied |= _github_ids(root, exclude_issue=args.issue_number, strict=True)
+            refs = _git_refs(root, strict=True)
+            # The caller creates the requested branch before invoking
+            # ``--allocate``; that branch is the claim being made, not a
+            # competing reservation.  Exclude its local and origin refs.
+            refs = _refs_without_requested_branch(refs, args.branch)
+            occupied = _ids_from_specs(root) | _ids_from_refs(refs) | set(int(key) for key in claims)
+            # Probe only the next candidate.  GitHub issue history is large;
+            # exact marker searches preserve freshness without a slow full scan.
+            occupied |= _github_ids(
+                root,
+                exclude_issue=args.issue_number,
+                strict=True,
+                candidates={max(1, max(occupied, default=0) + 1)},
+            )
             feature_id = _available_id(occupied, max(1, max(occupied, default=0) + 1))
+            while _github_ids(
+                root,
+                exclude_issue=issue_number,
+                strict=True,
+                candidates={feature_id},
+            ):
+                feature_id += 1
             if requested_feature_id != feature_id:
                 raise SystemExit(
                     f"feature-claim: generated branch {args.branch!r} is not the next collision-free Feature {feature_id:03d}; retry bootstrap"
@@ -577,7 +636,13 @@ def main(argv: list[str] | None = None) -> int:
             # A suggested number is useful only when it includes the same
             # remote collision sources as an actual claim. Offline mode is
             # explicitly a draft and must be labelled as such.
-            occupied |= _github_ids(root)
+            # Suggestions are advisory; keep them bounded to the next local
+            # candidate instead of scanning the complete historical backlog.
+            suggestion = _available_id(occupied, max(1, max(occupied, default=0) + 1))
+            while _github_ids(root, candidates={suggestion}):
+                suggestion += 1
+            print(json.dumps({"next_available": f"{suggestion:03d}", "occupied_count": len(occupied), "mode": "github-checked"}))
+            return 0
         next_id = _available_id(occupied, max(1, max(occupied, default=0) + 1))
         print(json.dumps({"next_available": f"{next_id:03d}", "occupied_count": len(occupied), "mode": "offline-draft" if args.offline else "github-checked"}))
         return 0

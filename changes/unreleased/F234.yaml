@@ -1,0 +1,10 @@
+schema_version: 1
+feature_id: 234
+category: Changed
+summary: "Укреплены bounded-выдача Feature ID, правила issue-closeout и единый GitHub PR gate"
+issue: 6373
+tasks: [T001, T002, T003, T004, T005, T006]
+compatibility: "Локальный ci-local.sh сохранён как ручной fallback; production и прикладная логика не изменены"
+known_limitations:
+  - "Закрытие GitHub issue остаётся явным действием владельца после metadata-only проверки"
+release_notes: "Онлайн allocator больше не сканирует всю историю issues, а закрытие issue с задачей требует проверяемого русского closure evidence"

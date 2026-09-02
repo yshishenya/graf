@@ -16,12 +16,16 @@
 ## Как проверено
 
 - Focused-проверки:
+- GitHub `governance-fast` на exact SHA — обязательный authoritative PR
+  gate (ссылка на успешный run):
 - `infra/scripts/ci-local.sh --fast`: requested/effective lane, components,
   coverage, next gate, result, duration:
 - `infra/scripts/ci-local.sh --full`: exact SHA, result, duration, collection
   count/digest (только для frozen release candidate):
 - `infra/scripts/cd-remote.sh --dry-run`: result / not applicable:
 - Exact source SHA и observed SHA в evidence:
+- Локальный `ci-local.sh` — только ручная диагностика/offline fallback; его
+  receipt не заменяет GitHub check:
 
 ## Risk / validation lane
 

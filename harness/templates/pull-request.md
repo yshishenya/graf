@@ -8,7 +8,10 @@
 
 - Exact source SHA и observed SHA:
 - CI evidence:
-- Команда и результат: `./infra/scripts/ci-local.sh --fast` — PASS/FAIL/BLOCKED
+- Обязательный PR gate: GitHub `governance-fast` на exact SHA —
+  PASS/FAIL/BLOCKED, ссылка на run:
+- Локальный `infra/scripts/ci-local.sh --fast` — только ручная диагностика или
+  offline fallback; локальное evidence не заменяет GitHub check.
 
 ## Risk / validation lane
 

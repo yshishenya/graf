@@ -81,6 +81,7 @@ def main() -> int:
         ["scripts/validate-agent-context.py", "--self-test"],
         ["scripts/validate-ci-evidence.py", "dummy.json", "--self-test"],
         ["scripts/validate-pr-metadata.py", "dummy.md", "--feature-id", "216", "--self-test"],
+        ["scripts/validate-issue-closeout.py", "--self-test"],
     ]
     if args.self_test:
         for command in checks:
