@@ -524,6 +524,14 @@ grep -Fq 'GRAF_RELEASE_SIGNING_MODE=keychain' "$LOCAL_SIGNER" ||
   fail "local draft-signing entrypoint does not use the named Keychain signer"
 grep -Fq 'GRAF_RELEASE_SIGNING_KEYCHAIN_ATTESTATION="$ATTESTATION"' "$LOCAL_SIGNER" ||
   fail "local draft-signing entrypoint does not bind staging to local custody evidence"
+grep -Fq 'codesign --verify --deep --strict "$app_bundle"' "$LOCAL_SIGNER" ||
+  fail "local draft-signing entrypoint does not verify the downloaded candidate before launch"
+grep -Fq 'Authority=Developer ID Application:' "$LOCAL_SIGNER" ||
+  fail "local draft-signing entrypoint does not verify the downloaded candidate identity"
+grep -Fq 'codesign -R="$previous_requirement" --verify "$app_bundle"' "$LOCAL_SIGNER" ||
+  fail "local draft-signing entrypoint does not verify predecessor identity continuity before launch"
+grep -Fq 'GRAF_LOG_DIRECTORY="$LOG_DIRECTORY"' "$STARTUP_VALIDATOR" ||
+  fail "packaged-app launch validator does not isolate the application log directory"
 grep -Fq '"$STARTUP_VALIDATOR" "$APP_DIR/candidate/GRAF.app" 5 arm64' "$LOCAL_SIGNER" ||
   fail "local draft-signing entrypoint does not validate the arm64 packaged candidate launch"
 grep -Fq '"$STARTUP_VALIDATOR" "$APP_DIR/candidate/GRAF.app" 5 x86_64' "$LOCAL_SIGNER" ||

@@ -51,10 +51,12 @@ cleanup() {
   rm -rf "$RUNTIME_ROOT"
 }
 trap cleanup EXIT HUP INT TERM
-mkdir -p "$RUNTIME_ROOT/home"
+LOG_DIRECTORY="$RUNTIME_ROOT/logs"
+mkdir -p "$RUNTIME_ROOT/home" "$LOG_DIRECTORY"
 
 if [ "$ARCHITECTURE" = native ]; then
   HOME="$RUNTIME_ROOT/home" \
+  GRAF_LOG_DIRECTORY="$LOG_DIRECTORY" \
   GRAF_CABINET_BASE_URL=http://127.0.0.1:9 \
   GRAF_CABINET_REQUIRE_EXPLICIT_BASE_URL=1 \
   GRAF_UPLOAD_BASE_URL=http://127.0.0.1:9 \
@@ -62,6 +64,7 @@ if [ "$ARCHITECTURE" = native ]; then
     "$BINARY" >/dev/null 2>&1 &
 else
   HOME="$RUNTIME_ROOT/home" \
+  GRAF_LOG_DIRECTORY="$LOG_DIRECTORY" \
   GRAF_CABINET_BASE_URL=http://127.0.0.1:9 \
   GRAF_CABINET_REQUIRE_EXPLICIT_BASE_URL=1 \
   GRAF_UPLOAD_BASE_URL=http://127.0.0.1:9 \

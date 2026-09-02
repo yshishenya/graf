@@ -199,9 +199,32 @@ EOF
   actual_count=$(find "$app_root" -type l -print | wc -l | tr -d ' ')
   [ "$actual_count" = "$expected_count" ]
 }
+validate_downloaded_app_signature() {
+  app_bundle=$1
+  previous_app_bundle=$2
+  [ -d "$app_bundle" ] || fail "downloaded candidate app is missing"
+  codesign --verify --deep --strict "$app_bundle" >/dev/null 2>&1 ||
+    fail "downloaded candidate app signature is invalid"
+
+  signature_info=$(codesign -dv --verbose=4 "$app_bundle" 2>&1) ||
+    fail "downloaded candidate app signing identity is unavailable"
+  printf '%s\n' "$signature_info" | grep -Eq '^Authority=Developer ID Application:' ||
+    fail "downloaded candidate app must be signed with a Developer ID Application identity"
+  team_identifier=$(printf '%s\n' "$signature_info" | sed -n 's/^TeamIdentifier=//p' | head -n 1)
+  [ -n "$team_identifier" ] && [ "$team_identifier" != "not set" ] ||
+    fail "downloaded candidate app signing team is unavailable"
+
+  previous_requirement=$(codesign -dr - "$previous_app_bundle" 2>&1 |
+    sed -n 's/^designated => //p' | head -n 1)
+  [ -n "$previous_requirement" ] ||
+    fail "predecessor app designated requirement is unavailable"
+  codesign -R="$previous_requirement" --verify "$app_bundle" >/dev/null 2>&1 ||
+    fail "downloaded candidate app does not satisfy the predecessor designated requirement"
+}
 extract_graf_app "$INPUT_DIR/$CANDIDATE_ASSET" "$APP_DIR/candidate" || fail "candidate asset is not a safe GRAF.app ZIP"
 extract_graf_app "$INPUT_DIR/$PREVIOUS_ASSET" "$APP_DIR/previous" || fail "predecessor asset is not a safe GRAF.app ZIP"
 [ -x "$STARTUP_VALIDATOR" ] || fail "packaged app launch validator is missing or not executable"
+validate_downloaded_app_signature "$APP_DIR/candidate/GRAF.app" "$APP_DIR/previous/GRAF.app"
 "$STARTUP_VALIDATOR" "$APP_DIR/candidate/GRAF.app" 5 arm64 || fail "candidate arm64 packaged app launch failed"
 "$STARTUP_VALIDATOR" "$APP_DIR/candidate/GRAF.app" 5 x86_64 || fail "candidate x86_64 packaged app launch failed"
 
