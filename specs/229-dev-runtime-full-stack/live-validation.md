@@ -21,3 +21,13 @@ migration, data read or release publication is part of this rehearsal.
 
 The final section is appended only after the injected failure, compensation,
 explicit rollback and post-rehearsal fingerprint comparison complete.
+
+## Fixed-candidate boundary
+
+- captured at: `2026-09-02T13:07:09Z`
+- `1d5cef3b9eef3ce517f6a5739b12a8c1774c712c` is retained only as evidence of
+  the original presentation fix; repeated restart exposed a successful
+  one-shot `rec-minio-init` being treated as a failed Compose wait.
+- `1d574db6e8faddb067ec3210f19e623185e60370` contains the shared startup and
+  cleanup correction and is the first valid parent for the final rehearsal.
+- live smoke on that parent: 13/13 PASS.
