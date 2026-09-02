@@ -1533,7 +1533,11 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         )
     }
 
-    public final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, WKDownloadDelegate {
+    // macOS 14 imports these Objective-C delegate requirements as
+    // nonisolated, although WebKit invokes them on the UI thread. Keep the
+    // coordinator's UI state on MainActor while deferring that stale SDK
+    // annotation at this compatibility boundary.
+    public final class Coordinator: NSObject, @preconcurrency WKNavigationDelegate, @preconcurrency WKUIDelegate, @preconcurrency WKScriptMessageHandler, @preconcurrency WKDownloadDelegate {
         private let routePolicy: DesktopCabinetRoutePolicy
         private let desktopHeaders: [String: String]
         private let navigationRequestPolicy: DesktopCabinetNavigationRequestPolicy

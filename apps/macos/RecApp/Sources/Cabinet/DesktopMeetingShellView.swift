@@ -218,6 +218,7 @@ private extension Array where Element == DesktopUploadQueueItem {
     }
 }
 
+@MainActor
 public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: View>: View {
     private let session: CaptureSession?
     private let uploadQueueItems: [DesktopUploadQueueItem]

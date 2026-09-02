@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 
+@MainActor
 public struct DesktopCabinetWorkspaceView: View {
     public static let workspaceTitle = "Встречи"
     public static let workspaceAccessibilityLabel = "Встречи и обзор записей"

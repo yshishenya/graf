@@ -181,14 +181,14 @@ public final class AppOwnedMicrophoneSampleSource: TimestampedLocalRecordingSamp
 
         notificationObservers = [
             NotificationCenter.default.addObserver(
-                forName: AVCaptureSession.runtimeErrorNotification,
+                forName: NSNotification.Name.AVCaptureSessionRuntimeError,
                 object: session,
                 queue: nil
             ) { [weak self] _ in
                 self?.recordRuntimeFailure(.sourceStopped)
             },
             NotificationCenter.default.addObserver(
-                forName: AVCaptureDevice.wasDisconnectedNotification,
+                forName: NSNotification.Name.AVCaptureDeviceWasDisconnected,
                 object: captureDevice,
                 queue: nil
             ) { [weak self] _ in
