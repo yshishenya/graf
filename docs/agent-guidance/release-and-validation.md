@@ -1,9 +1,10 @@
 # Release And Validation
 
-## Local Validation
+## Local Validation (manual fallback)
 
-Use the feature `quickstart.md` first when working inside a Spec Kit slice. For
-repository-wide local validation, use one explicit lane:
+Use the feature `quickstart.md` first when working inside a Spec Kit slice.
+The workstation does not run repository-wide CI automatically. For explicit
+diagnosis or offline fallback, use one local lane:
 
 ```sh
 # Fast feedback before a code PR.
@@ -28,10 +29,13 @@ stage covers both committed/working-tree changes and selected untracked files.
 Fast is for iteration and PR feedback, never a release gate. Focused tests
 remain the first check during implementation.
 
-GitHub Actions are intentionally disabled for this repository. Nothing runs
-automatically on a pull request: the author must run the selected local lane and
-record its result in the PR. Use `--full` only for a release candidate or early
-broad diagnosis; do not run it after every small edit.
+GitHub Actions runs `governance-fast` automatically for each pull request and
+its exact-SHA result is the merge evidence. The workflow executes the bounded
+`ci-local.sh --fast` lane on a clean GitHub runner. Local `ci-local.sh` remains
+available only for an explicitly requested diagnosis or offline fallback; local
+evidence alone cannot authorize a merge. Use `--full` only for an early broad
+diagnosis or when the release workflow cannot provide the authoritative record;
+do not run it after every small edit.
 
 After Feature 227 is merged and the operator has enabled the required checks,
 the remote workflow must validate PR and `merge_group` target identity before
@@ -50,7 +54,7 @@ that receipt with `train-attest <manifest> --candidate <candidate> --evidence
 the changelog changes, validation fails and a new train must be frozen.
 
 Use targeted tests during development, but do not replace the feature
-quickstart or canonical local gate with a narrow command when the change touches
+quickstart or canonical GitHub gate with a narrow command when the change touches
 shared behavior, privacy, auth, storage, infrastructure, user-facing flows,
 UX/QA expectations, operations, release readiness, or shared code paths.
 
@@ -90,11 +94,8 @@ accumulated.
 
 1. Start with the feature `quickstart.md` when one exists.
 2. Run focused tests for the files and behavior being changed.
-3. Before calling a feature slice ready, run:
-
-   ```sh
-   infra/scripts/ci-local.sh --fast
-   ```
+3. Push the branch and wait for the required GitHub `governance-fast` check;
+   local CI is a manual fallback only.
 
 The fast lane is the normal feedback loop. It is not a release approval and it
 does not replace the full lane for a release candidate.
@@ -102,8 +103,9 @@ does not replace the full lane for a release candidate.
 ### 2. PR and merge
 
 The PR must record the selected risk/validation lane, commands, result, and
-commit SHA. GitHub Actions are disabled, so this evidence is supplied by the
-author. Do not run full CI after every local edit or every small commit.
+commit SHA. The required `governance-fast` GitHub check must be successful on
+that exact SHA; local evidence may supplement it but cannot replace it. Do not
+run full CI after every local edit or every small commit.
 
 Before merging a significant or high-risk slice, the fast lane and the feature
 quickstart must pass. If the change affects capture, privacy, auth, storage,

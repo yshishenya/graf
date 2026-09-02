@@ -34,6 +34,7 @@ jobs:
     timeout-minutes: 15
     env:
       GRAF_CI_REQUESTED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.event_name == 'merge_group' && github.event.merge_group.head_sha || inputs.requested_sha }}
+      GRAF_CI_EVIDENCE_PATH: .dev/ci-evidence/github-${{ github.run_id }}.json
     steps:
       - name: Checkout exact PR SHA
         uses: actions/checkout@v4
@@ -41,6 +42,44 @@ jobs:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.event_name == 'merge_group' && github.event.merge_group.head_sha || inputs.requested_sha }}
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Configure fixture git identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Install frozen Spec Kit CLI and bootstrap
+        shell: bash
+        env:
+          SPECIFY_CLI_VERSION: "1.0.1"
+          SPEC_KIT_REF: 9118ed15a0ba65053469a94c560ea5d233f75884
+          SPECKIT_BOOTSTRAP_SHA256: bdbfa1d56ab567de209ed55e2d2992284315bac43597a7c9f63f4f95b330a71c
+        run: |
+          set -euo pipefail
+          venv_dir="$RUNNER_TEMP/graf-specify-venv"
+          python3 -m venv "$venv_dir"
+          "$venv_dir/bin/python" -m pip install --disable-pip-version-check \
+            "specify-cli @ git+https://github.com/github/spec-kit.git@${SPEC_KIT_REF}" \
+            "pytest==9.1.1" \
+            "uv==0.11.28"
+          bin_dir="$RUNNER_TEMP/graf-bin"
+          mkdir -p "$bin_dir"
+          curl --fail --location --silent --show-error \
+            "https://github.com/yshishenya/speckit-bootstrap/releases/download/v0.9.9/speckit-bootstrap" \
+            --output "$bin_dir/speckit-bootstrap"
+          printf '%s  %s\n' "$SPECKIT_BOOTSTRAP_SHA256" "$bin_dir/speckit-bootstrap" | sha256sum --check --status -
+          chmod 0755 "$bin_dir/speckit-bootstrap"
+          {
+            printf '%s\n' "$venv_dir/bin"
+            printf '%s\n' "$bin_dir"
+            printf '%s\n' "$HOME/.local/bin"
+          } >> "$GITHUB_PATH"
+          export PATH="$venv_dir/bin:$bin_dir:$HOME/.local/bin:$PATH"
+          [[ "$(specify --version)" == "specify ${SPECIFY_CLI_VERSION}" ]]
+          specify --version
+          speckit-bootstrap --version
 
       - name: Resolve event identity
         id: identity
@@ -194,17 +233,19 @@ jobs:
                   "concurrency_key": concurrency_key,
               }, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
 
-          evidence_path = None
-          for path in sorted(Path(".dev/ci-evidence").glob("*.json"), reverse=True):
-              if path.name.startswith("receipt-"):
-                  continue
-              try:
-                  value = json.loads(path.read_text(encoding="utf-8"))
-              except (OSError, UnicodeError, json.JSONDecodeError):
-                  continue
-              if str(value.get("requested_sha", "")).lower() == target.lower():
-                  evidence_path = path
-                  break
+          evidence_path = Path(os.environ.get("GRAF_CI_EVIDENCE_PATH", ""))
+          if not evidence_path.is_file():
+              evidence_path = None
+              for path in sorted(Path(".dev/ci-evidence").glob("*.json"), reverse=True):
+                  if path.name.startswith("receipt-"):
+                      continue
+                  try:
+                      value = json.loads(path.read_text(encoding="utf-8"))
+                  except (OSError, UnicodeError, json.JSONDecodeError):
+                      continue
+                  if str(value.get("requested_sha", "")).lower() == target.lower():
+                      evidence_path = path
+                      break
           if evidence_path is None:
               evidence_path = Path(".dev/ci-evidence") / f"terminal-{run_id}.json"
               now = dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
