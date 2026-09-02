@@ -14,6 +14,14 @@ Context policy: keep always-on rules and pointers here; put task-specific
 procedures in one scoped guidance file and read that file only when relevant.
 Do not duplicate a detailed rule between this file and `docs/agent-guidance/`.
 
+## Общение с пользователем
+
+Отвечай на языке пользователя, если он не попросил иначе. Пиши просто и
+понятно. В русскоязычных ответах не используй англицизмы, если есть точное и
+привычное русское слово. Сохраняй названия продуктов, команды, пути,
+программные обозначения и необходимые технические термины, когда перевод
+ухудшает точность. Непонятный термин кратко объясняй при первом использовании.
+
 ## Project context and routing
 
 Product: `GRAF`, a self-hosted meeting capture and transcription product with a
