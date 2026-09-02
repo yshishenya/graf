@@ -35,6 +35,11 @@ def run_stubbed_ci(
 ) -> subprocess.CompletedProcess[str]:
     script = r'''
 source "$1"
+uname() {
+  # The lane-selection contract is platform-independent; model the macOS
+  # branch explicitly so the contract is deterministic on GitHub's Linux runner.
+  printf 'Darwin\n'
+}
 git() {
   # The fixture supplies a synthetic classified diff. Keep the checkout
   # snapshot clean so assertions exercise lane selection, not this test file's
