@@ -145,8 +145,10 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         applicationSupportURL: URL? = nil,
         channel: GrafAppChannel = .current
     ) -> URL {
-        let base = applicationSupportURL ?? fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ??
-            fileManager.temporaryDirectory
+        let base = MeetingDetectionAppModule.applicationSupportBaseURL(
+            fileManager: fileManager,
+            applicationSupportURL: applicationSupportURL
+        )
         let current = base
             .appendingPathComponent(channel.applicationSupportFolderName, isDirectory: true)
             .appendingPathComponent("UploadQueue", isDirectory: true)

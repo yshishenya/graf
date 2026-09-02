@@ -37,7 +37,7 @@ make_app() {
 
 [ -x "$VALIDATOR" ] || fail "validator is missing or not executable"
 
-living_app=$(make_app living 'sleep 30')
+living_app=$(make_app living 'printf "%s\\n" "timestamp event=app_launch_finished detail=fixture" >> "$GRAF_LOG_DIRECTORY/graf.log"; sleep 30')
 "$VALIDATOR" "$living_app" 5 >/dev/null || fail "living direct child was rejected"
 
 exiting_app=$(make_app exiting 'exit 17')
@@ -51,6 +51,11 @@ if "$VALIDATOR" "$exiting_app" 5 >/dev/null 2>&1; then
   fail "immediate exit was accepted while another process was alive"
 fi
 kill -0 "$CHILD_PID" 2>/dev/null || fail "validator terminated an unrelated process"
+
+not_ready_app=$(make_app not-ready 'sleep 30')
+if "$VALIDATOR" "$not_ready_app" 5 >/dev/null 2>&1; then
+  fail "candidate without startup readiness was accepted"
+fi
 
 malformed_app="$TEMP_ROOT/malformed/GRAF.app"
 mkdir -p "$malformed_app/Contents"

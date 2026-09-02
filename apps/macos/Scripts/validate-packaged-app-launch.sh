@@ -52,11 +52,13 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 LOG_DIRECTORY="$RUNTIME_ROOT/logs"
-mkdir -p "$RUNTIME_ROOT/home" "$LOG_DIRECTORY"
+APPLICATION_SUPPORT_DIRECTORY="$RUNTIME_ROOT/application-support"
+mkdir -p "$RUNTIME_ROOT/home" "$LOG_DIRECTORY" "$APPLICATION_SUPPORT_DIRECTORY"
 
 if [ "$ARCHITECTURE" = native ]; then
   HOME="$RUNTIME_ROOT/home" \
   GRAF_LOG_DIRECTORY="$LOG_DIRECTORY" \
+  GRAF_APPLICATION_SUPPORT_DIRECTORY="$APPLICATION_SUPPORT_DIRECTORY" \
   GRAF_CABINET_BASE_URL=http://127.0.0.1:9 \
   GRAF_CABINET_REQUIRE_EXPLICIT_BASE_URL=1 \
   GRAF_UPLOAD_BASE_URL=http://127.0.0.1:9 \
@@ -65,6 +67,7 @@ if [ "$ARCHITECTURE" = native ]; then
 else
   HOME="$RUNTIME_ROOT/home" \
   GRAF_LOG_DIRECTORY="$LOG_DIRECTORY" \
+  GRAF_APPLICATION_SUPPORT_DIRECTORY="$APPLICATION_SUPPORT_DIRECTORY" \
   GRAF_CABINET_BASE_URL=http://127.0.0.1:9 \
   GRAF_CABINET_REQUIRE_EXPLICIT_BASE_URL=1 \
   GRAF_UPLOAD_BASE_URL=http://127.0.0.1:9 \
@@ -78,5 +81,8 @@ kill -0 "$CHILD_PID" 2>/dev/null || {
   wait "$CHILD_PID" 2>/dev/null || true
   fail "candidate process exited before ${MINIMUM_SECONDS}s"
 }
+[ -f "$LOG_DIRECTORY/graf.log" ] || fail "candidate did not create its isolated startup log"
+grep -Fq 'event=app_launch_finished' "$LOG_DIRECTORY/graf.log" ||
+  fail "candidate did not emit the startup readiness marker"
 
 printf 'packaged_app_launch=pass minimum_seconds=%s architecture=%s child_pid_owned=yes\n' "$MINIMUM_SECONDS" "$ARCHITECTURE"

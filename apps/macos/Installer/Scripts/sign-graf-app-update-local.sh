@@ -10,6 +10,7 @@ VERIFIER="$SCRIPT_DIR/verify-release-signing-custody.sh"
 STARTUP_VALIDATOR="$MACOS_DIR/Scripts/validate-packaged-app-launch.sh"
 SPARKLE_DIR="$MACOS_DIR/.build/artifacts/sparkle/Sparkle"
 SPARKLE_ARCHIVE_SHA256=cb6fdbdc8884f15d62a616e79face92b08322410fd2d425edc6596ccbf4ba3b0
+EXPECTED_GRAF_TEAM_IDENTIFIER=94N8HYG672
 
 fail() {
   echo "local app-update signing failed: $*" >&2
@@ -203,16 +204,27 @@ validate_downloaded_app_signature() {
   app_bundle=$1
   previous_app_bundle=$2
   [ -d "$app_bundle" ] || fail "downloaded candidate app is missing"
+  codesign --verify --deep --strict "$previous_app_bundle" >/dev/null 2>&1 ||
+    fail "downloaded predecessor app signature is invalid"
   codesign --verify --deep --strict "$app_bundle" >/dev/null 2>&1 ||
     fail "downloaded candidate app signature is invalid"
+
+  previous_signature_info=$(codesign -dv --verbose=4 "$previous_app_bundle" 2>&1) ||
+    fail "downloaded predecessor app signing identity is unavailable"
+  printf '%s\n' "$previous_signature_info" | grep -Eq '^Authority=Developer ID Application:' ||
+    fail "downloaded predecessor app must be signed with a Developer ID Application identity"
+  previous_team_identifier=$(printf '%s\n' "$previous_signature_info" |
+    sed -n 's/^TeamIdentifier=//p' | head -n 1)
+  [ "$previous_team_identifier" = "$EXPECTED_GRAF_TEAM_IDENTIFIER" ] ||
+    fail "downloaded predecessor app is not signed by the trusted GRAF team"
 
   signature_info=$(codesign -dv --verbose=4 "$app_bundle" 2>&1) ||
     fail "downloaded candidate app signing identity is unavailable"
   printf '%s\n' "$signature_info" | grep -Eq '^Authority=Developer ID Application:' ||
     fail "downloaded candidate app must be signed with a Developer ID Application identity"
   team_identifier=$(printf '%s\n' "$signature_info" | sed -n 's/^TeamIdentifier=//p' | head -n 1)
-  [ -n "$team_identifier" ] && [ "$team_identifier" != "not set" ] ||
-    fail "downloaded candidate app signing team is unavailable"
+  [ "$team_identifier" = "$EXPECTED_GRAF_TEAM_IDENTIFIER" ] ||
+    fail "downloaded candidate app is not signed by the trusted GRAF team"
 
   previous_requirement=$(codesign -dr - "$previous_app_bundle" 2>&1 |
     sed -n 's/^designated => //p' | head -n 1)
