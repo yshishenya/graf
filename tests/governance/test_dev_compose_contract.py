@@ -73,7 +73,9 @@ def test_direct_runtime_start_rejects_mutable_image_defaults():
 
 def test_dev_start_seeds_deterministic_local_identity_after_migration():
     startup = (ROOT / "infra/scripts/start-dev-runtime.sh").read_text()
-    assert "scripts/seed_dev_identity.py --print-login" in startup
+    assert "compose run --rm rec-migrate python scripts/seed_dev_identity.py --print-login" in startup
+    assert "compose run --rm rec-migrate python /app/scripts/dev-migration-preflight.py" in startup
+    assert 'SERVER_ROOT=' not in startup
 
 
 def test_dev_start_waits_for_long_running_infra_before_one_shot_minio_init():

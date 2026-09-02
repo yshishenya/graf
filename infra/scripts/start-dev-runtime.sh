@@ -8,7 +8,6 @@ COMPOSE_FILE="$ROOT_DIR/infra/docker-compose.dev.yml"
 PROJECT="${GRAF_DEV_COMPOSE_PROJECT:-graf-dev}"
 SOURCE_SHA="${GRAF_DEV_SOURCE_SHA:-}"
 STATE_ROOT="${GRAF_DEV_STATE_ROOT:-${GRAF_DEV_STATE_DIR:-$HOME/Library/Application Support/GRAF Dev/$PROJECT}}"
-SERVER_ROOT="$ROOT_DIR/apps/server"
 
 fail() { echo "GRAF Dev runtime: $1" >&2; exit 1; }
 require_image_id() {
@@ -31,7 +30,7 @@ require_image_id GRAF_DEV_STORAGE_IMAGE "${GRAF_DEV_STORAGE_IMAGE:-}"
 require_image_id GRAF_DEV_STORAGE_INIT_IMAGE "${GRAF_DEV_STORAGE_INIT_IMAGE:-}"
 
 command -v docker >/dev/null 2>&1 || fail "docker is required"
-command -v uv >/dev/null 2>&1 || fail "uv is required"
+command -v python3 >/dev/null 2>&1 || fail "python3 is required"
 mkdir -p "$STATE_ROOT"
 
 export GRAF_DEV_SOURCE_SHA="$SOURCE_SHA"
@@ -56,7 +55,7 @@ export GRAF_CREDENTIAL_ENCRYPTION_KEY_FILE="${GRAF_CREDENTIAL_ENCRYPTION_KEY_FIL
 
 if [ ! -s "$GRAF_CREDENTIAL_ENCRYPTION_KEY_FILE" ]; then
   mkdir -p "$(dirname -- "$GRAF_CREDENTIAL_ENCRYPTION_KEY_FILE")"
-  (umask 077; uv run --directory "$SERVER_ROOT" python -c 'from cryptography.fernet import Fernet; import pathlib,sys; pathlib.Path(sys.argv[1]).write_bytes(Fernet.generate_key()+b"\n")' "$GRAF_CREDENTIAL_ENCRYPTION_KEY_FILE")
+  (umask 077; python3 -c 'import base64,pathlib,secrets,sys; pathlib.Path(sys.argv[1]).write_bytes(base64.urlsafe_b64encode(secrets.token_bytes(32))+b"\n")' "$GRAF_CREDENTIAL_ENCRYPTION_KEY_FILE")
 fi
 
 compose() { docker compose -p "$PROJECT" -f "$COMPOSE_FILE" "$@"; }
@@ -80,16 +79,15 @@ compose config --quiet
 compose up -d --wait --force-recreate rec-postgres rec-minio rec-temporal
 compose run --rm rec-minio-init
 
-PREFLIGHT="$ROOT_DIR/infra/scripts/dev-migration-preflight.py"
 set +e
-PREFLIGHT_JSON=$(uv run --directory "$SERVER_ROOT" python "$PREFLIGHT" --json)
+PREFLIGHT_JSON=$(compose run --rm rec-migrate python /app/scripts/dev-migration-preflight.py --server-root /app --json)
 PREFLIGHT_STATUS=$?
 set -e
 printf '%s\n' "$PREFLIGHT_JSON" > "$STATE_ROOT/migration-preflight.json"
 [ "$PREFLIGHT_STATUS" -eq 0 ] || fail "migration preflight blocked; see metadata-only $STATE_ROOT/migration-preflight.json"
 
 compose run --rm rec-migrate
-(cd "$SERVER_ROOT" && uv run python scripts/seed_dev_identity.py --print-login)
+compose run --rm rec-migrate python scripts/seed_dev_identity.py --print-login
 compose up -d --wait --force-recreate api rec-processing-worker rec-maintenance rec-media-worker
 compose ps --format json > "$STATE_ROOT/compose-services.json"
 printf '%s\n' "GRAF Dev runtime ready: project=$PROJECT sha=$SOURCE_SHA"

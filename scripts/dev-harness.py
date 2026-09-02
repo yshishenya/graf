@@ -99,12 +99,8 @@ RUNTIME_DEFINITION_PATHS = (
     "scripts/dev-harness.py",
     "infra/docker-compose.dev.yml",
     "infra/scripts/start-dev-runtime.sh",
-    "infra/scripts/dev-migration-preflight.py",
-    "apps/server/scripts/seed_dev_identity.py",
-    "apps/server/src",
-    "apps/server/alembic.ini",
-    "apps/server/pyproject.toml",
-    "apps/server/uv.lock",
+    "apps/macos/Scripts/install-dev-app.sh",
+    "apps/macos/Scripts/dev-app-lifecycle.swift",
 )
 # GRAF's current frontend is server-rendered by the backend.  Keep a separate
 # manifest field for a future split frontend, but do not invent a second local
@@ -1082,6 +1078,16 @@ class GrafLocalAdapter:
         }
         _validate_manifest(blocked)
         _write_json(_manifest_path(self.state, str(blocked["manifest_id"])), blocked)
+        _write_json(
+            self.state / "rollback-required.json",
+            {
+                "schema_version": "dev-rollback-required.v1",
+                "status": "rollback_required",
+                "manifest_id": blocked["manifest_id"],
+                "source_sha": blocked["source_sha"],
+                "checked_at": now(),
+            },
+        )
 
     def promote(self, manifest: Dict[str, Any]) -> Dict[str, str]:
         self._assert_supported()
@@ -1469,39 +1475,40 @@ def build_manifest(sha: str, feature_id: str, operator: str = "local", migration
 
 def operation_build(args: argparse.Namespace) -> Dict[str, Any]:
     root = state_dir(live=bool(getattr(args, "live", False)))
-    feature_id = args.feature_id or os.environ.get("GRAF_FEATURE_ID") or _active_feature_id()
-    migration_head = args.migration_head
-    if migration_head in {None, "", "unknown"}:
-        migration_head = _resolve_migration_head(_repo_root())
-    manifest = build_manifest(args.sha, feature_id, args.operator, migration_head, root)
-    active = _load_active(root)
-    # A manifest ID is derived from the source SHA. Rebuilding the active SHA
-    # must not silently replace its active record (or detach runtime metadata).
-    if active and active.get("manifest_id") == manifest["manifest_id"]:
-        return {
-            "operation": "build",
-            "dry_run": bool(args.dry_run),
-            "status": active.get("status", "active"),
-            "adapter": {"mode": "existing-active"},
-            "manifest": active,
-            "idempotent": True,
-        }
-    existing_path = _manifest_path(root, manifest["manifest_id"])
-    if existing_path.exists():
-        existing = _read_json(existing_path)
-        if existing == manifest:
-            return {"operation": "build", "dry_run": bool(args.dry_run), "status": existing.get("status", "built"), "adapter": {"mode": "existing"}, "manifest": existing, "idempotent": True}
-        raise HarnessError("manifest identity already exists with different metadata")
-    adapter_info: Dict[str, str] = {"mode": "metadata-only"}
-    if getattr(args, "live", False) and not args.dry_run:
-        adapter_info = GrafLocalAdapter(_repo_root(), root).build(manifest)
-        _validate_manifest(manifest)
-    elif getattr(args, "live", False):
-        adapter_info = {"mode": "live-dry-run"}
-    if not args.dry_run:
-        _mkdirs(root)
-        _write_json(existing_path, manifest)
-    return {"operation": "build", "dry_run": bool(args.dry_run), "adapter": adapter_info, "manifest": manifest}
+    with state_lock(root):
+        feature_id = args.feature_id or os.environ.get("GRAF_FEATURE_ID") or _active_feature_id()
+        migration_head = args.migration_head
+        if migration_head in {None, "", "unknown"}:
+            migration_head = _resolve_migration_head(_repo_root())
+        manifest = build_manifest(args.sha, feature_id, args.operator, migration_head, root)
+        active = _load_active(root)
+        # A manifest ID is derived from the source SHA. Rebuilding the active SHA
+        # must not silently replace its active record (or detach runtime metadata).
+        if active and active.get("manifest_id") == manifest["manifest_id"]:
+            return {
+                "operation": "build",
+                "dry_run": bool(args.dry_run),
+                "status": active.get("status", "active"),
+                "adapter": {"mode": "existing-active"},
+                "manifest": active,
+                "idempotent": True,
+            }
+        existing_path = _manifest_path(root, manifest["manifest_id"])
+        if existing_path.exists():
+            existing = _read_json(existing_path)
+            if existing == manifest:
+                return {"operation": "build", "dry_run": bool(args.dry_run), "status": existing.get("status", "built"), "adapter": {"mode": "existing"}, "manifest": existing, "idempotent": True}
+            raise HarnessError("manifest identity already exists with different metadata")
+        adapter_info: Dict[str, str] = {"mode": "metadata-only"}
+        if getattr(args, "live", False) and not args.dry_run:
+            adapter_info = GrafLocalAdapter(_repo_root(), root).build(manifest)
+            _validate_manifest(manifest)
+        elif getattr(args, "live", False):
+            adapter_info = {"mode": "live-dry-run"}
+        if not args.dry_run:
+            _mkdirs(root)
+            _write_json(existing_path, manifest)
+        return {"operation": "build", "dry_run": bool(args.dry_run), "adapter": adapter_info, "manifest": manifest}
 
 
 def operation_promote(args: argparse.Namespace) -> Dict[str, Any]:
@@ -1557,6 +1564,8 @@ def operation_promote(args: argparse.Namespace) -> Dict[str, Any]:
                 "updated_at": now(),
             }
             _write_json(root / "active-manifest.json", pointer)
+            with contextlib.suppress(FileNotFoundError):
+                (root / "rollback-required.json").unlink()
     return {"operation": "promote", "dry_run": bool(args.dry_run), "status": "ready" if args.dry_run else "active", "adapter": adapter_info, "manifest": promoted}
 
 
@@ -1573,6 +1582,28 @@ def operation_rehydrate(args: argparse.Namespace) -> Dict[str, Any]:
 def operation_status(args: argparse.Namespace) -> Dict[str, Any]:
     _assert_dev_environment()
     root = state_dir(live=bool(getattr(args, "live", False)))
+    recovery_path = root / "rollback-required.json"
+    if recovery_path.exists():
+        recovery = _read_json(recovery_path)
+        if (
+            recovery.get("schema_version") != "dev-rollback-required.v1"
+            or recovery.get("status") != "rollback_required"
+            or not re.fullmatch(r"[0-9a-fA-F]{40}", str(recovery.get("source_sha", "")))
+        ):
+            raise HarnessError("rollback-required receipt is invalid")
+        manifest = _read_json(
+            _manifest_path(root, _safe_id(str(recovery.get("manifest_id", "")), "manifest_id"))
+        )
+        _validate_manifest(manifest)
+        if manifest["source_sha"] != recovery["source_sha"]:
+            raise HarnessError("rollback-required receipt does not match its manifest")
+        return {
+            "operation": "status",
+            "status": "rollback_required",
+            "state_dir": str(root),
+            "manifest": manifest,
+            "recovery": recovery,
+        }
     active = _load_active(root)
     if active is None:
         return {"operation": "status", "status": "blocked", "reason": "no active Dev manifest", "state_dir": str(root)}
@@ -1662,6 +1693,8 @@ def operation_rollback(args: argparse.Namespace) -> Dict[str, Any]:
                     "updated_at": now(),
                 },
             )
+            with contextlib.suppress(FileNotFoundError):
+                (root / "rollback-required.json").unlink()
     return {
         "operation": "rollback",
         "dry_run": bool(args.dry_run),

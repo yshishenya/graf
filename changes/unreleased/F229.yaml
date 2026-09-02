@@ -5,5 +5,5 @@ summary: "Dev-выкатка запускает GRAF Dev с Dev-иконкой �
 issue: 6276
 tasks: [T039, T041]
 compatibility: "Новые manifest содержат image ID для one-shot storage init; старые manifest читаются, но live rollback блокируется, если в них нет полного набора image IDs"
-known_limitations: ["Переход с pre-hardening active manifest требует отдельного operator cutover без удаления старого state"]
+known_limitations: ["Изменение host-side orchestration или macOS mutation helpers требует отдельного operator cutover без удаления старого state; обычный server source связан с immutable image и компенсируется автоматически"]
 release_notes: "Promotion и rollback штатно перезапускают установленное Dev-приложение, проверяют имя, канал и отдельную Dev-иконку, а Compose запускают только из immutable image IDs выбранного manifest."

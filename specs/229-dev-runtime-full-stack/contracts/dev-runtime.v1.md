@@ -85,11 +85,18 @@ second intervals and finite retry counts. An exhausted deadline is `fail`, not
   selected manifest; mutable tags and source-SHA labels alone are not identity.
 - Missing or mismatched candidate/previous image IDs block before the active
   runtime is stopped.
+- Live builds share the promotion lock while mutable build tags are resolved,
+  inspected and archived; concurrent worktrees cannot mix candidate images.
+- Migration preflight and identity seed execute inside the selected immutable
+  server image. Host runtime compatibility covers only checkout-side
+  orchestration and macOS mutation helpers, not image-bound server source.
 - Native app registration is refreshed and the newly installed bundle is
   launched before smoke.
 - The pointer is committed only after all smoke checks pass.
 - On failure, previous app/runtime/pointer and the previous app launch state
   remain recoverable from the previous manifest's immutable image IDs; an
   unowned PID or unknown Compose project is never terminated.
+- Compensation failure writes a terminal metadata-only receipt surfaced by
+  `status` as `rollback_required`, including first promotion without a parent.
 - Rollback checks out the target SHA, restores the app and stack, runs the same
   smoke gate and records a metadata-only result.

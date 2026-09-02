@@ -41,11 +41,14 @@ dev_state="$(./infra/scripts/dev-harness.sh status --json | jq -r '.state_dir')"
 ./infra/scripts/dev-harness.sh smoke --json --live
 ```
 
-`build --live` проверяет `docker-compose.dev.yml`, импорт backend, собирает
-полный набор образов с label exact SHA и подписывает ровно один `GRAF Dev.app`.
+`build --live` под общим Dev lock проверяет `docker-compose.dev.yml`, импорт
+backend, собирает полный набор образов с label exact SHA и подписывает ровно
+один `GRAF Dev.app`.
 `promote --live` использует только `start-dev-runtime.sh`: Compose namespace
 `graf-dev` поднимает Postgres, MinIO, Temporal, migration, API и оба worker.
-Migration preflight выполняется до migration command и application readiness.
+Migration preflight и seed выполняются внутри выбранного immutable server image
+до migration command и application readiness; checkout-side server source не
+участвует в startup или compensation.
 `smoke --live` проверяет API, server-rendered `/login`, auth bootstrap,
 Postgres/MinIO/migration, Temporal, processing/media worker, app identity и
 presentation (`GRAF Dev`, channel `dev`, отдельная Dev-иконка) и exact SHA.
@@ -72,10 +75,13 @@ SHA. In a real GRAF checkout, `build` resolves the Alembic graph head with
 `uv run alembic heads`; `GRAF_DEV_MIGRATION_HEAD` or `--migration-head` may
 provide an explicitly verified override. Fixture manifests may use an explicit
 synthetic head, but the default `unknown` value is deliberately rejected by
-`promote`. `promote` takes an exclusive lock and replaces the active pointer
+`promote`. `build` and `promote` take the same exclusive lock; `promote` replaces the active pointer
 only after validation; a stale candidate or malformed component is refused.
 The first failed/partial operation therefore leaves the previous active
-manifest untouched. Re-promoting the active manifest is idempotent.
+manifest untouched. Re-promoting the active manifest is idempotent. If
+compensation fails, metadata-only `rollback-required.json` makes terminal
+`rollback_required` visible through `status`, including a first promotion with
+no previous active manifest.
 
 `rollback` selects the manifest's parent unless an explicit manifest ID is
 provided. `reset-data` is intentionally limited to metadata-only Dev state and

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 import importlib.util
 import json
 from pathlib import Path
@@ -197,26 +198,13 @@ def test_runtime_definition_drift_blocks_before_mutation(monkeypatch, tmp_path):
         )
 
 
-def test_runtime_definition_digest_includes_tracked_server_source(monkeypatch, tmp_path):
-    source = tmp_path / "apps" / "server" / "src" / "package" / "config.py"
-    source.parent.mkdir(parents=True)
-    source.write_text("VALUE = 1\n", encoding="utf-8")
-    adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
-    monkeypatch.setattr(dev_harness, "RUNTIME_DEFINITION_PATHS", ("apps/server/src",))
-    monkeypatch.setattr(
-        dev_harness,
-        "_run_command",
-        lambda *_args, **_kwargs: "apps/server/src/package/config.py\n",
-    )
-
-    before = adapter._runtime_definition_digest()
-    source.write_text("VALUE = 2\n", encoding="utf-8")
-
-    assert adapter._runtime_definition_digest() != before
-
-
-def test_runtime_definition_paths_include_host_harness():
-    assert "scripts/dev-harness.py" in dev_harness.RUNTIME_DEFINITION_PATHS
+def test_runtime_definition_paths_cover_host_mutation_helpers_not_image_bound_server_source():
+    assert {
+        "scripts/dev-harness.py",
+        "apps/macos/Scripts/install-dev-app.sh",
+        "apps/macos/Scripts/dev-app-lifecycle.swift",
+    } <= set(dev_harness.RUNTIME_DEFINITION_PATHS)
+    assert "apps/server/src" not in dev_harness.RUNTIME_DEFINITION_PATHS
 
 
 def test_manifest_image_preflight_rejects_server_source_sha_mismatch(monkeypatch, tmp_path):
@@ -678,6 +666,55 @@ def test_live_promote_marks_active_manifest_when_compensation_fails(monkeypatch,
         "checked_at": blocked["health"]["checked_at"],
         "checks": {"compensation": "fail"},
     }
+
+
+def test_first_promotion_failure_is_visible_without_active_pointer(monkeypatch, tmp_path):
+    candidate = manifest(tmp_path, "b" * 40, feature="229")
+    adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
+    dev_harness._write_json(
+        tmp_path / "manifests" / f"{candidate['manifest_id']}.json", candidate
+    )
+    adapter._mark_rollback_required(candidate)
+    monkeypatch.setattr(dev_harness, "state_dir", lambda **_: tmp_path)
+
+    status = dev_harness.operation_status(type("Args", (), {"live": False})())
+
+    assert status["status"] == "rollback_required"
+    assert status["manifest"]["manifest_id"] == candidate["manifest_id"]
+
+
+def test_live_build_holds_repository_global_state_lock(monkeypatch, tmp_path):
+    events = []
+
+    @contextmanager
+    def fake_lock(root):
+        events.append(("enter", root))
+        yield
+        events.append(("exit", root))
+
+    monkeypatch.setattr(dev_harness, "state_dir", lambda **_: tmp_path)
+    monkeypatch.setattr(dev_harness, "state_lock", fake_lock)
+    monkeypatch.setattr(
+        dev_harness.GrafLocalAdapter,
+        "build",
+        lambda *_: events.append(("build", tmp_path)) or {"mode": "live"},
+    )
+    args = type(
+        "Args",
+        (),
+        {
+            "sha": "c" * 40,
+            "feature_id": "229",
+            "operator": "test",
+            "migration_head": "head",
+            "live": True,
+            "dry_run": False,
+        },
+    )()
+
+    dev_harness.operation_build(args)
+
+    assert events == [("enter", tmp_path), ("build", tmp_path), ("exit", tmp_path)]
 
 
 def test_live_rollback_reinstalls_target_and_verifies_before_return(monkeypatch, tmp_path):
