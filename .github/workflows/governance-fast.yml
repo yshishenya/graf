@@ -61,9 +61,12 @@ jobs:
             --output "$bin_dir/speckit-bootstrap"
           printf '%s  %s\n' "$SPECKIT_BOOTSTRAP_SHA256" "$bin_dir/speckit-bootstrap" | sha256sum --check --status -
           chmod 0755 "$bin_dir/speckit-bootstrap"
-          printf '%s\n' "$venv_dir/bin" >> "$GITHUB_PATH"
-          printf '%s\n' "$bin_dir" >> "$GITHUB_PATH"
-          export PATH="$venv_dir/bin:$bin_dir:$PATH"
+          {
+            printf '%s\n' "$venv_dir/bin"
+            printf '%s\n' "$bin_dir"
+            printf '%s\n' "$HOME/.local/bin"
+          } >> "$GITHUB_PATH"
+          export PATH="$venv_dir/bin:$bin_dir:$HOME/.local/bin:$PATH"
           [[ "$(specify --version)" == "specify ${SPECIFY_CLI_VERSION}" ]]
           specify --version
           speckit-bootstrap --version
