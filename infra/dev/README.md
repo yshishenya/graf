@@ -46,8 +46,13 @@ dev_state="$(./infra/scripts/dev-harness.sh status --json | jq -r '.state_dir')"
 Migration preflight выполняется до migration command и application readiness.
 `smoke --live` проверяет API, server-rendered `/login`, auth bootstrap,
 Postgres/MinIO/migration, Temporal, processing/media worker, app identity и
-exact SHA. Live adapter отказывает, если SHA не совпадает с `HEAD`, origin не
-loopback, у Compose нет ожидаемого label или отсутствует signing identity.
+presentation (`GRAF Dev`, channel `dev`, отдельная Dev-иконка) и exact SHA.
+Перед заменой bundle adapter штатно завершает процесс, запущенный из
+`/Applications/GRAF Dev.app`, после установки обновляет LaunchServices и
+запускает новый bundle. Компенсация восстанавливает прежнее запущенное или
+остановленное состояние. Прямой `install-dev-app.sh` fail-closed, пока Dev app
+работает. Live adapter также отказывает, если SHA не совпадает с `HEAD`, origin
+не loopback, у Compose нет ожидаемого label или отсутствует signing identity.
 Он не предназначен для production/staging и не запускается в CI.
 
 `--live --dry-run` не выполняет реальные build/promote side effects.

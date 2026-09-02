@@ -134,6 +134,12 @@ rollback к ранее проверенному кандидату.
 - `/Applications/GRAF Dev.app` отсутствует, имеет другой bundle ID,
   designated requirement или signing identity: promotion блокируется до
   сохранения предыдущего приложения.
+- Запущенный процесс установленной Dev app штатно завершается до замены bundle;
+  таймаут завершения блокирует promotion, а компенсация восстанавливает
+  предыдущий bundle и его исходное запущенное/остановленное состояние.
+- Bundle на диске имеет Dev identity, но display name, channel или иконка
+  соответствуют старому `GRAF Local`/production: `app_presentation` не проходит
+  и active pointer не обновляется.
 - Runtime record содержит чужой PID или не подтверждается command/start token:
   process не завершается автоматически; требуется ручная проверка владельца.
 - Оператор пытается использовать public/production endpoint, secret, signed URL,
@@ -166,11 +172,14 @@ rollback к ранее проверенному кандидату.
   state as an implicit repair.
 - **FR-007**: The only installed Dev app MUST be `/Applications/GRAF Dev.app`
   with bundle ID `pro.2brain.graf.dev`, channel `dev`, a stable designated
-  requirement/signing identity, no production updater metadata and explicit
-  loopback cabinet/upload origins.
+  requirement/signing identity, display and bundle name `GRAF Dev`, a Dev icon
+  distinct from the production icon, no production updater metadata and
+  explicit loopback cabinet/upload origins.
 - **FR-008**: Promotion MUST take the existing Dev lock, validate candidate
-  parent and component identity, stage the app/runtime, run smoke, and update
-  the active manifest only after all required checks pass.
+  parent and component identity, gracefully terminate the installed Dev app,
+  stage the app/runtime, refresh native app registration, launch the newly
+  installed app, run smoke, and update the active manifest only after all
+  required checks pass.
 - **FR-009**: A failed or cancelled promotion MUST leave the previous active
   manifest, app and owned runtime recoverable; compensation MUST refuse to
   signal unowned processes.
@@ -181,7 +190,9 @@ rollback к ранее проверенному кандидату.
   `/login`, auth provider bootstrap, representative API route, database and
   storage readiness, migration readiness, Temporal readiness, processing
   worker readiness, media worker readiness, app bundle identity and exact
-  source SHA. Aggregate worker health MUST NOT replace the named checks.
+  source SHA, plus `app_presentation` for the running `GRAF Dev` name, `dev`
+  channel and distinct Dev icon. Aggregate worker health MUST NOT replace the
+  named checks.
 - **FR-012**: Dev receipts and logs MUST be metadata-only and MUST NOT contain
   secrets, credentials, raw audio, transcript text, signed URLs or private
   meeting content.

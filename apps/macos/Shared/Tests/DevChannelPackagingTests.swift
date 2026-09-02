@@ -46,6 +46,18 @@ final class DevChannelPackagingTests: XCTestCase {
         XCTAssertTrue(source.contains("native GRAF"))
         XCTAssertTrue(source.contains("shell launcher cannot own"))
         XCTAssertTrue(source.contains("LSEnvironment.GRAF_APP_CHANNEL"))
+        XCTAssertTrue(source.contains("Dev app is running; use dev-harness promote or rollback"))
+        XCTAssertTrue(source.contains("lsregister"))
+    }
+
+    func testDevLifecycleUsesNativeApplicationTermination() throws {
+        let source = try Self.readRepositoryFile("apps/macos/Scripts/dev-app-lifecycle.swift")
+
+        XCTAssertTrue(source.contains("NSWorkspace.shared.runningApplications"))
+        XCTAssertTrue(source.contains("terminate()"))
+        XCTAssertTrue(source.contains("bundleURL"))
+        XCTAssertFalse(source.localizedCaseInsensitiveContains("kill("))
+        XCTAssertFalse(source.localizedCaseInsensitiveContains("osascript"))
     }
 
     func testDevScriptsFailClosedWithoutTCCWorkaroundsOrExternalOrigins() throws {

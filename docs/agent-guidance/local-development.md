@@ -8,6 +8,14 @@ Temporal, processing worker and media worker from one exact SHA. The old
 `start-local.sh`/`docker-compose.local.yml` path is retained only as a bounded,
 non-active compatibility exception until Feature 228 retirement review.
 
+Dev promotion and rollback own the installed app lifecycle. They gracefully
+terminate the process launched from `/Applications/GRAF Dev.app`, replace and
+re-register the bundle, launch the new candidate, and require
+`app_presentation` to prove `GRAF Dev`, channel `dev` and the distinct
+Dev-badged icon. Do not run `install-dev-app.sh` directly while the app is
+running; it intentionally fails closed. Compensation relaunches the previous
+app only when it was running before the transaction.
+
 Login uses the existing email-code flow with `local@graf.test`. Development code
 and the non-Secure `graf_dev_owner_session` cookie are enabled only by the local
 script; production keeps the existing `__Host-` Secure cookie.

@@ -21,3 +21,19 @@ def test_installer_preserves_one_stable_destination_and_identity():
     assert "entitlements drift" in installer
     assert "entitlements_digest()" in installer
     assert "codesign -d --entitlements :- \"$1\" > \"$TEMP_ROOT/entitlements.plist\" 2>/dev/null" in installer
+    assert "Dev app is running; use dev-harness promote or rollback" in installer
+
+
+def test_dev_presentation_is_fixed_and_distinct_from_production():
+    builder = (ROOT / "apps/macos/Scripts/build-dev-app.sh").read_text()
+    installer = (ROOT / "apps/macos/Scripts/install-dev-app.sh").read_text()
+
+    for source in (builder, installer):
+        assert "CFBundleDisplayName" in source
+        assert "CFBundleName" in source
+        assert "GRAF_APP_CHANNEL" in source
+        assert "AppIcon.icns" in source
+    assert 'grep -Fxq "GRAF Dev"' in builder
+    assert 'grep -Fxq "dev"' in builder
+    assert "cmp -s" in builder
+    assert "cmp -s" in installer

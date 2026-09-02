@@ -6,10 +6,12 @@
 
 **Base SHA**: `836cbba8f1c53695dd9e06a21f58bf74365286ef` (F227)
 
-**Dependency gate**: remote merge/release claims remain blocked until F227 PR
-[#6275](https://github.com/yshishenya/graf/pull/6275) is merged and its exact
-SHA is revalidated. Local implementation may proceed from the recorded F227
-base, but must not claim the dependency is merged.
+**Dependency gate**: resolved — F227 PR
+[#6275](https://github.com/yshishenya/graf/pull/6275) was merged as
+`0f3becdc9970c0a86fc8aa273ef1bc26eca0b5a0`. This presentation-lifecycle
+follow-up starts from current `master`
+`455990a33f51fe232a8fc3270c8d0a0d27db298b`; exact-SHA release evidence is
+still produced only after the implementation commit.
 
 ## Summary
 
@@ -191,9 +193,9 @@ an automatic design failure.
 |---|---|---|
 | FR-001–FR-004 | T005–T006, T010–T018, T022–T025 | Compose graph, namespace, SHA and egress tests |
 | FR-005–FR-006 | T007, T015, T020–T023 | migration preflight and forbidden-repair tests |
-| FR-007 | T006, T018, T030 | app identity and atomic install tests |
+| FR-007 | T006, T018, T030, T039 | app identity, Dev presentation and atomic install tests |
 | FR-008–FR-010 | T026–T032 | promotion transaction and rollback tests |
-| FR-011 | T012, T017, T038–T039 | named live smoke checks |
+| FR-011 | T012, T017, T038–T039 | named live smoke and running app-presentation checks |
 | FR-012 | T006, T025, T035 | metadata-only evidence governance |
 | FR-013 | T026–T032, T035 | idempotency, lock and stale-parent tests |
 | FR-014 | T021, T023–T025, T035, T040 | production/legacy boundary and closeout gates |

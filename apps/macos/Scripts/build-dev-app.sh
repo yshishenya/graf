@@ -87,6 +87,10 @@ for icon_size in 16 32 128 256 512; do
   sips -z "$retina_size" "$retina_size" "$DEV_ICON_PNG" --out "$ICONSET_DIR/icon_${icon_size}x${icon_size}@2x.png" >/dev/null
 done
 iconutil -c icns "$ICONSET_DIR" -o "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
+[ -s "$APP_BUNDLE/Contents/Resources/AppIcon.icns" ] || fail "Dev icon is missing"
+if cmp -s "$MACOS_DIR/RecApp/Resources/AppIcon.icns" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"; then
+  fail "Dev icon must include a presentation distinct from production"
+fi
 
 if ! otool -l "$APP_BUNDLE/Contents/MacOS/GRAF" | grep -Fq '@executable_path/../Frameworks'; then
   install_name_tool -add_rpath '@executable_path/../Frameworks' "$APP_BUNDLE/Contents/MacOS/GRAF"
@@ -215,7 +219,10 @@ DESIGNATED_REQUIREMENT=$(codesign -dr - "$APP_BUNDLE" 2>&1 | sed -n 's/^designat
 
 INFO_PLIST="$APP_BUNDLE/Contents/Info.plist"
 plutil -extract CFBundleDisplayName raw "$INFO_PLIST" | grep -Fxq "GRAF Dev" || fail "Dev display name is invalid"
+plutil -extract CFBundleName raw "$INFO_PLIST" | grep -Fxq "GRAF Dev" || fail "Dev bundle name is invalid"
 plutil -extract CFBundleIdentifier raw "$INFO_PLIST" | grep -Fxq "pro.2brain.graf.dev" || fail "Dev bundle ID is invalid"
+plutil -extract CFBundleIconFile raw "$INFO_PLIST" | grep -Fxq "AppIcon" || fail "Dev icon metadata is invalid"
+plutil -extract LSEnvironment.GRAF_APP_CHANNEL raw "$INFO_PLIST" | grep -Fxq "dev" || fail "Dev channel is invalid"
 if plutil -extract SUFeedURL raw "$INFO_PLIST" >/dev/null 2>&1 ||
    plutil -extract SUPublicEDKey raw "$INFO_PLIST" >/dev/null 2>&1; then
   fail "Dev updater metadata must be absent"

@@ -3,6 +3,7 @@ set -eu
 
 ROOT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")/../../.." && pwd)
 BUILDER="$ROOT_DIR/apps/macos/Scripts/build-dev-app.sh"
+APP_LIFECYCLE="$ROOT_DIR/apps/macos/Scripts/dev-app-lifecycle.swift"
 DESTINATION="${GRAF_DEV_INSTALL_PATH:-/Applications/GRAF Dev.app}"
 INSTALL_PARENT=$(dirname -- "$DESTINATION")
 DESTINATION_NAME=$(basename -- "$DESTINATION")
@@ -48,6 +49,9 @@ case "$DESTINATION_CANONICAL" in
   "$PRODUCTION_APP_CANONICAL"/*) fail "Dev destination cannot be inside production GRAF.app" ;;
 esac
 [ -x "$BUILDER" ] || fail "Dev builder is missing or not executable"
+[ -f "$APP_LIFECYCLE" ] || fail "Dev app lifecycle helper is missing"
+APP_STATE=$(swift "$APP_LIFECYCLE" status "$DESTINATION") || fail "could not inspect the Dev app process"
+[ "$APP_STATE" = "stopped" ] || fail "Dev app is running; use dev-harness promote or rollback"
 
 CANDIDATE="$TEMP_ROOT/GRAF Dev.app"
 LOCAL_ORIGIN="${GRAF_DEV_ORIGIN:-}"
@@ -71,11 +75,18 @@ fi
 
 INFO_PLIST="$CANDIDATE/Contents/Info.plist"
 plutil -extract CFBundleDisplayName raw "$INFO_PLIST" | grep -Fxq "GRAF Dev" || fail "candidate display name is invalid"
+plutil -extract CFBundleName raw "$INFO_PLIST" | grep -Fxq "GRAF Dev" || fail "candidate bundle name is invalid"
 plutil -extract CFBundleIdentifier raw "$INFO_PLIST" | grep -Fxq "pro.2brain.graf.dev" || fail "candidate bundle ID is invalid"
+plutil -extract CFBundleIconFile raw "$INFO_PLIST" | grep -Fxq "AppIcon" || fail "candidate icon metadata is invalid"
 plutil -extract CFBundleExecutable raw "$INFO_PLIST" | grep -Fxq "GRAF" || fail "candidate executable must be native GRAF"
 [ ! -e "$CANDIDATE/Contents/MacOS/GRAF-dev" ] || fail "shell launcher cannot own the Dev bundle identity"
 plutil -extract LSEnvironment.GRAF_APP_CHANNEL raw "$INFO_PLIST" | grep -Fxq "dev" ||
   fail "candidate channel is not Dev"
+DEV_ICON="$CANDIDATE/Contents/Resources/AppIcon.icns"
+[ -s "$DEV_ICON" ] || fail "candidate Dev icon is missing"
+if cmp -s "$ROOT_DIR/apps/macos/RecApp/Resources/AppIcon.icns" "$DEV_ICON"; then
+  fail "candidate Dev icon is not distinct from production"
+fi
 plutil -extract GRAFSourceSHA raw "$INFO_PLIST" | grep -Fxq "$SOURCE_SHA" ||
   fail "candidate source SHA metadata is invalid"
 plutil -extract GRAFManifestID raw "$INFO_PLIST" | grep -Fxq "$MANIFEST_ID" ||
@@ -144,5 +155,10 @@ if ! mv "$STAGED_DESTINATION" "$DESTINATION"; then
   fail "atomic replacement failed; previous Dev app was restored when possible"
 fi
 rm -rf "$BACKUP_DESTINATION"
+touch "$DESTINATION"
+LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+if [ -x "$LSREGISTER" ]; then
+  "$LSREGISTER" -f "$DESTINATION" >/dev/null 2>&1 || true
+fi
 
 printf '%s\n' "$DESTINATION"

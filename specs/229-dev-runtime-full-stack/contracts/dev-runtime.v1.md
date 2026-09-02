@@ -29,7 +29,8 @@ of v1. The macOS client is the separately staged `GRAF Dev.app`.
   blocks startup before promotion.
 - `GRAF Dev.app` is the only Dev destination and has bundle ID
   `pro.2brain.graf.dev`, channel `dev`, stable designated requirement/signing
-  identity and no production updater metadata.
+  identity, display/bundle name `GRAF Dev`, an icon distinct from production
+  with the Dev badge, and no production updater metadata.
 - Production app, origins, volumes, databases and credentials are rejected
   before mutation.
 
@@ -53,7 +54,12 @@ Required metadata-only check names are:
 `backend_health`, `frontend_reachability`, `auth_session_bootstrap`,
 `representative_api`, `temporal_readiness`, `processing_worker_readiness`,
 `media_worker_readiness`, `database_readiness`, `storage_readiness`,
-`app_identity`, and `exact_source_sha`.
+`app_identity`, `app_presentation`, and `exact_source_sha`.
+
+`app_presentation` passes only when the newly launched process belongs to the
+installed `/Applications/GRAF Dev.app`, both visible bundle names are
+`GRAF Dev`, the channel is `dev`, and `AppIcon.icns` is present and distinct
+from the production icon.
 
 Every required check must be `pass`. A provider call is not required for this
 local contract; provider credentials are never placed in the desktop app or
@@ -67,9 +73,15 @@ second intervals and finite retry counts. An exhausted deadline is `fail`, not
 ## Transaction and rollback
 
 - Promotion takes the shared Dev lock and validates the candidate's parent.
+- The installed Dev process is identified by its bundle path, gracefully
+  terminated with native macOS APIs and given a bounded exit deadline before
+  replacement; direct installer use fails closed while that process is running.
 - App and runtime are staged before active pointer replacement.
+- Native app registration is refreshed and the newly installed bundle is
+  launched before smoke.
 - The pointer is committed only after all smoke checks pass.
-- On failure, previous app/runtime/pointer remain recoverable; an unowned PID or
-  unknown Compose project is never terminated.
+- On failure, previous app/runtime/pointer and the previous app launch state
+  remain recoverable; an unowned PID or unknown Compose project is never
+  terminated.
 - Rollback checks out the target SHA, restores the app and stack, runs the same
   smoke gate and records a metadata-only result.
