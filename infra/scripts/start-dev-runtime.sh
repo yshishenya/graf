@@ -64,7 +64,8 @@ trap cleanup 0 2 15
 compose config --quiet
 # Recreate every service on promotion so a new exact-SHA image cannot be
 # masked by Compose's config-hash reuse of a previous container.
-compose up -d --wait --force-recreate rec-postgres rec-minio rec-temporal rec-minio-init
+compose up -d --wait --force-recreate rec-postgres rec-minio rec-temporal
+compose run --rm rec-minio-init
 
 PREFLIGHT="$ROOT_DIR/infra/scripts/dev-migration-preflight.py"
 set +e

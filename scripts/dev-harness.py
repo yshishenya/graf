@@ -42,6 +42,7 @@ PRODUCTION_APP_PATH = Path("/Applications/GRAF.app")
 SCHEMA_VERSION = "dev-manifest.v1"
 POINTER_VERSION = "dev-active-pointer.v1"
 PROCESS_STOP_TIMEOUT_SECONDS = 10
+RUNTIME_CLEANUP_TIMEOUT_SECONDS = 60
 PROBE_RETRY_DELAY_SECONDS = 0.2
 RUNTIME_READY_SERVICES = (
     "api",
@@ -643,7 +644,7 @@ class GrafLocalAdapter:
             os.kill(pid, signal.SIGTERM)
         except OSError:
             return
-        deadline = time.monotonic() + PROCESS_STOP_TIMEOUT_SECONDS
+        deadline = time.monotonic() + RUNTIME_CLEANUP_TIMEOUT_SECONDS
         while self._pid_alive(pid) and time.monotonic() < deadline:
             time.sleep(PROBE_RETRY_DELAY_SECONDS)
         if self._pid_alive(pid):
@@ -693,7 +694,18 @@ class GrafLocalAdapter:
             self._wait_runtime_ready(manifest, env)
         except HarnessError:
             with contextlib.suppress(OSError):
-                os.kill(process.pid, signal.SIGTERM)
+                process.terminate()
+            try:
+                process.wait(timeout=RUNTIME_CLEANUP_TIMEOUT_SECONDS)
+            except subprocess.TimeoutExpired:
+                with contextlib.suppress(ProcessLookupError):
+                    os.killpg(process.pid, signal.SIGKILL)
+                process.wait()
+                _run_command(
+                    ["docker", "compose", "-p", "graf-dev", "-f", str(self.compose_file), "stop"],
+                    cwd=self.root,
+                    env=env,
+                )
             raise
 
     def _wait_runtime_ready(self, manifest: Dict[str, Any], env: Dict[str, str], *, timeout: int = 90) -> None:

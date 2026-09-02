@@ -34,3 +34,9 @@ def test_compose_does_not_consume_inherited_env_file_or_disable_processing():
 def test_dev_start_seeds_deterministic_local_identity_after_migration():
     startup = (ROOT / "infra/scripts/start-dev-runtime.sh").read_text()
     assert "scripts/seed_dev_identity.py --print-login" in startup
+
+
+def test_dev_start_waits_for_long_running_infra_before_one_shot_minio_init():
+    startup = (ROOT / "infra/scripts/start-dev-runtime.sh").read_text()
+    assert "compose up -d --wait --force-recreate rec-postgres rec-minio rec-temporal\n" in startup
+    assert "compose run --rm rec-minio-init" in startup

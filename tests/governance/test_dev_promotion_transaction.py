@@ -15,3 +15,4 @@ def test_runtime_compensation_refuses_unowned_processes():
     source = (ROOT / "scripts/dev-harness.py").read_text()
     assert "refusing to terminate unverified Dev backend pid" in source
     assert "refusing to restore over unverified Dev backend pid" in source
+    assert "deadline = time.monotonic() + RUNTIME_CLEANUP_TIMEOUT_SECONDS" in source

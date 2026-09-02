@@ -239,6 +239,35 @@ def test_startup_wait_does_not_accept_stale_http_listener(monkeypatch, tmp_path)
     assert observed_services[:2] == ["api", "api"]
 
 
+def test_failed_start_waits_for_runtime_cleanup_before_compensation(monkeypatch, tmp_path):
+    adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
+    candidate = manifest(tmp_path, "a" * 40)
+    events = []
+
+    class FakeProcess:
+        pid = 77
+
+        def terminate(self):
+            events.append("terminate")
+
+        def wait(self, timeout=None):
+            events.append(("wait", timeout))
+
+    monkeypatch.setattr(dev_harness.subprocess, "Popen", lambda *_args, **_kwargs: FakeProcess())
+    monkeypatch.setattr(adapter, "_process_command", lambda _pid: "start-dev-runtime.sh")
+    monkeypatch.setattr(adapter, "_process_start_token", lambda _pid: "start-token")
+    monkeypatch.setattr(
+        adapter,
+        "_wait_runtime_ready",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(dev_harness.HarnessError("injected failure")),
+    )
+
+    with pytest.raises(dev_harness.HarnessError, match="injected failure"):
+        adapter._start_backend(candidate, {})
+
+    assert events == ["terminate", ("wait", dev_harness.RUNTIME_CLEANUP_TIMEOUT_SECONDS)]
+
+
 def test_pid_ownership_requires_matching_process_start_token(monkeypatch, tmp_path):
     adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
     record = {"pid": 77, "command": "/tmp/start-dev.sh", "start_token": "Mon Aug 31 01:02:03 2026"}
