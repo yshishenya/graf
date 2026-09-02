@@ -126,3 +126,27 @@ explicit rollback, final promotion and the post-cycle production fingerprints.
 No production deploy, migration, restart, data reset, state deletion or release
 publication was executed. The repository-global Dev state and volumes were
 preserved throughout the controlled cycle.
+
+## Complete-definition and archive transition
+
+- completed at: `2026-09-02T19:03:58Z`
+- implementation SHA: `dba57287044a015d2e69c83c05e9340a4784f916`
+- focused validation: 47/47 PASS plus runtime, Spec Kit, agent-context,
+  compile, shell and Compose contract checks
+- runtime-definition digest now includes every tracked `apps/server/src` input
+  used by host-side migration preflight and identity seed
+- live build created `dev-dba57287044a` with all nine immutable image IDs and
+  a machine-local `runtime-images.tar`; explicit `rehydrate` loaded the archive
+  and revalidated every image ID/source label without rebuilding
+- first controlled media-worker failure exposed a transition boundary: Docker
+  reported zero images and zero containers before compensation, while all 11
+  Dev volumes remained; parent `dev-e5f19a9687e3` predated image archives and
+  could not be restored exactly
+- operator recovery reloaded `dev-dba57287044a` from its archive and promoted
+  it without deleting volumes/state; live smoke returned 13/13 PASS
+
+The failed transition does not count as final compensation evidence. The next
+evidence-only candidate must use `dev-dba57287044a` as its archive-capable
+parent, inject the same candidate media-worker failure, prove parent recovery
+to 13/13 PASS, then finish with final promotion and production fingerprint
+comparison on the exact PR SHA.
