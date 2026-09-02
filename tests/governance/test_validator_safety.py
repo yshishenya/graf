@@ -517,10 +517,23 @@ def test_issue_closeout_requires_task_backed_issue_link_not_umbrella_only() -> N
     assert any("is not linked to issue #6337" in error for error in errors)
 
 
+def test_issue_closeout_preserves_standalone_github_issue_mapping_rows() -> None:
+    validator = load_script("validate-issue-closeout")
+    tasks = "- [X] T001 Реализовать\n\n## GitHub issue links\n- T001 (Issue #6337)\n"
+    assert validator.validate(_closeout_issue(_closeout_comment()), tasks, expected_sha="a" * 40) == []
+
+
 def test_issue_closeout_reads_task_issue_link_from_indented_continuation_line() -> None:
     validator = load_script("validate-issue-closeout")
     tasks = "- [X] T001 Реализовать\n  (Issue #6337; umbrella #6385).\n"
     assert validator.validate(_closeout_issue(_closeout_comment()), tasks, expected_sha="a" * 40) == []
+
+
+def test_issue_closeout_rejects_wrapped_umbrella_issue_as_task_owner() -> None:
+    validator = load_script("validate-issue-closeout")
+    tasks = "- [X] T001 Реализовать\n  (umbrella issue #6337).\n"
+    errors = validator.validate(_closeout_issue(_closeout_comment()), tasks, expected_sha="a" * 40)
+    assert any("is not linked to issue #6337" in error for error in errors)
 
 
 def test_package_safety_allows_documentation_examples_but_rejects_credentials(tmp_path: Path) -> None:
