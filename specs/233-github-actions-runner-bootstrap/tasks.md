@@ -8,13 +8,13 @@
 
 ## Phase 2: Repository enforcement
 
-- [ ] T004 Включить GitHub Actions и проверить repository permissions.
-- [ ] T005 Добавить `governance-fast` в required status checks при нулевом approval для sole owner.
-- [ ] T006 Обновить операторскую документацию: GitHub check authoritative, local CI fallback.
+- [X] T004 Включить GitHub Actions и проверить repository permissions.
+- [X] T005 Добавить `governance-fast` в required status checks при нулевом approval для sole owner.
+- [X] T006 Обновить операторскую документацию: GitHub check authoritative, local CI fallback.
 
 ## Phase 3: Closeout
 
-- [ ] T007 Выполнить focused governance tests и workflow validation.
+- [X] T007 Выполнить focused governance tests и workflow validation.
 - [ ] T008 Добавить русский closure evidence в issue #6363.
 
 ## Dependencies
