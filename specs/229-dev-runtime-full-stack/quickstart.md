@@ -64,12 +64,15 @@ Smoke PASS обязан содержать `backend_health`, `frontend_reachabil
 `auth_session_bootstrap`, `representative_api`, `database_readiness`,
 `storage_readiness`, `migration_readiness`, `temporal_readiness`,
 `processing_worker_readiness`, `media_worker_readiness`, `app_identity` и
-`exact_source_sha`.
+`app_presentation`, `exact_source_sha`.
 
 Открыть `http://127.0.0.1:8081/login` и убедиться, что server-rendered frontend
 использует тот же backend origin. Единственный Dev app —
-`/Applications/GRAF Dev.app` с bundle ID `pro.2brain.graf.dev`; production app
-не изменяется.
+`/Applications/GRAF Dev.app` с bundle ID `pro.2brain.graf.dev`; окно и меню
+называются `GRAF Dev`, а на иконке есть Dev badge. Production app не изменяется.
+Promotion сам штатно завершает старый процесс, заменяет bundle, обновляет
+LaunchServices и запускает новую версию. Прямой `install-dev-app.sh` при
+работающей Dev app обязан завершиться до файловой замены.
 
 ## 5. Migration mismatch
 
@@ -98,8 +101,10 @@ staging/install/runtime/smoke в test fixture. Проверить:
 ```
 
 После ошибки прежние active manifest, app и owned runtime должны быть
-восстановимы. Rollback разрешён только после checkout exact target SHA и
-ownership-проверки; чужой PID не сигнализируется.
+восстановимы. Если прежняя app была запущена, compensation возвращает её в
+запущенное состояние; если была закрыта — не открывает. Rollback разрешён
+только после checkout exact target SHA и ownership-проверки; чужой PID не
+сигнализируется.
 
 ## 7. Contract and repository validation
 

@@ -42,6 +42,8 @@ PRODUCTION_APP_PATH = Path("/Applications/GRAF.app")
 SCHEMA_VERSION = "dev-manifest.v1"
 POINTER_VERSION = "dev-active-pointer.v1"
 PROCESS_STOP_TIMEOUT_SECONDS = 10
+APP_STOP_TIMEOUT_SECONDS = 30
+RUNTIME_CLEANUP_TIMEOUT_SECONDS = 60
 PROBE_RETRY_DELAY_SECONDS = 0.2
 RUNTIME_READY_SERVICES = (
     "api",
@@ -293,6 +295,7 @@ class GrafLocalAdapter:
         self.migration_preflight = root / "infra" / "scripts" / "dev-migration-preflight.py"
         self.build_app_script = root / "apps" / "macos" / "Scripts" / "build-dev-app.sh"
         self.install_app_script = root / "apps" / "macos" / "Scripts" / "install-dev-app.sh"
+        self.app_lifecycle_script = root / "apps" / "macos" / "Scripts" / "dev-app-lifecycle.swift"
 
     def _env(self, manifest: Dict[str, Any]) -> Dict[str, str]:
         boundary = manifest["dev_boundary"]
@@ -384,7 +387,13 @@ class GrafLocalAdapter:
     def _assert_supported(self) -> None:
         if sys.platform != "darwin":
             raise HarnessError("live GRAF adapter requires macOS for the signed Dev app")
-        for path in (self.compose_file, self.start_script, self.build_app_script, self.install_app_script):
+        for path in (
+            self.compose_file,
+            self.start_script,
+            self.build_app_script,
+            self.install_app_script,
+            self.app_lifecycle_script,
+        ):
             if not path.is_file():
                 raise HarnessError(f"GRAF adapter input is missing: {path}")
 
@@ -636,7 +645,7 @@ class GrafLocalAdapter:
             os.kill(pid, signal.SIGTERM)
         except OSError:
             return
-        deadline = time.monotonic() + PROCESS_STOP_TIMEOUT_SECONDS
+        deadline = time.monotonic() + RUNTIME_CLEANUP_TIMEOUT_SECONDS
         while self._pid_alive(pid) and time.monotonic() < deadline:
             time.sleep(PROBE_RETRY_DELAY_SECONDS)
         if self._pid_alive(pid):
@@ -686,7 +695,18 @@ class GrafLocalAdapter:
             self._wait_runtime_ready(manifest, env)
         except HarnessError:
             with contextlib.suppress(OSError):
-                os.kill(process.pid, signal.SIGTERM)
+                process.terminate()
+            try:
+                process.wait(timeout=RUNTIME_CLEANUP_TIMEOUT_SECONDS)
+            except subprocess.TimeoutExpired:
+                with contextlib.suppress(ProcessLookupError):
+                    os.killpg(process.pid, signal.SIGKILL)
+                process.wait()
+                _run_command(
+                    ["docker", "compose", "-p", "graf-dev", "-f", str(self.compose_file), "stop"],
+                    cwd=self.root,
+                    env=env,
+                )
             raise
 
     def _wait_runtime_ready(self, manifest: Dict[str, Any], env: Dict[str, str], *, timeout: int = 90) -> None:
@@ -737,6 +757,62 @@ class GrafLocalAdapter:
         env["GRAF_DEV_APP_SOURCE_BUNDLE"] = str(app_bundle)
         _run_command(["sh", str(self.install_app_script)], cwd=self.root, env=env)
 
+    def _app_is_running(self, destination: Path) -> bool:
+        self._assert_dev_app_destination(destination)
+        state = _run_command(
+            ["swift", str(self.app_lifecycle_script), "status", str(destination)],
+            cwd=self.root,
+        )
+        if state not in {"running", "stopped"}:
+            raise HarnessError(f"unexpected Dev app lifecycle state: {state!r}")
+        return state == "running"
+
+    def _terminate_dev_app(self, destination: Path) -> bool:
+        if not self._app_is_running(destination):
+            return False
+        _run_command(
+            ["swift", str(self.app_lifecycle_script), "terminate", str(destination)],
+            cwd=self.root,
+        )
+        deadline = time.monotonic() + APP_STOP_TIMEOUT_SECONDS
+        while time.monotonic() < deadline:
+            if not self._app_is_running(destination):
+                return True
+            time.sleep(PROBE_RETRY_DELAY_SECONDS)
+        if not self._app_is_running(destination):
+            return True
+        raise HarnessError("GRAF Dev.app did not exit after graceful termination")
+
+    def _launch_dev_app(self, destination: Path) -> None:
+        self._assert_dev_app_destination(destination)
+        if not destination.is_dir():
+            raise HarnessError("installed GRAF Dev.app is missing")
+        if self._app_is_running(destination):
+            return
+        _run_command(["/usr/bin/open", "-n", str(destination)], cwd=self.root)
+        deadline = time.monotonic() + PROCESS_STOP_TIMEOUT_SECONDS
+        while time.monotonic() < deadline:
+            if self._app_is_running(destination):
+                return
+            time.sleep(PROBE_RETRY_DELAY_SECONDS)
+        raise HarnessError("newly installed GRAF Dev.app did not launch")
+
+    @staticmethod
+    def _refresh_dev_app_registration(destination: Path) -> None:
+        with contextlib.suppress(OSError):
+            os.utime(destination, None)
+        lsregister = Path(
+            "/System/Library/Frameworks/CoreServices.framework/Frameworks/"
+            "LaunchServices.framework/Support/lsregister"
+        )
+        if lsregister.is_file():
+            subprocess.run(
+                [str(lsregister), "-f", str(destination)],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+
     def _snapshot_app(self) -> Optional[Path]:
         destination = Path(os.environ.get("GRAF_DEV_INSTALL_PATH", "/Applications/GRAF Dev.app"))
         self._assert_dev_app_destination(destination)
@@ -762,6 +838,8 @@ class GrafLocalAdapter:
 
     def _restore_app(self, backup: Optional[Path]) -> None:
         destination = Path(os.environ.get("GRAF_DEV_INSTALL_PATH", "/Applications/GRAF Dev.app"))
+        self._assert_dev_app_destination(destination)
+        self._terminate_dev_app(destination)
         if destination.exists():
             if destination.is_dir() and not destination.is_symlink():
                 shutil.rmtree(destination)
@@ -770,6 +848,7 @@ class GrafLocalAdapter:
         if backup is not None:
             shutil.copytree(backup, destination, symlinks=True)
             shutil.rmtree(backup)
+            self._refresh_dev_app_registration(destination)
 
     def _restore_runtime(
         self,
@@ -812,10 +891,14 @@ class GrafLocalAdapter:
         ):
             raise HarnessError("previous Dev runtime does not match the active manifest")
         app_backup = self._snapshot_app()
+        app_destination = Path(os.environ.get("GRAF_DEV_INSTALL_PATH", "/Applications/GRAF Dev.app"))
+        previous_app_was_running = self._app_is_running(app_destination)
         try:
             self._stop_previous()
+            self._terminate_dev_app(app_destination)
             self._install_app(manifest, env)
             self._start_backend(manifest, env)
+            self._launch_dev_app(app_destination)
             checks = self.smoke(manifest)
             if any(value != "pass" for key, value in checks.items() if key != "mode"):
                 raise HarnessError("live promotion smoke failed")
@@ -829,6 +912,11 @@ class GrafLocalAdapter:
                 self._restore_runtime(previous_runtime, previous_manifest, previous_was_live)
             except Exception as exc:  # pragma: no cover - defensive path
                 compensation_errors.append(f"runtime restore failed: {exc}")
+            if previous_app_was_running and app_backup is not None:
+                try:
+                    self._launch_dev_app(app_destination)
+                except Exception as exc:  # pragma: no cover - defensive path
+                    compensation_errors.append(f"app relaunch failed: {exc}")
             if compensation_errors:
                 raise HarnessError("live promotion failed; compensation failed: " + "; ".join(compensation_errors)) from failure
             raise
@@ -855,10 +943,14 @@ class GrafLocalAdapter:
         if previous_runtime.get("source_sha") != active.get("source_sha"):
             raise HarnessError("active Dev runtime does not match the active manifest")
         app_backup = self._snapshot_app()
+        app_destination = Path(os.environ.get("GRAF_DEV_INSTALL_PATH", "/Applications/GRAF Dev.app"))
+        previous_app_was_running = self._app_is_running(app_destination)
         try:
             self._stop_previous()
+            self._terminate_dev_app(app_destination)
             self._install_app(target, env)
             self._start_backend(target, env)
+            self._launch_dev_app(app_destination)
             checks = self.smoke(target)
             if any(value != "pass" for key, value in checks.items() if key != "mode"):
                 raise HarnessError("live rollback smoke failed")
@@ -872,6 +964,11 @@ class GrafLocalAdapter:
                 self._restore_runtime(previous_runtime, active, previous_was_live)
             except Exception as exc:  # pragma: no cover - defensive path
                 compensation_errors.append(f"runtime restore failed: {exc}")
+            if previous_app_was_running and app_backup is not None:
+                try:
+                    self._launch_dev_app(app_destination)
+                except Exception as exc:  # pragma: no cover - defensive path
+                    compensation_errors.append(f"app relaunch failed: {exc}")
             if compensation_errors:
                 raise HarnessError("live rollback failed; compensation failed: " + "; ".join(compensation_errors)) from failure
             raise
@@ -996,16 +1093,33 @@ class GrafLocalAdapter:
         try:
             app_sha = _run_command(["plutil", "-extract", "GRAFSourceSHA", "raw", str(info_plist)], cwd=self.root)
             app_id = _run_command(["plutil", "-extract", "CFBundleIdentifier", "raw", str(info_plist)], cwd=self.root)
+            display_name = _run_command(["plutil", "-extract", "CFBundleDisplayName", "raw", str(info_plist)], cwd=self.root)
+            bundle_name = _run_command(["plutil", "-extract", "CFBundleName", "raw", str(info_plist)], cwd=self.root)
+            icon_name = _run_command(["plutil", "-extract", "CFBundleIconFile", "raw", str(info_plist)], cwd=self.root)
+            app_channel = _run_command(["plutil", "-extract", "LSEnvironment.GRAF_APP_CHANNEL", "raw", str(info_plist)], cwd=self.root)
             app_origin = _run_command(
                 ["plutil", "-extract", "LSEnvironment.GRAF_CABINET_BASE_URL", "raw", str(info_plist)], cwd=self.root
             )
+            dev_icon = app_path / "Contents" / "Resources" / "AppIcon.icns"
+            production_icon = self.root / "apps" / "macos" / "RecApp" / "Resources" / "AppIcon.icns"
             checks["exact_source_sha"] = "pass" if app_sha == manifest["source_sha"] else "fail"
             checks["app_identity"] = "pass" if (
                 app_sha == manifest["source_sha"] and app_id == APP_BUNDLE_ID and app_origin == backend
             ) else "fail"
+            checks["app_presentation"] = "pass" if (
+                display_name == "GRAF Dev"
+                and bundle_name == "GRAF Dev"
+                and icon_name == "AppIcon"
+                and app_channel == APP_CHANNEL
+                and dev_icon.is_file()
+                and production_icon.is_file()
+                and _tree_digest(dev_icon) != _tree_digest(production_icon)
+                and self._app_is_running(app_path)
+            ) else "fail"
         except HarnessError:
             checks["exact_source_sha"] = "fail"
             checks["app_identity"] = "fail"
+            checks["app_presentation"] = "fail"
         host, port = _origin_parts(backend)
         checks["temporal_readiness"] = "pass" if temporal_ready == "pass" and self._tcp_ready(host, 7233) == "pass" else "fail"
         migration_result = self.state / "migration-preflight.json"
@@ -1303,6 +1417,7 @@ def operation_smoke(args: argparse.Namespace) -> Dict[str, Any]:
             "processing_worker_readiness": "pass",
             "media_worker_readiness": "pass",
             "app_identity": "pass",
+            "app_presentation": "pass",
             "exact_source_sha": "pass",
             "database_readiness": "pass",
             "storage_readiness": "pass",

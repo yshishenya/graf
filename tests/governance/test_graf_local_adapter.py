@@ -15,8 +15,8 @@ dev_harness = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(dev_harness)
 
 
-def manifest(tmp_path: Path, sha: str = "a" * 40):
-    return dev_harness.build_manifest(sha, "216", root=tmp_path)
+def manifest(tmp_path: Path, sha: str = "a" * 40, feature: str = "216"):
+    return dev_harness.build_manifest(sha, feature, root=tmp_path)
 
 
 def test_live_adapter_build_is_explicit_and_uses_only_dev_environment(monkeypatch, tmp_path):
@@ -37,7 +37,13 @@ def test_live_build_runs_compose_backend_and_signed_app_adapter(monkeypatch, tmp
     sha = "b" * 40
     fake_root = tmp_path / "root"
     adapter = dev_harness.GrafLocalAdapter(fake_root, tmp_path / "state")
-    for path in (adapter.compose_file, adapter.start_script, adapter.build_app_script, adapter.install_app_script):
+    for path in (
+        adapter.compose_file,
+        adapter.start_script,
+        adapter.build_app_script,
+        adapter.install_app_script,
+        adapter.app_lifecycle_script,
+    ):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.touch()
 
@@ -152,6 +158,49 @@ def test_live_smoke_rejects_empty_or_unrelated_worker_status(monkeypatch, tmp_pa
     assert checks["worker_dependencies"] == "fail"
 
 
+def test_feature_229_smoke_rejects_stale_local_presentation(monkeypatch, tmp_path):
+    sha = "d" * 40
+    adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
+    active = manifest(tmp_path, sha, feature="229")
+    app = tmp_path / "GRAF Dev.app"
+    info_plist = app / "Contents" / "Info.plist"
+    dev_icon = app / "Contents" / "Resources" / "AppIcon.icns"
+    production_icon = tmp_path / "apps" / "macos" / "RecApp" / "Resources" / "AppIcon.icns"
+    info_plist.parent.mkdir(parents=True)
+    info_plist.touch()
+    dev_icon.parent.mkdir(parents=True)
+    dev_icon.write_bytes(b"dev-icon")
+    production_icon.parent.mkdir(parents=True)
+    production_icon.write_bytes(b"production-icon")
+    dev_harness._write_json(tmp_path / "migration-preflight.json", {"status": "matching"})
+    monkeypatch.setenv("GRAF_DEV_INSTALL_PATH", str(app))
+    monkeypatch.setattr(dev_harness.sys, "platform", "darwin")
+    monkeypatch.setattr(adapter, "_assert_supported", lambda: None)
+    monkeypatch.setattr(adapter, "_wait_http", lambda *args, **kwargs: 200)
+    monkeypatch.setattr(adapter, "_compose_service_ready", lambda *_: "pass")
+    monkeypatch.setattr(adapter, "_tcp_ready", lambda *_: "pass")
+    monkeypatch.setattr(adapter, "_app_is_running", lambda _: True)
+    presentation = {
+        "GRAFSourceSHA": sha,
+        "CFBundleIdentifier": dev_harness.APP_BUNDLE_ID,
+        "CFBundleDisplayName": "GRAF Dev",
+        "CFBundleName": "GRAF Dev",
+        "CFBundleIconFile": "AppIcon",
+        "LSEnvironment.GRAF_APP_CHANNEL": "dev",
+        "LSEnvironment.GRAF_CABINET_BASE_URL": active["dev_boundary"]["backend_origin"],
+    }
+    monkeypatch.setattr(
+        dev_harness,
+        "_run_command",
+        lambda command, *, cwd, env=None: presentation[command[2]],
+    )
+
+    assert adapter.smoke(active)["app_presentation"] == "pass"
+
+    presentation["CFBundleDisplayName"] = "GRAF Local"
+    assert adapter.smoke(active)["app_presentation"] == "fail"
+
+
 def test_http_probe_preserves_auth_challenge_status(monkeypatch, tmp_path):
     adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
 
@@ -188,6 +237,35 @@ def test_startup_wait_does_not_accept_stale_http_listener(monkeypatch, tmp_path)
 
     assert attempts["api"] == 2
     assert observed_services[:2] == ["api", "api"]
+
+
+def test_failed_start_waits_for_runtime_cleanup_before_compensation(monkeypatch, tmp_path):
+    adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
+    candidate = manifest(tmp_path, "a" * 40)
+    events = []
+
+    class FakeProcess:
+        pid = 77
+
+        def terminate(self):
+            events.append("terminate")
+
+        def wait(self, timeout=None):
+            events.append(("wait", timeout))
+
+    monkeypatch.setattr(dev_harness.subprocess, "Popen", lambda *_args, **_kwargs: FakeProcess())
+    monkeypatch.setattr(adapter, "_process_command", lambda _pid: "start-dev-runtime.sh")
+    monkeypatch.setattr(adapter, "_process_start_token", lambda _pid: "start-token")
+    monkeypatch.setattr(
+        adapter,
+        "_wait_runtime_ready",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(dev_harness.HarnessError("injected failure")),
+    )
+
+    with pytest.raises(dev_harness.HarnessError, match="injected failure"):
+        adapter._start_backend(candidate, {})
+
+    assert events == ["terminate", ("wait", dev_harness.RUNTIME_CLEANUP_TIMEOUT_SECONDS)]
 
 
 def test_pid_ownership_requires_matching_process_start_token(monkeypatch, tmp_path):
@@ -252,6 +330,67 @@ def test_app_snapshot_rejects_symlink_into_production(monkeypatch, tmp_path):
         adapter._snapshot_app()
 
 
+def test_app_lifecycle_uses_native_helper_and_waits_for_termination(monkeypatch, tmp_path):
+    adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
+    destination = tmp_path / "GRAF Dev.app"
+    states = iter(["running", "running", "stopped"])
+    calls = []
+
+    def fake_run(command, *, cwd, env=None):
+        calls.append(command)
+        if command[0] == "swift" and command[2] == "status":
+            return next(states)
+        if command[0] == "swift" and command[2] == "terminate":
+            return "terminating"
+        raise AssertionError(command)
+
+    monkeypatch.setattr(dev_harness, "_run_command", fake_run)
+    monkeypatch.setattr(dev_harness.time, "sleep", lambda _seconds: None)
+
+    assert adapter._terminate_dev_app(destination) is True
+    assert [call[2] for call in calls] == ["status", "terminate", "status", "status"]
+
+
+def test_live_promote_relaunches_new_app_and_restores_previous_launch_state(monkeypatch, tmp_path):
+    old = manifest(tmp_path, "a" * 40)
+    candidate = manifest(tmp_path, "b" * 40)
+    adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
+    app = tmp_path / "GRAF Dev.app"
+    (app / "Contents").mkdir(parents=True)
+    monkeypatch.setenv("GRAF_DEV_INSTALL_PATH", str(app))
+    (tmp_path / "manifests").mkdir()
+    dev_harness._write_json(tmp_path / "manifests" / f"{old['manifest_id']}.json", old)
+    dev_harness._write_json(
+        tmp_path / "active-manifest.json",
+        {
+            "schema_version": dev_harness.POINTER_VERSION,
+            "manifest_id": old["manifest_id"],
+            "runtime_mode": "live",
+            "updated_at": dev_harness.now(),
+        },
+    )
+    dev_harness._write_json(
+        tmp_path / "runtime.json",
+        {"pid": 101, "source_sha": old["source_sha"], "command": str(adapter.start_script)},
+    )
+    calls = []
+    monkeypatch.setattr(adapter, "_assert_supported", lambda: None)
+    monkeypatch.setattr(adapter, "_assert_source_matches_checkout", lambda _: None)
+    monkeypatch.setattr(adapter, "_compose_config", lambda _: None)
+    monkeypatch.setattr(adapter, "_runtime_is_live", lambda _: True)
+    monkeypatch.setattr(adapter, "_app_is_running", lambda _: True)
+    monkeypatch.setattr(adapter, "_stop_previous", lambda: calls.append("stop-backend"))
+    monkeypatch.setattr(adapter, "_terminate_dev_app", lambda _: calls.append("stop-app") or True)
+    monkeypatch.setattr(adapter, "_install_app", lambda *_: calls.append("install"))
+    monkeypatch.setattr(adapter, "_start_backend", lambda *_: calls.append("start-backend"))
+    monkeypatch.setattr(adapter, "_launch_dev_app", lambda _: calls.append("start-app"))
+    monkeypatch.setattr(adapter, "smoke", lambda _: {"app_presentation": "pass", "mode": "live"})
+
+    adapter.promote(candidate)
+
+    assert calls == ["stop-backend", "stop-app", "install", "start-backend", "start-app"]
+
+
 def test_live_promote_restores_app_and_restarts_previous_backend_on_smoke_failure(monkeypatch, tmp_path):
     old_sha = "a" * 40
     candidate_sha = "b" * 40
@@ -290,6 +429,9 @@ def test_live_promote_restores_app_and_restarts_previous_backend_on_smoke_failur
     monkeypatch.setattr(adapter, "_pid_alive", lambda _: True)
     monkeypatch.setattr(adapter, "_pid_owned", lambda _: True)
     monkeypatch.setattr(adapter, "_stop_previous", lambda: calls.append("stop"))
+    monkeypatch.setattr(adapter, "_app_is_running", lambda _: True)
+    monkeypatch.setattr(adapter, "_terminate_dev_app", lambda _: calls.append("stop-app") or True)
+    monkeypatch.setattr(adapter, "_launch_dev_app", lambda _: calls.append("start-app"))
 
     def fake_install(manifest_value, _env):
         calls.append(("install", manifest_value["source_sha"]))
@@ -315,7 +457,17 @@ def test_live_promote_restores_app_and_restarts_previous_backend_on_smoke_failur
 
     assert marker.read_text(encoding="utf-8") == "old"
     assert json.loads((tmp_path / "runtime.json").read_text(encoding="utf-8")) == previous_runtime
-    assert calls == ["stop", ("install", candidate_sha), ("start", candidate_sha), "stop", ("start", old_sha)]
+    assert calls == [
+        "stop",
+        "stop-app",
+        ("install", candidate_sha),
+        ("start", candidate_sha),
+        "start-app",
+        "stop-app",
+        "stop",
+        ("start", old_sha),
+        "start-app",
+    ]
 
 
 def test_live_rollback_reinstalls_target_and_verifies_before_return(monkeypatch, tmp_path):
@@ -342,6 +494,9 @@ def test_live_rollback_reinstalls_target_and_verifies_before_return(monkeypatch,
     monkeypatch.setattr(adapter, "_compose_config", lambda _: None)
     monkeypatch.setattr(adapter, "_runtime_is_live", lambda _: True)
     monkeypatch.setattr(adapter, "_stop_previous", lambda: calls.append("stop"))
+    monkeypatch.setattr(adapter, "_app_is_running", lambda _: True)
+    monkeypatch.setattr(adapter, "_terminate_dev_app", lambda _: calls.append("stop-app") or True)
+    monkeypatch.setattr(adapter, "_launch_dev_app", lambda _: calls.append("start-app"))
 
     def fake_install(manifest_value, _env):
         calls.append(("install", manifest_value["source_sha"]))
@@ -363,7 +518,7 @@ def test_live_rollback_reinstalls_target_and_verifies_before_return(monkeypatch,
     assert result["mode"] == "live"
     assert result["checks"]["backend_health"] == "pass"
     assert marker.read_text(encoding="utf-8") == "target"
-    assert calls == ["stop", ("install", target_sha), ("start", target_sha)]
+    assert calls == ["stop", "stop-app", ("install", target_sha), ("start", target_sha), "start-app"]
 
 
 def test_live_rollback_validates_target_checkout_before_starting(monkeypatch, tmp_path):
@@ -387,6 +542,9 @@ def test_live_rollback_validates_target_checkout_before_starting(monkeypatch, tm
         {"pid": 202, "source_sha": active["source_sha"], "command": "start-local"},
     )
     monkeypatch.setattr(adapter, "_snapshot_app", lambda: None)
+    monkeypatch.setattr(adapter, "_app_is_running", lambda _: False)
+    monkeypatch.setattr(adapter, "_terminate_dev_app", lambda _: False)
+    monkeypatch.setattr(adapter, "_launch_dev_app", lambda _: None)
     monkeypatch.setattr(adapter, "_stop_previous", lambda: None)
     monkeypatch.setattr(adapter, "_install_app", lambda *_: None)
     monkeypatch.setattr(adapter, "_start_backend", lambda *_: None)

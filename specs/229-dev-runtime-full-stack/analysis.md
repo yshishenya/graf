@@ -20,7 +20,7 @@ Lane: `high-risk-feature`
 | H6 | Contract | MEDIUM | Resolved | Dev project, ports, origins, service names and bounded readiness intervals are explicit in Compose/startup/docs. |
 | H7 | App continuity | HIGH | Resolved | Installer accepts exactly `/Applications/GRAF Dev.app` and compares bundle ID, designated requirement, signer and entitlements before replacement. |
 | H8 | Retirement | HIGH | Resolved | Legacy exception has ISO expiry `2026-10-31` and points to Feature 228 issue #6238/T000. |
-| H9 | Dependency | HIGH | Open external gate | F227 PR #6275 and its exact SHA must be merged/revalidated before remote merge or release claims. Local implementation is intentionally based on recorded F227 SHA. |
+| H9 | Dependency | HIGH | Resolved | F227 PR #6275 merged as `0f3becdc9970c0a86fc8aa273ef1bc26eca0b5a0`; the presentation-lifecycle follow-up is based on current master `455990a33f51fe232a8fc3270c8d0a0d27db298b`. |
 
 ## Requirement coverage
 
@@ -35,7 +35,7 @@ at least one task and an evidence path. The explicit mapping is maintained in
 | Planned tasks | 40 |
 | Requirements with task coverage | 100% |
 | Critical findings remaining | 0 |
-| High findings remaining | 0 local / 1 external dependency gate |
+| High findings remaining | 0 |
 | Reviewer checklist markers changed | 0 |
 
 ## Constitution alignment
@@ -49,10 +49,10 @@ owner, expiry, removal trigger and linked retirement task.
 
 ## Gate and next actions
 
-The local implementation gate is open after focused contract/negative tests and
-static checks pass. The remote/release gate remains blocked until F227 PR #6275
-is merged and the exact base SHA is revalidated. Reviewer-owned infra,
-requirements and security checklist items remain unchecked by design.
+The dependency gate is resolved. Focused contract/negative tests, static checks,
+clean-state live smoke, exact-SHA fast CI and convergence remain the release-
+readiness sequence. Reviewer-owned infra, requirements and security checklist
+items are complete.
 
 No `taskstoissues` or production operation is performed in this implementation
 turn; existing issue links remain the external tracker source of truth.

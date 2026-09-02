@@ -1,0 +1,9 @@
+schema_version: 1
+feature_id: 229
+category: Fixed
+summary: "Dev-выкатка теперь всегда запускает GRAF Dev с Dev-иконкой вместо оставшегося процесса GRAF Local"
+issue: 6276
+tasks: [T039]
+compatibility: "Формат Dev manifest не изменён; прямой installer теперь требует закрытого GRAF Dev"
+known_limitations: []
+release_notes: "Promotion и rollback штатно перезапускают установленное Dev-приложение, обновляют его регистрацию в macOS и проверяют имя, канал и отдельную Dev-иконку до принятия кандидата."
