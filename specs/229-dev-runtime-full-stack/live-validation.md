@@ -67,3 +67,30 @@ The earlier mtime-only digest changed while the production app remained
 running, so it was not used as mutation evidence. The stable content-tree and
 path/size fingerprints above bound the full final rollback/promotion cycle.
 No production deploy, migration, restart or release publication was executed.
+
+## Immutable-image hardening baseline
+
+- captured at: `2026-09-02T17:54:18Z`
+- exact implementation SHA: `f208b1b22d08cc63e4d28821ce006e9fd88d37ca`
+- GitHub `governance-fast`: PASS, run `33662388294`, exact SHA matched
+- candidate manifest: `dev-f208b1b22d08`, with all nine Compose services
+  resolved to locally present immutable `sha256:` image IDs
+- pre-hardening active manifest `dev-221932bc05ef` lacked the new
+  `storage_init` image identity, so it was not used as a rollback target; the
+  verified owned `graf-dev` runtime was stopped gracefully without `-v` or
+  state/data deletion before the one-time cutover
+- promotion and repeated live smoke: 13/13 PASS, including
+  `app_identity`, `app_presentation` and `exact_source_sha`
+- installed bundle: `GRAF Dev`, bundle ID `pro.2brain.graf.dev`, channel `dev`;
+  the rendered `AppIcon.icns` contains the separate yellow `DEV` badge
+- production app CDHash remained
+  `bde38a180c557dcb8624de32ad1841163a61439c`; production `Info.plist`
+  SHA-256 remained
+  `caadd72e8966ec6dd006cbbd799fa95f36a6b2aa30415aa42ed290c58c115840`
+- production data content-tree SHA-256 remained
+  `fe98c4ae3473e073683a00ca754d874991c8e045e3349215eab5b38f6ac5ffd7`;
+  file count remained `21`
+
+This establishes the first rollback-capable immutable baseline. T039 remains
+open until a second full manifest proves injected-failure compensation,
+explicit rollback, final promotion and the post-cycle production fingerprints.
