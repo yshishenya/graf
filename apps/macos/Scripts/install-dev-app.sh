@@ -163,7 +163,7 @@ rm -rf "$BACKUP_DESTINATION"
 touch "$DESTINATION"
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 if [ -x "$LSREGISTER" ]; then
-  "$LSREGISTER" -f "$DESTINATION" >/dev/null 2>&1 || true
+  "$LSREGISTER" -f "$DESTINATION" >/dev/null 2>&1 || fail "LaunchServices registration failed"
 fi
 
 printf '%s\n' "$DESTINATION"

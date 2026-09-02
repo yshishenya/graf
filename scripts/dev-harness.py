@@ -795,6 +795,8 @@ class GrafLocalAdapter:
             if self._app_is_running(destination):
                 return
             time.sleep(PROBE_RETRY_DELAY_SECONDS)
+        if self._app_is_running(destination):
+            return
         raise HarnessError("newly installed GRAF Dev.app did not launch")
 
     @staticmethod
@@ -806,12 +808,15 @@ class GrafLocalAdapter:
             "LaunchServices.framework/Support/lsregister"
         )
         if lsregister.is_file():
-            subprocess.run(
-                [str(lsregister), "-f", str(destination)],
-                check=False,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
+            try:
+                subprocess.run(
+                    [str(lsregister), "-f", str(destination)],
+                    check=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            except subprocess.CalledProcessError as exc:
+                raise HarnessError("LaunchServices registration failed") from exc
 
     def _snapshot_app(self) -> Optional[Path]:
         destination = Path(os.environ.get("GRAF_DEV_INSTALL_PATH", "/Applications/GRAF Dev.app"))

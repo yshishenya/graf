@@ -20,10 +20,17 @@ def test_runtime_compensation_refuses_unowned_processes():
 
 def test_app_swap_rechecks_lifecycle_and_allows_cleanup_grace():
     installer = (ROOT / "apps/macos/Scripts/install-dev-app.sh").read_text()
+    lifecycle = (ROOT / "apps/macos/Scripts/dev-app-lifecycle.swift").read_text()
     harness = (ROOT / "scripts/dev-harness.py").read_text()
     assert installer.count('assert_app_stopped') >= 2
     ditto_offset = installer.index('ditto --norsrc --noextattr --noqtn "$CANDIDATE" "$STAGED_DESTINATION"')
     assert installer.index('assert_app_stopped', ditto_offset) > ditto_offset
+    assert 'LaunchServices registration failed' in installer
+    assert 'expectedBundleIdentifier = "pro.2brain.graf.dev"' in lifecycle
+    assert 'destination must not be a symlink' in lifecycle
+    assert 'application.bundleIdentifier == expectedBundleIdentifier' in lifecycle
     assert "APP_STOP_TIMEOUT_SECONDS = 30" in harness
     assert "deadline = time.monotonic() + APP_STOP_TIMEOUT_SECONDS" in harness
     assert "if not self._app_is_running(destination):" in harness
+    assert harness.count("if self._app_is_running(destination):") >= 2
+    assert "check=True" in harness
