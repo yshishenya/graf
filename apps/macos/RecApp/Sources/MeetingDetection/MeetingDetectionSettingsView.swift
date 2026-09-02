@@ -55,7 +55,9 @@ public struct MeetingDetectionSettingsView: View {
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 18) {
             Button {
-                NSApp.keyWindow?.close()
+                Task { @MainActor in
+                    NSApp.keyWindow?.close()
+                }
             } label: {
                 Label("Назад", systemImage: "chevron.left")
             }
