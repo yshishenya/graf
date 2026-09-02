@@ -32,3 +32,13 @@ retirement.
 
 Focused governance tests, script self-tests, `git diff --check`, then explicit
 `infra/scripts/ci-local.sh --fast` and GitHub `governance-fast` on one exact SHA.
+
+## Legacy Impact
+
+- Classification: `untouched`
+- This slice changes governance validators, workflow metadata and task links;
+  it does not add or remove product legacy paths.
+- No legacy alias, fallback, flag, dependency, fixture, test or documentation
+  path is introduced.
+- Legacy retirement remains a separate follow-up and is not a prerequisite for
+  this remediation.
