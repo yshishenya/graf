@@ -10,6 +10,7 @@ from pathlib import Path
 
 
 TASK_RE = re.compile(r"\bT\d{3,}\b")
+TASK_ROW_RE = re.compile(r"^[ \t]*-[ \t]+\[[xX ]\][ \t]+(T\d{3,})\b")
 CLOSURE_SECTIONS = ("Что закрыто", "Почему это важно", "Как проверено", "Что не входит", "Связи")
 SHA_RE = re.compile(r"\b[0-9a-f]{40}\b", re.IGNORECASE)
 TASK_ISSUE_LINK_RE = re.compile(r"\bIssue\s+#(\d+)", re.IGNORECASE)
@@ -25,18 +26,47 @@ AUTHORITATIVE_PASS_RE = re.compile(
 
 
 def _task_state(tasks_text: str) -> dict[str, tuple[bool, set[int]]]:
+    """Read checked state and Issue links from each logical task row.
+
+    Task metadata may wrap onto indented continuation lines.  Aggregate those
+    lines before extracting the task-backed Issue link so wrapped rows remain
+    traceable without treating unrelated prose as ownership.
+    """
     states: dict[str, tuple[bool, set[int]]] = {}
-    for line in tasks_text.splitlines():
-        match = TASK_RE.search(line)
+    row: list[str] = []
+
+    def consume(logical_row: list[str]) -> None:
+        if not logical_row:
+            return
+        match = TASK_ROW_RE.search(logical_row[0])
         if not match:
-            continue
-        checked = bool(re.search(r"- \[[xX]\]", line))
+            return
+        task = match.group(1)
+        checked = bool(re.search(r"- \[[xX]\]", logical_row[0]))
         # Only the canonical task-backed ``Issue #N`` link proves ownership.
         # An ``umbrella #N`` reference is intentionally informational and must
         # never make an umbrella issue look like the task's owner.
-        issues = {int(value) for value in TASK_ISSUE_LINK_RE.findall(line)}
-        previous = states.get(match.group(0))
-        states[match.group(0)] = (checked or (previous[0] if previous else False), issues | (previous[1] if previous else set()))
+        issues = {
+            int(value)
+            for line in logical_row
+            for value in TASK_ISSUE_LINK_RE.findall(line)
+        }
+        previous = states.get(task)
+        states[task] = (
+            checked or (previous[0] if previous else False),
+            issues | (previous[1] if previous else set()),
+        )
+
+    for line in tasks_text.splitlines():
+        if TASK_ROW_RE.search(line):
+            consume(row)
+            row = [line]
+        elif row and (not line.strip() or line.startswith((" ", "\t"))):
+            row.append(line)
+        else:
+            consume(row)
+            row = []
+    consume(row)
     return states
 
 
@@ -131,6 +161,18 @@ def self_test() -> int:
 - PR: #6373
 """}]
     assert validate(issue, "- [X] T001 Проверить (Issue #6373)\n", expected_sha="a" * 40) == []
+    assert validate(
+        issue,
+        "- [X] T001 Проверить\n"
+        "  (Issue #6373; umbrella #6385).\n",
+        expected_sha="a" * 40,
+    ) == []
+    assert validate(
+        issue,
+        "- [X] T001 Проверить\n"
+        "  (umbrella #6373).\n",
+        expected_sha="a" * 40,
+    )
     assert validate(issue, "- [X] T001 Проверить (Issue #999)\n", expected_sha="a" * 40)
     assert validate(issue, "- [X] T001 Проверить (Issue #6373)\n", expected_sha="b" * 40)
     print("issue-closeout self-test: OK")
