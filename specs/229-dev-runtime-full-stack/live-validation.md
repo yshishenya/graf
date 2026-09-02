@@ -150,3 +150,21 @@ evidence-only candidate must use `dev-dba57287044a` as its archive-capable
 parent, inject the same candidate media-worker failure, prove parent recovery
 to 13/13 PASS, then finish with final promotion and production fingerprint
 comparison on the exact PR SHA.
+
+## Harness-bound recovery baseline
+
+- completed at: `2026-09-02T19:47:55Z`
+- implementation SHA: `8425c96c5ae3b885246ebe9d59703b9b477b2442`
+- focused validation: 49/49 PASS plus runtime, Spec Kit, agent-context,
+  compile, shell and Compose contract checks
+- runtime-definition digest now also includes `scripts/dev-harness.py`, so
+  host-side environment, startup and compensation logic cannot drift silently
+- the first promotion from `dev-c7c03863728d` was blocked before mutation by
+  the expected runtime-definition guard; the explicit one-time cutover stopped
+  only the owned Dev runtime and preserved state and volumes
+- `dev-8425c96c5ae3` then promoted successfully and passed the common 13/13
+  live smoke contract, including `app_presentation` and `exact_source_sha`
+
+This manifest is the archive-capable parent for the final evidence candidate.
+T038/T039 still require GitHub `governance-fast`, controlled candidate failure,
+automatic parent compensation and final promotion on the next exact PR SHA.
