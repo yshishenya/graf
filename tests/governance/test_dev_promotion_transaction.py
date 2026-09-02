@@ -26,6 +26,10 @@ def test_app_swap_rechecks_lifecycle_and_allows_cleanup_grace():
     ditto_offset = installer.index('ditto --norsrc --noextattr --noqtn "$CANDIDATE" "$STAGED_DESTINATION"')
     assert installer.index('assert_app_stopped', ditto_offset) > ditto_offset
     assert 'LaunchServices registration failed' in installer
+    registration_offset = installer.index('if ! "$LSREGISTER" -f "$DESTINATION"')
+    assert installer.index('rm -rf "$DESTINATION"', registration_offset) > registration_offset
+    assert installer.index('mv "$BACKUP_DESTINATION" "$DESTINATION"', registration_offset) > registration_offset
+    assert installer.index('rm -rf "$BACKUP_DESTINATION"', registration_offset) > registration_offset
     assert 'expectedBundleIdentifier = "pro.2brain.graf.dev"' in lifecycle
     assert 'destination must not be a symlink' in lifecycle
     assert 'application.bundleIdentifier == expectedBundleIdentifier' in lifecycle
@@ -34,3 +38,10 @@ def test_app_swap_rechecks_lifecycle_and_allows_cleanup_grace():
     assert "if not self._app_is_running(destination):" in harness
     assert harness.count("if self._app_is_running(destination):") >= 2
     assert "check=True" in harness
+
+    promote = harness[harness.index("    def promote("):harness.index("    def rollback(")]
+    rollback = harness[harness.index("    def rollback("):]
+    for transaction in (promote, rollback):
+        assert transaction.index("previous_app_was_running = self._app_is_running") < transaction.index(
+            "app_backup = self._snapshot_app()"
+        )

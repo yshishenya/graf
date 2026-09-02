@@ -159,11 +159,18 @@ if ! mv "$STAGED_DESTINATION" "$DESTINATION"; then
   fi
   fail "atomic replacement failed; previous Dev app was restored when possible"
 fi
-rm -rf "$BACKUP_DESTINATION"
 touch "$DESTINATION"
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 if [ -x "$LSREGISTER" ]; then
-  "$LSREGISTER" -f "$DESTINATION" >/dev/null 2>&1 || fail "LaunchServices registration failed"
+  if ! "$LSREGISTER" -f "$DESTINATION" >/dev/null 2>&1; then
+    rm -rf "$DESTINATION"
+    if [ -e "$BACKUP_DESTINATION" ]; then
+      mv "$BACKUP_DESTINATION" "$DESTINATION" ||
+        fail "LaunchServices registration failed and previous Dev app could not be restored"
+    fi
+    fail "LaunchServices registration failed; previous Dev app was restored when possible"
+  fi
 fi
+rm -rf "$BACKUP_DESTINATION"
 
 printf '%s\n' "$DESTINATION"

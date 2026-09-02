@@ -122,7 +122,7 @@ growth or release confusion.
 - [X] T035 [P] Add governance validation for Feature 229 ownership, no root `CHANGELOG.md` edits and no secret/private-content evidence in `scripts/validate-dev-runtime.py` and `tests/governance/test_dev_runtime.py`.
 - [X] T036 Run `$speckit-analyze` and resolve all critical/high findings, recording the report in `specs/229-dev-runtime-full-stack/analysis.md` without changing reviewer-owned checklist markers.
 - [X] T037 Run `$speckit-taskstoissues`, verify canonical labels/title format and no duplicate task issues for T001–T035; record links in `specs/229-dev-runtime-full-stack/issue-links.md`.
-- [X] T038 Run the quickstart contract/negative tests, Compose/shell/Python checks and `infra/scripts/ci-local.sh --fast` on the exact implementation SHA; record metadata-only evidence under `.dev/ci-evidence/`.
+- [ ] T038 Run the quickstart contract/negative tests, Compose/shell/Python checks and the required GitHub `governance-fast` gate on the exact implementation SHA; record metadata-only evidence.
 - [ ] T039 Fix the live presentation regression, then execute one clean-state macOS live smoke and injected-failure rollback rehearsal on the final exact implementation SHA; prove the running app is `GRAF Dev` with channel `dev` and the Dev-badged icon, and verify `/Applications/GRAF.app` and production data are unchanged before declaring the feature ready.
 - [X] T040 Run `$speckit-converge` append-only; leave any missing remote/operator gate open with a Russian status comment on issue #6276.
 
