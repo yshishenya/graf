@@ -426,7 +426,8 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
         )
 
         XCTAssertTrue(webViewSource.contains("webView.uiDelegate = context.coordinator"))
-        XCTAssertTrue(webViewSource.contains("WKNavigationDelegate, WKUIDelegate"))
+        XCTAssertTrue(webViewSource.contains("WKNavigationDelegate"))
+        XCTAssertTrue(webViewSource.contains("WKUIDelegate"))
         XCTAssertTrue(webViewSource.contains("runOpenPanelWith parameters: WKOpenPanelParameters"))
         XCTAssertTrue(webViewSource.contains("let panel = NSOpenPanel()"))
         XCTAssertTrue(webViewSource.contains("panel.canChooseFiles = true"))
