@@ -109,6 +109,13 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Configure fixture git identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
       - name: Install frozen test toolchain
         shell: bash
         env:
@@ -217,6 +224,11 @@ jobs:
           ref: ${{ inputs.requested_sha }}
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Install Swift 6 toolchain
+        uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: "6.0"
 
       - name: Run macOS full component
         shell: bash
