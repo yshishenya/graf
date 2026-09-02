@@ -49,10 +49,10 @@ owner, expiry, removal trigger and linked retirement task.
 
 ## Gate and next actions
 
-The dependency gate is resolved. T038 exact-SHA GitHub fast validation and T039
-clean-state live smoke remain open after the lifecycle follow-up. Reviewer-owned
-infra, requirements and security checklist items also remain open; their
-markers are intentionally unchecked and require a separate reviewer.
+The dependency and T038 exact-SHA GitHub fast validation gates are resolved.
+T039 clean-state live smoke remains open after the lifecycle follow-up.
+Reviewer-owned infra, requirements and security checklist items also remain
+open; their markers are intentionally unchecked and require a separate reviewer.
 
 No `taskstoissues` or production operation is performed in this implementation
 turn; existing issue links remain the external tracker source of truth.
