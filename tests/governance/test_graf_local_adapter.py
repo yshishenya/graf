@@ -33,6 +33,15 @@ def test_live_adapter_build_is_explicit_and_uses_only_dev_environment(monkeypatc
     assert env["GRAF_DEV_ORIGIN"] == "http://127.0.0.1:8081"
 
 
+def test_build_env_replaces_inherited_image_overrides(tmp_path, monkeypatch):
+    adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
+    monkeypatch.setenv("GRAF_DEV_API_IMAGE", "production.example/api:latest")
+
+    env = adapter._env(manifest(tmp_path), pin_images=False)
+
+    assert env["GRAF_DEV_API_IMAGE"] == "graf-dev-api:latest"
+
+
 def test_live_build_runs_compose_backend_and_signed_app_adapter(monkeypatch, tmp_path):
     sha = "b" * 40
     fake_root = tmp_path / "root"
@@ -54,6 +63,8 @@ def test_live_build_runs_compose_backend_and_signed_app_adapter(monkeypatch, tmp
         calls.append(command)
         if command[:2] == ["git", "rev-parse"]:
             return sha
+        if command[:3] == ["docker", "image", "inspect"]:
+            return "sha256:" + "1" * 64
         if command[0] == "sh" and command[-1] == str(adapter.build_app_script):
             bundle = Path(env["GRAF_DEV_APP_BUNDLE"])
             (bundle / "Contents").mkdir(parents=True)
@@ -79,7 +90,7 @@ def test_live_build_runs_compose_backend_and_signed_app_adapter(monkeypatch, tmp
     assert result["app_bundle_digest"].startswith("sha256:")
 
 
-def test_feature_229_build_records_and_preserves_every_compose_image(monkeypatch, tmp_path):
+def test_live_build_records_and_preserves_every_compose_image_for_future_features(monkeypatch, tmp_path):
     sha = "b" * 40
     fake_root = tmp_path / "root"
     adapter = dev_harness.GrafLocalAdapter(fake_root, tmp_path / "state")
@@ -114,7 +125,7 @@ def test_feature_229_build_records_and_preserves_every_compose_image(monkeypatch
         "_measure_signed_app_identity",
         lambda _: ("GRAF Local Code Signing", "identifier pro.2brain.graf.dev", "sha256:" + "e" * 64),
     )
-    candidate = manifest(tmp_path, sha, feature="229")
+    candidate = manifest(tmp_path, sha, feature="230")
 
     adapter.build(candidate)
 
@@ -141,6 +152,24 @@ def test_pre_hardening_manifest_is_readable_but_cannot_start_without_init_image(
     dev_harness._validate_manifest(previous)
     with pytest.raises(dev_harness.HarnessError, match="rec-minio-init; rebuild the candidate"):
         adapter._env(previous)
+
+
+def test_manifest_validates_storage_init_when_present(tmp_path):
+    candidate = manifest(tmp_path, "a" * 40, feature="229")
+    candidate["components"]["storage_init"]["digest"] = "mutable:latest"
+
+    with pytest.raises(dev_harness.HarnessError, match="storage_init has invalid digest"):
+        dev_harness._validate_manifest(candidate)
+
+
+def test_runtime_definition_drift_blocks_before_mutation(monkeypatch, tmp_path):
+    adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
+    monkeypatch.setattr(adapter, "_runtime_definition_digest", lambda: "sha256:" + "b" * 64)
+
+    with pytest.raises(dev_harness.HarnessError, match="definition differs"):
+        adapter._assert_runtime_definition_compatible(
+            {"runtime_definition_digest": "sha256:" + "a" * 64}
+        )
 
 
 def test_manifest_image_preflight_rejects_server_source_sha_mismatch(monkeypatch, tmp_path):
@@ -368,6 +397,7 @@ def test_failed_start_waits_for_runtime_cleanup_before_compensation(monkeypatch,
     adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
     candidate = manifest(tmp_path, "a" * 40)
     events = []
+    monkeypatch.setattr(adapter, "_runtime_definition_digest", lambda: "sha256:" + "d" * 64)
 
     class FakeProcess:
         pid = 77
@@ -496,13 +526,15 @@ def test_live_promote_relaunches_new_app_and_restores_previous_launch_state(monk
     )
     dev_harness._write_json(
         tmp_path / "runtime.json",
-        {"pid": 101, "source_sha": old["source_sha"], "command": str(adapter.start_script)},
+        {"pid": 101, "source_sha": old["source_sha"], "command": str(adapter.start_script), "runtime_definition_digest": "sha256:" + "d" * 64},
     )
     calls = []
     monkeypatch.setattr(adapter, "_assert_supported", lambda: None)
     monkeypatch.setattr(adapter, "_assert_source_matches_checkout", lambda _: None)
     monkeypatch.setattr(adapter, "_compose_config", lambda _: None)
+    monkeypatch.setattr(adapter, "_assert_manifest_images", lambda *_: None)
     monkeypatch.setattr(adapter, "_runtime_is_live", lambda _: True)
+    monkeypatch.setattr(adapter, "_runtime_definition_digest", lambda: "sha256:" + "d" * 64)
     monkeypatch.setattr(adapter, "_app_is_running", lambda _: True)
     monkeypatch.setattr(adapter, "_stop_previous", lambda: calls.append("stop-backend"))
     monkeypatch.setattr(adapter, "_terminate_dev_app", lambda _: calls.append("stop-app") or True)
@@ -543,6 +575,7 @@ def test_live_promote_restores_app_and_restarts_previous_backend_on_smoke_failur
         "pid": 101,
         "source_sha": old_sha,
         "command": str(adapter.start_script),
+        "runtime_definition_digest": "sha256:" + "d" * 64,
     }
     dev_harness._write_json(tmp_path / "runtime.json", previous_runtime)
 
@@ -552,6 +585,7 @@ def test_live_promote_restores_app_and_restarts_previous_backend_on_smoke_failur
     monkeypatch.setattr(adapter, "_compose_config", lambda _: None)
     monkeypatch.setattr(adapter, "_assert_manifest_images", lambda *_: None)
     monkeypatch.setattr(adapter, "_runtime_is_live", lambda _: True)
+    monkeypatch.setattr(adapter, "_runtime_definition_digest", lambda: "sha256:" + "d" * 64)
     monkeypatch.setattr(adapter, "_pid_alive", lambda _: True)
     monkeypatch.setattr(adapter, "_pid_owned", lambda _: True)
     monkeypatch.setattr(adapter, "_stop_previous", lambda: calls.append("stop"))
@@ -571,6 +605,7 @@ def test_live_promote_restores_app_and_restarts_previous_backend_on_smoke_failur
                 "pid": 303 if manifest_value["source_sha"] == candidate_sha else 101,
                 "source_sha": manifest_value["source_sha"],
                 "command": str(adapter.start_script),
+                "runtime_definition_digest": "sha256:" + "d" * 64,
             },
         )
 
@@ -612,13 +647,16 @@ def test_live_rollback_reinstalls_target_and_verifies_before_return(monkeypatch,
         "pid": 202,
         "source_sha": active_sha,
         "command": str(adapter.start_script),
+        "runtime_definition_digest": "sha256:" + "d" * 64,
     }
     dev_harness._write_json(tmp_path / "runtime.json", previous_runtime)
     calls = []
     monkeypatch.setattr(adapter, "_assert_supported", lambda: None)
     monkeypatch.setattr(adapter, "_assert_source_matches_checkout", lambda _: None)
     monkeypatch.setattr(adapter, "_compose_config", lambda _: None)
+    monkeypatch.setattr(adapter, "_assert_manifest_images", lambda *_: None)
     monkeypatch.setattr(adapter, "_runtime_is_live", lambda _: True)
+    monkeypatch.setattr(adapter, "_runtime_definition_digest", lambda: "sha256:" + "d" * 64)
     monkeypatch.setattr(adapter, "_stop_previous", lambda: calls.append("stop"))
     monkeypatch.setattr(adapter, "_app_is_running", lambda _: True)
     monkeypatch.setattr(adapter, "_terminate_dev_app", lambda _: calls.append("stop-app") or True)
@@ -661,12 +699,19 @@ def test_live_rollback_validates_target_checkout_before_starting(monkeypatch, tm
     )
     monkeypatch.setattr(adapter, "_env", lambda _: {})
     monkeypatch.setattr(adapter, "_compose_config", lambda _: None)
+    monkeypatch.setattr(adapter, "_assert_manifest_images", lambda *_: None)
     monkeypatch.setattr(adapter, "_runtime_record", lambda: tmp_path / "runtime.json")
     monkeypatch.setattr(adapter, "_runtime_is_live", lambda _: True)
     dev_harness._write_json(
         tmp_path / "runtime.json",
-        {"pid": 202, "source_sha": active["source_sha"], "command": "start-local"},
+        {
+            "pid": 202,
+            "source_sha": active["source_sha"],
+            "command": "start-local",
+            "runtime_definition_digest": "sha256:" + "d" * 64,
+        },
     )
+    monkeypatch.setattr(adapter, "_runtime_definition_digest", lambda: "sha256:" + "d" * 64)
     monkeypatch.setattr(adapter, "_snapshot_app", lambda: None)
     monkeypatch.setattr(adapter, "_app_is_running", lambda _: False)
     monkeypatch.setattr(adapter, "_terminate_dev_app", lambda _: False)

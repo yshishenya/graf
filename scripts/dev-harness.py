@@ -95,6 +95,15 @@ COMPOSE_IMAGE_COMPONENTS = {
         False,
     ),
 }
+RUNTIME_DEFINITION_PATHS = (
+    "infra/docker-compose.dev.yml",
+    "infra/scripts/start-dev-runtime.sh",
+    "infra/scripts/dev-migration-preflight.py",
+    "apps/server/scripts/seed_dev_identity.py",
+    "apps/server/alembic.ini",
+    "apps/server/pyproject.toml",
+    "apps/server/uv.lock",
+)
 # GRAF's current frontend is server-rendered by the backend.  Keep a separate
 # manifest field for a future split frontend, but do not invent a second local
 # server in the adapter.
@@ -424,15 +433,40 @@ class GrafLocalAdapter:
         host, port = _origin_parts(backend)
         env["TWOBRAIN_API_HOST"] = host
         env["TWOBRAIN_API_PORT"] = str(port)
-        if pin_images and str(manifest.get("feature_id")) == "229":
-            for service, (component, variable, _fallback, _source_bound) in COMPOSE_IMAGE_COMPONENTS.items():
+        for service, (component, variable, fallback, _source_bound) in COMPOSE_IMAGE_COMPONENTS.items():
+            if pin_images:
                 component_data = manifest["components"].get(component)
                 if not isinstance(component_data, dict):
                     raise HarnessError(
                         f"manifest image identity is missing for {service}; rebuild the candidate"
                     )
                 env[variable] = str(component_data.get("digest", ""))
+            else:
+                env[variable] = fallback
         return env
+
+    def _runtime_definition_digest(self) -> str:
+        digest = hashlib.sha256()
+        for relative in RUNTIME_DEFINITION_PATHS:
+            path = self.root / relative
+            if not path.is_file():
+                raise HarnessError(f"runtime definition input is missing: {relative}")
+            digest.update(relative.encode("utf-8") + b"\0")
+            digest.update(path.read_bytes())
+        return "sha256:" + digest.hexdigest()
+
+    def _assert_runtime_definition_compatible(self, record: Dict[str, Any]) -> None:
+        expected = str(record.get("runtime_definition_digest", ""))
+        # ponytail: fail closed on orchestration drift; persist a tracked runtime
+        # snapshot if promotions across definition revisions become necessary.
+        if not re.fullmatch(r"sha256:[0-9a-fA-F]{64}", expected):
+            raise HarnessError(
+                "active Dev runtime predates runtime-definition binding; explicit operator cutover required"
+            )
+        if expected.lower() != self._runtime_definition_digest().lower():
+            raise HarnessError(
+                "active Dev runtime definition differs from checkout; explicit operator cutover required"
+            )
 
     def _assert_supported(self) -> None:
         if sys.platform != "darwin":
@@ -465,8 +499,6 @@ class GrafLocalAdapter:
 
     def _assert_manifest_images(self, manifest: Dict[str, Any], env: Dict[str, str]) -> None:
         """Fail before runtime mutation unless every manifest image is locally exact."""
-        if str(manifest.get("feature_id")) != "229":
-            return
         expected_sha = str(manifest["source_sha"])
         for service, (component, variable, _fallback, source_bound) in COMPOSE_IMAGE_COMPONENTS.items():
             component_data = manifest["components"].get(component)
@@ -584,39 +616,33 @@ class GrafLocalAdapter:
             cwd=self.root,
             env=env,
         )
-        if str(manifest.get("feature_id")) == "229":
+        _run_command(
+            [
+                "docker", "compose", "-p", "graf-dev", "-f", str(self.compose_file),
+                "pull", "--quiet", "rec-temporal", "rec-postgres", "rec-minio", "rec-minio-init",
+            ],
+            cwd=self.root,
+            env=env,
+        )
+        for service, (component_name, _variable, image_ref, _source_bound) in COMPOSE_IMAGE_COMPONENTS.items():
+            digest = _run_command(
+                ["docker", "image", "inspect", "--format", "{{.Id}}", image_ref],
+                cwd=self.root,
+                env=env,
+            ).strip()
+            if not re.fullmatch(r"sha256:[0-9a-fA-F]{64}", digest):
+                raise HarnessError(f"Dev image digest is invalid for {service}")
+            manifest["components"][component_name]["digest"] = digest
             _run_command(
                 [
-                    "docker", "compose", "-p", "graf-dev", "-f", str(self.compose_file),
-                    "pull", "--quiet", "rec-temporal", "rec-postgres", "rec-minio", "rec-minio-init",
+                    "docker", "image", "tag", digest,
+                    f"graf-dev-immutable:{manifest['manifest_id']}-{component_name.replace('_', '-')}",
                 ],
                 cwd=self.root,
                 env=env,
             )
-            for service, (component_name, _variable, image_ref, _source_bound) in COMPOSE_IMAGE_COMPONENTS.items():
-                digest = _run_command(
-                    ["docker", "image", "inspect", "--format", "{{.Id}}", image_ref],
-                    cwd=self.root,
-                    env=env,
-                ).strip()
-                if not re.fullmatch(r"sha256:[0-9a-fA-F]{64}", digest):
-                    raise HarnessError(f"Dev image digest is invalid for {service}")
-                manifest["components"][component_name]["digest"] = digest
-                _run_command(
-                    [
-                        "docker",
-                        "image",
-                        "tag",
-                        digest,
-                        f"graf-dev-immutable:{manifest['manifest_id']}-{component_name.replace('_', '-')}",
-                    ],
-                    cwd=self.root,
-                    env=env,
-                )
-            # The frontend is server-rendered by API and the historical worker
-            # alias must describe the same concrete processing image.
-            manifest["components"]["frontend"]["digest"] = manifest["components"]["backend"]["digest"]
-            manifest["components"]["worker"]["digest"] = manifest["components"]["processing_worker"]["digest"]
+        manifest["components"]["frontend"]["digest"] = manifest["components"]["backend"]["digest"]
+        manifest["components"]["worker"]["digest"] = manifest["components"]["processing_worker"]["digest"]
         artifact_root = self.state / "artifacts" / str(manifest["manifest_id"])
         build_dir = artifact_root / "build"
         app_bundle = artifact_root / "GRAF Dev.app"
@@ -792,6 +818,7 @@ class GrafLocalAdapter:
                     for service, (_component, variable, _fallback, _source_bound) in COMPOSE_IMAGE_COMPONENTS.items()
                     if variable in env
                 },
+                "runtime_definition_digest": self._runtime_definition_digest(),
                 "runtime_mode": "compose",
                 "started_at": now(),
                 "command": self._process_command(process.pid),
@@ -1002,6 +1029,8 @@ class GrafLocalAdapter:
             and previous_runtime.get("source_sha") != previous_manifest.get("source_sha")
         ):
             raise HarnessError("previous Dev runtime does not match the active manifest")
+        if previous_was_live and previous_runtime is not None:
+            self._assert_runtime_definition_compatible(previous_runtime)
         self._assert_manifest_images(manifest, env)
         if previous_was_live and previous_manifest is not None:
             previous_env = self._env(previous_manifest)
@@ -1058,6 +1087,7 @@ class GrafLocalAdapter:
             raise HarnessError("live rollback requires an owned active Dev backend")
         if previous_runtime.get("source_sha") != active.get("source_sha"):
             raise HarnessError("active Dev runtime does not match the active manifest")
+        self._assert_runtime_definition_compatible(previous_runtime)
         self._assert_manifest_images(target, env)
         self._assert_manifest_images(active, self._env(active))
         app_destination = Path(os.environ.get("GRAF_DEV_INSTALL_PATH", "/Applications/GRAF Dev.app"))
@@ -1329,10 +1359,11 @@ def _validate_manifest(manifest: Dict[str, Any]) -> None:
     components = manifest["components"]
     if not isinstance(components, dict):
         raise HarnessError("manifest components must be an object")
-    for name in (
+    component_names = (
         "backend", "frontend", "worker", "processing_worker", "media_worker",
         "maintenance", "temporal", "migration", "database", "storage", "macos_app",
-    ):
+    ) + (("storage_init",) if "storage_init" in components else ())
+    for name in component_names:
         component = components.get(name)
         if not isinstance(component, dict):
             raise HarnessError(f"manifest component missing: {name}")
