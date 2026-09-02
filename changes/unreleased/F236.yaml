@@ -1,0 +1,10 @@
+schema_version: 1
+feature_id: 236
+category: Changed
+summary: "Полный предрелизный CI выполняется в GitHub Actions на frozen candidate; локальный --full сохраняется только как диагностика и offline fallback."
+issue: 6415
+tasks: [T001, T002, T003, T004, T005, T006, T007, T008, T009, T010, T011, T012, T013]
+compatibility: "Поведение приложения и локального ci-local.sh не изменяется."
+known_limitations:
+  - "Developer ID signing, Apple notarization и production smoke не выполняются на GitHub runner."
+release_notes: "Добавлен ручной GitHub Full CI для frozen release candidate: Ubuntu и macOS проверки выполняются параллельно, а release decision получает одну exact-SHA metadata-only evidence запись."

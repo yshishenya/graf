@@ -11,6 +11,8 @@ import pytest
 ROOT = Path(__file__).resolve().parents[4]
 LOCAL_CI = ROOT / "infra/scripts/ci-local.sh"
 REMOTE_CD = ROOT / "infra/scripts/cd-remote.sh"
+FULL_CI_WORKFLOW = ROOT / ".github/workflows/release-full.yml"
+FULL_CI_VALIDATOR = ROOT / "scripts/validate-full-ci-workflow.py"
 
 
 def run(*args: str, cwd: Path = ROOT, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
@@ -516,3 +518,36 @@ def test_active_documentation_matches_bounded_fast_contract() -> None:
     assert "coverage, next gate, result, duration" in pull_request_template
     assert 'git diff --check "$(git merge-base origin/master HEAD)" HEAD' in quickstart
     assert 'bash -n "$script"' in quickstart
+
+
+def test_github_full_workflow_contract_is_self_validating() -> None:
+    result = run("python3", str(FULL_CI_VALIDATOR), "--self-test")
+
+    assert result.returncode == 0, result.stdout
+    assert "full-ci-workflow self-test: OK" in result.stdout
+
+
+def test_github_full_workflow_is_manual_exact_sha_and_metadata_only() -> None:
+    workflow = FULL_CI_WORKFLOW.read_text(encoding="utf-8")
+
+    assert "workflow_dispatch:" in workflow
+    assert "pull_request:" not in workflow
+    assert "candidate_id:" in workflow and "requested_sha:" in workflow
+    assert "cancel-in-progress: false" in workflow
+    assert "permissions:\n  contents: read\n  actions: read" in workflow
+    assert "ref: ${{ inputs.requested_sha }}" in workflow
+    assert '[[ "${master_sha,,}" == "${REQUESTED_SHA,,}" ]]' in workflow
+    assert "actions/upload-artifact@v4" in workflow
+    assert "actions/download-artifact@v4" in workflow
+    assert "candidate_already_reserved" in workflow
+    assert "graf-full-lock-${{ steps.identity.outputs.artifact_key }}" in workflow
+    assert "graf-full-ci-${{ needs.reserve.outputs.artifact_key }}" in workflow
+    assert "timeout-minutes: 10" in workflow
+    assert "timeout-minutes: 60" in workflow
+    assert "timeout-minutes: 45" in workflow
+    assert '[[ "$(uname -m)" == "arm64" ]]' in workflow
+    assert '"skipped_gates": [],' in workflow
+    assert "--authoritative-full" in workflow
+    assert "--component-sha" in workflow
+    assert "gh release" not in workflow
+    assert "cd-remote.sh" not in workflow
