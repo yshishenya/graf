@@ -26,7 +26,7 @@
 ## Phase 4: Validation and closeout
 
 - [X] T009 Run the feature quickstart, focused XCTest, JavaScript syntax, accessibility/DOM and fresh dev-capture checks; record only metadata-safe results (SC-001–SC-005)
-- [ ] T010 Run `infra/scripts/ci-local.sh --fast`, re-run Spec Kit convergence and record clean-SHA evidence for the high-risk lane without PR/release/deploy (SC-006)
+- [X] T010 Run `infra/scripts/ci-local.sh --fast`, re-run Spec Kit convergence and record clean-SHA evidence for the high-risk lane without PR/release/deploy (SC-006)
 
 ## Phase 5: Convergence
 
