@@ -13,7 +13,7 @@
 ## Phase 3: Agent and PR surfaces
 
 - [X] T005 [US3] Align `.github/pull_request_template.md` and `harness/templates/pull-request.md` with GitHub `governance-fast` authoritative-gate wording and local-CI fallback wording. (Issue #6378)
-- [X] T006 [US3] Run Spec Kit/governance validation, update the F234 changelog fragment, and attach exact-SHA evidence to the PR (governance-fast run #33638341407, SHA `99be8f83309ed03de6283a744c880b01682d34cf`). (Issue #6379)
+- [X] T006 [US3] Run Spec Kit/governance validation, update the F234 changelog fragment, and attach exact-SHA evidence to the PR (governance-fast run #33638519516, SHA `0a213efb4854bf925ea70cb4eb97d6668f62ccd5`). (Issue #6379)
 
 ## Dependencies
 
