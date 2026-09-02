@@ -38,6 +38,7 @@
         "migration": {"$ref": "#/$defs/component"},
         "database": {"$ref": "#/$defs/component"},
         "storage": {"$ref": "#/$defs/component"},
+        "storage_init": {"$ref": "#/$defs/component"},
         "macos_app": {"$ref": "#/$defs/component"}
       }
     },

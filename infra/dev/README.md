@@ -7,8 +7,9 @@ manifest to those actions only after the manifest and Dev boundary checks pass.
 
 The state directory is `GRAF_DEV_STATE_DIR` or the shared machine-local
 `~/Library/Application Support/GRAF Dev/<repo>/harness` path on macOS
-(`~/.cache/GRAF Dev/<repo>/harness` on other systems). It contains only
-metadata, a lock and an atomic `active-manifest.json` pointer. A state path that
+(`~/.cache/GRAF Dev/<repo>/harness` on other systems). It contains metadata,
+machine-local build/rollback artifacts, a lock and an atomic
+`active-manifest.json` pointer. A state path that
 looks like production is rejected. Origins must be loopback (`localhost`,
 `127.0.0.1` or `[::1]`). Set `GRAF_DEV_STATE_DIR` explicitly when a disposable
 fixture needs a worktree-local state directory.
@@ -24,6 +25,7 @@ dev_state="$(./infra/scripts/dev-harness.sh status --json | jq -r '.state_dir')"
 ./infra/scripts/dev-harness.sh status --json
 ./infra/scripts/dev-harness.sh smoke --json --live
 ./infra/scripts/dev-harness.sh rollback --dry-run
+./infra/scripts/dev-harness.sh rehydrate --manifest <path>
 ./infra/scripts/dev-harness.sh reset-data --confirm-dev-reset --dry-run
 ```
 
@@ -39,11 +41,14 @@ dev_state="$(./infra/scripts/dev-harness.sh status --json | jq -r '.state_dir')"
 ./infra/scripts/dev-harness.sh smoke --json --live
 ```
 
-`build --live` проверяет `docker-compose.dev.yml`, импорт backend, собирает
-полный набор образов с label exact SHA и подписывает ровно один `GRAF Dev.app`.
+`build --live` под общим Dev lock проверяет `docker-compose.dev.yml`, импорт
+backend, собирает полный набор образов с label exact SHA и подписывает ровно
+один `GRAF Dev.app`.
 `promote --live` использует только `start-dev-runtime.sh`: Compose namespace
 `graf-dev` поднимает Postgres, MinIO, Temporal, migration, API и оба worker.
-Migration preflight выполняется до migration command и application readiness.
+Migration preflight и seed выполняются внутри выбранного immutable server image
+до migration command и application readiness; checkout-side server source не
+участвует в startup или compensation.
 `smoke --live` проверяет API, server-rendered `/login`, auth bootstrap,
 Postgres/MinIO/migration, Temporal, processing/media worker, app identity и
 presentation (`GRAF Dev`, channel `dev`, отдельная Dev-иконка) и exact SHA.
@@ -70,10 +75,13 @@ SHA. In a real GRAF checkout, `build` resolves the Alembic graph head with
 `uv run alembic heads`; `GRAF_DEV_MIGRATION_HEAD` or `--migration-head` may
 provide an explicitly verified override. Fixture manifests may use an explicit
 synthetic head, but the default `unknown` value is deliberately rejected by
-`promote`. `promote` takes an exclusive lock and replaces the active pointer
+`promote`. `build` and `promote` take the same exclusive lock; `promote` replaces the active pointer
 only after validation; a stale candidate or malformed component is refused.
 The first failed/partial operation therefore leaves the previous active
-manifest untouched. Re-promoting the active manifest is idempotent.
+manifest untouched. Re-promoting the active manifest is idempotent. If
+compensation fails, metadata-only `rollback-required.json` makes terminal
+`rollback_required` visible through `status`, including a first promotion with
+no previous active manifest.
 
 `rollback` selects the manifest's parent unless an explicit manifest ID is
 provided. `reset-data` is intentionally limited to metadata-only Dev state and
@@ -86,5 +94,10 @@ start-time token in `runtime.json`. Stop and rollback signal a process only when
 both identities still match; a legacy runtime record without `start_token` is
 treated as unowned and fails closed, so remove/repair it manually after
 confirming that no Dev backend is running.
+
+Each live build stores a machine-local `runtime-images.tar` beside its app
+artifact. `rehydrate` reloads that archive under the shared lock and verifies
+every manifest image ID and source label; it never rebuilds or substitutes a
+missing rollback image.
 
 The full field contract is [manifest.schema.json](manifest.schema.json).

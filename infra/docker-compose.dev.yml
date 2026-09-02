@@ -52,6 +52,7 @@ x-server-env: &server-env
 services:
   api:
     labels: *dev-labels
+    image: "${GRAF_DEV_API_IMAGE:-graf-dev-api:latest}"
     build:
       <<: *server-build
     environment:
@@ -78,6 +79,7 @@ services:
 
   rec-processing-worker:
     labels: *dev-labels
+    image: "${GRAF_DEV_PROCESSING_WORKER_IMAGE:-graf-dev-rec-processing-worker:latest}"
     build:
       <<: *server-build
     environment:
@@ -104,6 +106,7 @@ services:
 
   rec-maintenance:
     labels: *dev-labels
+    image: "${GRAF_DEV_MAINTENANCE_IMAGE:-graf-dev-rec-maintenance:latest}"
     build:
       <<: *server-build
     restart: unless-stopped
@@ -125,6 +128,7 @@ services:
 
   rec-media-worker:
     labels: *dev-labels
+    image: "${GRAF_DEV_MEDIA_WORKER_IMAGE:-graf-dev-rec-media-worker:latest}"
     build:
       <<: *server-build
       target: media-runtime
@@ -176,7 +180,7 @@ services:
     # internal /_sys partition and reject it.  The upstream fix is in 1.28.0
     # (temporalio/temporal#8363); keep Dev on the fixed server line while the
     # production pin remains independently governed in docker-compose.yml.
-    image: temporalio/auto-setup:1.28.0
+    image: "${GRAF_DEV_TEMPORAL_IMAGE:-temporalio/auto-setup:1.28.0}"
     environment:
       DB: postgres12
       DB_PORT: "5432"
@@ -205,6 +209,7 @@ services:
 
   rec-migrate:
     labels: *dev-labels
+    image: "${GRAF_DEV_MIGRATION_IMAGE:-graf-dev-rec-migrate:latest}"
     build:
       <<: *server-build
     environment:
@@ -216,7 +221,7 @@ services:
 
   rec-postgres:
     labels: *dev-labels
-    image: postgres:17-alpine
+    image: "${GRAF_DEV_DATABASE_IMAGE:-postgres:17-alpine}"
     environment:
       POSTGRES_DB: twobrain_rec
       POSTGRES_USER: twobrain_rec
@@ -236,7 +241,7 @@ services:
 
   rec-minio:
     labels: *dev-labels
-    image: minio/minio:RELEASE.2025-05-24T17-08-30Z
+    image: "${GRAF_DEV_STORAGE_IMAGE:-minio/minio:RELEASE.2025-05-24T17-08-30Z}"
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: twobrain_rec_root
@@ -257,7 +262,7 @@ services:
 
   rec-minio-init:
     labels: *dev-labels
-    image: minio/mc:RELEASE.2025-05-21T01-59-54Z
+    image: "${GRAF_DEV_STORAGE_INIT_IMAGE:-minio/mc:RELEASE.2025-05-21T01-59-54Z}"
     depends_on:
       rec-minio:
         condition: service_healthy

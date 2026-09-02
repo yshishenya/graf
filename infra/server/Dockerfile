@@ -19,6 +19,8 @@ COPY apps/server/scripts /app/scripts
 
 RUN pip install --constraint constraints.txt ".[evaluation]"
 
+COPY infra/scripts/dev-migration-preflight.py /app/scripts/dev-migration-preflight.py
+
 FROM base AS media-runtime
 
 USER root

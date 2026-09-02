@@ -45,3 +45,8 @@ def test_observe_can_use_explicit_fixture_state(tmp_path: Path):
     )
     assert result["status"] == "blocked"
     assert result["reason"] == "unknown_or_divergent_revision"
+
+
+def test_container_preflight_uses_installed_alembic_without_uv(monkeypatch):
+    monkeypatch.setattr(preflight.shutil, "which", lambda _: None)
+    assert preflight._alembic_command("heads") == ["alembic", "heads"]

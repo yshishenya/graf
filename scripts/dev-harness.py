@@ -48,10 +48,59 @@ PROBE_RETRY_DELAY_SECONDS = 0.2
 RUNTIME_READY_SERVICES = (
     "api",
     "rec-processing-worker",
+    "rec-maintenance",
     "rec-media-worker",
     "rec-temporal",
     "rec-postgres",
     "rec-minio",
+)
+COMPOSE_IMAGE_COMPONENTS = {
+    "api": ("backend", "GRAF_DEV_API_IMAGE", "graf-dev-api:latest", True),
+    "rec-processing-worker": (
+        "processing_worker",
+        "GRAF_DEV_PROCESSING_WORKER_IMAGE",
+        "graf-dev-rec-processing-worker:latest",
+        True,
+    ),
+    "rec-maintenance": (
+        "maintenance",
+        "GRAF_DEV_MAINTENANCE_IMAGE",
+        "graf-dev-rec-maintenance:latest",
+        True,
+    ),
+    "rec-media-worker": (
+        "media_worker",
+        "GRAF_DEV_MEDIA_WORKER_IMAGE",
+        "graf-dev-rec-media-worker:latest",
+        True,
+    ),
+    "rec-migrate": ("migration", "GRAF_DEV_MIGRATION_IMAGE", "graf-dev-rec-migrate:latest", True),
+    "rec-temporal": (
+        "temporal",
+        "GRAF_DEV_TEMPORAL_IMAGE",
+        "temporalio/auto-setup:1.28.0",
+        False,
+    ),
+    "rec-postgres": ("database", "GRAF_DEV_DATABASE_IMAGE", "postgres:17-alpine", False),
+    "rec-minio": (
+        "storage",
+        "GRAF_DEV_STORAGE_IMAGE",
+        "minio/minio:RELEASE.2025-05-24T17-08-30Z",
+        False,
+    ),
+    "rec-minio-init": (
+        "storage_init",
+        "GRAF_DEV_STORAGE_INIT_IMAGE",
+        "minio/mc:RELEASE.2025-05-21T01-59-54Z",
+        False,
+    ),
+}
+RUNTIME_DEFINITION_PATHS = (
+    "scripts/dev-harness.py",
+    "infra/docker-compose.dev.yml",
+    "infra/scripts/start-dev-runtime.sh",
+    "apps/macos/Scripts/install-dev-app.sh",
+    "apps/macos/Scripts/dev-app-lifecycle.swift",
 )
 # GRAF's current frontend is server-rendered by the backend.  Keep a separate
 # manifest field for a future split frontend, but do not invent a second local
@@ -297,7 +346,7 @@ class GrafLocalAdapter:
         self.install_app_script = root / "apps" / "macos" / "Scripts" / "install-dev-app.sh"
         self.app_lifecycle_script = root / "apps" / "macos" / "Scripts" / "dev-app-lifecycle.swift"
 
-    def _env(self, manifest: Dict[str, Any]) -> Dict[str, str]:
+    def _env(self, manifest: Dict[str, Any], *, pin_images: bool = True) -> Dict[str, str]:
         boundary = manifest["dev_boundary"]
         backend = str(boundary["backend_origin"])
         frontend = str(boundary["frontend_origin"])
@@ -382,7 +431,55 @@ class GrafLocalAdapter:
         host, port = _origin_parts(backend)
         env["TWOBRAIN_API_HOST"] = host
         env["TWOBRAIN_API_PORT"] = str(port)
+        for service, (component, variable, fallback, _source_bound) in COMPOSE_IMAGE_COMPONENTS.items():
+            if pin_images:
+                component_data = manifest["components"].get(component)
+                if not isinstance(component_data, dict):
+                    raise HarnessError(
+                        f"manifest image identity is missing for {service}; rebuild the candidate"
+                    )
+                env[variable] = str(component_data.get("digest", ""))
+            else:
+                env[variable] = fallback
         return env
+
+    def _runtime_definition_digest(self) -> str:
+        digest = hashlib.sha256()
+        for relative in RUNTIME_DEFINITION_PATHS:
+            path = self.root / relative
+            if path.is_dir():
+                tracked = _run_command(
+                    ["git", "ls-files", "--", relative], cwd=self.root
+                ).splitlines()
+                if not tracked:
+                    raise HarnessError(f"runtime definition directory is empty: {relative}")
+                for tracked_relative in tracked:
+                    tracked_path = self.root / tracked_relative
+                    if not tracked_path.is_file():
+                        raise HarnessError(
+                            f"runtime definition input is missing: {tracked_relative}"
+                        )
+                    digest.update(tracked_relative.encode("utf-8") + b"\0")
+                    digest.update(tracked_path.read_bytes())
+            elif path.is_file():
+                digest.update(relative.encode("utf-8") + b"\0")
+                digest.update(path.read_bytes())
+            else:
+                raise HarnessError(f"runtime definition input is missing: {relative}")
+        return "sha256:" + digest.hexdigest()
+
+    def _assert_runtime_definition_compatible(self, record: Dict[str, Any]) -> None:
+        expected = str(record.get("runtime_definition_digest", ""))
+        # ponytail: fail closed on orchestration drift; persist a tracked runtime
+        # snapshot if promotions across definition revisions become necessary.
+        if not re.fullmatch(r"sha256:[0-9a-fA-F]{64}", expected):
+            raise HarnessError(
+                "active Dev runtime predates runtime-definition binding; explicit operator cutover required"
+            )
+        if expected.lower() != self._runtime_definition_digest().lower():
+            raise HarnessError(
+                "active Dev runtime definition differs from checkout; explicit operator cutover required"
+            )
 
     def _assert_supported(self) -> None:
         if sys.platform != "darwin":
@@ -413,6 +510,47 @@ class GrafLocalAdapter:
             env=env,
         )
 
+    def _assert_manifest_images(self, manifest: Dict[str, Any], env: Dict[str, str]) -> None:
+        """Fail before runtime mutation unless every manifest image is locally exact."""
+        expected_sha = str(manifest["source_sha"])
+        for service, (component, variable, _fallback, source_bound) in COMPOSE_IMAGE_COMPONENTS.items():
+            component_data = manifest["components"].get(component)
+            if not isinstance(component_data, dict):
+                raise HarnessError(
+                    f"manifest image identity is missing for {service}; rebuild the candidate"
+                )
+            expected_image = str(component_data.get("digest", ""))
+            if env.get(variable) != expected_image:
+                raise HarnessError(f"Dev image pin is missing for {service}")
+            try:
+                observed_image = _run_command(
+                    ["docker", "image", "inspect", "--format", "{{.Id}}", expected_image],
+                    cwd=self.root,
+                    env=env,
+                ).strip()
+            except HarnessError as exc:
+                raise HarnessError(
+                    f"required Dev image is unavailable for {service}; "
+                    f"rehydrate manifest {manifest['manifest_id']}"
+                ) from exc
+            if observed_image.lower() != expected_image.lower():
+                raise HarnessError(f"Dev image identity mismatch for {service}")
+            if source_bound:
+                observed_sha = _run_command(
+                    [
+                        "docker",
+                        "image",
+                        "inspect",
+                        "--format",
+                        '{{ index .Config.Labels "org.2brain.graf.dev.source-sha" }}',
+                        expected_image,
+                    ],
+                    cwd=self.root,
+                    env=env,
+                ).strip()
+                if observed_sha.lower() != expected_sha.lower():
+                    raise HarnessError(f"Dev image source SHA mismatch for {service}")
+
     def _compose_service_ready(self, service: str, env: Dict[str, str]) -> str:
         """Return pass only for the owned Dev Compose service."""
         expected_sha = str(env.get("GRAF_DEV_SOURCE_SHA", ""))
@@ -432,6 +570,17 @@ class GrafLocalAdapter:
         ).strip()
         if observed_sha.lower() != expected_sha.lower():
             return "fail"
+        image_config = COMPOSE_IMAGE_COMPONENTS.get(service)
+        if image_config is not None:
+            expected_image = str(env.get(image_config[1], ""))
+            if expected_image:
+                observed_image = _run_command(
+                    ["docker", "inspect", "--format", "{{.Image}}", container_id],
+                    cwd=self.root,
+                    env=env,
+                ).strip()
+                if observed_image.lower() != expected_image.lower():
+                    return "fail"
         output = _run_command(
             ["docker", "compose", "-p", "graf-dev", "-f", str(self.compose_file), "ps", "--format", "json", service],
             cwd=self.root,
@@ -467,7 +616,7 @@ class GrafLocalAdapter:
     def build(self, manifest: Dict[str, Any]) -> Dict[str, str]:
         self._assert_supported()
         self._assert_source_matches_checkout(manifest)
-        env = self._env(manifest)
+        env = self._env(manifest, pin_images=False)
         self._compose_config(env)
         _run_command(
             ["uv", "run", "python", "-c", "import twobrain_rec_server"],
@@ -483,42 +632,60 @@ class GrafLocalAdapter:
             cwd=self.root,
             env=env,
         )
-        if str(manifest.get("feature_id")) == "229":
-            service_images = {
-                "api": ("backend", "graf-dev-api:latest"),
-                "rec-processing-worker": ("processing_worker", "graf-dev-rec-processing-worker:latest"),
-                "rec-media-worker": ("media_worker", "graf-dev-rec-media-worker:latest"),
-                "rec-maintenance": ("maintenance", "graf-dev-rec-maintenance:latest"),
-                "rec-migrate": ("migration", "graf-dev-rec-migrate:latest"),
-                "rec-temporal": ("temporal", "temporalio/auto-setup:1.28.0"),
-                "rec-postgres": ("database", "postgres:17-alpine"),
-                "rec-minio": ("storage", "minio/minio:RELEASE.2025-05-24T17-08-30Z"),
-            }
+        _run_command(
+            [
+                "docker", "compose", "-p", "graf-dev", "-f", str(self.compose_file),
+                "pull", "--quiet", "rec-temporal", "rec-postgres", "rec-minio", "rec-minio-init",
+            ],
+            cwd=self.root,
+            env=env,
+        )
+        for service, (component_name, _variable, image_ref, _source_bound) in COMPOSE_IMAGE_COMPONENTS.items():
+            digest = _run_command(
+                ["docker", "image", "inspect", "--format", "{{.Id}}", image_ref],
+                cwd=self.root,
+                env=env,
+            ).strip()
+            if not re.fullmatch(r"sha256:[0-9a-fA-F]{64}", digest):
+                raise HarnessError(f"Dev image digest is invalid for {service}")
+            manifest["components"][component_name]["digest"] = digest
             _run_command(
                 [
-                    "docker", "compose", "-p", "graf-dev", "-f", str(self.compose_file),
-                    "pull", "--quiet", "rec-temporal", "rec-postgres", "rec-minio", "rec-minio-init",
+                    "docker", "image", "tag", digest,
+                    f"graf-dev-immutable:{manifest['manifest_id']}-{component_name.replace('_', '-')}",
                 ],
                 cwd=self.root,
                 env=env,
             )
-            for service, (component_name, image_ref) in service_images.items():
-                digest = _run_command(
-                    ["docker", "image", "inspect", "--format", "{{.Id}}", image_ref],
-                    cwd=self.root,
-                    env=env,
-                ).strip()
-                if not re.fullmatch(r"sha256:[0-9a-fA-F]{64}", digest):
-                    raise HarnessError(f"Dev image digest is invalid for {service}")
-                manifest["components"][component_name]["digest"] = digest
-            # The frontend is server-rendered by API and the historical worker
-            # alias must describe the same concrete processing image.
-            manifest["components"]["frontend"]["digest"] = manifest["components"]["backend"]["digest"]
-            manifest["components"]["worker"]["digest"] = manifest["components"]["processing_worker"]["digest"]
+        manifest["components"]["frontend"]["digest"] = manifest["components"]["backend"]["digest"]
+        manifest["components"]["worker"]["digest"] = manifest["components"]["processing_worker"]["digest"]
         artifact_root = self.state / "artifacts" / str(manifest["manifest_id"])
+        artifact_root.mkdir(parents=True, exist_ok=True)
+        image_archive = artifact_root / "runtime-images.tar"
+        temporary_archive = artifact_root / ".runtime-images.tar.tmp"
+        with contextlib.suppress(FileNotFoundError):
+            temporary_archive.unlink()
+        try:
+            _run_command(
+                [
+                    "docker", "image", "save", "--output", str(temporary_archive),
+                    *sorted(
+                        {
+                            str(manifest["components"][component]["digest"])
+                            for component, _variable, _fallback, _source_bound
+                            in COMPOSE_IMAGE_COMPONENTS.values()
+                        }
+                    ),
+                ],
+                cwd=self.root,
+                env=env,
+            )
+            os.replace(temporary_archive, image_archive)
+        finally:
+            with contextlib.suppress(FileNotFoundError):
+                temporary_archive.unlink()
         build_dir = artifact_root / "build"
         app_bundle = artifact_root / "GRAF Dev.app"
-        artifact_root.mkdir(parents=True, exist_ok=True)
         env.update(
             {
                 "GRAF_DEV_BUILD_DIR": str(build_dir),
@@ -538,6 +705,22 @@ class GrafLocalAdapter:
         )
         manifest["components"]["macos_app"]["digest"] = _tree_digest(app_bundle)
         return {"mode": "live", "app_bundle_digest": manifest["components"]["macos_app"]["digest"]}
+
+    def rehydrate(self, manifest: Dict[str, Any]) -> Dict[str, str]:
+        """Restore archived exact image IDs without rebuilding the candidate."""
+        self._assert_supported()
+        self._assert_source_matches_checkout(manifest)
+        archive = self.state / "artifacts" / str(manifest["manifest_id"]) / "runtime-images.tar"
+        if not archive.is_file():
+            raise HarnessError("immutable Dev image archive is unavailable; rebuild a new candidate")
+        _run_command(
+            ["docker", "image", "load", "--input", str(archive)],
+            cwd=self.root,
+            env=self._env(manifest, pin_images=False),
+        )
+        env = self._env(manifest)
+        self._assert_manifest_images(manifest, env)
+        return {"mode": "live", "images": "rehydrated"}
 
     def _measure_signed_app_identity(self, app_bundle: Path) -> tuple[str, str, str]:
         """Read signing facts from the final bundle, never from configuration."""
@@ -685,6 +868,12 @@ class GrafLocalAdapter:
                 "source_sha": manifest["source_sha"],
                 "compose_project": "graf-dev",
                 "services": ["api", "rec-processing-worker", "rec-maintenance", "rec-media-worker"],
+                "images": {
+                    service: env[variable]
+                    for service, (_component, variable, _fallback, _source_bound) in COMPOSE_IMAGE_COMPONENTS.items()
+                    if variable in env
+                },
+                "runtime_definition_digest": self._runtime_definition_digest(),
                 "runtime_mode": "compose",
                 "started_at": now(),
                 "command": self._process_command(process.pid),
@@ -879,6 +1068,27 @@ class GrafLocalAdapter:
         else:
             _write_json(runtime, previous)
 
+    def _mark_rollback_required(self, manifest: Dict[str, Any]) -> None:
+        blocked = dict(manifest)
+        blocked["status"] = "rollback_required"
+        blocked["health"] = {
+            "result": "fail",
+            "checked_at": now(),
+            "checks": {"compensation": "fail"},
+        }
+        _validate_manifest(blocked)
+        _write_json(_manifest_path(self.state, str(blocked["manifest_id"])), blocked)
+        _write_json(
+            self.state / "rollback-required.json",
+            {
+                "schema_version": "dev-rollback-required.v1",
+                "status": "rollback_required",
+                "manifest_id": blocked["manifest_id"],
+                "source_sha": blocked["source_sha"],
+                "checked_at": now(),
+            },
+        )
+
     def promote(self, manifest: Dict[str, Any]) -> Dict[str, str]:
         self._assert_supported()
         self._assert_source_matches_checkout(manifest)
@@ -895,6 +1105,12 @@ class GrafLocalAdapter:
             and previous_runtime.get("source_sha") != previous_manifest.get("source_sha")
         ):
             raise HarnessError("previous Dev runtime does not match the active manifest")
+        if previous_was_live and previous_runtime is not None:
+            self._assert_runtime_definition_compatible(previous_runtime)
+        self._assert_manifest_images(manifest, env)
+        if previous_was_live and previous_manifest is not None:
+            previous_env = self._env(previous_manifest)
+            self._assert_manifest_images(previous_manifest, previous_env)
         app_destination = Path(os.environ.get("GRAF_DEV_INSTALL_PATH", "/Applications/GRAF Dev.app"))
         previous_app_was_running = self._app_is_running(app_destination)
         app_backup = self._snapshot_app()
@@ -923,6 +1139,7 @@ class GrafLocalAdapter:
                 except Exception as exc:  # pragma: no cover - defensive path
                     compensation_errors.append(f"app relaunch failed: {exc}")
             if compensation_errors:
+                self._mark_rollback_required(previous_manifest or manifest)
                 raise HarnessError("live promotion failed; compensation failed: " + "; ".join(compensation_errors)) from failure
             raise
         else:
@@ -947,6 +1164,9 @@ class GrafLocalAdapter:
             raise HarnessError("live rollback requires an owned active Dev backend")
         if previous_runtime.get("source_sha") != active.get("source_sha"):
             raise HarnessError("active Dev runtime does not match the active manifest")
+        self._assert_runtime_definition_compatible(previous_runtime)
+        self._assert_manifest_images(target, env)
+        self._assert_manifest_images(active, self._env(active))
         app_destination = Path(os.environ.get("GRAF_DEV_INSTALL_PATH", "/Applications/GRAF Dev.app"))
         previous_app_was_running = self._app_is_running(app_destination)
         app_backup = self._snapshot_app()
@@ -975,6 +1195,7 @@ class GrafLocalAdapter:
                 except Exception as exc:  # pragma: no cover - defensive path
                     compensation_errors.append(f"app relaunch failed: {exc}")
             if compensation_errors:
+                self._mark_rollback_required(active)
                 raise HarnessError("live rollback failed; compensation failed: " + "; ".join(compensation_errors)) from failure
             raise
         else:
@@ -1013,26 +1234,6 @@ class GrafLocalAdapter:
         frontend = str(manifest["dev_boundary"]["frontend_origin"])
         checks: Dict[str, str] = {}
 
-        def service_health(service: str) -> str:
-            try:
-                output = _run_command(
-                    ["docker", "compose", "-f", str(self.compose_file), "ps", "--format", "json", service],
-                    cwd=self.root,
-                    env=self._env(manifest),
-                )
-                try:
-                    parsed = json.loads(output)
-                except json.JSONDecodeError:
-                    parsed = None
-                rows = parsed if isinstance(parsed, list) else ([parsed] if isinstance(parsed, dict) else [])
-                matches = [row for row in rows if isinstance(row, dict) and row.get("Service") == service]
-                if len(matches) != 1:
-                    return "fail"
-                row = matches[0]
-                return "pass" if row.get("State") == "running" and row.get("Health") == "healthy" else "fail"
-            except (HarnessError, TypeError, ValueError):
-                return "fail"
-
         def probe(origin: str, path: str, headers: Optional[Dict[str, str]] = None) -> str:
             try:
                 return "pass" if self._wait_http(origin, path, headers=headers) == 200 else "fail"
@@ -1043,32 +1244,6 @@ class GrafLocalAdapter:
         internal_ready = probe(
             backend, "/api/v1/health/ready/internal", headers={"X-Internal-Health-Check": "true"}
         )
-        # F227 manifests retain their historical adapter smoke contract while
-        # the F229 candidate uses the complete named service contract below.
-        # This compatibility branch is intentionally not reachable for the
-        # active Feature 229 pointer.
-        if str(manifest.get("feature_id")) != "229":
-            checks["temporal_health"] = service_health("rec-temporal")
-            checks["worker_dependencies"] = internal_ready
-            if service_health("rec-processing-worker") != "pass":
-                checks["worker_dependencies"] = "fail"
-            checks["frontend_reachability"] = probe(frontend, "/login")
-            checks["auth_session_bootstrap"] = probe(backend, "/api/v1/auth/providers")
-            try:
-                representative_status = self._wait_http(backend, "/api/v1/cabinet/meetings")
-                checks["representative_api"] = "pass" if representative_status in {200, 401, 403} else "fail"
-            except HarnessError:
-                checks["representative_api"] = "fail"
-            app_path = Path(os.environ.get("GRAF_DEV_INSTALL_PATH", "/Applications/GRAF Dev.app"))
-            info_plist = app_path / "Contents" / "Info.plist"
-            try:
-                app_sha = _run_command(["plutil", "-extract", "GRAFSourceSHA", "raw", str(info_plist)], cwd=self.root)
-                app_id = _run_command(["plutil", "-extract", "CFBundleIdentifier", "raw", str(info_plist)], cwd=self.root)
-                app_origin = _run_command(["plutil", "-extract", "LSEnvironment.GRAF_CABINET_BASE_URL", "raw", str(info_plist)], cwd=self.root)
-                checks["app_origin"] = "pass" if app_sha == manifest["source_sha"] and app_id == APP_BUNDLE_ID and app_origin == backend else "fail"
-            except HarnessError:
-                checks["app_origin"] = "fail"
-            return checks
         runtime_env = self._env(manifest)
         try:
             api_ready = self._compose_service_ready("api", runtime_env)
@@ -1216,10 +1391,11 @@ def _validate_manifest(manifest: Dict[str, Any]) -> None:
     components = manifest["components"]
     if not isinstance(components, dict):
         raise HarnessError("manifest components must be an object")
-    for name in (
+    component_names = (
         "backend", "frontend", "worker", "processing_worker", "media_worker",
         "maintenance", "temporal", "migration", "database", "storage", "macos_app",
-    ):
+    ) + (("storage_init",) if "storage_init" in components else ())
+    for name in component_names:
         component = components.get(name)
         if not isinstance(component, dict):
             raise HarnessError(f"manifest component missing: {name}")
@@ -1260,7 +1436,7 @@ def build_manifest(sha: str, feature_id: str, operator: str = "local", migration
         name: {"source_sha": source_sha, "version": source_sha[:12], "digest": _digest(f"{name}:{source_sha}")}
         for name in (
             "backend", "frontend", "worker", "processing_worker", "media_worker",
-            "maintenance", "temporal", "migration", "database", "storage", "macos_app",
+            "maintenance", "temporal", "migration", "database", "storage", "storage_init", "macos_app",
         )
     }
     backend_origin = os.environ.get("GRAF_BACKEND_ORIGIN", DEFAULT_BACKEND_ORIGIN)
@@ -1299,39 +1475,40 @@ def build_manifest(sha: str, feature_id: str, operator: str = "local", migration
 
 def operation_build(args: argparse.Namespace) -> Dict[str, Any]:
     root = state_dir(live=bool(getattr(args, "live", False)))
-    feature_id = args.feature_id or os.environ.get("GRAF_FEATURE_ID") or _active_feature_id()
-    migration_head = args.migration_head
-    if migration_head in {None, "", "unknown"}:
-        migration_head = _resolve_migration_head(_repo_root())
-    manifest = build_manifest(args.sha, feature_id, args.operator, migration_head, root)
-    active = _load_active(root)
-    # A manifest ID is derived from the source SHA. Rebuilding the active SHA
-    # must not silently replace its active record (or detach runtime metadata).
-    if active and active.get("manifest_id") == manifest["manifest_id"]:
-        return {
-            "operation": "build",
-            "dry_run": bool(args.dry_run),
-            "status": active.get("status", "active"),
-            "adapter": {"mode": "existing-active"},
-            "manifest": active,
-            "idempotent": True,
-        }
-    existing_path = _manifest_path(root, manifest["manifest_id"])
-    if existing_path.exists():
-        existing = _read_json(existing_path)
-        if existing == manifest:
-            return {"operation": "build", "dry_run": bool(args.dry_run), "status": existing.get("status", "built"), "adapter": {"mode": "existing"}, "manifest": existing, "idempotent": True}
-        raise HarnessError("manifest identity already exists with different metadata")
-    adapter_info: Dict[str, str] = {"mode": "metadata-only"}
-    if getattr(args, "live", False) and not args.dry_run:
-        adapter_info = GrafLocalAdapter(_repo_root(), root).build(manifest)
-        _validate_manifest(manifest)
-    elif getattr(args, "live", False):
-        adapter_info = {"mode": "live-dry-run"}
-    if not args.dry_run:
-        _mkdirs(root)
-        _write_json(existing_path, manifest)
-    return {"operation": "build", "dry_run": bool(args.dry_run), "adapter": adapter_info, "manifest": manifest}
+    with state_lock(root):
+        feature_id = args.feature_id or os.environ.get("GRAF_FEATURE_ID") or _active_feature_id()
+        migration_head = args.migration_head
+        if migration_head in {None, "", "unknown"}:
+            migration_head = _resolve_migration_head(_repo_root())
+        manifest = build_manifest(args.sha, feature_id, args.operator, migration_head, root)
+        active = _load_active(root)
+        # A manifest ID is derived from the source SHA. Rebuilding the active SHA
+        # must not silently replace its active record (or detach runtime metadata).
+        if active and active.get("manifest_id") == manifest["manifest_id"]:
+            return {
+                "operation": "build",
+                "dry_run": bool(args.dry_run),
+                "status": active.get("status", "active"),
+                "adapter": {"mode": "existing-active"},
+                "manifest": active,
+                "idempotent": True,
+            }
+        existing_path = _manifest_path(root, manifest["manifest_id"])
+        if existing_path.exists():
+            existing = _read_json(existing_path)
+            if existing == manifest:
+                return {"operation": "build", "dry_run": bool(args.dry_run), "status": existing.get("status", "built"), "adapter": {"mode": "existing"}, "manifest": existing, "idempotent": True}
+            raise HarnessError("manifest identity already exists with different metadata")
+        adapter_info: Dict[str, str] = {"mode": "metadata-only"}
+        if getattr(args, "live", False) and not args.dry_run:
+            adapter_info = GrafLocalAdapter(_repo_root(), root).build(manifest)
+            _validate_manifest(manifest)
+        elif getattr(args, "live", False):
+            adapter_info = {"mode": "live-dry-run"}
+        if not args.dry_run:
+            _mkdirs(root)
+            _write_json(existing_path, manifest)
+        return {"operation": "build", "dry_run": bool(args.dry_run), "adapter": adapter_info, "manifest": manifest}
 
 
 def operation_promote(args: argparse.Namespace) -> Dict[str, Any]:
@@ -1387,12 +1564,46 @@ def operation_promote(args: argparse.Namespace) -> Dict[str, Any]:
                 "updated_at": now(),
             }
             _write_json(root / "active-manifest.json", pointer)
+            with contextlib.suppress(FileNotFoundError):
+                (root / "rollback-required.json").unlink()
     return {"operation": "promote", "dry_run": bool(args.dry_run), "status": "ready" if args.dry_run else "active", "adapter": adapter_info, "manifest": promoted}
+
+
+def operation_rehydrate(args: argparse.Namespace) -> Dict[str, Any]:
+    _assert_dev_environment()
+    root = state_dir(live=True)
+    manifest = _read_json(Path(args.manifest).resolve())
+    _validate_manifest(manifest)
+    with state_lock(root):
+        adapter_info = GrafLocalAdapter(_repo_root(), root).rehydrate(manifest)
+    return {"operation": "rehydrate", "status": "ready", "adapter": adapter_info, "manifest": manifest}
 
 
 def operation_status(args: argparse.Namespace) -> Dict[str, Any]:
     _assert_dev_environment()
     root = state_dir(live=bool(getattr(args, "live", False)))
+    recovery_path = root / "rollback-required.json"
+    if recovery_path.exists():
+        recovery = _read_json(recovery_path)
+        if (
+            recovery.get("schema_version") != "dev-rollback-required.v1"
+            or recovery.get("status") != "rollback_required"
+            or not re.fullmatch(r"[0-9a-fA-F]{40}", str(recovery.get("source_sha", "")))
+        ):
+            raise HarnessError("rollback-required receipt is invalid")
+        manifest = _read_json(
+            _manifest_path(root, _safe_id(str(recovery.get("manifest_id", "")), "manifest_id"))
+        )
+        _validate_manifest(manifest)
+        if manifest["source_sha"] != recovery["source_sha"]:
+            raise HarnessError("rollback-required receipt does not match its manifest")
+        return {
+            "operation": "status",
+            "status": "rollback_required",
+            "state_dir": str(root),
+            "manifest": manifest,
+            "recovery": recovery,
+        }
     active = _load_active(root)
     if active is None:
         return {"operation": "status", "status": "blocked", "reason": "no active Dev manifest", "state_dir": str(root)}
@@ -1482,6 +1693,8 @@ def operation_rollback(args: argparse.Namespace) -> Dict[str, Any]:
                     "updated_at": now(),
                 },
             )
+            with contextlib.suppress(FileNotFoundError):
+                (root / "rollback-required.json").unlink()
     return {
         "operation": "rollback",
         "dry_run": bool(args.dry_run),
@@ -1529,6 +1742,8 @@ def parser() -> argparse.ArgumentParser:
     promote.add_argument("--manifest", required=True)
     promote.add_argument("--dry-run", action="store_true")
     promote.add_argument("--live", action="store_true", help="explicitly start the local stack and install GRAF Dev")
+    rehydrate = sub.add_parser("rehydrate")
+    rehydrate.add_argument("--manifest", required=True)
     status = sub.add_parser("status")
     status.add_argument("--json", action="store_true")
     smoke = sub.add_parser("smoke")
@@ -1546,7 +1761,7 @@ def parser() -> argparse.ArgumentParser:
 
 
 def dispatch(args: argparse.Namespace) -> Dict[str, Any]:
-    return {"build": operation_build, "promote": operation_promote, "status": operation_status, "smoke": operation_smoke, "rollback": operation_rollback, "reset-data": operation_reset_data}[args.operation](args)
+    return {"build": operation_build, "promote": operation_promote, "rehydrate": operation_rehydrate, "status": operation_status, "smoke": operation_smoke, "rollback": operation_rollback, "reset-data": operation_reset_data}[args.operation](args)
 
 
 def main(argv: Optional[list[str]] = None) -> int:

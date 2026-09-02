@@ -9,9 +9,11 @@ owned checklists.
 **Tests**: Required by the `high-risk-feature` lane. Contract and negative tests
 must be written before implementation tasks in each story where practical.
 
-**Source boundary**: all work is based on F227 SHA
-`836cbba8f1c53695dd9e06a21f58bf74365286ef`; root `CHANGELOG.md`, production
-Compose, production data and unrelated feature contexts are not owned.
+**Source boundary**: immutable-image hardening is based on current
+`origin/master` SHA `b0c06935bc1af90be6f92981357a61af3d80bb19`; the original
+F229 slice began from F227 SHA `836cbba8f1c53695dd9e06a21f58bf74365286ef`.
+Root `CHANGELOG.md`, production Compose, production data and unrelated feature
+contexts are not owned.
 
 ## Phase 1: Setup
 
@@ -120,17 +122,18 @@ growth or release confusion.
 - [X] T033 [P] Update the concise Dev operator instructions and blocked-state table in `infra/dev/README.md` and `docs/agent-guidance/local-development.md`.
 - [X] T034 [P] Add metadata-only evidence examples and production-before/after fingerprint procedure to `specs/229-dev-runtime-full-stack/quickstart.md`.
 - [X] T035 [P] Add governance validation for Feature 229 ownership, no root `CHANGELOG.md` edits and no secret/private-content evidence in `scripts/validate-dev-runtime.py` and `tests/governance/test_dev_runtime.py`.
-- [X] T036 Run `$speckit-analyze` and resolve all critical/high findings, recording the report in `specs/229-dev-runtime-full-stack/analysis.md` without changing reviewer-owned checklist markers.
-- [X] T037 Run `$speckit-taskstoissues`, verify canonical labels/title format and no duplicate task issues for T001–T035; record links in `specs/229-dev-runtime-full-stack/issue-links.md`.
-- [X] T038 Run the quickstart contract/negative tests, Compose/shell/Python checks and the required GitHub `governance-fast` gate on the exact implementation SHA; record metadata-only evidence.
-- [ ] T039 Fix the live presentation regression, then execute one clean-state macOS live smoke and injected-failure rollback rehearsal on the final exact implementation SHA; prove the running app is `GRAF Dev` with channel `dev` and the Dev-badged icon, and verify `/Applications/GRAF.app` and production data are unchanged before declaring the feature ready.
-- [X] T040 Run `$speckit-converge` append-only; leave any missing remote/operator gate open with a Russian status comment on issue #6276.
+- [X] T036 Re-run `$speckit-analyze` after immutable-image hardening and resolve all critical/high findings, recording the append-only result in `specs/229-dev-runtime-full-stack/analysis.md` without changing reviewer-owned checklist markers.
+- [X] T037 Re-run `$speckit-taskstoissues`, verify a canonical owner for T041 and no duplicate task issues for T001–T041; record the link in `specs/229-dev-runtime-full-stack/issue-links.md`.
+- [X] T038 Re-run the quickstart contract/negative tests, Compose/shell/Python checks and the required GitHub `governance-fast` gate on the exact hardened implementation SHA; record metadata-only evidence.
+- [X] T039 Fix the live presentation regression, then execute one clean-state macOS live smoke and injected-failure rollback rehearsal on the final exact implementation SHA; prove the running app is `GRAF Dev` with channel `dev` and the Dev-badged icon, and verify `/Applications/GRAF.app` and production data are unchanged before declaring the feature ready.
+- [X] T040 Re-run `$speckit-converge` append-only after T041–T039; leave any missing remote/operator gate open with a Russian status comment on issue #6276.
+- [X] T041 [US3] Pin candidate, compensation and rollback Compose services to immutable image IDs recorded by the selected manifest, require those IDs in the direct runtime entrypoint, block before stopping the active runtime when an image is missing/mismatched, verify actual container image IDs after startup, and add regression coverage in `scripts/dev-harness.py`, `infra/docker-compose.dev.yml`, `infra/scripts/start-dev-runtime.sh`, `infra/dev/manifest.schema.json`, `tests/governance/test_dev_rollback.py`, `tests/governance/test_dev_runtime.py`, `tests/governance/test_dev_compose_contract.py` and `tests/governance/test_graf_local_adapter.py`.
 
 ## Dependencies & Execution Order
 
 ```text
 T001–T004 → T005–T009 → T010–T018 → T019–T025 → T026–T032
-T032 → T033–T035 → T036–T040
+T032 → T033–T035 → T037(issue sync for T041) → T041 → T036 → T038 → T039 → T040
 ```
 
 - Setup and foundational contracts must complete before any story.
@@ -140,8 +143,9 @@ T032 → T033–T035 → T036–T040
 - US3 depends on a known-good full-stack smoke but its failure tests can be
   prepared in parallel with US2.
 - Documentation tasks T033–T035 can run in parallel after contracts stabilize.
-- T036–T040 are sequential release-readiness gates; `taskstoissues` is not run
-  before the task list and analyze report are reviewed.
+- The immutable-image follow-up is tracked before implementation; its analyze,
+  exact-SHA GitHub validation, live rehearsal and convergence gates remain
+  sequential and cannot reuse pre-hardening evidence.
 
 ## Parallel execution examples
 

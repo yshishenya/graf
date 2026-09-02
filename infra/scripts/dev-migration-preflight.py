@@ -14,6 +14,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 from typing import Any, Iterable
@@ -133,6 +134,10 @@ def _parse_current(output: str) -> list[str]:
     return _revisions(values)
 
 
+def _alembic_command(operation: str) -> list[str]:
+    return (["uv", "run"] if shutil.which("uv") else []) + ["alembic", operation]
+
+
 def observe_checkout(server_root: Path, env: dict[str, str] | None = None) -> dict[str, Any]:
     """Observe Alembic graph/current state without issuing a mutating command."""
 
@@ -150,10 +155,10 @@ def observe_checkout(server_root: Path, env: dict[str, str] | None = None) -> di
         expected = (
             _revisions(configured_expected.split(","))
             if configured_expected
-            else _parse_heads(_run(["uv", "run", "alembic", "heads"], server_root, run_env))
+            else _parse_heads(_run(_alembic_command("heads"), server_root, run_env))
         )
         try:
-            observed = _parse_current(_run(["uv", "run", "alembic", "current"], server_root, run_env))
+            observed = _parse_current(_run(_alembic_command("current"), server_root, run_env))
         except MigrationPreflightError as exc:
             # A fresh DB has no alembic_version table.  Any other failure is a
             # blocker and must not be mistaken for an empty namespace.

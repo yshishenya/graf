@@ -11,7 +11,7 @@ Dev metadata and runtime ownership records only.
 | `manifest_id` | yes | Immutable ID derived from exact source SHA |
 | `feature_id` | yes | Numeric Feature ID, `229` for this slice |
 | `source_sha` | yes | Full 40-character commit SHA |
-| `components` | yes | Backend, frontend, worker and `macos_app`; each has source SHA, version and digest |
+| `components` | yes | Backend, frontend, workers, migration, Temporal, database, storage, one-shot storage init and `macos_app`; each has source SHA, version and digest |
 | `migration_head` | yes | Resolved graph head(s), never guessed or `unknown` at promotion |
 | `app_identity` | yes | Bundle ID, channel, signing identity, designated requirement, entitlements digest and update trust |
 | `parent_manifest_id` | yes | Previous active manifest or `null` for first candidate |
@@ -42,7 +42,7 @@ Machine-local values bound to the manifest:
 - volume and network names;
 - loopback host ports;
 - state/data root;
-- image names/tags and source-SHA labels.
+- immutable image IDs from the selected manifest and source-SHA labels.
 
 No namespace may point at production, staging, `GRAF.app`, production data or
 the historical local volumes.

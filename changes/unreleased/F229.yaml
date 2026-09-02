@@ -1,9 +1,9 @@
 schema_version: 1
 feature_id: 229
 category: Fixed
-summary: "Dev-выкатка теперь всегда запускает GRAF Dev с Dev-иконкой вместо оставшегося процесса GRAF Local"
+summary: "Dev-выкатка запускает GRAF Dev с Dev-иконкой и восстанавливает только точные Docker images выбранного кандидата"
 issue: 6276
-tasks: [T039]
-compatibility: "Формат Dev manifest не изменён; прямой installer теперь требует закрытого GRAF Dev"
-known_limitations: []
-release_notes: "Promotion и rollback штатно перезапускают установленное Dev-приложение, обновляют его регистрацию в macOS и проверяют имя, канал и отдельную Dev-иконку до принятия кандидата."
+tasks: [T039, T041]
+compatibility: "Новые manifest содержат image ID для one-shot storage init; старые manifest читаются, но live rollback блокируется, если в них нет полного набора image IDs"
+known_limitations: ["Изменение host-side orchestration или macOS mutation helpers требует отдельного operator cutover без удаления старого state; обычный server source связан с immutable image и компенсируется автоматически"]
+release_notes: "Promotion и rollback штатно перезапускают установленное Dev-приложение, проверяют имя, канал и отдельную Dev-иконку, а Compose запускают только из immutable image IDs выбранного manifest."

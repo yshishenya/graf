@@ -1,17 +1,18 @@
 # Implementation Plan: Полноценная изолированная Dev-среда GRAF
 
-**Branch**: `codex/229-dev-runtime-full-stack` | **Date**: 2026-09-01 | **Spec**: [spec.md](spec.md)
+**Branch**: `codex/229-immutable-runtime-images` | **Date**: 2026-09-01 | **Spec**: [spec.md](spec.md)
 
 **Umbrella issue**: [#6276](https://github.com/yshishenya/graf/issues/6276)
 
-**Base SHA**: `836cbba8f1c53695dd9e06a21f58bf74365286ef` (F227)
+**Hardening base SHA**: `b0c06935bc1af90be6f92981357a61af3d80bb19`
+(`origin/master` on 2026-09-02). Original F229 work started from F227 SHA
+`836cbba8f1c53695dd9e06a21f58bf74365286ef`.
 
 **Dependency gate**: resolved — F227 PR
 [#6275](https://github.com/yshishenya/graf/pull/6275) was merged as
-`0f3becdc9970c0a86fc8aa273ef1bc26eca0b5a0`. This presentation-lifecycle
-follow-up starts from current `master`
-`455990a33f51fe232a8fc3270c8d0a0d27db298b`; exact-SHA release evidence is
-still produced only after the implementation commit.
+`0f3becdc9970c0a86fc8aa273ef1bc26eca0b5a0`. This immutable-image follow-up
+starts from current `master` `b0c06935bc1af90be6f92981357a61af3d80bb19`;
+exact-SHA release evidence is produced only after the implementation commit.
 
 ## Summary
 
@@ -40,7 +41,7 @@ implement → converge → quickstart → fast validation`; production deploy н
 Docker Compose v2.
 
 **Primary Dependencies**: existing FastAPI/uv backend, Alembic, PostgreSQL 17,
-MinIO, Temporal `1.27.2`, existing SwiftPM app and signing scripts. No new
+MinIO, Temporal `1.28.0`, existing SwiftPM app and signing scripts. No new
 dependency is required by the design.
 
 **Storage**: dedicated Dev PostgreSQL/Temporal schemas, MinIO Dev volumes and
@@ -184,24 +185,25 @@ an automatic design failure.
    fingerprints before and after.
 6. Inject failures at staging, install, runtime-start and smoke stages; prove the
    previous candidate remains active and rollback returns to smoke PASS.
-7. Run `infra/scripts/ci-local.sh --fast` on the exact implementation SHA.
-   Full CI is a later release-train gate, not a feature-development gate.
+7. Push the exact implementation SHA and require the GitHub Actions
+   `governance-fast` result for that SHA. Local CI is not used for this slice;
+   Full CI remains a later release-train gate.
 
 ## Requirement and success-criteria traceability
 
 | Requirement | Tasks | Evidence gate |
 |---|---|---|
-| FR-001–FR-004 | T005–T006, T010–T018, T022–T025 | Compose graph, namespace, SHA and egress tests |
+| FR-001–FR-004 | T005–T006, T010–T018, T022–T025, T041 | Compose graph, namespace, immutable image ID, SHA and egress tests |
 | FR-005–FR-006 | T007, T015, T020–T023 | migration preflight and forbidden-repair tests |
 | FR-007 | T006, T018, T030, T039 | app identity, Dev presentation and atomic install tests |
-| FR-008–FR-010 | T026–T032 | promotion transaction and rollback tests |
+| FR-008–FR-010 | T026–T032, T041 | promotion transaction, immutable compensation and rollback tests |
 | FR-011 | T012, T017, T038–T039 | named live smoke and running app-presentation checks |
 | FR-012 | T006, T025, T035 | metadata-only evidence governance |
 | FR-013 | T026–T032, T035 | idempotency, lock and stale-parent tests |
 | FR-014 | T021, T023–T025, T035, T040 | production/legacy boundary and closeout gates |
 | SC-001 | T010–T018, T038–T039 | full-stack clean-state smoke |
-| SC-002–SC-003 | T006–T008, T011, T015, T019–T021 | exact SHA and mismatch fixtures |
-| SC-004–SC-006 | T026–T032 | repeated promotion, ownership and rollback tests |
+| SC-002–SC-003 | T006–T008, T011, T015, T019–T021, T041 | exact SHA/image and mismatch fixtures |
+| SC-004–SC-006 | T026–T032, T041 | repeated promotion, ownership and immutable rollback tests |
 | SC-007 | T003–T004, T006, T035 | metadata-only evidence scan |
 
 ## Project Structure
