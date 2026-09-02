@@ -34,6 +34,7 @@ jobs:
     timeout-minutes: 15
     env:
       GRAF_CI_REQUESTED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.event_name == 'merge_group' && github.event.merge_group.head_sha || inputs.requested_sha }}
+      GRAF_CI_EVIDENCE_PATH: .dev/ci-evidence/github-${{ github.run_id }}.json
     steps:
       - name: Checkout exact PR SHA
         uses: actions/checkout@v4
@@ -232,17 +233,19 @@ jobs:
                   "concurrency_key": concurrency_key,
               }, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
 
-          evidence_path = None
-          for path in sorted(Path(".dev/ci-evidence").glob("*.json"), reverse=True):
-              if path.name.startswith("receipt-"):
-                  continue
-              try:
-                  value = json.loads(path.read_text(encoding="utf-8"))
-              except (OSError, UnicodeError, json.JSONDecodeError):
-                  continue
-              if str(value.get("requested_sha", "")).lower() == target.lower():
-                  evidence_path = path
-                  break
+          evidence_path = Path(os.environ.get("GRAF_CI_EVIDENCE_PATH", ""))
+          if not evidence_path.is_file():
+              evidence_path = None
+              for path in sorted(Path(".dev/ci-evidence").glob("*.json"), reverse=True):
+                  if path.name.startswith("receipt-"):
+                      continue
+                  try:
+                      value = json.loads(path.read_text(encoding="utf-8"))
+                  except (OSError, UnicodeError, json.JSONDecodeError):
+                      continue
+                  if str(value.get("requested_sha", "")).lower() == target.lower():
+                      evidence_path = path
+                      break
           if evidence_path is None:
               evidence_path = Path(".dev/ci-evidence") / f"terminal-{run_id}.json"
               now = dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
