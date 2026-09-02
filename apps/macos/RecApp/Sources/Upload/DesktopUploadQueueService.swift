@@ -118,7 +118,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
     ]
 
     private let queueURL: URL
-    private let recordingsRootURL: URL
+    public let recordingsRootURL: URL
     private let policy: LocalBufferPolicy
     private let manifestService: LocalRecordingManifestService
     private let client: DesktopUploadClientProtocol?
@@ -428,18 +428,31 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             guard let item = document.items.first(where: { $0.id == itemId }) else {
                 throw DesktopUploadQueueServiceError.packageNotFound(itemId)
             }
-            let path = item.reviewAudioPath
-            guard item.artifactProfile.trackCompleteness.contains(where: {
-                      $0.transportRole == .playback && $0.present
-                  }),
-                  isInsideRecordingsRoot(path),
-                  FileManager.default.fileExists(atPath: path),
-                  FileManager.default.isReadableFile(atPath: path)
+            guard Self.canOpenLocalPlayback(item: item, recordingsRootURL: recordingsRootURL)
             else {
                 throw DesktopUploadQueueServiceError.localPlaybackUnavailable(itemId)
             }
-            return URL(fileURLWithPath: path)
+            return URL(fileURLWithPath: item.reviewAudioPath)
         }
+    }
+
+    public static func canOpenLocalPlayback(
+        item: DesktopUploadQueueItem,
+        recordingsRootURL: URL
+    ) -> Bool {
+        let path = item.reviewAudioPath
+        guard let playbackTrack = item.artifactProfile.trackCompleteness.first(where: {
+                  $0.transportRole == .playback && $0.present
+              }),
+              isInsideRecordingsRoot(path, rootURL: recordingsRootURL),
+              FileManager.default.fileExists(atPath: path),
+              FileManager.default.isReadableFile(atPath: path),
+              let artifact = reviewAudioArtifact(URL(fileURLWithPath: path)),
+              artifact.byteCount == playbackTrack.byteCount
+        else {
+            return false
+        }
+        return playbackTrack.sha256 == nil || playbackTrack.sha256 == artifact.sha256
     }
 
     @discardableResult
@@ -842,7 +855,11 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
     }
 
     private func isInsideRecordingsRoot(_ path: String) -> Bool {
-        let rootPath = recordingsRootURL
+        Self.isInsideRecordingsRoot(path, rootURL: recordingsRootURL)
+    }
+
+    private static func isInsideRecordingsRoot(_ path: String, rootURL: URL) -> Bool {
+        let rootPath = rootURL
             .standardizedFileURL
             .resolvingSymlinksInPath()
             .path

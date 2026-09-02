@@ -199,7 +199,7 @@
         const seconds = value % 60;
         return minutes ? `${minutes} мин ${seconds ? `${seconds} с` : ""}`.trim() : `${seconds} с`;
       };
-      duration.textContent = item.sessionDurationSeconds > item.durationSeconds
+      duration.textContent = item.showsPartialDuration
         ? `Сохранено ${durationLabel(item.durationSeconds)} из ${durationLabel(item.sessionDurationSeconds)}`
         : durationLabel(item.durationSeconds);
       heading.append(title, duration);

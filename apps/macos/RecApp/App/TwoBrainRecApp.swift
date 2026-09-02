@@ -345,7 +345,10 @@ private struct ContentView: View {
                     (NSApp.delegate as? AppLifecycleDelegate)?.openSettings(nil)
                 },
                 supportIncidentBridge: supportIncidentBridge,
-                localRecordingRows: EmbeddedCabinetLocalRecordingRow.rows(for: uploadQueueItems),
+                localRecordingRows: EmbeddedCabinetLocalRecordingRow.rows(
+                    for: uploadQueueItems,
+                    recordingsRootURL: desktopUploadQueueService.recordingsRootURL
+                ),
                 onLocalRecordingAction: { action, itemId in
                     handleLocalRecordingAction(action, itemId: itemId)
                 }
@@ -2661,6 +2664,17 @@ private struct ContentView: View {
         }
     }
 
+    private func localCaptureFailureCopy(failureCode: String, sessionID: String?) -> String {
+        guard let sessionID,
+              let items = try? desktopUploadQueueService.loadItems(),
+              let item = items.first(where: { $0.sessionId == sessionID }),
+              (try? desktopUploadQueueService.localPlaybackURL(itemId: item.id)) != nil
+        else {
+            return "Запись остановлена: \(failureCode). Сохранённого очищенного фрагмента нет."
+        }
+        return "Запись остановлена: \(failureCode). Уже очищенная часть сохранена локально."
+    }
+
     private func recordingBlockerText(for snapshot: RecordingPrerequisiteSnapshot) -> String {
         let action = snapshot.recoveryAction.map(recoveryActionText) ?? "Проверьте состояние перед записью"
         switch snapshot.blockedReason {
@@ -2783,15 +2797,18 @@ private struct ContentView: View {
                        source: "echo_processing",
                        recoveryAction: "Остановите запись и начните новую после проверки аудиоустройств."
                    ) {
+                    let sessionID = captureSession?.id
                     captureSession = degraded
-                    recordingBlocker = "Запись остановлена: \(failureCode). Уже очищенная часть сохранена локально."
                     Task { @MainActor in
                         await stopManualRecording(
                             reason: .failed,
                             evidenceInitiator: .systemFailClosed,
                             enqueueReason: "capture_integrity_failure"
                         )
-                        recordingBlocker = "Запись остановлена: \(failureCode). Уже очищенная часть сохранена локально."
+                        recordingBlocker = localCaptureFailureCopy(
+                            failureCode: failureCode,
+                            sessionID: sessionID
+                        )
                     }
                 }
             }

@@ -1948,7 +1948,13 @@ final class DesktopUploadQueueTests: XCTestCase {
             ofItemAtPath: unreadablePackage.reviewURL.path
         )
 
-        XCTAssertEqual(EmbeddedCabinetLocalRecordingRow.rows(for: [unreadableItem]).first?.canOpen, false)
+        XCTAssertEqual(
+            EmbeddedCabinetLocalRecordingRow.rows(
+                for: [unreadableItem],
+                recordingsRootURL: unreadableService.recordingsRootURL
+            ).first?.canOpen,
+            false
+        )
         XCTAssertThrowsError(try unreadableService.localPlaybackURL(itemId: unreadableItem.id))
     }
 

@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 import TwoBrainRecAppCore
 import TwoBrainRecShared
@@ -235,7 +236,8 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: playbackRoot, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: playbackRoot) }
-        try Data([0]).write(to: playbackRoot.appendingPathComponent("meeting-review.m4a"))
+        let playbackURL = playbackRoot.appendingPathComponent("meeting-review.m4a")
+        let playbackByteCount = try writeTestPlaybackAudio(to: playbackURL)
         let saving = makeQueueItem(
             id: "saving-row",
             state: .saving,
@@ -260,14 +262,17 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
                 transportRole: .playback,
                 fileName: "meeting-review.m4a",
                 present: true,
-                byteCount: 1,
-                sha256: String(repeating: "d", count: 64),
+                byteCount: playbackByteCount,
+                sha256: nil,
                 durationSeconds: 9
             )
         ]
         playable.failureCategory = .localResource
         failed.failureReason = "recording_recovery_not_possible"
-        let rows = EmbeddedCabinetLocalRecordingRow.rows(for: [saving, failed, playable])
+        let rows = EmbeddedCabinetLocalRecordingRow.rows(
+            for: [saving, failed, playable],
+            recordingsRootURL: playbackRoot
+        )
         let encoded = try JSONEncoder().encode(rows)
         let json = String(decoding: encoded, as: UTF8.self)
 
@@ -338,6 +343,7 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
         XCTAssertTrue(cabinetSource.contains("item.uploadComplete !== true"))
         XCTAssertTrue(cabinetSource.contains("data-meeting-open"))
         XCTAssertTrue(cabinetSource.contains("data-icon=\"audio\""))
+        XCTAssertTrue(cabinetSource.contains("item.showsPartialDuration"))
         XCTAssertFalse(cabinetSource.contains("serverRow.dataset.grafLocalRecordingId"))
         XCTAssertTrue(shellSource.contains("DesktopUploadCustodySummary.summaries(for: uploadQueueItems)"))
     }
@@ -596,6 +602,24 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
             code: 1,
             userInfo: [NSLocalizedDescriptionKey: "Repository root not found"]
         )
+    }
+
+    private func writeTestPlaybackAudio(to url: URL) throws -> Int64 {
+        let format = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 1)!
+        var file: AVAudioFile? = try AVAudioFile(
+            forWriting: url,
+            settings: [
+                AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
+                AVSampleRateKey: 48_000.0,
+                AVNumberOfChannelsKey: 1,
+                AVEncoderBitRateKey: 64_000
+            ]
+        )
+        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4_800)!
+        buffer.frameLength = 4_800
+        try file?.write(from: buffer)
+        file = nil
+        return (try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.int64Value ?? 0
     }
 }
 #endif

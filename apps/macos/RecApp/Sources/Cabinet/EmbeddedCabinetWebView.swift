@@ -878,11 +878,15 @@ public struct EmbeddedCabinetLocalRecordingRow: Codable, Equatable, Sendable {
     public let status: String
     public let progressPercent: Int?
     public let canOpen: Bool
+    public let showsPartialDuration: Bool
     public let canSend: Bool
     public let canDelete: Bool
     public let uploadComplete: Bool
 
-    public static func rows(for items: [DesktopUploadQueueItem]) -> [Self] {
+    public static func rows(
+        for items: [DesktopUploadQueueItem],
+        recordingsRootURL: URL
+    ) -> [Self] {
         items.compactMap { item in
             guard item.state != .terminalDeleted else { return nil }
             let damaged = item.failureReason == "recording_recovery_not_possible"
@@ -893,14 +897,18 @@ public struct EmbeddedCabinetLocalRecordingRow: Codable, Equatable, Sendable {
                 stoppedAt.map { max(1, Int(ceil($0.timeIntervalSince(startedAt)))) }
                     ?? item.artifactProfile.durationSeconds
             )
-            let hasPlayback = item.artifactProfile.trackCompleteness.contains {
-                $0.transportRole == .playback && $0.present
-            } && FileManager.default.fileExists(atPath: item.reviewAudioPath)
-                && FileManager.default.isReadableFile(atPath: item.reviewAudioPath)
-            let localCaptureFailure = item.failureCategory == .localResource && hasPlayback
+            let localCaptureFailure = item.failureCategory == .localResource
+                && [.degraded, .blocked, .failed].contains(item.state)
+            let canOpen = DesktopUploadQueueService.canOpenLocalPlayback(
+                item: item,
+                recordingsRootURL: recordingsRootURL
+            )
+            let showsPartialDuration = localCaptureFailure
+                && canOpen
+                && item.artifactProfile.durationSeconds < sessionDurationSeconds
             let status: String = if damaged {
                 "Запись повреждена"
-            } else if localCaptureFailure {
+            } else if localCaptureFailure && canOpen {
                 "Сохранена часть записи"
             } else if item.state == .uploading,
                       let percent = DesktopMeetingShellLocalQueuePolicy.progressPercent(for: item) {
@@ -925,7 +933,8 @@ public struct EmbeddedCabinetLocalRecordingRow: Codable, Equatable, Sendable {
                 sessionDurationSeconds: sessionDurationSeconds,
                 status: status,
                 progressPercent: DesktopMeetingShellLocalQueuePolicy.progressPercent(for: item),
-                canOpen: hasPlayback,
+                canOpen: canOpen,
+                showsPartialDuration: showsPartialDuration,
                 canSend: !damaged
                     && item.artifactProfile.isUploadable
                     && ![.saving, .uploading, .uploaded].contains(item.state),
