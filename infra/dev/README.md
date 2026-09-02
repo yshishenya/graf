@@ -7,8 +7,9 @@ manifest to those actions only after the manifest and Dev boundary checks pass.
 
 The state directory is `GRAF_DEV_STATE_DIR` or the shared machine-local
 `~/Library/Application Support/GRAF Dev/<repo>/harness` path on macOS
-(`~/.cache/GRAF Dev/<repo>/harness` on other systems). It contains only
-metadata, a lock and an atomic `active-manifest.json` pointer. A state path that
+(`~/.cache/GRAF Dev/<repo>/harness` on other systems). It contains metadata,
+machine-local build/rollback artifacts, a lock and an atomic
+`active-manifest.json` pointer. A state path that
 looks like production is rejected. Origins must be loopback (`localhost`,
 `127.0.0.1` or `[::1]`). Set `GRAF_DEV_STATE_DIR` explicitly when a disposable
 fixture needs a worktree-local state directory.
@@ -24,6 +25,7 @@ dev_state="$(./infra/scripts/dev-harness.sh status --json | jq -r '.state_dir')"
 ./infra/scripts/dev-harness.sh status --json
 ./infra/scripts/dev-harness.sh smoke --json --live
 ./infra/scripts/dev-harness.sh rollback --dry-run
+./infra/scripts/dev-harness.sh rehydrate --manifest <path>
 ./infra/scripts/dev-harness.sh reset-data --confirm-dev-reset --dry-run
 ```
 
@@ -86,5 +88,10 @@ start-time token in `runtime.json`. Stop and rollback signal a process only when
 both identities still match; a legacy runtime record without `start_token` is
 treated as unowned and fails closed, so remove/repair it manually after
 confirming that no Dev backend is running.
+
+Each live build stores a machine-local `runtime-images.tar` beside its app
+artifact. `rehydrate` reloads that archive under the shared lock and verifies
+every manifest image ID and source label; it never rebuilds or substitutes a
+missing rollback image.
 
 The full field contract is [manifest.schema.json](manifest.schema.json).

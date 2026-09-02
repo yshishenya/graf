@@ -36,8 +36,8 @@ unset GRAF_DEV_STATE_DIR
 export GRAF_DEV_COMPOSE_PROJECT="graf-dev"
 export GRAF_BACKEND_ORIGIN="http://127.0.0.1:8081"
 export GRAF_FRONTEND_ORIGIN="$GRAF_BACKEND_ORIGIN"
-DEV_STATE="$HOME/Library/Application Support/GRAF Dev/$(basename "$(git rev-parse --show-toplevel)")/harness"
-./infra/scripts/dev-harness.sh status --json || true
+STATUS_JSON="$(./infra/scripts/dev-harness.sh status --json)"
+DEV_STATE="$(printf '%s' "$STATUS_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin)["state_dir"])')"
 ```
 
 Все worktree используют один lock, один runtime и один state. Live adapter
@@ -49,6 +49,7 @@ DEV_STATE="$HOME/Library/Application Support/GRAF Dev/$(basename "$(git rev-pars
 
 ```sh
 SHA="$(git rev-parse HEAD)"
+SHA12="$(git rev-parse --short=12 "$SHA")"
 ./infra/scripts/dev-harness.sh build --sha "$SHA" --feature-id 229 --live
 ```
 
@@ -61,7 +62,7 @@ boundary. Active pointer на этом шаге ещё не меняется. Pr
 ## 4. Promote and live smoke
 
 ```sh
-MANIFEST="$(find "$DEV_STATE/manifests" -maxdepth 1 -name 'dev-*.json' -print | sort | tail -n 1)"
+MANIFEST="$DEV_STATE/manifests/dev-$SHA12.json"
 ./infra/scripts/dev-harness.sh promote --manifest "$MANIFEST" --live
 ./infra/scripts/dev-harness.sh status --json
 ./infra/scripts/dev-harness.sh smoke --json --live
@@ -113,6 +114,16 @@ staging/install/runtime/smoke в test fixture. Проверить:
 только после checkout exact target SHA и ownership-проверки; чужой PID не
 сигнализируется. В `runtime.json` и `docker inspect` image IDs обязаны совпасть
 с выбранным manifest; совпадения одного source-SHA label недостаточно.
+
+Если Docker cleanup удалил image из rollback manifest, восстановить exact IDs
+из локального immutable archive, не пересобирая candidate:
+
+```sh
+./infra/scripts/dev-harness.sh rehydrate --manifest "$MANIFEST"
+```
+
+Команда требует checkout exact manifest SHA, загружает archive под общим Dev
+lock и повторно сверяет все image IDs/source labels до promotion или rollback.
 
 ## 7. Contract and repository validation
 
