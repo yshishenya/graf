@@ -61,7 +61,7 @@
 - Сохранены bundle ID, team identity, macOS permissions и Sparkle trust chain.
 
 ### Исправлено
-- _Пока нет записей._
+- Известная проблема этой версии: приложение аварийно завершалось при каждом запуске из-за неверного пути к встроенному ресурсу; автоматическое восстановление не гарантировалось, поэтому требовалась ручная установка нового PKG или ZIP (Фича 232, issue #6338).
 
 ### Безопасность
 - Developer ID Application и Developer ID Installer, Apple notarization ZIP/PKG, stapling и Gatekeeper execute/install проверены.
