@@ -158,6 +158,8 @@ final class CaptureControlTests: XCTestCase {
             CaptureControlView.degradedSourceRecovery(for: degraded),
             "Тракт удаления эха недоступен. Остановите запись и начните новую после проверки аудиоустройств."
         )
+        XCTAssertThrowsError(try controller.markDegraded(source: "echo_processing"))
+        XCTAssertEqual(try controller.requestStop(reason: .failed).stopReason, .failed)
     }
 
     func testStopFailureMovesSessionOutOfStoppingState() throws {

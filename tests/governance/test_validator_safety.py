@@ -601,12 +601,49 @@ def test_pr_metadata_requires_concrete_issue_link_and_expected_sha() -> None:
     sha = "a" * 40
     body = _valid_pr_body(sha)
 
-    assert validator.validate(body, "216", expected_sha=sha) == []
-    assert validator.validate(body.replace("Classification: `untouched`", "Classification: `untouched`."), "216", expected_sha=sha) == []
+    assert validator.validate(body, "216", title="[F216] Перестроить процесс", expected_sha=sha) == []
+    assert validator.validate(body.replace("Classification: `untouched`", "Classification: `untouched`."), "216", title="[F216] Перестроить процесс", expected_sha=sha) == []
     assert any("mismatch" in error for error in validator.validate(body, "216", expected_sha="b" * 40))
     assert any("issue linkage" in error for error in validator.validate(body.replace("Refs #6090", "Refs #___"), "216"))
     wrong_umbrella_link = body.replace("Refs #6090", "Refs #999")
     assert any("declared umbrella issue" in error for error in validator.validate(wrong_umbrella_link, "216"))
+
+
+def test_pr_metadata_requires_matching_feature_id_prefix_in_title() -> None:
+    validator = load_script("validate-pr-metadata")
+    body = _valid_pr_body()
+
+    assert any("PR title" in error for error in validator.validate(body, "216", title="Перестроить процесс"))
+    assert any("mismatch" in error for error in validator.validate(body, "216", title="[F215] Перестроить процесс"))
+    assert validator.validate(body, "216", title="[F216] Перестроить процесс") == []
+    assert validator.validate(body, "216", title="[F215][F216] Подготовить release train") == []
+
+
+def test_pr_metadata_cannot_choose_feature_id_from_untrusted_body() -> None:
+    validator = load_script("validate-pr-metadata")
+    body = _valid_pr_body().replace("F216", "F999")
+
+    assert any("mismatch" in error for error in validator.validate(
+        body,
+        "216",
+        title="[F999] Чужая фича",
+        expected_sha="a" * 40,
+    ))
+
+
+def test_pr_metadata_supports_release_train_feature_set() -> None:
+    validator = load_script("validate-pr-metadata")
+    body = _valid_pr_body().replace(
+        "## Feature identity\n- Feature ID: `F216`",
+        "## Feature IDs\n- F216\n- F227",
+    )
+
+    assert validator.validate(
+        body,
+        "216,227",
+        title="[F216][F227] Подготовить release train",
+        expected_sha="a" * 40,
+    ) == []
 
 
 def test_pr_metadata_rejects_placeholder_legacy_and_empty_sections() -> None:

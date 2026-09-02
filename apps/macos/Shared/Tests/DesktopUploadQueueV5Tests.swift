@@ -1840,7 +1840,244 @@ final class DesktopUploadQueueTests: XCTestCase {
 
         XCTAssertEqual(items.first?.state, .blocked)
         XCTAssertEqual(items.first?.retryMode, .manualOnly)
-        XCTAssertEqual(items.first?.failureCategory, .schemaIncompatibility)
+        XCTAssertEqual(items.first?.failureCategory, .localResource)
+    }
+
+    func testV5CaptureFailureUsesExactLocalReasonAndSavedAudioDuration() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let package = try makeV5RecordingPackage(
+            root: root,
+            directoryId: "capture-failed-package",
+            sessionId: "capture-failed-session"
+        )
+        let manifestService = LocalRecordingManifestService()
+        var manifest = try manifestService.read(from: package.manifestURL)
+        manifest.stoppedAt = manifest.startedAt.addingTimeInterval(40)
+        manifest.status = .failed
+        manifest.failureReason = .captureFailed
+        manifest.captureFailureCode = "aec_capture_failed"
+        try manifestService.write(manifest, to: package.manifestURL)
+        let service = DesktopUploadQueueService(
+            queueURL: root.appendingPathComponent("queue.json"),
+            recordingsRootURL: root,
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 100) }
+        )
+
+        let item = try XCTUnwrap(service.scanAndEnqueueCompletedRecordings().first)
+
+        XCTAssertEqual(item.state, .blocked)
+        XCTAssertEqual(item.failureCategory, .localResource)
+        XCTAssertEqual(item.failureReason, "aec_capture_failed")
+        XCTAssertLessThan(item.artifactProfile.durationSeconds, 40)
+        XCTAssertEqual(
+            try service.localPlaybackURL(itemId: item.id).standardizedFileURL.resolvingSymlinksInPath(),
+            package.reviewURL.standardizedFileURL.resolvingSymlinksInPath()
+        )
+
+        var staleItem = item
+        staleItem.failureCategory = .schemaIncompatibility
+        staleItem.failureReason = "local_recording_package_not_uploadable"
+        try JSONEncoder.uploadQueueTestEncoder
+            .encode(DesktopUploadQueueDocument(updatedAt: staleItem.updatedAt, items: [staleItem]))
+            .write(to: root.appendingPathComponent("queue.json"), options: [.atomic])
+        let refreshedService = DesktopUploadQueueService(
+            queueURL: root.appendingPathComponent("queue.json"),
+            recordingsRootURL: root,
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 101) }
+        )
+
+        let refreshed = try XCTUnwrap(refreshedService.scanAndEnqueueCompletedRecordings().first)
+        XCTAssertEqual(refreshed.state, .blocked)
+        XCTAssertEqual(refreshed.failureCategory, .localResource)
+        XCTAssertEqual(refreshed.failureReason, "aec_capture_failed")
+    }
+
+    func testV5CaptureFailureWithoutSavedAudioPreservesZeroDuration() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let package = try makeV5RecordingPackage(
+            root: root,
+            directoryId: "capture-failed-without-audio",
+            sessionId: "capture-failed-without-audio-session"
+        )
+        try FileManager.default.removeItem(at: package.transcriptionURL)
+        try FileManager.default.removeItem(at: package.reviewURL)
+        let manifestService = LocalRecordingManifestService()
+        var manifest = try manifestService.read(from: package.manifestURL)
+        manifest.stoppedAt = manifest.startedAt.addingTimeInterval(40)
+        manifest.status = .failed
+        manifest.failureReason = .captureFailed
+        manifest.captureFailureCode = "aec_capture_failed"
+        try manifestService.write(manifest, to: package.manifestURL)
+        let service = DesktopUploadQueueService(
+            queueURL: root.appendingPathComponent("queue.json"),
+            recordingsRootURL: root,
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 100) }
+        )
+
+        let item = try XCTUnwrap(service.scanAndEnqueueCompletedRecordings().first)
+        let row = try XCTUnwrap(
+            EmbeddedCabinetLocalRecordingRow.rows(
+                for: [item],
+                recordingsRootURL: root
+            ).first
+        )
+
+        XCTAssertEqual(item.artifactProfile.durationSeconds, 0)
+        XCTAssertEqual(row.durationSeconds, 0)
+        XCTAssertFalse(row.canOpen)
+        XCTAssertFalse(row.showsPartialDuration)
+    }
+
+    func testPostCaptureLocalFileLossIsNotProjectedAsPartialCapture() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let package = try makeV5RecordingPackage(
+            root: root,
+            directoryId: "post-capture-file-loss",
+            sessionId: "post-capture-file-loss-session"
+        )
+        let queueURL = root.appendingPathComponent("queue.json")
+        let service = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 100) }
+        )
+        _ = try service.scanAndEnqueueCompletedRecordings()
+        try FileManager.default.removeItem(at: package.transcriptionURL)
+
+        let refreshed = try DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 101) }
+        ).scanAndEnqueueCompletedRecordings()
+        let item = try XCTUnwrap(refreshed.first)
+        let row = try XCTUnwrap(
+            EmbeddedCabinetLocalRecordingRow.rows(
+                for: [item],
+                recordingsRootURL: root
+            ).first
+        )
+
+        XCTAssertEqual(item.failureCategory, .localResource)
+        XCTAssertNil(item.captureFailureCode)
+        XCTAssertEqual(row.status, "Не удалось отправить")
+        XCTAssertFalse(row.showsPartialDuration)
+    }
+
+    func testDeleteLocalCopyRechecksCurrentStateAfterRetryWasAccepted() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let package = try makeRecordingPackage(
+            root: root,
+            directoryId: "delete-race-package",
+            sessionId: "delete-race-session"
+        )
+        let queueURL = root.appendingPathComponent("queue.json")
+        let initialService = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 100) }
+        )
+        var item = try XCTUnwrap(initialService.scanAndEnqueueCompletedRecordings().first)
+        item.state = .queued
+        item.failureCategory = .none
+        item.failureReason = nil
+        try JSONEncoder.uploadQueueTestEncoder
+            .encode(DesktopUploadQueueDocument(updatedAt: item.updatedAt, items: [item]))
+            .write(to: queueURL, options: [.atomic])
+
+        let refreshedService = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 101) }
+        )
+
+        XCTAssertFalse(
+            DesktopUploadQueueService.canDeleteLocalCopy(
+                item: item,
+                recordingsRootURL: root
+            )
+        )
+        XCTAssertThrowsError(try refreshedService.deleteLocalCopy(itemId: item.id)) { error in
+            XCTAssertEqual(
+                String(describing: error),
+                "local_deletion_unavailable:\(item.id)"
+            )
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: package.directoryURL.path))
+        XCTAssertEqual(try refreshedService.loadItems().first?.state, .queued)
+    }
+
+    func testLocalPlaybackRejectsMissingTrackAndPathOutsideRecordingRoot() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let outsideRoot = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: outsideRoot) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outsideRoot, withIntermediateDirectories: true)
+        try Data([0]).write(to: outsideRoot.appendingPathComponent("meeting-review.m4a"))
+        let queueURL = root.appendingPathComponent("queue.json")
+        var item = makeQueueItem(id: "unsafe-playback", state: .blocked, retryMode: .manualOnly)
+        item.directoryPath = outsideRoot.path
+        try JSONEncoder.uploadQueueTestEncoder
+            .encode(DesktopUploadQueueDocument(updatedAt: item.updatedAt, items: [item]))
+            .write(to: queueURL, options: [.atomic])
+        let service = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: nil
+        )
+
+        XCTAssertThrowsError(try service.localPlaybackURL(itemId: item.id))
+
+        item.directoryPath = root.appendingPathComponent("missing-track", isDirectory: true).path
+        item.artifactProfile.trackCompleteness.removeAll { $0.transportRole == .playback }
+        try FileManager.default.createDirectory(atPath: item.directoryPath, withIntermediateDirectories: true)
+        try Data([0]).write(to: URL(fileURLWithPath: item.reviewAudioPath))
+        try JSONEncoder.uploadQueueTestEncoder
+            .encode(DesktopUploadQueueDocument(updatedAt: item.updatedAt, items: [item]))
+            .write(to: queueURL, options: [.atomic])
+        let missingTrackService = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: nil
+        )
+
+        XCTAssertThrowsError(try missingTrackService.localPlaybackURL(itemId: item.id))
+
+        let unreadablePackage = try makeV5RecordingPackage(
+            root: root,
+            directoryId: "unreadable-playback",
+            sessionId: "unreadable-playback-session"
+        )
+        let unreadableService = DesktopUploadQueueService(
+            queueURL: root.appendingPathComponent("unreadable-queue.json"),
+            recordingsRootURL: root,
+            client: nil
+        )
+        let unreadableItem = try XCTUnwrap(unreadableService.scanAndEnqueueCompletedRecordings().first)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0],
+            ofItemAtPath: unreadablePackage.reviewURL.path
+        )
+
+        XCTAssertEqual(
+            EmbeddedCabinetLocalRecordingRow.rows(
+                for: [unreadableItem],
+                recordingsRootURL: unreadableService.recordingsRootURL
+            ).first?.canOpen,
+            false
+        )
+        XCTAssertThrowsError(try unreadableService.localPlaybackURL(itemId: unreadableItem.id))
     }
 
     func testRetentionExpiryMovesRetryingItemToManualOnlyWithoutDeletingArtifacts() throws {

@@ -73,6 +73,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path.cwd())
     parser.add_argument("--pr-body", type=Path)
+    parser.add_argument("--pr-title")
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
     root = args.root.resolve()
@@ -117,12 +118,14 @@ def main() -> int:
     if not scan_changed_legacy(root):
         return 1
     if args.pr_body:
+        if args.pr_title is None:
+            parser.error("--pr-title is required with --pr-body")
         if not pointer.is_file():
             print("development-process: PR metadata validation requires active feature pointer", file=sys.stderr)
             return 1
         feature_id = str(data.get("feature_id", ""))
         source_sha = str(data.get("source_sha", ""))
-        if run(root, ["scripts/validate-pr-metadata.py", str(args.pr_body), "--feature-id", feature_id, "--expected-sha", source_sha]) != 0:
+        if run(root, ["scripts/validate-pr-metadata.py", str(args.pr_body), "--feature-id", feature_id, "--expected-sha", source_sha, "--title", args.pr_title]) != 0:
             return 1
     print(f"development-process: OK feature={feature or 'repository-only'}")
     return 0

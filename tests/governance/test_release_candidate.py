@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import uuid
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -576,7 +577,8 @@ def test_decide_treats_non_object_evidence_as_normal_no_go(tmp_path: Path) -> No
 
 
 def test_attest_rejects_release_from_different_github_repository(tmp_path: Path) -> None:
-    root = fixture(tmp_path, release_calver="2099.01.01.1")
+    release_calver = f"2099.12.31.{uuid.uuid4().int}"
+    root = fixture(tmp_path, release_calver=release_calver)
     script = root / "infra/scripts/release-candidate.sh"
     subprocess.run(["git", "remote", "add", "origin", "https://github.com/yshishenya/graf.git"], cwd=root, check=True)
     sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
@@ -603,13 +605,13 @@ def test_attest_rejects_release_from_different_github_repository(tmp_path: Path)
         "component_shas": {"server": sha},
     }), encoding="utf-8")
     decision_path = root / "decision.json"
-    result = run(script, "decide", str(candidate_path), "--evidence", str(evidence_path), "--calver", "2099.01.01.1", "--output", str(decision_path), cwd=root)
+    result = run(script, "decide", str(candidate_path), "--evidence", str(evidence_path), "--calver", release_calver, "--output", str(decision_path), cwd=root)
     assert result.returncode == 0, result.stderr
     result = run(
         script,
         "attest",
         str(decision_path),
-        "--release-url", "https://github.com/other/repo/releases/tag/v2099.01.01.1",
+        "--release-url", f"https://github.com/other/repo/releases/tag/v{release_calver}",
         "--release-sha", sha,
         "--operator", "release",
         cwd=root,

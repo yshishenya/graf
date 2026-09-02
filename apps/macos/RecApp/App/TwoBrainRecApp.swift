@@ -345,7 +345,10 @@ private struct ContentView: View {
                     (NSApp.delegate as? AppLifecycleDelegate)?.openSettings(nil)
                 },
                 supportIncidentBridge: supportIncidentBridge,
-                localRecordingRows: EmbeddedCabinetLocalRecordingRow.rows(for: uploadQueueItems),
+                localRecordingRows: EmbeddedCabinetLocalRecordingRow.rows(
+                    for: uploadQueueItems,
+                    recordingsRootURL: desktopUploadQueueService.recordingsRootURL
+                ),
                 onLocalRecordingAction: { action, itemId in
                     handleLocalRecordingAction(action, itemId: itemId)
                 }
@@ -2641,6 +2644,8 @@ private struct ContentView: View {
     private func handleLocalRecordingAction(_ action: String, itemId: String) {
         do {
             switch action {
+            case EmbeddedCabinetLocalRecordingBridge.openAction:
+                NSWorkspace.shared.open(try desktopUploadQueueService.localPlaybackURL(itemId: itemId))
             case EmbeddedCabinetLocalRecordingBridge.sendAction:
                 _ = try desktopUploadQueueService.retry(itemId: itemId)
                 uploadQueueItems = try desktopUploadQueueService.loadItems()
@@ -2657,6 +2662,17 @@ private struct ContentView: View {
                 detail: "reason=local_recording_action action=\(action) itemId=\(itemId) error=\(error)"
             )
         }
+    }
+
+    private func localCaptureFailureCopy(failureCode: String, sessionID: String?) -> String {
+        guard let sessionID,
+              let items = try? desktopUploadQueueService.loadItems(),
+              let item = items.first(where: { $0.sessionId == sessionID }),
+              (try? desktopUploadQueueService.localPlaybackURL(itemId: item.id)) != nil
+        else {
+            return "Запись остановлена: \(failureCode). Сохранённого очищенного фрагмента нет."
+        }
+        return "Запись остановлена: \(failureCode). Уже очищенная часть сохранена локально."
     }
 
     private func recordingBlockerText(for snapshot: RecordingPrerequisiteSnapshot) -> String {
@@ -2781,8 +2797,19 @@ private struct ContentView: View {
                        source: "echo_processing",
                        recoveryAction: "Остановите запись и начните новую после проверки аудиоустройств."
                    ) {
+                    let sessionID = captureSession?.id
                     captureSession = degraded
-                    recordingBlocker = "Запись остановила добавление звука: \(failureCode). Уже очищенная часть сохранится после Stop."
+                    Task { @MainActor in
+                        await stopManualRecording(
+                            reason: .failed,
+                            evidenceInitiator: .systemFailClosed,
+                            enqueueReason: "capture_integrity_failure"
+                        )
+                        recordingBlocker = localCaptureFailureCopy(
+                            failureCode: failureCode,
+                            sessionID: sessionID
+                        )
+                    }
                 }
             }
         }

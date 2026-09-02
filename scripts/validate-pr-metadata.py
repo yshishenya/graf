@@ -39,6 +39,9 @@ EVIDENCE_STATUS_RE = re.compile(
     r"\b(?:pass(?:ed)?|ok|fail(?:ed)?|blocked|skipped|not[ \t]+run|не[ \t]+запускал|не[ \t]+запущен)\b",
     re.IGNORECASE,
 )
+TITLE_PREFIX_RE = re.compile(r"^((?:\[F\d{3,}\])+)(?:\s|$)")
+TITLE_FEATURE_RE = re.compile(r"\[F(\d{3,})\]")
+FEATURE_ID_RE = re.compile(r"\bF(\d{3,})\b")
 
 
 def _sections(body: str) -> dict[str, list[str]]:
@@ -52,21 +55,60 @@ def _has_content(content: str) -> bool:
     return any(line.strip() not in {"", "-", "*", "_"} for line in content.splitlines())
 
 
-def validate(body: str, feature_id: str, expected_sha: str | None = None) -> list[str]:
+def _expected_feature_ids(value: str) -> set[str]:
+    return {match.group(1) for match in re.finditer(r"\bF?(\d{3,})\b", value)}
+
+
+def _declared_feature_ids(body: str, sections: dict[str, list[str]]) -> set[str]:
+    # Restrict the declaration to the dedicated identity section so that a
+    # reference to another feature in release notes cannot change ownership.
+    identity = "\n".join(
+        sections.get("## Feature identity", []) + sections.get("## Feature IDs", [])
+    )
+    declared = set(FEATURE_ID_RE.findall(identity))
+    if declared:
+        return declared
+    marker = re.search(r"Feature ID:\s*`?F?(\d{3,})", body)
+    return {marker.group(1)} if marker else set()
+
+
+def validate(
+    body: str,
+    feature_id: str,
+    expected_sha: str | None = None,
+    title: str | None = None,
+) -> list[str]:
     sections = _sections(body)
     errors: list[str] = []
+    expected_feature_ids = _expected_feature_ids(feature_id)
+    if not expected_feature_ids:
+        errors.append("expected Feature ID is required")
+    title_match = TITLE_PREFIX_RE.match((title or "").strip())
+    if not title_match:
+        errors.append("PR title must start with [F<feature-id>]")
+    elif not expected_feature_ids.issubset(set(TITLE_FEATURE_RE.findall(title_match.group(1)))):
+        errors.append(
+            f"PR title Feature ID mismatch: expected {sorted('F' + value for value in expected_feature_ids)}, got {title_match.group(1)}"
+        )
     for section in REQUIRED:
+        if section == "## Feature identity" and "## Feature IDs" in sections:
+            continue
         if section not in sections:
             errors.append(f"missing PR section: {section}")
         elif len(sections[section]) > 1:
             errors.append(f"duplicate PR section: {section}")
         elif not _has_content(sections[section][0]):
             errors.append(f"empty PR section: {section}")
-    marker = re.search(r"Feature ID:\s*`?F?(\d{3,})", body)
-    if not marker:
+    declared_feature_ids = _declared_feature_ids(body, sections)
+    if not declared_feature_ids:
         errors.append("Feature ID is required in PR body")
-    elif marker.group(1) != feature_id:
-        errors.append(f"Feature ID mismatch: expected {feature_id}, got {marker.group(1)}")
+    elif declared_feature_ids != expected_feature_ids:
+        errors.append(
+            "Feature ID mismatch: expected "
+            + ", ".join(sorted("F" + value for value in expected_feature_ids))
+            + ", got "
+            + ", ".join(sorted("F" + value for value in declared_feature_ids))
+        )
     umbrella_match = re.search(r"Umbrella issue:\s*`?#([1-9]\d*)\b", body)
     if not umbrella_match:
         errors.append("umbrella issue is required")
@@ -113,6 +155,7 @@ def validate(body: str, feature_id: str, expected_sha: str | None = None) -> lis
 
 def self_test() -> int:
     sha = "a" * 40
+    title = "[F216] Перестроить процесс"
     body = """## Feature identity
 - Feature ID: `F216`
 - Umbrella issue: `#6090`
@@ -134,14 +177,16 @@ def self_test() -> int:
 ## Перед merge
 - evidence recorded
 """.format(sha=sha)
-    assert validate(body, "216", expected_sha=sha) == []
-    assert validate(body.replace("F216", "F215"), "216")
-    assert validate(body.replace("F216", "F1024").replace("T042", "T1000"), "1024") == []
-    assert validate(body, "216", expected_sha="b" * 40)
-    assert validate(body.replace("Classification: `untouched`", "Classification: `remove` / `retain-with-exception` / `untouched`"), "216")
-    assert validate(body.replace("## Issues\n- Refs #6090", "## Issues\n"), "216")
-    assert validate(body.replace("Refs #6090", "Refs #___"), "216")
-    assert validate(body.replace("Refs #6090", "Refs #999"), "216")
+    assert validate(body, "216", expected_sha=sha, title=title) == []
+    assert validate(body.replace("F216", "F215"), "216", title=title)
+    assert validate(body.replace("F216", "F1024").replace("T042", "T1000"), "1024", title="[F1024] Перестроить процесс") == []
+    assert validate(body, "216", expected_sha="b" * 40, title=title)
+    assert validate(body.replace("Classification: `untouched`", "Classification: `remove` / `retain-with-exception` / `untouched`"), "216", title=title)
+    assert validate(body.replace("## Issues\n- Refs #6090", "## Issues\n"), "216", title=title)
+    assert validate(body.replace("Refs #6090", "Refs #___"), "216", title=title)
+    assert validate(body.replace("Refs #6090", "Refs #999"), "216", title=title)
+    assert validate(body, "216", title="Перестроить процесс")
+    assert validate(body, "216", title="[F215] Перестроить процесс")
     print("pr-metadata self-test: OK")
     return 0
 
@@ -151,6 +196,7 @@ def main() -> int:
     parser.add_argument("body", type=Path, nargs="?")
     parser.add_argument("--feature-id")
     parser.add_argument("--expected-sha")
+    parser.add_argument("--title")
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
     if args.self_test:
@@ -159,12 +205,14 @@ def main() -> int:
         parser.error("body is required unless --self-test is used")
     if not args.feature_id:
         parser.error("--feature-id is required unless --self-test is used")
+    if args.title is None:
+        parser.error("--title is required unless --self-test is used")
     try:
         body = args.body.read_text(encoding="utf-8")
     except OSError as exc:
         print(f"pr-metadata: ERROR: {exc}", file=sys.stderr)
         return 1
-    errors = validate(body, args.feature_id, expected_sha=args.expected_sha)
+    errors = validate(body, args.feature_id, expected_sha=args.expected_sha, title=args.title)
     if errors:
         for error in errors:
             print(f"pr-metadata: ERROR: {error}", file=sys.stderr)

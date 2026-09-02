@@ -4601,6 +4601,15 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
 .meeting-title:focus-visible {
   outline-offset: -1px;
 }
+.local-recording-open {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
 .row-title {
   line-height: 18px;
 }

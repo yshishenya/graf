@@ -643,7 +643,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     }
 
     private func localRecordingDuration(for item: DesktopUploadQueueItem) -> String {
-        let seconds = max(1, item.artifactProfile.durationSeconds)
+        let seconds = max(0, item.artifactProfile.durationSeconds)
         let minutes = seconds / 60
         let remainder = seconds % 60
         if minutes == 0 {

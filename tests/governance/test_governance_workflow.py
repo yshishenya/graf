@@ -44,7 +44,9 @@ def test_governance_workflow_validates_pr_metadata_against_event_sha() -> None:
     source = (ROOT / ".github/workflows/governance-fast.yml").read_text(encoding="utf-8")
     assert "name: Validate pull request metadata" in source
     assert "if: ${{ github.event_name == 'pull_request' }}" in source
-    assert 'event_path, body_path, feature_id_path = map(Path, sys.argv[1:])' in source
+    assert 'event_path, body_path, feature_id_path = map(Path, sys.argv[1:4])' in source
+    assert 'git", "diff", "--name-only"' in source
+    assert 'no repository-owned feature spec changed in pull request' in source
     assert 'pull_request = event.get("pull_request")' in source
     assert 'github.event.pull_request.head.sha' in source
     assert '--expected-sha "$EXPECTED_SHA"' in source

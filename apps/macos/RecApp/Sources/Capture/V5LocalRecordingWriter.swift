@@ -638,7 +638,8 @@ public final class LocalRecordingWriter: @unchecked Sendable {
              RecordingAudioTimelineError.gapExceedsBound,
              RecordingAudioTimelineError.lateBatch,
              RecordingAudioTimelineError.renderReferenceMissing,
-             RecordingAudioTimelineError.echoProcessingFailed,
+             RecordingAudioTimelineError.echoProcessingFailed(_),
+             RecordingAudioTimelineError.echoProcessingOutputInvalid,
              RecordingAudioTimelineError.sourceStopped:
             // Keep the local prefix, but do not emit the legacy generic
             // timeline_misaligned code for a new package. The failed capture
@@ -684,8 +685,17 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             "converter_failed"
         case RecordingAudioTimelineError.renderReferenceMissing:
             "render_reference_missing"
-        case RecordingAudioTimelineError.echoProcessingFailed:
-            "echo_processing_failed"
+        case RecordingAudioTimelineError.echoProcessingFailed(let processorError):
+            switch processorError {
+            case .unavailable: "aec_unavailable"
+            case .invalidFrame: "aec_invalid_frame"
+            case .renderFailed: "aec_render_failed"
+            case .captureFailed: "aec_capture_failed"
+            case .closed: "aec_closed"
+            case .internalFailure: "aec_internal_failure"
+            }
+        case RecordingAudioTimelineError.echoProcessingOutputInvalid:
+            "aec_output_invalid"
         case RecordingAudioTimelineError.sourceStopped:
             "source_stopped"
         case RecordingAudioTimelineError.alreadyFinished:
@@ -767,8 +777,14 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             return .ptsDiscontinuity
         case "source_overflow", "stop_drain_limit_exceeded":
             return .sourceOverflow
-        case "invalid_samples":
+        case "invalid_samples", "aec_invalid_frame", "aec_output_invalid":
             return .nonFiniteSamples
+        case "aec_render_failed":
+            return .processReverseFailed
+        case "aec_capture_failed", "aec_closed", "aec_internal_failure":
+            return .processCaptureFailed
+        case "aec_unavailable":
+            return .processorUnavailable
         case "finalization_failed", "canonical_artifact_unavailable", "conversion_failed":
             return .finalizationFailed
         default:

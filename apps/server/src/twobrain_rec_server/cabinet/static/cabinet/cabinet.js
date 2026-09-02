@@ -144,7 +144,6 @@
       if (!item.meetingId) return true;
       const serverRow = allRows().find((row) => row.dataset.meetingId === item.meetingId);
       if (!serverRow || item.uploadComplete !== true) return true;
-      serverRow.dataset.grafLocalRecordingId = item.id;
       return false;
     });
     let list = host.querySelector("ol.meeting-list");
@@ -178,19 +177,31 @@
       icon.className = "row-icon";
       icon.dataset.mediaKind = "recording";
       icon.setAttribute("aria-hidden", "true");
-      icon.textContent = "●";
+      icon.innerHTML = '<svg class="ui-icon" data-icon="audio" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"></path><path d="M16 9a5 5 0 0 1 0 6"></path><path d="M19.364 18.364a9 9 0 0 0 0-12.728"></path></svg>';
       const content = document.createElement("div");
       content.className = "meeting-content";
       const heading = document.createElement("span");
       heading.className = "meeting-heading";
-      const title = document.createElement("strong");
-      title.className = "meeting-title row-title";
+      const title = document.createElement(item.canOpen ? "button" : "strong");
+      title.className = `meeting-title row-title${item.canOpen ? " local-recording-open" : ""}`;
       title.textContent = item.title || "Запись";
+      if (item.canOpen) {
+        title.type = "button";
+        title.dataset.meetingOpen = "";
+        title.dataset.grafLocalRecordingAction = "open";
+        title.dataset.grafLocalRecordingId = item.id;
+        title.setAttribute("aria-label", `Открыть локальную запись ${item.title || "Запись"}`);
+      }
       const duration = document.createElement("span");
       duration.className = "meeting-duration muted";
-      const minutes = Math.floor(item.durationSeconds / 60);
-      const seconds = item.durationSeconds % 60;
-      duration.textContent = minutes ? `${minutes} мин ${seconds ? `${seconds} с` : ""}`.trim() : `${seconds} с`;
+      const durationLabel = (value) => {
+        const minutes = Math.floor(value / 60);
+        const seconds = value % 60;
+        return minutes ? `${minutes} мин ${seconds ? `${seconds} с` : ""}`.trim() : `${seconds} с`;
+      };
+      duration.textContent = item.showsPartialDuration
+        ? `Сохранено ${durationLabel(item.durationSeconds)} из ${durationLabel(item.sessionDurationSeconds)}`
+        : durationLabel(item.durationSeconds);
       heading.append(title, duration);
       const meta = document.createElement("span");
       meta.className = "row-meta";

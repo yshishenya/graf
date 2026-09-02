@@ -59,6 +59,8 @@ def validate(path: Path) -> list[str]:
         "bounded fast lane": r"infra/scripts/ci-local\.sh\s+--fast",
         "PR metadata gate": r"(?ms)name:\s*Validate pull request metadata.*?if:\s*\$\{\{\s*github\.event_name\s*==\s*'pull_request'\s*\}\}.*?scripts/validate-pr-metadata\.py",
         "PR metadata exact SHA": r"(?ms)name:\s*Validate pull request metadata.*?--expected-sha\s+\"\$EXPECTED_SHA\"",
+        "PR metadata title": r"(?ms)name:\s*Validate pull request metadata.*?--title\s+\"\$PR_TITLE\"",
+        "PR title event binding": r"PR_TITLE:\s*\$\{\{\s*github\.event\.pull_request\.title\s*\}\}",
         "mandatory outcome assertion": r"(?ms)name:\s*Assert mandatory governance outcomes.*?exit 1",
         "evidence validator": r"scripts/validate-ci-evidence\.py",
         "authoritative merge-group API mapping": r"gh\s+api\s+--paginate\s+--slurp",
@@ -116,8 +118,10 @@ jobs:
       - run: python3 scripts/verify-merge-group-mapping.py --authoritative-response "$RUNNER_TEMP/graf-merge-group-api.json"
       - name: Validate pull request metadata
         if: ${{ github.event_name == 'pull_request' }}
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
-          python3 scripts/validate-pr-metadata.py "$RUNNER_TEMP/graf-pr-body.md" --feature-id "$FEATURE_ID" --expected-sha "$EXPECTED_SHA"
+          python3 scripts/validate-pr-metadata.py "$RUNNER_TEMP/graf-pr-body.md" --feature-id "$FEATURE_ID" --expected-sha "$EXPECTED_SHA" --title "$PR_TITLE"
       - run: infra/scripts/ci-local.sh --fast
       - run: python3 scripts/validate-ci-evidence.py .dev/ci-evidence/run.json
       - name: Assert mandatory governance outcomes
