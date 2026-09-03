@@ -433,6 +433,7 @@ private final class DesktopCabinetNavigationTitlebarAccessoryAnchor: NSView {
     }
 }
 
+@MainActor
 private struct DesktopCabinetNavigationControls: View {
     static let preferredWidth: CGFloat = 180
     static let preferredHeight: CGFloat = 40
