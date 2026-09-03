@@ -3,6 +3,26 @@ import Combine
 import SwiftUI
 import TwoBrainRecShared
 
+#if swift(<6.1)
+public typealias EmbeddedCabinetNavigationDecisionHandler =
+    (WKNavigationActionPolicy) -> Void
+public typealias EmbeddedCabinetNavigationResponseDecisionHandler =
+    (WKNavigationResponsePolicy) -> Void
+public typealias EmbeddedCabinetOpenPanelCompletionHandler =
+    ([URL]?) -> Void
+public typealias EmbeddedCabinetDownloadCompletionHandler =
+    (URL?) -> Void
+#else
+public typealias EmbeddedCabinetNavigationDecisionHandler =
+    @MainActor @Sendable (WKNavigationActionPolicy) -> Void
+public typealias EmbeddedCabinetNavigationResponseDecisionHandler =
+    @MainActor @Sendable (WKNavigationResponsePolicy) -> Void
+public typealias EmbeddedCabinetOpenPanelCompletionHandler =
+    @MainActor @Sendable ([URL]?) -> Void
+public typealias EmbeddedCabinetDownloadCompletionHandler =
+    @MainActor @Sendable (URL?) -> Void
+#endif
+
 public enum EmbeddedCabinetBackNavigationDecision: Equatable, Sendable {
     case history
     case meetingsList
@@ -1537,6 +1557,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
     // nonisolated, although WebKit invokes them on the UI thread. Keep the
     // coordinator's UI state on MainActor while deferring that stale SDK
     // annotation at this compatibility boundary.
+    @MainActor
     public final class Coordinator: NSObject, @preconcurrency WKNavigationDelegate, @preconcurrency WKUIDelegate, @preconcurrency WKScriptMessageHandler, @preconcurrency WKDownloadDelegate {
         private let routePolicy: DesktopCabinetRoutePolicy
         private let desktopHeaders: [String: String]
@@ -1679,7 +1700,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         public func webView(
             _ webView: WKWebView,
             decidePolicyFor navigationAction: WKNavigationAction,
-            decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void
+            decisionHandler: @escaping EmbeddedCabinetNavigationDecisionHandler
         ) {
             guard navigationController.isAttached(to: webView) else {
                 decisionHandler(.cancel)
@@ -1855,7 +1876,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             _ download: WKDownload,
             decideDestinationUsing _: URLResponse,
             suggestedFilename: String,
-            completionHandler: @escaping @MainActor @Sendable (URL?) -> Void
+            completionHandler: @escaping EmbeddedCabinetDownloadCompletionHandler
         ) {
             guard isActive else {
                 completionHandler(nil)
@@ -1925,7 +1946,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             _ webView: WKWebView,
             runOpenPanelWith parameters: WKOpenPanelParameters,
             initiatedByFrame: WKFrameInfo,
-            completionHandler: @escaping @MainActor @Sendable ([URL]?) -> Void
+            completionHandler: @escaping EmbeddedCabinetOpenPanelCompletionHandler
         ) {
             guard isActive, navigationController.isAttached(to: webView) else {
                 completionHandler(nil)
@@ -2019,7 +2040,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         public func webView(
             _ webView: WKWebView,
             decidePolicyFor navigationResponse: WKNavigationResponse,
-            decisionHandler: @escaping @MainActor @Sendable (WKNavigationResponsePolicy) -> Void
+            decisionHandler: @escaping EmbeddedCabinetNavigationResponseDecisionHandler
         ) {
             guard navigationController.isAttached(to: webView) else {
                 decisionHandler(.cancel)
