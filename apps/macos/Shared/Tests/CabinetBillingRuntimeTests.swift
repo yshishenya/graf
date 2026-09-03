@@ -6,6 +6,10 @@ import XCTest
 
 @MainActor
 final class CabinetBillingRuntimeTests: XCTestCase {
+    // WKWebView keeps its navigation delegate weakly; retain every delegate
+    // while the test's WebViews can still deliver callbacks.
+    private var navigationDelegates: [BillingNavigationDelegate] = []
+
     func testBillingViewsReflowAcrossBrowserAndEmbeddedWidths() async throws {
         let css = try String(
             contentsOf: repositoryRoot().appendingPathComponent(
@@ -102,6 +106,7 @@ final class CabinetBillingRuntimeTests: XCTestCase {
 
     private func load(_ html: String, in webView: WKWebView) async throws {
         let delegate = BillingNavigationDelegate()
+        navigationDelegates.append(delegate)
         let loaded = expectation(description: "WKWebView loaded synthetic billing")
         delegate.didFinish = { loaded.fulfill() }
         webView.navigationDelegate = delegate
