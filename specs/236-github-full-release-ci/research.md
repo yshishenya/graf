@@ -70,6 +70,11 @@
   execution sequential. This prevents WebKit content-process state from
   accumulating between tests without retries, quarantines, deprecated
   `WKProcessPool`, or a hand-maintained suite allowlist.
+- **Evidence boundary**: the failed GitHub run proves a signal-5 crash in the
+  shared XCTest process after several WebKit cases, but does not expose a
+  supported internal WebKit root cause. Per-case process isolation removes the
+  observed cross-test boundary; one post-merge GitHub Full CI run remains the
+  required proof on the pinned Swift 6.0.3/macOS runner.
 - **Alternatives considered**: lifecycle changes and a shared process pool did
   not provide a process boundary; filtered suite invocations can return success
   with zero matching tests and still share one process within a suite.
