@@ -452,10 +452,14 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
             (() => {
               const destination = \(urlJSON)[0];
               const documentHTML = \(htmlJSON)[0];
+              const nextDocument = new DOMParser().parseFromString(documentHTML, "text/html");
               history.replaceState({}, "", destination);
-              document.open();
-              document.write(documentHTML);
-              document.close();
+              document.body.replaceChildren(
+                ...Array.from(nextDocument.body.childNodes)
+                  .filter(node => node.nodeName !== "SCRIPT")
+                  .map(node => document.importNode(node, true))
+              );
+              document.body.dispatchEvent(new CustomEvent("htmx:afterSwap", { detail: { target: document.body } }));
             })()
             """
         )
