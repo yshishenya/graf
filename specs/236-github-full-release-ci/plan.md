@@ -80,8 +80,10 @@ specs/236-github-full-release-ci/
 └── tasks.md
 
 .github/workflows/release-full.yml
+apps/macos/Scripts/run-swift-tests.sh
 scripts/validate-full-ci-workflow.py
 apps/server/tests/contract/test_ci_cd_contract.py
+infra/scripts/ci-local.sh
 docs/agent-guidance/release-and-validation.md
 docs/agent-guidance/development-process.md
 infra/scripts/README.md

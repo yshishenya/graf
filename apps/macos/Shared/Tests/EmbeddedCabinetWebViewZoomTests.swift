@@ -7,9 +7,7 @@ import XCTest
 @MainActor
 final class EmbeddedCabinetWebViewZoomTests: XCTestCase {
     func testApplyingWorkspaceZoomUpdatesPageZoomWithoutLoadingRoute() {
-        let configuration = WKWebViewConfiguration()
-        configuration.processPool = CabinetRuntimeWebKitTestSupport.processPool
-        let webView = WKWebView(frame: .zero, configuration: configuration)
+        let webView = WKWebView()
 
         EmbeddedCabinetWebView.EmbeddedCabinetZoomBridge.apply(
             WorkspaceZoomPreference(value: 1.2),

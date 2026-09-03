@@ -40,7 +40,7 @@ def validate(path: Path) -> list[str]:
         "aggregate job": r"(?ms)^\s*aggregate:\s*\n.*?needs:\s*\[?reserve.*?server-full.*?macos-full",
         "exact checkout": r"ref:\s*\$\{\{\s*inputs\.requested_sha\s*\}\}",
         "server full tests": r"run_local_postgres_tests\.sh\s+--full",
-        "macOS tests": r"swift\s+test\s+--package-path\s+apps/macos",
+        "macOS tests": r"bash\s+apps/macos/Scripts/run-swift-tests\.sh",
         "macOS arm64 assertion": r"uname\s+-m.*arm64",
         "contract validation": r"swift\s+run\s+--package-path\s+apps/macos\s+ContractValidation",
         "evidence producer": r"scripts/emit-ci-evidence\.py",
@@ -116,7 +116,7 @@ jobs:
         with:
           ref: ${{ inputs.requested_sha }}
       - run: test "$(uname -m)" = arm64
-      - run: swift test --package-path apps/macos
+      - run: bash apps/macos/Scripts/run-swift-tests.sh
       - run: swift run --package-path apps/macos ContractValidation
   aggregate:
     needs: [reserve, server-full, macos-full]
@@ -134,7 +134,7 @@ jobs:
         assert errors == [], errors
         path.write_text(good.replace("cancel-in-progress: false", "cancel-in-progress: true"), encoding="utf-8")
         assert any("no cancellation" in item for item in validate(path))
-        path.write_text(good.replace("swift test", "echo tests"), encoding="utf-8")
+        path.write_text(good.replace("bash apps/macos/Scripts/run-swift-tests.sh", "echo tests"), encoding="utf-8")
         assert any("macOS tests" in item for item in validate(path))
     print("full-ci-workflow self-test: OK")
     return 0

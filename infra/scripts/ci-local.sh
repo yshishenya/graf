@@ -670,7 +670,7 @@ PY
     run_step "macOS legacy audio architecture guard" sh apps/macos/Scripts/validate-no-legacy-audio-driver.sh || return $?
     if [[ "$(uname -s)" == "Darwin" ]]; then
       run_step "macOS Swift build" swift build --package-path apps/macos || return $?
-      run_step "macOS Swift tests" swift test --package-path apps/macos || return $?
+      run_step "macOS Swift tests" bash apps/macos/Scripts/run-swift-tests.sh || return $?
       run_step "macOS contract validation" swift run --package-path apps/macos ContractValidation || return $?
     else
       printf '\n==> macOS Swift validation skipped (requires Darwin)\n'
@@ -688,7 +688,7 @@ PY
       run_step "macOS legacy audio architecture guard" sh apps/macos/Scripts/validate-no-legacy-audio-driver.sh || return $?
       if [[ "$(uname -s)" == "Darwin" ]]; then
         run_step "macOS Swift build" swift build --package-path apps/macos || return $?
-        run_step "macOS Swift tests" swift test --package-path apps/macos || return $?
+        run_step "macOS Swift tests" bash apps/macos/Scripts/run-swift-tests.sh || return $?
         run_step "macOS contract validation" swift run --package-path apps/macos ContractValidation || return $?
       else
         printf '\n==> macOS Swift validation skipped (requires Darwin)\n'

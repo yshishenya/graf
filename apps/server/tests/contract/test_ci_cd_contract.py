@@ -13,6 +13,7 @@ LOCAL_CI = ROOT / "infra/scripts/ci-local.sh"
 REMOTE_CD = ROOT / "infra/scripts/cd-remote.sh"
 FULL_CI_WORKFLOW = ROOT / ".github/workflows/release-full.yml"
 FULL_CI_VALIDATOR = ROOT / "scripts/validate-full-ci-workflow.py"
+MACOS_TEST_RUNNER = ROOT / "apps/macos/Scripts/run-swift-tests.sh"
 
 
 def run(*args: str, cwd: Path = ROOT, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
@@ -155,6 +156,32 @@ def test_fast_lane_runs_the_union_of_known_components_once() -> None:
     assert result.stdout.count("ci_stage=server tests ") == 1
     assert result.stdout.count("ci_stage=macOS Swift tests ") == 1
     assert result.stdout.count("ci_stage=active CI documentation consistency ") == 1
+
+
+def test_macos_xctest_process_isolation_matches_local_and_github() -> None:
+    command = "bash apps/macos/Scripts/run-swift-tests.sh"
+    local_ci = LOCAL_CI.read_text(encoding="utf-8")
+    workflow = FULL_CI_WORKFLOW.read_text(encoding="utf-8")
+    runner = MACOS_TEST_RUNNER.read_text(encoding="utf-8")
+
+    assert local_ci.count(command) == 2
+    assert command in workflow
+    assert 'swift-version: "6.0.3"' in workflow
+    assert "unset _SWIFTPM_SKIP_TESTS_LIST" in runner
+    assert "swift test --package-path apps/macos list" in runner
+    assert '[[ -z "$test_list" ]]' in runner
+    assert "--parallel --num-workers 1" in runner
+
+
+def test_macos_xctest_runner_rejects_empty_discovery(tmp_path: Path) -> None:
+    fake_swift = tmp_path / "swift"
+    fake_swift.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    fake_swift.chmod(0o755)
+
+    result = run(str(MACOS_TEST_RUNNER), env={"PATH": f"{tmp_path}:{os.environ['PATH']}"})
+
+    assert result.returncode == 1
+    assert "no tests discovered" in result.stdout
 
 
 @pytest.mark.parametrize(
