@@ -102,6 +102,21 @@ does not replace the full lane for a release candidate.
 
 ### 2. PR and merge
 
+Перед отправкой PR проверь его описание локально на финальном SHA:
+
+```sh
+python3 scripts/validate-pr-metadata.py /path/to/pr-body.md \
+  --feature-id scoped --scoped \
+  --expected-sha <полный-40-символьный-SHA> \
+  --title "<точный заголовок PR>"
+```
+
+Строка `Exact source SHA` должна быть отдельной строкой вида
+`- Exact source SHA: \`<40 hex>\`` без точки, запятой или другого текста после
+закрывающего обратного апострофа. После каждого нового коммита SHA в описании
+нужно обновить и дождаться нового GitHub `governance-fast`; старая проверка не
+доказывает корректность нового SHA.
+
 The PR must record the selected risk/validation lane, commands, result, and
 commit SHA. The required `governance-fast` GitHub check must be successful on
 that exact SHA; local evidence may supplement it but cannot replace it. Do not
