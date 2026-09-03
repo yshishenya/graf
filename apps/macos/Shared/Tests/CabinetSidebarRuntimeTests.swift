@@ -413,7 +413,7 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
         webView.loadHTMLString(html, baseURL: baseURL)
         // XCTest expectations are owned by the test instance.  The delegate
         // is retained for WebKit's late callbacks, so never retain this
-        // per-test callback beyond the load that owns its expectation.
+        // per-load callback beyond the load that owns its expectation.
         defer { delegate.didFinish = nil }
         await fulfillment(of: [loaded], timeout: 5)
         for _ in 0..<50 {
