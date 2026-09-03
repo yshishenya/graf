@@ -461,7 +461,10 @@ def _closeout_comment(*, sha: str = "a" * 40, result: str = "PASS", run: str = "
 
 Как проверено:
 - Exact source SHA: {sha}
+- PR SHA: {sha}
+- Candidate SHA: {sha}
 - governance-fast: {result} (https://github.com/yshishenya/graf/actions/runs/{run})
+- release-full: PASS (https://github.com/yshishenya/graf/actions/runs/456)
 
 Что не входит:
 - Legacy cleanup.
@@ -477,13 +480,30 @@ def test_issue_closeout_requires_positive_run_bound_governance_evidence() -> Non
     tasks = "- [X] T001 Реализовать (Issue #6337)\n"
     assert validator.validate(_closeout_issue(_closeout_comment()), tasks, expected_sha="a" * 40) == []
     assert any(
-        "positive authoritative governance evidence" in error
+        "governance-fast PASS with a run URL" in error
         for error in validator.validate(
             _closeout_issue(_closeout_comment(result="FAIL")), tasks, expected_sha="a" * 40
         )
     )
+
+
+def test_issue_closeout_requires_positive_run_bound_release_evidence() -> None:
+    validator = load_script("validate-issue-closeout")
+    tasks = "- [X] T001 Реализовать (Issue #6337)\n"
+    comment = _closeout_comment().replace(
+        "- release-full: PASS (https://github.com/yshishenya/graf/actions/runs/456)\n",
+        "",
+    )
+    assert validator.validate(_closeout_issue(comment), tasks, expected_sha="a" * 40) == []
+    errors = validator.validate(
+        _closeout_issue(comment),
+        tasks,
+        expected_sha="a" * 40,
+        require_release_full=True,
+    )
+    assert any("release-full PASS with a run URL" in error for error in errors)
     assert any(
-        "positive authoritative governance evidence" in error
+        "governance-fast PASS with a run URL" in error
         for error in validator.validate(
             _closeout_issue(_closeout_comment(run="")), tasks, expected_sha="a" * 40
         )
@@ -541,6 +561,129 @@ def test_issue_closeout_rejects_wrapped_umbrella_issue_as_task_owner() -> None:
     tasks = "- [X] T001 Реализовать\n  (umbrella issue #6337).\n"
     errors = validator.validate(_closeout_issue(_closeout_comment()), tasks, expected_sha="a" * 40)
     assert any("is not linked to issue #6337" in error for error in errors)
+
+
+def test_feature_closeout_requires_closed_unique_children_and_umbrella_last() -> None:
+    validator = load_script("validate-issue-closeout")
+    tasks = "- [X] T001 Реализовать (Issue #6337)\n"
+    child = {
+        **_closeout_issue(_closeout_comment()),
+        "state": "CLOSED",
+        "closedAt": "2026-09-04T10:00:00Z",
+    }
+    umbrella = {
+        "number": 6415,
+        "title": "[236][P1][governance] T000: Реализовать фичу",
+        "state": "CLOSED",
+        "closedAt": "2026-09-04T10:01:00Z",
+        "comments": [{"body": _closeout_comment()}],
+    }
+    assert validator.validate_feature(
+        [child, umbrella],
+        tasks,
+        "a" * 40,
+        6415,
+        require_release_full=True,
+    ) == []
+
+    open_child = {**child, "state": "OPEN", "closedAt": None}
+    errors = validator.validate_feature([open_child, umbrella], tasks, "a" * 40, 6415)
+    assert any("issue #6337 for T001 is still open" in error for error in errors)
+
+    early_umbrella = {**umbrella, "closedAt": "2026-09-04T09:59:00Z"}
+    errors = validator.validate_feature([child, early_umbrella], tasks, "a" * 40, 6415)
+    assert any("was closed before child issue #6337" in error for error in errors)
+
+
+def test_feature_closeout_rejects_missing_duplicate_and_orphan_task_owners() -> None:
+    validator = load_script("validate-issue-closeout")
+    tasks = "- [X] T001 Реализовать (Issue #6337)\n- [X] T002 Проверить (Issue #6338)\n"
+    first = {
+        **_closeout_issue(_closeout_comment()),
+        "state": "CLOSED",
+        "closedAt": "2026-09-04T10:00:00Z",
+    }
+    duplicate = {
+        **first,
+        "number": 6339,
+        "title": "[236][P1][tests] T001: Дубль",
+    }
+    orphan = {
+        **first,
+        "number": 6340,
+        "title": "[236][P1][tests] T999: Лишняя задача",
+        "body": "Spec tasks: T999",
+    }
+    umbrella = {
+        "number": 6415,
+        "title": "[236][P1][governance] T000: Реализовать фичу",
+        "state": "OPEN",
+        "closedAt": None,
+        "comments": [],
+    }
+    errors = validator.validate_feature(
+        [first, duplicate, orphan, umbrella],
+        tasks,
+        "a" * 40,
+        6415,
+        allow_open_umbrella=True,
+    )
+    assert any("T001 has duplicate issue owners" in error for error in errors)
+    assert any("T002 has no task-backed issue" in error for error in errors)
+    assert any("issue #6340 is orphaned" in error for error in errors)
+
+
+def test_feature_closeout_verifies_github_workflow_conclusion_and_head_sha(monkeypatch) -> None:
+    validator = load_script("validate-issue-closeout")
+    issue = {
+        **_closeout_issue(_closeout_comment()),
+        "state": "CLOSED",
+        "closedAt": "2026-09-04T10:00:00Z",
+    }
+    runs = {
+        "123": {
+            "conclusion": "success",
+            "workflowName": "governance-fast",
+            "headSha": "a" * 40,
+        },
+        "456": {
+            "conclusion": "success",
+            "workflowName": "release-full",
+            "headSha": "a" * 40,
+        },
+    }
+    monkeypatch.setattr(validator, "_github_run", lambda _repo, run_id: runs[run_id])
+    pr = {
+        "state": "MERGED",
+        "mergedAt": "2026-09-04T09:00:00Z",
+        "headRefOid": "a" * 40,
+        "body": "Refs #6337",
+    }
+    monkeypatch.setattr(validator, "_github_pr", lambda _repo, _number: pr)
+    assert validator.verify_feature_runs(
+        "yshishenya/graf",
+        [issue],
+        "a" * 40,
+        require_release_full=True,
+    ) == []
+
+    runs["456"] = {**runs["456"], "headSha": "b" * 40}
+    errors = validator.verify_feature_runs(
+        "yshishenya/graf",
+        [issue],
+        "a" * 40,
+        require_release_full=True,
+    )
+    assert any("SHA does not match release-full evidence" in error for error in errors)
+
+    pr["body"] = "Refs #9999"
+    errors = validator.verify_feature_runs(
+        "yshishenya/graf",
+        [issue],
+        "a" * 40,
+        require_release_full=True,
+    )
+    assert any("is not explicitly linked from PR #6383" in error for error in errors)
 
 
 def test_package_safety_allows_documentation_examples_but_rejects_credentials(tmp_path: Path) -> None:

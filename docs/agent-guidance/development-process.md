@@ -148,3 +148,8 @@ Before closing a task-backed issue, export its metadata and run
 feature. A closed issue without a detailed Russian closure comment is a process
 failure even when GitHub closed it automatically; add the comment and reconcile
 the task state before declaring the feature complete.
+The individual JSON command is only a structural pre-close check; it does not
+authenticate GitHub URLs.
+For final feature closeout, use the same script's live feature mode so checked
+tasks cannot coexist with open, missing, duplicate or orphan task-backed
+issues. Task issues close first; the umbrella closes last.

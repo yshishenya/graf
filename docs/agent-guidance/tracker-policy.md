@@ -47,10 +47,19 @@ Closure rules:
   `gh issue view <number> --json number,title,state,body,comments > /tmp/issue.json`
   and run `python3 scripts/validate-issue-closeout.py --issue-json /tmp/issue.json
   --tasks specs/<feature>/tasks.md --expected-sha <PR-SHA>`. A non-zero result is a hard stop. This
-  check is metadata-only and never closes or reopens an issue for you.
+  check is a structural pre-close check only: it validates comment shape and
+  local task mapping but cannot authenticate a URL. It never closes or reopens
+  an issue for you.
 - If GitHub auto-closed an issue, run the same check immediately; add the
   required Russian closure comment first, and reopen the issue when tasks or
   evidence are incomplete.
+- Before closing an umbrella, run `scripts/validate-issue-closeout.py` in live
+  feature mode with `--repo`, `--feature`, `--umbrella`, `--tasks`,
+  `--expected-sha` and `--allow-open-umbrella`. Add
+  `--require-release-full` only for release-gated closeout. Close the umbrella only after
+  every child passes, then rerun without `--allow-open-umbrella` for the final
+  zero-open/zero-orphan proof. Only this live mode verifies merged PR metadata,
+  workflow names, conclusions and head SHAs and may serve as final closeout proof.
 
 PR rules:
 

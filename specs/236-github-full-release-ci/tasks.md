@@ -35,3 +35,19 @@ T001-T003 → T004-T008 → T009-T011 → T012 → T013-T014.
 Use the existing test commands and evidence validators. Add no new runtime
 service, dependency, signing secret or deployment path. Keep component results
 small and metadata-only; the aggregation job is the sole authoritative writer.
+
+## Phase 5: Convergence
+
+- [X] T015 [US3] Make `scripts/prepare-release.sh`, focused tests and release guidance derive the release-train base from the latest published non-draft, non-prerelease GitHub Release and fold every later unpublished changelog section into one candidate per FR-011 (Issue #6466; partial).
+- [X] T016 [US3] Extend `scripts/validate-issue-closeout.py`, focused tests and closeout guidance to require canonical authoritative evidence, both `governance-fast` and `release-full` run URLs, complete task↔issue inventory and umbrella-last closeout per FR-012 (Issue #6467; partial).
+
+## Phase 6: Post-release closeout
+
+- [ ] T017 [US3] After the new frozen candidate passes authoritative GitHub `release-full`, add verified Russian closure evidence, close every Feature 236 task-backed issue, run the live zero-open/zero-orphan inventory, and close umbrella #6415 last per FR-012; this task owns the deferred release actions described prematurely inside T013-T014 (Issue #6468; missing).
+
+Dependency: T015-T016 → T017.
+
+Closeout correction: the `[X]` state of T013-T014 records their implemented
+procedure and pre-merge reconciliation only. Their post-Full-CI operator actions
+were never completed and are now owned exclusively by unchecked T017; do not
+use T013-T014 as release or issue-closure evidence.

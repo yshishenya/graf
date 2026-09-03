@@ -39,10 +39,10 @@ Release/Spec Kit governance documents also report partial coverage. The common
 whitespace check covers the merge-base diff and selected untracked files. It is
 the fast feedback lane, not a release gate.
 
-Every lane emits one metadata-only evidence record under the ignored
+Every local lane emits one metadata-only diagnostic record under the ignored
 `.dev/ci-evidence/` directory (or the path in `GRAF_CI_EVIDENCE_PATH`) and
-prints `ci_evidence_path=...`. Set `GRAF_CI_CANDIDATE_FILE` for the single
-authoritative Full CI run so its evidence is bound to the frozen candidate.
+prints `ci_evidence_path=...`. Local evidence is never authoritative for a
+release candidate.
 
 GitHub Actions runs `governance-fast` automatically for every pull request and
 is the authoritative PR gate on the exact PR SHA. The workstation does not run
@@ -54,10 +54,11 @@ run locally only when it is intentionally requested:
 infra/scripts/ci-local.sh --full
 ```
 
-The full lane adds macOS tests and contracts (on macOS), the complete server
+The local full lane adds macOS tests and contracts (on macOS), the complete server
 suite, RLS validation, production Compose rendering and the deployment evidence
-scan. Do not run it after every small edit; the normal production path runs the
-authoritative full inside execute.
+scan. Do not run it after every small edit. The normal release path runs one
+manual `release-full` workflow in GitHub for the frozen candidate and reuses its
+canonical evidence during production execution.
 
 ## Local CD
 

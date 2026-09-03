@@ -78,6 +78,10 @@ GitHub evidence с candidate ID и exact SHA.
 2. **Given** GitHub Full CI passed, **When** operator скачивает metadata-only
    evidence и выполняет `train-attest`/`decide`, **Then** candidate остаётся
    неизменным и цепочка сохраняет exact SHA.
+3. **Given** после последнего опубликованного GitHub Release уже были
+   подготовлены, но не опубликованы секции changelog, **When** operator готовит
+   следующий release candidate, **Then** все такие секции и новые fragments
+   объединяются в один новый релиз без потери или повторения записей.
 
 ## Edge Cases
 
@@ -92,6 +96,9 @@ GitHub evidence с candidate ID и exact SHA.
   свою платформу и exact SHA.
 - Артефакты workflow не должны содержать secrets, raw audio, transcript text,
   private paths или полные test logs.
+- Наличие более нового локального тега или подготовленной секции changelog не
+  должно сдвигать границу release train, пока соответствующий GitHub Release не
+  опубликован как non-draft и non-prerelease.
 
 ## Requirements
 
@@ -121,6 +128,14 @@ GitHub evidence с candidate ID и exact SHA.
 - **FR-010**: Release documentation MUST описывать последовательность
   freeze → GitHub Full CI → evidence download → train-attest/decide → signing,
   notarization, publication и guarded deploy.
+- **FR-011**: Release preparation MUST определять базу по последнему реально
+  опубликованному non-draft, non-prerelease GitHub Release и MUST включать все
+  изменения от его тега до candidate SHA; подготовленные, но не опубликованные
+  changelog-секции MUST объединяться со следующим релизом.
+- **FR-012**: Feature closeout MUST fail closed проверять полное соответствие
+  task↔issue, закрытое состояние всех task-backed issues, русский closure
+  comment со ссылками на успешные `governance-fast` и `release-full`, отсутствие
+  orphan/open child issues и закрытие umbrella issue последним.
 
 ### Key Entities
 
@@ -149,6 +164,9 @@ GitHub evidence с candidate ID и exact SHA.
   проверяемые digests; validator отклоняет private paths и credentials.
 - **SC-006**: Оператор может связать downloaded evidence с frozen candidate без
   изменения candidate, changelog или source SHA.
+- **SC-007**: Release preparation не оставляет отдельными ни одной
+  неопубликованной changelog-секции после последнего опубликованного GitHub
+  Release и не закрывает feature при открытых task-backed issues.
 
 ## Assumptions
 
