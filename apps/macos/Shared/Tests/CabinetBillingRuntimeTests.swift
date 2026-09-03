@@ -25,8 +25,9 @@ final class CabinetBillingRuntimeTests: XCTestCase {
             (731, 680), (987, 680), (971, 760), (1227, 760), (1131, 900), (1387, 900),
         ]
 
+        let webView = try makeWebView(frame: .zero)
         for size in sizes {
-            let webView = makeWebView(frame: CGRect(x: 0, y: 0, width: size.width, height: size.height))
+            webView.frame = CGRect(x: 0, y: 0, width: size.width, height: size.height)
             try await load(html(css: css), in: webView)
             let metrics = try await layoutMetrics(in: webView)
 
@@ -41,7 +42,8 @@ final class CabinetBillingRuntimeTests: XCTestCase {
         }
 
         for width: CGFloat in [390, 731] {
-            let webView = makeWebView(frame: CGRect(x: 0, y: 0, width: width, height: 844))
+            webView.frame = CGRect(x: 0, y: 0, width: width, height: 844)
+            webView.pageZoom = 1
             try await load(html(css: css), in: webView)
             webView.pageZoom = 2
             let metrics = try await layoutMetrics(in: webView)
@@ -101,7 +103,7 @@ final class CabinetBillingRuntimeTests: XCTestCase {
         """
     }
 
-    private func makeWebView(frame: CGRect) -> WKWebView {
+    private func makeWebView(frame: CGRect) throws -> WKWebView {
         if !teardownRegistered {
             teardownRegistered = true
             addTeardownBlock { @MainActor [weak self] in
@@ -110,7 +112,10 @@ final class CabinetBillingRuntimeTests: XCTestCase {
         }
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
-        let webView = WKWebView(frame: frame, configuration: configuration)
+        let webView = try XCTUnwrap(
+            WKWebView(frame: frame, configuration: configuration),
+            "WebKit не смог создать тестовый WKWebView"
+        )
         testWebViews.append(webView)
         return webView
     }
