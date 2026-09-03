@@ -9,7 +9,6 @@ final class CabinetBillingRuntimeTests: XCTestCase {
     // WebKit may deliver callbacks after XCTest has released a test instance.
     // Keep the synthetic browser objects alive for the whole test process so
     // one test's teardown cannot race the next test's WebKit startup.
-    private static var retainedWebViews: [WKWebView] = []
     private static var retainedNavigationDelegates: [BillingNavigationDelegate] = []
 
     func testBillingViewsReflowAcrossBrowserAndEmbeddedWidths() async throws {
@@ -103,9 +102,7 @@ final class CabinetBillingRuntimeTests: XCTestCase {
     private func makeWebView(frame: CGRect) -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
-        let webView = WKWebView(frame: frame, configuration: configuration)
-        Self.retainedWebViews.append(webView)
-        return webView
+        return WKWebView(frame: frame, configuration: configuration)
     }
 
     private func load(_ html: String, in webView: WKWebView) async throws {
