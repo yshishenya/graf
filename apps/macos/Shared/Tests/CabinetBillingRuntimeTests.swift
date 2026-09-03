@@ -12,16 +12,8 @@ final class CabinetBillingRuntimeTests: XCTestCase {
     nonisolated(unsafe) private var testWebViews: [WKWebView] = []
     private static var retainedNavigationDelegates: [BillingNavigationDelegate] = []
 
-    override func tearDown() {
-        for webView in testWebViews {
-            webView.stopLoading()
-            webView.navigationDelegate = nil
-        }
-        testWebViews.removeAll()
-        super.tearDown()
-    }
-
     func testBillingViewsReflowAcrossBrowserAndEmbeddedWidths() async throws {
+        defer { releaseTestWebViews() }
         let css = try String(
             contentsOf: repositoryRoot().appendingPathComponent(
                 "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css"
@@ -115,6 +107,14 @@ final class CabinetBillingRuntimeTests: XCTestCase {
         let webView = WKWebView(frame: frame, configuration: configuration)
         testWebViews.append(webView)
         return webView
+    }
+
+    private func releaseTestWebViews() {
+        for webView in testWebViews {
+            webView.stopLoading()
+            webView.navigationDelegate = nil
+        }
+        testWebViews.removeAll()
     }
 
     private func load(_ html: String, in webView: WKWebView) async throws {

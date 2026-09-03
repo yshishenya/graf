@@ -12,16 +12,8 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
     nonisolated(unsafe) private var testWebViews: [WKWebView] = []
     private static var retainedNavigationDelegates: [NavigationDelegate] = []
 
-    override func tearDown() {
-        for webView in testWebViews {
-            webView.stopLoading()
-            webView.navigationDelegate = nil
-        }
-        testWebViews.removeAll()
-        super.tearDown()
-    }
-
     func testRailUsesInitialBreakpointAndKeepsManualChoiceAfterWindowResize() async throws {
+        defer { releaseTestWebViews() }
         let root = try repositoryRoot()
         let script = try String(
             contentsOf: root.appendingPathComponent(
@@ -125,6 +117,7 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
     }
 
     func testRailKeepsManualChoiceAcrossSameSessionNavigation() async throws {
+        defer { releaseTestWebViews() }
         let root = try repositoryRoot()
         let script = try String(
             contentsOf: root.appendingPathComponent(
@@ -177,6 +170,7 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
     }
 
     func testAccountLinkingPageAt390WidthKeepsReadingFocusAndActionsReachable() async throws {
+        defer { releaseTestWebViews() }
         let root = try repositoryRoot()
         let css = try String(
             contentsOf: root.appendingPathComponent(
@@ -263,6 +257,7 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
     }
 
     func testEmbeddedCompactProfileHasComputedFortyPointTargetAt720Width() async throws {
+        defer { releaseTestWebViews() }
         let root = try repositoryRoot()
         let css = try String(
             contentsOf: root.appendingPathComponent(
@@ -324,6 +319,7 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
     }
 
     func testProfileDisclosureConsumesFirstEscapeBeforeRail() async throws {
+        defer { releaseTestWebViews() }
         let root = try repositoryRoot()
         let script = try String(
             contentsOf: root.appendingPathComponent(
@@ -411,6 +407,14 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
         let webView = WKWebView(frame: frame, configuration: configuration)
         testWebViews.append(webView)
         return webView
+    }
+
+    private func releaseTestWebViews() {
+        for webView in testWebViews {
+            webView.stopLoading()
+            webView.navigationDelegate = nil
+        }
+        testWebViews.removeAll()
     }
 
     private func load(_ html: String, in webView: WKWebView, baseURL: URL? = nil) async throws {
