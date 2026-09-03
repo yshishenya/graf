@@ -144,6 +144,7 @@ private enum TwoBrainRecAppMain {
     }
 }
 
+@MainActor
 private struct ContentView: View {
     private let meetingDetectionRegistryRefreshIntervalNanoseconds: UInt64 = 3_600_000_000_000
     private static let meetingDetectionPromptWindowSize = NSSize(width: 360, height: 286)
@@ -3346,6 +3347,7 @@ private extension Notification.Name {
     static let twoBrainRecOpenMeetingsFromTray = Notification.Name("pro.2brain.graf.openMeetingsFromTray")
 }
 
+@MainActor
 private struct AppContentRoot: View {
     @ObservedObject private var workspaceZoomStore: WorkspaceZoomStore
     @ObservedObject private var appUpdateController: AppUpdateController
