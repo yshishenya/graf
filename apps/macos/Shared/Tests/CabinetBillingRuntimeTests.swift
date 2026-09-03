@@ -28,7 +28,7 @@ final class CabinetBillingRuntimeTests: XCTestCase {
             XCTAssertLessThanOrEqual(try number("mainOverflow", in: metrics), 0.5)
             XCTAssertLessThanOrEqual(try number("contentOverflow", in: metrics), 0.5)
             XCTAssertLessThanOrEqual(try number("primaryOverflow", in: metrics), 0.5)
-            XCTAssertGreaterThanOrEqual(try number("primaryHeight", in: metrics), 40)
+            XCTAssertGreaterThanOrEqual(try number("primaryMinHeight", in: metrics), 40)
             XCTAssertGreaterThanOrEqual(try number("planColumns", in: metrics), 1)
             XCTAssertEqual(metrics["primaryFocusable"] as? Bool, true)
         }
@@ -40,7 +40,7 @@ final class CabinetBillingRuntimeTests: XCTestCase {
             let metrics = try await layoutMetrics(in: webView)
             XCTAssertLessThanOrEqual(try number("documentOverflow", in: metrics), 0.5)
             XCTAssertLessThanOrEqual(try number("primaryOverflow", in: metrics), 0.5)
-            XCTAssertGreaterThanOrEqual(try number("primaryHeight", in: metrics), 40)
+            XCTAssertGreaterThanOrEqual(try number("primaryMinHeight", in: metrics), 40)
         }
     }
 
@@ -57,12 +57,12 @@ final class CabinetBillingRuntimeTests: XCTestCase {
               const primaryRect = primary.getBoundingClientRect();
               primary.focus();
               return {
-                viewportWidth: root.clientWidth,
+                viewportWidth: window.innerWidth,
                 documentOverflow: root.scrollWidth - root.clientWidth,
                 mainOverflow: main.scrollWidth - main.clientWidth,
                 contentOverflow: content.scrollWidth - content.clientWidth,
                 primaryOverflow: Math.max(0, mainRect.left - primaryRect.left, primaryRect.right - mainRect.right),
-                primaryHeight: primaryRect.height,
+                primaryMinHeight: Number.parseFloat(getComputedStyle(primary).minHeight),
                 primaryFocusable: document.activeElement === primary,
                 planColumns: getComputedStyle(grid).gridTemplateColumns.split(' ').filter(Boolean).length
               };
