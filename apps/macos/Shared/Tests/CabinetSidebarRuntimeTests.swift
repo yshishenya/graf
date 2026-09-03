@@ -9,11 +9,11 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
     // WebKit may deliver callbacks after XCTest has released a test instance.
     // Keep the synthetic browser objects alive for the whole test process so
     // one test's teardown cannot race the next test's WebKit startup.
-    nonisolated(unsafe) private var testWebViews: [WKWebView] = []
+    private var testWebViews: [WKWebView] = []
+    private var teardownRegistered = false
     private static var retainedNavigationDelegates: [NavigationDelegate] = []
 
     func testRailUsesInitialBreakpointAndKeepsManualChoiceAfterWindowResize() async throws {
-        defer { releaseTestWebViews() }
         let root = try repositoryRoot()
         let script = try String(
             contentsOf: root.appendingPathComponent(
@@ -117,7 +117,6 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
     }
 
     func testRailKeepsManualChoiceAcrossSameSessionNavigation() async throws {
-        defer { releaseTestWebViews() }
         let root = try repositoryRoot()
         let script = try String(
             contentsOf: root.appendingPathComponent(
@@ -170,7 +169,6 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
     }
 
     func testAccountLinkingPageAt390WidthKeepsReadingFocusAndActionsReachable() async throws {
-        defer { releaseTestWebViews() }
         let root = try repositoryRoot()
         let css = try String(
             contentsOf: root.appendingPathComponent(
@@ -257,7 +255,6 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
     }
 
     func testEmbeddedCompactProfileHasComputedFortyPointTargetAt720Width() async throws {
-        defer { releaseTestWebViews() }
         let root = try repositoryRoot()
         let css = try String(
             contentsOf: root.appendingPathComponent(
@@ -319,7 +316,6 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
     }
 
     func testProfileDisclosureConsumesFirstEscapeBeforeRail() async throws {
-        defer { releaseTestWebViews() }
         let root = try repositoryRoot()
         let script = try String(
             contentsOf: root.appendingPathComponent(
@@ -402,6 +398,12 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
     }
 
     private func makeWebView(frame: CGRect) -> WKWebView {
+        if !teardownRegistered {
+            teardownRegistered = true
+            addTeardownBlock { @MainActor [weak self] in
+                self?.releaseTestWebViews()
+            }
+        }
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         let webView = WKWebView(frame: frame, configuration: configuration)
