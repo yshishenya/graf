@@ -42,14 +42,18 @@ the remote workflow must validate PR and `merge_group` target identity before
 merge-queue enforcement. A synthetic merge SHA is provenance only; the release
 candidate is frozen on the resulting exact `master` SHA.
 
-For a batched release window, create a metadata-only train manifest with
+For a batched release window, first resolve the latest published non-draft,
+non-prerelease GitHub Release by `publishedAt`; its tag is the only valid base
+for the included commit/PR range. A newer local tag or prepared changelog
+heading is not a release. Create a metadata-only train manifest with
 `infra/scripts/release-candidate.sh train-freeze`, then run
 `train-validate <manifest> --current`. A train must include the synthetic
 merge SHA, post-merge `source_sha`, included PRs, Feature IDs, receipt
 references and the changelog digest. Freeze the linked candidate with
 `freeze ... --train <manifest>`, run the one authoritative Full CI, and bind
 that receipt with `train-attest <manifest> --candidate <candidate> --evidence
-<full-evidence>`. Only the resulting `*-go.json` train may be passed to
+.dev/ci-evidence/authoritative-<candidate-id>.json`. Only the resulting
+`*-go.json` train may be passed to
 `decide ... --train <train-go>`. Every record is create-once; if `master` or
 the changelog changes, validation fails and a new train must be frozen.
 
@@ -129,12 +133,17 @@ shared code path, focused tests alone are insufficient.
 
 ### 3. Release candidate
 
-When the batch is approved for release, prepare the CalVer release metadata
-before the final validation:
+When the batch is approved for release, confirm the latest published GitHub
+Release and prepare the CalVer release metadata before the final validation:
 
 ```sh
 GRAF_RELEASE_OPERATOR=<release-operator> ./scripts/prepare-release.sh YYYY.MM.DD.N
 ```
+
+`prepare-release.sh` queries GitHub and folds every later prepared-but-
+unpublished changelog section and its archived fragments into this one release.
+It fails closed when an entry has no matching fragment or one Feature ID has
+multiple pending fragments; merge the duplicate fragments explicitly and rerun.
 
 Review the changelog and release metadata, commit that release-prep change, and
 use the resulting commit as the candidate. The full lane must run after this
@@ -157,7 +166,7 @@ or GitHub Release. Full evidence must include \`candidate_id\`,
 that evidence to a separate immutable decision record:
 
     infra/scripts/release-candidate.sh decide .dev/release/candidates/rc-<sha12>.json \
-      --evidence path/to/full-evidence.json \
+      --evidence .dev/ci-evidence/authoritative-<candidate-id>.json \
       --calver YYYY.MM.DD.N \
       --output .dev/release/decisions/<candidate-id>.decision.json
 
@@ -185,21 +194,11 @@ that the non-draft Release and tag exist, and verifies that the tag resolves
 to the approved commit before creating a write-once attestation. The schema is
 `infra/release/publication-attestation.schema.json`.
 
-Every CI invocation emits one metadata-only evidence record after the run. By
-default it is written under the ignored `.dev/ci-evidence/` directory and the
-path is printed as `ci_evidence_path=...`. For a release candidate, bind the
-run explicitly:
-
-```sh
-GRAF_CI_CANDIDATE_FILE=.dev/release/candidates/rc-<sha12>.json \\
-infra/scripts/ci-local.sh --full
-```
-
-Для candidate-bound Full CI путь evidence выбирается самим harness как
-`.dev/ci-evidence/authoritative-<candidate-id>.json` и создаётся один раз.
-Перезапуск с тем же candidate не может создать вторую authoritative-запись;
-сначала разберите исходный результат и создайте новый candidate после
-исправления причины.
+Download the successful GitHub artifact `graf-full-ci-<candidate-id>` and keep
+its authoritative record only at
+`.dev/ci-evidence/authoritative-<candidate-id>.json`. This is the sole path
+accepted by `train-attest`, `decide` and production execution. The artifact is
+create-once; never rename a local diagnostic receipt into this path.
 
 The producer records the requested/start/end SHA, run identity, timestamps,
 lane, commands, scope, skipped gates, component SHAs and artifact digests.
@@ -220,7 +219,8 @@ the execute step:
 ```sh
 infra/scripts/cd-remote.sh --dry-run --branch master
 infra/scripts/cd-remote.sh --execute --branch master \
-  --candidate .dev/release/decisions/<candidate-id>.decision.json
+  --candidate .dev/release/decisions/<candidate-id>.decision.json \
+  --evidence .dev/ci-evidence/authoritative-<candidate-id>.json
 ```
 
 The execute step synchronizes and pins the exact SHA, then re-checks the
@@ -244,14 +244,15 @@ After explicit production approval, run:
 ```sh
 infra/scripts/cd-remote.sh --execute --branch master \
   --candidate .dev/release/decisions/<candidate-id>.decision.json \
-  --evidence .dev/ci-evidence/<full-run-id>.json
+  --evidence .dev/ci-evidence/authoritative-<candidate-id>.json
 ```
 
 For a production execution, pass the immutable decision record:
 
 ```sh
 infra/scripts/cd-remote.sh --execute --branch master \
-  --candidate .dev/release/decisions/<candidate-id>.decision.json
+  --candidate .dev/release/decisions/<candidate-id>.decision.json \
+  --evidence .dev/ci-evidence/authoritative-<candidate-id>.json
 ```
 
 Для production `--execute` обязательно передаётся `--candidate
@@ -276,6 +277,12 @@ full-CI result, deploy result, health/smoke checks, and rollback status. Update
 the Russian changelog and create the matching CalVer tag and GitHub Release.
 Do not claim a release is complete when full CI, smoke, notarization, or
 rollback evidence is missing.
+
+Before closing a feature umbrella, run the live feature inventory mode of
+`scripts/validate-issue-closeout.py` with the feature label, umbrella number,
+`tasks.md`, exact candidate SHA and `--require-release-full`. Close task-backed issues first with both
+GitHub run URLs, close the umbrella last, then rerun without
+`--allow-open-umbrella`.
 
 ### Full CI decision rule
 
@@ -385,7 +392,7 @@ Use the exact production sequence:
 3. Obtain explicit user approval for production.
 4. Run `infra/scripts/cd-remote.sh --execute --branch <branch> \
    --candidate .dev/release/decisions/<candidate-id>.decision.json \
-   --evidence .dev/ci-evidence/<full-run-id>.json`. It verifies the immutable
+   --evidence .dev/ci-evidence/authoritative-<candidate-id>.json`. It verifies the immutable
    Full CI record on the pinned commit before remote backup, migration,
    deployment and smoke checks.
 
@@ -425,6 +432,10 @@ merge. The fragment must contain a category, Russian summary, Feature ID,
 issue/task links, compatibility impact and known limitations. The root file is
 updated only by the release operator, preserving one writer and conflict-free
 parallel work.
+
+The release operator bases the batch on the latest actually published GitHub
+Release. Prepared sections without a published non-draft, non-prerelease
+Release are still unreleased and are folded into the next CalVer section.
 
 Keep entries grouped by:
 

@@ -80,6 +80,216 @@ if git tag --list "v$next_version" | grep -q "v$next_version"; then
   exit 1
 fi
 
+published_tag=""
+published_version=""
+pending_versions=()
+origin_url="$(git config --get remote.origin.url 2>/dev/null || true)"
+if [[ "$origin_url" == *github.com* ]]; then
+  if ! release_json="$(gh release list --limit 100 --json tagName,isDraft,isPrerelease,publishedAt)"; then
+    echo "error: cannot resolve the latest published GitHub Release"
+    exit 1
+  fi
+  if ! published_tag="$(python3 - "$release_json" <<'PY'
+import json
+import sys
+
+try:
+    releases = json.loads(sys.argv[1])
+    published = [
+        item for item in releases
+        if isinstance(item, dict)
+        and not item.get("isDraft")
+        and not item.get("isPrerelease")
+        and item.get("publishedAt")
+        and item.get("tagName")
+    ]
+    print(max(published, key=lambda item: item["publishedAt"])["tagName"])
+except (ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
+    raise SystemExit(f"invalid GitHub Release inventory: {exc}")
+PY
+  )"; then
+    echo "error: cannot select the latest published GitHub Release"
+    exit 1
+  fi
+  if [[ ! "$published_tag" =~ ^v[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+$ ]]; then
+    echo "error: latest published GitHub Release has invalid product tag: $published_tag"
+    exit 1
+  fi
+  if ! release_view_json="$(gh release view "$published_tag" --json tagName,targetCommitish,isDraft,isPrerelease,publishedAt)"; then
+    echo "error: cannot verify published GitHub Release $published_tag"
+    exit 1
+  fi
+  if ! published_target="$(python3 - "$release_view_json" "$published_tag" <<'PY'
+import json
+import re
+import sys
+
+try:
+    release = json.loads(sys.argv[1])
+except json.JSONDecodeError as exc:
+    raise SystemExit(f"invalid GitHub Release metadata: {exc}")
+if (
+    not isinstance(release, dict)
+    or release.get("tagName") != sys.argv[2]
+    or release.get("isDraft")
+    or release.get("isPrerelease")
+    or not release.get("publishedAt")
+):
+    raise SystemExit("selected GitHub Release is not published stable metadata")
+target = str(release.get("targetCommitish", ""))
+if not re.fullmatch(r"[0-9a-fA-F]{40}", target):
+    raise SystemExit("published GitHub Release targetCommitish must be an exact 40-character SHA")
+print(target.lower())
+PY
+  )"; then
+    echo "error: cannot verify exact target of published GitHub Release $published_tag"
+    exit 1
+  fi
+  if ! git rev-parse --verify --quiet "${published_tag}^{commit}" >/dev/null; then
+    echo "error: published tag $published_tag is missing locally; fetch tags before release preparation"
+    exit 1
+  fi
+  if ! git merge-base --is-ancestor "$published_tag" HEAD; then
+    echo "error: published tag $published_tag is not an ancestor of current HEAD"
+    exit 1
+  fi
+  local_published_target="$(git rev-parse "${published_tag}^{commit}")"
+  if [[ "$local_published_target" != "$published_target" ]]; then
+    echo "error: local tag $published_tag does not match its published GitHub Release target"
+    exit 1
+  fi
+  published_version="${published_tag#v}"
+  if ! pending_state_json="$(python3 - "$PWD" "$changelog" "$published_version" <<'PY'
+import json
+import re
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+text = Path(sys.argv[2]).read_text(encoding="utf-8")
+published = sys.argv[3]
+heading_re = re.compile(r"^## \[(?P<version>[^]]+)\][^\n]*$", re.MULTILINE)
+headings = list(heading_re.finditer(text))
+published_index = next(
+    (index for index, match in enumerate(headings) if match.group("version") == published),
+    None,
+)
+if published_index is None:
+    raise SystemExit(f"published release {published} is missing from CHANGELOG.md")
+
+pending = [
+    match for match in headings[:published_index]
+    if re.fullmatch(r"\d{4}\.\d{2}\.\d{2}\.\d+", match.group("version"))
+]
+pending_versions = [match.group("version") for match in pending]
+published_key = tuple(map(int, published.split(".")))
+for directory in (root / "changes" / "releases").glob("v*"):
+    version = directory.name.removeprefix("v")
+    if re.fullmatch(r"\d{4}\.\d{2}\.\d{2}\.\d+", version):
+        if tuple(map(int, version.split("."))) > published_key and version not in pending_versions:
+            raise SystemExit(f"orphan unpublished fragment directory without changelog heading: {directory}")
+
+titles = ("Добавлено", "Изменено", "Исправлено", "Безопасность", "Документы", "Операции")
+groups = {title: [] for title in titles}
+entries = {}
+for match in pending:
+    version = match.group("version")
+    start = match.end()
+    next_heading = heading_re.search(text, start)
+    block = text[start : next_heading.start() if next_heading else len(text)]
+    lines = block.splitlines()
+    category = None
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        if line.startswith("### "):
+            heading = line[4:].strip()
+            category = heading if heading in groups else None
+            index += 1
+            continue
+        if not category or not line.lstrip().startswith("-"):
+            index += 1
+            continue
+        item = [line.strip()]
+        index += 1
+        while index < len(lines) and not lines[index].startswith("### ") and not lines[index].lstrip().startswith("-"):
+            if lines[index].strip():
+                item.append(lines[index].rstrip())
+            index += 1
+        value = "\n".join(item)
+        if "Пока нет записей" in value or "No entries yet" in value:
+            continue
+        feature = re.search(r"Фича\s+(\d+)", value)
+        if not feature:
+            raise SystemExit(
+                f"unpublished changelog section {version} has an entry without a Feature fragment"
+            )
+        feature_id = int(feature.group(1))
+        normalized = " ".join(value.split())
+        previous = entries.get(feature_id)
+        if previous and previous != normalized:
+            raise SystemExit(
+                f"conflicting unpublished changelog entries for Feature {feature_id}; consolidate them explicitly"
+            )
+        if not previous:
+            entries[feature_id] = normalized
+            groups[category].append(value)
+
+fragment_features = []
+for version in pending_versions:
+    fragment_dir = root / "changes" / "releases" / f"v{version}"
+    for path in sorted(fragment_dir.glob("F*.yaml")):
+        value = re.search(
+            r"^feature_id[ \t]*:[ \t]*(\d+)[ \t]*$",
+            path.read_text(encoding="utf-8"),
+            re.MULTILINE,
+        )
+        if not value:
+            raise SystemExit(f"invalid pending fragment: {path}")
+        fragment_features.append(int(value.group(1)))
+if set(entries) != set(fragment_features):
+    raise SystemExit(
+        "combined unpublished changelog sections do not match their archived fragments: "
+        f"changelog={sorted(entries)}, fragments={sorted(set(fragment_features))}"
+    )
+content = "\n\n".join(
+    f"### {title}\n" + "\n".join(groups[title])
+    for title in titles
+    if groups[title]
+)
+print(json.dumps({"versions": pending_versions, "content": content}, ensure_ascii=False))
+PY
+  )"; then
+    echo "error: cannot reconcile unpublished changelog sections"
+    exit 1
+  fi
+  pending_versions_text="$(python3 - "$pending_state_json" <<'PY'
+import json
+import sys
+print("\n".join(json.loads(sys.argv[1])["versions"]))
+PY
+  )"
+  pending_content="$(python3 - "$pending_state_json" <<'PY'
+import json
+import sys
+print(json.loads(sys.argv[1])["content"])
+PY
+  )"
+  while IFS= read -r version; do
+    [[ -n "$version" ]] && pending_versions+=("$version")
+  done <<< "$pending_versions_text"
+  echo "Release base: $published_tag (${#pending_versions[@]} unpublished section(s) will be folded)"
+fi
+
+pending_content="${pending_content:-}"
+
+shopt -s nullglob
+fragment_paths=("$PWD"/changes/unreleased/F*.yaml)
+for version in "${pending_versions[@]}"; do
+  fragment_paths+=("$PWD"/changes/releases/"v$version"/F*.yaml)
+done
+shopt -u nullglob
+
 if [[ -f "$PWD/scripts/validate-changelog-fragments.py" ]]; then
   python3 scripts/validate-changelog-fragments.py --root "$PWD"
 fi
@@ -97,7 +307,7 @@ PY
 
 # Feature agents own independent fragments. The release operator is the only
 # writer that assembles them into the root changelog.
-fragment_content="$(python3 - "$PWD" <<'PY'
+fragment_content="$(python3 - "$PWD" "${fragment_paths[@]}" <<'PY'
 import json
 import re
 import sys
@@ -113,7 +323,9 @@ titles = {
     "Ops": "Операции",
 }
 groups = {key: [] for key in titles}
-for path in sorted((root / "changes" / "unreleased").glob("F*.yaml")):
+seen_features = {}
+for path in sorted(Path(raw) for raw in sys.argv[2:]):
+    is_current = path.parent.name == "unreleased"
     text = path.read_text(encoding="utf-8")
 
     def scalar(raw):
@@ -175,6 +387,12 @@ for path in sorted((root / "changes" / "unreleased").glob("F*.yaml")):
     limitations = value("known_limitations")
     if category not in groups or not feature or not summary:
         raise SystemExit(f"invalid fragment fields: {path}")
+    if feature in seen_features:
+        raise SystemExit(
+            f"duplicate pending feature_id {feature}: {seen_features[feature]} and {path}; "
+            "merge the fragments before preparing the release"
+        )
+    seen_features[feature] = path
 
     def display(raw):
         if isinstance(raw, list):
@@ -198,13 +416,17 @@ for path in sorted((root / "changes" / "unreleased").glob("F*.yaml")):
     if limitations and limitations not in {"[]", "null"}:
         if limitations:
             entry += f"; ограничения: {limitations}"
-    groups[category].append(entry)
+    if is_current:
+        groups[category].append(entry)
 for category, title in titles.items():
     if groups[category]:
         print(f"### {title}")
         print("\n".join(groups[category]))
 PY
 )"
+if [[ -n "$pending_content" ]]; then
+  fragment_content="$pending_content"$'\n'"$fragment_content"
+fi
 if [[ -n "$fragment_content" ]]; then
   if [[ -n "$unreleased_content" ]]; then
     unreleased_content="$(python3 - "$unreleased_content" "$fragment_content" <<'PY'
@@ -252,7 +474,23 @@ head_part="$(awk '/^## \[Unreleased\]/{exit} {print}' "$changelog")"
 # Preserve every historical release heading.  The old implementation looked
 # for an optional template heading that is not present in the real changelog,
 # silently truncating release history on every preparation.
-history_part="$(awk '/^## \[20[0-9][0-9]\./{seen=1} seen{print}' "$changelog")"
+if [[ -n "$published_version" ]]; then
+  history_part="$(python3 - "$changelog" "$published_version" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+text = Path(sys.argv[1]).read_text(encoding="utf-8")
+version = re.escape(sys.argv[2])
+match = re.search(rf"^## \[{version}\][^\n]*$", text, re.MULTILINE)
+if not match:
+    raise SystemExit(f"published release {sys.argv[2]} is missing from CHANGELOG.md")
+print(text[match.start():].rstrip())
+PY
+  )"
+else
+  history_part="$(awk '/^## \[20[0-9][0-9]\./{seen=1} seen{print}' "$changelog")"
+fi
 
 tmp_file="$(mktemp)"
 trap 'rm -f "$tmp_file"' EXIT
@@ -287,12 +525,14 @@ EOF
 } > "$tmp_file"
 
 mv "$tmp_file" "$changelog"
-fragment_dir="$PWD/changes/unreleased"
 archive_dir="$PWD/changes/releases/v$next_version"
-if [[ -d "$fragment_dir" ]] && compgen -G "$fragment_dir/F*.yaml" > /dev/null; then
+if [[ "${#fragment_paths[@]}" -gt 0 ]]; then
   mkdir -p "$archive_dir"
-  for fragment in "$fragment_dir"/F*.yaml; do
+  for fragment in "${fragment_paths[@]}"; do
     mv "$fragment" "$archive_dir/"
+  done
+  for version in "${pending_versions[@]}"; do
+    rmdir "$PWD/changes/releases/v$version" 2>/dev/null || true
   done
   echo "Archived release fragments in $archive_dir"
 fi

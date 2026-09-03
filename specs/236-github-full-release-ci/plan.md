@@ -9,12 +9,14 @@
 identity, запускает полные backend/infrastructure и macOS проверки на подходящих
 runner-ах, а затем создаёт одну SHA-bound authoritative evidence запись. PR
 остаётся быстрым через `governance-fast`; локальный `ci-local.sh` сохраняется
-только как диагностика/offline fallback.
+только как диагностика/offline fallback. Release preparation берёт границу из
+последнего опубликованного GitHub Release, а существующий closeout-validator
+проверяет всю feature целиком.
 
 ## Technical Context
 
 - **Language/Version**: Bash, Python 3.13, Swift 6 / macOS 14
-- **Primary Dependencies**: GitHub Actions, existing `uv`/pytest/ruff,
+- **Primary Dependencies**: GitHub Actions, existing `gh`, `uv`/pytest/ruff,
   `scripts/emit-ci-evidence.py`, `scripts/validate-ci-evidence.py`
 - **Storage**: GitHub Actions artifacts; local ignored `.dev/ci-evidence/`
   and `.dev/release/` remain operator evidence stores
@@ -64,6 +66,10 @@ runner-ах, а затем создаёт одну SHA-bound authoritative evide
    digest with `scripts/validate-ci-evidence.py`.
 4. Download evidence locally, run `train-attest`/`decide`, then continue the
    existing CD dry-run and macOS signing/notarization gates.
+5. Exercise release preparation with unpublished changelog sections and run
+   feature-level closeout validation against GitHub issue metadata.
+6. Keep T017 open through Full CI, publication and production validation; close
+   Feature 236 task issues and umbrella only after its live proof passes.
 
 ## Project Structure
 
@@ -82,6 +88,8 @@ specs/236-github-full-release-ci/
 .github/workflows/release-full.yml
 apps/macos/Scripts/run-swift-tests.sh
 scripts/validate-full-ci-workflow.py
+scripts/validate-issue-closeout.py
+scripts/prepare-release.sh
 apps/server/tests/contract/test_ci_cd_contract.py
 infra/scripts/ci-local.sh
 docs/agent-guidance/release-and-validation.md
@@ -92,8 +100,9 @@ changes/unreleased/F236.yaml
 ```
 
 **Structure Decision**: keep the existing local harness and release scripts;
-add one workflow plus one small contract validator and documentation updates.
-Do not create a second CI implementation or a deployment workflow.
+extend the current release-preparation and issue-closeout validators instead of
+adding a second release or tracker implementation. Do not create a deployment
+workflow.
 
 ## Complexity Tracking
 

@@ -70,11 +70,37 @@
   execution sequential. This prevents WebKit content-process state from
   accumulating between tests without retries, quarantines, deprecated
   `WKProcessPool`, or a hand-maintained suite allowlist.
-- **Evidence boundary**: the failed GitHub run proves a signal-5 crash in the
-  shared XCTest process after several WebKit cases, but does not expose a
+- **Evidence boundary**: the failed GitHub run proves a fatal nil unwrap in
+  `CabinetSidebarRuntimeTests.testRailKeepsManualChoiceAcrossSameSessionNavigation`
+  with exit code 1 after several WebKit cases. It does not prove signal 5 or a
   supported internal WebKit root cause. Per-case process isolation removes the
   observed cross-test boundary; one post-merge GitHub Full CI run remains the
   required proof on the pinned Swift 6.0.3/macOS runner.
 - **Alternatives considered**: lifecycle changes and a shared process pool did
   not provide a process boundary; filtered suite invocations can return success
   with zero matching tests and still share one process within a suite.
+
+## Decision 6: Published GitHub Release is the only release-train base
+
+- **Decision**: select the latest non-draft, non-prerelease GitHub Release by
+  `publishedAt`, then include every commit and prepared changelog fragment after
+  its tag in the next candidate.
+- **Rationale**: a local tag or dated changelog heading can exist without a
+  published artifact. Treating either as released silently drops user-visible
+  work from the next release.
+- **Alternatives considered**: trusting the newest tag or changelog heading is
+  faster but cannot prove that users could actually obtain that release.
+
+## Decision 7: Reuse the issue closeout validator for whole-feature inventory
+
+- **Decision**: extend `scripts/validate-issue-closeout.py` with a feature mode
+  that reads all issues under one feature label and validates task ownership,
+  closed state, both GitHub checks and umbrella ordering. Live mode queries
+  GitHub to bind the PR number and PR SHA to a merged PR, `governance-fast` to
+  that PR SHA, and release-gated `release-full` to the separate candidate SHA.
+- **Rationale**: the existing per-issue validator already owns the closure
+  contract. A second closeout script would duplicate parsing and drift again.
+  Unchecked T017 owns the actual post-release closeout; earlier T013-T014
+  checkboxes prove only that the procedure was implemented.
+- **Alternatives considered**: a documentation-only `gh issue list` command
+  displays open issues but cannot fail closed on missing mappings or evidence.
