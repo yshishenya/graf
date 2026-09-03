@@ -5,6 +5,11 @@ import WebKit
 import XCTest
 
 @MainActor
+enum CabinetRuntimeWebKitTestSupport {
+    static let processPool = WKProcessPool()
+}
+
+@MainActor
 final class CabinetBillingRuntimeTests: XCTestCase {
     // WebKit may deliver callbacks after XCTest has released a test instance.
     // Keep the synthetic browser objects alive for the whole test process so
@@ -111,6 +116,7 @@ final class CabinetBillingRuntimeTests: XCTestCase {
             }
         }
         let configuration = WKWebViewConfiguration()
+        configuration.processPool = CabinetRuntimeWebKitTestSupport.processPool
         configuration.websiteDataStore = .nonPersistent()
         let webView = WKWebView(frame: frame, configuration: configuration)
         testWebViews.append(webView)

@@ -405,6 +405,7 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
             }
         }
         let configuration = WKWebViewConfiguration()
+        configuration.processPool = CabinetRuntimeWebKitTestSupport.processPool
         configuration.websiteDataStore = .nonPersistent()
         let webView = WKWebView(frame: frame, configuration: configuration)
         testWebViews.append(webView)
