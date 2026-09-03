@@ -40,7 +40,10 @@ final class CabinetBillingRuntimeTests: XCTestCase {
             let metrics = try await layoutMetrics(in: webView)
             XCTAssertLessThanOrEqual(try number("documentOverflow", in: metrics), 0.5)
             XCTAssertLessThanOrEqual(try number("primaryOverflow", in: metrics), 0.5)
-            XCTAssertGreaterThanOrEqual(try number("primaryMinHeight", in: metrics), 40)
+            XCTAssertGreaterThanOrEqual(
+                try number("primaryMinHeight", in: metrics) * webView.pageZoom,
+                40
+            )
         }
     }
 

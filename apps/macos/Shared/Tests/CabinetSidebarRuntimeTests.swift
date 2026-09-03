@@ -6,6 +6,8 @@ import XCTest
 
 @MainActor
 final class CabinetSidebarRuntimeTests: XCTestCase {
+    private var navigationDelegate: NavigationDelegate?
+
     func testRailUsesInitialBreakpointAndKeepsManualChoiceAfterWindowResize() async throws {
         let root = try repositoryRoot()
         let script = try String(
@@ -398,6 +400,7 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
 
     private func load(_ html: String, in webView: WKWebView, baseURL: URL? = nil) async throws {
         let delegate = NavigationDelegate()
+        navigationDelegate = delegate
         let loaded = expectation(description: "WKWebView loaded synthetic cabinet")
         delegate.didFinish = { loaded.fulfill() }
         webView.navigationDelegate = delegate
