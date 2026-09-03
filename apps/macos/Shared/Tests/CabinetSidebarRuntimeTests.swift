@@ -470,8 +470,10 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
 private final class NavigationDelegate: NSObject, WKNavigationDelegate {
     var didFinish: (() -> Void)?
 
-    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        didFinish?()
+    nonisolated func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        Task { @MainActor [weak self] in
+            self?.didFinish?()
+        }
     }
 }
 #endif
