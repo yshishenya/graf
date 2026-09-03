@@ -43,7 +43,7 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
                   return {
                     pinned: shell.classList.contains('is-rail-pinned'),
                     expanded: toggle.getAttribute('aria-expanded'),
-                    viewportWidth: document.documentElement.clientWidth
+                    viewportWidth: window.innerWidth
                   };
                 })()
                 """
@@ -196,7 +196,7 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
               const secondaryFocusable = document.activeElement === secondary;
 
               return {
-                viewportWidth: documentRoot.clientWidth,
+                viewportWidth: window.innerWidth,
                 documentOverflow: documentRoot.scrollWidth - documentRoot.clientWidth,
                 mainOverflow: main.scrollWidth - main.clientWidth,
                 contentOverflow: content.scrollWidth - content.clientWidth,
@@ -383,7 +383,7 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
             """
             (() => ({
               pinned: document.querySelector('[data-cabinet-shell]').classList.contains('is-rail-pinned'),
-              stored: sessionStorage.getItem('graf-cabinet-rail')
+              stored: sessionStorage.getItem('graf-cabinet-rail') ?? ''
             }))()
             """
         )
@@ -403,6 +403,16 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
         webView.navigationDelegate = delegate
         webView.loadHTMLString(html, baseURL: baseURL)
         await fulfillment(of: [loaded], timeout: 5)
+        for _ in 0..<50 {
+            let ready = try await webView.evaluateJavaScript(
+                "(() => { const shell = document.querySelector('[data-cabinet-shell]'); const navigation = shell?.querySelector('[data-cabinet-navigation]'); return document.readyState === 'complete' && (!navigation || shell?.dataset.railReady === 'true'); })()"
+            ) as? Bool ?? false
+            if ready { return }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        throw NSError(domain: "CabinetSidebarRuntimeTests", code: 1, userInfo: [
+            NSLocalizedDescriptionKey: "Cabinet rail did not finish initializing"
+        ])
     }
 
     private func accountLinkingHTML(css: String) -> String {
