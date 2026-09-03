@@ -6,7 +6,9 @@ import XCTest
 
 @MainActor
 final class CabinetSidebarRuntimeTests: XCTestCase {
-    private var navigationDelegate: NavigationDelegate?
+    // WKWebView keeps its navigation delegate weakly; retain every delegate
+    // while the test's WebViews can still deliver callbacks.
+    private var navigationDelegates: [NavigationDelegate] = []
 
     func testRailUsesInitialBreakpointAndKeepsManualChoiceAfterWindowResize() async throws {
         let root = try repositoryRoot()
@@ -132,13 +134,13 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
               <script>\(script)</script>
             </body></html>
             """
-        let origin = try XCTUnwrap(URL(string: "https://graf.test/meetings"))
+        let origin = try XCTUnwrap(URL(string: "https://graf.test"))
 
-        try await load(page, in: webView, baseURL: origin)
+        try await load(page, in: webView, baseURL: origin.appendingPathComponent("meetings"))
         _ = try await webView.evaluateJavaScript(
             "document.querySelector('[data-cabinet-rail-toggle]').click()"
         )
-        try await load(page, in: webView, baseURL: origin)
+        try await load(page, in: webView, baseURL: origin.appendingPathComponent("settings"))
         var state = try await railState(in: webView)
         XCTAssertEqual(state["pinned"] as? Bool, false)
         XCTAssertEqual(state["stored"] as? String, "collapsed")
@@ -146,7 +148,7 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
         _ = try await webView.evaluateJavaScript(
             "document.querySelector('[data-cabinet-rail-toggle]').click()"
         )
-        try await load(page, in: webView, baseURL: origin)
+        try await load(page, in: webView, baseURL: origin.appendingPathComponent("archive"))
         state = try await railState(in: webView)
         XCTAssertEqual(state["pinned"] as? Bool, true)
         XCTAssertEqual(state["stored"] as? String, "expanded")
@@ -154,7 +156,7 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
         _ = try await webView.evaluateJavaScript(
             "document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))"
         )
-        try await load(page, in: webView, baseURL: origin)
+        try await load(page, in: webView, baseURL: origin.appendingPathComponent("meetings"))
         state = try await railState(in: webView)
         XCTAssertEqual(state["pinned"] as? Bool, false)
         XCTAssertEqual(state["stored"] as? String, "collapsed")
@@ -400,7 +402,7 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
 
     private func load(_ html: String, in webView: WKWebView, baseURL: URL? = nil) async throws {
         let delegate = NavigationDelegate()
-        navigationDelegate = delegate
+        navigationDelegates.append(delegate)
         let loaded = expectation(description: "WKWebView loaded synthetic cabinet")
         delegate.didFinish = { loaded.fulfill() }
         webView.navigationDelegate = delegate
