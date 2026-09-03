@@ -9,11 +9,11 @@ final class CabinetBillingRuntimeTests: XCTestCase {
     // WebKit may deliver callbacks after XCTest has released a test instance.
     // Keep the synthetic browser objects alive for the whole test process so
     // one test's teardown cannot race the next test's WebKit startup.
-    nonisolated(unsafe) private var testWebViews: [WKWebView] = []
+    private var testWebViews: [WKWebView] = []
+    private var teardownRegistered = false
     private static var retainedNavigationDelegates: [BillingNavigationDelegate] = []
 
     func testBillingViewsReflowAcrossBrowserAndEmbeddedWidths() async throws {
-        defer { releaseTestWebViews() }
         let css = try String(
             contentsOf: repositoryRoot().appendingPathComponent(
                 "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css"
@@ -102,6 +102,12 @@ final class CabinetBillingRuntimeTests: XCTestCase {
     }
 
     private func makeWebView(frame: CGRect) -> WKWebView {
+        if !teardownRegistered {
+            teardownRegistered = true
+            addTeardownBlock { @MainActor [weak self] in
+                self?.releaseTestWebViews()
+            }
+        }
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         let webView = WKWebView(frame: frame, configuration: configuration)
