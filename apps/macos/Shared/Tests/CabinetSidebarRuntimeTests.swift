@@ -411,6 +411,10 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
         delegate.didFinish = { loaded.fulfill() }
         webView.navigationDelegate = delegate
         webView.loadHTMLString(html, baseURL: baseURL)
+        // XCTest expectations are owned by the test instance.  The delegate
+        // is retained for WebKit's late callbacks, so never retain this
+        // per-load callback beyond the load that owns its expectation.
+        defer { delegate.didFinish = nil }
         await fulfillment(of: [loaded], timeout: 5)
         for _ in 0..<50 {
             let ready = try await webView.evaluateJavaScript(
