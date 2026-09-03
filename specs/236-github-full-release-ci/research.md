@@ -58,3 +58,23 @@
   their real custody boundary.
 - **Alternatives considered**: exporting signing or deploy credentials to Actions
   would breach secret custody and cannot prove the real installed-app path.
+
+## Decision 5: XCTest cases use separate sequential processes
+
+- **Decision**: use one shared macOS test runner in GitHub Full CI and the
+  retained local fallback. It requires nonempty `swift test list` discovery,
+  clears SwiftPM's hidden test-skip override, then runs
+  `swift test --parallel --num-workers 1`.
+- **Rationale**: [SwiftPM 6.0.3's parallel runner](https://github.com/swiftlang/swift-package-manager/blob/swift-6.0.3-RELEASE/Sources/Commands/SwiftTestCommand.swift#L1094-L1137)
+  creates a new `TestRunner` and process for each XCTest case; one worker keeps
+  execution sequential. This prevents WebKit content-process state from
+  accumulating between tests without retries, quarantines, deprecated
+  `WKProcessPool`, or a hand-maintained suite allowlist.
+- **Evidence boundary**: the failed GitHub run proves a signal-5 crash in the
+  shared XCTest process after several WebKit cases, but does not expose a
+  supported internal WebKit root cause. Per-case process isolation removes the
+  observed cross-test boundary; one post-merge GitHub Full CI run remains the
+  required proof on the pinned Swift 6.0.3/macOS runner.
+- **Alternatives considered**: lifecycle changes and a shared process pool did
+  not provide a process boundary; filtered suite invocations can return success
+  with zero matching tests and still share one process within a suite.

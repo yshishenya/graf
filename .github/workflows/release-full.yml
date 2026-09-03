@@ -244,7 +244,7 @@ jobs:
             done < <(git ls-files '*.sh')
             sh apps/macos/Scripts/validate-no-legacy-audio-driver.sh
             swift build --package-path apps/macos
-            swift test --package-path apps/macos
+            bash apps/macos/Scripts/run-swift-tests.sh
             swift run --package-path apps/macos ContractValidation
           )
           component_status=$?
