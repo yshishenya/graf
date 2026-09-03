@@ -21,7 +21,7 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
             ),
             encoding: .utf8
         )
-        let webView = try makeWebView(frame: CGRect(x: 0, y: 0, width: 1200, height: 844))
+        let webView = makeWebView(frame: CGRect(x: 0, y: 0, width: 1200, height: 844))
         let origin = try XCTUnwrap(URL(string: "https://rail-breakpoint.graf.test/meetings"))
 
         try await load(
@@ -93,7 +93,7 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
         XCTAssertEqual(wideAgain["pinned"] as? Bool, false)
         XCTAssertEqual(wideAgain["expanded"] as? String, "false")
 
-        let compactWebView = try makeWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let compactWebView = makeWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         try await load(
             """
             <!doctype html>
@@ -124,7 +124,7 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
             ),
             encoding: .utf8
         )
-        let webView = try makeWebView(frame: CGRect(x: 0, y: 0, width: 1200, height: 844))
+        let webView = makeWebView(frame: CGRect(x: 0, y: 0, width: 1200, height: 844))
         let page = """
             <!doctype html>
             <html><body>
@@ -176,7 +176,7 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
             ),
             encoding: .utf8
         )
-        let webView = try makeWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let webView = makeWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
 
         try await load(accountLinkingHTML(css: css), in: webView)
 
@@ -262,7 +262,7 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
             ),
             encoding: .utf8
         )
-        let webView = try makeWebView(frame: CGRect(x: 0, y: 0, width: 720, height: 720))
+        let webView = makeWebView(frame: CGRect(x: 0, y: 0, width: 720, height: 720))
 
         try await load(
             """
@@ -323,7 +323,7 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
             ),
             encoding: .utf8
         )
-        let webView = try makeWebView(frame: CGRect(x: 0, y: 0, width: 1200, height: 720))
+        let webView = makeWebView(frame: CGRect(x: 0, y: 0, width: 1200, height: 720))
         let origin = try XCTUnwrap(URL(string: "https://profile-menu.graf.test/settings"))
 
         try await load(
@@ -397,7 +397,7 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
         return try XCTUnwrap(result as? [String: Any])
     }
 
-    private func makeWebView(frame: CGRect) throws -> WKWebView {
+    private func makeWebView(frame: CGRect) -> WKWebView {
         if !teardownRegistered {
             teardownRegistered = true
             addTeardownBlock { @MainActor [weak self] in
@@ -406,10 +406,7 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
         }
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
-        let webView = try XCTUnwrap(
-            WKWebView(frame: frame, configuration: configuration),
-            "WebKit не смог создать тестовый WKWebView"
-        )
+        let webView = WKWebView(frame: frame, configuration: configuration)
         testWebViews.append(webView)
         return webView
     }
