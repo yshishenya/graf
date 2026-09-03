@@ -115,6 +115,10 @@ final class CabinetBillingRuntimeTests: XCTestCase {
         delegate.didFinish = { loaded.fulfill() }
         webView.navigationDelegate = delegate
         webView.loadHTMLString(html, baseURL: nil)
+        // XCTest expectations are owned by the test instance.  The delegate
+        // is retained for WebKit's late callbacks, so never retain this
+        // per-test callback beyond the load that owns its expectation.
+        defer { delegate.didFinish = nil }
         await fulfillment(of: [loaded], timeout: 5)
     }
 
