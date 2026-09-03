@@ -6,9 +6,11 @@ import XCTest
 
 @MainActor
 final class CabinetSidebarRuntimeTests: XCTestCase {
-    // WKWebView keeps its navigation delegate weakly; retain every delegate
-    // while the test's WebViews can still deliver callbacks.
-    private var navigationDelegates: [NavigationDelegate] = []
+    // WebKit may deliver callbacks after XCTest has released a test instance.
+    // Keep the synthetic browser objects alive for the whole test process so
+    // one test's teardown cannot race the next test's WebKit startup.
+    private static var retainedWebViews: [WKWebView] = []
+    private static var retainedNavigationDelegates: [NavigationDelegate] = []
 
     func testRailUsesInitialBreakpointAndKeepsManualChoiceAfterWindowResize() async throws {
         let root = try repositoryRoot()
@@ -397,12 +399,14 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
     private func makeWebView(frame: CGRect) -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
-        return WKWebView(frame: frame, configuration: configuration)
+        let webView = WKWebView(frame: frame, configuration: configuration)
+        Self.retainedWebViews.append(webView)
+        return webView
     }
 
     private func load(_ html: String, in webView: WKWebView, baseURL: URL? = nil) async throws {
         let delegate = NavigationDelegate()
-        navigationDelegates.append(delegate)
+        Self.retainedNavigationDelegates.append(delegate)
         let loaded = expectation(description: "WKWebView loaded synthetic cabinet")
         delegate.didFinish = { loaded.fulfill() }
         webView.navigationDelegate = delegate
