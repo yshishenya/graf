@@ -143,7 +143,7 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
         _ = try await webView.evaluateJavaScript(
             "document.querySelector('[data-cabinet-rail-toggle]').click()"
         )
-        try await load(page, in: webView, baseURL: origin.appendingPathComponent("settings"))
+        try await navigate(page, to: origin.appendingPathComponent("settings"), in: webView)
         var state = try await railState(in: webView)
         XCTAssertEqual(state["pinned"] as? Bool, false)
         XCTAssertEqual(state["stored"] as? String, "collapsed")
@@ -151,7 +151,7 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
         _ = try await webView.evaluateJavaScript(
             "document.querySelector('[data-cabinet-rail-toggle]').click()"
         )
-        try await load(page, in: webView, baseURL: origin.appendingPathComponent("archive"))
+        try await navigate(page, to: origin.appendingPathComponent("archive"), in: webView)
         state = try await railState(in: webView)
         XCTAssertEqual(state["pinned"] as? Bool, true)
         XCTAssertEqual(state["stored"] as? String, "expanded")
@@ -159,7 +159,7 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
         _ = try await webView.evaluateJavaScript(
             "document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))"
         )
-        try await load(page, in: webView, baseURL: origin.appendingPathComponent("meetings"))
+        try await navigate(page, to: origin.appendingPathComponent("meetings"), in: webView)
         state = try await railState(in: webView)
         XCTAssertEqual(state["pinned"] as? Bool, false)
         XCTAssertEqual(state["stored"] as? String, "collapsed")
@@ -431,6 +431,38 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
         // per-load callback beyond the load that owns its expectation.
         defer { delegate.didFinish = nil }
         await fulfillment(of: [loaded], timeout: 5)
+        try await waitUntilReady(in: webView)
+    }
+
+    private func navigate(_ html: String, to url: URL, in webView: WKWebView) async throws {
+        let htmlJSON = try XCTUnwrap(
+            String(
+                data: try JSONSerialization.data(withJSONObject: [html]),
+                encoding: .utf8
+            )
+        )
+        let urlJSON = try XCTUnwrap(
+            String(
+                data: try JSONSerialization.data(withJSONObject: [url.absoluteString]),
+                encoding: .utf8
+            )
+        )
+        _ = try await webView.evaluateJavaScript(
+            """
+            (() => {
+              const destination = \(urlJSON)[0];
+              const documentHTML = \(htmlJSON)[0];
+              history.replaceState({}, "", destination);
+              document.open();
+              document.write(documentHTML);
+              document.close();
+            })()
+            """
+        )
+        try await waitUntilReady(in: webView)
+    }
+
+    private func waitUntilReady(in webView: WKWebView) async throws {
         for _ in 0..<50 {
             let ready = try await webView.evaluateJavaScript(
                 "(() => { const shell = document.querySelector('[data-cabinet-shell]'); const navigation = shell?.querySelector('[data-cabinet-navigation]'); return document.readyState === 'complete' && (!navigation || shell?.dataset.railReady === 'true'); })()"
