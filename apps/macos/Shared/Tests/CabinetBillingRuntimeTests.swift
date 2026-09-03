@@ -25,7 +25,7 @@ final class CabinetBillingRuntimeTests: XCTestCase {
             (731, 680), (987, 680), (971, 760), (1227, 760), (1131, 900), (1387, 900),
         ]
 
-        let webView = try makeWebView(frame: .zero)
+        let webView = makeWebView(frame: .zero)
         for size in sizes {
             webView.frame = CGRect(x: 0, y: 0, width: size.width, height: size.height)
             try await load(html(css: css), in: webView)
@@ -103,7 +103,7 @@ final class CabinetBillingRuntimeTests: XCTestCase {
         """
     }
 
-    private func makeWebView(frame: CGRect) throws -> WKWebView {
+    private func makeWebView(frame: CGRect) -> WKWebView {
         if !teardownRegistered {
             teardownRegistered = true
             addTeardownBlock { @MainActor [weak self] in
@@ -112,10 +112,7 @@ final class CabinetBillingRuntimeTests: XCTestCase {
         }
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
-        let webView = try XCTUnwrap(
-            WKWebView(frame: frame, configuration: configuration),
-            "WebKit не смог создать тестовый WKWebView"
-        )
+        let webView = WKWebView(frame: frame, configuration: configuration)
         testWebViews.append(webView)
         return webView
     }
