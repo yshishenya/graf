@@ -158,18 +158,22 @@ jobs:
           if not isinstance(body, str) or not body.strip():
               raise SystemExit("pull_request.body is required for metadata validation")
           diff = subprocess.run(
-              ["git", "diff", "--name-only", f"{base_sha}...{expected_sha}", "--", "specs"],
+              ["git", "diff", "--name-only", f"{base_sha}...{expected_sha}"],
               check=False,
               capture_output=True,
               text=True,
           )
           if diff.returncode != 0:
-              raise SystemExit(f"cannot determine changed feature specs: {diff.stderr.strip()}")
+              raise SystemExit(f"cannot determine changed feature files: {diff.stderr.strip()}")
+          patterns = (
+              re.compile(r"^specs/(\d{3,})-[^/]+/"),
+              re.compile(r"^changes/(?:unreleased|releases/v[^/]+)/F(\d{3,})\.yaml$"),
+          )
           feature_ids = sorted({
               match.group(1)
               for path in diff.stdout.splitlines()
-              for match in [re.match(r"^specs/(\d{3,})-[^/]+/", path)]
-              if match is not None
+              for pattern in patterns
+              if (match := pattern.match(path)) is not None
           })
           body_path.write_text(body, encoding="utf-8")
           feature_id_path.write_text(",".join(feature_ids) if feature_ids else "scoped", encoding="ascii")
