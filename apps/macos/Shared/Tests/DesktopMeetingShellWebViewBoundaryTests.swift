@@ -347,6 +347,11 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
         XCTAssertTrue(cabinetSource.contains("data-meeting-open"))
         XCTAssertTrue(cabinetSource.contains("data-icon=\"audio\""))
         XCTAssertTrue(cabinetSource.contains("item.showsPartialDuration"))
+        XCTAssertTrue(cabinetSource.contains("localRecordingDisplayTitle"))
+        XCTAssertTrue(cabinetSource.contains("SHORT_MEETING_MONTH_LABELS"))
+        XCTAssertTrue(cabinetSource.contains("time.textContent = formatMeetingListDate(item.startedAt)"))
+        XCTAssertTrue(cabinetSource.contains("data-icon=\"trash\""))
+        XCTAssertFalse(cabinetSource.contains("remove.textContent = \"Удалить\""))
         XCTAssertFalse(cabinetSource.contains("serverRow.dataset.grafLocalRecordingId"))
         XCTAssertTrue(shellSource.contains("DesktopUploadCustodySummary.summaries(for: uploadQueueItems)"))
     }

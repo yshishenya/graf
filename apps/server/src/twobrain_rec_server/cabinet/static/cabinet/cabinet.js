@@ -135,6 +135,22 @@
 
   const currentList = () => document.querySelector("[data-meeting-list]");
   const allRows = () => Array.from(currentList()?.querySelectorAll("[data-meeting-row]") || []);
+  const SHORT_MEETING_MONTH_LABELS = ["", "янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
+  const GENERATED_CAPTURE_TITLE_RE = /^(?:current(?: display)? system audio|system audio|yandex telemost|zoom(?:\.us)?|meeting)\s*[-—]\s*\d{4}-\d{2}-\d{2}(?:[ T]\d{1,2}:\d{2})?$/i;
+  const GENERATED_CAPTURE_TITLE_SUFFIX_RE = /\s*[-—]\s*\d{4}-\d{2}-\d{2}(?:[ T]\d{1,2}:\d{2})?$/;
+  const formatMeetingListDate = (value) => {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "На этом Mac";
+    const pad = (part) => String(part).padStart(2, "0");
+    return `${date.getDate()} ${SHORT_MEETING_MONTH_LABELS[date.getMonth() + 1]}, ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  };
+  const localRecordingDisplayTitle = (item) => {
+    const rawTitle = (item.title || "").trim();
+    if (!GENERATED_CAPTURE_TITLE_RE.test(rawTitle)) return rawTitle || "Запись";
+    const sourceTitle = rawTitle.replace(GENERATED_CAPTURE_TITLE_SUFFIX_RE, "").trim();
+    const date = formatMeetingListDate(item.startedAt);
+    return date === "На этом Mac" ? rawTitle : `${sourceTitle} — ${date}`;
+  };
   let localRecordingRows = [];
   const renderLocalRecordingRows = () => {
     const host = currentList();
@@ -162,7 +178,6 @@
       host.append(list);
     }
     if (emptyState) emptyState.hidden = true;
-    const date = new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
     localOnly.slice().reverse().forEach((item) => {
       const row = document.createElement("li");
       row.className = "meeting-row cabinet-row is-local-recording";
@@ -184,13 +199,14 @@
       heading.className = "meeting-heading";
       const title = document.createElement(item.canOpen ? "button" : "strong");
       title.className = `meeting-title row-title${item.canOpen ? " local-recording-open" : ""}`;
-      title.textContent = item.title || "Запись";
+      const displayTitle = localRecordingDisplayTitle(item);
+      title.textContent = displayTitle;
       if (item.canOpen) {
         title.type = "button";
         title.dataset.meetingOpen = "";
         title.dataset.grafLocalRecordingAction = "open";
         title.dataset.grafLocalRecordingId = item.id;
-        title.setAttribute("aria-label", `Открыть локальную запись ${item.title || "Запись"}`);
+        title.setAttribute("aria-label", `Открыть локальную запись ${displayTitle}`);
       }
       const duration = document.createElement("span");
       duration.className = "meeting-duration muted";
@@ -222,16 +238,15 @@
         const remove = document.createElement("button");
         remove.className = "row-delete icon-button";
         remove.type = "button";
-        remove.textContent = "Удалить";
-        remove.setAttribute("aria-label", `Удалить локальную запись ${item.title || "Запись"}`);
+        remove.innerHTML = '<svg class="ui-icon" data-icon="trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>';
+        remove.setAttribute("aria-label", `Удалить локальную запись ${displayTitle}`);
         remove.dataset.grafLocalRecordingAction = "delete";
         remove.dataset.grafLocalRecordingId = item.id;
         actions.append(remove);
       }
       const time = document.createElement("span");
       time.className = "meeting-date";
-      const startedAt = new Date(item.startedAt);
-      time.textContent = Number.isNaN(startedAt.getTime()) ? "На этом Mac" : date.format(startedAt);
+      time.textContent = formatMeetingListDate(item.startedAt);
       row.append(selection, icon, content, actions, time);
       list.prepend(row);
     });
