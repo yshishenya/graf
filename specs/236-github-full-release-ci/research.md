@@ -115,6 +115,23 @@
   deleting or moving tests to Node loses the system `WKWebView` boundary; retry,
   sleep, skip and quarantine hide the defect.
 
+## Decision 10: Use SwiftPM's declared resource bundle for the fixture
+
+- **Decision**: resolve the microphone manifest fixture through `Bundle.module`
+  and remove the source-tree parent-directory walk.
+- **Rationale**: exact-SHA probe run `33844470386` reached
+  `before_fixture_lookup` and then stalled. Its `/usr/bin/sample` stack stayed
+  inside `contractFixtureURL`, `UnfoldSequence.next` and Foundation URL path
+  construction while XCTest grew to 8 GB. The test target already declares
+  `.copy("Fixtures")`, so SwiftPM provides the native resource accessor.
+- **Evidence boundary**: the probe proves the root cause, not the repair. The
+  focused test, exact-SHA `governance-fast` and post-merge `macos-diagnostic`
+  must pass before T024 closes; one later complete `release-full` remains the
+  release evidence.
+- **Alternatives considered**: a maximum parent depth would keep a duplicate
+  source-layout dependency; retry, timeout growth and splitting XCTest would
+  only hide the infinite lookup.
+
 ## Decision 6: Published GitHub Release is the only release-train base
 
 - **Decision**: select the latest non-draft, non-prerelease GitHub Release by

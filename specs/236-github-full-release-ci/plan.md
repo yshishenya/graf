@@ -78,6 +78,9 @@ runner-ах, а затем создаёт одну SHA-bound authoritative evide
    macOS scanner, and trust `plutil` output only after a successful exit status.
    Use the non-authoritative macOS-only workflow during diagnosis, then prove
    the complete pinned release lane with T017 after freeze.
+8. Read declared test resources through SwiftPM `Bundle.module`; do not walk
+   parent directories from `#filePath`. Prove the exact failing fixture test on
+   pinned macOS 14 / Swift 6.0.3 before the full diagnostic run.
 
 ## Project Structure
 
