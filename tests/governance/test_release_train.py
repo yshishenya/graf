@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -168,9 +169,14 @@ def test_train_validate_current_rejects_ignored_train_metadata_drift(tmp_path: P
     assert "metadata drift detected" in result.stderr
 
 
-def test_train_attest_binds_authoritative_full_ci_to_candidate(tmp_path: Path) -> None:
+def test_train_attest_binds_authoritative_full_ci_to_candidate(tmp_path: Path, monkeypatch) -> None:
     root = _fixture(tmp_path)
     source = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+    subprocess.run(
+        ["git", "remote", "add", "origin", "https://github.com/example/project.git"],
+        cwd=root,
+        check=True,
+    )
     train = root / ".dev/release/trains/train.json"
     assert _run(root, *_freeze_args(source, train)).returncode == 0
     candidate = root / ".dev/release/candidates/candidate.json"
@@ -191,10 +197,32 @@ def test_train_attest_binds_authoritative_full_ci_to_candidate(tmp_path: Path) -
     assert frozen.returncode == 0, frozen.stderr
     candidate_data = json.loads(candidate.read_text(encoding="utf-8"))
     assert candidate_data["train_id"].startswith("train-")
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_gh = fake_bin / "gh"
+    fake_gh.write_text(
+        """#!/bin/sh
+[ "$1" = api ] || exit 1
+case "$2" in
+  repos/example/project/actions/runs/123)
+    printf '%s\\n' '{"name":"release-full","event":"workflow_dispatch","status":"completed","conclusion":"success","head_sha":"'"$TEST_GITHUB_SHA"'","path":".github/workflows/release-full.yml"}'
+    ;;
+  'repos/example/project/actions/runs/123/artifacts?per_page=100')
+    printf '%s\\n' '{"artifacts":[{"name":"graf-full-ci-'"$TEST_GITHUB_CANDIDATE"'","expired":false,"workflow_run":{"id":123}}]}'
+    ;;
+  *) exit 1 ;;
+esac
+""",
+        encoding="utf-8",
+    )
+    fake_gh.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{fake_bin}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv("TEST_GITHUB_SHA", source)
+    monkeypatch.setenv("TEST_GITHUB_CANDIDATE", candidate_data["candidate_id"])
     evidence = root / ".dev/ci-evidence/evidence.json"
     evidence.parent.mkdir(parents=True)
     evidence.write_text(json.dumps({
-        "run_id": "full-train-1",
+        "run_id": "github-full-123",
         "lane": "full",
         "requested_sha": source,
         "observed_sha_start": source,
@@ -202,7 +230,7 @@ def test_train_attest_binds_authoritative_full_ci_to_candidate(tmp_path: Path) -
         "status": "passed",
         "started_at": "2026-08-31T00:00:00Z",
         "finished_at": "2026-08-31T00:01:00Z",
-        "commands": ["infra/scripts/ci-local.sh --full"],
+        "commands": ["GitHub Actions release-full: Ubuntu server/infrastructure + macOS Swift"],
         "artifact_digests": {"full-log": "sha256:" + "a" * 64},
         "skipped_gates": [],
         "scope": "release train",
