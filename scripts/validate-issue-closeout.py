@@ -347,6 +347,25 @@ def _github_pr(repo: str, number: str) -> dict[str, object]:
     return value
 
 
+def _github_commit_pull_requests(repo: str, sha: str) -> list[int]:
+    result = subprocess.run(
+        ["gh", "api", f"repos/{repo}/commits/{sha}/pulls"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or f"GitHub commit {sha} PR lookup failed")
+    value = json.loads(result.stdout)
+    if not isinstance(value, list):
+        raise ValueError(f"GitHub commit {sha} pull requests must be an array")
+    return [
+        int(item["number"])
+        for item in value
+        if isinstance(item, dict) and isinstance(item.get("number"), int)
+    ]
+
+
 def verify_feature_runs(
     repo: str,
     issues: list[dict[str, object]],
@@ -357,6 +376,7 @@ def verify_feature_runs(
     errors: list[str] = []
     cache: dict[str, dict[str, object]] = {}
     pr_cache: dict[str, dict[str, object]] = {}
+    commit_pr_cache: dict[str, list[int]] = {}
 
     def verify(
         *, issue_number: int, match: re.Match[str], workflow: str, expected_run_sha: str,
@@ -381,10 +401,19 @@ def verify_feature_runs(
             errors.append(f"issue #{issue_number} GitHub run {run_id} is not a {expected_event} run")
         if run.get("workflowPath") != expected_path:
             errors.append(f"issue #{issue_number} GitHub run {run_id} is not workflow path {expected_path}")
-        if expected_pr_number is not None and expected_pr_number not in run.get("pullRequestNumbers", []):
-            errors.append(
-                f"issue #{issue_number} GitHub run {run_id} is not bound to PR #{expected_pr_number}"
-            )
+        run_pr_numbers = run.get("pullRequestNumbers", [])
+        if expected_pr_number is not None:
+            if not run_pr_numbers:
+                try:
+                    if expected_run_sha not in commit_pr_cache:
+                        commit_pr_cache[expected_run_sha] = _github_commit_pull_requests(repo, expected_run_sha)
+                    run_pr_numbers = commit_pr_cache[expected_run_sha]
+                except (RuntimeError, ValueError, json.JSONDecodeError) as exc:
+                    errors.append(f"issue #{issue_number} cannot verify PRs for GitHub run {run_id}: {exc}")
+            if run_pr_numbers != [expected_pr_number]:
+                errors.append(
+                    f"issue #{issue_number} GitHub run {run_id} is not uniquely bound to PR #{expected_pr_number}"
+                )
         if str(run.get("headSha", "")).lower() != expected_run_sha.lower():
             errors.append(f"issue #{issue_number} GitHub run {run_id} SHA does not match {workflow} evidence")
 

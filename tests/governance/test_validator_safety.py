@@ -688,6 +688,8 @@ def test_feature_closeout_verifies_github_workflow_conclusion_and_head_sha(monke
         },
     }
     monkeypatch.setattr(validator, "_github_run", lambda _repo, run_id: runs[run_id])
+    commit_prs = [6383]
+    monkeypatch.setattr(validator, "_github_commit_pull_requests", lambda _repo, _sha: commit_prs)
     pr = {
         "state": "MERGED",
         "mergedAt": "2026-09-04T09:00:00Z",
@@ -701,6 +703,26 @@ def test_feature_closeout_verifies_github_workflow_conclusion_and_head_sha(monke
         "a" * 40,
         require_release_full=True,
     ) == []
+
+    # GitHub may clear the run's pull_requests array after a rebase merge.
+    # The merged PR head SHA and the pull_request run head SHA still bind it.
+    runs["123"] = {**runs["123"], "pullRequestNumbers": []}
+    assert validator.verify_feature_runs(
+        "yshishenya/graf",
+        [issue],
+        "a" * 40,
+        require_release_full=True,
+    ) == []
+
+    commit_prs.append(9999)
+    errors = validator.verify_feature_runs(
+        "yshishenya/graf",
+        [issue],
+        "a" * 40,
+        require_release_full=True,
+    )
+    assert any("is not uniquely bound to PR #6383" in error for error in errors)
+    commit_prs.pop()
 
     runs["456"] = {**runs["456"], "headSha": "b" * 40}
     errors = validator.verify_feature_runs(
@@ -728,7 +750,7 @@ def test_feature_closeout_verifies_github_workflow_conclusion_and_head_sha(monke
         "a" * 40,
         require_release_full=True,
     )
-    assert any("is not bound to PR #6383" in error for error in errors)
+    assert any("is not uniquely bound to PR #6383" in error for error in errors)
 
     pr["body"] = "Refs #9999"
     errors = validator.verify_feature_runs(
