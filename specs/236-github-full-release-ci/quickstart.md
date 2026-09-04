@@ -62,7 +62,7 @@ skipped gates and every component SHA equal to the frozen candidate SHA.
   `governance-fast`; use the published candidate SHA and its `release-full` as
   the separate release evidence.
 - Validate every task-backed child issue (#6416–#6429, #6466–#6468, #6471,
-  #6473, #6475, #6478–#6479 and #6483) with
+  #6473, #6475, #6478–#6479, #6483 and #6487) with
   `python3 scripts/validate-issue-closeout.py --issue-json <issue.json>
   --tasks specs/236-github-full-release-ci/tasks.md --expected-sha
   <candidate-SHA> --require-release-full`; each comment must include the Russian closeout sections,

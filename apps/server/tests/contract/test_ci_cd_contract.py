@@ -601,6 +601,13 @@ def test_github_full_workflow_is_manual_exact_sha_and_metadata_only() -> None:
     assert "candidate_already_reserved" in workflow
     assert "graf-full-lock-${{ steps.identity.outputs.artifact_key }}" in workflow
     assert "graf-full-ci-${{ needs.reserve.outputs.artifact_key }}" in workflow
+    assert 'result_path="$RUNNER_TEMP/server-result.json"' in workflow
+    assert 'path: ${{ runner.temp }}/server-result.json' in workflow
+    assert 'result_path="$RUNNER_TEMP/macos-result.json"' in workflow
+    assert 'path: ${{ runner.temp }}/macos-result.json' in workflow
+    assert 'expected = {"server-result.json": "server", "macos-result.json": "macos_app"}' in workflow
+    assert '--artifact "server-result=$component_dir/server-result.json"' in workflow
+    assert '--artifact "macos-result=$component_dir/macos-result.json"' in workflow
     assert "timeout-minutes: 10" in workflow
     assert "timeout-minutes: 60" in workflow
     assert "timeout-minutes: 45" in workflow

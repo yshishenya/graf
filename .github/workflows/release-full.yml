@@ -148,7 +148,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          result_path="$RUNNER_TEMP/graf-server-result.json"
+          result_path="$RUNNER_TEMP/server-result.json"
           started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           (
             set -euo pipefail
@@ -203,7 +203,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: graf-full-component-server-${{ needs.reserve.outputs.artifact_key }}-${{ github.run_id }}
-          path: ${{ runner.temp }}/graf-server-result.json
+          path: ${{ runner.temp }}/server-result.json
           if-no-files-found: error
           retention-days: 90
 
@@ -232,7 +232,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          result_path="$RUNNER_TEMP/graf-macos-result.json"
+          result_path="$RUNNER_TEMP/macos-result.json"
           started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           (
             set -euo pipefail
@@ -277,7 +277,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: graf-full-component-macos-${{ needs.reserve.outputs.artifact_key }}-${{ github.run_id }}
-          path: ${{ runner.temp }}/graf-macos-result.json
+          path: ${{ runner.temp }}/macos-result.json
           if-no-files-found: error
           retention-days: 90
 
