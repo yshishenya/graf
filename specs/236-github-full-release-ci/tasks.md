@@ -77,10 +77,10 @@ closure then uses that merged task state without changing the release tag.
 ## Phase 9: macOS diagnostic convergence
 
 - [ ] T022 [US1] Route every JavaScript evaluation in
-  `apps/macos/Shared/Tests/CabinetSidebarRuntimeTests.swift` through the native
-  WebKit page-world async overload that returns `Any?`, preserving the existing
-  behavioral coverage without retry, sleep, skip or quarantine per FR-013
-  (Issue #6478; partial).
+  `apps/macos/Shared/Tests/CabinetSidebarRuntimeTests.swift` through one WebKit
+  completion-handler bridge that preserves page-world `nil` results and errors,
+  keeping the existing behavioral coverage without retry, sleep, skip or
+  quarantine per FR-013 (Issue #6478; partial).
 - [ ] T023 [US2] Add a read-only, exact-SHA, manually dispatched macOS-only
   diagnostic workflow under `.github/workflows/` and document that it cannot
   emit authoritative release evidence, so iterative macOS diagnosis does not

@@ -93,18 +93,20 @@
   failures; installing `rg` adds network and toolchain drift; special-casing
   individual plist fields duplicates the bug outside the common helper.
 
-## Decision 9: Use WebKit's optional-returning page-world async overload
+## Decision 9: Bridge WebKit's page-world completion handler into async tests
 
 - **Decision**: every JavaScript evaluation in `CabinetSidebarRuntimeTests`
-  uses `evaluateJavaScript(_:in:contentWorld:)` with `in: nil` and
-  `contentWorld: .page`.
+  uses the completion-handler `evaluateJavaScript(_:completionHandler:)`
+  behind one async test helper.
 - **Rationale**: side-effect JavaScript such as `HTMLElement.click()` correctly
-  returns `undefined`. The older one-argument Swift async overlay treated the
-  corresponding Objective-C `nil` as non-optional `Any` and trapped at `:0`.
-  WebKit's page-world overload returns `Any?`, so `undefined` remains a valid
-  result while value-returning assertions keep their existing behavior.
+  returns `undefined`. The macOS 14 SDK Swift async overlay treats the
+  corresponding Objective-C `nil` as non-optional `Any` and traps at `:0`,
+  including the explicit page-world async overload. The callback API is
+  equivalent to main-frame page-world evaluation and preserves both `nil` and
+  JavaScript errors; value-returning assertions keep their existing behavior.
   Separate-process run `33836195145` and sequential-process run `33838426331`
-  reproduced the same signal 5, disproving the lifetime hypothesis.
+  disproved the lifetime hypothesis; diagnostic run `33841429909` disproved
+  the optional-returning async-overload hypothesis.
 - **Evidence boundary**: focused local tests check compilation and behavior;
   the manual macOS-only workflow checks pinned macOS 14 / Swift 6.0.3 without
   rerunning server-full. It is diagnostic only. One later complete

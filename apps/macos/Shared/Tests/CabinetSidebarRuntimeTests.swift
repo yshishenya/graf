@@ -12,6 +12,20 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
     private static var retainedWebViews: [WKWebView] = []
     private static var retainedNavigationDelegates: [NavigationDelegate] = []
 
+    func testJavaScriptBridgePreservesNilValuesAndErrors() async throws {
+        let webView = makeWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        try await load("<!doctype html><html><body></body></html>", in: webView)
+
+        let nilResult = try await evaluatePageJavaScript("void 0", in: webView)
+        let valueResult = try await evaluatePageJavaScript("42", in: webView)
+        XCTAssertNil(nilResult)
+        XCTAssertEqual(valueResult as? Int, 42)
+        do {
+            _ = try await evaluatePageJavaScript("throw new Error('expected')", in: webView)
+            XCTFail("JavaScript errors must remain test failures")
+        } catch {}
+    }
+
     func testRailUsesInitialBreakpointAndKeepsManualChoiceAfterWindowResize() async throws {
         let root = try repositoryRoot()
         let script = try String(
@@ -521,7 +535,19 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
     }
 
     private func evaluatePageJavaScript(_ script: String, in webView: WKWebView) async throws -> Any? {
-        try await webView.evaluateJavaScript(script, in: nil, contentWorld: .page)
+        // The macOS 14 SDK async overlay traps when JavaScript returns undefined
+        // (WebKit 282918). The callback API preserves that valid nil result.
+        var result: Any?
+        var evaluationError: Error?
+        await withCheckedContinuation { continuation in
+            webView.evaluateJavaScript(script) { value, error in
+                evaluationError = error
+                result = value
+                continuation.resume()
+            }
+        }
+        if let evaluationError { throw evaluationError }
+        return result
     }
 
     private func number(_ key: String, in values: [String: Any]) throws -> Double {
