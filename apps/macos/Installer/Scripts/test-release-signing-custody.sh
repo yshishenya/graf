@@ -555,7 +555,7 @@ if [ -n "$workflow_files" ] &&
   fail "remote workflow files remain in the active repository"
 fi
 
-if rg -n -I -e \
+if /usr/bin/grep -ERnI -e \
   '(BEGIN (EC|RSA|OPENSSH) PRIVATE KEY|private[_-]?key[[:space:]]*=[[:space:]]*[A-Za-z0-9+/]{40,}|ed25519:[[:space:]]*[A-Za-z0-9+/]{40,})' \
   "$REPO_ROOT/apps/macos/Installer" \
   "$REPO_ROOT/apps/macos/Scripts" \

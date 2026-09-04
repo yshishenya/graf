@@ -58,12 +58,16 @@ small and metadata-only; the aggregation job is the sole authoritative writer.
   sources that map to the same target archive path before changing
   `CHANGELOG.md` or moving files, with a fail-closed regression in
   `tests/governance/test_prepare_release.py` per FR-011 (Issue #6475).
+- [X] T021 [US1] Run WebKit tests in one sequential XCTest process and replace
+  the undeclared `rg` dependency in signing-custody source scan with native
+  `/usr/bin/grep`, then prove both focused regressions and the CI contract per
+  FR-013 (Issue #6476).
 
 ## Phase 8: Post-release closeout
 
 - [ ] T017 [US3] After the new exact-SHA candidate proves SC-008 in authoritative GitHub `release-full` and the release/deploy gates complete, land a post-release closeout-only PR that marks T017 complete without changing the published candidate; this makes #6468 eligible for the child/umbrella closure procedure in `quickstart.md` per FR-012 (Issue #6468; missing).
 
-Dependency: T018 → T019 → T020 → T017.
+Dependency: T018 → T019 → T020 → T021 → T017.
 
 Closeout correction: the `[X]` state of T013-T014 records their implemented
 procedure and pre-merge reconciliation only. T017 stays unchecked in the
