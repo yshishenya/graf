@@ -34,6 +34,7 @@ import pathlib
 import re
 import subprocess
 import sys
+import tempfile
 
 # Metadata-only release operations must never materialize bytecode in the
 # source tree: the cleanliness gate treats generated files as source drift.
@@ -333,7 +334,7 @@ def github_origin_repo():
         die("origin must be a GitHub repository")
     return match.group(1), match.group(2)
 
-def verify_github_full_run(evidence, expected_sha, expected_candidate_id):
+def verify_github_full_run(evidence, evidence_path, expected_sha, expected_candidate_id):
     """Bind authoritative evidence to the successful GitHub release-full run."""
     run_match = re.fullmatch(r"github-full-(\d+)", str(evidence.get("run_id", "")))
     if not run_match:
@@ -362,14 +363,26 @@ def verify_github_full_run(evidence, expected_sha, expected_candidate_id):
         die("authoritative evidence is not bound to a successful exact-SHA GitHub release-full run")
     expected_artifact = f"graf-full-ci-{expected_candidate_id}"
     values = artifacts.get("artifacts", []) if isinstance(artifacts, dict) else []
-    if not any(
+    matching_artifacts = [item for item in values if (
         isinstance(item, dict)
         and item.get("name") == expected_artifact
         and item.get("expired") is False
         and str(item.get("workflow_run", {}).get("id")) == run_id
-        for item in values
-    ):
+    )]
+    if len(matching_artifacts) != 1:
         die(f"GitHub run does not contain live authoritative artifact {expected_artifact}")
+    try:
+        with tempfile.TemporaryDirectory(prefix="graf-release-full-") as temporary:
+            subprocess.run(
+                ["gh", "run", "download", run_id, "--repo", repository,
+                 "--name", expected_artifact, "--dir", temporary],
+                check=True, stdout=subprocess.DEVNULL,
+            )
+            downloaded = list(pathlib.Path(temporary).rglob(f"authoritative-{expected_candidate_id}.json"))
+            if len(downloaded) != 1 or downloaded[0].read_bytes() != pathlib.Path(evidence_path).read_bytes():
+                die("local authoritative evidence does not match the GitHub release-full artifact")
+    except (OSError, subprocess.CalledProcessError) as exc:
+        die(f"cannot download authoritative GitHub Full CI artifact: {exc}")
 
 def verify_github_release(release_url, expected_tag, expected_sha):
     """Resolve the published GitHub Release and tag to the approved commit."""
@@ -499,7 +512,7 @@ def feature_exists(feature_id):
         for path in specs.iterdir()
     )
 
-def changelog_mentions_feature(feature_id):
+def changelog_feature_ids():
     try:
         text = (root / "CHANGELOG.md").read_text(encoding="utf-8")
     except OSError as exc:
@@ -511,8 +524,15 @@ def changelog_mentions_feature(feature_id):
     first_release = re.search(r"^## \[v?[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+\].*?(?=^## \[|\Z)", text, re.MULTILINE | re.DOTALL)
     if first_release:
         top = first_release.group(0)
-    return bool(re.search(
-        rf"(?:Фича|Feature|feature_id|feature:)\s*[:#]?\s*`?{re.escape(feature_id)}\b",
+    markers = re.findall(r"<!--\s*Release features:\s*(.*?)-->", top, re.IGNORECASE | re.DOTALL)
+    if markers:
+        return {
+            value
+            for marker in markers
+            for value in re.findall(r"\bF(\d+)\b", marker)
+        }
+    return set(re.findall(
+        r"(?:Фича|Feature|feature_id|feature:)\s*[:#]?\s*`?(\d+)\b",
         top,
         re.IGNORECASE,
     ))
@@ -762,6 +782,9 @@ if op == "train-attest":
     if candidate.get("source_sha") != train.get("source_sha"):
         die("candidate source SHA does not match train source SHA")
     evidence_path = pathlib.Path(values["evidence"]).resolve()
+    canonical_evidence_path = (root / ".dev" / "ci-evidence" / f"authoritative-{candidate['candidate_id']}.json").resolve()
+    if evidence_path != canonical_evidence_path:
+        die("train attestation requires the candidate's canonical authoritative Full CI evidence path")
     train_current(train, train_path, (candidate_path, evidence_path))
     evidence = load(evidence_path)
     validator = root / "scripts/validate-ci-evidence.py"
@@ -779,7 +802,7 @@ if op == "train-attest":
         errors.append("train-attest requires passed authoritative Full CI evidence")
     if errors:
         die("cannot attest train: " + "; ".join(errors))
-    verify_github_full_run(evidence, train["source_sha"], candidate["candidate_id"])
+    verify_github_full_run(evidence, evidence_path, train["source_sha"], candidate["candidate_id"])
     output = pathlib.Path(values["output"] or (train_path.parent / f"{train['train_id']}-go.json"))
     receipt = {
         "run_id": evidence["run_id"],
@@ -853,9 +876,13 @@ if op == "freeze":
     missing_features = [feature_id for feature_id in feature_ids if not feature_exists(feature_id)]
     if missing_features:
         die("cannot freeze nonexistent feature IDs: " + ", ".join(missing_features))
-    unlisted_features = [feature_id for feature_id in feature_ids if not changelog_mentions_feature(feature_id)]
-    if unlisted_features:
-        die("included feature IDs are absent from the prepared CHANGELOG.md: " + ", ".join(unlisted_features))
+    changelog_features = changelog_feature_ids()
+    if set(feature_ids) != changelog_features:
+        die(
+            "included feature IDs must exactly match the prepared CHANGELOG.md; "
+            f"missing={sorted(changelog_features - set(feature_ids), key=int)}, "
+            f"extra={sorted(set(feature_ids) - changelog_features, key=int)}"
+        )
     train_id = None
     if values["train"]:
         train_path = pathlib.Path(values["train"]).resolve()
@@ -1018,8 +1045,7 @@ if op == "decide":
     decision = "go" if not errors else "no-go"
     calver = values["calver"]
     if decision == "go":
-        if train is not None:
-            verify_github_full_run(evidence, candidate["source_sha"], candidate["candidate_id"])
+        verify_github_full_run(evidence, evidence_path, candidate["source_sha"], candidate["candidate_id"])
         if not calver:
             die("go requires --calver YYYY.MM.DD.N")
         calver = validate_calver(calver)

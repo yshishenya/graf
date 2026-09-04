@@ -142,13 +142,15 @@ def test_candidate_freeze_rejects_partial_release_train_feature_set(tmp_path: Pa
     root = _fixture(tmp_path)
     source = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
     train = root / ".dev/release/trains/train.json"
-    assert _run(root, *_freeze_args(source, train)).returncode == 0
+    train_args = _freeze_args(source, train)
+    train_args[train_args.index("--features") + 1] = "227"
+    assert _run(root, *train_args).returncode == 0
 
     result = _run(
         root,
         "freeze",
         "--sha", source,
-        "--features", "227",
+        "--features", "227,228",
         "--operator", "release-operator",
         "--train", str(train),
         "--output", str(root / ".dev/release/candidates/partial.json"),
@@ -202,16 +204,16 @@ def test_train_attest_binds_authoritative_full_ci_to_candidate(tmp_path: Path, m
     fake_gh = fake_bin / "gh"
     fake_gh.write_text(
         """#!/bin/sh
-[ "$1" = api ] || exit 1
-case "$2" in
-  repos/example/project/actions/runs/123)
-    printf '%s\\n' '{"name":"release-full","event":"workflow_dispatch","status":"completed","conclusion":"success","head_sha":"'"$TEST_GITHUB_SHA"'","path":".github/workflows/release-full.yml"}'
-    ;;
-  'repos/example/project/actions/runs/123/artifacts?per_page=100')
-    printf '%s\\n' '{"artifacts":[{"name":"graf-full-ci-'"$TEST_GITHUB_CANDIDATE"'","expired":false,"workflow_run":{"id":123}}]}'
-    ;;
-  *) exit 1 ;;
-esac
+if [ "$1" = api ] && [ "$2" = "repos/example/project/actions/runs/123" ]; then
+  printf '%s\\n' '{"name":"release-full","event":"workflow_dispatch","status":"completed","conclusion":"success","head_sha":"'"$TEST_GITHUB_SHA"'","path":".github/workflows/release-full.yml"}'
+elif [ "$1" = api ] && [ "$2" = "repos/example/project/actions/runs/123/artifacts?per_page=100" ]; then
+  printf '%s\\n' '{"artifacts":[{"name":"graf-full-ci-'"$TEST_GITHUB_CANDIDATE"'","expired":false,"workflow_run":{"id":123}}]}'
+elif [ "$1 $2 $3" = "run download 123" ] && [ "$8" = --dir ]; then
+  mkdir -p "$9"
+  cp "$TEST_GITHUB_EVIDENCE" "$9/authoritative-$TEST_GITHUB_CANDIDATE.json"
+else
+  exit 1
+fi
 """,
         encoding="utf-8",
     )
@@ -219,7 +221,7 @@ esac
     monkeypatch.setenv("PATH", f"{fake_bin}{os.pathsep}{os.environ['PATH']}")
     monkeypatch.setenv("TEST_GITHUB_SHA", source)
     monkeypatch.setenv("TEST_GITHUB_CANDIDATE", candidate_data["candidate_id"])
-    evidence = root / ".dev/ci-evidence/evidence.json"
+    evidence = root / ".dev/ci-evidence" / f"authoritative-{candidate_data['candidate_id']}.json"
     evidence.parent.mkdir(parents=True)
     evidence.write_text(json.dumps({
         "run_id": "github-full-123",
@@ -238,6 +240,7 @@ esac
         "authoritative_full": True,
         "component_shas": {"server": source},
     }), encoding="utf-8")
+    monkeypatch.setenv("TEST_GITHUB_EVIDENCE", str(evidence))
     train_go = root / ".dev/release/trains/train-go.json"
     attested = _run(root, "train-attest", str(train), "--candidate", str(candidate), "--evidence", str(evidence), "--output", str(train_go))
     assert attested.returncode == 0, attested.stderr
@@ -248,8 +251,6 @@ esac
     assert _run(root, "train-validate", str(train_go), "--current").returncode == 0
 
     decision = root / "decision.json"
-    canonical_evidence = root / ".dev" / "ci-evidence" / f"authoritative-{candidate_data['candidate_id']}.json"
-    shutil.copy2(evidence, canonical_evidence)
     second = _run(root, "train-attest", str(train), "--candidate", str(candidate), "--evidence", str(evidence), "--output", str(root / "second-go.json"))
     assert second.returncode != 0
     assert "immutable attestation identity" in second.stderr
@@ -261,7 +262,7 @@ esac
         "--train",
         str(train_go),
         "--evidence",
-        str(canonical_evidence),
+        str(evidence),
         "--calver",
         "2026.09.01.1",
         "--output",
