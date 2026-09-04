@@ -68,7 +68,7 @@ process-lifecycle checks plus exact-artifact release validation.
 - [X] T016 [US2] Validate manual install over `v2026.09.02.1` and Sparkle update from the confirmed healthy predecessor using `apps/macos/Scripts/validate-app-updates.sh` (Issue #6354)
 - [X] T017 [US2] Publish GitHub Release and versioned download assets/checksums/release notes, then replace `graf-appcast.xml` last; record URLs and final hashes in `specs/232-macos-resource-bundle-hotfix/validation/release.md` (Issue #6355)
 - [X] T018 [US2] Re-download public artifacts and verify version, sizes, SHA-256, Sparkle signature, UUID, staples, Gatekeeper and startup in `specs/232-macos-resource-bundle-hotfix/validation/release.md` (Issue #6356)
-- [X] T019 [US2] Add Russian closure evidence to Feature 232 task issues and umbrella issue `#6338`, then reconcile completed markers in `specs/232-macos-resource-bundle-hotfix/tasks.md` (Issue #6357)
+- [ ] T019 [US2] Add Russian closure evidence to Feature 232 task issues and umbrella issue `#6338`, then reconcile completed markers in `specs/232-macos-resource-bundle-hotfix/tasks.md` (Issue #6357)
 
 ## Phase 7: Release gate remediation
 
