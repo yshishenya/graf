@@ -320,6 +320,7 @@ def _github_run(repo: str, run_id: str) -> dict[str, object]:
         "headSha": value.get("head_sha"),
         "conclusion": value.get("conclusion"),
         "workflowName": value.get("name"),
+        "workflowPath": value.get("path"),
         "url": value.get("html_url"),
         "event": value.get("event"),
         "pullRequestNumbers": [
@@ -359,7 +360,7 @@ def verify_feature_runs(
 
     def verify(
         *, issue_number: int, match: re.Match[str], workflow: str, expected_run_sha: str,
-        expected_event: str, expected_pr_number: int | None = None,
+        expected_event: str, expected_path: str, expected_pr_number: int | None = None,
     ) -> None:
         if match.group("repo").lower() != repo.lower():
             errors.append(f"issue #{issue_number} {workflow} URL points to another repository")
@@ -378,6 +379,8 @@ def verify_feature_runs(
             errors.append(f"issue #{issue_number} GitHub run {run_id} is not workflow {workflow}")
         if run.get("event") != expected_event:
             errors.append(f"issue #{issue_number} GitHub run {run_id} is not a {expected_event} run")
+        if run.get("workflowPath") != expected_path:
+            errors.append(f"issue #{issue_number} GitHub run {run_id} is not workflow path {expected_path}")
         if expected_pr_number is not None and expected_pr_number not in run.get("pullRequestNumbers", []):
             errors.append(
                 f"issue #{issue_number} GitHub run {run_id} is not bound to PR #{expected_pr_number}"
@@ -416,6 +419,7 @@ def verify_feature_runs(
                 workflow="governance-fast",
                 expected_run_sha=pr_sha.group(1),
                 expected_event="pull_request",
+                expected_path=".github/workflows/governance-fast.yml",
                 expected_pr_number=int(pr_number.group(1)) if pr_number else None,
             )
         elif governance:
@@ -430,6 +434,7 @@ def verify_feature_runs(
                     workflow="release-full",
                     expected_run_sha=expected_sha,
                     expected_event="workflow_dispatch",
+                    expected_path=".github/workflows/release-full.yml",
                 )
             elif release:
                 errors.append(f"issue #{number} must name Candidate SHA for release-full verification")

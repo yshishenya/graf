@@ -266,6 +266,8 @@ def test_prepare_release_folds_every_section_after_latest_published_github_relea
     assert "## [2026.09.02.2]" not in changelog
     assert "## [2026.09.02.3]" not in changelog
     assert "## [2026.09.02.1]" in changelog
+    assert "<!-- Release features:" in changelog
+    assert all(f"F{feature}" in changelog for feature in (215, 216, 217))
     archive = root / "changes" / "releases" / "v2026.09.04.1"
     assert {path.name for path in archive.glob("F*.yaml")} == {"F215.yaml", "F216.yaml", "F217.yaml"}
 
@@ -405,6 +407,51 @@ def test_prepare_release_uses_archived_fragment_for_concise_unmarked_entries(tmp
     assert changelog.count("- Старая формулировка.") == 1
     assert "### Важно\n- Требуется ручное обновление." in changelog
     assert "Фича 215" not in changelog
+
+
+def test_prepare_release_restores_archived_fragment_missing_from_pending_changelog(tmp_path: Path) -> None:
+    root = fixture(tmp_path)
+    (root / "CHANGELOG.md").write_text(
+        """# История изменений
+
+## [Unreleased]
+
+### Изменено
+- _Пока нет записей._
+
+## [2026.09.02.2] - 2026-09-02
+
+<!-- Release features: F215 F2150 -->
+
+### Изменено
+- Восстановленная запись (Фича 2150, issue #8150)
+
+## [2026.09.02.1] - 2026-09-02
+
+### Изменено
+- Реально опубликованная запись.
+""",
+        encoding="utf-8",
+    )
+    pending = root / "changes" / "releases" / "v2026.09.02.2"
+    pending.mkdir(parents=True)
+    (pending / "F215.yaml").write_text(fragment(215, "Восстановленная запись"), encoding="utf-8")
+    (pending / "F2150.yaml").write_text(fragment(2150, "Восстановленная запись"), encoding="utf-8")
+    configure_github_release_repo(root, "v2026.09.02.1")
+
+    result = subprocess.run(
+        ["bash", "scripts/prepare-release.sh", "2026.09.04.1"],
+        cwd=root,
+        text=True,
+        capture_output=True,
+        check=False,
+        env=github_release_env(root, "v2026.09.02.1"),
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert "- Восстановленная запись (Фича 2150, issue #8150)" in changelog
+    assert "- Восстановленная запись (Фича 215, issue #6215" in changelog
 
 
 def test_prepare_release_rejects_orphan_unpublished_fragment_directory(tmp_path: Path) -> None:

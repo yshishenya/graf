@@ -53,10 +53,8 @@ jobs:
           [[ "${master_sha,,}" == "${REQUESTED_SHA,,}" ]]
           artifact_key="$(printf '%s' "$CANDIDATE_ID" | sed 's/[^A-Za-z0-9._-]/-/g')"
           [[ -n "$artifact_key" ]]
-          existing="$({
-            gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=100" \
-              --jq '.artifacts[] | select(.expired == false) | .name'
-          } || true)"
+          existing="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=100" \
+            --jq '.artifacts[] | select(.expired == false) | .name')"
           if printf '%s\n' "$existing" | grep -Fxq "graf-full-lock-${artifact_key}" \
             || printf '%s\n' "$existing" | grep -Fxq "graf-full-ci-${artifact_key}"; then
             echo "candidate_already_reserved: ${CANDIDATE_ID}" >&2

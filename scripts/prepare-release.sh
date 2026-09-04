@@ -84,7 +84,11 @@ published_tag=""
 published_version=""
 pending_versions=()
 origin_url="$(git config --get remote.origin.url 2>/dev/null || true)"
-if [[ "$origin_url" == *github.com* ]]; then
+github_origin=0
+case "$origin_url" in
+  git@github.com:*|ssh://git@github.com/*|https://github.com/*|http://github.com/*) github_origin=1 ;;
+esac
+if [[ "$github_origin" -eq 1 ]]; then
   if ! release_json="$(gh release list --limit 100 --json tagName,isDraft,isPrerelease,publishedAt)"; then
     echo "error: cannot resolve the latest published GitHub Release"
     exit 1
@@ -261,6 +265,7 @@ for directory in (root / "changes" / "releases").glob("v*"):
 titles = ("Добавлено", "Изменено", "Исправлено", "Важно", "Безопасность", "Документы", "Операции")
 groups = {title: [] for title in titles}
 fragment_features = []
+declared_features = set()
 for version in pending_versions:
     fragment_dir = root / "changes" / "releases" / f"v{version}"
     for path in sorted(fragment_dir.glob("F*.yaml")):
@@ -281,6 +286,11 @@ for match in pending:
     start = match.end()
     next_heading = heading_re.search(text, start)
     block = text[start : next_heading.start() if next_heading else len(text)]
+    for marker in re.findall(r"<!--\s*Release features:\s*(.*?)-->", block, re.IGNORECASE | re.DOTALL):
+        values = {int(value) for value in re.findall(r"\bF(\d+)\b", marker)}
+        if not values:
+            raise SystemExit(f"empty release feature marker in {version}")
+        declared_features.update(values)
     lines = block.splitlines()
     category = None
     index = 0
@@ -322,6 +332,14 @@ for match in pending:
             seen_content.add(normalized_content)
             groups[category].append(value)
 
+if declared_features and declared_features != fragment_feature_set:
+    missing = sorted(fragment_feature_set - declared_features)
+    extra = sorted(declared_features - fragment_feature_set)
+    raise SystemExit(
+        "pending release feature identity does not match archived fragments; "
+        f"missing={missing}, extra={extra}"
+    )
+
 if not fragment_features and pending_versions:
     raise SystemExit(
         "unpublished changelog sections have no archived Feature fragments"
@@ -353,6 +371,9 @@ PY
     [[ -n "$version" ]] && pending_versions+=("$version")
   done <<< "$pending_versions_text"
   echo "Release base: $published_tag (${#pending_versions[@]} unpublished section(s) will be folded)"
+elif grep -Eq '^## \[v?[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+\]' "$changelog"; then
+  echo "error: a GitHub origin is required to resolve the latest published release"
+  exit 1
 fi
 
 pending_content="${pending_content:-}"
@@ -368,6 +389,20 @@ if [[ -f "$PWD/scripts/validate-changelog-fragments.py" ]]; then
   python3 scripts/validate-changelog-fragments.py --root "$PWD"
 fi
 
+release_features=()
+for fragment in "${fragment_paths[@]}"; do
+  fragment_name="$(basename "$fragment")"
+  [[ "$fragment_name" =~ ^F([0-9]+)\.yaml$ ]] || {
+    echo "error: invalid release fragment filename: $fragment_name"
+    exit 1
+  }
+  release_features+=("F${BASH_REMATCH[1]}")
+done
+release_feature_marker=""
+if [[ "${#release_features[@]}" -gt 0 ]]; then
+  release_feature_marker="<!-- Release features: ${release_features[*]} -->"
+fi
+
 unreleased_content="$(python3 - "$changelog" <<'PY'
 import re
 import sys
@@ -381,13 +416,17 @@ PY
 
 # Feature agents own independent fragments. The release operator is the only
 # writer that assembles them into the root changelog.
-fragment_content="$(python3 - "$PWD" "${fragment_paths[@]}" <<'PY'
+fragment_content="$(python3 - "$pending_content" "${fragment_paths[@]}" <<'PY'
 import json
 import re
 import sys
 from pathlib import Path
 
-root = Path(sys.argv[1])
+pending_entries = {
+    " ".join(line.split())
+    for line in sys.argv[1].splitlines()
+    if line.lstrip().startswith("-")
+}
 titles = {
     "Added": "Добавлено",
     "Changed": "Изменено",
@@ -490,7 +529,16 @@ for path in sorted(Path(raw) for raw in sys.argv[2:]):
     if limitations and limitations not in {"[]", "null"}:
         if limitations:
             entry += f"; ограничения: {limitations}"
-    if is_current:
+    base_entry = f"- {summary}"
+    preserved = any(
+        item.rstrip(" .") == base_entry.rstrip(" .")
+        or re.match(
+            rf"{re.escape(base_entry)} \(Фича {re.escape(str(feature))}(?=[,)])",
+            item,
+        )
+        for item in pending_entries
+    )
+    if is_current or not preserved:
         groups[category].append(entry)
 for category, title in titles.items():
     if groups[category]:
@@ -594,6 +642,9 @@ trap 'rm -f "$tmp_file"' EXIT
 
 EOF
   printf '## [%s] - %s\n\n' "$next_version" "$today"
+  if [[ -n "$release_feature_marker" ]]; then
+    printf '%s\n\n' "$release_feature_marker"
+  fi
   printf '%s\n' "$unreleased_content"
   printf '\n%s\n' "$history_part"
 } > "$tmp_file"

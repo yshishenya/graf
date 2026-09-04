@@ -675,6 +675,7 @@ def test_feature_closeout_verifies_github_workflow_conclusion_and_head_sha(monke
             "workflowName": "governance-fast",
             "headSha": "a" * 40,
             "event": "pull_request",
+            "workflowPath": ".github/workflows/governance-fast.yml",
             "pullRequestNumbers": [6383],
         },
         "456": {
@@ -682,6 +683,7 @@ def test_feature_closeout_verifies_github_workflow_conclusion_and_head_sha(monke
             "workflowName": "release-full",
             "headSha": "a" * 40,
             "event": "workflow_dispatch",
+            "workflowPath": ".github/workflows/release-full.yml",
             "pullRequestNumbers": [],
         },
     }
@@ -709,7 +711,16 @@ def test_feature_closeout_verifies_github_workflow_conclusion_and_head_sha(monke
     )
     assert any("SHA does not match release-full evidence" in error for error in errors)
 
-    runs["456"] = {**runs["456"], "headSha": "a" * 40}
+    runs["456"] = {**runs["456"], "headSha": "a" * 40, "workflowPath": ".github/workflows/other.yml"}
+    errors = validator.verify_feature_runs(
+        "yshishenya/graf",
+        [issue],
+        "a" * 40,
+        require_release_full=True,
+    )
+    assert any("is not workflow path .github/workflows/release-full.yml" in error for error in errors)
+
+    runs["456"] = {**runs["456"], "workflowPath": ".github/workflows/release-full.yml"}
     runs["123"] = {**runs["123"], "pullRequestNumbers": [9999]}
     errors = validator.verify_feature_runs(
         "yshishenya/graf",

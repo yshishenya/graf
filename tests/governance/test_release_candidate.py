@@ -21,6 +21,7 @@ def release_env() -> dict[str, str]:
 
 def run(script: Path, *args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
     call_args = list(args)
+    env = os.environ.copy()
     if args and args[0] == "decide" and "--evidence" in args:
         evidence_index = args.index("--evidence") + 1
         evidence = Path(args[evidence_index])
@@ -34,7 +35,13 @@ def run(script: Path, *args: str, cwd: Path) -> subprocess.CompletedProcess[str]
                 if evidence != canonical:
                     evidence.unlink()
                 call_args[evidence_index] = str(canonical)
-    return subprocess.run([str(script), *call_args], cwd=cwd, text=True, capture_output=True)
+                env["TEST_GITHUB_CANDIDATE"] = candidate_id
+                env["TEST_GITHUB_SHA"] = json.loads(candidate.read_text(encoding="utf-8"))["source_sha"]
+                env["TEST_GITHUB_EVIDENCE"] = str(canonical)
+                remote = subprocess.check_output(["git", "remote", "get-url", "origin"], cwd=cwd, text=True).strip()
+                env["TEST_GITHUB_REPO"] = re.search(r"github\.com[:/]([^/]+/[^/]+?)(?:\.git)?$", remote).group(1)
+    env["PATH"] = f"{cwd / '.test-bin'}{os.pathsep}{env['PATH']}"
+    return subprocess.run([str(script), *call_args], cwd=cwd, text=True, capture_output=True, env=env)
 
 
 def fixture(tmp_path: Path, release_calver: str = "2026.08.31.1") -> Path:
@@ -51,11 +58,35 @@ def fixture(tmp_path: Path, release_calver: str = "2026.08.31.1") -> Path:
         feature_dir = tmp_path / "specs" / f"{feature_id}-fixture"
         feature_dir.mkdir(parents=True)
         (feature_dir / "spec.md").write_text(f"# Feature {feature_id}\n", encoding="utf-8")
+    fake_bin = tmp_path / ".test-bin"
+    fake_bin.mkdir()
+    fake_gh = fake_bin / "gh"
+    fake_gh.write_text(
+        """#!/bin/sh
+if [ "$1" = api ] && [ "$2" = "repos/$TEST_GITHUB_REPO/actions/runs/123" ]; then
+  printf '%s\\n' '{"name":"release-full","event":"workflow_dispatch","status":"completed","conclusion":"success","head_sha":"'"$TEST_GITHUB_SHA"'","path":".github/workflows/release-full.yml"}'
+elif [ "$1" = api ] && [ "$2" = "repos/$TEST_GITHUB_REPO/actions/runs/123/artifacts?per_page=100" ]; then
+  printf '%s\\n' '{"artifacts":[{"name":"graf-full-ci-'"$TEST_GITHUB_CANDIDATE"'","expired":false,"workflow_run":{"id":123}}]}'
+elif [ "$1 $2 $3" = "run download 123" ] && [ "$8" = "--dir" ]; then
+  mkdir -p "$9"
+  if [ "${TEST_GITHUB_MISMATCH:-0}" = 1 ]; then
+    printf '{}\\n' > "$9/authoritative-$TEST_GITHUB_CANDIDATE.json"
+  else
+    cp "$TEST_GITHUB_EVIDENCE" "$9/authoritative-$TEST_GITHUB_CANDIDATE.json"
+  fi
+else
+  exit 1
+fi
+""",
+        encoding="utf-8",
+    )
+    fake_gh.chmod(0o755)
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=tmp_path, check=True)
     subprocess.run(["git", "config", "user.name", "Governance Test"], cwd=tmp_path, check=True)
     subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
     subprocess.run(["git", "commit", "-qm", "fixture"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "remote", "add", "origin", "https://github.com/example/project.git"], cwd=tmp_path, check=True)
     return tmp_path
 
 
@@ -72,7 +103,7 @@ def test_freeze_validate_and_decide_are_immutable(tmp_path: Path) -> None:
     assert run(script, "validate", str(frozen), "--current", cwd=root).returncode == 0
 
     evidence = {
-        "run_id": "full-216",
+        "run_id": "github-full-123",
         "lane": "full",
         "requested_sha": sha,
         "observed_sha_start": sha,
@@ -119,7 +150,7 @@ def test_validate_current_rejects_ignored_candidate_metadata_drift(tmp_path: Pat
     script = root / "infra/scripts/release-candidate.sh"
     sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
     frozen = root / ".dev" / "release" / "candidate.json"
-    result = run(script, "freeze", "--sha", sha, "--feature-id", "216", "--operator", "release", "--output", str(frozen), cwd=root)
+    result = run(script, "freeze", "--sha", sha, "--features", "216,217", "--operator", "release", "--output", str(frozen), cwd=root)
     assert result.returncode == 0, result.stderr
     frozen.write_text(frozen.read_text(encoding="utf-8").replace('"status": "frozen"', '"status": "invalidated"'), encoding="utf-8")
 
@@ -148,7 +179,7 @@ def test_decide_rejects_impossible_calver_date(tmp_path: Path) -> None:
     )
     assert result.returncode == 0, result.stderr
     evidence = {
-        "run_id": "full-216",
+        "run_id": "github-full-123",
         "lane": "full",
         "requested_sha": sha,
         "observed_sha_start": sha,
@@ -211,7 +242,7 @@ def test_default_records_are_in_ignored_evidence_path_and_decision_is_unique(tmp
     candidate_path = candidate_paths[0]
     candidate = json.loads(candidate_path.read_text(encoding="utf-8"))
     evidence = {
-        "run_id": "full-216",
+        "run_id": "github-full-123",
         "lane": "full",
         "requested_sha": sha,
         "observed_sha_start": sha,
@@ -280,7 +311,7 @@ def test_decide_rechecks_current_sha_before_go(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     candidate = json.loads(candidate_path.read_text(encoding="utf-8"))
     evidence = {
-        "run_id": "full-216",
+        "run_id": "github-full-123",
         "lane": "full",
         "requested_sha": sha,
         "observed_sha_start": sha,
@@ -435,7 +466,7 @@ def test_decide_rejects_unexpected_dev_metadata_after_freeze(tmp_path: Path) -> 
     assert "source tree is dirty" in result.stderr
 
 
-def test_prepare_release_does_not_fold_historical_releases_into_new_section(tmp_path: Path) -> None:
+def test_prepare_release_rejects_release_history_without_github_origin(tmp_path: Path) -> None:
     root = tmp_path
     (root / "scripts").mkdir()
     shutil.copy2(ROOT / "scripts/prepare-release.sh", root / "scripts/prepare-release.sh")
@@ -487,12 +518,111 @@ release_notes: \"Русские заметки\"
         env=release_env(),
     )
 
+    assert result.returncode != 0
+    assert "GitHub origin is required" in result.stdout + result.stderr
+    assert "## [2026.08.31.1]" not in (root / "CHANGELOG.md").read_text(encoding="utf-8")
+
+
+def test_freeze_accepts_product_changelog_with_hidden_feature_marker(tmp_path: Path) -> None:
+    root = fixture(tmp_path)
+    changelog = root / "CHANGELOG.md"
+    changelog.write_text(
+        "## [Unreleased]\n\n- _Пока нет записей._\n\n"
+        "## [2026.08.31.1] - 2026-08-31\n\n"
+        "<!-- Release features: F216 F217 -->\n\n"
+        "- Приложение стало надёжнее и удобнее.\n",
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "add", "CHANGELOG.md"], cwd=root, check=True)
+    subprocess.run(["git", "commit", "--amend", "--no-edit", "-q"], cwd=root, check=True)
+    sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+
+    result = run(
+        root / "infra/scripts/release-candidate.sh",
+        "freeze",
+        "--sha", sha,
+        "--features", "216,217",
+        "--operator", "release",
+        "--dry-run",
+        cwd=root,
+    )
+
     assert result.returncode == 0, result.stderr
-    text = (root / "CHANGELOG.md").read_text(encoding="utf-8")
-    release = re.search(r"^## \[2026\.08\.31\.1\][\s\S]*?(?=^## \[|\Z)", text, re.MULTILINE)
-    assert release is not None
-    assert "Русский результат" in release.group(0)
-    assert "Исторический релиз" not in release.group(0)
+
+    omitted = run(
+        root / "infra/scripts/release-candidate.sh",
+        "freeze",
+        "--sha", sha,
+        "--features", "216",
+        "--operator", "release",
+        "--dry-run",
+        cwd=root,
+    )
+    assert omitted.returncode != 0
+    assert "must exactly match the prepared CHANGELOG.md" in omitted.stderr
+
+
+def test_decide_rejects_local_full_evidence_without_train(tmp_path: Path) -> None:
+    root = fixture(tmp_path)
+    script = root / "infra/scripts/release-candidate.sh"
+    sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+    candidate_path = root / "candidate.json"
+    assert run(
+        script, "freeze", "--sha", sha, "--features", "216,217",
+        "--operator", "release", "--output", str(candidate_path), cwd=root,
+    ).returncode == 0
+    candidate_id = json.loads(candidate_path.read_text(encoding="utf-8"))["candidate_id"]
+    evidence = root / "evidence.json"
+    evidence.write_text(json.dumps({
+        "run_id": "local-full-123", "lane": "full", "requested_sha": sha,
+        "observed_sha_start": sha, "observed_sha_end": sha, "status": "passed",
+        "started_at": "2026-08-31T00:00:00Z", "finished_at": "2026-08-31T00:01:00Z",
+        "commands": ["infra/scripts/ci-local.sh --full"],
+        "artifact_digests": {"full-log": "sha256:" + "a" * 64}, "skipped_gates": [],
+        "scope": "release candidate", "candidate_id": candidate_id,
+        "authoritative_full": True, "component_shas": {"server": sha},
+    }), encoding="utf-8")
+
+    result = run(
+        script, "decide", str(candidate_path), "--evidence", str(evidence),
+        "--calver", "2026.08.31.1", cwd=root,
+    )
+
+    assert result.returncode != 0
+    assert "run_id must be github-full" in result.stderr
+
+
+def test_decide_rejects_evidence_that_differs_from_github_artifact(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    root = fixture(tmp_path)
+    script = root / "infra/scripts/release-candidate.sh"
+    sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+    candidate_path = root / "candidate.json"
+    assert run(
+        script, "freeze", "--sha", sha, "--features", "216,217",
+        "--operator", "release", "--output", str(candidate_path), cwd=root,
+    ).returncode == 0
+    candidate_id = json.loads(candidate_path.read_text(encoding="utf-8"))["candidate_id"]
+    evidence = root / "evidence.json"
+    evidence.write_text(json.dumps({
+        "run_id": "github-full-123", "lane": "full", "requested_sha": sha,
+        "observed_sha_start": sha, "observed_sha_end": sha, "status": "passed",
+        "started_at": "2026-08-31T00:00:00Z", "finished_at": "2026-08-31T00:01:00Z",
+        "commands": ["GitHub Actions release-full"],
+        "artifact_digests": {"full-log": "sha256:" + "a" * 64}, "skipped_gates": [],
+        "scope": "release candidate", "candidate_id": candidate_id,
+        "authoritative_full": True, "component_shas": {"server": sha},
+    }), encoding="utf-8")
+    monkeypatch.setenv("TEST_GITHUB_MISMATCH", "1")
+
+    result = run(
+        script, "decide", str(candidate_path), "--evidence", str(evidence),
+        "--calver", "2026.08.31.1", cwd=root,
+    )
+
+    assert result.returncode != 0
+    assert "does not match the GitHub release-full artifact" in result.stderr
 
 
 def test_decide_requires_calver_present_in_changelog(tmp_path: Path) -> None:
@@ -516,7 +646,7 @@ def test_decide_requires_calver_present_in_changelog(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     candidate = json.loads(candidate_path.read_text(encoding="utf-8"))
     evidence = {
-        "run_id": "full-216", "lane": "full", "requested_sha": sha,
+        "run_id": "github-full-123", "lane": "full", "requested_sha": sha,
         "observed_sha_start": sha, "observed_sha_end": sha, "status": "passed",
         "started_at": "2026-08-31T00:00:00Z", "finished_at": "2026-08-31T00:01:00Z",
         "commands": ["infra/scripts/ci-local.sh --full"],
@@ -580,7 +710,7 @@ def test_attest_rejects_release_from_different_github_repository(tmp_path: Path)
     release_calver = f"2099.12.31.{uuid.uuid4().int}"
     root = fixture(tmp_path, release_calver=release_calver)
     script = root / "infra/scripts/release-candidate.sh"
-    subprocess.run(["git", "remote", "add", "origin", "https://github.com/yshishenya/graf.git"], cwd=root, check=True)
+    subprocess.run(["git", "remote", "set-url", "origin", "https://github.com/yshishenya/graf.git"], cwd=root, check=True)
     sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
     candidate_path = root / ".dev" / "release" / "candidate.json"
     result = run(script, "freeze", "--sha", sha, "--features", "216,217", "--operator", "release", "--output", str(candidate_path), cwd=root)
@@ -588,7 +718,7 @@ def test_attest_rejects_release_from_different_github_repository(tmp_path: Path)
     candidate = json.loads(candidate_path.read_text(encoding="utf-8"))
     evidence_path = root / "evidence.json"
     evidence_path.write_text(json.dumps({
-        "run_id": "full-attest",
+        "run_id": "github-full-123",
         "lane": "full",
         "requested_sha": sha,
         "observed_sha_start": sha,
