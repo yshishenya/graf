@@ -65,7 +65,7 @@ small and metadata-only; the aggregation job is the sole authoritative writer.
 
 ## Phase 8: Post-release closeout
 
-- [ ] T017 [US3] After the new exact-SHA candidate proves SC-008 in authoritative GitHub `release-full` and the release/deploy gates complete, land a post-release closeout-only PR that marks T017 complete without changing the published candidate; this makes #6468 eligible for the child/umbrella closure procedure in `quickstart.md` per FR-012 (Issue #6468; missing).
+- [X] T017 [US3] After the new exact-SHA candidate proves SC-008 in authoritative GitHub `release-full` and the release/deploy gates complete, land a post-release closeout-only PR that marks T017 complete without changing the published candidate; this makes #6468 eligible for the child/umbrella closure procedure in `quickstart.md` per FR-012 (Issue #6468).
 
 Dependency: T018 → T019 → T020 → T021 → T017.
 
@@ -90,7 +90,7 @@ closure then uses that merged task state without changing the release tag.
   `Bundle.module` resource accessor, then prove the focused test and the full
   post-merge `macos-diagnostic` without retry, timeout increases, skips or
   server-full per FR-013 (Issue #6483).
-- [ ] T025 [US1] Align the Ubuntu and macOS component-result filenames with the
+- [X] T025 [US1] Align the Ubuntu and macOS component-result filenames with the
   aggregate evidence contract in `.github/workflows/release-full.yml`, add a
   regression assertion in `apps/server/tests/contract/test_ci_cd_contract.py`,
   and prove the corrected aggregate on a new exact-SHA candidate (Issue #6487).
