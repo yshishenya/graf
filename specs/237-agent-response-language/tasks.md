@@ -9,19 +9,20 @@
 **Независимая проверка**: правило требует понятного языка, запрещает
 необязательные англицизмы и сохраняет точность необходимых терминов.
 
-- [X] T001 [US1] Добавить краткое правило языка ответов в `AGENTS.md`
-- [X] T002 [US1] Добавить описание изменения в `changes/unreleased/F237.yaml`
+- [X] T001 [US1] Добавить краткое правило языка ответов в `AGENTS.md` (Issue #6433)
+- [X] T002 [US1] Добавить описание изменения в `changes/unreleased/F237.yaml` (Issue #6434)
 
 ## Этап 2: Проверка
 
-- [X] T003 Проверить сценарий и команды из `specs/237-agent-response-language/quickstart.md`
-- [X] T004 Сверить спецификацию, план и задачи Feature 237 без критических или высоких противоречий
+- [X] T003 Проверить сценарий и команды из `specs/237-agent-response-language/quickstart.md` (Issue #6435)
+- [X] T004 Сверить спецификацию, план и задачи Feature 237 без критических или высоких противоречий (Issue #6436)
 
 ## Этап 3: Convergence и reviewer gate
 
 - [X] T005 Выполнить append-only convergence после реализации, записать результат
   и пройти reviewer-owned checklist
-  `specs/237-agent-response-language/checklists/agent-response-language.md`.
+  `specs/237-agent-response-language/checklists/agent-response-language.md`
+  (Issue #6498).
 
 Результат convergence: объём реализации согласован со спецификацией, планом и
 конституцией; новых пробелов реализации не найдено. Независимый ревьюер
