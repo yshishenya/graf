@@ -90,5 +90,9 @@ closure then uses that merged task state without changing the release tag.
   `Bundle.module` resource accessor, then prove the focused test and the full
   post-merge `macos-diagnostic` without retry, timeout increases, skips or
   server-full per FR-013 (Issue #6483).
+- [ ] T025 [US1] Align the Ubuntu and macOS component-result filenames with the
+  aggregate evidence contract in `.github/workflows/release-full.yml`, add a
+  regression assertion in `apps/server/tests/contract/test_ci_cd_contract.py`,
+  and prove the corrected aggregate on a new exact-SHA candidate (Issue #6487).
 
-Dependency: T021 → T022 → T023 → T024 → T017.
+Dependency: T021 → T022 → T023 → T024 → T025 → T017.
