@@ -2,9 +2,9 @@
 
 ## Input
 
-- `requested_sha`: exactly 40 hexadecimal characters identifying the commit to
-  diagnose. The checked-out SHA must equal this value before repository code is
-  executed.
+- `requested_sha`: exactly 40 lowercase hexadecimal characters identifying the
+  commit to diagnose. The checked-out SHA must equal this value before
+  repository code is executed.
 
 ## Required behavior
 
