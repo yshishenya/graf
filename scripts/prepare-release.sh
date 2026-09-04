@@ -391,6 +391,38 @@ if [[ -f "$PWD/scripts/validate-changelog-fragments.py" ]]; then
   python3 scripts/validate-changelog-fragments.py --root "$PWD"
 fi
 
+if ! python3 - "$archive_dir" "${fragment_paths[@]}" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+archive = Path(sys.argv[1])
+destinations = {}
+mismatches = []
+for path in map(Path, sys.argv[2:]):
+    match = re.search(
+        r"^feature_id[ \t]*:[ \t]*(\d+)[ \t]*$",
+        path.read_text(encoding="utf-8"),
+        re.MULTILINE,
+    )
+    if not match:
+        raise SystemExit(f"invalid feature_id in release fragment {path.name}")
+    feature_id = match.group(1)
+    destination = archive / path.name
+    previous = destinations.get(destination)
+    if previous is not None and previous != path:
+        raise SystemExit(f"multiple fragments map to archive destination {path.name}")
+    destinations[destination] = path
+    if path.name != f"F{feature_id}.yaml":
+        mismatches.append(f"release fragment {path.name} must match feature_id {feature_id}")
+if mismatches:
+    raise SystemExit(mismatches[0])
+PY
+then
+  echo "error: invalid release fragment archive mapping"
+  exit 1
+fi
+
 release_features=()
 for fragment in "${fragment_paths[@]}"; do
   fragment_name="$(basename "$fragment")"
