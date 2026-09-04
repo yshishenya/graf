@@ -34,9 +34,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          [[ "$REQUESTED_SHA" =~ ^[0-9a-fA-F]{40}$ ]]
+          [[ "$REQUESTED_SHA" =~ ^[0-9a-f]{40}$ ]]
           checkout_sha="$(git rev-parse HEAD)"
-          [[ "${checkout_sha,,}" == "${REQUESTED_SHA,,}" ]]
+          [[ "$checkout_sha" == "$REQUESTED_SHA" ]]
           [[ "$(uname -m)" == "arm64" ]]
 
       - name: Install Swift 6 toolchain

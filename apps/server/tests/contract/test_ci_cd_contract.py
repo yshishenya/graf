@@ -621,7 +621,8 @@ def test_macos_diagnostic_workflow_is_exact_sha_and_non_authoritative() -> None:
     assert "permissions:\n  contents: read" in workflow
     assert "ref: ${{ inputs.requested_sha }}" in workflow
     assert "persist-credentials: false" in workflow
-    assert '[[ "${checkout_sha,,}" == "${REQUESTED_SHA,,}" ]]' in workflow
+    assert '[[ "$checkout_sha" == "$REQUESTED_SHA" ]]' in workflow
+    assert "${checkout_sha,,}" not in workflow
     assert "runs-on: macos-14" in workflow
     assert 'swift-version: "6.0.3"' in workflow
     assert "bash apps/macos/Scripts/run-swift-tests.sh" in workflow
