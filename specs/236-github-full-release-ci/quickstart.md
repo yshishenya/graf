@@ -6,7 +6,7 @@
 python3 scripts/validate-full-ci-workflow.py .github/workflows/release-full.yml
 python3 scripts/validate-full-ci-workflow.py --self-test
 python3 scripts/check_spec_kit_governance.py
-swift test --package-path apps/macos --parallel --num-workers 1 --filter 'CabinetBillingRuntimeTests|CabinetSidebarRuntimeTests'
+swift test --package-path apps/macos --filter 'CabinetBillingRuntimeTests|CabinetSidebarRuntimeTests|EmbeddedCabinetWebViewZoomTests'
 sh apps/macos/Installer/Scripts/test-release-signing-custody.sh
 swift test --package-path apps/macos --filter 'InstallerLifecycleEvidenceTests/testReleaseSigningFailureSimulationsStayFailClosed'
 ```

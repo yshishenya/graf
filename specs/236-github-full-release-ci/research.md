@@ -59,41 +59,39 @@
 - **Alternatives considered**: exporting signing or deploy credentials to Actions
   would breach secret custody and cannot prove the real installed-app path.
 
-## Decision 5: XCTest cases use separate sequential processes
+## Decision 5: XCTest cases use one sequential process
 
 - **Decision**: use one shared macOS test runner in GitHub Full CI and the
   retained local fallback. It requires nonempty `swift test list` discovery,
-  clears SwiftPM's hidden test-skip override, then runs
-  `swift test --parallel --num-workers 1`.
+  clears SwiftPM's hidden test-skip override, then runs ordinary sequential
+  `swift test --skip-build`.
 - **Rationale**: [SwiftPM 6.0.3's parallel runner](https://github.com/swiftlang/swift-package-manager/blob/swift-6.0.3-RELEASE/Sources/Commands/SwiftTestCommand.swift#L1094-L1137)
-  creates a new `TestRunner` and process for each XCTest case; one worker keeps
-  execution sequential. This prevents WebKit content-process state from
-  accumulating between tests without retries, quarantines, deprecated
-  `WKProcessPool`, or a hand-maintained suite allowlist.
-- **Evidence boundary**: the failed GitHub run proves a fatal nil unwrap in
-  `CabinetSidebarRuntimeTests.testRailKeepsManualChoiceAcrossSameSessionNavigation`
-  with exit code 1 after several WebKit cases. It does not prove signal 5 or a
-  supported internal WebKit root cause. Per-case process isolation removes the
-  observed cross-test boundary; one post-merge GitHub Full CI run remains the
-  required proof on the pinned Swift 6.0.3/macOS runner.
-- **Alternatives considered**: lifecycle changes and a shared process pool did
-  not provide a process boundary; filtered suite invocations can return success
-  with zero matching tests and still share one process within a suite.
+  creates a new `TestRunner` and process for each XCTest case even with one
+  worker. GitHub run `33836195145` proved that the external WebKit processes can
+  outlive those short XCTest processes: four browser cases passed and the next
+  two exited with signal 5. One XCTest process lets the retained browser objects
+  cover the whole suite without retry, delay, quarantine or a suite allowlist.
+- **Evidence boundary**: focused local runs prove the one-process harness and
+  browser assertions; only a new post-merge GitHub Full CI run proves macOS 14
+  with pinned Swift 6.0.3.
+- **Alternatives considered**: per-case processes reproduce the failure;
+  teardown, delay, retry and deprecated `WKProcessPool` either reintroduce the
+  race or hide it.
 
-## Decision 8: Keep WebKit alive to the isolated process boundary
+## Decision 8: Keep WebKit alive to the shared process boundary
 
 - **Decision**: retain synthetic `WKWebView` instances and their navigation
-  delegates until each isolated XCTest process exits. Read plist values through
-  the shared helper only when `plutil` returns success.
-- **Rationale**: GitHub run `33830401847` proved that per-case process isolation
-  removed cross-test accumulation but per-test WebKit teardown still crashes on
-  macOS 14.8.9. The same run proved that macOS 14 may print a missing-key
+  delegates until the sequential XCTest process exits. Read plist values through
+  the shared helper only when `plutil` returns success, and scan source with
+  native `/usr/bin/grep` rather than an undeclared Homebrew dependency.
+- **Rationale**: GitHub run `33836195145` disproved the per-case isolation
+  assumption and also showed that `rg` is absent on the pinned macOS runner.
+  The earlier run proved that macOS 14 may print a missing-key
   diagnostic to stdout before `plutil` exits nonzero; swallowing that status
   turns the diagnostic into a false legacy field.
 - **Alternatives considered**: retry, sleep, quarantine and skipped tests hide
-  the failures; a shared `WKProcessPool` restores the earlier cross-test state;
-  special-casing individual plist fields duplicates the bug outside the common
-  trust-boundary helper.
+  failures; installing `rg` adds network and toolchain drift; special-casing
+  individual plist fields duplicates the bug outside the common helper.
 
 ## Decision 6: Published GitHub Release is the only release-train base
 

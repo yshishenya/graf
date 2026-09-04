@@ -14,6 +14,7 @@ REMOTE_CD = ROOT / "infra/scripts/cd-remote.sh"
 FULL_CI_WORKFLOW = ROOT / ".github/workflows/release-full.yml"
 FULL_CI_VALIDATOR = ROOT / "scripts/validate-full-ci-workflow.py"
 MACOS_TEST_RUNNER = ROOT / "apps/macos/Scripts/run-swift-tests.sh"
+SIGNING_CUSTODY_TEST = ROOT / "apps/macos/Installer/Scripts/test-release-signing-custody.sh"
 
 
 def run(*args: str, cwd: Path = ROOT, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
@@ -158,7 +159,7 @@ def test_fast_lane_runs_the_union_of_known_components_once() -> None:
     assert result.stdout.count("ci_stage=active CI documentation consistency ") == 1
 
 
-def test_macos_xctest_process_isolation_matches_local_and_github() -> None:
+def test_macos_xctest_process_boundary_matches_local_and_github() -> None:
     command = "bash apps/macos/Scripts/run-swift-tests.sh"
     local_ci = LOCAL_CI.read_text(encoding="utf-8")
     workflow = FULL_CI_WORKFLOW.read_text(encoding="utf-8")
@@ -170,7 +171,15 @@ def test_macos_xctest_process_isolation_matches_local_and_github() -> None:
     assert "unset _SWIFTPM_SKIP_TESTS_LIST" in runner
     assert "swift test --package-path apps/macos list" in runner
     assert '[[ -z "$test_list" ]]' in runner
-    assert "--parallel --num-workers 1" in runner
+    assert "swift test --package-path apps/macos --skip-build" in runner
+    assert "--parallel" not in runner
+
+
+def test_macos_signing_scan_uses_native_runner_tooling() -> None:
+    custody = SIGNING_CUSTODY_TEST.read_text(encoding="utf-8")
+
+    assert "/usr/bin/grep -ERnI -e" in custody
+    assert "if rg " not in custody
 
 
 def test_macos_xctest_runner_rejects_empty_discovery(tmp_path: Path) -> None:

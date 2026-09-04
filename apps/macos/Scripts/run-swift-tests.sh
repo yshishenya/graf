@@ -13,6 +13,6 @@ if [[ -z "$test_list" ]]; then
   exit 1
 fi
 
-# One worker keeps execution sequential while SwiftPM starts a fresh XCTest
-# process for every discovered case, including the WebKit runtime tests.
-swift test --package-path apps/macos --parallel --num-workers 1 --skip-build
+# WebKit owns helper processes outside XCTest. Keep all cases in one sequential
+# XCTest process so retained browser objects cover the complete test run.
+swift test --package-path apps/macos --skip-build
