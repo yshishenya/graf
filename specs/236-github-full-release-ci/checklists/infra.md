@@ -26,8 +26,15 @@
 - [x] CHK008 Do all component SHAs and artifact digests bind to the requested SHA? [Traceability, FR-004/SC-001]
 - [x] CHK009 Is the local full lane clearly documented as non-authoritative fallback? [Consistency, FR-008]
 
+## macOS diagnostic boundary
+
+- [x] CHK010 Does the macOS-only diagnostic require a 40-character SHA, verify the checked-out commit before repository code runs, and preserve the pinned macOS 14 / Swift 6.0.3 baseline? [Traceability, FR-013]
+- [x] CHK011 Is the diagnostic workflow explicitly non-authoritative, read-only, and unable to publish candidate reservations, artifacts, release evidence, deployments or releases? [Boundary, FR-007/FR-013]
+- [x] CHK012 Does a successful macOS diagnostic still require one complete `release-full` with Ubuntu, macOS and aggregate evidence before release approval? [Acceptance, SC-002/SC-004]
+
 ## Reviewer Evidence
 
 - 2026-09-02: reviewer-owned requirements review выполнен по `spec.md`, `plan.md` и контракту Feature 236; после уточнения требований все 9 из 9 критериев подтверждены трассировкой к указанным FR/SC.
 - Follow-up по CHK005 закрыт: требования однозначно требуют сериализации запусков одного candidate, `cancel-in-progress: false`, сохранения первого run и завершения второго после reservation с причиной `candidate_already_reserved`. Это устраняет прежнюю неоднозначность о timeout/конфликтном исходе.
 - Связанные GitHub issues закрываются только после проверки evidence по соответствующему Spec Kit task и добавления closure comment с результатом, границами и ссылками на PR/task; сама отметка checklist не означает завершение реализации.
+- 2026-09-04: reviewer-owned follow-up по CHK010–CHK012 выполнен по обновлённым `spec.md`, `plan.md`, `contracts/macos-diagnostic-workflow.md`, `.github/workflows/macos-diagnostic.yml`, contract-тесту и release guidance. Exact-SHA macOS-only граница, отсутствие release authority и обязательный последующий полный `release-full` подтверждены; runtime evidence нового workflow остаётся гейтом T023 и не подменяет reviewer checklist.

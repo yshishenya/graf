@@ -55,6 +55,10 @@ SHA и получить единственную metadata-only запись `aut
 2. **Given** release candidate подготовлен, **When** operator запускает Full CI,
    **Then** workflow не использует локальное evidence и не принимает stale,
    cancelled или skipped-gate результат.
+3. **Given** ошибка воспроизводится только на закреплённом macOS runner, **When**
+   разработчик вручную запускает macOS diagnosis на exact SHA, **Then** workflow
+   выполняет только macOS-проверки, не запускает server-full и не создаёт
+   authoritative release evidence.
 
 ### User Story 3 - Безопасный fallback и воспроизводимый closeout (Priority: P2)
 
@@ -138,9 +142,11 @@ GitHub evidence с candidate ID и exact SHA.
   orphan/open child issues и закрытие umbrella issue последним.
 - **FR-013**: macOS Full CI MUST сохранять строгие проверки на закреплённом
   macOS 14 runner: WebKit runtime-тесты MUST выполняться в одном последовательном
-  XCTest-процессе и не уничтожать `WKWebView` до его завершения; plist MUST
-  приниматься только при успешном exit code `plutil`, а source scan MUST работать
-  штатными средствами runner без необъявленной зависимости.
+  XCTest-процессе, а JavaScript MUST выполняться через page-world async overload
+  с корректным optional-результатом; plist MUST приниматься только при успешном
+  exit code `plutil`, а source scan MUST работать штатными средствами runner без
+  необъявленной зависимости. Отладочный macOS-only workflow MAY проверять exact
+  SHA без server-full, но MUST NOT создавать authoritative release evidence.
 
 ### Key Entities
 

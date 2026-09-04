@@ -67,10 +67,10 @@
   `swift test --skip-build`.
 - **Rationale**: [SwiftPM 6.0.3's parallel runner](https://github.com/swiftlang/swift-package-manager/blob/swift-6.0.3-RELEASE/Sources/Commands/SwiftTestCommand.swift#L1094-L1137)
   creates a new `TestRunner` and process for each XCTest case even with one
-  worker. GitHub run `33836195145` proved that the external WebKit processes can
-  outlive those short XCTest processes: four browser cases passed and the next
-  two exited with signal 5. One XCTest process lets the retained browser objects
-  cover the whole suite without retry, delay, quarantine or a suite allowlist.
+  worker. One XCTest process keeps test discovery and browser ownership simple
+  without retry, quarantine or a suite allowlist. GitHub run `33838426331`
+  later proved that process lifetime was not the cause of signal 5; Decision 9
+  records the actual bridge failure.
 - **Evidence boundary**: focused local runs prove the one-process harness and
   browser assertions; only a new post-merge GitHub Full CI run proves macOS 14
   with pinned Swift 6.0.3.
@@ -92,6 +92,26 @@
 - **Alternatives considered**: retry, sleep, quarantine and skipped tests hide
   failures; installing `rg` adds network and toolchain drift; special-casing
   individual plist fields duplicates the bug outside the common helper.
+
+## Decision 9: Use WebKit's optional-returning page-world async overload
+
+- **Decision**: every JavaScript evaluation in `CabinetSidebarRuntimeTests`
+  uses `evaluateJavaScript(_:in:contentWorld:)` with `in: nil` and
+  `contentWorld: .page`.
+- **Rationale**: side-effect JavaScript such as `HTMLElement.click()` correctly
+  returns `undefined`. The older one-argument Swift async overlay treated the
+  corresponding Objective-C `nil` as non-optional `Any` and trapped at `:0`.
+  WebKit's page-world overload returns `Any?`, so `undefined` remains a valid
+  result while value-returning assertions keep their existing behavior.
+  Separate-process run `33836195145` and sequential-process run `33838426331`
+  reproduced the same signal 5, disproving the lifetime hypothesis.
+- **Evidence boundary**: focused local tests check compilation and behavior;
+  the manual macOS-only workflow checks pinned macOS 14 / Swift 6.0.3 without
+  rerunning server-full. It is diagnostic only. One later complete
+  `release-full` remains the sole authoritative release evidence.
+- **Alternatives considered**: adding `return true` fixes only current scripts;
+  deleting or moving tests to Node loses the system `WKWebView` boundary; retry,
+  sleep, skip and quarantine hide the defect.
 
 ## Decision 6: Published GitHub Release is the only release-train base
 

@@ -1,0 +1,54 @@
+name: macos-diagnostic
+
+on:
+  workflow_dispatch:
+    inputs:
+      requested_sha:
+        description: Exact 40-character SHA to diagnose
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: graf-macos-diagnostic-${{ inputs.requested_sha }}
+  cancel-in-progress: true
+
+jobs:
+  macos-diagnostic:
+    name: macOS diagnostic (non-authoritative)
+    runs-on: macos-14
+    timeout-minutes: 45
+    env:
+      REQUESTED_SHA: ${{ inputs.requested_sha }}
+    steps:
+      - name: Checkout exact SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.requested_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify exact SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$REQUESTED_SHA" =~ ^[0-9a-fA-F]{40}$ ]]
+          checkout_sha="$(git rev-parse HEAD)"
+          [[ "${checkout_sha,,}" == "${REQUESTED_SHA,,}" ]]
+          [[ "$(uname -m)" == "arm64" ]]
+
+      - name: Install Swift 6 toolchain
+        uses: swift-actions/setup-swift@7ca6abe6b3b0e8b5421b88be48feee39cbf52c6a
+        with:
+          swift-version: "6.0.3"
+
+      - name: Run macOS diagnostic
+        shell: bash
+        run: |
+          set -euo pipefail
+          sh apps/macos/Scripts/validate-no-legacy-audio-driver.sh
+          swift build --package-path apps/macos
+          bash apps/macos/Scripts/run-swift-tests.sh
+          swift run --package-path apps/macos ContractValidation

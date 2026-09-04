@@ -73,3 +73,17 @@ Closeout correction: the `[X]` state of T013-T014 records their implemented
 procedure and pre-merge reconciliation only. T017 stays unchecked in the
 published candidate and becomes `[X]` only in the later closeout-only PR; issue
 closure then uses that merged task state without changing the release tag.
+
+## Phase 9: macOS diagnostic convergence
+
+- [ ] T022 [US1] Route every JavaScript evaluation in
+  `apps/macos/Shared/Tests/CabinetSidebarRuntimeTests.swift` through the native
+  WebKit page-world async overload that returns `Any?`, preserving the existing
+  behavioral coverage without retry, sleep, skip or quarantine per FR-013
+  (Issue #6478; partial).
+- [ ] T023 [US2] Add a read-only, exact-SHA, manually dispatched macOS-only
+  diagnostic workflow under `.github/workflows/` and document that it cannot
+  emit authoritative release evidence, so iterative macOS diagnosis does not
+  rerun server-full per plan: fast-versus-full lanes (Issue #6479; missing).
+
+Dependency: T021 → T022 → T023 → T017.
