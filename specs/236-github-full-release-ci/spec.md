@@ -145,9 +145,11 @@ GitHub evidence с candidate ID и exact SHA.
   XCTest-процессе, а JavaScript MUST выполняться через page-world callback
   bridge, который сохраняет допустимый `nil`-результат и ошибки JavaScript;
   plist MUST приниматься только при успешном
-  exit code `plutil`, а source scan MUST работать штатными средствами runner без
-  необъявленной зависимости. Отладочный macOS-only workflow MAY проверять exact
-  SHA без server-full, но MUST NOT создавать authoritative release evidence.
+  exit code `plutil`, source scan MUST работать штатными средствами runner без
+  необъявленной зависимости, а test resources MUST читаться из объявленного
+  SwiftPM bundle без неограниченного source-tree поиска. Отладочный macOS-only
+  workflow MAY проверять exact SHA без server-full, но MUST NOT создавать
+  authoritative release evidence.
 
 ### Key Entities
 

@@ -85,5 +85,10 @@ closure then uses that merged task state without changing the release tag.
   diagnostic workflow under `.github/workflows/` and document that it cannot
   emit authoritative release evidence, so iterative macOS diagnosis does not
   rerun server-full per plan: fast-versus-full lanes (Issue #6479; missing).
+- [ ] T024 [US1] Replace the unbounded source-tree fixture search in
+  `MicrophoneSampleGraphContractTests` with the existing SwiftPM
+  `Bundle.module` resource accessor, then prove the focused test and the full
+  post-merge `macos-diagnostic` without retry, timeout increases, skips or
+  server-full per FR-013 (Issue #6483; partial).
 
-Dependency: T021 → T022 → T023 → T017.
+Dependency: T021 → T022 → T023 → T024 → T017.
