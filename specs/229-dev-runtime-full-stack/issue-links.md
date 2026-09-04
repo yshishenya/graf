@@ -40,7 +40,9 @@
 | T033 | [#6309](https://github.com/yshishenya/graf/issues/6309) |
 | T034 | [#6310](https://github.com/yshishenya/graf/issues/6310) |
 | T035 | [#6311](https://github.com/yshishenya/graf/issues/6311) |
+| T036 | [#6493](https://github.com/yshishenya/graf/issues/6493) |
+| T037 | [#6494](https://github.com/yshishenya/graf/issues/6494) |
+| T038 | [#6495](https://github.com/yshishenya/graf/issues/6495) |
+| T039 | [#6496](https://github.com/yshishenya/graf/issues/6496) |
+| T040 | [#6497](https://github.com/yshishenya/graf/issues/6497) |
 | T041 | [#6411](https://github.com/yshishenya/graf/issues/6411) |
-
-T036–T040 are closeout gates and remain represented in this feature's
-`tasks.md`; they do not get duplicate tracker issues.
