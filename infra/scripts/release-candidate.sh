@@ -333,6 +333,44 @@ def github_origin_repo():
         die("origin must be a GitHub repository")
     return match.group(1), match.group(2)
 
+def verify_github_full_run(evidence, expected_sha, expected_candidate_id):
+    """Bind authoritative evidence to the successful GitHub release-full run."""
+    run_match = re.fullmatch(r"github-full-(\d+)", str(evidence.get("run_id", "")))
+    if not run_match:
+        die("authoritative Full CI run_id must be github-full-<GitHub run id>")
+    owner, repo = github_origin_repo()
+    repository = f"{owner}/{repo}"
+    run_id = run_match.group(1)
+    try:
+        run = json.loads(subprocess.check_output(
+            ["gh", "api", f"repos/{repository}/actions/runs/{run_id}"], text=True
+        ))
+        artifacts = json.loads(subprocess.check_output(
+            ["gh", "api", f"repos/{repository}/actions/runs/{run_id}/artifacts?per_page=100"],
+            text=True,
+        ))
+    except (OSError, subprocess.CalledProcessError, UnicodeError, json.JSONDecodeError) as exc:
+        die(f"cannot verify authoritative GitHub Full CI run: {exc}")
+    if (
+        run.get("name") != "release-full"
+        or run.get("event") != "workflow_dispatch"
+        or run.get("status") != "completed"
+        or run.get("conclusion") != "success"
+        or str(run.get("head_sha", "")).lower() != expected_sha
+        or run.get("path") != ".github/workflows/release-full.yml"
+    ):
+        die("authoritative evidence is not bound to a successful exact-SHA GitHub release-full run")
+    expected_artifact = f"graf-full-ci-{expected_candidate_id}"
+    values = artifacts.get("artifacts", []) if isinstance(artifacts, dict) else []
+    if not any(
+        isinstance(item, dict)
+        and item.get("name") == expected_artifact
+        and item.get("expired") is False
+        and str(item.get("workflow_run", {}).get("id")) == run_id
+        for item in values
+    ):
+        die(f"GitHub run does not contain live authoritative artifact {expected_artifact}")
+
 def verify_github_release(release_url, expected_tag, expected_sha):
     """Resolve the published GitHub Release and tag to the approved commit."""
     match = re.fullmatch(
@@ -741,6 +779,7 @@ if op == "train-attest":
         errors.append("train-attest requires passed authoritative Full CI evidence")
     if errors:
         die("cannot attest train: " + "; ".join(errors))
+    verify_github_full_run(evidence, train["source_sha"], candidate["candidate_id"])
     output = pathlib.Path(values["output"] or (train_path.parent / f"{train['train_id']}-go.json"))
     receipt = {
         "run_id": evidence["run_id"],
@@ -979,6 +1018,8 @@ if op == "decide":
     decision = "go" if not errors else "no-go"
     calver = values["calver"]
     if decision == "go":
+        if train is not None:
+            verify_github_full_run(evidence, candidate["source_sha"], candidate["candidate_id"])
         if not calver:
             die("go requires --calver YYYY.MM.DD.N")
         calver = validate_calver(calver)

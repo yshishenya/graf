@@ -42,7 +42,7 @@ the fast feedback lane, not a release gate.
 Every local lane emits one metadata-only diagnostic record under the ignored
 `.dev/ci-evidence/` directory (or the path in `GRAF_CI_EVIDENCE_PATH`) and
 prints `ci_evidence_path=...`. Local evidence is never authoritative for a
-release candidate.
+release candidate; supplying `GRAF_CI_CANDIDATE_FILE` does not change this.
 
 GitHub Actions runs `governance-fast` automatically for every pull request and
 is the authoritative PR gate on the exact PR SHA. The workstation does not run

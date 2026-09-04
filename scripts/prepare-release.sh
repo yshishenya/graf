@@ -119,9 +119,8 @@ PY
     echo "error: cannot verify published GitHub Release $published_tag"
     exit 1
   fi
-  if ! published_target="$(python3 - "$release_view_json" "$published_tag" <<'PY'
+  if ! python3 - "$release_view_json" "$published_tag" <<'PY'
 import json
-import re
 import sys
 
 try:
@@ -136,14 +135,84 @@ if (
     or not release.get("publishedAt")
 ):
     raise SystemExit("selected GitHub Release is not published stable metadata")
-target = str(release.get("targetCommitish", ""))
-if not re.fullmatch(r"[0-9a-fA-F]{40}", target):
-    raise SystemExit("published GitHub Release targetCommitish must be an exact 40-character SHA")
-print(target.lower())
+PY
+  then
+    echo "error: cannot verify published GitHub Release metadata $published_tag"
+    exit 1
+  fi
+  github_repo=""
+  case "$origin_url" in
+    git@github.com:*) github_repo="${origin_url#git@github.com:}" ;;
+    ssh://git@github.com/*) github_repo="${origin_url#ssh://git@github.com/}" ;;
+    https://github.com/*|http://github.com/*) github_repo="${origin_url#*github.com/}" ;;
+  esac
+  github_repo="${github_repo%.git}"
+  if [[ ! "$github_repo" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+    echo "error: cannot resolve GitHub repository from origin URL"
+    exit 1
+  fi
+  if ! remote_tag_json="$(gh api "repos/$github_repo/git/ref/tags/$published_tag")"; then
+    echo "error: cannot resolve published GitHub tag $published_tag"
+    exit 1
+  fi
+  if ! remote_tag_type="$(python3 - "$remote_tag_json" <<'PY'
+import json
+import sys
+
+try:
+    value = json.loads(sys.argv[1])
+    object_value = value["object"]
+    print(object_value["type"])
+except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+    raise SystemExit(f"invalid GitHub tag reference: {exc}")
+PY
+  )" || [[ "$remote_tag_type" != "commit" && "$remote_tag_type" != "tag" ]]; then
+    echo "error: published GitHub tag $published_tag has invalid object metadata"
+    exit 1
+  fi
+  if ! remote_tag_object_sha="$(python3 - "$remote_tag_json" <<'PY'
+import json
+import re
+import sys
+
+try:
+    value = json.loads(sys.argv[1])
+    sha = str(value["object"]["sha"])
+except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+    raise SystemExit(f"invalid GitHub tag reference: {exc}")
+if not re.fullmatch(r"[0-9a-fA-F]{40}", sha):
+    raise SystemExit("GitHub tag object SHA must be an exact 40-character SHA")
+print(sha.lower())
 PY
   )"; then
-    echo "error: cannot verify exact target of published GitHub Release $published_tag"
+    echo "error: published GitHub tag $published_tag has invalid object SHA"
     exit 1
+  fi
+  published_target="$remote_tag_object_sha"
+  if [[ "$remote_tag_type" == "tag" ]]; then
+    if ! remote_annotated_tag_json="$(gh api "repos/$github_repo/git/tags/$remote_tag_object_sha")"; then
+      echo "error: cannot resolve annotated GitHub tag $published_tag"
+      exit 1
+    fi
+    if ! published_target="$(python3 - "$remote_annotated_tag_json" <<'PY'
+import json
+import re
+import sys
+
+try:
+    value = json.loads(sys.argv[1])
+    target = str(value["object"]["sha"])
+    target_type = value["object"]["type"]
+except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+    raise SystemExit(f"invalid annotated GitHub tag: {exc}")
+if target_type != "commit" or not re.fullmatch(r"[0-9a-fA-F]{40}", target):
+    raise SystemExit("annotated GitHub tag must point to an exact commit SHA")
+print(target.lower())
+PY
+    )"; then
+      echo "error: annotated GitHub tag $published_tag does not point to a commit"
+      exit 1
+    fi
   fi
   if ! git rev-parse --verify --quiet "${published_tag}^{commit}" >/dev/null; then
     echo "error: published tag $published_tag is missing locally; fetch tags before release preparation"
@@ -189,9 +258,24 @@ for directory in (root / "changes" / "releases").glob("v*"):
         if tuple(map(int, version.split("."))) > published_key and version not in pending_versions:
             raise SystemExit(f"orphan unpublished fragment directory without changelog heading: {directory}")
 
-titles = ("Добавлено", "Изменено", "Исправлено", "Безопасность", "Документы", "Операции")
+titles = ("Добавлено", "Изменено", "Исправлено", "Важно", "Безопасность", "Документы", "Операции")
 groups = {title: [] for title in titles}
-entries = {}
+fragment_features = []
+for version in pending_versions:
+    fragment_dir = root / "changes" / "releases" / f"v{version}"
+    for path in sorted(fragment_dir.glob("F*.yaml")):
+        value = re.search(
+            r"^feature_id[ \t]*:[ \t]*(\d+)[ \t]*$",
+            path.read_text(encoding="utf-8"),
+            re.MULTILINE,
+        )
+        if not value:
+            raise SystemExit(f"invalid pending fragment: {path}")
+        fragment_features.append(int(value.group(1)))
+fragment_feature_set = set(fragment_features)
+
+marked_entries = {}
+seen_content = set()
 for match in pending:
     version = match.group("version")
     start = match.end()
@@ -220,37 +304,27 @@ for match in pending:
         if "Пока нет записей" in value or "No entries yet" in value:
             continue
         feature = re.search(r"Фича\s+(\d+)", value)
-        if not feature:
-            raise SystemExit(
-                f"unpublished changelog section {version} has an entry without a Feature fragment"
-            )
-        feature_id = int(feature.group(1))
-        normalized = " ".join(value.split())
-        previous = entries.get(feature_id)
-        if previous and previous != normalized:
-            raise SystemExit(
-                f"conflicting unpublished changelog entries for Feature {feature_id}; consolidate them explicitly"
-            )
-        if not previous:
-            entries[feature_id] = normalized
+        if feature:
+            feature_id = int(feature.group(1))
+            if feature_id not in fragment_feature_set:
+                raise SystemExit(
+                    f"unpublished changelog entry references Feature {feature_id} without an archived fragment"
+                )
+            normalized = " ".join(value.split())
+            previous = marked_entries.get(feature_id)
+            if previous and previous != normalized:
+                raise SystemExit(
+                    f"conflicting unpublished changelog entries for Feature {feature_id}; consolidate them explicitly"
+                )
+            marked_entries[feature_id] = normalized
+        normalized_content = " ".join(value.split())
+        if normalized_content not in seen_content:
+            seen_content.add(normalized_content)
             groups[category].append(value)
 
-fragment_features = []
-for version in pending_versions:
-    fragment_dir = root / "changes" / "releases" / f"v{version}"
-    for path in sorted(fragment_dir.glob("F*.yaml")):
-        value = re.search(
-            r"^feature_id[ \t]*:[ \t]*(\d+)[ \t]*$",
-            path.read_text(encoding="utf-8"),
-            re.MULTILINE,
-        )
-        if not value:
-            raise SystemExit(f"invalid pending fragment: {path}")
-        fragment_features.append(int(value.group(1)))
-if set(entries) != set(fragment_features):
+if not fragment_features and pending_versions:
     raise SystemExit(
-        "combined unpublished changelog sections do not match their archived fragments: "
-        f"changelog={sorted(entries)}, fragments={sorted(set(fragment_features))}"
+        "unpublished changelog sections have no archived Feature fragments"
     )
 content = "\n\n".join(
     f"### {title}\n" + "\n".join(groups[title])
@@ -433,7 +507,7 @@ if [[ -n "$fragment_content" ]]; then
 import sys
 
 existing, generated = sys.argv[1:]
-titles = ("Добавлено", "Изменено", "Исправлено", "Безопасность", "Документы", "Операции")
+titles = ("Добавлено", "Изменено", "Исправлено", "Важно", "Безопасность", "Документы", "Операции")
 groups = {title: [] for title in titles}
 
 def collect(text):

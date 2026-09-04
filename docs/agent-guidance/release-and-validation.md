@@ -206,15 +206,23 @@ The record is written atomically and remains invalid for release if the target
 SHA changes, a stage fails, or the run is interrupted. It contains metadata
 only: never add logs, credentials, raw audio, transcripts or private paths.
 
-Run the full lane directly only for broad diagnosis:
+Run the local full lane directly only for broad diagnosis:
 
 ```sh
 infra/scripts/ci-local.sh --full
 ```
 
-The normal release path does not run a separate preflight full. After review and
-merge, run the CD dry-run and pass the immutable decision record explicitly to
-the execute step:
+The local full lane is always diagnostic, even when `GRAF_CI_CANDIDATE_FILE` is
+set. It never creates authoritative candidate evidence or a `release_ready`
+result. The normal release path does not run a separate local preflight full;
+GitHub `release-full` is the only authoritative Full CI source. After review
+and merge, run the CD dry-run and pass the immutable decision record explicitly
+to the execute step:
+
+For a train-linked decision, `train-attest` and `decide` resolve the cited
+GitHub run, require the successful `workflow_dispatch` execution of
+`.github/workflows/release-full.yml` on the exact candidate SHA, and verify its
+live `graf-full-ci-<candidate-id>` artifact.
 
 ```sh
 infra/scripts/cd-remote.sh --dry-run --branch master

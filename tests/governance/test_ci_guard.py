@@ -97,11 +97,22 @@ def test_ci_runs_final_cleanliness_before_success_evidence() -> None:
     assert '[[ "$status" != "$initial_tree_state" ]]' in script
 
 
-def test_full_without_candidate_is_diagnostic_only() -> None:
+def test_local_full_is_always_diagnostic_only() -> None:
     script = (ROOT / "infra/scripts/ci-local.sh").read_text(encoding="utf-8")
     assert 'next_gate="full_diagnostic_only"' in script
-    assert 'next_gate="release_ready"' in script
-    assert '[[ -n "$candidate_id" ]]' in script
+    assert 'next_gate="release_ready"' not in script
+    assert 'authoritative-${candidate_id}.json' not in script
+    assert "--authoritative-full" not in script
+
+
+def test_release_train_authenticates_authoritative_github_full_run() -> None:
+    script = (ROOT / "infra/scripts/release-candidate.sh").read_text(encoding="utf-8")
+    local_ci = (ROOT / "infra/scripts/ci-local.sh").read_text(encoding="utf-8")
+    assert "authoritative Full CI run_id must be github-full-<GitHub run id>" in script
+    assert 'run.get("event") != "workflow_dispatch"' in script
+    assert 'run.get("path") != ".github/workflows/release-full.yml"' in script
+    assert 'expected_artifact = f"graf-full-ci-{expected_candidate_id}"' in script
+    assert "local_full_never_authoritative" in local_ci
 
 
 def test_candidate_file_source_sha_is_checked_before_pipeline() -> None:
