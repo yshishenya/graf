@@ -72,8 +72,9 @@ runner-ах, а затем создаёт одну SHA-bound authoritative evide
    merge a closeout-only T017 task-state PR before closing Feature 236 child
    issues and the umbrella; the later closeout commit must not move the tag.
 7. Run the focused WebKit runtime and signing-custody regressions before merge;
-   evaluate page JavaScript through WebKit's optional-returning page-world async
-   overload, keep tests in one sequential XCTest process, use only the native
+   evaluate page JavaScript through a completion-handler bridge that preserves
+   page-world `nil` results and errors on the macOS 14 SDK, keep tests in one
+   sequential XCTest process, use only the native
    macOS scanner, and trust `plutil` output only after a successful exit status.
    Use the non-authoritative macOS-only workflow during diagnosis, then prove
    the complete pinned release lane with T017 after freeze.

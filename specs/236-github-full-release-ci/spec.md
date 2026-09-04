@@ -142,8 +142,9 @@ GitHub evidence с candidate ID и exact SHA.
   orphan/open child issues и закрытие umbrella issue последним.
 - **FR-013**: macOS Full CI MUST сохранять строгие проверки на закреплённом
   macOS 14 runner: WebKit runtime-тесты MUST выполняться в одном последовательном
-  XCTest-процессе, а JavaScript MUST выполняться через page-world async overload
-  с корректным optional-результатом; plist MUST приниматься только при успешном
+  XCTest-процессе, а JavaScript MUST выполняться через page-world callback
+  bridge, который сохраняет допустимый `nil`-результат и ошибки JavaScript;
+  plist MUST приниматься только при успешном
   exit code `plutil`, а source scan MUST работать штатными средствами runner без
   необъявленной зависимости. Отладочный macOS-only workflow MAY проверять exact
   SHA без server-full, но MUST NOT создавать authoritative release evidence.
