@@ -136,6 +136,10 @@ GitHub evidence с candidate ID и exact SHA.
   task↔issue, закрытое состояние всех task-backed issues, русский closure
   comment со ссылками на успешные `governance-fast` и `release-full`, отсутствие
   orphan/open child issues и закрытие umbrella issue последним.
+- **FR-013**: macOS Full CI MUST сохранять строгие проверки на закреплённом
+  macOS 14 runner: WebKit runtime-тесты не должны уничтожать `WKWebView` до
+  завершения изолированного XCTest-процесса, а чтение plist MUST принимать
+  значение только при успешном exit code `plutil`.
 
 ### Key Entities
 
@@ -167,6 +171,8 @@ GitHub evidence с candidate ID и exact SHA.
 - **SC-007**: Release preparation не оставляет отдельными ни одной
   неопубликованной changelog-секции после последнего опубликованного GitHub
   Release и не закрывает feature при открытых task-backed issues.
+- **SC-008**: macOS component проходит на закреплённом GitHub runner без retry,
+  quarantine, пропуска тестов или ослабления signing-custody проверок.
 
 ## Assumptions
 

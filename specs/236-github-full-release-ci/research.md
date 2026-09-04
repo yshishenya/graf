@@ -80,6 +80,21 @@
   not provide a process boundary; filtered suite invocations can return success
   with zero matching tests and still share one process within a suite.
 
+## Decision 8: Keep WebKit alive to the isolated process boundary
+
+- **Decision**: retain synthetic `WKWebView` instances and their navigation
+  delegates until each isolated XCTest process exits. Read plist values through
+  the shared helper only when `plutil` returns success.
+- **Rationale**: GitHub run `33830401847` proved that per-case process isolation
+  removed cross-test accumulation but per-test WebKit teardown still crashes on
+  macOS 14.8.9. The same run proved that macOS 14 may print a missing-key
+  diagnostic to stdout before `plutil` exits nonzero; swallowing that status
+  turns the diagnostic into a false legacy field.
+- **Alternatives considered**: retry, sleep, quarantine and skipped tests hide
+  the failures; a shared `WKProcessPool` restores the earlier cross-test state;
+  special-casing individual plist fields duplicates the bug outside the common
+  trust-boundary helper.
+
 ## Decision 6: Published GitHub Release is the only release-train base
 
 - **Decision**: select the latest non-draft, non-prerelease GitHub Release by
@@ -100,7 +115,8 @@
   that PR SHA, and release-gated `release-full` to the separate candidate SHA.
 - **Rationale**: the existing per-issue validator already owns the closure
   contract. A second closeout script would duplicate parsing and drift again.
-  Unchecked T017 owns the actual post-release closeout; earlier T013-T014
+  T017 stays unchecked in the published candidate, then a post-release
+  closeout-only PR records it complete before issue closure. Earlier T013-T014
   checkboxes prove only that the procedure was implemented.
 - **Alternatives considered**: a documentation-only `gh issue list` command
   displays open issues but cannot fail closed on missing mappings or evidence.

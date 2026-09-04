@@ -9,7 +9,8 @@ release_signing_fail() {
 }
 
 release_signing_plist_value() {
-  /usr/bin/plutil -extract "$1" raw -o - "$2" 2>/dev/null || true
+  value=$(/usr/bin/plutil -extract "$1" raw -o - "$2" 2>/dev/null) || return 0
+  printf '%s\n' "$value"
 }
 
 release_signing_require_safe_identifier() {
