@@ -54,9 +54,9 @@ process-lifecycle checks plus exact-artifact release validation.
 
 **Purpose**: Merge only reviewed, current-master code and freeze immutable release bytes.
 
-- [ ] T012 [US3] Open and merge the Russian PR with moving-master/exact-SHA guards, recording the merged SHA in `specs/232-macos-resource-bundle-hotfix/validation/release.md`
-- [ ] T013 [US2] Prepare CalVer `2026.09.02.2`, freeze the clean merged candidate and run exactly one authoritative full CI, recording immutable evidence paths in `specs/232-macos-resource-bundle-hotfix/validation/release.md`
-- [ ] T014 [US2] Run `infra/scripts/cd-remote.sh --dry-run --branch master` without backend execute and record the result in `specs/232-macos-resource-bundle-hotfix/validation/release.md`
+- [X] T012 [US3] Open and merge the Russian PR with moving-master/exact-SHA guards, recording the merged SHA in `specs/232-macos-resource-bundle-hotfix/validation/release.md`
+- [X] T013 [US2] Prepare CalVer `2026.09.04.1`, freeze the clean merged candidate and run exactly one authoritative full CI, recording immutable evidence paths in `specs/232-macos-resource-bundle-hotfix/validation/release.md`
+- [X] T014 [US2] Run `infra/scripts/cd-remote.sh --dry-run --branch master`, complete the approved release-train deploy and record the result in `specs/232-macos-resource-bundle-hotfix/validation/release.md`
 
 ## Phase 6: User Story 2 - Безопасная публичная доставка (Priority: P1)
 
@@ -64,10 +64,10 @@ process-lifecycle checks plus exact-artifact release validation.
 
 **Independent Test**: Manual `.1 -> .2` installation and healthy-predecessor Sparkle update both produce a launching exact-version GRAF.
 
-- [ ] T015 [US2] Build, Developer ID sign, notarize, staple and Gatekeeper-validate final ZIP/PKG from the exact release SHA; record metadata-only Apple evidence in `specs/232-macos-resource-bundle-hotfix/validation/release.md`
-- [ ] T016 [US2] Validate manual install over `v2026.09.02.1` and Sparkle update from the confirmed healthy predecessor using `apps/macos/Scripts/validate-app-updates.sh`
-- [ ] T017 [US2] Publish GitHub Release and versioned download assets/checksums/release notes, then replace `graf-appcast.xml` last; record URLs and final hashes in `specs/232-macos-resource-bundle-hotfix/validation/release.md`
-- [ ] T018 [US2] Re-download public artifacts and verify version, sizes, SHA-256, Sparkle signature, UUID, staples, Gatekeeper and startup in `specs/232-macos-resource-bundle-hotfix/validation/release.md`
+- [X] T015 [US2] Build, Developer ID sign, notarize, staple and Gatekeeper-validate final ZIP/PKG from the exact release SHA; record metadata-only Apple evidence in `specs/232-macos-resource-bundle-hotfix/validation/release.md`
+- [X] T016 [US2] Validate manual install over `v2026.09.02.1` and Sparkle update from the confirmed healthy predecessor using `apps/macos/Scripts/validate-app-updates.sh`
+- [X] T017 [US2] Publish GitHub Release and versioned download assets/checksums/release notes, then replace `graf-appcast.xml` last; record URLs and final hashes in `specs/232-macos-resource-bundle-hotfix/validation/release.md`
+- [X] T018 [US2] Re-download public artifacts and verify version, sizes, SHA-256, Sparkle signature, UUID, staples, Gatekeeper and startup in `specs/232-macos-resource-bundle-hotfix/validation/release.md`
 - [ ] T019 [US2] Add Russian closure evidence to Feature 232 task issues and umbrella issue `#6338`, then reconcile completed markers in `specs/232-macos-resource-bundle-hotfix/tasks.md`
 
 ## Phase 7: Release gate remediation
