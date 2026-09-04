@@ -377,9 +377,11 @@ elif grep -Eq '^## \[v?[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+\]' "$changelog"; the
 fi
 
 pending_content="${pending_content:-}"
+archive_dir="$PWD/changes/releases/v$next_version"
 
 shopt -s nullglob
-fragment_paths=("$PWD"/changes/unreleased/F*.yaml)
+current_fragment_paths=("$PWD"/changes/unreleased/F*.yaml)
+fragment_paths=("${current_fragment_paths[@]}")
 for version in "${pending_versions[@]}"; do
   fragment_paths+=("$PWD"/changes/releases/"v$version"/F*.yaml)
 done
@@ -414,9 +416,18 @@ print(match.group(1).strip() if match else "")
 PY
 )"
 
+unreleased_real_entries="$(printf '%s\n' "$unreleased_content" | awk '/^[[:space:]]*-[[:space:]]*/ {if ($0 !~ /No entries yet/ && $0 !~ /Пока нет записей/) count++} END {print count + 0}')"
+if [[ "${#current_fragment_paths[@]}" -eq 0 && "${#pending_versions[@]}" -eq 1 && \
+      "${pending_versions[0]}" == "$next_version" && "$unreleased_real_entries" -eq 0 ]]; then
+  echo "Archived release fragments in $archive_dir"
+  echo "Prepared release section in $changelog for v$next_version"
+  echo "Next step: git add CHANGELOG.md && git commit -m \"chore: prepare release v$next_version\" && git tag -a v$next_version -m \"Release v$next_version\""
+  exit 0
+fi
+
 # Feature agents own independent fragments. The release operator is the only
 # writer that assembles them into the root changelog.
-fragment_content="$(python3 - "$pending_content" "${fragment_paths[@]}" <<'PY'
+fragment_content="$(python3 - "$pending_content" "$archive_dir" "${fragment_paths[@]}" <<'PY'
 import json
 import re
 import sys
@@ -427,6 +438,7 @@ pending_entries = {
     for line in sys.argv[1].splitlines()
     if line.lstrip().startswith("-")
 }
+target_archive = Path(sys.argv[2])
 titles = {
     "Added": "Добавлено",
     "Changed": "Изменено",
@@ -437,7 +449,7 @@ titles = {
 }
 groups = {key: [] for key in titles}
 seen_features = {}
-for path in sorted(Path(raw) for raw in sys.argv[2:]):
+for path in sorted(Path(raw) for raw in sys.argv[3:]):
     is_current = path.parent.name == "unreleased"
     text = path.read_text(encoding="utf-8")
 
@@ -506,6 +518,8 @@ for path in sorted(Path(raw) for raw in sys.argv[2:]):
             "merge the fragments before preparing the release"
         )
     seen_features[feature] = path
+    if path.parent == target_archive:
+        continue
 
     def display(raw):
         if isinstance(raw, list):
@@ -650,7 +664,6 @@ EOF
 } > "$tmp_file"
 
 mv "$tmp_file" "$changelog"
-archive_dir="$PWD/changes/releases/v$next_version"
 if [[ "${#fragment_paths[@]}" -gt 0 ]]; then
   mkdir -p "$archive_dir"
   for fragment in "${fragment_paths[@]}"; do
