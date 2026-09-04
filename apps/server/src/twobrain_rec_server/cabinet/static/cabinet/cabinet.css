@@ -2206,6 +2206,7 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
     border-bottom: 1px solid CanvasText;
   }
 }
+
 .settings-section p { margin: 0; }
 .settings-overview {
   display: grid;
@@ -5777,4 +5778,341 @@ html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned
   .billing-period-switch :is(a, button)[aria-current="true"] { outline: 2px solid Highlight; outline-offset: -2px; }
   .billing-plan-badge { border: 1px solid CanvasText; color: CanvasText; background: Canvas; }
   .billing-feature-list li::before { color: CanvasText; }
+}
+
+/* Feature 240 final cascade: one calm visual language across the cabinet. */
+:root {
+  --bg: #17181b;
+  --panel: #1d1f23;
+  --surface: #22252a;
+  --surface-2: #272a30;
+  --surface-3: #30343c;
+  --line: #3a3e47;
+  --line-soft: rgba(255,255,255,.10);
+  --text: #f0f1f4;
+  --muted: #adb2bc;
+  --subtle: #858c97;
+  --accent: #9682ff;
+  --accent-solid: #7056e9;
+  --accent-hover: #8068f4;
+  --focus-ring: #c0b6ff;
+  --meeting-tab-active: #e0dcff;
+  --radius-control: 9px;
+  --radius-compact: 10px;
+  --radius-card: 12px;
+  --radius-panel: 14px;
+}
+
+html[data-theme="light"] {
+  --bg: #f5f6f8;
+  --panel: #ffffff;
+  --surface: #ffffff;
+  --surface-2: #f0f2f5;
+  --surface-3: #e5e8ee;
+  --line: #c4c9d2;
+  --line-soft: rgba(18,24,35,.13);
+  --text: #1d222b;
+  --muted: #525b68;
+  --subtle: #6f7885;
+  --accent: #6248d5;
+  --accent-solid: #6248d5;
+  --accent-hover: #5339c5;
+  --focus-ring: #4d32cc;
+  --meeting-tab-active: #35238f;
+}
+
+body {
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.cabinet-main {
+  padding: clamp(20px, 3vw, 40px) clamp(16px, 4vw, 56px) 72px;
+}
+
+.desktop-embedded .cabinet-main {
+  padding: 20px clamp(16px, 3vw, 36px) 48px;
+}
+
+.cabinet-workspace,
+.desktop-embedded .cabinet-workspace {
+  width: min(100%, 1240px);
+  max-width: none;
+  margin-inline: auto;
+}
+
+.cabinet-titleline h1,
+.page-title h1 {
+  font-size: clamp(21px, 1.7vw, 25px);
+  letter-spacing: -.015em;
+}
+
+.cabinet-topbar {
+  min-height: 40px;
+  margin-bottom: 22px;
+  gap: 20px;
+}
+
+.cabinet-list-controls {
+  gap: 8px;
+}
+
+.cabinet-search-control input[type="search"],
+.cabinet-control-disclosure > .icon-control,
+.cabinet-filter-reset.icon-control {
+  min-height: 40px;
+  border-color: var(--line);
+  background: var(--surface-2);
+}
+
+.cabinet-search-control input[type="search"] {
+  padding-inline-start: 40px;
+  color: var(--text);
+}
+
+.cabinet-control-disclosure > .icon-control,
+.cabinet-filter-reset.icon-control {
+  border-radius: var(--radius-control);
+}
+
+.manual-upload-trigger {
+  min-height: 40px;
+  padding-inline: 16px;
+  border-radius: var(--radius-control);
+}
+
+.list-card.cabinet-card {
+  border-color: var(--line);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: 0 8px 28px rgba(0,0,0,.10);
+}
+
+.meeting-row.cabinet-row {
+  min-height: 56px;
+  padding-inline: 14px;
+  gap: 10px;
+  border-bottom-color: var(--line-soft);
+  background: var(--surface);
+}
+
+.meeting-row.cabinet-row:hover,
+.meeting-row.cabinet-row:focus-within {
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+}
+
+.meeting-row.is-selected,
+.meeting-row.is-selected:hover,
+.meeting-row.is-selected:focus-within {
+  background: color-mix(in srgb, var(--accent) 15%, var(--surface));
+}
+
+.meeting-title {
+  font-weight: 650;
+}
+
+.meeting-duration,
+.meeting-date,
+.row-meta {
+  color: var(--muted);
+}
+
+.settings-page > .settings-page__content {
+  width: min(900px, 100%);
+}
+
+.settings-section {
+  max-width: 900px;
+  gap: 10px;
+  padding-bottom: 24px;
+}
+
+.settings-list {
+  border-color: var(--line);
+  border-radius: var(--radius-card);
+}
+
+.settings-list {
+  background: var(--surface);
+}
+
+.settings-list-item {
+  min-height: 68px;
+  padding: 14px 16px;
+  border-bottom-color: var(--line-soft);
+}
+
+.settings-control-row {
+  min-height: 64px;
+  gap: 24px;
+  border-bottom-color: var(--line-soft);
+}
+
+.meeting-detail-header {
+  box-shadow: 0 12px 24px -24px rgba(0,0,0,.95);
+}
+
+.topline {
+  gap: 24px;
+  margin-bottom: 16px;
+}
+
+.topline .page-title h1 {
+  font-size: clamp(23px, 2vw, 30px);
+}
+
+.meeting-detail-tabs {
+  gap: 24px;
+}
+
+.meeting-detail-tabs .tab {
+  min-height: 44px;
+}
+
+.panel,
+.cabinet-card,
+.processing-recovery,
+.cabinet-banner {
+  border-radius: var(--radius-panel);
+}
+
+.cabinet-mobile-nav {
+  display: none;
+}
+
+/* Keep the enhanced mobile rail and content in the same grid after the later
+   embedded-rail rules have been evaluated. */
+@media (max-width: 980px) {
+  html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.desktop-embedded) {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) auto;
+  }
+  html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.desktop-embedded) > .cabinet-mobile-nav {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.desktop-embedded) > .sidebar {
+    display: none;
+  }
+  html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.desktop-embedded) > .main,
+  html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.desktop-embedded) > .cabinet-main {
+    grid-column: 1;
+    grid-row: 2;
+    width: 100%;
+    max-width: 100vw;
+  }
+  html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.desktop-embedded) > .playback-bar {
+    grid-column: 1;
+    grid-row: 3;
+  }
+  html[data-cabinet-js="ready"] .cabinet-mobile-nav {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    min-width: 0;
+    min-height: 56px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    overscroll-behavior-inline: contain;
+    border-bottom: 1px solid var(--line);
+    background: color-mix(in srgb, var(--panel) 94%, transparent);
+    backdrop-filter: blur(14px);
+  }
+  html[data-cabinet-js="ready"] .cabinet-mobile-nav::-webkit-scrollbar { display: none; }
+  .cabinet-mobile-nav__brand,
+  .cabinet-mobile-nav__item {
+    min-height: 40px;
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    border: 1px solid transparent;
+    border-radius: 9px;
+    padding: 0 11px;
+    color: var(--muted);
+    font-size: var(--font-size-helper);
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .cabinet-mobile-nav__brand {
+    width: 40px;
+    padding: 0;
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+    background: var(--accent-surface);
+    color: var(--accent);
+    font-size: 18px;
+    font-weight: 800;
+  }
+  .cabinet-mobile-nav__divider {
+    width: 1px;
+    height: 24px;
+    flex: 0 0 auto;
+    margin-inline: 2px 3px;
+    background: var(--line);
+  }
+  .cabinet-mobile-nav__item:hover,
+  .cabinet-mobile-nav__item:focus-visible,
+  .cabinet-mobile-nav__item.is-selected {
+    border-color: var(--line);
+    background: var(--surface-3);
+    color: var(--text);
+  }
+  .cabinet-mobile-nav__item.is-selected {
+    border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
+    color: var(--meeting-tab-active);
+  }
+  .cabinet-mobile-nav__item .ui-icon { width: 16px; height: 16px; }
+  .cabinet-main,
+  .desktop-embedded .cabinet-main { min-width: 0; }
+}
+
+@media (max-width: 560px) {
+  html[data-cabinet-js="ready"] .cabinet-mobile-nav {
+    padding-inline: 10px;
+  }
+  .cabinet-mobile-nav__item {
+    gap: 5px;
+    padding-inline: 8px;
+    font-size: 11px;
+  }
+  .cabinet-mobile-nav__item span {
+    max-width: 15ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .cabinet-topbar { margin-bottom: 16px; }
+  .cabinet-titleline h1 { font-size: 22px; }
+}
+
+@media (max-width: 390px) {
+  .cabinet-mobile-nav__item {
+    width: 40px;
+    padding-inline: 0;
+  }
+  .cabinet-mobile-nav__item span { display: none; }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  html[data-cabinet-js="ready"] .cabinet-mobile-nav { backdrop-filter: none; }
+}
+
+@media (max-width: 620px) {
+  .cabinet-main,
+  .desktop-embedded .cabinet-main {
+    padding: 16px 10px 40px;
+  }
+  .cabinet-topbar {
+    margin-bottom: 18px;
+  }
+  .settings-section {
+    padding-bottom: 20px;
+  }
+  .settings-control-row {
+    min-height: 60px;
+  }
 }
