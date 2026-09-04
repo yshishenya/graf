@@ -41,7 +41,7 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
         )
 
         func railState() async throws -> [String: Any] {
-            let result = try await webView.evaluateJavaScript(
+            let result = try await evaluatePageJavaScript(
                 """
                 (() => {
                   const shell = document.querySelector('[data-cabinet-shell]');
@@ -52,7 +52,8 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
                     viewportWidth: window.innerWidth
                   };
                 })()
-                """
+                """,
+                in: webView
             )
             return try XCTUnwrap(result as? [String: Any])
         }
@@ -72,8 +73,9 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
         let autoWide = try await railState()
         XCTAssertEqual(autoWide["pinned"] as? Bool, true)
 
-        _ = try await webView.evaluateJavaScript(
-            "document.querySelector('[data-cabinet-rail-toggle]').click()"
+        _ = try await evaluatePageJavaScript(
+            "document.querySelector('[data-cabinet-rail-toggle]').click()",
+            in: webView
         )
         let manuallyCollapsed = try await railState()
         XCTAssertEqual(manuallyCollapsed["pinned"] as? Bool, false)
@@ -109,8 +111,9 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
             in: compactWebView,
             baseURL: origin
         )
-        let compactInitial = try await compactWebView.evaluateJavaScript(
-            "document.querySelector('[data-cabinet-shell]').classList.contains('is-rail-pinned')"
+        let compactInitial = try await evaluatePageJavaScript(
+            "document.querySelector('[data-cabinet-shell]').classList.contains('is-rail-pinned')",
+            in: compactWebView
         )
         XCTAssertEqual(compactInitial as? Bool, false)
     }
@@ -139,31 +142,35 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
         let origin = try XCTUnwrap(URL(string: "https://graf.test"))
 
         try await load(page, in: webView, baseURL: origin.appendingPathComponent("meetings"))
-        _ = try await webView.evaluateJavaScript(
-            "document.querySelector('[data-cabinet-rail-toggle]').click()"
+        _ = try await evaluatePageJavaScript(
+            "document.querySelector('[data-cabinet-rail-toggle]').click()",
+            in: webView
         )
         try await navigate(page, to: origin.appendingPathComponent("settings"), in: webView)
         var state = try await railState(in: webView)
         XCTAssertEqual(state["pinned"] as? Bool, false)
         XCTAssertEqual(state["stored"] as? String, "collapsed")
 
-        _ = try await webView.evaluateJavaScript(
-            "document.querySelector('[data-cabinet-rail-toggle]').click()"
+        _ = try await evaluatePageJavaScript(
+            "document.querySelector('[data-cabinet-rail-toggle]').click()",
+            in: webView
         )
         try await navigate(page, to: origin.appendingPathComponent("archive"), in: webView)
         state = try await railState(in: webView)
         XCTAssertEqual(state["pinned"] as? Bool, true)
         XCTAssertEqual(state["stored"] as? String, "expanded")
 
-        _ = try await webView.evaluateJavaScript(
-            "document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))"
+        _ = try await evaluatePageJavaScript(
+            "document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))",
+            in: webView
         )
         try await navigate(page, to: origin.appendingPathComponent("meetings"), in: webView)
         state = try await railState(in: webView)
         XCTAssertEqual(state["pinned"] as? Bool, false)
         XCTAssertEqual(state["stored"] as? String, "collapsed")
-        _ = try await webView.evaluateJavaScript(
-            "sessionStorage.removeItem('graf-cabinet-rail')"
+        _ = try await evaluatePageJavaScript(
+            "sessionStorage.removeItem('graf-cabinet-rail')",
+            in: webView
         )
     }
 
@@ -179,7 +186,7 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
 
         try await load(accountLinkingHTML(css: css), in: webView)
 
-        let result = try await webView.evaluateJavaScript(
+        let result = try await evaluatePageJavaScript(
             """
             (() => {
               const documentRoot = document.documentElement;
@@ -222,7 +229,8 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
                 comparisonColumns: getComputedStyle(comparison).gridTemplateColumns.split(' ').length
               };
             })()
-            """
+            """,
+            in: webView
         )
         let metrics = try XCTUnwrap(result as? [String: Any])
 
@@ -286,7 +294,7 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
             in: webView
         )
 
-        let result = try await webView.evaluateJavaScript(
+        let result = try await evaluatePageJavaScript(
             """
             (() => {
               const foot = document.querySelector('.sidebar-foot');
@@ -302,7 +310,8 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
                 overflow: document.documentElement.scrollWidth - window.innerWidth
               };
             })()
-            """
+            """,
+            in: webView
         )
         let metrics = try XCTUnwrap(result as? [String: Any])
 
@@ -346,7 +355,7 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
             baseURL: origin
         )
 
-        let result = try await webView.evaluateJavaScript(
+        let result = try await evaluatePageJavaScript(
             """
             (() => {
               const trigger = document.querySelector('#profile');
@@ -371,7 +380,8 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
                 storedRailState: sessionStorage.getItem('graf-cabinet-rail')
               };
             })()
-            """
+            """,
+            in: webView
         )
         let state = try XCTUnwrap(result as? [String: Any])
 
@@ -385,13 +395,14 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
     }
 
     private func railState(in webView: WKWebView) async throws -> [String: Any] {
-        let result = try await webView.evaluateJavaScript(
+        let result = try await evaluatePageJavaScript(
             """
             (() => ({
               pinned: document.querySelector('[data-cabinet-shell]').classList.contains('is-rail-pinned'),
               stored: sessionStorage.getItem('graf-cabinet-rail') ?? ''
             }))()
-            """
+            """,
+            in: webView
         )
         return try XCTUnwrap(result as? [String: Any])
     }
@@ -432,7 +443,7 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
                 encoding: .utf8
             )
         )
-        _ = try await webView.evaluateJavaScript(
+        _ = try await evaluatePageJavaScript(
             """
             (() => {
               const destination = \(urlJSON)[0];
@@ -446,15 +457,17 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
               );
               document.body.dispatchEvent(new CustomEvent("htmx:afterSwap", { detail: { target: document.body } }));
             })()
-            """
+            """,
+            in: webView
         )
         try await waitUntilReady(in: webView)
     }
 
     private func waitUntilReady(in webView: WKWebView) async throws {
         for _ in 0..<50 {
-            let ready = try await webView.evaluateJavaScript(
-                "(() => { const shell = document.querySelector('[data-cabinet-shell]'); const navigation = shell?.querySelector('[data-cabinet-navigation]'); return document.readyState === 'complete' && (!navigation || shell?.dataset.railReady === 'true'); })()"
+            let ready = try await evaluatePageJavaScript(
+                "(() => { const shell = document.querySelector('[data-cabinet-shell]'); const navigation = shell?.querySelector('[data-cabinet-navigation]'); return document.readyState === 'complete' && (!navigation || shell?.dataset.railReady === 'true'); })()",
+                in: webView
             ) as? Bool ?? false
             if ready { return }
             try await Task.sleep(for: .milliseconds(20))
@@ -505,6 +518,10 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
         </body>
         </html>
         """
+    }
+
+    private func evaluatePageJavaScript(_ script: String, in webView: WKWebView) async throws -> Any? {
+        try await webView.evaluateJavaScript(script, in: nil, contentWorld: .page)
     }
 
     private func number(_ key: String, in values: [String: Any]) throws -> Double {

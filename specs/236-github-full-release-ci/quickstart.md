@@ -15,6 +15,17 @@ Run focused tests for the changed validator and CI contract. Run
 `infra/scripts/ci-local.sh --fast` only for PR feedback; do not run local
 `--full` as release evidence.
 
+## GitHub macOS diagnosis
+
+During macOS-only investigation, dispatch **macos-diagnostic** with the exact
+40-character SHA. It runs the same pinned macOS 14 / Swift 6.0.3 build, tests
+and contract validation without server-full. It creates no candidate
+reservation or authoritative evidence and therefore cannot approve a release.
+
+After the macOS diagnosis passes, freeze a new candidate and run the complete
+**release-full** exactly once. That final run still requires both the Ubuntu
+server job and the macOS job.
+
 ## GitHub candidate run
 
 1. Resolve the latest published non-draft, non-prerelease GitHub Release and use
@@ -49,7 +60,8 @@ skipped gates and every component SHA equal to the frozen candidate SHA.
   task-backed child issue. For #6468 use the closeout-only PR SHA and its
   `governance-fast`; use the published candidate SHA and its `release-full` as
   the separate release evidence.
-- Validate every task-backed child issue (#6416–#6429, #6466–#6468, #6471, #6473 and #6475) with
+- Validate every task-backed child issue (#6416–#6429, #6466–#6468, #6471,
+  #6473, #6475 and #6478–#6479) with
   `python3 scripts/validate-issue-closeout.py --issue-json <issue.json>
   --tasks specs/236-github-full-release-ci/tasks.md --expected-sha
   <candidate-SHA> --require-release-full`; each comment must include the Russian closeout sections,

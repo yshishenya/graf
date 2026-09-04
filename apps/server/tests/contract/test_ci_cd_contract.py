@@ -13,6 +13,7 @@ LOCAL_CI = ROOT / "infra/scripts/ci-local.sh"
 REMOTE_CD = ROOT / "infra/scripts/cd-remote.sh"
 FULL_CI_WORKFLOW = ROOT / ".github/workflows/release-full.yml"
 FULL_CI_VALIDATOR = ROOT / "scripts/validate-full-ci-workflow.py"
+MACOS_DIAGNOSTIC_WORKFLOW = ROOT / ".github/workflows/macos-diagnostic.yml"
 MACOS_TEST_RUNNER = ROOT / "apps/macos/Scripts/run-swift-tests.sh"
 SIGNING_CUSTODY_TEST = ROOT / "apps/macos/Installer/Scripts/test-release-signing-custody.sh"
 
@@ -608,3 +609,27 @@ def test_github_full_workflow_is_manual_exact_sha_and_metadata_only() -> None:
     assert "--component-sha" in workflow
     assert "gh release" not in workflow
     assert "cd-remote.sh" not in workflow
+
+
+def test_macos_diagnostic_workflow_is_exact_sha_and_non_authoritative() -> None:
+    workflow = MACOS_DIAGNOSTIC_WORKFLOW.read_text(encoding="utf-8")
+
+    assert "workflow_dispatch:" in workflow
+    assert "requested_sha:" in workflow
+    assert "pull_request:" not in workflow
+    assert "candidate_id:" not in workflow
+    assert "permissions:\n  contents: read" in workflow
+    assert "ref: ${{ inputs.requested_sha }}" in workflow
+    assert "persist-credentials: false" in workflow
+    assert '[[ "${checkout_sha,,}" == "${REQUESTED_SHA,,}" ]]' in workflow
+    assert "runs-on: macos-14" in workflow
+    assert 'swift-version: "6.0.3"' in workflow
+    assert "bash apps/macos/Scripts/run-swift-tests.sh" in workflow
+    assert "run_local_postgres_tests.sh" not in workflow
+    assert "emit-ci-evidence.py" not in workflow
+    assert "authoritative-full" not in workflow
+    assert "upload-artifact" not in workflow
+    assert "cd-remote.sh" not in workflow
+    assert "secrets." not in workflow
+    assert "environment:" not in workflow
+    assert "id-token:" not in workflow

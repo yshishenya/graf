@@ -72,9 +72,11 @@ runner-ах, а затем создаёт одну SHA-bound authoritative evide
    merge a closeout-only T017 task-state PR before closing Feature 236 child
    issues and the umbrella; the later closeout commit must not move the tag.
 7. Run the focused WebKit runtime and signing-custody regressions before merge;
-   keep WebKit tests in one sequential XCTest process, use only the native macOS
-   scanner, and trust `plutil` output only after a successful exit status. Prove
-   the pinned macOS lane with T017 after freeze.
+   evaluate page JavaScript through WebKit's optional-returning page-world async
+   overload, keep tests in one sequential XCTest process, use only the native
+   macOS scanner, and trust `plutil` output only after a successful exit status.
+   Use the non-authoritative macOS-only workflow during diagnosis, then prove
+   the complete pinned release lane with T017 after freeze.
 
 ## Project Structure
 
@@ -91,6 +93,7 @@ specs/236-github-full-release-ci/
 └── tasks.md
 
 .github/workflows/release-full.yml
+.github/workflows/macos-diagnostic.yml
 apps/macos/Scripts/run-swift-tests.sh
 apps/macos/Installer/Scripts/release-signing-common.sh
 apps/macos/Shared/Tests/CabinetBillingRuntimeTests.swift

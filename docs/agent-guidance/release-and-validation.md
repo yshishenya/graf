@@ -37,6 +37,12 @@ evidence alone cannot authorize a merge. Use `--full` only for an early broad
 diagnosis or when the release workflow cannot provide the authoritative record;
 do not run it after every small edit.
 
+For an iterative macOS-only failure, manually dispatch `macos-diagnostic` on
+the exact SHA instead of rerunning `release-full`. It runs no server-full job,
+publishes no authoritative evidence and cannot approve a release. After the
+macOS problem is resolved, the frozen candidate still needs exactly one complete
+`release-full` with both server and macOS components.
+
 After Feature 227 is merged and the operator has enabled the required checks,
 the remote workflow must validate PR and `merge_group` target identity before
 merge-queue enforcement. A synthetic merge SHA is provenance only; the release
