@@ -654,7 +654,8 @@ archive_dir="$PWD/changes/releases/v$next_version"
 if [[ "${#fragment_paths[@]}" -gt 0 ]]; then
   mkdir -p "$archive_dir"
   for fragment in "${fragment_paths[@]}"; do
-    mv "$fragment" "$archive_dir/"
+    destination="$archive_dir/$(basename "$fragment")"
+    [[ "$fragment" == "$destination" ]] || mv "$fragment" "$destination"
   done
   for version in "${pending_versions[@]}"; do
     rmdir "$PWD/changes/releases/v$version" 2>/dev/null || true

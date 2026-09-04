@@ -48,11 +48,18 @@ small and metadata-only; the aggregation job is the sole authoritative writer.
   successful `plutil` exit, and run the focused macOS regressions before merge
   per FR-013 (Issue #6471).
 
-## Phase 7: Post-release closeout
+## Phase 7: Release-preparation convergence
+
+- [X] T019 [US3] Make `scripts/prepare-release.sh` safely rerunnable for the
+  same unpublished CalVer when fragments are already stored in that release's
+  archive, and cover the same-source archive path in
+  `tests/governance/test_prepare_release.py` per FR-011 (Issue #6473).
+
+## Phase 8: Post-release closeout
 
 - [ ] T017 [US3] After the new exact-SHA candidate proves SC-008 in authoritative GitHub `release-full` and the release/deploy gates complete, land a post-release closeout-only PR that marks T017 complete without changing the published candidate; this makes #6468 eligible for the child/umbrella closure procedure in `quickstart.md` per FR-012 (Issue #6468; missing).
 
-Dependency: T018 → T017.
+Dependency: T018 → T019 → T017.
 
 Closeout correction: the `[X]` state of T013-T014 records their implemented
 procedure and pre-merge reconciliation only. T017 stays unchecked in the
