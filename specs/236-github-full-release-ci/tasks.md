@@ -94,7 +94,7 @@ closure then uses that merged task state without changing the release tag.
   aggregate evidence contract in `.github/workflows/release-full.yml`, add a
   regression assertion in `apps/server/tests/contract/test_ci_cd_contract.py`,
   and prove the corrected aggregate on a new exact-SHA candidate (Issue #6487).
-- [ ] T026 [US1] Remove the duplicated timing-based retry-order assertion from
+- [X] T026 [US1] Remove the duplicated timing-based retry-order assertion from
   `apps/macos/Shared/Tools/ContractValidation/ContractValidationV5.swift`, keep
   a direct retry regression in
   `apps/macos/Shared/Tests/SystemAudioCaptureServiceTests.swift`, add a
