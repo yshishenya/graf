@@ -82,14 +82,19 @@ final class MicrophoneSampleGraphContractTests: XCTestCase {
     }
 
     func testManifestFixtureWithMicrophoneStreamMetadataDecodesWithoutRawAudio() throws {
+        fixtureProbe("before_fixture_lookup")
         let fixtureURL = try XCTUnwrap(contractFixtureURL(
             "apps/macos/Shared/Tests/Fixtures/MicrophoneSampleGraph/manifest-with-stream-metadata.json"
         ))
+        fixtureProbe("after_fixture_lookup")
         let data = try Data(contentsOf: fixtureURL)
+        fixtureProbe("after_fixture_read")
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
 
+        fixtureProbe("before_manifest_decode")
         let manifest = try decoder.decode(LocalRecordingManifest.self, from: data)
+        fixtureProbe("after_manifest_decode")
         let json = String(decoding: data, as: UTF8.self)
 
         // The fixture documents a historical dual package. It remains decode-
@@ -105,7 +110,12 @@ final class MicrophoneSampleGraphContractTests: XCTestCase {
         XCTAssertFalse(json.contains("transcriptText"))
         XCTAssertFalse(json.contains("signedUrl"))
         XCTAssertFalse(json.contains("mediaScribeCredential"))
+        fixtureProbe("after_assertions")
     }
+}
+
+private func fixtureProbe(_ phase: String) {
+    FileHandle.standardError.write(Data("fixture_probe=\(phase)\n".utf8))
 }
 
 private func contractRecordingMicrophoneSelection() -> RecordingMicrophoneSelection {
