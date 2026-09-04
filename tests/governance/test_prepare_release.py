@@ -272,6 +272,53 @@ def test_prepare_release_folds_every_section_after_latest_published_github_relea
     assert {path.name for path in archive.glob("F*.yaml")} == {"F215.yaml", "F216.yaml", "F217.yaml"}
 
 
+def test_prepare_release_can_rerun_same_unpublished_version(tmp_path: Path) -> None:
+    root = fixture(tmp_path)
+    changelog_path = root / "CHANGELOG.md"
+    changelog_path.write_text(
+        """# История изменений
+
+## [Unreleased]
+
+### Изменено
+- Уже существующая запись.
+
+## [2026.09.02.1] - 2026-09-02
+
+### Изменено
+- Уже опубликованная запись.
+""",
+        encoding="utf-8",
+    )
+    configure_github_release_repo(root, "v2026.09.02.1")
+    env = github_release_env(root, "v2026.09.02.1")
+
+    first = subprocess.run(
+        ["bash", "scripts/prepare-release.sh", "2026.09.04.1"],
+        cwd=root,
+        text=True,
+        capture_output=True,
+        check=False,
+        env=env,
+    )
+    second = subprocess.run(
+        ["bash", "scripts/prepare-release.sh", "2026.09.04.1"],
+        cwd=root,
+        text=True,
+        capture_output=True,
+        check=False,
+        env=env,
+    )
+
+    assert first.returncode == 0, first.stdout + first.stderr
+    assert second.returncode == 0, second.stdout + second.stderr
+    changelog = changelog_path.read_text(encoding="utf-8")
+    assert changelog.count("## [2026.09.04.1]") == 1
+    assert changelog.count("<!-- Release features: F217 -->") == 1
+    assert (root / "changes" / "releases" / "v2026.09.04.1" / "F217.yaml").is_file()
+    assert "Prepared release section in CHANGELOG.md for v2026.09.04.1" in second.stdout
+
+
 def test_prepare_release_uses_github_tag_commit_when_release_target_is_branch(tmp_path: Path) -> None:
     root = fixture(tmp_path)
     changelog_path = root / "CHANGELOG.md"
