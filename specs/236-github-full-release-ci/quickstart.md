@@ -62,7 +62,7 @@ skipped gates and every component SHA equal to the frozen candidate SHA.
   `governance-fast`; use the published candidate SHA and its `release-full` as
   the separate release evidence.
 - Validate every task-backed child issue (#6416–#6429, #6466–#6468, #6471,
-  #6473, #6475, #6478–#6479, #6483 and #6487) with
+  #6473, #6475, #6478–#6479, #6483, #6487 and #6489) with
   `python3 scripts/validate-issue-closeout.py --issue-json <issue.json>
   --tasks specs/236-github-full-release-ci/tasks.md --expected-sha
   <candidate-SHA> --require-release-full`; each comment must include the Russian closeout sections,
@@ -82,6 +82,6 @@ skipped gates and every component SHA equal to the frozen candidate SHA.
   `[X]` in the post-release closeout-only PR before #6468 or the umbrella is
   closed; this two-phase order avoids both false completion and a SHA cycle.
 
-Reviewer-owned infrastructure checklist: `checklists/infra.md` records 9/9
+Reviewer-owned infrastructure checklist: `checklists/infra.md` records 12/12
 requirements accepted, including create-once reservation, exact-SHA binding,
 metadata-only evidence and separation of signing/deployment from GitHub CI.

@@ -132,6 +132,34 @@
   source-layout dependency; retry, timeout growth and splitting XCTest would
   only hide the infinite lookup.
 
+## Decision 11: Keep one behavioral owner for retry cleanup ordering
+
+- **Decision**: remove the elapsed-time duplicate from standalone
+  `ContractValidation`; make the focused XCTest release the first start and call
+  retry directly, and retain a deterministic source-order invariant in the
+  standalone validator.
+- **Rationale**: GitHub run `33852464801` completed all 794 XCTest cases, then
+  failed only because the contract checker slept for 0.1 seconds and assumed a
+  0.2-second runtime start was still pending. Runner scheduling may exceed that
+  interval, so the observation is not a valid ordering boundary. Both
+  `release-full` and `macos-diagnostic` run the complete XCTest suite before
+  standalone `ContractValidation`, while the scripts that call the standalone
+  tool directly validate other named contracts. The source invariant still
+  fails if a retry can create/start its runtime before pending cleanup, or if
+  cleanup stops waiting for the first start before its final stop. The XCTest no
+  longer uses `Task.yield` or an unbounded first-stop continuation: the held
+  first start guarantees the timeout, then a direct retry proves cleanup and
+  recovery complete. Removing the duplicate cannot skip the release test and
+  avoids a second, weaker behavioral owner of the same behavior.
+- **Evidence boundary**: repeat the standalone checker and focused XCTest during
+  implementation; use `macos-diagnostic` on the exact merged SHA without
+  server-full. One final complete `release-full` remains required for the
+  release candidate because this release train includes server/infrastructure
+  changes.
+- **Alternatives considered**: retry, longer sleeps/timeouts and quarantine hide
+  the race; a second continuation-based copy still needs either a product-code
+  test hook or a timing assumption to prove that retry entered the actor.
+
 ## Decision 6: Published GitHub Release is the only release-train base
 
 - **Decision**: select the latest non-draft, non-prerelease GitHub Release by

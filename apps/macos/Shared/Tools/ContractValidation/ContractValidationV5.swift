@@ -705,7 +705,7 @@ func validateSystemAudioPermissionFailClosed() async throws {
 
 }
 
-func validateSystemAudioStartTimeoutCleanupOrdering() async throws {
+func validateSystemAudioImmediateStartFailure() async throws {
     let failingService = SystemAudioCaptureService(
         runtime: FailingContractRuntime(),
         runtimeStartTimeoutSeconds: 1
@@ -725,65 +725,73 @@ func validateSystemAudioStartTimeoutCleanupOrdering() async throws {
         )
     }
 
-    let runtime = RecoveringSlowStartingContractRuntime(firstStartDelaySeconds: 0.2)
-    let service = SystemAudioCaptureService(
-        runtime: runtime,
-        runtimeStartTimeoutSeconds: 0.05
-    )
+}
 
-    do {
-        _ = try await service.start(
-            sessionId: "contract-first-timeout",
-            permissionState: .granted,
-            scopeApproval: contractScopeApproval()
+func validateSystemAudioRetryCleanupSourceOrderingInvariant() throws {
+    let sourceURL = repositoryRoot.appendingPathComponent(
+        "apps/macos/RecApp/Sources/Capture/SystemAudioCaptureService.swift"
+    )
+    let source = try String(contentsOf: sourceURL, encoding: .utf8)
+    let startSignature = "public func start(\n        sessionId: String,"
+    guard
+        let startBegin = source.range(of: startSignature),
+        let helperBegin = source.range(
+            of: "private nonisolated static func startRuntime(",
+            range: startBegin.upperBound..<source.endIndex
+        ),
+        let helperEnd = source.range(
+            of: "public func appendIncomingSamples(",
+            range: helperBegin.upperBound..<source.endIndex
         )
-        throw ValidationError(description: "Slow system-audio runtime start must fail with runtimeStartFailed")
-    } catch SystemAudioCaptureServiceError.runtimeStartFailed {
-        let runningAfterTimeout = await service.isRunning
-        try require(
-            !runningAfterTimeout,
-            "Timed-out system-audio start must leave service stopped"
-        )
+    else {
+        throw ValidationError(description: "SystemAudioCaptureService start boundaries are missing")
     }
 
-    let retry = Task {
-        try await service.start(
-            sessionId: "contract-second-start",
-            permissionState: .granted,
-            scopeApproval: contractScopeApproval()
-        )
+    let startBody = source[startBegin.lowerBound..<helperBegin.lowerBound]
+    guard
+        let pending = startBody.range(of: "if let pendingRuntimeStartCleanup"),
+        let wait = startBody.range(of: "await pendingRuntimeStartCleanup.value"),
+        let clear = startBody.range(of: "self.pendingRuntimeStartCleanup = nil"),
+        let create = startBody.range(of: "let runtime = runtimeFactory()"),
+        let begin = startBody.range(of: "let startResult = await Self.startRuntime(")
+    else {
+        throw ValidationError(description: "Retry cleanup ordering markers are missing")
     }
-    try? await Task.sleep(nanoseconds: 100_000_000)
     try require(
-        runtime.startCount == 1,
-        "Retry must wait for timed-out runtime start cleanup before starting a new runtime"
-    )
-    let runningWhileCleanupPending = await service.isRunning
-    try require(
-        !runningWhileCleanupPending,
-        "Retry must not mark service running while timed-out runtime cleanup is pending"
-    )
-
-    let secondSession = try await retry.value
-    try require(
-        secondSession.sessionId == "contract-second-start",
-        "Retry after timed-out runtime cleanup must start the requested second session"
+        pending.lowerBound < wait.lowerBound &&
+            wait.lowerBound < clear.lowerBound &&
+            clear.lowerBound < create.lowerBound &&
+            create.lowerBound < begin.lowerBound,
+        "Pending timed-out cleanup must finish before a retry creates or starts a runtime"
     )
     try require(
-        runtime.startCount == 2 && runtime.stopCount >= 2,
-        "Timed-out runtime cleanup must stop the stale runtime before retry starts"
-    )
-    let stopCountBeforeAcceptedStop = runtime.stopCount
-    let runningAfterRetry = await service.isRunning
-    try require(
-        runningAfterRetry,
-        "Retry after timed-out runtime cleanup must leave the second session running"
+        source.contains("waitForTimedOutRuntimeStartCleanup ??\n            (runtime != nil || runtimeFactory != nil)"),
+        "Injected runtimes must wait for timed-out start cleanup by default"
     )
 
-    _ = try await service.stop()
+    let helperBody = source[helperBegin.lowerBound..<helperEnd.lowerBound]
+    guard
+        let cleanupCase = helperBody.range(of: "case .waitForRuntimeStartTask:"),
+        let firstStop = helperBody.range(
+            of: "await runtime.stop()",
+            range: cleanupCase.upperBound..<helperBody.endIndex
+        ),
+        let startCompletion = helperBody.range(
+            of: "_ = await startTask.result",
+            range: firstStop.upperBound..<helperBody.endIndex
+        ),
+        let finalStop = helperBody.range(
+            of: "await runtime.stop()",
+            range: startCompletion.upperBound..<helperBody.endIndex
+        )
+    else {
+        throw ValidationError(description: "Timed-out runtime cleanup markers are missing")
+    }
     try require(
-        runtime.stopCount == stopCountBeforeAcceptedStop + 1,
-        "Stopping the accepted retry session must stop exactly that active runtime"
+        cleanupCase.lowerBound < firstStop.lowerBound &&
+            firstStop.lowerBound < startCompletion.lowerBound &&
+            startCompletion.lowerBound < finalStop.lowerBound,
+        "Timed-out runtime cleanup must stop, await start completion, and stop again"
     )
 }
 
@@ -922,42 +930,6 @@ func contractScopeApproval() -> CaptureScopeApproval {
         approvalMode: .userConfirmedSuggestedScope,
         eligibleReason: .manualMeetingScope
     )
-}
-
-private final class RecoveringSlowStartingContractRuntime: SystemAudioCaptureRuntime, @unchecked Sendable {
-    private let firstStartDelaySeconds: TimeInterval
-    private let lock = NSLock()
-    private var protectedStartCount = 0
-    private var protectedStopCount = 0
-
-    init(firstStartDelaySeconds: TimeInterval) {
-        self.firstStartDelaySeconds = firstStartDelaySeconds
-    }
-
-    var startCount: Int {
-        lock.withLock { protectedStartCount }
-    }
-
-    var stopCount: Int {
-        lock.withLock { protectedStopCount }
-    }
-
-    func start() async throws {
-        let currentStart = lock.withLock {
-            protectedStartCount += 1
-            return protectedStartCount
-        }
-
-        if currentStart == 1 {
-            try? await Task.sleep(nanoseconds: UInt64(firstStartDelaySeconds * 1_000_000_000))
-        }
-    }
-
-    func stop() async {
-        lock.withLock {
-            protectedStopCount += 1
-        }
-    }
 }
 
 private final class FailingContractRuntime: SystemAudioCaptureRuntime, @unchecked Sendable {
@@ -1155,7 +1127,8 @@ do {
     try validateDiagnosticBundleService()
     try validateLocalRecordingDiagnosticBundleNoEgressTruth()
     try await validateSystemAudioPermissionFailClosed()
-    try await validateSystemAudioStartTimeoutCleanupOrdering()
+    try await validateSystemAudioImmediateStartFailure()
+    try validateSystemAudioRetryCleanupSourceOrderingInvariant()
     try validateAppStopFailureFailClosedSourceInvariant()
     try validateRecordingMetersUseLocalWriterInvariant()
     try validateManualGateExitCleanupInvariant()
