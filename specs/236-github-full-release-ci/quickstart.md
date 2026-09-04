@@ -6,6 +6,9 @@
 python3 scripts/validate-full-ci-workflow.py .github/workflows/release-full.yml
 python3 scripts/validate-full-ci-workflow.py --self-test
 python3 scripts/check_spec_kit_governance.py
+swift test --package-path apps/macos --parallel --num-workers 1 --filter 'CabinetBillingRuntimeTests|CabinetSidebarRuntimeTests'
+sh apps/macos/Installer/Scripts/test-release-signing-custody.sh
+swift test --package-path apps/macos --filter 'InstallerLifecycleEvidenceTests/testReleaseSigningFailureSimulationsStayFailClosed'
 ```
 
 Run focused tests for the changed validator and CI contract. Run
@@ -37,7 +40,16 @@ skipped gates and every component SHA equal to the frozen candidate SHA.
 - Record the final PR SHA in the PR description. Record the post-merge candidate
   SHA in immutable Full CI evidence, an ignored metadata-only closeout manifest
   and GitHub comments. Never write a post-freeze SHA back into tracked source.
-- Validate every task-backed child issue (#6416–#6429 and #6466–#6468) with
+- Keep T017 unchecked in the frozen candidate. After the GitHub Release,
+  production deploy and installed-app checks complete, open a separate
+  closeout-only PR from current `master` that changes T017 to `[X]`. Its commit
+  is later than the published tag and therefore does not alter or invalidate
+  the released candidate. Merge it only after its own `governance-fast` passes.
+- After that closeout-only PR merges, add closure comments and close every
+  task-backed child issue. For #6468 use the closeout-only PR SHA and its
+  `governance-fast`; use the published candidate SHA and its `release-full` as
+  the separate release evidence.
+- Validate every task-backed child issue (#6416–#6429, #6466–#6468 and #6471) with
   `python3 scripts/validate-issue-closeout.py --issue-json <issue.json>
   --tasks specs/236-github-full-release-ci/tasks.md --expected-sha
   <candidate-SHA> --require-release-full`; each comment must include the Russian closeout sections,
@@ -53,8 +65,9 @@ skipped gates and every component SHA equal to the frozen candidate SHA.
   child issues are reconciled; it is not a task-backed `T000` row.
 - The final manifest must show zero orphan or open task-backed child issues.
 - Historical `[X]` rows T013-T014 cover the implemented procedure and pre-merge
-  reconciliation only. T017 is the sole unfinished owner of their deferred
-  post-Full-CI issue closure and must remain `[ ]` until this section passes.
+  reconciliation only. T017 remains `[ ]` through publication and becomes
+  `[X]` in the post-release closeout-only PR before #6468 or the umbrella is
+  closed; this two-phase order avoids both false completion and a SHA cycle.
 
 Reviewer-owned infrastructure checklist: `checklists/infra.md` records 9/9
 requirements accepted, including create-once reservation, exact-SHA binding,

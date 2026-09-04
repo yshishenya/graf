@@ -68,8 +68,12 @@ runner-ах, а затем создаёт одну SHA-bound authoritative evide
    existing CD dry-run and macOS signing/notarization gates.
 5. Exercise release preparation with unpublished changelog sections and run
    feature-level closeout validation against GitHub issue metadata.
-6. Keep T017 open through Full CI, publication and production validation; close
-   Feature 236 task issues and umbrella only after its live proof passes.
+6. Keep T017 open through Full CI, publication and production validation. Then
+   merge a closeout-only T017 task-state PR before closing Feature 236 child
+   issues and the umbrella; the later closeout commit must not move the tag.
+7. Run the focused WebKit runtime and signing-custody regressions before merge;
+   keep per-case process isolation and trust `plutil` output only when its exit
+   status is successful. Prove the pinned macOS lane with T017 after freeze.
 
 ## Project Structure
 
@@ -87,6 +91,9 @@ specs/236-github-full-release-ci/
 
 .github/workflows/release-full.yml
 apps/macos/Scripts/run-swift-tests.sh
+apps/macos/Installer/Scripts/release-signing-common.sh
+apps/macos/Shared/Tests/CabinetBillingRuntimeTests.swift
+apps/macos/Shared/Tests/CabinetSidebarRuntimeTests.swift
 scripts/validate-full-ci-workflow.py
 scripts/validate-issue-closeout.py
 scripts/prepare-release.sh
