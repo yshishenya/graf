@@ -432,7 +432,7 @@ def test_failing_stage_emits_one_final_failure() -> None:
     assert result.stdout.count("ci_local_result=fail") == 1
 
 
-def test_full_claims_release_ready_only_after_success(tmp_path: Path) -> None:
+def test_local_full_remains_diagnostic_with_candidate_file(tmp_path: Path) -> None:
     token = uuid.uuid4().hex[:12]
     source_sha = subprocess.check_output(
         ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
@@ -455,6 +455,7 @@ def test_full_claims_release_ready_only_after_success(tmp_path: Path) -> None:
         env={
             "GRAF_CI_CANDIDATE_ID": passed_id,
             "GRAF_CI_CANDIDATE_FILE": str(passed_candidate),
+            "GRAF_CI_EVIDENCE_PATH": str(tmp_path / "passed-evidence.json"),
         },
     )
     diagnostic = run_stubbed_ci("", "--full")
@@ -465,6 +466,7 @@ def test_full_claims_release_ready_only_after_success(tmp_path: Path) -> None:
         env={
             "GRAF_CI_CANDIDATE_ID": failed_id,
             "GRAF_CI_CANDIDATE_FILE": str(failed_candidate),
+            "GRAF_CI_EVIDENCE_PATH": str(tmp_path / "failed-evidence.json"),
         },
     )
 
@@ -472,7 +474,26 @@ def test_full_claims_release_ready_only_after_success(tmp_path: Path) -> None:
     assert "ci_lane requested=full effective=full" in passed.stdout
     assert "next_gate=full_in_progress" in passed.stdout
     assert "ci_local_result=pass mode=full" in passed.stdout
-    assert "next_gate=release_ready" in passed.stdout
+    assert "next_gate=full_diagnostic_only" in passed.stdout
+    assert "authoritative-full" not in passed.stdout
+    passed_evidence = json.loads((tmp_path / "passed-evidence.json").read_text(encoding="utf-8"))
+    assert passed_evidence["candidate_id"] == passed_id
+    assert "authoritative_full" not in passed_evidence
+    assert (tmp_path / "passed-evidence.json").name != f"authoritative-{passed_id}.json"
+
+    blocked_path = tmp_path / f"authoritative-{passed_id}.json"
+    rewritten = run_stubbed_ci(
+        "",
+        "--full",
+        env={
+            "GRAF_CI_CANDIDATE_ID": passed_id,
+            "GRAF_CI_CANDIDATE_FILE": str(passed_candidate),
+            "GRAF_CI_EVIDENCE_PATH": str(blocked_path),
+        },
+    )
+    assert rewritten.returncode == 0, rewritten.stdout
+    assert not blocked_path.exists()
+    assert "reason=local_full_never_authoritative" in rewritten.stdout
 
     assert diagnostic.returncode == 0, diagnostic.stdout
     assert "ci_local_result=pass mode=full" in diagnostic.stdout

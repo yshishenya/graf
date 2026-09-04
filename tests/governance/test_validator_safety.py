@@ -573,7 +573,7 @@ def test_feature_closeout_requires_closed_unique_children_and_umbrella_last() ->
     }
     umbrella = {
         "number": 6415,
-        "title": "[236][P1][governance] T000: Реализовать фичу",
+        "title": "[236][P1][governance] T017: Завершить фичу",
         "state": "CLOSED",
         "closedAt": "2026-09-04T10:01:00Z",
         "comments": [{"body": _closeout_comment()}],
@@ -593,6 +593,35 @@ def test_feature_closeout_requires_closed_unique_children_and_umbrella_last() ->
     early_umbrella = {**umbrella, "closedAt": "2026-09-04T09:59:00Z"}
     errors = validator.validate_feature([child, early_umbrella], tasks, "a" * 40, 6415)
     assert any("was closed before child issue #6337" in error for error in errors)
+
+    equal_umbrella = {**umbrella, "closedAt": child["closedAt"]}
+    errors = validator.validate_feature([child, equal_umbrella], tasks, "a" * 40, 6415)
+    assert any("was closed before child issue #6337" in error for error in errors)
+
+    t000_umbrella = {**umbrella, "title": "[236][P1][governance] T000: Временная резервация"}
+    errors = validator.validate_feature([child, t000_umbrella], tasks, "a" * 40, 6415)
+    assert any("cannot be closed with temporary T000" in error for error in errors)
+
+
+def test_feature_closeout_rejects_duplicate_task_rows() -> None:
+    validator = load_script("validate-issue-closeout")
+    tasks = "# Tasks\n\n- [ ] T001 Черновик (Issue #6337)\n- [X] T001 Дубль (Issue #6337)\n"
+    child = {
+        **_closeout_issue(_closeout_comment()),
+        "state": "CLOSED",
+        "closedAt": "2026-09-04T10:00:00Z",
+    }
+    umbrella = {
+        "number": 6415,
+        "title": "[236][P1][governance] T017: Завершить фичу",
+        "state": "OPEN",
+        "closedAt": None,
+        "comments": [],
+    }
+    errors = validator.validate_feature(
+        [child, umbrella], tasks, "a" * 40, 6415, allow_open_umbrella=True
+    )
+    assert any("duplicate checkbox rows for T001" in error for error in errors)
 
 
 def test_feature_closeout_rejects_missing_duplicate_and_orphan_task_owners() -> None:
@@ -645,11 +674,15 @@ def test_feature_closeout_verifies_github_workflow_conclusion_and_head_sha(monke
             "conclusion": "success",
             "workflowName": "governance-fast",
             "headSha": "a" * 40,
+            "event": "pull_request",
+            "pullRequestNumbers": [6383],
         },
         "456": {
             "conclusion": "success",
             "workflowName": "release-full",
             "headSha": "a" * 40,
+            "event": "workflow_dispatch",
+            "pullRequestNumbers": [],
         },
     }
     monkeypatch.setattr(validator, "_github_run", lambda _repo, run_id: runs[run_id])
@@ -675,6 +708,16 @@ def test_feature_closeout_verifies_github_workflow_conclusion_and_head_sha(monke
         require_release_full=True,
     )
     assert any("SHA does not match release-full evidence" in error for error in errors)
+
+    runs["456"] = {**runs["456"], "headSha": "a" * 40}
+    runs["123"] = {**runs["123"], "pullRequestNumbers": [9999]}
+    errors = validator.verify_feature_runs(
+        "yshishenya/graf",
+        [issue],
+        "a" * 40,
+        require_release_full=True,
+    )
+    assert any("is not bound to PR #6383" in error for error in errors)
 
     pr["body"] = "Refs #9999"
     errors = validator.verify_feature_runs(

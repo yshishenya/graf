@@ -72,19 +72,29 @@ def release_env() -> dict[str, str]:
     return {**os.environ, "GRAF_RELEASE_OPERATOR": "test-release-operator"}
 
 
-def github_release_env(root: Path, published_tag: str) -> dict[str, str]:
+def github_release_env(
+    root: Path,
+    published_tag: str,
+    *,
+    target_commitish: str | None = None,
+    remote_target: str | None = None,
+) -> dict[str, str]:
     target = subprocess.check_output(
         ["git", "rev-parse", f"{published_tag}^{{commit}}"],
         cwd=root,
         text=True,
     ).strip()
+    release_target = target_commitish or target
+    remote_target = remote_target or target
     bin_dir = root / "fake-bin"
     bin_dir.mkdir()
     gh = bin_dir / "gh"
     gh.write_text(
         "#!/bin/sh\n"
-        "if [ \"$1 $2\" = \"release view\" ]; then\n"
-        f"  printf '%s\\n' '{{\"tagName\":\"{published_tag}\",\"targetCommitish\":\"{target}\","
+        "if [ \"$1\" = \"api\" ]; then\n"
+        f"  printf '%s\\n' '{{\"ref\":\"refs/tags/{published_tag}\",\"object\":{{\"sha\":\"{remote_target}\",\"type\":\"commit\"}}}}'\n"
+        "elif [ \"$1 $2\" = \"release view\" ]; then\n"
+        f"  printf '%s\\n' '{{\"tagName\":\"{published_tag}\",\"targetCommitish\":\"{release_target}\","
         "\"isDraft\":false,\"isPrerelease\":false,\"publishedAt\":\"2026-09-02T05:21:01Z\"}'\n"
         "else\n"
         f"  printf '%s\\n' '[{{\"tagName\":\"{published_tag}\",\"isDraft\":false,"
@@ -260,6 +270,50 @@ def test_prepare_release_folds_every_section_after_latest_published_github_relea
     assert {path.name for path in archive.glob("F*.yaml")} == {"F215.yaml", "F216.yaml", "F217.yaml"}
 
 
+def test_prepare_release_uses_github_tag_commit_when_release_target_is_branch(tmp_path: Path) -> None:
+    root = fixture(tmp_path)
+    changelog_path = root / "CHANGELOG.md"
+    changelog_path.write_text(
+        changelog_path.read_text(encoding="utf-8").replace(
+            "## [Unreleased]",
+            "## [2026.09.02.1] - 2026-09-02\n\n### Изменено\n- Уже опубликованная запись.\n\n## [Unreleased]",
+            1,
+        ),
+        encoding="utf-8",
+    )
+    configure_github_release_repo(root, "v2026.09.02.1")
+
+    result = subprocess.run(
+        ["bash", "scripts/prepare-release.sh", "2026.09.04.1"],
+        cwd=root,
+        text=True,
+        capture_output=True,
+        check=False,
+        env=github_release_env(root, "v2026.09.02.1", target_commitish="master"),
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "## [2026.09.04.1]" in (root / "CHANGELOG.md").read_text(encoding="utf-8")
+
+
+def test_prepare_release_rejects_github_tag_that_does_not_match_local_tag(tmp_path: Path) -> None:
+    root = fixture(tmp_path)
+    configure_github_release_repo(root, "v2026.09.02.1")
+
+    result = subprocess.run(
+        ["bash", "scripts/prepare-release.sh", "2026.09.04.1"],
+        cwd=root,
+        text=True,
+        capture_output=True,
+        check=False,
+        env=github_release_env(root, "v2026.09.02.1", remote_target="b" * 40),
+    )
+
+    assert result.returncode != 0
+    assert "does not match its published GitHub Release target" in result.stdout + result.stderr
+    assert "## [2026.09.04.1]" not in (root / "CHANGELOG.md").read_text(encoding="utf-8")
+
+
 def test_prepare_release_rejects_duplicate_feature_across_unpublished_and_current_fragments(tmp_path: Path) -> None:
     root = fixture(tmp_path)
     (root / "CHANGELOG.md").write_text(
@@ -301,7 +355,7 @@ def test_prepare_release_rejects_duplicate_feature_across_unpublished_and_curren
     assert "## [2026.09.04.1]" not in (root / "CHANGELOG.md").read_text(encoding="utf-8")
 
 
-def test_prepare_release_rejects_conflicting_unpublished_text_for_one_feature(tmp_path: Path) -> None:
+def test_prepare_release_uses_archived_fragment_for_concise_unmarked_entries(tmp_path: Path) -> None:
     root = fixture(tmp_path)
     (root / "CHANGELOG.md").write_text(
         """# История изменений
@@ -314,12 +368,15 @@ def test_prepare_release_rejects_conflicting_unpublished_text_for_one_feature(tm
 ## [2026.09.02.3] - 2026-09-03
 
 ### Изменено
-- Новая формулировка. (Фича 215, issue #6215)
+- Старая формулировка.
+
+### Важно
+- Требуется ручное обновление.
 
 ## [2026.09.02.2] - 2026-09-02
 
 ### Изменено
-- Старая формулировка. (Фича 215, issue #6215)
+- Старая формулировка.
 
 ## [2026.09.02.1] - 2026-09-02
 
@@ -342,8 +399,12 @@ def test_prepare_release_rejects_conflicting_unpublished_text_for_one_feature(tm
         env=github_release_env(root, "v2026.09.02.1"),
     )
 
-    assert result.returncode != 0
-    assert "conflicting unpublished changelog entries for Feature 215" in result.stdout + result.stderr
+    assert result.returncode == 0, result.stdout + result.stderr
+    changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert "- Старая формулировка." in changelog
+    assert changelog.count("- Старая формулировка.") == 1
+    assert "### Важно\n- Требуется ручное обновление." in changelog
+    assert "Фича 215" not in changelog
 
 
 def test_prepare_release_rejects_orphan_unpublished_fragment_directory(tmp_path: Path) -> None:

@@ -295,12 +295,14 @@ main() (
       local evidence_path
       local evidence_args
       finished_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-      if [[ "$requested_mode" == "full" && -n "$candidate_id" && "$dirty_worktree" -eq 0 ]]; then
-        # A candidate has exactly one authoritative Full CI identity.  Do not
-        # let a retry choose a second output path and become a competing proof.
-        evidence_path=".dev/ci-evidence/authoritative-${candidate_id}.json"
-      else
-        evidence_path="${evidence_path_override:-.dev/ci-evidence/${run_id}.json}"
+      # Local CI is always diagnostic, including when it is pointed at a
+      # release-candidate file. GitHub Actions release-full is the only
+      # authoritative Full CI source, so local runs must never publish the
+      # canonical authoritative evidence path.
+      evidence_path="${evidence_path_override:-.dev/ci-evidence/${run_id}.json}"
+      if [[ "$requested_mode" == "full" && "$(basename "$evidence_path")" == authoritative-*.json ]]; then
+        printf 'ci_diagnostic=evidence_path_rewritten reason=local_full_never_authoritative\n' >&2
+        evidence_path=".dev/ci-evidence/${run_id}.json"
       fi
       evidence_args=(
         --output "$evidence_path" --run-id "$run_id" --lane "$effective_mode"
@@ -330,7 +332,6 @@ main() (
       [[ -d "$repo_root/apps/macos/.build" ]] && evidence_args+=(--artifact "macos-build=$repo_root/apps/macos/.build")
       [[ -n "$evidence_reason" ]] && evidence_args+=(--reason "$evidence_reason")
       [[ -n "$candidate_id" ]] && evidence_args+=(--candidate-id "$candidate_id")
-      [[ "$requested_mode" == "full" && -n "$candidate_id" && "$dirty_worktree" -eq 0 ]] && evidence_args+=(--authoritative-full)
       while IFS= read -r skipped; do
         [[ -n "$skipped" ]] && evidence_args+=(--skipped-gate "$skipped")
       done <<< "$skipped_gates"
@@ -343,12 +344,9 @@ main() (
     fi
     if [[ "$exit_status" -eq 0 && "$pipeline_result" == "pass" ]]; then
       if [[ "$requested_mode" == "full" ]]; then
-        if [[ -n "$candidate_id" && "$dirty_worktree" -eq 0 ]]; then
-          next_gate="release_ready"
-        else
-          # A direct or dirty full run is diagnosis only until a clean candidate is frozen.
-          next_gate="full_diagnostic_only"
-        fi
+        # The local full lane is a broad diagnostic only. The GitHub
+        # release-full workflow is the sole release-authorizing gate.
+        next_gate="full_diagnostic_only"
       fi
       printf '\nci_local_result=pass mode=%s requested_mode=%s duration_seconds=%s next_gate=%s\n' \
         "$effective_mode" "$requested_mode" "$pipeline_duration" "$next_gate"
@@ -664,8 +662,9 @@ PY
   fi
 
   if [[ "$effective_mode" == "full" ]]; then
-    # Full CI is the authoritative release gate. Check every tracked shell
-    # script regardless of path classification, including macOS helpers.
+    # Local full CI is a broad diagnostic. The GitHub release-full workflow is
+    # the authoritative release gate. Check every tracked shell script
+    # regardless of path classification, including macOS helpers.
     run_step "shell syntax" check_shell_syntax "$changed_list" || return $?
     run_step "macOS legacy audio architecture guard" sh apps/macos/Scripts/validate-no-legacy-audio-driver.sh || return $?
     if [[ "$(uname -s)" == "Darwin" ]]; then

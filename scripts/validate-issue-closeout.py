@@ -204,7 +204,11 @@ def validate_feature(
 ) -> list[str]:
     errors: list[str] = []
     task_states = _task_state(tasks_text)
-    task_rows = [match.group("task") for match in TASK_CHECKBOX_ROW_RE.finditer(tasks_text)]
+    task_rows = [
+        match.group("task")
+        for line in tasks_text.splitlines()
+        if (match := TASK_CHECKBOX_ROW_RE.search(line))
+    ]
     for task in sorted(set(task_rows)):
         if task_rows.count(task) > 1:
             errors.append(f"tasks.md contains duplicate checkbox rows for {task}")
@@ -256,6 +260,10 @@ def validate_feature(
             if not allow_open_umbrella:
                 errors.append(f"umbrella issue #{umbrella_issue} is still open")
         else:
+            if "T000" in str(umbrella.get("title", "")).upper():
+                errors.append(
+                    f"umbrella issue #{umbrella_issue} cannot be closed with temporary T000 ownership"
+                )
             comment = _closure_comment(umbrella)
             if not comment:
                 errors.append(f"umbrella issue #{umbrella_issue} is missing the required Russian closure comment")
@@ -287,27 +295,37 @@ def validate_feature(
                     number = int(child.get("number", 0) or 0)
                     if str(child.get("state", "")).upper() == "CLOSED" and child_closed is None:
                         errors.append(f"closed child issue #{number} has no valid closedAt timestamp")
-                    elif child_closed and child_closed > umbrella_closed:
+                    elif child_closed and child_closed >= umbrella_closed:
                         errors.append(f"umbrella issue #{umbrella_issue} was closed before child issue #{number}")
     return errors
 
 
 def _github_run(repo: str, run_id: str) -> dict[str, object]:
     result = subprocess.run(
-        [
-            "gh", "run", "view", run_id, "--repo", repo, "--json",
-            "databaseId,headSha,conclusion,workflowName,url",
-        ],
+        ["gh", "api", f"repos/{repo}/actions/runs/{run_id}"],
         text=True,
         capture_output=True,
         check=False,
     )
     if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip() or f"gh run view {run_id} failed")
+        raise RuntimeError(result.stderr.strip() or f"GitHub run {run_id} lookup failed")
     value = json.loads(result.stdout)
     if not isinstance(value, dict):
         raise ValueError(f"GitHub run {run_id} must be a JSON object")
-    return value
+    pull_requests = value.get("pull_requests", [])
+    if not isinstance(pull_requests, list):
+        raise ValueError(f"GitHub run {run_id} pull_requests must be an array")
+    return {
+        "databaseId": value.get("id"),
+        "headSha": value.get("head_sha"),
+        "conclusion": value.get("conclusion"),
+        "workflowName": value.get("name"),
+        "url": value.get("html_url"),
+        "event": value.get("event"),
+        "pullRequestNumbers": [
+            item.get("number") for item in pull_requests if isinstance(item, dict)
+        ],
+    }
 
 
 def _github_pr(repo: str, number: str) -> dict[str, object]:
@@ -340,7 +358,8 @@ def verify_feature_runs(
     pr_cache: dict[str, dict[str, object]] = {}
 
     def verify(
-        *, issue_number: int, match: re.Match[str], workflow: str, expected_run_sha: str
+        *, issue_number: int, match: re.Match[str], workflow: str, expected_run_sha: str,
+        expected_event: str, expected_pr_number: int | None = None,
     ) -> None:
         if match.group("repo").lower() != repo.lower():
             errors.append(f"issue #{issue_number} {workflow} URL points to another repository")
@@ -357,6 +376,12 @@ def verify_feature_runs(
             errors.append(f"issue #{issue_number} GitHub run {run_id} did not conclude success")
         if run.get("workflowName") != workflow:
             errors.append(f"issue #{issue_number} GitHub run {run_id} is not workflow {workflow}")
+        if run.get("event") != expected_event:
+            errors.append(f"issue #{issue_number} GitHub run {run_id} is not a {expected_event} run")
+        if expected_pr_number is not None and expected_pr_number not in run.get("pullRequestNumbers", []):
+            errors.append(
+                f"issue #{issue_number} GitHub run {run_id} is not bound to PR #{expected_pr_number}"
+            )
         if str(run.get("headSha", "")).lower() != expected_run_sha.lower():
             errors.append(f"issue #{issue_number} GitHub run {run_id} SHA does not match {workflow} evidence")
 
@@ -390,6 +415,8 @@ def verify_feature_runs(
                 match=governance,
                 workflow="governance-fast",
                 expected_run_sha=pr_sha.group(1),
+                expected_event="pull_request",
+                expected_pr_number=int(pr_number.group(1)) if pr_number else None,
             )
         elif governance:
             errors.append(f"issue #{number} must name PR SHA for governance-fast verification")
@@ -402,6 +429,7 @@ def verify_feature_runs(
                     match=release,
                     workflow="release-full",
                     expected_run_sha=expected_sha,
+                    expected_event="workflow_dispatch",
                 )
             elif release:
                 errors.append(f"issue #{number} must name Candidate SHA for release-full verification")
@@ -497,7 +525,7 @@ def self_test() -> int:
     child = dict(issue, state="CLOSED", closedAt="2026-09-04T10:00:00Z")
     umbrella = {
         "number": 6415,
-        "title": "[236][P1][governance] T000: Реализовать фичу",
+        "title": "[236][P1][governance] T017: Завершить фичу",
         "state": "CLOSED",
         "closedAt": "2026-09-04T10:01:00Z",
         "comments": issue["comments"],
