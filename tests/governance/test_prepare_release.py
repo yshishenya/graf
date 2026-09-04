@@ -339,6 +339,55 @@ def test_prepare_release_can_rerun_same_unpublished_version(tmp_path: Path) -> N
     assert (archive / "F218.yaml").is_file()
 
 
+def test_prepare_release_rejects_archive_destination_collision_before_mutation(tmp_path: Path) -> None:
+    root = fixture(tmp_path)
+    configure_github_release_repo(root, "v2026.09.02.1")
+    changelog_path = root / "CHANGELOG.md"
+    changelog_path.write_text(
+        """# История изменений
+
+## [Unreleased]
+
+### Изменено
+- Новая запись.
+
+## [2026.09.04.1] - 2026-09-04
+
+### Изменено
+- Архивная запись.
+
+## [2026.09.02.1] - 2026-09-02
+
+### Изменено
+- Уже опубликованная запись.
+""",
+        encoding="utf-8",
+    )
+    archive = root / "changes" / "releases" / "v2026.09.04.1"
+    archive.mkdir(parents=True)
+    archived_fragment = archive / "F217.yaml"
+    archived_fragment.write_text(fragment(999, "Архивная запись"), encoding="utf-8")
+    current_fragment = root / "changes" / "unreleased" / "F217.yaml"
+    before = {
+        changelog_path: changelog_path.read_bytes(),
+        archived_fragment: archived_fragment.read_bytes(),
+        current_fragment: current_fragment.read_bytes(),
+    }
+
+    result = subprocess.run(
+        ["bash", "scripts/prepare-release.sh", "2026.09.04.1"],
+        cwd=root,
+        text=True,
+        capture_output=True,
+        check=False,
+        env=github_release_env(root, "v2026.09.02.1"),
+    )
+
+    assert result.returncode != 0
+    assert "multiple fragments map to archive destination F217.yaml" in result.stdout + result.stderr
+    assert all(path.read_bytes() == content for path, content in before.items())
+
+
 def test_prepare_release_uses_github_tag_commit_when_release_target_is_branch(tmp_path: Path) -> None:
     root = fixture(tmp_path)
     changelog_path = root / "CHANGELOG.md"
@@ -420,7 +469,7 @@ def test_prepare_release_rejects_duplicate_feature_across_unpublished_and_curren
     )
 
     assert result.returncode != 0
-    assert "duplicate pending feature_id 217" in result.stdout + result.stderr
+    assert "multiple fragments map to archive destination F217.yaml" in result.stdout + result.stderr
     assert "## [2026.09.04.1]" not in (root / "CHANGELOG.md").read_text(encoding="utf-8")
 
 
