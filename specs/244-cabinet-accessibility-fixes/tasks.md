@@ -35,7 +35,7 @@ Independent test: main≥256 при320, focus visible по elementFromPoint, pre
 ## Phase 6: Validation and handoff
 
 - [X] T008 Выполнить high-risk-product quickstart, production-renderer/runtime/integration и browser проверки собственных изменений, correctness/Ponytail review и converge; записать синтетическое evidence и явные пределы FR-006/SC-004 в specs/244-cabinet-accessibility-fixes/evidence/implementation.md. (Issue #6587)
-- [ ] T009 Добавить changes/unreleased/F244.yaml; подготовить commit/push/PR с exact-SHA governance-fast и связями tasks/issues в specs/244-cabinet-accessibility-fixes/tasks.md. Если T003 открыта, PR остаётся зависимым draft. (Issue #6587)
+- [X] T009 Добавить changes/unreleased/F244.yaml; подготовить commit/push/PR с exact-SHA governance-fast и связями tasks/issues в specs/244-cabinet-accessibility-fixes/tasks.md. Если T003 открыта, PR остаётся зависимым draft. (Issue #6587)
 
 ## Dependencies and execution
 
@@ -58,3 +58,7 @@ T008, T009 → #6587.
 ## Phase 7: Convergence
 
 - [X] T010 [US1] На окончательном совместном SHA F240/F243/F244 выполнить численный контраст и динамическую смену шести сочетаний тем, повторить затронутые upload/rail/shared JS/CSS проверки; записать exact SHA и результаты в specs/244-cabinet-accessibility-fixes/evidence/implementation.md и PR. FR-001/FR-002, SC-001/SC-004; partial HIGH, зависит от T003 и общей интеграции. До этой проверки PR зависимый draft. (Issue #6584)
+
+T009: PR #6589, exact head `05043837d9cd912b6f6eb6e35263de43db7e851e`,
+[governance-fast33999073930 SUCCESS](https://github.com/yshishenya/graf/actions/runs/33999073930).
+Merge в master выполнен после проверки; релизные gates остаются отдельными.
