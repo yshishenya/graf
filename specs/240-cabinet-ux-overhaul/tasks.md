@@ -146,4 +146,11 @@ screens in the surface matrix; functional forms and truth copy remain intact.
 - [X] T037 [US4] Исправить тематические переменные и все найденные конфликтующие цвета списка, фильтров, профиля, загрузки, входа, плеера, спикеров, удаления и общих сообщений в apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css per FR-009/FR-009c/FR-009d (contradicts).
 - [X] T038 [US4] Повторить браузерную матрицу light/dark/system, desktop/mobile/embedded, меню/диалоги/фокус и сохранить свежие результаты в specs/240-cabinet-ux-overhaul/light-theme-qa.md per SC-007/SC-008 (partial).
 - [X] T039 [US4] Выполнить независимое correctness/Ponytail review, focused проверки и quickstart; записать точные результаты и ограничения в specs/240-cabinet-ux-overhaul/validation.md per FR-001/SC-004/SC-005 (partial).
-- [ ] T040 [US4] Обновить changes/unreleased/F240-cabinet-ux-overhaul.md, specs/240-cabinet-ux-overhaul/design-qa.md и текущий PR #6560 с честным отчётом, exact SHA и новым governance-fast; не закрывать непроверенную полную матрицу per FR-011/SC-008 (partial).
+- [X] T040 [US4] Обновить changes/unreleased/F240-cabinet-ux-overhaul.md, specs/240-cabinet-ux-overhaul/design-qa.md и текущий PR #6560 с честным отчётом, exact SHA и новым governance-fast; не закрывать непроверенную полную матрицу per FR-011/SC-008 (partial).
+
+Evidence T040: коммит исправлений `03a6974e11c003e538150b310cda5ec617ff7638`,
+[governance-fast PASS](https://github.com/yshishenya/graf/actions/runs/33995479492),
+[агентское ревью](https://github.com/yshishenya/graf/pull/6560#pullrequestreview-5123225841),
+[validation.md](validation.md). Финальный документационный HEAD проверяется
+отдельным run, указанным в PR. Эта отметка закрывает публикацию исправлений
+темы, не полную исходную F240-матрицу; issue #6561 остаётся открыт.
