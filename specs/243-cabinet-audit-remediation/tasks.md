@@ -69,3 +69,7 @@ Umbrella: https://github.com/yshishenya/graf/issues/6567.
 - [X] T014 [US2] После финального коммита F240 проверить полный контраст списка, меню и диалогов в шести сочетаниях тем, записать точный SHA и совместные результаты в specs/243-cabinet-audit-remediation/validation/implementation-evidence.md по FR-003, SC-001, US2/AC1 (partial, HIGH). Владелец реализации F240; отслеживание совместной приёмки: #6575.
 - [X] T015 [US2] После финального коммита F242 проверить сохранение темы и неизменность locale/timezone через серверную форму и перезагрузку, записать точный SHA в specs/243-cabinet-audit-remediation/validation/implementation-evidence.md по FR-004, SC-003, US2/AC2 (missing, HIGH). Владелец реализации F242; отслеживание совместной приёмки: #6575.
 - [X] T016 [US2] После финального коммита F244 проверить совместные изменения upload/rail/focus и отсутствие конфликтов в cabinet.js/cabinet.css, записать точные SHA и результаты в specs/243-cabinet-audit-remediation/validation/implementation-evidence.md по plan: Coordination, SC-004 (partial, MEDIUM). Владелец реализации F244; отслеживание совместной приёмки: #6575. До T014–T016 разрешён только зависимый draft PR, не готовность к merge/release.
+
+## Phase 8: Release regression
+
+- [ ] T017 Выполнять callbacks синтетического NWListener на главной очереди, соответствующей MainActor теста подтверждения; повторить локальную проверку и macos-diagnostic со Swift6.0.3 без пропуска теста. (Issue #6578)

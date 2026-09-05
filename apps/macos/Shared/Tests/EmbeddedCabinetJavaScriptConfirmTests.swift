@@ -47,14 +47,14 @@ final class EmbeddedCabinetJavaScriptConfirmTests: XCTestCase {
             if case .ready = state { listening.fulfill() }
         }
         listener.newConnectionHandler = { connection in
-            connection.start(queue: .global())
+            connection.start(queue: .main)
             connection.receive(minimumIncompleteLength: 1, maximumLength: 4096) { _, _, _, _ in
                 let html = "<!doctype html><title>Synthetic confirmation</title><p>GRAF test</p>"
                 let response = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: \(html.utf8.count)\r\nConnection: close\r\n\r\n\(html)"
                 connection.send(content: Data(response.utf8), completion: .contentProcessed { _ in connection.cancel() })
             }
         }
-        listener.start(queue: .global())
+        listener.start(queue: .main)
         defer { listener.cancel() }
         await fulfillment(of: [listening], timeout: 5)
         let port = try XCTUnwrap(listener.port)
