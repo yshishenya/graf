@@ -84,10 +84,18 @@ git diff --check: PASS
 локального `.specify/feature.json`. После обновления служебного контекста и
 добавления обязательного `Legacy Impact` выполнен указанный выше чистый проход.
 
-## Pending PR gates
+## PR closeout evidence
 
-- PR metadata validation на финальном 40-символьном SHA.
-- GitHub Actions `governance-fast` на том же PR SHA.
+- PR создан: https://github.com/yshishenya/graf/pull/6596.
+- PR metadata validation: PASS для заголовка Feature 241 и полного SHA.
+- Первый GitHub Actions `governance-fast`: PASS на
+  `a9cdff1a73a296734cc0cef39548c34b1f398d35`, run
+  https://github.com/yshishenya/graf/actions/runs/33998832386.
+- Task-backed issues #6554–#6559 и umbrella #6553 связаны с PR статусными
+  комментариями и остаются открытыми до merge/проверенного closeout.
+- После этого evidence-коммита PR body обновляется на новый exact SHA и
+  `governance-fast` должен пройти повторно; старый run не считается
+  доказательством нового SHA.
 
 Production deploy, реальная почтовая доставка, merge и release не входят в эту
 задачу.
