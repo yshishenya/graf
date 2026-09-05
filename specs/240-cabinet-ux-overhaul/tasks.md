@@ -154,3 +154,12 @@ Evidence T040: коммит исправлений `03a6974e11c003e538150b310cda
 [validation.md](validation.md). Финальный документационный HEAD проверяется
 отдельным run, указанным в PR. Эта отметка закрывает публикацию исправлений
 темы, не полную исходную F240-матрицу; issue #6561 остаётся открыт.
+
+## Phase 8: Convergence перед общим релизом
+
+- [X] T041 [US1] Восстановить доступ к существующему меню профиля в мобильной standalone-навигации в cabinet.js/cabinet.css; проверить единственный DOM, темы, Escape, resize и сохранность форм по FR-001/SC-001/SC-008 (missing, HIGH).
+- [X] T042 Проверить объединённую матрицу F240/F242/F243/F244, устранить несовместимые контракты без ослабления проверок и записать evidence в specs/240-cabinet-ux-overhaul/validation.md по SC-008 (partial, HIGH).
+
+T041/T042: https://github.com/yshishenya/graf/issues/6588. T041: 42 браузерные проверки, один DOM профиля, resize, темы и Escape PASS. T042: совместная приёмка и quickstart396 PASS; evidence в validation.md.
+
+- [X] T043 [US1] Устранить пересечение кнопок плеера и legal footer, проверить реальные bounds в Chrome/WebKit на пяти ширинах в validation/playback-layout.js и validation/auth-theme-checks.cjs; FR-001/SC-008 (contradicts, HIGH), #6588.

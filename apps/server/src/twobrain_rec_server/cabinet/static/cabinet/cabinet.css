@@ -1587,13 +1587,10 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
   .auth-page > .auth-download--browser + .auth-legal { margin-top: 8px; }
 }
 .auth-legal {
-  position: absolute;
+  position: relative;
   z-index: 1;
-  left: 24px;
-  right: 24px;
-  bottom: 24px;
   max-width: 540px;
-  margin: 0 auto;
+  margin: 16px auto 0;
   text-align: center;
   color: var(--muted);
   font-size: var(--font-size-caption);
@@ -2742,7 +2739,8 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
     padding: 8px 14px 7px;
     background: var(--panel);
   }
-  .playback-controls { gap: 8px; }
+  .playback-toolbar { display: flex; flex-wrap: wrap; gap: 8px; }
+  .playback-controls { flex: 1 0 auto; gap: 8px; }
   .playback-round { width: 30px; height: 30px; font-size: var(--font-size-helper); }
   .playback-round.primary-play { width: 38px; height: 38px; }
   .playback-speed { min-width: 38px; font-size: var(--font-size-helper); }
@@ -2751,7 +2749,6 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
   .speaker-timeline { gap: 4px; }
   .timeline-label, .timeline-share { font-size: var(--font-size-caption); }
   .timeline-track { height: 7px; }
-  .auth-legal { position: relative; inset: auto; margin-top: -8px; }
 }
 @media (max-width: 720px) {
   .desktop-embedded .sidebar { gap: 10px; }
@@ -5968,6 +5965,15 @@ body {
     backdrop-filter: blur(14px);
   }
   html[data-cabinet-js="ready"] .cabinet-mobile-nav::-webkit-scrollbar { display: none; }
+  .cabinet-mobile-nav .sidebar-profile { flex: 0 0 auto; margin-left: auto; }
+  .cabinet-mobile-nav .sidebar-profile__trigger { width: 40px; min-height: 40px; padding: 8px; }
+  .cabinet-mobile-nav .sidebar-profile__copy { display: none; }
+  .cabinet-mobile-nav .sidebar-profile-menu {
+    inset: 64px 8px auto auto;
+    max-height: calc(var(--profile-menu-viewport-height, 100dvh) - 72px);
+    overflow-y: auto;
+  }
+
   .cabinet-mobile-nav__brand,
   .cabinet-mobile-nav__item {
     min-height: 40px;
