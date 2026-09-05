@@ -16,7 +16,7 @@
 
 Independent test: численный контраст и динамический system/explicit на общей ревизии.
 
-- [ ] T003 [US1] Проверить FR-001/FR-002 и SC-001 на совместном коде финального F240/F244 по quickstart.md; записать SHA и результаты шести сочетаний тем в specs/244-cabinet-accessibility-fixes/evidence/implementation.md. Реализация палитры принадлежит F240; незавершённая общая приёмка оставляет эту задачу открытой. (Issue #6584)
+- [X] T003 [US1] Проверить FR-001/FR-002 и SC-001 на совместном коде финального F240/F244 по quickstart.md; записать SHA и результаты шести сочетаний тем в specs/244-cabinet-accessibility-fixes/evidence/implementation.md. Реализация палитры принадлежит F240; незавершённая общая приёмка оставляет эту задачу открытой. (Issue #6584)
 
 ## Phase 4: US2 — загрузка (P1)
 
@@ -57,4 +57,4 @@ T008, T009 → #6587.
 
 ## Phase 7: Convergence
 
-- [ ] T010 [US1] На окончательном совместном SHA F240/F243/F244 выполнить численный контраст и динамическую смену шести сочетаний тем, повторить затронутые upload/rail/shared JS/CSS проверки; записать exact SHA и результаты в specs/244-cabinet-accessibility-fixes/evidence/implementation.md и PR. FR-001/FR-002, SC-001/SC-004; partial HIGH, зависит от T003 и общей интеграции. До этой проверки PR зависимый draft. (Issue #6584)
+- [X] T010 [US1] На окончательном совместном SHA F240/F243/F244 выполнить численный контраст и динамическую смену шести сочетаний тем, повторить затронутые upload/rail/shared JS/CSS проверки; записать exact SHA и результаты в specs/244-cabinet-accessibility-fixes/evidence/implementation.md и PR. FR-001/FR-002, SC-001/SC-004; partial HIGH, зависит от T003 и общей интеграции. До этой проверки PR зависимый draft. (Issue #6584)
