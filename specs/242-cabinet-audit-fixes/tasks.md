@@ -20,15 +20,15 @@ Source of truth: spec.md / plan.md. Owner: Codex, umbrella #6566.
 
 ## Phase 3: Validation and handoff
 
-- [ ] T006 Проверить high-risk-product lane по specs/242-cabinet-audit-fixes/quickstart.md, выполнить browser QA, correctness/Ponytail review и converge; записать metadata-only evidence и changes/unreleased/F242.yaml, подготовить PR с exact-SHA governance-fast и issue evidence.
+- [X] T006 Проверить high-risk-product lane по specs/242-cabinet-audit-fixes/quickstart.md, выполнить browser QA, correctness/Ponytail review и converge; записать metadata-only evidence и changes/unreleased/F242.yaml, подготовить PR с exact-SHA governance-fast и issue evidence.
   (Issue #6580)
 
 ## GitHub ownership
 
-T001 → #6579; T002 → #6572; T003 → #6569; T004 → #6570; T005 → #6571; T006 → #6580. Все OPEN, umbrella #6566. Issue canon ensure/validate выполнены до implementation.
+T001 → #6579; T002 → #6572; T003 → #6569; T004 → #6570; T005 → #6571; T006 → #6580. Umbrella #6566. Issue canon ensure/validate выполнены до implementation. Задачи закрываются с отдельными evidence comments после проверки окончательного SHA; umbrella остаётся открытым до отдельного завершения фичи после merge.
 
 ## Dependencies and validation
 
 T001 → T002 → T003 → T004 → T005 → T006. Общие templates/routes не правятся параллельно. US1–US4 имеют отдельные acceptance checks из spec. Reviewer-owned checklists не являются implementation tasks. Commit после validation/approval; merge/release/deploy вне scope.
 
-Implementation evidence: [validation.md](validation.md). T001–T005 проверены; post-validation approval на commit/push получен. T006 остаётся открыт до публикации PR и exact-SHA GitHub gate. Открытые issues не объявлены закрытыми до этого шага.
+Implementation evidence: [validation.md](validation.md). T001–T006 выполнены. PR #6582 опубликован; governance-fast PASS на `f2c3429e4cf88593b569e8091f080f6a79ecb4fa`, run 33995851709. Документационный коммит с этой записью требует нового exact-SHA gate; окончательная связка SHA/run фиксируется в PR и comments, без самоссылочного коммита. Merge/release/deploy не выполнялись.

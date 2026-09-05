@@ -3,7 +3,7 @@
 ## Версия и границы доказательства
 
 Ветка: `codex/242-cabinet-audit-fixes`. Базовый source SHA: `41bf51c7da86212503d971bce09e44640c087f4e`.
-Проверялась изменённая рабочая копия, не базовый commit и не общий dev server.
+Первоначально проверялась изменённая рабочая копия, не базовый commit и не общий dev server. Ниже сохранены её исходные хеши; публикация и результаты GitHub описаны в конце документа.
 SHA256 tracked code/test diff: `a2407935f52d7eaf06cb57ecfc7f8591ab9f7b477e4b7880a4a5bdec739ce092`.
 SHA256 нового test_cabinet_audit_fixes.py: `8d1847ec5d935b6cd9dba34944bb22f88f6e789c8972eca1b0f3aced519ba690`.
 Это evidence рабочей копии, не exact-SHA evidence будущего PR. После validation пользователь явно разрешил коммит и push: «коммита и push ревью». Публикация и GitHub gate выполняются следующим шагом.
@@ -44,7 +44,7 @@ Synthetic meeting server не предоставляет processing API: общ�
 - Native WK navigation/preferences route отдельно F243; серверный embedded handler проверен, установленное macOS приложение не пересобиралось.
 - Нет реальных trial/payment/deletion, provider вызовов, приватных данных или снимков в git.
 - Lane: high-risk-product. Локальный fast не запускался: он diagnostic/offline fallback; authoritative PR gate — GitHub governance-fast после commit/PR. Full CI, release/deploy, dry-run не запускались — release не запрошен.
-- Converge по текущим FR-001–007 и US1–US4: новых обязательных правок кода не найдено. SC-003/T006 (PR и exact-SHA gate) остаются открытым handoff, а не выполненным результатом.
+- Converge по FR-001–007 и US1–US4: новых обязательных правок кода не найдено. На этапе рабочей копии SC-003/T006 (PR и exact-SHA gate) оставались открытыми; результат публикации приведён ниже.
 
 ## Публикация и обратная связь CI
 
@@ -54,3 +54,13 @@ Synthetic meeting server не предоставляет processing API: общ�
 - Повтор в frozen окружении (Python 3.14.6): `ruff check .` всего сервера PASS; те же 305 проверок PASS, 2 warnings, 4.01 s. Предупреждения этого окружения: pytest fixture rewrite и Starlette/httpx deprecation; ошибок нет.
 - Связи T001–T006 дополнены каноническим `(Issue #...)` для машинной проверки закрытия задач. T006 остаётся открыт до успешного нового exact-SHA gate.
 - Автоматическое code review Codex ограничено квотой, CodeRabbit пропустил автоматическое ревью. Они не засчитываются как положительное ревью; локальная и независимая проверки описаны выше. Внешний security review проверяется отдельно.
+
+## Успешный PR gate и завершение T006
+
+- Exact source SHA / observed SHA: `f2c3429e4cf88593b569e8091f080f6a79ecb4fa`.
+- governance-fast: PASS — https://github.com/yshishenya/graf/actions/runs/33995851709. Run 33995828469 отменён после обновления PR metadata и не засчитывается.
+- Requested/effective lane: fast/fast; components: server,infra,docs; coverage=partial; performance=report; next_gate=full_before_release; 169 s для fast, 3m9s для GitHub job. Это успешный PR gate, не Full CI и не разрешение на релиз.
+- PASS: 224 governance, 1391 server unit, 80 changed contract, 66 CI contract tests; закреплённый Ruff, compile, shell syntax, compose config, evidence scan, whitespace, active docs и final cleanliness. GitHub использовал изолированную тестовую PostgreSQL; общие dev/prod не изменялись.
+- Codex Security Review завершён на `8762e1ecceca8455a9b29be12c46ff08d4a790e3`, замечаний в PR нет. После него менялись только импорты тестов и документация, код приложения совпадает; это не объявляется новым независимым security review окончательного SHA.
+- T006 выполнен; обязательных buildable gaps не осталось. Документационный коммит с этой записью проходит отдельный новый exact-SHA gate. Его окончательные SHA/run и проверенные closure comments фиксируются в PR #6582 и task issues: это исключает невозможную самоссылку SHA внутри собственного коммита.
+- Слияние, выпуск, развёртывание и закрытие umbrella #6566 не выполняются в этом поручении.
