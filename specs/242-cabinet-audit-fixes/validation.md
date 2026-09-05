@@ -45,3 +45,12 @@ Synthetic meeting server не предоставляет processing API: общ�
 - Нет реальных trial/payment/deletion, provider вызовов, приватных данных или снимков в git.
 - Lane: high-risk-product. Локальный fast не запускался: он diagnostic/offline fallback; authoritative PR gate — GitHub governance-fast после commit/PR. Full CI, release/deploy, dry-run не запускались — release не запрошен.
 - Converge по текущим FR-001–007 и US1–US4: новых обязательных правок кода не найдено. SC-003/T006 (PR и exact-SHA gate) остаются открытым handoff, а не выполненным результатом.
+
+## Публикация и обратная связь CI
+
+- Создан PR #6582: https://github.com/yshishenya/graf/pull/6582. Первый commit/push: `8762e1ecceca8455a9b29be12c46ff08d4a790e3`.
+- Первый `governance-fast` https://github.com/yshishenya/graf/actions/runs/33995530838 завершился **FAIL**: Ruff I001 в трёх test-файлах. До этого прошли 224 governance, 1391 server unit и 80 changed contract tests. Этот run не является успешным PR gate.
+- Причина расхождения локальной проверки: глобальный Ruff 0.2.1 вместо закреплённого project Ruff 0.15.20. Исправлены только группы импортов; в quickstart добавлена команда с frozen project environment. Код приложения после первого коммита не менялся.
+- Повтор в frozen окружении (Python 3.14.6): `ruff check .` всего сервера PASS; те же 305 проверок PASS, 2 warnings, 4.01 s. Предупреждения этого окружения: pytest fixture rewrite и Starlette/httpx deprecation; ошибок нет.
+- Связи T001–T006 дополнены каноническим `(Issue #...)` для машинной проверки закрытия задач. T006 остаётся открыт до успешного нового exact-SHA gate.
+- Автоматическое code review Codex ограничено квотой, CodeRabbit пропустил автоматическое ревью. Они не засчитываются как положительное ревью; локальная и независимая проверки описаны выше. Внешний security review проверяется отдельно.

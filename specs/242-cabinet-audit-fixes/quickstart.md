@@ -8,6 +8,8 @@ env -u TWOBRAIN_DATABASE_URL PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=apps/server/sr
 
 Expected: PASS. Preferences: theme-only/full/invalid/empty/org mismatch/stale menu; trial: terms before submit, precise preview/actual dates, checkout independence; profile all billing routes/deletion full pages; help with/without email/history rows; decimal boundaries; pending hooks.
 
+Lint запускать из `apps/server` с закреплённой версией, как в CI: `PYTHONPATH=src uv run --frozen --extra dev ruff check .`. Глобальный Ruff 0.2.1 не заменяет project Ruff 0.15.20.
+
 Browser: changed-worktree synthetic renders wide/390px, light/dark, keyboard/no-JS trial; реальный POST trial не выполнять. Theme form без locale/timezone; history anchor к контакту; pending без повтора recovery. Общий dev stack не перезапускать.
 
 Closeout: correctness/Ponytail review, converge, governance checks. Authoritative PR gate — governance-fast exact SHA; full CI/deploy N/A. Implementation commit после validation и explicit approval; merge не выполнять.
