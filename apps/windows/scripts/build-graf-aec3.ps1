@@ -9,13 +9,15 @@ param(
 $ErrorActionPreference = "Stop"
 $windowsRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..")).Path
 $lockPath = Join-Path $windowsRoot "apps\windows\Native\GrafAEC3\upstream.lock"
+$crossFile = Join-Path $windowsRoot "apps\windows\Native\GrafAEC3\x64.cross"
 $sourceDirectory = if ($SourceDirectory) {
     (Resolve-Path $SourceDirectory).Path
 } else {
     Join-Path $windowsRoot "apps\windows\Native\GrafAEC3\vendor\webrtc-audio-processing"
 }
 
-if (-not $IsWindows) {
+$isWindowsHost = $env:OS -eq "Windows_NT"
+if (-not $isWindowsHost) {
     throw "GrafAEC3 Windows build must run on a Windows host with the approved C++ toolchain."
 }
 if (-not (Test-Path $lockPath)) {
@@ -23,6 +25,9 @@ if (-not (Test-Path $lockPath)) {
 }
 if (-not (Test-Path $sourceDirectory)) {
     throw "Provide a verified upstream checkout with -SourceDirectory: $sourceDirectory"
+}
+if (-not (Test-Path $crossFile)) {
+    throw "The x64 Meson cross file is missing: $crossFile"
 }
 
 $lock = @{}
@@ -56,9 +61,10 @@ if (-not (Get-Command ninja -ErrorAction SilentlyContinue)) {
 
 $buildDirectory = Join-Path $windowsRoot "apps\windows\out\aec3\$Configuration"
 $buildType = $Configuration.ToLowerInvariant()
+$buildTypeOption = [string]::Concat("-Dbuildtype=", $buildType)
 if (Test-Path (Join-Path $buildDirectory "build.ninja")) {
-    meson setup --reconfigure $buildDirectory $sourceDirectory --default-library=static --wrap-mode=forcefallback -Db_lto=false -Dbuildtype=$buildType
+    meson setup --wipe --cross-file $crossFile $buildDirectory $sourceDirectory --default-library=static --wrap-mode=forcefallback -Db_lto=false -Dcpp_std=c++20 $buildTypeOption
 } else {
-    meson setup $buildDirectory $sourceDirectory --default-library=static --wrap-mode=forcefallback -Db_lto=false -Dbuildtype=$buildType
+    meson setup --cross-file $crossFile $buildDirectory $sourceDirectory --default-library=static --wrap-mode=forcefallback -Db_lto=false -Dcpp_std=c++20 $buildTypeOption
 }
 meson compile -C $buildDirectory

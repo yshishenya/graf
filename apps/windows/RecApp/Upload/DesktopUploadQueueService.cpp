@@ -108,9 +108,12 @@ DesktopUploadQueueService::DesktopUploadQueueService(
 
 bool DesktopUploadQueueService::load() {
     items_.clear(); quarantined_ = false;
-    std::ifstream input(ledgerPath_, std::ios::binary);
-    if (!input) return true;
-    const std::string json((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+    std::string json;
+    {
+        std::ifstream input(ledgerPath_, std::ios::binary);
+        if (!input) return true;
+        json.assign(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
+    }
     const auto quarantine = [this] {
         std::error_code error;
         std::filesystem::rename(ledgerPath_, ledgerPath_.string() + ".quarantine", error);
@@ -183,6 +186,17 @@ bool DesktopUploadQueueService::markNeedsAuth(std::string_view id) {
     item->status = UploadQueueStatus::needsAuth; item->safeReason = "auth_required"; return persist();
 }
 
+bool DesktopUploadQueueService::requeueNeedsAuth() {
+    bool changed = false;
+    for (auto& item : items_) {
+        if (item.status != UploadQueueStatus::needsAuth) continue;
+        item.status = UploadQueueStatus::retry;
+        item.safeReason = "auth_recovered";
+        changed = true;
+    }
+    return !changed || persist();
+}
+
 bool DesktopUploadQueueService::markQuarantined(std::string_view id, std::string reason) {
     auto* item = find(id); if (!item || reason.empty() || !validSafeReason(reason)) return false;
     item->status = UploadQueueStatus::quarantined; item->safeReason = std::move(reason); return persist();
@@ -198,6 +212,17 @@ std::optional<UploadCustodyItem> DesktopUploadQueueService::nextPending() const 
         if (item.status == UploadQueueStatus::pending || item.status == UploadQueueStatus::retry) return item;
     }
     return std::nullopt;
+}
+
+std::vector<UploadCustodyItem> DesktopUploadQueueService::pendingItems(std::size_t limit) const {
+    std::vector<UploadCustodyItem> result;
+    result.reserve(std::min(limit, items_.size()));
+    for (const auto& item : items_) {
+        if (item.status != UploadQueueStatus::pending && item.status != UploadQueueStatus::retry) continue;
+        result.push_back(item);
+        if (result.size() >= limit) break;
+    }
+    return result;
 }
 
 bool DesktopUploadQueueService::persist() const {

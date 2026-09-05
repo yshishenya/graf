@@ -4302,7 +4302,10 @@
       const currentTheme = form.elements.namedItem("theme")?.value || "system";
       applyTheme(currentTheme);
       form.addEventListener("change", (event) => {
-        if (event.target?.name === "theme") applyTheme(event.target.value);
+        if (event.target?.name === "theme") {
+          applyTheme(event.target.value);
+          if (form.dataset.accountPreferencesAutoSave === "true") form.requestSubmit();
+        }
       });
       form.addEventListener("submit", () => {
         // Keep the native POST/no-JS path authoritative; preview is local only until the server confirms.
@@ -4996,9 +4999,24 @@
       const menu = root.querySelector("[data-profile-menu]");
       if (!trigger || !menu || root.getAttribute("data-profile-menu-ready") === "true") return;
       root.setAttribute("data-profile-menu-ready", "true");
+      const disclosures = Array.from(menu.querySelectorAll(".sidebar-profile-menu__disclosure"));
+      const syncDisclosurePosition = (details) => {
+        details.classList.remove("is-flipped");
+        if (!details.open) return;
+        const submenu = details.querySelector("[data-profile-menu-submenu]");
+        if (!(submenu instanceof HTMLElement)) return;
+        window.requestAnimationFrame(() => {
+          const rect = submenu.getBoundingClientRect();
+          details.classList.toggle("is-flipped", rect.right > window.innerWidth - 8);
+        });
+      };
+      disclosures.forEach((details) => {
+        details.addEventListener("toggle", () => syncDisclosurePosition(details));
+      });
       const setOpen = (open, restoreFocus = false) => {
         menu.hidden = !open;
         trigger.setAttribute("aria-expanded", open ? "true" : "false");
+        if (!open) disclosures.forEach((details) => { details.open = false; syncDisclosurePosition(details); });
         if (!open && restoreFocus) trigger.focus({ preventScroll: true });
       };
       trigger.addEventListener("click", () => setOpen(menu.hidden));

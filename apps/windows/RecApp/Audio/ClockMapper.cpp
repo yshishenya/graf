@@ -28,10 +28,17 @@ ClockMapping ClockMapper::observe(ClockObservation observation) {
     const auto deviceDelta = observation.deviceFrames - firstDeviceFrames_;
     // QPC ticks grow throughout the process lifetime; multiplying the raw
     // counter by sampleRate overflows uint64_t on ordinary long captures.
-    const auto expected = static_cast<std::uint64_t>(
-        (static_cast<long double>(qpcDelta) * observation.sampleRate) / qpcFrequency_);
-    result.ptsFrames = static_cast<std::int64_t>(firstDeviceFrames_ + deviceDelta);
-    const auto denominator = expected == 0 ? 1.0L : static_cast<long double>(expected);
+    const auto expected = (static_cast<long double>(qpcDelta) * observation.sampleRate) /
+        static_cast<long double>(qpcFrequency_);
+    const auto devicePosition = static_cast<long double>(firstDeviceFrames_) +
+        static_cast<long double>(deviceDelta);
+    if (expected < 0.0L || expected > static_cast<long double>(std::numeric_limits<std::uint64_t>::max()) ||
+        devicePosition > static_cast<long double>(std::numeric_limits<std::int64_t>::max())) {
+        healthy_ = false;
+        return result;
+    }
+    result.ptsFrames = static_cast<std::int64_t>(devicePosition);
+    const auto denominator = expected == 0.0L ? 1.0L : expected;
     const auto drift = (static_cast<long double>(deviceDelta) - expected) * 1'000'000.0L / denominator;
     result.driftPpm = static_cast<std::int32_t>(std::clamp(
         drift, static_cast<long double>(std::numeric_limits<std::int32_t>::min()),

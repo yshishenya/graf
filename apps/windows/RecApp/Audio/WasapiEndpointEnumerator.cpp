@@ -5,6 +5,7 @@
 
 #ifdef _WIN32
 #include <audioclient.h>
+#include <propkey.h>
 #include <functiondiscoverykeys_devpkey.h>
 #include <mmdeviceapi.h>
 #include <propvarutil.h>

@@ -8,11 +8,13 @@ namespace graf::windows {
 enum class RouteKind {
     meetings,
     meetingDetail,
+    artifactDownload,
     settings,
     authRecovery,
     review,
     deletionReport,
     share,
+    billing,
     external,
     denied,
 };

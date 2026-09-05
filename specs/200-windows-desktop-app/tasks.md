@@ -172,7 +172,8 @@ timeout, saved policy, unknown target, media playback and missing prerequisites.
 - US5 consumes the native session and indicator from US1 and the parity/copy map
   from US2.
 - Phase 8 follows the desired stories and contains implementation polish only.
-- Phase 9 convergence must complete before the Phase 10 closeout tasks T063/T064.
+- Phase 9 shell convergence and Phase 10 native runtime convergence must complete
+  before the Phase 11 closeout tasks T063/T064.
 
 ### Parallel opportunities
 
@@ -209,11 +210,11 @@ timeout, saved policy, unknown target, media playback and missing prerequisites.
 | Requirement | Tasks |
 |---|---|
 | FR-001 | T001, T002, T059 |
-| FR-002 | T012, T032, T057, T061, T062 |
-| FR-003 | T029, T032, T034, T066 |
-| FR-004 | T010, T023, T024, T033, T065 |
-| FR-005 | T027, T029, T058, T066 |
-| FR-006 | T028, T031, T058, T066 |
+| FR-002 | T012, T032, T057, T061, T062, T076 |
+| FR-003 | T029, T032, T034, T066, T076 |
+| FR-004 | T010, T023, T024, T033, T065, T076 |
+| FR-005 | T027, T029, T058, T066, T076 |
+| FR-006 | T028, T031, T058, T066, T076 |
 | FR-007 | T018, T019, T048 |
 | FR-008 | T010, T018, T025, T048 |
 | FR-009 | T017, T019, T021, T048 |
@@ -231,11 +232,11 @@ timeout, saved policy, unknown target, media playback and missing prerequisites.
 | FR-021 | T008, T013, T044, T049 |
 | FR-022 | T040, T041, T060 |
 | SC-001 | T010, T030, T063 |
-| SC-002 | T012, T034, T061, T064 |
+| SC-002 | T012, T034, T061, T064, T076 |
 | SC-003 | T017, T021, T022, T048, T063 |
 | SC-004 | T016, T024, T043, T046, T047, T063, T068, T071 |
 | SC-005 | T035, T036, T038, T039, T040, T041, T042, T063, T069, T071 |
-| SC-006 | T028, T031, T044, T058 |
+| SC-006 | T028, T031, T044, T058, T076 |
 | SC-007 | T050, T051, T054, T056 |
 | SC-008 | T059, T060, T063, T070, T071 |
 | SC-009 | T051, T055, T057, T061 |
@@ -250,13 +251,41 @@ Convergence review 2026-08-24 обнаружил, что текущий portable
 
 - [X] T065 [US1] Подключить `apps/windows/RecApp/AppMain.cpp` к реальному WinUI 3/Windows App SDK lifecycle с одним standard-user окном и native session composition; убрать пустой Windows `wWinMain` stub (FR-004, FR-019; implementation complete, Windows host build remains T071).
 - [X] T066 [US2] Реализовать фактический WebView2 control в `apps/windows/RecApp/Web/WebView2Host.*` и `apps/windows/RecApp/Shell/CabinetWindow.*`: Evergreen readiness, approved-origin navigation events, fresh nonce/web-message bridge events, runtime unavailable/recreate и загрузка `/desktop/meetings` (FR-003, FR-005, FR-006, FR-020; implementation complete, Windows host evidence remains T071).
-- [ ] T067 [US1] Собрать native capture pipeline в `apps/windows/RecApp/Capture/WindowsCaptureSessionController.*`: endpoint enumeration, pinned GrafAEC3 adapter, `RecordingAudioTimeline`, v5 writer/finalizer и WebView-independent local custody; сохранить fail-closed и idempotent Stop (FR-009–FR-012, US1/AC1–AC4; partial, HIGH).
+- [X] T067 [US1] Собрать native capture pipeline в `apps/windows/RecApp/Capture/WindowsCaptureSessionController.*`: endpoint enumeration, pinned GrafAEC3 adapter, `RecordingAudioTimeline`, v5 writer/finalizer и WebView-independent local custody; сохранить fail-closed и idempotent Stop (FR-009–FR-012, US1/AC1–AC4; implementation and Windows x64 build complete; hardware capture matrix remains T071).
 - [X] T068 [US1] Подключить `apps/windows/RecApp/Shell/RecordingIndicator.*` к persistent native WinUI status strip с accessible status и one-action Stop, переживающим WebView close/minimize/network failure (FR-015, SC-004; implementation complete, Windows UI matrix remains T071).
-- [ ] T069 [US3] Подключить реальный стандартный HTTP transport существующих GRAF desktop API к `apps/windows/RecApp/Upload/DesktopApiClient.*`, `apps/windows/RecApp/Upload/DesktopHttpTransport.*` и `DesktopUploadRecoveryScheduler.*`, включая auth/network/wake recovery, accepted ranges и server-truth reconciliation без MediaScribe/MinIO egress (FR-013–FR-014, SC-005; transport core added, queue/auth/reconciliation integration remains, HIGH).
+- [X] T069 [US3] Подключить реальный стандартный HTTP transport существующих GRAF desktop API к `apps/windows/RecApp/Upload/DesktopApiClient.*`, `apps/windows/RecApp/Upload/DesktopHttpTransport.*` и `DesktopUploadRecoveryScheduler.*`, включая auth/network/wake recovery, accepted ranges и server-truth reconciliation без MediaScribe/MinIO egress (FR-013–FR-014, SC-005; implementation complete: WinHTTP, sync-state, missing ranges, offset/length checks, expired-session recovery and bounded queue retry; Windows host validation remains T071, HIGH).
 - [ ] T070 [US2] Завершить `apps/windows/Installer/Package.appxmanifest`, `GrafWindows.Package.wapproj` и package assets/dependency declarations для собираемого signed x64 MSIX без elevation/driver/service; затем подтвердить clean-image install/update/rollback smoke (FR-019–FR-020, SC-008; partial, HIGH).
-- [ ] T071 [P] Провести Windows x64 validation из `specs/200-windows-desktop-app/quickstart.md` для T065–T070, зафиксировать exact SHA, hardware/AEC3/WebView2/Media Foundation/MSIX evidence и оставить ARM64 lane явно skipped до отдельного proof (T063, SC-001/003/004/005/008/010; missing, HIGH).
+- [ ] T071 [P] Провести Windows x64 validation из `specs/200-windows-desktop-app/quickstart.md` для T065–T070, зафиксировать exact SHA, hardware/AEC3/WebView2/Media Foundation/MSIX evidence и оставить ARM64 lane явно skipped до отдельного proof (SC-001/003/004/005/008/010; missing, HIGH).
 
-## Phase 10: Closeout — evidence and final review
+## Phase 10: Convergence — оставшиеся native runtime gaps
 
-- [ ] T063 Выполнить полный `specs/200-windows-desktop-app/quickstart.md`, Windows x64 hardware/package evidence и `infra/scripts/ci-local.sh --fast`; зафиксировать exact SHA, skipped ARM64 lane и known limitations.
-- [ ] T064 Провести финальный review `specs/200-windows-desktop-app/checklists/requirements.md`, `audio-capture.md`, `advanced-routing.md`, `security.md`, `ux.md`, `plan.md` и `tasks.md`; не запускать deploy/release без отдельного approval.
+Convergence review 2026-08-25 подтвердил, что portable contract surface и
+fail-closed guards собраны, но четыре runtime composition gap-а нельзя закрыть
+на macOS: реальный pinned AEC3 backend, нормализация произвольного WASAPI mix
+format, microphone privacy preflight и подключение queue recovery к AppMain.
+
+Validation re-check 2026-08-30 подтвердил current dirty-worktree host evidence:
+native Release MSBuild и fresh Windows CMake/Ninja build проходят, CTest — 20/20,
+synthetic/custody/WebView smoke — 2/2, 3/3 и 4/4, pinned AEC3 — 440/440,
+а `GrafWindowsApp.exe` скомпилирован с native adapter и запускается с auth
+cabinet. `.wapproj` формирует unsigned x64 MSIX, а static package smoke
+проверяет manifest, entry point, capabilities и embedded certificate. Это не
+закрывает T070/T071/T063: trusted release signature, cabinet auth, hardware
+WASAPI capture и clean-image evidence отсутствуют.
+
+- [X] T072 [US1] Подключить `apps/windows/scripts/build-graf-aec3.ps1` к реально собираемой pinned WebRTC AEC3 static library, добавить native adapter и wire-up в `apps/windows/RecApp/AppMain.cpp`, чтобы `aecReady` становился true только после create/process smoke (FR-010, US1/AC2; implementation complete; VM build 440/440 and x64 app link passed).
+- [X] T073 [US1] Добавить bounded worker-side normalizer actual WASAPI mix format → 48 kHz mono float через Media Foundation или другой approved native path, обновить readiness и synthetic coverage без работы в capture callback (FR-009, FR-018, US1/AC1; implementation and synthetic coverage complete; hardware matrix remains T071).
+- [X] T074 [US1] Заменить hardcoded `microphonePermissionGranted = false` в `apps/windows/RecApp/AppMain.cpp` на Windows microphone privacy/endpoint preflight с metadata-safe recovery action и повторной проверкой перед Record (FR-008, FR-017, US1/AC3; implementation complete; privacy-denial hardware scenario remains T071).
+- [X] T075 [US3] Подключить `DesktopUploadQueueService`, `DesktopHttpTransport` и `DesktopUploadRecoveryScheduler` к native local finalization/launch/wake lifecycle в `apps/windows/RecApp/AppMain.cpp`, чтобы saved v5 package сразу получал queue item и восстанавливался без WebView route (FR-013–FR-014, US3/AC1–AC3; implementation and contract smoke complete; authenticated end-to-end upload remains T071).
+- [X] T076 [US2] Перенести в Windows parity-срез последнюю macOS cabinet-доработку: общий embedded profile menu, marker `data-graf-app-quit`, exact-origin/nonce-bound `request_app_quit`, native close lifecycle и server/contract tests (FR-002–FR-006, SC-002/006; completed in current dirty worktree).
+
+## Phase 10b: Native parity convergence (2026-08-30)
+
+- [X] T077 [US2] Убрать ошибочную зависимость кабинета от MSIX identity: WebView2 получает user-scoped профиль в `apps/windows/RecApp/Web/WebView2Host.*`, сохраняет native download dialog и обновляет in-memory auth callback после успешного document boundary; runtime/package evidence остаётся в T071.
+- [X] T078 [US1] Добавить Windows-native parity surfaces в `apps/windows/RecApp/AppMain.cpp` и `apps/windows/RecApp/Shell/WindowsTray.*`: верхний persistent indicator, tray Stop/open/quit, WinUI settings, permission onboarding и dynamic custody status.
+- [X] T079 [US2] Исправить exact route classification в `apps/windows/RecApp/Web/WebViewRoutePolicy.cpp` и добавить regressions для meeting share/deletion-report и slash в query; portable contract evidence зафиксирована в quickstart.
+
+## Phase 11: Closeout — evidence and final review
+
+- [ ] T063 После T067/T070/T071/T072/T073/T074/T075 выполнить полный `specs/200-windows-desktop-app/quickstart.md`, Windows x64 hardware/package evidence и `infra/scripts/ci-local.sh --fast`; зафиксировать exact SHA, skipped ARM64 lane и known limitations.
+- [X] T064 Провести финальный review `specs/200-windows-desktop-app/checklists/requirements.md`, `audio-capture.md`, `advanced-routing.md`, `security.md`, `ux.md`, `plan.md` и `tasks.md`; review 2026-08-29: 104/104 checklist items complete, T070/T071/T063 остаются открытыми до signed MSIX/clean-image и hardware/authenticated-cabinet evidence; deploy/release не запускать без отдельного approval.

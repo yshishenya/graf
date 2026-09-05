@@ -52,7 +52,7 @@ Every message uses:
   "message_id": 1,
   "nonce": "ephemeral-nonce",
   "origin": "https://rec.2brain.pro",
-  "command": "native_ready|request_native_settings|request_diagnostics|request_runtime_repair|ack_display",
+  "command": "native_ready|open_native_settings|open_native_diagnostics|request_runtime_repair|request_app_quit|ack",
   "payload": {},
   "sent_at_monotonic_ms": 12345
 }
@@ -111,7 +111,12 @@ The initial allowlist is intentionally small:
 | `open_native_settings` | focus/open native permission or capture settings | yes |
 | `open_native_diagnostics` | open bounded diagnostics view | yes |
 | `request_runtime_repair` | show/launch supported WebView2 repair path | yes |
+| `request_app_quit` | close the current desktop shell after exact `{"action":"quit"}` validation | yes |
 | `ack` | acknowledge display delivery only | yes |
+
+The implementation may accept the older `request_native_settings`,
+`request_diagnostics` and `ack_display` spellings during cabinet rollout, but
+new web code must emit the canonical names above.
 
 `start_recording`, `stop_recording`, `pause_recording`, `resume_recording`,
 `read_file`, `write_file`, `run_process`, `set_audio_device`, `get_token`,
@@ -122,7 +127,7 @@ The initial allowlist is intentionally small:
 1. On `NavigationStarting`, normalize and evaluate origin/route before allow.
 2. On accepted new document, create a fresh nonce and clear old bridge state.
 3. On `ContentLoading`/document-created, do not inject a generic privileged
-   script; only the reviewed bridge bootstrap for the exact trusted origin may
+   script; only the reviewed quit bootstrap for the exact trusted origin may
    be installed.
 4. On auth expiry, route block, WebView recreation or origin change, invalidate
    nonce and stop sending sensitive state.
@@ -141,6 +146,7 @@ The contract is not complete until tests cover:
 - oversized/deep payload;
 - replayed message id;
 - attempted native control/file/token commands;
+- non-quit app-close payloads and quit requests from a non-approved route;
 - cross-frame/redirect navigation;
 - WebView close/recreate during active recording;
 - missing runtime and runtime repair failure.

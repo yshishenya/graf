@@ -1,6 +1,6 @@
 # Package assets
 
-Signed MSIX packaging requires the final GRAF raster logos at the paths named by
-`Package.appxmanifest`. They are intentionally not fabricated from a text
-placeholder in the macOS-only worktree. Add approved Windows package assets and
-rerun the signed package gate before claiming install/distribution readiness.
+The GRAF raster assets are present at the paths named by `Package.appxmanifest`
+so local package composition can be checked. Final branding approval, signing,
+clean-image install/update/rollback and distribution readiness still require the
+signed MSIX gate; do not treat these files alone as release evidence.

@@ -30,7 +30,7 @@ TransitionResult WindowsCaptureSessionController::record(const ReadinessInputs& 
     if (!session_.markReady().accepted() || !session_.beginStart().accepted() || !startWorkers() ||
         captureFaulted_.load()) {
         stopWorkers();
-        const auto failed = session_.fail(ReasonCode::endpointInvalidated);
+        const auto failed = session_.fail(startFailureReason());
         indicator_.publish(session_.state(), session_.reason());
         return failed;
     }
@@ -75,6 +75,12 @@ TransitionResult WindowsCaptureSessionController::stop() {
     stopWorkers();
     indicator_.publish(session_.state(), session_.reason());
     if (!session_.beginFinalizing().accepted()) return {TransitionStatus::rejected, session_.state(), session_.reason()};
+    const auto captureFailure = captureFailureReason();
+    if (captureFailure != ReasonCode::none) {
+        const auto failed = session_.fail(captureFailure);
+        indicator_.publish(session_.state(), session_.reason());
+        return failed;
+    }
     const auto finalized = finalizer_ ? finalizer_() : CaptureFinalization{};
     const auto result = finalized.savedLocal ? session_.saveLocal() : session_.fail(
         finalized.reason == ReasonCode::none ? ReasonCode::finalizationFailed : finalized.reason);
@@ -83,18 +89,62 @@ TransitionResult WindowsCaptureSessionController::stop() {
 }
 
 bool WindowsCaptureSessionController::startWorkers() {
-    if (!renderWorker_ || !microphoneWorker_) return false;
-    const auto callback = [this](AudioBatch batch) { return handleBatch(std::move(batch)); };
-    if (renderWorker_->start(callback) != CaptureWorkerError::none) return false;
-    if (captureFaulted_.load()) {
-        renderWorker_->stop();
+    startError_ = CaptureWorkerError::none;
+    if (!renderWorker_ || !microphoneWorker_) {
+        startError_ = CaptureWorkerError::invalidEndpoint;
         return false;
     }
-    if (microphoneWorker_->start(callback) != CaptureWorkerError::none) {
+    const auto callback = [this](AudioBatch batch) { return handleBatch(std::move(batch)); };
+    startError_ = renderWorker_->start(callback);
+    if (startError_ != CaptureWorkerError::none) return false;
+    if (captureFaulted_.load()) {
+        renderWorker_->stop();
+        startError_ = renderWorker_->lastError();
+        return false;
+    }
+    startError_ = microphoneWorker_->start(callback);
+    if (startError_ != CaptureWorkerError::none) {
         renderWorker_->stop();
         return false;
     }
     return true;
+}
+
+ReasonCode WindowsCaptureSessionController::startFailureReason() const noexcept {
+    switch (startError_) {
+    case CaptureWorkerError::unsupportedFormat:
+        return ReasonCode::formatNormalizationUnavailable;
+    case CaptureWorkerError::bufferOverflow:
+        return ReasonCode::queueOverflow;
+    case CaptureWorkerError::deviceInvalidated:
+    case CaptureWorkerError::invalidEndpoint:
+        return ReasonCode::endpointInvalidated;
+    case CaptureWorkerError::none:
+        return captureFaulted_.load() ? ReasonCode::clockDiscontinuity : ReasonCode::endpointInvalidated;
+    default:
+        return ReasonCode::endpointInvalidated;
+    }
+}
+
+ReasonCode WindowsCaptureSessionController::captureFailureReason() const noexcept {
+    const auto workerError = [](const WasapiCaptureWorker* worker) {
+        return worker == nullptr ? CaptureWorkerError::none : worker->lastError();
+    };
+    const auto renderError = workerError(renderWorker_.get());
+    const auto microphoneError = workerError(microphoneWorker_.get());
+    const auto error = renderError != CaptureWorkerError::none ? renderError : microphoneError;
+    switch (error) {
+    case CaptureWorkerError::unsupportedFormat:
+        return ReasonCode::formatNormalizationUnavailable;
+    case CaptureWorkerError::bufferOverflow:
+        return ReasonCode::queueOverflow;
+    case CaptureWorkerError::deviceInvalidated:
+        return ReasonCode::endpointInvalidated;
+    case CaptureWorkerError::none:
+        return ReasonCode::none;
+    default:
+        return ReasonCode::endpointInvalidated;
+    }
 }
 
 void WindowsCaptureSessionController::stopWorkers() noexcept {

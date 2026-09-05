@@ -14,6 +14,7 @@ enum class CaptureWorkerError {
     none,
     alreadyRunning,
     invalidEndpoint,
+    unsupportedFormat,
     initializationFailed,
     deviceInvalidated,
     bufferOverflow,

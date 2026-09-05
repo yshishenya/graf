@@ -2,7 +2,10 @@
   <PropertyGroup>
     <PlatformToolset Condition="'$(PlatformToolset)' == ''">v143</PlatformToolset>
     <LanguageStandard Condition="'$(LanguageStandard)' == ''">stdcpp20</LanguageStandard>
+    <PrecompiledHeader>NotUsing</PrecompiledHeader>
     <WindowsTargetPlatformMinVersion Condition="'$(WindowsTargetPlatformMinVersion)' == ''">10.0.19045.0</WindowsTargetPlatformMinVersion>
+    <!-- Keep native compilation and MSIX packaging on the same stable SDK.
+         The packaging target otherwise falls back to Windows 7.0. -->
     <WindowsTargetPlatformVersion Condition="'$(WindowsTargetPlatformVersion)' == ''">10.0.26100.0</WindowsTargetPlatformVersion>
     <GrafSupportedWindows11Build>10.0.26100.0</GrafSupportedWindows11Build>
     <UACExecutionLevel>AsInvoker</UACExecutionLevel>
@@ -16,7 +19,7 @@
 
   <ItemDefinitionGroup>
     <ClCompile>
-      <AdditionalOptions>/permissive- /W4 %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/permissive- /W4 /utf-8 %(AdditionalOptions)</AdditionalOptions>
       <PreprocessorDefinitions>WIN32_LEAN_AND_MEAN;NOMINMAX;_WIN32_WINNT=0x0A00;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
     </ClCompile>

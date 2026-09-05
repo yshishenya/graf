@@ -2,24 +2,20 @@
 
 #include "../Web/WebView2Host.h"
 
-#ifdef _WIN32
-#include <winrt/Microsoft.UI.Xaml.Controls.h>
-#endif
-
 #include <string_view>
 
 namespace graf::windows {
 
 class CabinetWindow final {
 public:
-    explicit CabinetWindow(WebView2Host host = WebView2Host());
+    CabinetWindow() = default;
 
     [[nodiscard]] RouteEvaluation openCabinet();
     [[nodiscard]] RouteEvaluation open(std::string_view url);
     [[nodiscard]] WebView2Host& webView() noexcept { return webView_; }
 
-#ifdef _WIN32
-    void attach(Microsoft::UI::Xaml::Controls::WebView2 control) { webView_.attach(control); }
+#if defined(_WIN32) && defined(GRAF_WINDOWS_APP_SDK)
+    void attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control) { webView_.attach(control); }
 #endif
 
 private:

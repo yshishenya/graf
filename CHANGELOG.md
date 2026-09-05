@@ -20,13 +20,42 @@
   остаются отдельными host-gates.
 - Native shell теперь содержит WinUI 3 lifecycle, внешний к WebView статусный
   ряд Record/Pause/Stop, фактический WebView2 event bridge и WinHTTP upload
-  transport через существующие GRAF API; capture остаётся fail-closed до
-  подключения и проверки pinned AEC3, а resumable server-truth/package gates
-  ещё не закрыты.
+  transport через существующие GRAF API; transport сверяет server truth,
+  возобновляет только missing ranges, проверяет принятые offset/length и
+  восстанавливает истёкшую upload session. Capture остаётся fail-closed до
+  прохождения AEC3, WASAPI, privacy, storage и AAC gates; Windows
+  hardware/package gates ещё не закрыты.
 - Второй local re-check исправил privacy Pause в timeline, WASAPI
   discontinuity/fail-closed остановку callback-потока, digest-проверку перед
   upload и русские статусы native indicator; Windows host/package evidence по-
   прежнему не заявляется.
+- Native capture hardening подтверждает WASAPI startup до записи, использует
+  реальную QPC frequency, отклоняет неподдерживаемый/невалидный PCM вместо
+  тихой подмены нулями, не допускает финализацию normal package после worker
+  fault и удаляет partial WAV/M4A при ошибке v5 finalizer; pinned AEC3
+  adapter/library теперь собраны в Windows x64 VM, а hardware evidence
+  по-прежнему не заявляется.
+- AppX manifest теперь явно объявляет только необходимые `internetClient` и
+  `microphone` capabilities; подпись, approved assets и clean-image install
+  по-прежнему не заявляются.
+- Windows parity-срез повторяет последнюю macOS-доработку кабинета: общий
+  профильный menu и пункт «Закрыть GRAF» используют серверный marker и
+  отдельный exact-origin/nonce-allowlisted native quit bridge; это не даёт
+  кабинету полномочий управлять записью или файлами.
+- Windows native build явно использует UTF-8 для исходников, поэтому русские
+  статусы и кнопки в WinUI shell отображаются корректно; это не закрывает
+  отдельные AEC3, auth, hardware и signed-MSIX gates.
+- При первом запуске Windows shell открывается в рабочем размере 1080×620 с
+  раскрытой панелью управления записью; пользователь сразу видит Record,
+  Pause/Stop, состояние готовности и локальную сохранность, а не свернутую
+  полосу из двух компактных кнопок.
+- Повторная Windows x64 validation прошла после штатного NuGet restore:
+  CMake/CTest `20/20`, synthetic/custody/WebView smoke `2/2`, `3/3`, `4/4`,
+  pinned WebRTC AEC3 `440/440`, native Release MSBuild и запуск окна `GRAF`.
+-  `.wapproj` также собрал unsigned x64 MSIX, а static package smoke подтвердил
+  manifest, entry point, capabilities и embedded signing certificate тестового
+  пакета; clean-image install/update/rollback и доверенная release-подпись всё
+  ещё не заявляются.
 
 ### Изменено
 - Windows solution теперь содержит native `RecApp`, CMake/CTest contract surface
@@ -55,6 +84,13 @@
 ### Документы
 - Зафиксированы Windows v5 wire-значения, parity source-of-truth и второй
   consistency re-check; hardware, package и release gates остаются открытыми.
+- Зафиксирован повторный Windows/macOS validation pass: x64 host, native
+  Release MSBuild, свежий Windows CMake/Ninja и 20/20 Windows CTest-контрактов,
+  WebView/audio/custody smoke и 1240 fast-CI тестов; signed MSIX, clean-image,
+  authenticated cabinet и hardware/AEC3 evidence по-прежнему не заявлены.
+- Скрипт `apps/windows/scripts/validate-package-smoke.ps1` теперь выполняет
+  статическую проверку MSIX вместо сообщения-заглушки; clean-image сценарии
+  остаются отдельным host-gate.
 
 ### Операции
 - Добавлен `scripts/graf-mac.sh` — единая локальная команда для статуса,

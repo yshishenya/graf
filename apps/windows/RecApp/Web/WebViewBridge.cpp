@@ -170,8 +170,10 @@ BridgeValidationError WebViewBridge::validate(const WebViewBridgeEnvelope& messa
 }
 
 bool WebViewBridge::isAllowedWebCommand(std::string_view command) noexcept {
-    return command == "request_native_settings" || command == "request_diagnostics" ||
-           command == "request_runtime_repair" || command == "ack_display";
+    return command == "request_native_settings" || command == "open_native_settings" ||
+           command == "request_diagnostics" || command == "open_native_diagnostics" ||
+           command == "request_runtime_repair" || command == "ack_display" || command == "ack" ||
+           command == "request_app_quit";
 }
 
 std::size_t WebViewBridge::jsonDepth(std::string_view payload) noexcept {

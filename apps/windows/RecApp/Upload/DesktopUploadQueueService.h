@@ -3,6 +3,7 @@
 #include "../Contracts/WindowsDesktopContracts.h"
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <optional>
@@ -50,9 +51,11 @@ public:
     [[nodiscard]] bool reconcile(const UploadServerTruth& truth);
     [[nodiscard]] bool markRetry(std::string_view localRecordingId, std::string reason);
     [[nodiscard]] bool markNeedsAuth(std::string_view localRecordingId);
+    [[nodiscard]] bool requeueNeedsAuth();
     [[nodiscard]] bool markQuarantined(std::string_view localRecordingId, std::string reason);
     [[nodiscard]] bool markUploaded(std::string_view localRecordingId);
     [[nodiscard]] std::optional<UploadCustodyItem> nextPending() const;
+    [[nodiscard]] std::vector<UploadCustodyItem> pendingItems(std::size_t limit) const;
     [[nodiscard]] const std::vector<UploadCustodyItem>& items() const noexcept { return items_; }
     [[nodiscard]] bool quarantined() const noexcept { return quarantined_; }
 

@@ -18,5 +18,8 @@ int main() {
     ClockMapper longRun;
     assert(longRun.observe({1, 0, 48'000}).valid);
     assert(longRun.observe({300'000'000'000'001ULL, 1'440'000'000'000ULL, 48'000}).valid);
+    ClockMapper nonDefaultFrequency(3'000'000);
+    assert(nonDefaultFrequency.observe({0, 0, 48'000}).valid);
+    assert(nonDefaultFrequency.observe({3'000'000, 48'000, 48'000}).valid);
     return 0;
 }

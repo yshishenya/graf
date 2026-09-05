@@ -101,7 +101,10 @@ ctest --test-dir apps/windows/out/build/x64/Release -R "WebView|Bridge|Route" --
 Матрица обязана включать trusted origin/routes, auth expiry, redirect,
 cross-frame message, stale nonce, replayed id, malformed JSON, unknown version,
 oversized/deep payload, token/file/process command, WebView close/recreate during
-recording, missing runtime и repair failure. Record/local custody должны
+recording, missing runtime и repair failure. Для embedded profile menu отдельно
+проверяется, что «Закрыть GRAF» отправляет только `request_app_quit` с payload
+`{"action":"quit"}`; любой другой action, origin или route не закрывает shell.
+Record/local custody должны
 оставаться независимыми от результата WebView.
 
 Сравнить с macOS parity matrix: `/desktop/meetings`, detail, settings, auth
@@ -156,3 +159,67 @@ infra/scripts/ci-local.sh --fast
 pass/fail result, exact supported Windows 11 build set, skipped ARM64 lane (если не заявлен), known limitations и
 отсутствие release/deploy claim. Для Windows behavior/architecture обязательно
 обновить `CHANGELOG.md` на русском.
+
+### Текущий implementation evidence
+
+- Рабочая база: `59803fc1b95e7b76e84d31ee82b7b2cbd24b2a27`; текущий worktree
+  содержит незакоммиченный implementation diff и не является release SHA.
+- Windows VM: Windows 11 build `10.0.26200.9168`, MSBuild `17.14.51`, x64.
+  `GrafWindowsApp.vcxproj` и `GrafWindows.sln` собраны в Release; native
+  `GrafWindowsApp.exe` запущен с `MainWindowTitle=GRAF`, `Responding=True`.
+  После явного `/utf-8` русские native-строки отображаются корректно. Кнопка
+  Record не переводит сессию в запись при закрытых AEC3/permission gates —
+  fail-closed поведение подтверждено вручную. Это host evidence для dirty
+  worktree, не release SHA.
+- Windows CMake/Ninja после свежего configure через x64 toolchain:
+  `100% tests passed, 20/20`; quickstart scripts: synthetic audio `2/2`,
+  custody `3/3`, WebView boundary `4/4`. Pinned WebRTC AEC3 checkout
+  `846fe90a289f58b7c9303a635142aa2c7caa93e5` собран Meson в `440/440`, а
+  native app перелинкован с adapter/library. Package smoke без signed MSIX
+  проверяет только контракт.
+- После штатного MSBuild restore `GrafWindows.sln`, native
+  `GrafWindowsApp.exe` и `.wapproj` собраны в Release x64. Package stage
+  сформировал unsigned test MSIX; после локальной self-signed проверки static
+  package smoke подтвердил manifest, entry point, capabilities и embedded
+  certificate. Это не заменяет доверенную release-подпись, clean-image
+  install/update/rollback, WebView2 repair и hardware capture. Запрос Windows к
+  `/desktop/meetings` получает `401
+  application/problem+json`, поэтому authenticated cabinet parity ещё не
+  доказана.
+- macOS Swift build, `swift test --disable-swift-testing` (`764/764`),
+  `ContractValidation`, legacy-audio guard, desktop upload queue и local
+  recording persistence — PASS; локальный `GRAF Local.app` собран и прошёл
+  `codesign --verify --deep --strict`.
+- `infra/scripts/ci-local.sh --fast`: `1240 passed`, server lint и Python
+  compile — PASS; macOS portable CMake/CTest — `20/20` PASS.
+- T069: WinHTTP transport использует server-authoritative `sync-state`,
+  повторно использует meeting/session, грузит только missing ranges, проверяет
+  `byte_offset`/`byte_length`, обрабатывает auth/network/server rejection и
+  создаёт новую idempotent session после `upload_session_expired`.
+- T067/T072/T073/T074/T075 implementation: startup WASAPI подтверждается до перехода в
+  `recording`, QPC mapping использует runtime frequency, неподдерживаемый или
+  невалидный PCM не превращается в нулевые samples, worker fault блокирует
+  normal finalization, а v5 writer очищает partial WAV/M4A artifacts.
+- T070 package metadata: manifest объявляет `internetClient`, `microphone` и
+  необходимый для full-trust desktop shell `runFullTrust`; native app и
+  `.wapproj` собираются в unsigned x64 MSIX. Static package smoke проходит;
+  доверенная release-подпись и clean-image smoke ещё не доказаны.
+- Не заявлено: hardware WASAPI run, authenticated cabinet parity, clean-image
+  package evidence и signed MSIX; это остаётся в T070/T071/T063.
+
+## 10. Latest local implementation re-check (2026-08-30)
+
+- Windows shell no longer hides WebView2 merely because the process is
+  unpackaged. WebView2 gets a user-scoped `%LOCALAPPDATA%\\GRAF\\WebView2`
+  profile in both dev and packaged modes; runtime/network failure alone shows
+  the bounded fallback.
+- Native shell now has a persistent recording strip, notification-area menu
+  with one-action Stop, a WinUI settings window, microphone onboarding dialog,
+  dynamic local-custody summary and allowlisted native bridge handlers.
+- Browser-owned auth is read from the WebView2 session cookie after each
+  successful document boundary and held in memory only for native upload; it is
+  never placed in the bridge, ledger or diagnostics.
+- Portable checks after this slice: CMake/CTest `20/20`, route regressions and
+  `infra/scripts/ci-local.sh --fast` `1240 passed`; Windows MSBuild/UI,
+  hardware, authenticated cabinet and signed MSIX still require the VM gates
+  above and are not claimed here.

@@ -44,6 +44,8 @@ public:
 
 private:
     [[nodiscard]] bool startWorkers();
+    [[nodiscard]] ReasonCode startFailureReason() const noexcept;
+    [[nodiscard]] ReasonCode captureFailureReason() const noexcept;
     void stopWorkers() noexcept;
     [[nodiscard]] bool handleBatch(AudioBatch batch);
     void handleStop();
@@ -56,6 +58,7 @@ private:
     std::unique_ptr<WasapiCaptureWorker> renderWorker_;
     std::unique_ptr<WasapiCaptureWorker> microphoneWorker_;
     std::atomic_bool captureFaulted_{false};
+    CaptureWorkerError startError_ = CaptureWorkerError::none;
     std::mutex captureMutex_;
 };
 

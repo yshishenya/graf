@@ -97,7 +97,7 @@ def test_cabinet_shell_macro_renders_shared_sidebar_contract() -> None:
     assert 'href="/meetings"' in html
     assert 'href="/settings"' in html
     assert 'data-state="disabled"' not in html
-    assert 'aria-disabled="true"' not in html
+    assert html.count('aria-disabled="true"') == 10
     assert 'href="#"' not in html
     assert 'src="/static/cabinet/graf-wordmark-dark.png"' in html
     assert 'data-cabinet-rail-toggle' in html

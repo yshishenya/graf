@@ -32,6 +32,18 @@ int main() {
     assert(result.ok() && result.durationMs == 10 && result.wavBytes > 44 && !result.wavSha256.empty());
     const auto package = LocalRecordingPackage::inspect(directory);
     assert(package.integrity == PackageIntegrity::valid && package.durationMs == 10);
+    const auto failedDirectory = custodyRoot / "failed";
+    V5LocalRecordingWriter failedWriter(custodyRoot, failedDirectory,
+        [](const auto& path, const auto&, std::uint64_t) {
+            std::ofstream output(path, std::ios::binary);
+            output << "partial-m4a";
+            return false;
+        });
+    assert(failedWriter.append(frame));
+    const auto failed = failedWriter.finalize();
+    assert(!failed.ok());
+    assert(!std::filesystem::exists(failed.wavPath));
+    assert(!std::filesystem::exists(failed.playbackPath));
     std::filesystem::remove_all(directory);
     std::filesystem::remove_all(escape);
     return 0;

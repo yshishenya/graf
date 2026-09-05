@@ -202,17 +202,39 @@ V5WriterResult V5LocalRecordingWriter::finalize() {
     canonicalOutput_->flush(); canonicalOutput_->close(); canonicalOutput_ = nullptr;
     const auto wavTemp = result.wavPath.string() + ".tmp";
     const auto playbackTemp = result.playbackPath.string() + ".tmp";
-    if (!writeWav(wavTemp, &result.wavBytes)) { result.error = V5WriterError::storageUnavailable; return result; }
     std::error_code error;
+    if (!writeWav(wavTemp, &result.wavBytes)) {
+        std::filesystem::remove(wavTemp, error);
+        result.error = V5WriterError::storageUnavailable;
+        return result;
+    }
+    if (!writePlayback(playbackTemp)) {
+        std::filesystem::remove(wavTemp, error);
+        std::filesystem::remove(playbackTemp, error);
+        result.error = V5WriterError::aacEncoderUnavailable;
+        return result;
+    }
     std::filesystem::rename(wavTemp, result.wavPath, error);
-    if (error || !writePlayback(playbackTemp)) {
-        result.error = error ? V5WriterError::storageUnavailable : V5WriterError::aacEncoderUnavailable;
+    if (error) {
+        std::filesystem::remove(wavTemp, error);
+        std::filesystem::remove(playbackTemp, error);
+        result.error = V5WriterError::storageUnavailable;
         return result;
     }
     result.playbackBytes = fileSize(playbackTemp);
-    if (result.playbackBytes == 0) { result.error = V5WriterError::encodeFailed; return result; }
+    if (result.playbackBytes == 0) {
+        std::filesystem::remove(result.wavPath, error);
+        std::filesystem::remove(playbackTemp, error);
+        result.error = V5WriterError::encodeFailed;
+        return result;
+    }
     std::filesystem::rename(playbackTemp, result.playbackPath, error);
-    if (error) { result.error = V5WriterError::storageUnavailable; return result; }
+    if (error) {
+        std::filesystem::remove(result.wavPath, error);
+        std::filesystem::remove(playbackTemp, error);
+        result.error = V5WriterError::storageUnavailable;
+        return result;
+    }
     result.wavBytes = fileSize(result.wavPath);
     result.playbackBytes = fileSize(result.playbackPath);
     result.wavSha256 = sha256File(result.wavPath);

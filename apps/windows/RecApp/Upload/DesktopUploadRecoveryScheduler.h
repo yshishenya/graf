@@ -19,7 +19,7 @@ enum class RecoveryTrigger {
 
 class DesktopUploadRecoveryScheduler final {
 public:
-    using RetryHandler = std::function<DesktopTransportStatus(const UploadCustodyItem&)>;
+    using RetryHandler = std::function<DesktopTransportResult(const UploadCustodyItem&)>;
 
     DesktopUploadRecoveryScheduler(DesktopUploadQueueService& queue, RetryHandler retry,
                                    std::uint32_t maxAttempts = 8);

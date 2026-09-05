@@ -9,7 +9,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-if (-not $IsWindows) { throw 'Feature 200 Windows validation requires a Windows host.' }
+if ($env:OS -ne 'Windows_NT') { throw 'Feature 200 Windows validation requires a Windows host.' }
 $root = Split-Path -Parent $PSScriptRoot
 $build = Join-Path $root 'out\build\x64\Release'
 if (-not (Test-Path $build)) { throw "Build output is missing: $build" }

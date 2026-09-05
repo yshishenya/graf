@@ -15,4 +15,4 @@ library_kind=static
 cpp_standard=c++17
 optional_audio_processing=disabled
 build_flags=--default-library=static,--wrap-mode=forcefallback,-Db_lto=false,-Dbuildtype=release
-license_files=COPYING,webrtc/LICENSE,webrtc/PATENTS,abseil/LICENSE,ooura/LICENSE,spl_sqrt_floor/LICENSE,fft/LICENSE,pffft/LICENSE,rnnoise/COPYING
+license_files=COPYING,webrtc/LICENSE,webrtc/PATENTS,webrtc/common_audio/third_party/ooura/LICENSE,webrtc/common_audio/third_party/spl_sqrt_floor/LICENSE,webrtc/modules/third_party/fft/LICENSE,webrtc/third_party/pffft/LICENSE,webrtc/third_party/rnnoise/COPYING

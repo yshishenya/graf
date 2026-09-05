@@ -3,14 +3,42 @@
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|x64"><Configuration>Debug</Configuration><Platform>x64</Platform></ProjectConfiguration>
     <ProjectConfiguration Include="Release|x64"><Configuration>Release</Configuration><Platform>x64</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|ARM64"><Configuration>Debug</Configuration><Platform>ARM64</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Release|ARM64"><Configuration>Release</Configuration><Platform>ARM64</Platform></ProjectConfiguration>
   </ItemGroup>
-  <PropertyGroup Label="Globals">
+    <PropertyGroup Label="Globals">
     <ProjectGuid>{4B4C31DA-2000-4E1A-9D4A-6BF7B4B24001}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
     <RootNamespace>GrafWindowsApp</RootNamespace>
-    <WindowsAppContainer>true</WindowsAppContainer>
-    <ApplicationType>Windows Store</ApplicationType>
-    <ApplicationTypeRevision>10.0</ApplicationTypeRevision>
+    <AppContainerApplication>false</AppContainerApplication>
+    <AppxPackage>false</AppxPackage>
+    <WindowsPackageType>None</WindowsPackageType>
+    <DesktopCompatible>true</DesktopCompatible>
+    <UseWinUI>true</UseWinUI>
+    <CppWinRTOptimized>true</CppWinRTOptimized>
+    <CppWinRTRootNamespaceAutoMerge>true</CppWinRTRootNamespaceAutoMerge>
+    <MinimalCoreWin>true</MinimalCoreWin>
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <TargetFramework>UAP,Version=v10.0</TargetFramework>
+    <NuGetTargetMoniker>native,Version=v0.0</NuGetTargetMoniker>
+    <RuntimeIdentifier Condition="'$(Platform)' == 'ARM64'">win-arm64</RuntimeIdentifier>
+    <RuntimeIdentifier Condition="'$(Platform)' != 'ARM64'">win-x64</RuntimeIdentifier>
+    <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
+    <WebView2UseWinRT>false</WebView2UseWinRT>
+    <WebView2LoaderPreference>Dynamic</WebView2LoaderPreference>
+    <GrafWebView2SdkVersion Condition="'$(GrafWebView2SdkVersion)' == ''">1.0.4129.50</GrafWebView2SdkVersion>
+    <GrafWebView2NativeRoot Condition="'$(GrafWebView2NativeRoot)' == '' and '$(NuGetPackageRoot)' != ''">$(NuGetPackageRoot)microsoft.web.webview2\$(GrafWebView2SdkVersion)\build\native</GrafWebView2NativeRoot>
+    <GrafWebView2NativeRoot Condition="'$(GrafWebView2NativeRoot)' == ''">$(UserProfile)\.nuget\packages\microsoft.web.webview2\$(GrafWebView2SdkVersion)\build\native</GrafWebView2NativeRoot>
+    <!-- Prefer the verified checkout/build produced by build-graf-aec3.ps1.
+         Environment overrides remain available for CI or an external cache. -->
+    <GrafAEC3Root Condition="'$(GrafAEC3Root)' == '' and '$(GRAF_AEC3_ROOT)' != ''">$(GRAF_AEC3_ROOT)</GrafAEC3Root>
+    <GrafAEC3Root Condition="'$(GrafAEC3Root)' == ''">$(MSBuildProjectDirectory)\..\Native\GrafAEC3\vendor\webrtc-audio-processing</GrafAEC3Root>
+    <GrafAEC3BuildRoot Condition="'$(GrafAEC3BuildRoot)' == '' and '$(GRAF_AEC3_BUILD_ROOT)' != ''">$(GRAF_AEC3_BUILD_ROOT)</GrafAEC3BuildRoot>
+    <GrafAEC3BuildRoot Condition="'$(GrafAEC3BuildRoot)' == ''">$(MSBuildProjectDirectory)\..\out\aec3\$(Configuration)</GrafAEC3BuildRoot>
+    <GrafAEC3Library Condition="'$(GrafAEC3Library)' == '' and Exists('$(GrafAEC3BuildRoot)\webrtc\modules\audio_processing\libwebrtc-audio-processing-2.a')">libwebrtc-audio-processing-2.a</GrafAEC3Library>
+    <GrafAEC3Library Condition="'$(GrafAEC3Library)' == '' and Exists('$(GrafAEC3BuildRoot)\webrtc\modules\audio_processing\libwebrtc-audio-processing-2.lib')">libwebrtc-audio-processing-2.lib</GrafAEC3Library>
+    <GrafAEC3Available Condition="'$(GrafAEC3Available)' == '' and Exists('$(GrafAEC3Root)\webrtc\api\audio\audio_processing.h') and '$(GrafAEC3Library)' != ''">true</GrafAEC3Available>
+    <GrafAEC3Available Condition="'$(GrafAEC3Available)' == ''">false</GrafAEC3Available>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
@@ -19,7 +47,27 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType><UseDebugLibraries>false</UseDebugLibraries><PlatformToolset>v143</PlatformToolset><WholeProgramOptimization>true</WholeProgramOptimization><CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType><UseDebugLibraries>true</UseDebugLibraries><PlatformToolset>v143</PlatformToolset><CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType><UseDebugLibraries>false</UseDebugLibraries><PlatformToolset>v143</PlatformToolset><WholeProgramOptimization>true</WholeProgramOptimization><CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <PropertyGroup>
+    <GeneratedFilesDir>$(IntDir)Generated Files\</GeneratedFilesDir>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <CompileAsWinRT>false</CompileAsWinRT>
+      <AdditionalIncludeDirectories>$(MSBuildThisFileDirectory)Generated Files;$(GrafWebView2NativeRoot)\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories Condition="'$(GrafAEC3Available)' == 'true'">$(GrafAEC3Root)\webrtc;$(GrafAEC3Root)\subprojects\abseil-cpp-20240722.0;$(GrafAEC3BuildRoot);$(GrafAEC3BuildRoot)\subprojects\abseil-cpp-20240722.0;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions Condition="'$(GrafAEC3Available)' == 'true'">GRAF_AEC3_AVAILABLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalOptions>/FS %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+  </ItemDefinitionGroup>
   <ImportGroup Label="PropertySheets" />
   <ItemGroup>
     <ClCompile Include="AppMain.cpp" />
@@ -36,6 +84,7 @@
     <ClCompile Include="Upload\DesktopUploadRecoveryScheduler.cpp" />
     <ClCompile Include="Upload\DesktopLocalPurgeService.cpp" />
     <ClCompile Include="Audio\ClockMapper.cpp" />
+    <ClCompile Include="Audio\AudioNormalizer.cpp" />
     <ClCompile Include="Audio\RecordingAudioTimeline.cpp" />
     <ClCompile Include="Audio\WasapiCaptureWorker.cpp" />
     <ClCompile Include="Audio\WasapiEndpointEnumerator.cpp" />
@@ -51,19 +100,37 @@
     <ClCompile Include="Shell\CabinetWindow.cpp" />
     <ClCompile Include="Shell\CustodyStatusProjection.cpp" />
     <ClCompile Include="Shell\RecordingIndicator.cpp" />
+    <ClCompile Include="Shell\WindowsTray.cpp" />
     <ClCompile Include="Web\WebRuntimeState.cpp" />
     <ClCompile Include="Web\WebView2Host.cpp" />
     <ClCompile Include="Web\WebViewBridge.cpp" />
     <ClCompile Include="Web\WebViewRoutePolicy.cpp" />
     <ClCompile Include="..\Native\GrafAEC3\GrafAEC3.cpp" />
+    <ClCompile Include="..\Native\GrafAEC3\GrafAEC3WebRtcAdapter.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="$(GrafWindowsAppSdkVersion)" />
-    <PackageReference Include="Microsoft.Web.WebView2" Version="$(GrafWebView2SdkVersion)" />
-    <PackageReference Include="Microsoft.Windows.CppWinRT" Version="$(GrafCppWinRTVersion)" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" />
+    <PackageReference Include="Microsoft.Web.WebView2" />
+    <PackageReference Include="Microsoft.Windows.CppWinRT" />
+    <Reference Include="$(GrafWebView2NativeRoot)\..\..\lib\Microsoft.Web.WebView2.Core.winmd" />
   </ItemGroup>
   <ItemDefinitionGroup>
-    <Link><AdditionalDependencies>mfplat.lib;mfreadwrite.lib;mfuuid.lib;ole32.lib;avrt.lib;advapi32.lib;shell32.lib;winhttp.lib;%(AdditionalDependencies)</AdditionalDependencies></Link>
+    <ClCompile>
+      <PreprocessorDefinitions>GRAF_WINDOWS_APP_SDK;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link>
+      <AdditionalDependencies>windowsapp.lib;mfplat.lib;mfreadwrite.lib;mfuuid.lib;ole32.lib;avrt.lib;advapi32.lib;shell32.lib;comdlg32.lib;winhttp.lib;WebView2Loader.dll.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(GrafWebView2NativeRoot)\$(Platform);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories Condition="'$(GrafAEC3Available)' == 'true'">$(GrafAEC3BuildRoot)\webrtc\modules\audio_processing;$(GrafAEC3BuildRoot)\webrtc\api;$(GrafAEC3BuildRoot)\webrtc\common_audio;$(GrafAEC3BuildRoot)\webrtc\rtc_base;$(GrafAEC3BuildRoot)\webrtc\system_wrappers;$(GrafAEC3BuildRoot)\webrtc\modules\third_party\fft;$(GrafAEC3BuildRoot)\webrtc\third_party\pffft;$(GrafAEC3BuildRoot)\webrtc\third_party\rnnoise;$(GrafAEC3BuildRoot)\subprojects\abseil-cpp-20240722.0;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies Condition="'$(GrafAEC3Available)' == 'true'">$(GrafAEC3Library);libwebrtc_audio_processing_privatearch.a;liblibapi.a;libcommon_audio_sse2.a;libcommon_audio_avx.a;libcommon_audio.a;liblibbase.a;libsystem_wrappers.a;liblibfft.a;liblibpffft.a;liblibrnnoise.a;libabsl_base.a;libabsl_container.a;libabsl_crc.a;libabsl_debugging.a;libabsl_flags.a;libabsl_hash.a;libabsl_log.a;libabsl_numeric.a;libabsl_profiling.a;libabsl_random.a;libabsl_status.a;libabsl_strings.a;libabsl_synchronization.a;libabsl_time.a;libabsl_types.a;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
   </ItemDefinitionGroup>
+  <ItemGroup>
+    <Content Include="$(GrafWebView2NativeRoot)\$(Platform)\WebView2Loader.dll" Condition="Exists('$(GrafWebView2NativeRoot)\$(Platform)\WebView2Loader.dll')">
+      <Link>WebView2Loader.dll</Link>
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      <Visible>False</Visible>
+    </Content>
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

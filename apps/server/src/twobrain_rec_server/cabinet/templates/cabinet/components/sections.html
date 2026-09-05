@@ -52,16 +52,44 @@
         <span class="sidebar-profile__copy"><strong class="sidebar-profile__name">{{ profile_name }}</strong>{% if profile_email %}<span class="sidebar-profile__email">{{ profile_email }}</span>{% endif %}</span>
       </button>
       <div class="sidebar-profile-menu" id="cabinet-profile-menu" data-profile-menu hidden>
-        <div class="sidebar-profile-menu__identity">
-          <strong>{{ profile_name }}</strong>
-          {% if profile_email %}<span>{{ profile_email }}</span>{% endif %}
-        </div>
-        <a href="{{ '/desktop/settings/account' if embedded else '/settings/account' }}">Настройки</a>
+        <a class="sidebar-profile-menu__account" href="{{ '/desktop/settings/account' if embedded else '/settings/account' }}" data-profile-menu-item="account">
+          <span class="sidebar-profile-menu__account-icon" aria-hidden="true">{{ icons.icon("users-round") }}</span>
+          <span class="sidebar-profile-menu__account-copy"><strong>{{ profile_name }}</strong>{% if profile_email %}<span>{{ profile_email }}</span>{% endif %}</span>
+        </a>
+        <div class="sidebar-profile-menu__separator" role="separator"></div>
+        <details class="sidebar-profile-menu__disclosure">
+          <summary class="sidebar-profile-menu__item">{{ icons.icon("sun") }}<span>Вид</span></summary>
+          <div class="sidebar-profile-menu__submenu" data-profile-menu-submenu>
+            <form class="sidebar-profile-menu__theme-form" data-account-preferences data-account-preferences-auto-save method="post" action="{{ '/desktop/settings/account/preferences' if embedded else '/settings/account/preferences' }}">
+              {{ csrf_field(csrf_token) }}
+              <input type="hidden" name="locale" value="{{ profile.locale if profile else 'ru-RU' }}">
+              <input type="hidden" name="timezone" value="{{ profile.timezone if profile else 'Europe/Moscow' }}">
+              {{ ui.theme_picker(profile.theme if profile else "system") }}
+            </form>
+          </div>
+        </details>
+        <a class="sidebar-profile-menu__item" href="{{ '/desktop/settings' if embedded else '/settings' }}" data-profile-menu-item="settings">{{ icons.icon("settings") }}<span>Настройки</span></a>
+        <div class="sidebar-profile-menu__separator" role="separator"></div>
+        <details class="sidebar-profile-menu__disclosure">
+          <summary class="sidebar-profile-menu__item">{{ icons.icon("info") }}<span>Решение проблем</span></summary>
+          <div class="sidebar-profile-menu__submenu" data-profile-menu-submenu>
+            {% for label in ("Сообщить о проблеме", "Записать сетевой журнал", "Диагностика сети") %}<button class="sidebar-profile-menu__item sidebar-profile-menu__item--disabled" type="button" disabled aria-disabled="true">{{ icons.icon("info") }}<span>{{ label }}</span></button>{% endfor %}
+          </div>
+        </details>
+        <details class="sidebar-profile-menu__disclosure">
+          <summary class="sidebar-profile-menu__item">{{ icons.icon("transcript") }}<span>Документация</span></summary>
+          <div class="sidebar-profile-menu__submenu" data-profile-menu-submenu>
+            {% for label in ("Начало работы", "Что нового", "Центр помощи", "Конфиденциальность и обмен данными") %}<button class="sidebar-profile-menu__item sidebar-profile-menu__item--disabled" type="button" disabled aria-disabled="true">{{ icons.icon("transcript") }}<span>{{ label }}</span></button>{% endfor %}
+          </div>
+        </details>
+        {% for label, icon_name in (("Техническая поддержка", "users-round"), ("Обратная связь", "info"), ("Присоединиться к ТГ-каналу", "users-round")) %}<button class="sidebar-profile-menu__item sidebar-profile-menu__item--disabled" type="button" disabled aria-disabled="true">{{ icons.icon(icon_name) }}<span>{{ label }}</span></button>{% endfor %}
+        <div class="sidebar-profile-menu__separator" role="separator"></div>
         <form class="sidebar-logout" method="post" action="{{ '/desktop/meetings' if embedded else '/logout' }}">
           {{ csrf_field(csrf_token) }}
           <input type="hidden" name="next" value="{{ '/login?next=/desktop/meetings' if embedded else '/login?next=/meetings' }}">
           <button class="sidebar-logout__button" type="submit">{{ icons.icon("log-out") }}<span>Выйти</span></button>
         </form>
+        {% if embedded %}<button class="sidebar-profile-menu__item sidebar-profile-menu__quit" type="button" data-graf-app-quit>{{ icons.icon("x") }}<span>Закрыть GRAF</span></button>{% endif %}
       </div>
     </div>
   </div>

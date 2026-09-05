@@ -60,6 +60,7 @@ int main() {
     std::ifstream input(path, std::ios::binary);
     const std::string contents((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
     assert(contents == "{\"state\":\"ready\"}");
+    input.close();
     std::filesystem::remove(path);
 
     const auto meeting = DesktopApiClient::createMeetingRequest("recording-001", "recording-001--initial", 60);

@@ -116,18 +116,43 @@ contract pins `local-recording-manifest.v5`, `canonical-mix.v1`,
 `initial_mixed_recording`, `single_wav_v1` and `manifest/media/playback`, and
 the native bridge contract now matches the implemented numeric message-id,
 nonce and command envelope. The 22 functional requirements and 10 buildable
-success criteria remain covered by 71 ordered tasks; T065/T066/T068 have an
-implementation slice, while T067/T069/T070/T071 and the Windows host
-evidence remain open. This is a consistency result, not Windows build,
-hardware, package or release evidence.
+success criteria remain covered by 76 ordered tasks; T065–T069 and T072–T076
+have an implementation slice, while T070/T071 and the Windows hardware,
+package and release evidence remain open. This is a consistency result, not
+Windows hardware, package or release evidence.
 
-**Local implementation re-check (2026-08-24)**: PASS. The portable slice now
+**Local implementation re-check (2026-08-25)**: PASS. The portable slice now
 propagates privacy Pause into the timeline, treats WASAPI data discontinuity and
 timeline/egress integrity failures as fail-closed, uses the macOS-compatible
-`directoryId--initial` revision and Russian native status copy. CMake/CTest
-passes 19/19 and `infra/scripts/ci-local.sh --fast` passes 1173 tests plus lint;
-Windows MSBuild, AEC3, WebView2 runtime, hardware and signed-package evidence
-remain intentionally unclaimed under T067/T069/T070/T071.
+`directoryId--initial` revision and Russian native status copy. The upload
+transport now reconciles `sync-state`, resumes server ranges, verifies accepted
+offsets and handles expired sessions with a fresh idempotency scope. CMake/CTest
+passes 20/20 and `infra/scripts/ci-local.sh --fast` passes 1240 tests plus lint;
+Windows Release MSBuild, pinned AEC3 build (440/440), WebView2 runtime launch
+and native app smoke passed in the VM. Hardware and signed-package evidence
+remain intentionally unclaimed under T070/T071.
+
+**Native capture hardening re-check (2026-08-25)**: PASS for the portable
+contract surface. `WasapiCaptureWorker` now waits for successful WASAPI startup,
+uses the runtime `QueryPerformanceFrequency` for `ClockMapper`, rejects
+unsupported/non-finite samples instead of synthesizing silence, and reports
+worker faults to the session finalizer. The v5 writer removes partial artifacts
+when either WAV or playback encoding fails and publishes both artifacts only
+after their temporary files are complete. CMake/CTest remains 20/20 PASS;
+Windows MSBuild, pinned AEC3 binding and resampling implementation are now
+host-built; hardware and signed-package evidence remain open.
+
+**Host validation re-check (2026-08-30)**: PASS WITH EVIDENCE GATES. After
+MSBuild restore, the current dirty worktree builds `GrafWindows.sln` and the
+native `GrafWindowsApp.exe` in Release x64 with the pinned AEC3 adapter; a
+fresh Windows CMake/Ninja configure/build passes 20/20 CTest, synthetic audio
+passes 2/2, custody passes 3/3 and WebView boundary passes 4/4. The pinned
+AEC3 checkout builds 440/440, and the app launches as `GRAF` and loads the
+server-owned auth cabinet. The `.wapproj` now forms an unsigned x64 test MSIX;
+static package smoke checks its manifest, entry point, capabilities and
+embedded signing certificate. The cabinet is unauthenticated, and trusted
+release signing, hardware capture and clean-image package evidence remain open.
+This is host evidence for the dirty worktree, not a release claim.
 
 ## Architecture
 
@@ -151,9 +176,10 @@ apps/windows/scripts/          reproducible build, validation and smoke scripts
 
 ### Source ownership
 
-The Windows app owns only Windows-native code and platform packaging. Existing
-server cabinet routes/templates and macOS capture code are not copied or edited
-for this slice unless a separate shared-contract gap is discovered and approved.
+The Windows app owns Windows-native code and platform packaging. Existing server
+cabinet routes/templates and macOS capture code are not copied into the native
+client; a separately approved shared cabinet parity fix may update the common
+server template/static contract, as in the profile-menu/quit marker slice here.
 The server remains the owner of authentication, meetings, review, deletion,
 MediaScribe and server-side processing.
 
@@ -336,6 +362,23 @@ logic. Do not create a second web application, a driver project or a server
 database migration. Shared server contracts are consumed through the existing
 desktop APIs; any required server change must be a separately reviewed contract
 slice.
+
+## Latest implementation re-check (2026-08-30)
+
+The Windows convergence slice now loads the existing cabinet through WebView2 in
+both packaged and non-packaged development runs, using a user-scoped runtime
+profile and a native download save dialog. The native shell owns a persistent
+recording strip, notification-area Stop action, WinUI settings and permission
+onboarding, while custody status remains visible outside the web document.
+WebView2 session cookies are copied to an in-memory upload callback only after a
+successful document boundary; no cookie is persisted or exposed through the
+bridge. Route parsing is exact for meeting share/deletion-report actions and
+does not treat query/fragment slashes as path separators.
+
+Portable evidence: CMake/CTest `20/20`, `infra/scripts/ci-local.sh --fast`
+`1240 passed`, and focused route/bridge regressions pass. T070/T071/T063 stay
+open until Windows x64 MSBuild/UI, hardware, authenticated-cabinet, signed
+MSIX and clean-image evidence is captured in Parallels.
 
 ## Complexity Tracking
 

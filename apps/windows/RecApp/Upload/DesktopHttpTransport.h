@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <string>
 
 namespace graf::windows {
@@ -16,6 +17,11 @@ enum class DesktopTransportStatus {
     serverRejected,
     invalidPackage,
     unsupportedPlatform,
+};
+
+struct DesktopTransportResult {
+    DesktopTransportStatus status = DesktopTransportStatus::retryableFailure;
+    std::optional<UploadServerTruth> serverTruth;
 };
 
 struct DesktopHttpConfig {
@@ -31,7 +37,7 @@ class DesktopHttpTransport final {
 public:
     explicit DesktopHttpTransport(DesktopHttpConfig config = {});
 
-    [[nodiscard]] DesktopTransportStatus upload(const UploadCustodyItem& item) const;
+    [[nodiscard]] DesktopTransportResult upload(const UploadCustodyItem& item) const;
 
 private:
     DesktopHttpConfig config_;

@@ -5,6 +5,10 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+if(WIN32)
+    add_compile_definitions(WIN32_LEAN_AND_MEAN NOMINMAX _WIN32_WINNT=0x0A00)
+endif()
+
 file(GLOB_RECURSE GRAF_WINDOWS_COMMON CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/RecApp/*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/Native/GrafAEC3/GrafAEC3.cpp")
@@ -16,6 +20,7 @@ set(GRAF_WINDOWS_TESTS
     "Tests/GrafWindowsCoreTests/RecordingAudioTimelineTests.cpp"
     "Tests/GrafWindowsCoreTests/DesktopUploadQueueV2Tests.cpp"
     "Tests/GrafWindowsCoreTests/CaptureFaultStateTests.cpp"
+    "Tests/GrafWindowsCoreTests/AudioNormalizerTests.cpp"
     "Tests/GrafWindowsCoreTests/VerifiedTargetPolicyTests.cpp"
     "Tests/GrafWindowsContractTests/NativeCaptureWebFailureTests.cpp"
     "Tests/GrafWindowsContractTests/WebViewRoutePolicyTests.cpp"
