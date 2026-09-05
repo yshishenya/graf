@@ -1,7 +1,7 @@
 {% import "cabinet/components/icons.html" as icons %}
 {% import "cabinet/components/primitives.html" as ui %}
 
-<dialog class="manual-upload-dialog" data-manual-upload-dialog
+<dialog class="manual-upload-dialog" data-manual-upload-dialog aria-labelledby="manual-upload-heading"
   data-upload-endpoint="{{ upload_endpoint }}"
   data-upload-detail-base="{{ detail_base_path }}"
   data-upload-available="{{ 'true' if upload_available else 'false' }}"
@@ -9,7 +9,7 @@
   <form class="manual-upload-sheet" method="dialog" data-manual-upload-form novalidate>
     <div class="manual-upload-head">
       <div class="manual-upload-title">
-        <h2>Загрузить файл</h2>
+        <h2 id="manual-upload-heading">Загрузить файл</h2>
         <p>Аудио или видео с аудиодорожкой.</p>
       </div>
       <button class="icon-control" type="button" data-manual-upload-close aria-label="Закрыть">{{ icons.icon("x") }}</button>

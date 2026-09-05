@@ -463,7 +463,7 @@
     'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
   )).filter((element) => isUsableFocusTarget(element) && !element.matches(":disabled"));
 
-  const trapModalFocus = (dialog, event) => {
+  const trapModalFocus = (dialog, event, { cycleAll = false } = {}) => {
     if (event.key !== "Tab" || !dialog.open) return;
     const elements = modalFocusTargets(dialog);
     if (!elements.length) return;
@@ -472,6 +472,7 @@
       ? (current <= 0 ? elements.length - 1 : current - 1)
       : (current < 0 || current === elements.length - 1 ? 0 : current + 1);
     if (
+      cycleAll ||
       (event.shiftKey && current <= 0) ||
       (!event.shiftKey && (current < 0 || current === elements.length - 1))
     ) {
@@ -5598,6 +5599,7 @@
       }
       if (typeof dialog.showModal === "function") dialog.showModal();
       else dialog.setAttribute("open", "");
+      dialog.scrollTop = 0;
       const focusTarget = fileInput || dialog.querySelector("a,button,input");
       focusDialogElement(focusTarget);
     };
@@ -5627,7 +5629,15 @@
       return wasOpen;
     };
 
-    dialog.addEventListener("keydown", (event) => trapModalFocus(dialog, event));
+    dialog.addEventListener("keydown", (event) => trapModalFocus(dialog, event, { cycleAll: true }));
+    dialog.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      closeDialog();
+    });
+    dialog.addEventListener("focusin", (event) => {
+      const target = event.target === fileInput ? dropZone : event.target;
+      if (target instanceof HTMLElement) target.scrollIntoView({ block: "nearest" });
+    });
 
     document.body.addEventListener("click", (event) => {
       if (!(event.target instanceof Element)) return;
@@ -5743,24 +5753,28 @@
       const expandedMedia = window.matchMedia(
         shell.classList.contains("desktop-embedded") ? "(min-width: 1121px)" : "(min-width: 981px)"
       );
+      const narrowMedia = window.matchMedia("(max-width: 640px)");
       const storedRailState = sessionStorage.getItem("graf-cabinet-rail");
       let manuallySet = ["expanded", "collapsed"].includes(storedRailState);
+      let preferredPinned = manuallySet
+        ? storedRailState === "expanded"
+        : shell.classList.contains("is-rail-pinned") || expandedMedia.matches;
       const syncViewport = () => {
-        if (!manuallySet) setRailPinned(shell, toggle, expandedMedia.matches);
+        if (!manuallySet) preferredPinned = expandedMedia.matches;
+        setRailPinned(shell, toggle, preferredPinned && !(narrowMedia.matches && shell.querySelector("main")?.contains(document.activeElement)));
       };
       const setManualRailState = (pinned) => {
         manuallySet = true;
+        preferredPinned = pinned;
         sessionStorage.setItem("graf-cabinet-rail", pinned ? "expanded" : "collapsed");
         setRailPinned(shell, toggle, pinned);
       };
-      setRailPinned(
-        shell,
-        toggle,
-        manuallySet
-          ? storedRailState === "expanded"
-          : shell.classList.contains("is-rail-pinned") || expandedMedia.matches
-      );
+      setRailPinned(shell, toggle, preferredPinned && !(narrowMedia.matches && shell.querySelector("main")?.contains(document.activeElement)));
       expandedMedia.addEventListener("change", syncViewport);
+      narrowMedia.addEventListener("change", syncViewport);
+      shell.addEventListener("focusin", (event) => {
+        if (narrowMedia.matches && shell.querySelector("main")?.contains(event.target)) setRailPinned(shell, toggle, false);
+      });
       toggle.addEventListener("click", () => {
         setManualRailState(!shell.classList.contains("is-rail-pinned"));
         toggle.focus({ preventScroll: true });
