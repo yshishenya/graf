@@ -1,6 +1,6 @@
 # Feature 242: Исправления повторного аудита кабинета
 
-**Branch**: `codex/242-cabinet-audit-fixes` · **Created**: 2026-09-06 · **Status**: Draft
+**Branch**: `codex/242-cabinet-audit-fixes` · **Created**: 2026-09-06 · **Status**: Implemented, PR #6582
 **Input**: «исправь все, что нашел. Доведи до PR»
 **Umbrella**: https://github.com/yshishenya/graf/issues/6566
 
