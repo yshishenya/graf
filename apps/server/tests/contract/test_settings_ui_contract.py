@@ -4,6 +4,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from fastapi.routing import APIRoute
+
 from twobrain_rec_server.cabinet.rendering import render_settings_page
 from twobrain_rec_server.cabinet.view_models import (
     AccountDeviceView,

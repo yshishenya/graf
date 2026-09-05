@@ -8,6 +8,8 @@ from uuid import UUID
 
 import pytest
 from starlette.requests import Request
+
+from tests.unit.test_cabinet_web_shell import _deletion_report
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.billing.catalog import plan_descriptor
 from twobrain_rec_server.cabinet.rendering_shared import _page_shell
@@ -22,8 +24,6 @@ from twobrain_rec_server.cabinet.web_routes import (
     settings,
 )
 from twobrain_rec_server.db.models import TrialActivation, WorkspaceSubscription
-
-from tests.unit.test_cabinet_web_shell import _deletion_report
 
 
 @pytest.mark.asyncio
