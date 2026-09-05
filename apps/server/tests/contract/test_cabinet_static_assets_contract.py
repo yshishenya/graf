@@ -160,13 +160,11 @@ def test_replacement_status_uses_one_neutral_state_until_terminal_outcome() -> N
 
 def test_tooltip_does_not_enter_layout_flow() -> None:
     css = (STATIC_DIR / "cabinet.css").read_text()
-    tooltip_body = css[css.index(".cabinet-tooltip__body {") : css.index(".cabinet-tooltip:hover")]
+    tooltip_body = css.split(".cabinet-tooltip__body {", 1)[1].split("}", 1)[0]
 
-    assert "position: absolute;" in tooltip_body
-    assert "inset-inline-start: calc(100% + var(--tooltip-offset));" in tooltip_body
-    assert "inset-block-start: 50%;" in tooltip_body
-    assert "transform: translateY(calc(-50% - 2px));" in tooltip_body
-    assert "max-width: min(var(--tooltip-max-width), 80vw);" in tooltip_body
+    assert "position: fixed;" in tooltip_body
+    assert "max-width: min(var(--tooltip-max-width), calc(var(--tooltip-viewport-width, 100vw) - 16px));" in tooltip_body
+    assert "max-height: calc(var(--tooltip-viewport-height, 100vh) - 16px);" in tooltip_body
     assert ".manual-upload-dialog .cabinet-tooltip__body" not in css
     assert "display: contents" not in tooltip_body
     assert "flex: 1 0 100%" not in tooltip_body
@@ -176,12 +174,11 @@ def test_tooltip_does_not_enter_layout_flow() -> None:
 def test_all_tooltips_use_one_shared_configuration() -> None:
     css = (STATIC_DIR / "cabinet.css").read_text()
     tokens = css[css.index(":root {") : css.index("}", css.index(":root {"))]
-    tooltip = css[css.index(".cabinet-tooltip {") : css.index(".cabinet-loader {")]
+    tooltip = css.split(".cabinet-tooltip {", 1)[1].split(".cabinet-badge", 1)[0]
 
     for token in [
         "--tooltip-trigger-size: 24px;",
         "--tooltip-icon-size: 14px;",
-        "--tooltip-offset: 6px;",
         "--tooltip-max-width: 280px;",
         "--tooltip-padding: 8px 10px;",
         "--tooltip-radius: 10px;",
@@ -191,21 +188,76 @@ def test_all_tooltips_use_one_shared_configuration() -> None:
     for use in [
         "var(--tooltip-trigger-size)",
         "var(--tooltip-icon-size)",
-        "var(--tooltip-offset)",
         "var(--tooltip-max-width)",
         "var(--tooltip-padding)",
         "var(--tooltip-radius)",
         "var(--tooltip-layer)",
     ]:
         assert use in tooltip
-    assert (
-        ".settings-control-row__title .cabinet-tooltip__body {\n    inset-inline-start: 50%;\n    transform: translate(-50%, calc(-50% - 2px));"
-        in tooltip
+    assert ".settings-control-row__title .cabinet-tooltip__body" not in css
+
+
+def test_overlay_positioning_and_accepted_summary_focus_execute() -> None:
+    harness = r"""
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const source = fs.readFileSync(process.argv[1], 'utf8');
+global.window = { innerWidth: 375, innerHeight: 400, requestAnimationFrame: fn => fn() };
+vm.runInThisContext(source.slice(source.indexOf('  const positionCabinetTooltip ='), source.indexOf('  const initCabinetTooltips =')));
+for (const width of [375, 550, 768, 1200]) {
+  window.innerWidth = width;
+  const properties = {};
+  const body = {
+    closest: () => ({querySelector: () => ({getBoundingClientRect: () => ({left: width - 20, top: 370, bottom: 394})})}),
+    getBoundingClientRect: () => ({width: 280, height: 150}),
+    style: {setProperty: (key, value) => properties[key] = value},
+  };
+  positionCabinetTooltip(body);
+  assert.ok(parseFloat(properties['--tooltip-left']) >= 8);
+  assert.ok(parseFloat(properties['--tooltip-left']) + 280 <= width - 8);
+  assert.ok(parseFloat(properties['--tooltip-top']) >= 8);
+  assert.ok(parseFloat(properties['--tooltip-top']) + 150 <= window.innerHeight - 8);
+}
+global.HTMLElement = class {};
+const classes = new Set();
+const submenu = new HTMLElement();
+submenu.getBoundingClientRect = () => classes.has('is-flipped')
+  ? {left: -309, right: 0, top: 50, bottom: 250}
+  : {left: 264, right: 584, top: 50, bottom: 250};
+const details = {open: true, isConnected: true, querySelector: () => submenu,
+  classList: {remove: (...names) => names.forEach(name => classes.delete(name)),
+    toggle: (name, on) => on ? classes.add(name) : classes.delete(name)}};
+vm.runInThisContext(source.slice(source.indexOf('      const syncDisclosurePosition ='), source.indexOf('      disclosures.forEach((details) =>')));
+window.innerWidth = 550;
+syncDisclosurePosition(details);
+assert.ok(classes.has('is-inline'), 'neither side fits at 550px');
+window.innerWidth = 1200;
+syncDisclosurePosition(details);
+assert.ok(!classes.has('is-inline') && !classes.has('is-flipped'), 'resize restores a fitting side');
+window.innerHeight = 200;
+syncDisclosurePosition(details);
+assert.ok(classes.has('is-inline'), 'short window uses scrollable inline layout');
+details.open = false;
+syncDisclosurePosition(details);
+assert.equal(classes.size, 0);
+const calls = [];
+global.acceptedFocusKey = 'synthetic';
+window.sessionStorage = {getItem: () => 'current', removeItem: () => calls.push('consume')};
+global.activateDetailTab = name => calls.push(name);
+global.document = {querySelector: selector => {
+  assert.equal(selector, '[data-summary-current-result]');
+  return {focus: () => calls.push('focus')};
+}};
+const focusStart = source.indexOf('      if (window.sessionStorage.getItem(acceptedFocusKey)');
+vm.runInThisContext(source.slice(focusStart, source.indexOf('\n    });\n  };', focusStart)));
+assert.deepEqual(calls, ['consume', 'outcomes', 'focus']);
+"""
+    completed = subprocess.run(
+        ["node", "-e", harness, str(STATIC_DIR / "cabinet.js")],
+        capture_output=True, text=True, check=False,
     )
-    assert (
-        ".settings-control-row__title .cabinet-tooltip:focus-within .cabinet-tooltip__body {\n    transform: translate(-50%, -50%);"
-        in tooltip
-    )
+    assert completed.returncode == 0, completed.stderr
 
 
 def test_cabinet_js_keeps_fragment_state_ephemeral() -> None:
@@ -1250,6 +1302,7 @@ const detail = {
     processingTranscriptContentReady: "true",
     processingSummaryContentReady: "false",
     processingPublishedAttempt: "1",
+    cabinetEmbedded: "true",
   },
   nextElementSibling: currentPlayback,
   isConnected: true,
@@ -1269,7 +1322,10 @@ const recoverMeetingDetailFromResponse = async () => false;
 const stopProcessingRecoveryCountdown = () => {};
 const stopProcessingRecoveryPolling = () => {};
 const initCabinet = () => { initCount += 1; };
-global.fetch = async () => ({ ok: true, text: async () => "<main></main>" });
+global.fetch = async (_url, options) => {
+  if (options.headers['X-GRAF-Client'] !== 'desktop') throw new Error('embedded refresh lost desktop hint');
+  return { ok: true, text: async () => "<main></main>" };
+};
 global.DOMParser = class {
   parseFromString() { return { querySelector() { return nextDetail; } }; }
 };
@@ -1410,7 +1466,7 @@ def test_cabinet_rail_initial_state_uses_surface_breakpoints() -> None:
     assert "@media (max-width: 1120px)" in css
 
     rail_source = script[
-        script.index("const initCabinetRail") : script.index("const initCabinetProfileMenus")
+        script.index("const initCabinetRail") : script.index("let cabinetTooltipsReady")
     ]
     assert 'window.addEventListener("resize"' not in rail_source
     assert rail_source.count('toggle.addEventListener("click"') == 1
@@ -1815,7 +1871,8 @@ global.window = {
 vm.runInThisContext(fs.readFileSync(process.argv[1], "utf8"));
 const resizeHandlerCount = handle.listenerCount("keydown");
 if (resizeHandlerCount !== 1) throw new Error(`expected one key handler, got ${resizeHandlerCount}`);
-if ((windowListeners.get("resize") || []).length !== 1) throw new Error("expected one page resize listener");
+const resizeListenerCount = (windowListeners.get("resize") || []).length;
+if (resizeListenerCount !== 2) throw new Error("expected playback and tooltip resize listeners");
 const currentTime = 42;
 playback.currentTime = currentTime;
 if (["one", "two", "fit"].includes(scenario)) {
@@ -1838,7 +1895,7 @@ if (["one", "two", "fit"].includes(scenario)) {
 }
 body.dispatch("htmx:afterSwap", { detail: { target: null } });
 if (handle.listenerCount("keydown") !== 1) throw new Error("partial update duplicated resize listeners");
-if ((windowListeners.get("resize") || []).length !== 1) throw new Error("partial update duplicated page resize listeners");
+if ((windowListeners.get("resize") || []).length !== resizeListenerCount) throw new Error("partial update duplicated page resize listeners");
 if (playback.currentTime !== currentTime) throw new Error("resize changed playback position");
 """
     for scenario, top in [
@@ -4261,7 +4318,7 @@ def test_feature_159_shared_shell_static_contract_keeps_search_and_download_boun
     assert "padding-inline-end: 34px;" in css
     assert ".sidebar-download" in css
     assert "position: fixed;" in css
-    assert "max-height: calc(100vh - 24px);" in css
+    assert "max-height: calc(var(--profile-menu-viewport-height, 100vh) - var(--profile-menu-bottom, 60px) - 8px);" in css
     assert "overflow-y: auto;" in css
     assert 'data-sidebar-download href="/download"' in sections
     assert 'data-sidebar-download href="/download"' not in sections.replace(

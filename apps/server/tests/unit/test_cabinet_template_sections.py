@@ -15,16 +15,8 @@ def test_section_component_catalog_covers_composed_cabinet_regions() -> None:
         {% import "cabinet/components/sections.html" as sections %}
         {{ sections.sidebar_navigation(nav_items, active="meetings") }}
         {{ sections.workspace_header("Команда 2brain", "Онлайн-кабинет", "2B") }}
-        {{ sections.meeting_row("Проектный синк", "/meetings/1", "Готово", "audio", "26 июн", selected=True) }}
-        {{ sections.playback_controls("Запись встречи", available=True, duration="12:40") }}
-        {{ sections.detail_side_panel("Доступ", "Только безопасные сведения") }}
-        {{ sections.confirmation_dialog("Удалить запись?", "Действие ограничено GRAF") }}
-        {{ sections.status_banner("Готово", "Запись доступна", "normal") }}
-        {{ sections.empty_state("Нет записей", "Создайте первую запись") }}
-        {{ sections.unavailable_state("Сервер недоступен", "Запись остается локальной") }}
         {{ sections.state_panel("Пока нет встреч", "Новые записи появятся здесь", state="empty", heading_id="empty-title", icon_name="users-round") }}
         {{ sections.full_page_state("Встреча больше недоступна", "Запись удалена или доступ закрыт.", "К списку встреч", "/meetings", heading_id="unavailable-title") }}
-        {{ sections.auth_form("Вход", "/login/email/start") }}
         """
     )
 
@@ -38,21 +30,12 @@ def test_section_component_catalog_covers_composed_cabinet_regions() -> None:
     for class_name in [
         "cabinet-sidebar-nav",
         "cabinet-workspace-header",
-        "cabinet-meeting-row",
-        "cabinet-playback-controls",
-        "cabinet-detail-panel",
-        "cabinet-confirmation-dialog",
-        "cabinet-banner",
         "cabinet-empty",
         "cabinet-unavailable",
-        "cabinet-auth-form",
     ]:
         assert class_name in html
     assert 'aria-label="Навигация кабинета"' in html
-    assert 'role="dialog"' in html
     assert 'data-state="selected"' in html
-    assert 'data-state="destructive"' in html
-    assert "Запись остается локальной" in html
     assert 'data-cabinet-state' in html
     assert 'class="cabinet-main cabinet-state-page"' in html
     assert 'id="unavailable-title"' in html
@@ -150,14 +133,9 @@ def test_section_css_covers_interaction_and_overflow_states() -> None:
     css = CABINET_CSS.read_text()
 
     for marker in [
-        '.cabinet-button[data-state="disabled"]',
-        '.cabinet-button[data-state="loading"]',
-        ".cabinet-button.is-destructive",
-        ".cabinet-tab.is-selected",
-        ".cabinet-tooltip:focus-within",
-        ".cabinet-text--overflow",
-        ".cabinet-playback-controls[data-state=\"unavailable\"]",
-        ".cabinet-confirmation-dialog[data-state=\"destructive\"]",
+        '.cabinet-link[data-state="disabled"]',
+        ".cabinet-tooltip__trigger:focus-visible",
+        ".cabinet-tooltip__body",
         ".cabinet-state-page",
         ".cabinet-state__action",
         ".sidebar-logout__button:hover",

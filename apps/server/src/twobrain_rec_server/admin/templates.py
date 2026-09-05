@@ -21,6 +21,16 @@ from twobrain_rec_server.templates import (
 )
 
 ADMIN_STATIC_URL = "/static/admin"
+ROLE_LABELS = {"owner": "Владелец", "admin": "Администратор", "member": "Участник"}
+STATUS_LABELS = {
+    "active": "Активен",
+    "inactive": "Неактивен",
+    "blocked": "Заблокирован",
+    "revoked": "Отозван",
+    "pending": "Ожидает принятия",
+    "completed": "Принято",
+    "expired": "Срок истёк",
+}
 
 
 def admin_template_dir() -> str:
@@ -46,6 +56,8 @@ def render_template(template_name: str, **context: Any) -> str:
         admin_static_url=ADMIN_STATIC_URL,
         cabinet_static_url=CABINET_STATIC_URL,
         public_static_asset_url=public_static_asset_url,
+        role_labels=ROLE_LABELS,
+        status_labels=STATUS_LABELS,
         **context,
     )
 

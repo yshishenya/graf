@@ -122,7 +122,10 @@ def _meeting_unavailable_response(
     if _is_hx_request(request):
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
     return cabinet_html_response(
-        render_meeting_unavailable_page(csrf_token=csrf_token),
+        render_meeting_unavailable_page(
+            csrf_token=csrf_token,
+            embedded=request.headers.get("X-GRAF-Client") == "desktop",
+        ),
         status_code=404,
     )
 
@@ -134,6 +137,7 @@ async def _render_shared_summary_for_grant(
     meeting_id: UUID,
     viewer_user_id: UUID | None = None,
     grant: MeetingShareGrant | None = None,
+    embedded: bool = False,
 ) -> str:
     meeting = await session.get(Meeting, meeting_id)
     if meeting is None or meeting.workspace_id != workspace_id:
@@ -198,6 +202,7 @@ async def _render_shared_summary_for_grant(
         duration_seconds=int(projection["duration_seconds"]),
         summary_sections=projection["summary_sections"],
         authenticated=True,
+        embedded=embedded,
     )
 
 
@@ -997,6 +1002,7 @@ async def shared_meeting_detail_page(
                 workspace_id=workspace_id,
                 meeting_id=parsed_meeting_id,
                 viewer_user_id=principal.user_id,
+                embedded=request.headers.get("X-GRAF-Client") == "desktop",
             )
         )
         response.headers.update(
@@ -1028,6 +1034,7 @@ async def shared_meeting_detail_page(
             poll_url=_request_path_with_query(request),
             product_analytics_provider=None,
             shared_workspace_id=workspace_id,
+            embedded=request.headers.get("X-GRAF-Client") == "desktop",
         )
     )
     response.headers.update(

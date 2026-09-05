@@ -1303,7 +1303,7 @@ def test_web_shell_keeps_sidebar_pinned_without_scrollbar() -> None:
     assert (
         ".main,\n.cabinet-main {\n  grid-column: 2;\n  grid-row: 1;\n  height: 100%;\n  min-height: 0;\n  overflow-y: auto;\n}"
     ) in css
-    assert "max-height: calc(100vh - 48px);" in css
+    assert "max-height: calc(var(--profile-menu-viewport-height, 100vh) - var(--profile-menu-bottom, 60px) - 8px);" in css
     assert '.app-shell[data-mobile-scroll="page"] {' in css
     assert (
         ".desktop-embedded .main {\n  --meeting-detail-main-padding-top: 22px;\n\n  padding: var(--meeting-detail-main-padding-top)"
@@ -1460,7 +1460,7 @@ def test_cabinet_rail_collapses_at_surface_breakpoint_without_resize_handler() -
         assert marker in js
     assert "if (!event.matches) setRailPinned(shell, toggle, false)" not in js
 
-    rail_source = js[js.index("const initCabinetRail") : js.index("const initCabinetProfileMenus")]
+    rail_source = js[js.index("const initCabinetRail") : js.index("let cabinetTooltipsReady")]
     assert 'window.addEventListener("resize"' not in rail_source
     assert 'sidebar.querySelectorAll("a[href]")' not in rail_source
     assert 'document.addEventListener("click"' not in rail_source
@@ -1630,7 +1630,7 @@ def test_profile_menu_theme_and_disabled_action_contract_is_shared() -> None:
     assert ".sidebar-profile-menu__submenu" in css
     assert "inset-inline-start: calc(100% + 8px);" in css
     assert ".sidebar-profile-menu__disclosure.is-flipped" in css
-    assert ".is-rail-pinned .sidebar-profile-menu" in css
+    assert "width: min(248px, calc(var(--profile-menu-viewport-width, 100vw) - 16px));" in css
     assert "inset: auto auto var(--profile-menu-bottom, calc(12px + 48px)) 8px;" in css
     assert "height: max-content;" in css
     assert "grid-auto-rows: max-content;" in css
@@ -1720,7 +1720,7 @@ def test_list_shell_renders_audio_video_transcript_and_upload_icons() -> None:
     assert 'data-icon="upload"' in page
     assert 'data-media-kind="аудио"' in page
     assert 'data-media-kind="видео"' in page
-    assert 'data-media-kind="транскрипт"' in page
+    assert 'data-media-kind="расшифровка"' in page
     assert 'data-media-kind="медиа"' in page
     assert "▣" not in page
 
@@ -1930,7 +1930,7 @@ def test_detail_shell_renders_tabs_and_gated_actions() -> None:
     assert 'role="tablist" aria-label="Содержимое встречи"' in page
     assert 'data-detail-tab="recording"' in page
     assert 'aria-selected="true" aria-controls="detail-panel-recording"' in page
-    assert 'data-detail-panel="outcomes" hidden' in page
+    assert 'data-detail-panel="outcomes" data-summary-current-result tabindex="-1" hidden' in page
     assert 'data-detail-panel="recording"' in page
     assert '<h2 class="sr-only">Итоги</h2>' in page
     assert "const activateDetailTab = (name, { updateUrl = true } = {})" in _cabinet_js()

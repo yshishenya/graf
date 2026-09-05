@@ -1047,7 +1047,7 @@ def test_previous_recurring_readiness_keeps_current_lineaged_transcript_ready() 
 
 def test_processing_reason_copy_covers_terminal_input_outcomes() -> None:
     assert view_models.reason_label("no_recognizable_speech") == (
-        "MediaScribe обработал запись, но транскрипт не создан: распознаваемая речь не найдена."
+        "MediaScribe обработал запись, но расшифровка не создана: распознаваемая речь не найдена."
     )
     assert (
         view_models.reason_label("invalid_audio_payload")

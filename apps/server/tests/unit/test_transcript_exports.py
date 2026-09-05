@@ -362,8 +362,8 @@ def test_summary_only_and_combined_do_not_regenerate_or_invent_fields(export_fix
     assert summary_json["transcript"] is None
     assert summary_json["summary"]["generator_version"] == "fixture-v1"
     assert summary_json["summary"]["items"][1]["owner"] == "=Иван"
-    assert "Транскрипт" in combined
-    assert "Саммари" in combined
+    assert "Расшифровка" in combined
+    assert "Итоги" in combined
     assert "Сохранённое саммари." in combined
 
 

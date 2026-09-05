@@ -315,7 +315,7 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
         beginControllerNavigation(navigation, targetURL: homeURL)
     }
 
-    fileprivate func attach(
+    func attach(
         webView: WKWebView,
         routePolicy: DesktopCabinetRoutePolicy,
         fallbackRequest: URLRequest,
@@ -1316,6 +1316,26 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         loaded
     }
 
+    public nonisolated static func allowsJavaScriptConfirm(
+        webViewURL: URL?,
+        frameURL: URL?,
+        frameIsMainFrame: Bool,
+        routePolicy: DesktopCabinetRoutePolicy
+    ) -> Bool {
+        guard frameIsMainFrame, let webViewURL, let frameURL,
+              webViewURL.user == nil, webViewURL.password == nil,
+              frameURL.user == nil, frameURL.password == nil,
+              sameOrigin(webViewURL, frameURL)
+        else { return false }
+        return [webViewURL, frameURL].allSatisfy { url in
+            let decision = routePolicy.decision(for: url)
+            return decision.decision == .allow && [
+                .meetingList, .meetingDetail, .meetingShare, .meetingDeletionReport,
+                .settings, .calendarSettings, .billing
+            ].contains(decision.route.kind)
+        }
+    }
+
     public nonisolated static func allowsFilePicker(
         webViewURL: URL?,
         frameURL: URL?,
@@ -1512,6 +1532,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         ) else {
             return
         }
+        context.coordinator.cancelJavaScriptConfirmation()
         container.lastLoadedRequestIdentity = Self.loadIdentity(for: request)
         navigationController.observeNavigationRequest(request, webView: container.webView)
         let navigation = container.webView.load(request)
@@ -1574,6 +1595,10 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         private var onLocalRecordingAction: LocalRecordingAction = { _, _ in }
         private weak var downloadHostWindow: NSWindow?
         private var isActive = true
+        private var webContentProcessTerminated = false
+        private(set) var pendingConfirmation: (id: UUID, alert: NSAlert, reply: (Bool) -> Void)?
+        private var confirmationWindowObserver: NSObjectProtocol?
+        private var confirmationKeyMonitor: Any?
         @Binding private var cabinetState: DesktopCabinetState
         @Binding private var currentRoute: URL?
 
@@ -1647,7 +1672,93 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         @MainActor
         public func detachNavigationController(from webView: WKWebView) {
             isActive = false
+            cancelJavaScriptConfirmation()
             navigationController.detach(webView: webView)
+        }
+
+        public func webView(
+            _ webView: WKWebView,
+            runJavaScriptConfirmPanelWithMessage message: String,
+            initiatedByFrame frame: WKFrameInfo,
+            completionHandler: @escaping @MainActor @Sendable (Bool) -> Void
+        ) {
+            requestJavaScriptConfirmation(
+                in: webView, message: message, frameURL: frame.request.url,
+                frameIsMainFrame: frame.isMainFrame, completionHandler: completionHandler
+            )
+        }
+
+        func requestJavaScriptConfirmation(
+            in webView: WKWebView,
+            message: String,
+            frameURL: URL?,
+            frameIsMainFrame: Bool,
+            completionHandler: @escaping (Bool) -> Void
+        ) {
+            guard isActive, !webContentProcessTerminated, !navigationController.isLoading,
+                  navigationController.isAttached(to: webView),
+                  pendingConfirmation == nil,
+                  EmbeddedCabinetWebView.allowsJavaScriptConfirm(
+                    webViewURL: webView.url, frameURL: frameURL,
+                    frameIsMainFrame: frameIsMainFrame, routePolicy: routePolicy
+                  ),
+                  let window = webView.window, window.isVisible,
+                  window.attachedSheet == nil
+            else {
+                completionHandler(false)
+                return
+            }
+            let alert = NSAlert()
+            alert.messageText = "Подтвердите действие"
+            alert.informativeText = message
+            alert.alertStyle = .warning
+            let cancel = alert.addButton(withTitle: "Отмена")
+            cancel.keyEquivalent = "\r"
+            alert.addButton(withTitle: "Продолжить").keyEquivalent = ""
+            alert.window.defaultButtonCell = cancel.cell as? NSButtonCell
+            let id = UUID()
+            pendingConfirmation = (id, alert, completionHandler)
+            confirmationWindowObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.willCloseNotification, object: window, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.cancelJavaScriptConfirmation() }
+            }
+            alert.beginSheetModal(for: window) { [weak self] response in
+                self?.finishJavaScriptConfirmation(id: id, confirmed: response == .alertSecondButtonReturn)
+            }
+            // AppKit assigns sheet key equivalents during presentation.
+            cancel.keyEquivalent = "\r"
+            // One button cannot own both Return and Escape key equivalents.
+            confirmationKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard event.keyCode == 53,
+                      let self, let pending = self.pendingConfirmation,
+                      event.window === pending.alert.window
+                else { return event }
+                self.cancelJavaScriptConfirmation()
+                return nil
+            }
+        }
+
+        func cancelJavaScriptConfirmation() {
+            guard let pendingConfirmation else { return }
+            finishJavaScriptConfirmation(id: pendingConfirmation.id, confirmed: false)
+        }
+
+        func finishJavaScriptConfirmation(id: UUID, confirmed: Bool) {
+            guard let pending = pendingConfirmation, pending.id == id else { return }
+            pendingConfirmation = nil
+            if let monitor = confirmationKeyMonitor {
+                NSEvent.removeMonitor(monitor)
+                confirmationKeyMonitor = nil
+            }
+            if let observer = confirmationWindowObserver {
+                NotificationCenter.default.removeObserver(observer)
+                confirmationWindowObserver = nil
+            }
+            if let window = pending.alert.window.sheetParent {
+                window.endSheet(pending.alert.window)
+            }
+            pending.reply(confirmed)
         }
 
         @MainActor
@@ -1705,6 +1816,9 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             guard navigationController.isAttached(to: webView) else {
                 decisionHandler(.cancel)
                 return
+            }
+            if navigationAction.targetFrame?.isMainFrame != false {
+                cancelJavaScriptConfirmation()
             }
             guard let url = navigationAction.request.url else {
                 cabinetState = .malformedResponse
@@ -2017,6 +2131,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             }
             updateAuthContinuation(for: routeDecision.route.kind)
             let finishedState = EmbeddedCabinetWebView.finishedState(for: routeDecision.route.kind)
+            webContentProcessTerminated = false
             DesktopCabinetSessionBridge.syncAuthSessionCookies(from: webView)
             if EmbeddedCabinetWebView.shouldTrackSwiftUIRequestIdentity(for: routeDecision.route.kind, url: url),
                let container = webView.superview as? WebViewContainer {
@@ -2073,6 +2188,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 )
                 decisionHandler(.cancel)
             case let .cancel(state):
+                cancelJavaScriptConfirmation()
                 navigationController.navigationDidCancel(
                     webView: webView,
                     expectedURL: navigationResponse.response.url
@@ -2093,6 +2209,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
             guard navigationController.isAttached(to: webView) else { return }
             guard navigationController.navigationDidFail(webView: webView, navigation: navigation, error: error) else { return }
+            cancelJavaScriptConfirmation()
             transitionAfterNavigationFailure(error, webView: webView, phase: "committed")
         }
 
@@ -2100,6 +2217,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
             guard navigationController.isAttached(to: webView) else { return }
             guard navigationController.navigationDidFail(webView: webView, navigation: navigation, error: error) else { return }
+            cancelJavaScriptConfirmation()
             transitionAfterNavigationFailure(error, webView: webView, phase: "provisional")
         }
 
@@ -2107,6 +2225,15 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         public func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
             guard navigationController.isAttached(to: webView) else { return }
             navigationController.navigationDidStart(webView: webView, navigation: navigation)
+            cancelJavaScriptConfirmation()
+        }
+
+        public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+            guard navigationController.isAttached(to: webView) else { return }
+            webContentProcessTerminated = true
+            cancelJavaScriptConfirmation()
+            navigationController.cancelPendingNavigation(webView: webView)
+            cabinetState = .malformedResponse
         }
 
         private func transitionAfterNavigationFailure(_ error: Error, webView: WKWebView, phase: String) {
