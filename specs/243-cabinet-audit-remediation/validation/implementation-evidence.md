@@ -254,3 +254,22 @@ PR остаётся зависимым до merge F240/F244 и exact-head govern
 Дополнительная совместная проверка shared-with-me/public-link/export/auth:
 **123 passed**, 414.59s, изолированный контейнер удалён. Включены права
 полного и ограниченного доступа, отзыв доступа, пакет экспорта и auth contracts.
+
+## Исправление релизной проверки Swift6.0.3
+
+Full CI33999768481 на0b840a3550315497bcc7981e1d457996bb7d6b69 остановил
+macOS-компонент сигналом5 при начале
+`testRealJavaScriptCancelAndKeyboardNeverRunProtectedAction`. До этого пять
+проверок trust/lifecycle/buttons выполнялись без assertion failures. На локальном
+Swift6.3.3 исходная проверка проходила; это различие окружений, не успешный Full CI.
+
+Локальный NWListener и NWConnection теста вызывали closures из MainActor класса
+на global queue. Теперь оба используют main queue, соответствующую изоляции
+теста. Это единственные два изменения Swift; тест, HTTP/WKFrameInfo, реальный
+JavaScript confirm, Return/Escape и protectedAction assertions сохранены.
+Новых helpers/dependencies/таймаутов/skip нет. В других тестах NWListener отсутствует.
+
+`swift test --package-path apps/macos --filter EmbeddedCabinetJavaScriptConfirmTests`:
+6 PASS,7.842s на Swift6.3.3. Решающая проверка выполняется отдельным
+`macos-diagnostic` на закреплённом Swift6.0.3. Старый кандидат непригоден для
+публикации; после исправления требуется новый exact-SHA Full CI.
