@@ -58,6 +58,32 @@ def test_feature_159_login_copy_is_truthful_without_removing_explicit_signup_rou
     assert "/sign-up/email/verify" in routes
 
 
+def test_auth_email_input_value_is_escaped_and_remains_editable() -> None:
+    unsafe_value = '<img src=x onerror="alert(1)">@example.test'
+
+    login = render_login_page(
+        workspace_id=UUID(int=1),
+        providers=[],
+        error="email_start_unavailable",
+        email_value=unsafe_value,
+    )
+    signup = render_signup_page(
+        workspace_id=UUID(int=1),
+        providers=[],
+        mode="email",
+        error="email_delivery_unavailable",
+        email_value=unsafe_value,
+    )
+
+    escaped_value = "&lt;img src=x onerror=&#34;alert(1)&#34;&gt;@example.test"
+    assert unsafe_value not in login
+    assert unsafe_value not in signup
+    assert f'value="{escaped_value}"' in login
+    assert f'value="{escaped_value}"' in signup
+    assert 'name="email" type="email"' in login
+    assert 'name="email" type="email"' in signup
+
+
 def test_account_close_routes_have_browser_and_desktop_variants_with_csrf_dependency() -> None:
     routes = {
         (route.path, tuple(route.methods or ()))

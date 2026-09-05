@@ -707,6 +707,8 @@ def test_browser_telegram_provider_login_route_remains_stub(client) -> None:
     assert response.status_code == 501
     assert "Этот способ входа появится позже" in response.text
     assert "location" not in response.headers
+    assert '<a class="auth-provider" href="/login/yandex/start?next=%2Fmeetings">' in response.text
+    assert '<a class="auth-provider" href="/login/vk/start?next=%2Fmeetings">' in response.text
 
 
 def test_browser_yandex_disabled_hides_action_and_fails_closed(client) -> None:
@@ -721,6 +723,7 @@ def test_browser_yandex_disabled_hides_action_and_fails_closed(client) -> None:
     assert start.status_code == 403
     assert "Этот способ входа выключен политикой кабинета" in unescape(start.text)
     assert 'action="/login/email/start"' in start.text
+    assert '<a class="auth-provider" href="/login/vk/start?next=%2Fmeetings">' in start.text
 
 
 def test_browser_vk_disabled_hides_action_and_fails_closed(client) -> None:
@@ -735,6 +738,19 @@ def test_browser_vk_disabled_hides_action_and_fails_closed(client) -> None:
     assert start.status_code == 403
     assert "Этот способ входа выключен политикой кабинета" in unescape(start.text)
     assert 'action="/login/email/start"' in start.text
+    assert '<a class="auth-provider" href="/login/yandex/start?next=%2Fmeetings">' in start.text
+
+
+def test_browser_missing_provider_adapter_keeps_other_login_actions(monkeypatch, client) -> None:
+    def missing_adapter(_provider: str):
+        raise ValueError("synthetic missing adapter")
+
+    monkeypatch.setattr(auth_routes, "get_provider_adapter", missing_adapter)
+    response = client.get("/login/yandex/start?next=/meetings", follow_redirects=False)
+
+    assert response.status_code == 403
+    assert "Этот способ входа не настроен" in response.text
+    assert '<a class="auth-provider" href="/login/vk/start?next=%2Fmeetings">' in response.text
 
 
 def test_browser_email_login_ignores_public_workspace_id_and_uses_internal_bootstrap(
@@ -753,14 +769,86 @@ def test_browser_email_login_ignores_public_workspace_id_and_uses_internal_boots
 
 
 def test_browser_email_login_start_rejects_unknown_email_without_code(client) -> None:
+    async def auth_state_counts() -> tuple[int, int]:
+        async with client.app_state["sessionmaker"]() as db:
+            callbacks = list(await db.scalars(select(AuthCallbackState)))
+            sessions = list(await db.scalars(select(AuthSession)))
+            return len(callbacks), len(sessions)
+
+    before = client.portal.call(auth_state_counts)
     response = client.post(
         "/login/email/start",
         data={"email": "missing-owner@example.test", "next": "/meetings"},
     )
 
     assert response.status_code == 400
-    assert "Не удалось отправить код. Проверьте email и попробуйте снова." in response.text
+    assert "Не удалось начать вход по email." in response.text
+    assert "выберите другой способ входа или зарегистрируйтесь" in response.text
     assert "Код для локальной проверки" not in response.text
+    assert 'value="missing-owner@example.test"' in response.text
+    assert '<a class="auth-provider" href="/login/yandex/start?next=%2Fmeetings">' in response.text
+    assert '<a class="auth-provider" href="/login/vk/start?next=%2Fmeetings">' in response.text
+    assert client.portal.call(auth_state_counts) == before
+
+
+def test_browser_email_login_error_normalizes_email_and_preserves_embedded_providers(client) -> None:
+    response = client.post(
+        "/login/email/start",
+        data={"email": "  Missing-Desktop@Example.Test  ", "next": "/desktop/meetings"},
+    )
+
+    assert response.status_code == 400
+    assert 'value="missing-desktop@example.test"' in response.text
+    assert "/download" not in response.text
+    assert (
+        '<a class="auth-provider" href="/login/yandex/start?next=%2Fdesktop%2Fmeetings">'
+        in response.text
+    )
+    assert (
+        '<a class="auth-provider" href="/login/vk/start?next=%2Fdesktop%2Fmeetings">'
+        in response.text
+    )
+
+
+def test_browser_email_login_invalid_html_like_input_is_not_reflected(client) -> None:
+    unsafe_email = '<img src=x onerror=alert(1)>'
+    response = client.post(
+        "/login/email/start",
+        data={"email": unsafe_email, "next": "/meetings"},
+    )
+
+    assert response.status_code == 400
+    assert "Введите корректный email" in response.text
+    assert unsafe_email not in response.text
+    assert "&lt;img src=x" not in response.text
+    assert '<a class="auth-provider" href="/login/yandex/start?next=%2Fmeetings">' in response.text
+    assert '<a class="auth-provider" href="/login/vk/start?next=%2Fmeetings">' in response.text
+
+
+@pytest.mark.parametrize(
+    ("disabled_provider", "hidden_path", "visible_path"),
+    [
+        ("yandex", "/login/yandex/start?", "/login/vk/start?next=%2Fmeetings"),
+        ("vk", "/login/vk/start?", "/login/yandex/start?next=%2Fmeetings"),
+    ],
+)
+def test_browser_email_login_error_respects_partially_disabled_provider_policy(
+    client,
+    disabled_provider: str,
+    hidden_path: str,
+    visible_path: str,
+) -> None:
+    setter = _set_workspace_yandex_policy if disabled_provider == "yandex" else _set_workspace_vk_policy
+    client.portal.call(setter, client, False)
+
+    response = client.post(
+        "/login/email/start",
+        data={"email": "missing-policy-owner@example.test", "next": "/meetings"},
+    )
+
+    assert response.status_code == 400
+    assert f'href="{hidden_path}' not in response.text
+    assert f'href="{visible_path}' in response.text
 
 
 def test_browser_email_login_start_is_durably_rate_limited(client) -> None:
@@ -775,6 +863,67 @@ def test_browser_email_login_start_is_durably_rate_limited(client) -> None:
     assert blocked.status_code == 429
     assert blocked.headers["Retry-After"]
     assert "Слишком много попыток" in blocked.text
+    assert 'value="rate-limited-owner@example.test"' in blocked.text
+    assert '<a class="auth-provider" href="/login/yandex/start?next=%2Fmeetings">' in blocked.text
+    assert '<a class="auth-provider" href="/login/vk/start?next=%2Fmeetings">' in blocked.text
+
+
+def test_browser_email_signup_rate_limit_preserves_email_and_providers(monkeypatch, client) -> None:
+    async def limited(*_args, **_kwargs) -> int:
+        return 60
+
+    monkeypatch.setattr(auth_routes, "enforce_auth_rate_limits", limited)
+    response = client.post(
+        "/sign-up/email/start",
+        data={"email": "  New-Owner@Example.Test  ", "next": "/meetings"},
+    )
+
+    assert response.status_code == 429
+    assert response.headers["Retry-After"] == "60"
+    assert "Слишком много попыток" in response.text
+    assert 'value="new-owner@example.test"' in response.text
+    assert 'action="/sign-up/email/start"' in response.text
+    assert '<a class="auth-provider" href="/login/yandex/start?next=%2Fmeetings">' in response.text
+    assert '<a class="auth-provider" href="/login/vk/start?next=%2Fmeetings">' in response.text
+
+
+def test_browser_email_signup_invalid_input_keeps_form_and_providers(client) -> None:
+    unsafe_email = '<script>alert(1)</script>'
+    response = client.post(
+        "/sign-up/email/start",
+        data={"email": unsafe_email, "next": "/meetings"},
+    )
+
+    assert response.status_code == 400
+    assert "Введите корректный email" in response.text
+    assert unsafe_email not in response.text
+    assert "&lt;script&gt;" not in response.text
+    assert 'action="/sign-up/email/start"' in response.text
+    assert '<a class="auth-provider" href="/login/yandex/start?next=%2Fmeetings">' in response.text
+    assert '<a class="auth-provider" href="/login/vk/start?next=%2Fmeetings">' in response.text
+
+
+def test_browser_email_error_fails_closed_when_provider_snapshot_is_unavailable(
+    monkeypatch, client
+) -> None:
+    async def unavailable(*_args, **_kwargs):
+        raise auth_routes.ProblemDetail(
+            status=503,
+            code="auth_dependency_unavailable",
+            title="provider policy unavailable",
+        )
+
+    monkeypatch.setattr(auth_routes, "_load_browser_login_providers", unavailable)
+    response = client.post(
+        "/login/email/start",
+        data={"email": "missing-policy@example.test", "next": "/meetings"},
+    )
+
+    assert response.status_code == 400
+    assert "Сервис входа временно недоступен" in response.text
+    assert 'href="/login/yandex/start?' not in response.text
+    assert 'href="/login/vk/start?' not in response.text
+    assert 'value="missing-policy@example.test"' in response.text
 
 
 def test_browser_email_login_flow_sets_cookie_binds_browser_device_and_opens_meetings(
@@ -2391,6 +2540,31 @@ def test_browser_email_login_production_delivery_failure_fails_closed(monkeypatc
     assert response.status_code == 503
     assert "Почтовая доставка временно недоступна" in response.text
     assert "Код для локальной проверки" not in response.text
+    assert f'value="{BROWSER_OWNER_EMAIL}"' in response.text
+    assert '<a class="auth-provider" href="/login/yandex/start?next=%2Fmeetings">' in response.text
+    assert '<a class="auth-provider" href="/login/vk/start?next=%2Fmeetings">' in response.text
+
+
+def test_browser_email_signup_production_delivery_failure_preserves_recovery(
+    monkeypatch, client
+) -> None:
+    client.app.state.settings.env = "production"
+
+    async def fail_send_email_login_code(**_kwargs):
+        raise email_delivery.EmailLoginDeliveryError("postal_request_failed")
+
+    monkeypatch.setattr(email_delivery, "send_email_login_code", fail_send_email_login_code)
+    response = client.post(
+        "/sign-up/email/start",
+        data={"email": "new-delivery@example.test", "next": "/meetings"},
+    )
+
+    assert response.status_code == 503
+    assert "Почтовая доставка временно недоступна" in response.text
+    assert 'value="new-delivery@example.test"' in response.text
+    assert 'action="/sign-up/email/start"' in response.text
+    assert '<a class="auth-provider" href="/login/yandex/start?next=%2Fmeetings">' in response.text
+    assert '<a class="auth-provider" href="/login/vk/start?next=%2Fmeetings">' in response.text
 
 
 def test_meetings_page_rejects_missing_web_session_without_legacy_headers(client) -> None:
