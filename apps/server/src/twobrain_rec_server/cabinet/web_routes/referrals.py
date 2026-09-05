@@ -18,6 +18,7 @@ from twobrain_rec_server.billing.referrals import (
     referral_token_hash,
     validate_referral_token,
 )
+from twobrain_rec_server.cabinet.queries import get_account_profile_view
 from twobrain_rec_server.cabinet.rendering_shared import _page_shell
 from twobrain_rec_server.cabinet.templates import (
     cabinet_html_response,
@@ -164,6 +165,7 @@ async def referrals_page(
     content = _page_shell(
         "Пригласить друзей",
         embedded=False,
+        profile=await get_account_profile_view(db, tenant_scope) if db is not None else None,
         active_nav="settings",
         settings_active="account",
         csrf_token=_csrf_token_for_principal(request, principal, tenant_scope=tenant_scope),

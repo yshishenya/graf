@@ -1,15 +1,15 @@
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from uuid import UUID
 
 import pytest
 from starlette.requests import Request
-
 from twobrain_rec_server.billing.catalog import plan_descriptor
 from twobrain_rec_server.billing.receipts import ReceiptState, receipt_label
 from twobrain_rec_server.billing.usage import format_duration
 from twobrain_rec_server.cabinet.templates import render_template
-from twobrain_rec_server.cabinet.view_models import settings_category_navigation
+from twobrain_rec_server.cabinet.view_models import AccountProfileView, settings_category_navigation
 from twobrain_rec_server.cabinet.web_routes import billing as billing_routes
 from twobrain_rec_server.cabinet.web_routes.billing import (
     _billing_amount_label,
@@ -22,6 +22,14 @@ from twobrain_rec_server.cabinet.web_routes.billing import (
 from twobrain_rec_server.cabinet.web_routes.billing import (
     router as billing_router,
 )
+
+
+@pytest.fixture(autouse=True)
+def profile_lookup(monkeypatch):
+    # These handler tests isolate billing; profile query/propagation has its own regression.
+    lookup = AsyncMock(return_value=AccountProfileView("Synthetic", theme="dark"))
+    monkeypatch.setattr(billing_routes, "get_account_profile_view", lookup)
+    return lookup
 
 
 def test_billing_labels_are_localized_for_user_surfaces() -> None:

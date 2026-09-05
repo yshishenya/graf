@@ -679,16 +679,28 @@ async def _save_account_preferences(
     user = await db.get(UserIdentity, principal.user_id, with_for_update=True)
     if user is None or user.organization_id != tenant_scope.organization_id:
         raise ProblemDetail(status=404, code="account_not_found", title="Аккаунт не найден")
-    user.locale = _account_preference_value(form, "locale", frozenset({"ru-RU", "en-US"}))
-    user.timezone = _account_preference_value(form, "timezone", frozenset({"Europe/Moscow", "UTC"}))
-    user.theme = _account_preference_value(form, "theme", frozenset({"system", "dark", "light"}))
+    preferences = {
+        name: _account_preference_value(form, name, allowed)
+        for name, allowed in (
+            ("locale", frozenset({"ru-RU", "en-US"})),
+            ("timezone", frozenset({"Europe/Moscow", "UTC"})),
+            ("theme", frozenset({"system", "dark", "light"})),
+        )
+        if name in form
+    }
+    if not preferences:
+        raise ProblemDetail(
+            status=422, code="empty_account_preferences", title="Выберите настройку аккаунта"
+        )
+    for name, value in preferences.items():
+        setattr(user, name, value)
     await write_auth_audit_event(
         db,
         workspace_id=tenant_scope.workspace_id,
         actor_user_id=principal.user_id,
         user_id=principal.user_id,
         event_type="account_preferences_updated",
-        metadata={"fields": ["locale", "timezone", "theme"]},
+        metadata={"fields": list(preferences)},
     )
     await db.commit()
 

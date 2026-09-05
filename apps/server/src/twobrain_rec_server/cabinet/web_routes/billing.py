@@ -71,6 +71,7 @@ from twobrain_rec_server.billing.subscription import (
     resume_auto_renewal,
 )
 from twobrain_rec_server.billing.trial import (
+    TRIAL_DAYS,
     activate_trial,
     merged_user_lineage,
     require_trial_activation,
@@ -88,6 +89,7 @@ from twobrain_rec_server.billing.yookassa import (
     is_allowed_confirmation_url,
     provider_environment,
 )
+from twobrain_rec_server.cabinet.queries import get_account_profile_view
 from twobrain_rec_server.cabinet.rendering_shared import _page_shell
 from twobrain_rec_server.cabinet.templates import cabinet_html_response
 from twobrain_rec_server.cabinet.web_routes.auth_email_flow import _set_browser_auth_cookie
@@ -498,7 +500,7 @@ def trial_surface(
     """Return days-left, exact Moscow end label and the expired-trial state."""
     if trial_ends_at is None:
         return None, None, False
-    end_label = trial_ends_at.astimezone(MOSCOW).strftime("%d.%m.%Y, %H:%M:%S (МСК)")
+    end_label = _billing_datetime_label(trial_ends_at, seconds=True)
     expired = (
         raw_plan_code == "trial" and trial_ends_at <= now and effective_plan_code_value == "free"
     )
@@ -536,8 +538,9 @@ def trial_phase(*, trial_ends_at: datetime | None, now: datetime) -> str | None:
     return None
 
 
-def _billing_datetime_label(value: datetime | None) -> str | None:
-    return value.astimezone(MOSCOW).strftime("%d.%m.%Y, %H:%M (МСК)") if value is not None else None
+def _billing_datetime_label(value: datetime | None, *, seconds: bool = False) -> str | None:
+    pattern = "%d.%m.%Y, %H:%M:%S (МСК)" if seconds else "%d.%m.%Y, %H:%M (МСК)"
+    return value.astimezone(MOSCOW).strftime(pattern) if value is not None else None
 
 
 def _billing_amount_label(amount_minor: int | None, currency: str = "RUB") -> str | None:
@@ -667,11 +670,13 @@ def _masked_receipt_contact(value: str | None) -> str | None:
 
 
 def _capacity_label(capacity_bytes: int) -> str:
-    units = ((1_000_000_000, "GB"), (1_000_000, "MB"))
-    for divisor, unit in units:
-        if capacity_bytes % divisor == 0:
-            return f"{capacity_bytes // divisor} {unit}"
-    return f"{capacity_bytes:,} байт".replace(",", " ")
+    value = float(capacity_bytes)
+    for unit in ("байт", "KB", "MB", "GB", "TB"):
+        if round(value, 2) < 1000 or unit == "TB":
+            break
+        value /= 1000
+    label = f"{value:.2f}".rstrip("0").rstrip(".").replace(".", ",")
+    return f"{label} {unit}"
 
 
 def _exact_bytes_label(value: int) -> str:
@@ -1273,9 +1278,21 @@ async def billing_overview_page(
         "unknown",
     }:
         recurring_next_charge_label = "проверяем результат предыдущего списания"
+    trial_activation = None
+    if db is not None and subscription is not None and billing_owner and plan_code == "trial":
+        trial_activation = await db.scalar(
+            select(TrialActivation)
+            .where(
+                TrialActivation.workspace_id == tenant_scope.workspace_id,
+                TrialActivation.ends_at == subscription.trial_ends_at,
+            )
+            .order_by(TrialActivation.starts_at.desc())
+            .limit(1)
+        )
     content = _page_shell(
         "Тариф и оплата",
         embedded=_is_embedded_request(request),
+        profile=await get_account_profile_view(db, tenant_scope) if db is not None else None,
         active_nav="settings",
         settings_active="billing",
         csrf_token=_csrf_token_for_principal(request, principal, tenant_scope=tenant_scope),
@@ -1328,6 +1345,11 @@ async def billing_overview_page(
         billing_enabled=bool(request.app.state.settings.billing_checkout_enabled),
         catalog_ready=("month" in approved_catalog and "year" in approved_catalog),
         trial_result=trial_result,
+        trial_preview_starts_at_label=_billing_datetime_label(now, seconds=True),
+        trial_preview_ends_at_label=_billing_datetime_label(now + timedelta(days=TRIAL_DAYS), seconds=True),
+        trial_starts_at_label=_billing_datetime_label(
+            trial_activation.starts_at if trial_activation is not None else None, seconds=True
+        ),
         trial_days_left=trial_days_left,
         trial_ends_at_label=trial_ends_at_label,
         trial_remaining_label=trial_remaining,
@@ -1454,6 +1476,7 @@ async def billing_plans_page(
     content = _page_shell(
         "Тарифы",
         embedded=_is_embedded_request(request),
+        profile=await get_account_profile_view(db, tenant_scope) if db is not None else None,
         active_nav="settings",
         settings_active="billing",
         csrf_token=_csrf_token_for_principal(request, principal, tenant_scope=tenant_scope),
@@ -1469,6 +1492,8 @@ async def billing_plans_page(
         operation_pending=operation_pending,
         trial_state=trial_state,
         billing_enabled=bool(request.app.state.settings.billing_checkout_enabled),
+        trial_preview_starts_at_label=_billing_datetime_label(now, seconds=True),
+        trial_preview_ends_at_label=_billing_datetime_label(now + timedelta(days=TRIAL_DAYS), seconds=True),
         catalog_ready=catalog_ready,
         support_email=request.app.state.settings.billing_support_email,
     )
@@ -1538,6 +1563,7 @@ async def billing_discounts_page(
     content = _page_shell(
         "Скидки",
         embedded=_is_embedded_request(request),
+        profile=await get_account_profile_view(db, tenant_scope) if db is not None else None,
         active_nav="settings",
         settings_active="billing",
         csrf_token=_csrf_token_for_principal(request, principal, tenant_scope=tenant_scope),
@@ -1709,6 +1735,7 @@ async def billing_checkout_status_page(
     content = _page_shell(
         "Статус платежа",
         embedded=_is_embedded_request(request),
+        profile=await get_account_profile_view(db, tenant_scope) if db is not None else None,
         active_nav="settings",
         settings_active="billing",
         csrf_token=_csrf_token_for_principal(request, principal, tenant_scope=tenant_scope),
@@ -2154,6 +2181,7 @@ async def billing_usage_page(
     content = _page_shell(
         "Использование и хранение",
         embedded=_is_embedded_request(request),
+        profile=await get_account_profile_view(db, tenant_scope) if db is not None else None,
         active_nav="settings",
         settings_active="billing",
         csrf_token=_csrf_token_for_principal(request, principal, tenant_scope=tenant_scope),
@@ -2250,6 +2278,7 @@ async def billing_subscription_page(
     content = _page_shell(
         "Управление подпиской",
         embedded=_is_embedded_request(request),
+        profile=await get_account_profile_view(db, tenant_scope) if db is not None else None,
         active_nav="settings",
         settings_active="billing",
         csrf_token=_csrf_token_for_principal(request, principal, tenant_scope=tenant_scope),
@@ -2313,6 +2342,7 @@ async def billing_payment_method_page(
     content = _page_shell(
         "Способ оплаты",
         embedded=_is_embedded_request(request),
+        profile=await get_account_profile_view(db, tenant_scope) if db is not None else None,
         active_nav="settings",
         settings_active="billing",
         csrf_token=_csrf_token_for_principal(request, principal, tenant_scope=tenant_scope),
@@ -2395,6 +2425,7 @@ async def billing_storage_page(
         content = _page_shell(
             "Увеличение хранилища",
             embedded=_is_embedded_request(request),
+            profile=await get_account_profile_view(db, tenant_scope) if db is not None else None,
             active_nav="settings",
             settings_active="billing",
             csrf_token=_csrf_token_for_principal(request, principal, tenant_scope=tenant_scope),
@@ -2441,6 +2472,7 @@ async def billing_storage_page(
     content = _page_shell(
         "Увеличение хранилища",
         embedded=_is_embedded_request(request),
+        profile=await get_account_profile_view(db, tenant_scope) if db is not None else None,
         active_nav="settings",
         settings_active="billing",
         csrf_token=_csrf_token_for_principal(request, principal, tenant_scope=tenant_scope),
@@ -2745,6 +2777,7 @@ async def billing_checkout_page(
     content = _page_shell(
         "Выбор тарифа",
         embedded=_is_embedded_request(request),
+        profile=await get_account_profile_view(db, tenant_scope) if db is not None else None,
         active_nav="settings",
         settings_active="billing",
         csrf_token=_csrf_token_for_principal(request, principal, tenant_scope=tenant_scope),
@@ -3354,6 +3387,7 @@ async def billing_history_page(
     content = _page_shell(
         "История платежей",
         embedded=_is_embedded_request(request),
+        profile=await get_account_profile_view(db, tenant_scope) if db is not None else None,
         active_nav="settings",
         settings_active="billing",
         csrf_token=_csrf_token_for_principal(request, principal, tenant_scope=tenant_scope),
@@ -3418,6 +3452,7 @@ async def billing_invoice_detail_page(
     content = _page_shell(
         "Платёж",
         embedded=_is_embedded_request(request),
+        profile=await get_account_profile_view(db, tenant_scope) if db is not None else None,
         active_nav="settings",
         settings_active="billing",
         csrf_token=_csrf_token_for_principal(request, principal, tenant_scope=tenant_scope),

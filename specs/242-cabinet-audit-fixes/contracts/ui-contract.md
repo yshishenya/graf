@@ -1,0 +1,8 @@
+# UI and form contract F242
+
+1. POST `/settings/account/preferences` и `/desktop/settings/account/preferences`: existing session/CSRF/tenant guards. Непустое подмножество locale={ru-RU,en-US}, timezone={Europe/Moscow,UTC}, theme={system,dark,light}; неизвестные поля игнорируются, отсутствующие сохраняются. Invalid set не меняет объект/БД. Full form совместима. Меню содержит только theme + CSRF.
+2. Billing/deletion и соседние referrals/fair-use full pages получают фактический профиль; anonymous/shared fragments не становятся authenticated surface. Без profile меню не показывает theme autosave с guessed defaults. Missing DB: прежнее fail-closed поведение.
+3. Trial: native details summary «Начать 7 дней бесплатно» не делает POST. Раскрытый блок: один раз, «Карта не нужна», «Автосписания не будет», затем Free, предварительные start/end с секундами и МСК на момент открытия; семь полных дней от финального подтверждения. Кнопка «Подтвердить запуск на 7 дней» → прежний POST/confirmation/CSRF. Скрытие details — отказ без записи. После запуска фактические start/end видны на billing. Eligibility, locking, pending/paid guards неизменны.
+4. Billing help → `/billing/history`; внутри history → `#billing-help`. Раздел доступен и при пустой истории: configured mailto + safe payment-number guidance, либо «Контакт поддержки пока не настроен» и `/billing` возврат. Возврат не создаёт автоматической заявки.
+5. Labels: 0→0 байт, 999→999 байт, 1000→1 KB, 1500000→1,5 MB, 123456789→123,46 MB, 250000000→250 MB, 999999999→1 GB; exact bytes неизменны.
+6. Pending: `data-transcript-pending` и live region сохраняются; один общий processing status и короткая строка «Здесь появится расшифровка.»; ready/no-speech/error/preserved result state machine неизменна.
