@@ -134,3 +134,11 @@
 - Reading or mutating a real production user's account to make the test pass.
 - Broad cleanup outside the login, registration and provider-start rendering paths.
 - Production deployment, release publication or live email sending.
+
+## Legacy Impact
+
+- Classification: `remove`
+- Removed or consolidated paths: локальные error-ветки, которые напрямую
+  передавали `providers=[]`, сведены к существующему workspace provider loader.
+- Новых legacy alias, fallback, feature flag, зависимости, fixture или
+  параллельного provider registry не добавляется.
