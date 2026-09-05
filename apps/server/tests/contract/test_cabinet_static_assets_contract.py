@@ -4670,7 +4670,7 @@ def test_feature_104_css_uses_shared_density_focus_and_responsive_contracts() ->
         "--space-4: 24px;",
         "--control-height: 36px;",
         "--meeting-row-height: 48px;",
-        "--focus-ring: #b6aaff;",
+        "--focus-ring:",
         "--app-sidebar-width: 240px;",
         "--app-rail-width: 64px;",
         "outline: 2px solid var(--focus-ring);",
@@ -4716,10 +4716,8 @@ def test_feature_191_centralizes_interaction_tokens_and_compact_upload_contract(
 
     for token in [
         "--accent-hover:",
-        "--accent-solid: #6347d9;",
+        "--accent-solid:",
         "--accent-foreground: #fff;",
-        "--sidebar-accent: #8c73ff;",
-        "--sidebar-focus-ring: #b6aaff;",
         "--accent-soft:",
         "--accent-surface:",
         "--accent-border:",
@@ -4736,16 +4734,18 @@ def test_feature_191_centralizes_interaction_tokens_and_compact_upload_contract(
         "--control-height-sm: 32px;",
         "--control-height: 36px;",
         "--control-height-lg: 40px;",
-        "--radius-control: 7px;",
-        "--radius-card: 10px;",
-        "--radius-panel: 12px;",
+        "--radius-control: 9px;",
+        "--radius-card: 12px;",
+        "--radius-panel: 14px;",
         "--radius-dialog: 16px;",
     ]:
         assert token in css
 
     assert "accent-color: var(--accent);" in css
-    assert "--accent: var(--sidebar-accent);" in css
-    assert "--focus-ring: var(--sidebar-focus-ring);" in css
+    # F240: the sidebar inherits the same palette as dialogs and main content.
+    # Numeric palette contrast is covered by test_cabinet_theme_contract.py.
+    assert "--sidebar-accent" not in css
+    assert "--sidebar-focus-ring" not in css
     assert (
         ".primary { background: var(--accent-solid); border-color: var(--accent-solid); "
         "color: var(--accent-foreground);"

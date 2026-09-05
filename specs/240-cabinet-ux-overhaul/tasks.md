@@ -135,3 +135,15 @@ screens in the surface matrix; functional forms and truth copy remain intact.
    surfaces.
 4. Run a second independent audit, then close only proven legacy candidates.
 5. Run fast PR validation and prepare exact-SHA metadata.
+
+## Phase 8: Convergence — светлая тема
+
+Повторный аудит 2026-09-06 опроверг прежний theme PASS. Старые отметки выше
+сохранены как история, но не подтверждают исправление найденных дефектов.
+Внешний владелец корректирующего прохода — issue #6561, PR #6560.
+
+- [X] T036 [US4] Добавить повторяемую проверку вычисленного контраста и приоритета тем в apps/server/tests/contract/test_cabinet_theme_contract.py и синтетические реальные страницы в apps/server/tests/fixtures/calendar_visual_ui_harness.py; подтвердить падение на исходных правилах per FR-009a/FR-009b/SC-007 (missing).
+- [X] T037 [US4] Исправить тематические переменные и все найденные конфликтующие цвета списка, фильтров, профиля, загрузки, входа, плеера, спикеров, удаления и общих сообщений в apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css per FR-009/FR-009c/FR-009d (contradicts).
+- [X] T038 [US4] Повторить браузерную матрицу light/dark/system, desktop/mobile/embedded, меню/диалоги/фокус и сохранить свежие результаты в specs/240-cabinet-ux-overhaul/light-theme-qa.md per SC-007/SC-008 (partial).
+- [X] T039 [US4] Выполнить независимое correctness/Ponytail review, focused проверки и quickstart; записать точные результаты и ограничения в specs/240-cabinet-ux-overhaul/validation.md per FR-001/SC-004/SC-005 (partial).
+- [ ] T040 [US4] Обновить changes/unreleased/F240-cabinet-ux-overhaul.md, specs/240-cabinet-ux-overhaul/design-qa.md и текущий PR #6560 с честным отчётом, exact SHA и новым governance-fast; не закрывать непроверенную полную матрицу per FR-011/SC-008 (partial).

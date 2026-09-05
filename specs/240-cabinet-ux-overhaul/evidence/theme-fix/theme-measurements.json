@@ -1,0 +1,2504 @@
+{
+  "schema": 1,
+  "recordedAt": "2026-09-05T21:19:30.455Z",
+  "sourceCssSha256": "be53218fe404a7ce76d4e710d35f8293ef0f519ea804f0b4261448c040b34bcf",
+  "baselineCommit": "8eb1bb8078140d51ae910197a613ce0999a98ed9",
+  "method": "WCAG sRGB relative luminance; visible text; ancestor alpha compositing; gradients/opacity not certified",
+  "measurementFunction": "(checks) => {const parse=s=>{const n=(s.match(/[\\d.]+/g)||[]).map(Number);return s.startsWith('color(srgb ')?n.map((v,i)=>i<3?v*255:v):n;};const over=(a,b)=>{const alpha=a[3]??1;return a.slice(0,3).map((v,i)=>v*alpha+b[i]*(1-alpha));};const lum=c=>{const v=c.map(x=>{x/=255;return x<=.04045?x/12.92:((x+.055)/1.055)**2.4;});return v[0]*.2126+v[1]*.7152+v[2]*.0722;};const rows=[];for(const c of checks){const check=typeof c==='string'?{selector:c}:c;for(const el of document.querySelectorAll(check.selector)){const detail=el.closest('details');if(el.closest('[hidden],dialog:not([open])')||(detail&&!detail.hasAttribute('open')&&!el.closest('summary')))continue;const st=getComputedStyle(el,check.pseudo||null),r=el.getBoundingClientRect();if(!r.width||!r.height||st.visibility==='hidden')continue;let chain=[],node=el;while(node){chain.unshift(node);node=node.parentElement;}let bg=[255,255,255];for(const n of chain)bg=over(parse(getComputedStyle(n).backgroundColor),bg);const fg=over(parse(st.color),bg),a=lum(fg),b=lum(bg),ratio=(Math.max(a,b)+.05)/(Math.min(a,b)+.05);rows.push({selector:check.selector,pseudo:check.pseudo||null,text:el.textContent.trim().slice(0,55),color:st.color,bg:bg.map(Math.round),ratio:Number(ratio.toFixed(2)),minimum:check.min||4.5,pass:ratio>=(check.min||4.5)});}}return{theme:document.documentElement.dataset.theme||'system',systemLight:matchMedia('(prefers-color-scheme: light)').matches,rows,failures:rows.filter(x=>!x.pass).length};}",
+  "beforeFilters": {
+    "failures": [
+      "[Circular]",
+      "[Circular]",
+      "[Circular]",
+      "[Circular]",
+      "[Circular]",
+      "[Circular]"
+    ],
+    "rows": [
+      {
+        "bg": [
+          36,
+          38,
+          41
+        ],
+        "color": "rgb(82, 91, 104)",
+        "pass": false,
+        "ratio": 2.21,
+        "selector": ".cabinet-control-popover label",
+        "text": "Статус"
+      },
+      {
+        "bg": [
+          36,
+          38,
+          41
+        ],
+        "color": "rgb(82, 91, 104)",
+        "pass": false,
+        "ratio": 2.21,
+        "selector": ".cabinet-control-popover label",
+        "text": "Доступ"
+      },
+      {
+        "bg": [
+          36,
+          38,
+          41
+        ],
+        "color": "rgb(82, 91, 104)",
+        "pass": false,
+        "ratio": 2.21,
+        "selector": ".cabinet-control-popover label",
+        "text": "Сортировка"
+      },
+      {
+        "bg": [
+          29,
+          31,
+          34
+        ],
+        "color": "rgb(29, 34, 43)",
+        "pass": false,
+        "ratio": 1.04,
+        "selector": ".cabinet-control-popover select",
+        "text": "Все состояния\n              Готовые\n              В обр"
+      },
+      {
+        "bg": [
+          29,
+          31,
+          34
+        ],
+        "color": "rgb(29, 34, 43)",
+        "pass": false,
+        "ratio": 1.04,
+        "selector": ".cabinet-control-popover select",
+        "text": "Любой доступ\n              Мои\n              Команда\n  "
+      },
+      {
+        "bg": [
+          29,
+          31,
+          34
+        ],
+        "color": "rgb(29, 34, 43)",
+        "pass": false,
+        "ratio": 1.04,
+        "selector": ".cabinet-control-popover select",
+        "text": "Сначала новые\n              Сначала старые\n            "
+      }
+    ],
+    "systemLight": false,
+    "theme": "light"
+  },
+  "intermediatePlaceholderFailure": {
+    "failures": 1,
+    "rows": [
+      {
+        "bg": [
+          240,
+          242,
+          245
+        ],
+        "color": "rgb(117, 117, 117)",
+        "minimum": 4.5,
+        "pass": false,
+        "pseudo": "::placeholder",
+        "ratio": 4.11,
+        "selector": ".manual-upload-fields input",
+        "text": ""
+      },
+      {
+        "bg": [
+          240,
+          242,
+          245
+        ],
+        "color": "rgb(29, 34, 43)",
+        "minimum": 4.5,
+        "pass": true,
+        "pseudo": "::placeholder",
+        "ratio": 14.23,
+        "selector": ".manual-upload-fields input",
+        "text": ""
+      }
+    ],
+    "systemLight": false,
+    "theme": "light"
+  },
+  "after": [
+    {
+      "state": "populated-light",
+      "failures": 0,
+      "rows": [
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 15.96,
+          "selector": ".row-title",
+          "text": "Синтетическая проверка темы"
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 15.96,
+          "selector": ".row-title",
+          "text": "Синтетическая встреча с длинным названием для проверки "
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 15.96,
+          "selector": ".row-title",
+          "text": "Синтетическое обсуждение"
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(82, 91, 104)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 6.87,
+          "selector": ".meeting-date",
+          "text": "6 сен, 08:00"
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(82, 91, 104)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 6.87,
+          "selector": ".meeting-date",
+          "text": "6 сен, 08:10"
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(82, 91, 104)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 6.87,
+          "selector": ".meeting-date",
+          "text": "6 сен, 08:20"
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(82, 91, 104)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 6.87,
+          "selector": ".row-meta",
+          "text": "Без аудиоРасшифровка готова · итоги готовятся"
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(82, 91, 104)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 6.87,
+          "selector": ".row-meta",
+          "text": "Без аудиоРасшифровка готова · итоги готовятся"
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(82, 91, 104)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 6.87,
+          "selector": ".row-meta",
+          "text": "Без аудиоРасшифровка готова · итоги готовятся"
+        },
+        {
+          "bg": [
+            240,
+            242,
+            245
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 14.23,
+          "selector": ".cabinet-search-control input",
+          "text": ""
+        },
+        {
+          "bg": [
+            240,
+            242,
+            245
+          ],
+          "color": "rgb(82, 91, 104)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": "::placeholder",
+          "ratio": 6.13,
+          "selector": ".cabinet-search-control input",
+          "text": ""
+        },
+        {
+          "bg": [
+            229,
+            232,
+            238
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 13,
+          "selector": ".cabinet-sidebar-nav__item",
+          "text": "Мои встречи"
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 15.96,
+          "selector": ".cabinet-sidebar-nav__item",
+          "text": "Поделились со мной"
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 15.96,
+          "selector": ".cabinet-sidebar-nav__item",
+          "text": "Настройки"
+        }
+      ],
+      "systemLight": false,
+      "theme": "light"
+    },
+    {
+      "state": "selected-light",
+      "failures": 0,
+      "rows": [
+        {
+          "bg": [
+            245,
+            246,
+            248
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 14.76,
+          "selector": ".selection-count",
+          "text": "Выбрано: 1"
+        },
+        {
+          "bg": [
+            231,
+            228,
+            249
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 12.79,
+          "selector": ".meeting-row.is-selected .row-title",
+          "text": "Синтетическая проверка темы"
+        },
+        {
+          "bg": [
+            231,
+            228,
+            249
+          ],
+          "color": "rgb(82, 91, 104)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 5.51,
+          "selector": ".meeting-row.is-selected .row-meta",
+          "text": "Без аудиоРасшифровка готова · итоги готовятся"
+        }
+      ],
+      "systemLight": false,
+      "theme": "light"
+    },
+    {
+      "state": "delete-light",
+      "failures": 0,
+      "rows": [
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 15.96,
+          "selector": ".delete-dialog p",
+          "text": "Вы удаляете 1 запись. Это действие нельзя отменить."
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 15.96,
+          "selector": ".delete-dialog p",
+          "text": "Запись будет удалена везде, где ее контролирует GRAF. У"
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 15.96,
+          "selector": ".delete-dialog h2",
+          "text": "Удалить запись?"
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 15.96,
+          "selector": ".delete-dialog button",
+          "text": "Отмена"
+        },
+        {
+          "bg": [
+            255,
+            243,
+            243
+          ],
+          "color": "rgb(143, 29, 39)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 8.17,
+          "selector": ".delete-dialog button",
+          "text": "Удалить"
+        }
+      ],
+      "systemLight": false,
+      "theme": "light"
+    },
+    {
+      "state": "filters-light",
+      "failures": 0,
+      "rows": [
+        {
+          "bg": [
+            240,
+            242,
+            245
+          ],
+          "color": "rgb(82, 91, 104)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 6.13,
+          "selector": ".cabinet-control-popover label",
+          "text": "Статус"
+        },
+        {
+          "bg": [
+            240,
+            242,
+            245
+          ],
+          "color": "rgb(82, 91, 104)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 6.13,
+          "selector": ".cabinet-control-popover label",
+          "text": "Доступ"
+        },
+        {
+          "bg": [
+            240,
+            242,
+            245
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 14.23,
+          "selector": ".cabinet-control-popover select",
+          "text": "Все состояния\n              Готовые\n              В обр"
+        },
+        {
+          "bg": [
+            240,
+            242,
+            245
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 14.23,
+          "selector": ".cabinet-control-popover select",
+          "text": "Любой доступ\n              Мои\n              Команда\n  "
+        }
+      ],
+      "systemLight": false,
+      "theme": "light"
+    },
+    {
+      "state": "sort-light",
+      "failures": 0,
+      "rows": [
+        {
+          "bg": [
+            240,
+            242,
+            245
+          ],
+          "color": "rgb(82, 91, 104)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 6.13,
+          "selector": ".cabinet-control-popover label",
+          "text": "Сортировка"
+        },
+        {
+          "bg": [
+            240,
+            242,
+            245
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 14.23,
+          "selector": ".cabinet-control-popover select",
+          "text": "Сначала новые\n              Сначала старые\n            "
+        }
+      ],
+      "systemLight": false,
+      "theme": "light"
+    },
+    {
+      "state": "profile-submenu-light",
+      "failures": 0,
+      "rows": [
+        {
+          "bg": [
+            98,
+            72,
+            213
+          ],
+          "color": "rgb(255, 255, 255)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 6.16,
+          "selector": ".theme-picker__option > span",
+          "text": "Светлая"
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 15.96,
+          "selector": ".theme-picker__option > span",
+          "text": "Тёмная"
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 15.96,
+          "selector": ".theme-picker__option > span",
+          "text": "Системная"
+        }
+      ],
+      "systemLight": false,
+      "theme": "light"
+    },
+    {
+      "state": "detail-light",
+      "failures": 0,
+      "rows": [
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(82, 91, 104)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 6.87,
+          "selector": ".playback-time",
+          "text": "00:00"
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(82, 91, 104)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 6.87,
+          "selector": ".playback-time",
+          "text": "00:40"
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 15.96,
+          "selector": ".timeline-label",
+          "text": "Тестовый участник А"
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 15.96,
+          "selector": ".timeline-label",
+          "text": "Тестовый участник Б"
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(82, 91, 104)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 6.87,
+          "selector": ".timeline-share",
+          "text": "50%"
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(82, 91, 104)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 6.87,
+          "selector": ".timeline-share",
+          "text": "50%"
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(82, 91, 104)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 6.87,
+          "selector": ".speaker-timeline-hint",
+          "text": "Нажмите на цветной фрагмент, чтобы перейти к этому мест"
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 15.96,
+          "selector": ".playback-speed",
+          "text": "1x"
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 15.96,
+          "selector": ".speaker-manager-trigger",
+          "text": "Спикеры · 2"
+        },
+        {
+          "bg": [
+            233,
+            231,
+            249
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 13.15,
+          "selector": ".segment",
+          "text": "00:00\n            Тестовый участник А\n            Синте"
+        },
+        {
+          "bg": [
+            245,
+            246,
+            248
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 14.76,
+          "selector": ".segment",
+          "text": "00:20\n            Тестовый участник Б\n            Прове"
+        }
+      ],
+      "systemLight": false,
+      "theme": "light"
+    },
+    {
+      "state": "speaker-edit-light",
+      "failures": 0,
+      "rows": [
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(82, 91, 104)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 6.87,
+          "selector": ".speaker-manager-popover",
+          "text": "Тестовый участник А\n                50%\n               "
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(98, 72, 213)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 6.16,
+          "selector": ".speaker-manager-edit",
+          "text": "Изменить"
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(98, 72, 213)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 6.16,
+          "selector": ".speaker-manager-edit",
+          "text": "Изменить"
+        },
+        {
+          "bg": [
+            240,
+            242,
+            245
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 14.23,
+          "selector": ".speaker-name-form input",
+          "text": ""
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 15.96,
+          "selector": ".speaker-name-form button",
+          "text": "Сохранить"
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 15.96,
+          "selector": ".speaker-name-form button",
+          "text": "Отмена"
+        }
+      ],
+      "systemLight": false,
+      "theme": "light"
+    },
+    {
+      "state": "auth-success-system-light",
+      "failures": 0,
+      "rows": [
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(82, 91, 104)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 6.87,
+          "selector": ".auth-form label",
+          "text": "Рабочая почта"
+        },
+        {
+          "bg": [
+            240,
+            242,
+            245
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 14.23,
+          "selector": ".auth-form input",
+          "text": ""
+        },
+        {
+          "bg": [
+            240,
+            242,
+            245
+          ],
+          "color": "rgb(82, 91, 104)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": "::placeholder",
+          "ratio": 6.13,
+          "selector": ".auth-form input[placeholder]",
+          "text": ""
+        },
+        {
+          "bg": [
+            238,
+            251,
+            245
+          ],
+          "color": "rgb(6, 110, 88)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 5.83,
+          "selector": ".auth-alert",
+          "text": "Подключение завершено\n      Email подключён к текущему "
+        },
+        {
+          "bg": [
+            245,
+            246,
+            248
+          ],
+          "color": "rgb(82, 91, 104)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 6.36,
+          "selector": ".auth-legal",
+          "text": "Перед входом ознакомьтесь с Условиями использования и П"
+        },
+        {
+          "bg": [
+            98,
+            72,
+            213
+          ],
+          "color": "rgb(255, 255, 255)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 6.16,
+          "selector": ".auth-form .primary",
+          "text": "Войти"
+        }
+      ],
+      "systemLight": true,
+      "theme": "system"
+    },
+    {
+      "state": "code-error-system-light",
+      "failures": 0,
+      "rows": [
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 15.96,
+          "selector": ".code-slot",
+          "text": ""
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 15.96,
+          "selector": ".code-slot",
+          "text": ""
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 15.96,
+          "selector": ".code-slot",
+          "text": ""
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 15.96,
+          "selector": ".code-slot",
+          "text": ""
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 15.96,
+          "selector": ".code-slot",
+          "text": ""
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 15.96,
+          "selector": ".code-slot",
+          "text": ""
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(82, 91, 104)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 6.87,
+          "selector": ".code-entry legend",
+          "text": "6-значный код"
+        },
+        {
+          "bg": [
+            255,
+            245,
+            245
+          ],
+          "color": "rgb(143, 29, 39)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 8.25,
+          "selector": ".auth-alert",
+          "text": "Код введён неверно\n      Проверьте цифры и попробуйте е"
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(98, 72, 213)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 6.16,
+          "selector": ".auth-resend",
+          "text": "Получить новый код"
+        },
+        {
+          "bg": [
+            98,
+            72,
+            213
+          ],
+          "color": "rgb(255, 255, 255)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 6.16,
+          "selector": ".auth-form .primary",
+          "text": "Продолжить"
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(98, 72, 213)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 6.16,
+          "selector": ".mini-link",
+          "text": "Изменить почту"
+        }
+      ],
+      "systemLight": true,
+      "theme": "system"
+    },
+    {
+      "state": "auth-system-dark",
+      "failures": 0,
+      "rows": [
+        {
+          "bg": [
+            39,
+            42,
+            48
+          ],
+          "color": "rgb(240, 241, 244)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 12.73,
+          "selector": ".auth-form input",
+          "text": ""
+        },
+        {
+          "bg": [
+            39,
+            42,
+            48
+          ],
+          "color": "rgb(173, 178, 188)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": "::placeholder",
+          "ratio": 6.76,
+          "selector": ".auth-form input[placeholder]",
+          "text": ""
+        },
+        {
+          "bg": [
+            112,
+            86,
+            233
+          ],
+          "color": "rgb(255, 255, 255)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 5,
+          "selector": ".auth-form .primary",
+          "text": "Войти"
+        },
+        {
+          "bg": [
+            23,
+            24,
+            27
+          ],
+          "color": "rgb(173, 178, 188)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 8.34,
+          "selector": ".auth-legal",
+          "text": "Перед входом ознакомьтесь с Условиями использования и П"
+        }
+      ],
+      "systemLight": false,
+      "theme": "system"
+    },
+    {
+      "state": "detail-dark-on-light-os",
+      "failures": 0,
+      "rows": [
+        {
+          "bg": [
+            29,
+            31,
+            35
+          ],
+          "color": "rgb(173, 178, 188)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 7.76,
+          "selector": ".playback-time",
+          "text": "00:00"
+        },
+        {
+          "bg": [
+            29,
+            31,
+            35
+          ],
+          "color": "rgb(173, 178, 188)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 7.76,
+          "selector": ".playback-time",
+          "text": "00:40"
+        },
+        {
+          "bg": [
+            29,
+            31,
+            35
+          ],
+          "color": "rgb(240, 241, 244)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 14.61,
+          "selector": ".timeline-label",
+          "text": "Тестовый участник А"
+        },
+        {
+          "bg": [
+            29,
+            31,
+            35
+          ],
+          "color": "rgb(240, 241, 244)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 14.61,
+          "selector": ".timeline-label",
+          "text": "Тестовый участник Б"
+        },
+        {
+          "bg": [
+            29,
+            31,
+            35
+          ],
+          "color": "rgb(173, 178, 188)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 7.76,
+          "selector": ".timeline-share",
+          "text": "50%"
+        },
+        {
+          "bg": [
+            29,
+            31,
+            35
+          ],
+          "color": "rgb(173, 178, 188)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 7.76,
+          "selector": ".timeline-share",
+          "text": "50%"
+        },
+        {
+          "bg": [
+            29,
+            31,
+            35
+          ],
+          "color": "rgb(173, 178, 188)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 7.76,
+          "selector": ".speaker-timeline-hint",
+          "text": "Нажмите на цветной фрагмент, чтобы перейти к этому мест"
+        },
+        {
+          "bg": [
+            33,
+            32,
+            50
+          ],
+          "color": "rgb(240, 241, 244)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 14.16,
+          "selector": ".segment",
+          "text": "00:00\n            Тестовый участник А\n            Синте"
+        },
+        {
+          "bg": [
+            23,
+            24,
+            27
+          ],
+          "color": "rgb(240, 241, 244)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 15.72,
+          "selector": ".segment",
+          "text": "00:20\n            Тестовый участник Б\n            Прове"
+        }
+      ],
+      "systemLight": true,
+      "theme": "dark"
+    },
+    {
+      "state": "detail-mobile-light",
+      "failures": 0,
+      "rows": [
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(82, 91, 104)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 6.87,
+          "selector": ".playback-time",
+          "text": "00:00"
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(82, 91, 104)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 6.87,
+          "selector": ".playback-time",
+          "text": "00:40"
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 15.96,
+          "selector": ".timeline-label",
+          "text": "Тестовый участник А"
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 15.96,
+          "selector": ".timeline-label",
+          "text": "Тестовый участник Б"
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(82, 91, 104)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 6.87,
+          "selector": ".speaker-timeline-hint",
+          "text": "Нажмите на цветной фрагмент, чтобы перейти к этому мест"
+        },
+        {
+          "bg": [
+            233,
+            231,
+            249
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 13.15,
+          "selector": ".segment",
+          "text": "00:00\n            Тестовый участник А\n            Синте"
+        },
+        {
+          "bg": [
+            245,
+            246,
+            248
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 14.76,
+          "selector": ".segment",
+          "text": "00:20\n            Тестовый участник Б\n            Прове"
+        }
+      ],
+      "systemLight": true,
+      "theme": "light"
+    },
+    {
+      "state": "profile-submenu-dark",
+      "failures": 0,
+      "rows": [
+        {
+          "bg": [
+            29,
+            31,
+            35
+          ],
+          "color": "rgb(240, 241, 244)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 14.61,
+          "selector": ".theme-picker__option > span",
+          "text": "Светлая"
+        },
+        {
+          "bg": [
+            112,
+            86,
+            233
+          ],
+          "color": "rgb(255, 255, 255)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 5,
+          "selector": ".theme-picker__option > span",
+          "text": "Тёмная"
+        },
+        {
+          "bg": [
+            29,
+            31,
+            35
+          ],
+          "color": "rgb(240, 241, 244)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 14.61,
+          "selector": ".theme-picker__option > span",
+          "text": "Системная"
+        }
+      ],
+      "systemLight": false,
+      "theme": "dark"
+    },
+    {
+      "state": "delete-dark-on-light-os",
+      "failures": 0,
+      "rows": [
+        {
+          "bg": [
+            34,
+            37,
+            42
+          ],
+          "color": "rgb(240, 241, 244)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 13.61,
+          "selector": ".delete-dialog p",
+          "text": "Вы удаляете 1 запись. Это действие нельзя отменить."
+        },
+        {
+          "bg": [
+            34,
+            37,
+            42
+          ],
+          "color": "rgb(240, 241, 244)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 13.61,
+          "selector": ".delete-dialog p",
+          "text": "Запись будет удалена везде, где ее контролирует GRAF. У"
+        },
+        {
+          "bg": [
+            34,
+            37,
+            42
+          ],
+          "color": "rgb(240, 241, 244)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 13.61,
+          "selector": ".delete-dialog button",
+          "text": "Отмена"
+        },
+        {
+          "bg": [
+            52,
+            43,
+            47
+          ],
+          "color": "rgb(255, 214, 214)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 10.38,
+          "selector": ".delete-dialog button",
+          "text": "Удалить"
+        }
+      ],
+      "systemLight": true,
+      "theme": "dark"
+    },
+    {
+      "state": "profile-light-final",
+      "failures": 0,
+      "rows": [
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 15.96,
+          "selector": ".sidebar-profile-menu__account",
+          "text": "Синтетический пользовательtheme@example.test"
+        },
+        {
+          "bg": [
+            229,
+            232,
+            238
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 13,
+          "selector": ".sidebar-profile-menu__item:not(:disabled)",
+          "text": "Вид"
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 15.96,
+          "selector": ".sidebar-profile-menu__item:not(:disabled)",
+          "text": "Настройки"
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 15.96,
+          "selector": ".sidebar-profile-menu__item:not(:disabled)",
+          "text": "Решение проблем"
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 15.96,
+          "selector": ".sidebar-profile-menu__item:not(:disabled)",
+          "text": "Документация"
+        },
+        {
+          "bg": [
+            98,
+            72,
+            213
+          ],
+          "color": "rgb(255, 255, 255)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 6.16,
+          "selector": ".theme-picker__option > span",
+          "text": "Светлая"
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 15.96,
+          "selector": ".theme-picker__option > span",
+          "text": "Тёмная"
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 15.96,
+          "selector": ".theme-picker__option > span",
+          "text": "Системная"
+        }
+      ],
+      "systemLight": false,
+      "theme": "light"
+    },
+    {
+      "state": "share-error-light",
+      "failures": 0,
+      "rows": [
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(143, 29, 39)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 8.85,
+          "selector": ".share-dialog__status",
+          "text": "Введите имя или email."
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(82, 91, 104)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 6.87,
+          "selector": ".share-dialog__header p",
+          "text": "Участник рабочей области получит итоги, а приглашённый "
+        },
+        {
+          "bg": [
+            240,
+            242,
+            245
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 14.23,
+          "selector": ".share-dialog input",
+          "text": ""
+        },
+        {
+          "bg": [
+            240,
+            242,
+            245
+          ],
+          "color": "rgb(82, 91, 104)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": "::placeholder",
+          "ratio": 6.13,
+          "selector": ".share-dialog input",
+          "text": ""
+        }
+      ],
+      "systemLight": false,
+      "theme": "light"
+    }
+  ],
+  "paletteMatrix": [
+    {
+      "bodyText": 762,
+      "dialogOpen": true,
+      "palette": {
+        "--accent": "#6248d5",
+        "--accent-hover": "#5339c5",
+        "--accent-solid": "#6248d5",
+        "--bg": "#f5f6f8",
+        "--focus-ring": "#4d32cc",
+        "--muted": "#525b68",
+        "--panel": "#ffffff",
+        "--surface": "#ffffff",
+        "--text": "#1d222b"
+      },
+      "systemLight": true,
+      "theme": "light",
+      "osTheme": "light",
+      "selectedTheme": "light",
+      "rows": [
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 15.96,
+          "selector": ".manual-upload-browse",
+          "text": "Выбрать"
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 15.96,
+          "selector": ".manual-upload-fields > label > span:first-child",
+          "text": "Название"
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 15.96,
+          "selector": ".manual-upload-head h2",
+          "text": "Загрузить файл"
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(82, 91, 104)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 6.87,
+          "selector": ".manual-upload-head button",
+          "text": ""
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 15.96,
+          "selector": ".row-title",
+          "text": "Синтетическая проверка темы"
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 15.96,
+          "selector": ".row-title",
+          "text": "Синтетическая встреча с длинным названием для проверки "
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 15.96,
+          "selector": ".row-title",
+          "text": "Синтетическое обсуждение"
+        }
+      ],
+      "failures": 0
+    },
+    {
+      "bodyText": 762,
+      "dialogOpen": true,
+      "palette": {
+        "--accent": "#ab99ff",
+        "--accent-hover": "#755cde",
+        "--accent-solid": "#7056e9",
+        "--bg": "#17181b",
+        "--focus-ring": "#c0b6ff",
+        "--muted": "#adb2bc",
+        "--panel": "#1d1f23",
+        "--surface": "#22252a",
+        "--text": "#f0f1f4"
+      },
+      "systemLight": true,
+      "theme": "dark",
+      "osTheme": "light",
+      "selectedTheme": "dark",
+      "rows": [
+        {
+          "bg": [
+            46,
+            48,
+            52
+          ],
+          "color": "rgb(240, 241, 244)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 11.68,
+          "selector": ".manual-upload-browse",
+          "text": "Выбрать"
+        },
+        {
+          "bg": [
+            29,
+            31,
+            35
+          ],
+          "color": "rgb(240, 241, 244)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 14.61,
+          "selector": ".manual-upload-fields > label > span:first-child",
+          "text": "Название"
+        },
+        {
+          "bg": [
+            29,
+            31,
+            35
+          ],
+          "color": "rgb(240, 241, 244)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 14.61,
+          "selector": ".manual-upload-head h2",
+          "text": "Загрузить файл"
+        },
+        {
+          "bg": [
+            29,
+            31,
+            35
+          ],
+          "color": "rgb(173, 178, 188)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 7.76,
+          "selector": ".manual-upload-head button",
+          "text": ""
+        },
+        {
+          "bg": [
+            34,
+            37,
+            42
+          ],
+          "color": "rgb(240, 241, 244)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 13.61,
+          "selector": ".row-title",
+          "text": "Синтетическая проверка темы"
+        },
+        {
+          "bg": [
+            34,
+            37,
+            42
+          ],
+          "color": "rgb(240, 241, 244)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 13.61,
+          "selector": ".row-title",
+          "text": "Синтетическая встреча с длинным названием для проверки "
+        },
+        {
+          "bg": [
+            34,
+            37,
+            42
+          ],
+          "color": "rgb(240, 241, 244)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 13.61,
+          "selector": ".row-title",
+          "text": "Синтетическое обсуждение"
+        }
+      ],
+      "failures": 0
+    },
+    {
+      "bodyText": 762,
+      "dialogOpen": true,
+      "palette": {
+        "--accent": "#6248d5",
+        "--accent-hover": "#5339c5",
+        "--accent-solid": "#6248d5",
+        "--bg": "#f5f6f8",
+        "--focus-ring": "#4d32cc",
+        "--muted": "#525b68",
+        "--panel": "#ffffff",
+        "--surface": "#ffffff",
+        "--text": "#1d222b"
+      },
+      "systemLight": true,
+      "theme": "system",
+      "osTheme": "light",
+      "selectedTheme": "system",
+      "rows": [
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 15.96,
+          "selector": ".manual-upload-browse",
+          "text": "Выбрать"
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 15.96,
+          "selector": ".manual-upload-fields > label > span:first-child",
+          "text": "Название"
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 15.96,
+          "selector": ".manual-upload-head h2",
+          "text": "Загрузить файл"
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(82, 91, 104)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 6.87,
+          "selector": ".manual-upload-head button",
+          "text": ""
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 15.96,
+          "selector": ".row-title",
+          "text": "Синтетическая проверка темы"
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 15.96,
+          "selector": ".row-title",
+          "text": "Синтетическая встреча с длинным названием для проверки "
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 15.96,
+          "selector": ".row-title",
+          "text": "Синтетическое обсуждение"
+        }
+      ],
+      "failures": 0
+    },
+    {
+      "bodyText": 762,
+      "dialogOpen": true,
+      "palette": {
+        "--accent": "#6248d5",
+        "--accent-hover": "#5339c5",
+        "--accent-solid": "#6248d5",
+        "--bg": "#f5f6f8",
+        "--focus-ring": "#4d32cc",
+        "--muted": "#525b68",
+        "--panel": "#ffffff",
+        "--surface": "#ffffff",
+        "--text": "#1d222b"
+      },
+      "systemLight": false,
+      "theme": "light",
+      "osTheme": "dark",
+      "selectedTheme": "light",
+      "rows": [
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 15.96,
+          "selector": ".manual-upload-browse",
+          "text": "Выбрать"
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 15.96,
+          "selector": ".manual-upload-fields > label > span:first-child",
+          "text": "Название"
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 15.96,
+          "selector": ".manual-upload-head h2",
+          "text": "Загрузить файл"
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(82, 91, 104)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 6.87,
+          "selector": ".manual-upload-head button",
+          "text": ""
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 15.96,
+          "selector": ".row-title",
+          "text": "Синтетическая проверка темы"
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 15.96,
+          "selector": ".row-title",
+          "text": "Синтетическая встреча с длинным названием для проверки "
+        },
+        {
+          "bg": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(29, 34, 43)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 15.96,
+          "selector": ".row-title",
+          "text": "Синтетическое обсуждение"
+        }
+      ],
+      "failures": 0
+    },
+    {
+      "bodyText": 762,
+      "dialogOpen": true,
+      "palette": {
+        "--accent": "#ab99ff",
+        "--accent-hover": "#755cde",
+        "--accent-solid": "#7056e9",
+        "--bg": "#17181b",
+        "--focus-ring": "#c0b6ff",
+        "--muted": "#adb2bc",
+        "--panel": "#1d1f23",
+        "--surface": "#22252a",
+        "--text": "#f0f1f4"
+      },
+      "systemLight": false,
+      "theme": "dark",
+      "osTheme": "dark",
+      "selectedTheme": "dark",
+      "rows": [
+        {
+          "bg": [
+            46,
+            48,
+            52
+          ],
+          "color": "rgb(240, 241, 244)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 11.68,
+          "selector": ".manual-upload-browse",
+          "text": "Выбрать"
+        },
+        {
+          "bg": [
+            29,
+            31,
+            35
+          ],
+          "color": "rgb(240, 241, 244)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 14.61,
+          "selector": ".manual-upload-fields > label > span:first-child",
+          "text": "Название"
+        },
+        {
+          "bg": [
+            29,
+            31,
+            35
+          ],
+          "color": "rgb(240, 241, 244)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 14.61,
+          "selector": ".manual-upload-head h2",
+          "text": "Загрузить файл"
+        },
+        {
+          "bg": [
+            29,
+            31,
+            35
+          ],
+          "color": "rgb(173, 178, 188)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 7.76,
+          "selector": ".manual-upload-head button",
+          "text": ""
+        },
+        {
+          "bg": [
+            34,
+            37,
+            42
+          ],
+          "color": "rgb(240, 241, 244)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 13.61,
+          "selector": ".row-title",
+          "text": "Синтетическая проверка темы"
+        },
+        {
+          "bg": [
+            34,
+            37,
+            42
+          ],
+          "color": "rgb(240, 241, 244)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 13.61,
+          "selector": ".row-title",
+          "text": "Синтетическая встреча с длинным названием для проверки "
+        },
+        {
+          "bg": [
+            34,
+            37,
+            42
+          ],
+          "color": "rgb(240, 241, 244)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 13.61,
+          "selector": ".row-title",
+          "text": "Синтетическое обсуждение"
+        }
+      ],
+      "failures": 0
+    },
+    {
+      "bodyText": 762,
+      "dialogOpen": true,
+      "palette": {
+        "--accent": "#ab99ff",
+        "--accent-hover": "#755cde",
+        "--accent-solid": "#7056e9",
+        "--bg": "#17181b",
+        "--focus-ring": "#c0b6ff",
+        "--muted": "#adb2bc",
+        "--panel": "#1d1f23",
+        "--surface": "#22252a",
+        "--text": "#f0f1f4"
+      },
+      "systemLight": false,
+      "theme": "system",
+      "osTheme": "dark",
+      "selectedTheme": "system",
+      "rows": [
+        {
+          "bg": [
+            46,
+            48,
+            52
+          ],
+          "color": "rgb(240, 241, 244)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 11.68,
+          "selector": ".manual-upload-browse",
+          "text": "Выбрать"
+        },
+        {
+          "bg": [
+            29,
+            31,
+            35
+          ],
+          "color": "rgb(240, 241, 244)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 14.61,
+          "selector": ".manual-upload-fields > label > span:first-child",
+          "text": "Название"
+        },
+        {
+          "bg": [
+            29,
+            31,
+            35
+          ],
+          "color": "rgb(240, 241, 244)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 14.61,
+          "selector": ".manual-upload-head h2",
+          "text": "Загрузить файл"
+        },
+        {
+          "bg": [
+            29,
+            31,
+            35
+          ],
+          "color": "rgb(173, 178, 188)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 7.76,
+          "selector": ".manual-upload-head button",
+          "text": ""
+        },
+        {
+          "bg": [
+            34,
+            37,
+            42
+          ],
+          "color": "rgb(240, 241, 244)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 13.61,
+          "selector": ".row-title",
+          "text": "Синтетическая проверка темы"
+        },
+        {
+          "bg": [
+            34,
+            37,
+            42
+          ],
+          "color": "rgb(240, 241, 244)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 13.61,
+          "selector": ".row-title",
+          "text": "Синтетическая встреча с длинным названием для проверки "
+        },
+        {
+          "bg": [
+            34,
+            37,
+            42
+          ],
+          "color": "rgb(240, 241, 244)",
+          "minimum": 4.5,
+          "pass": true,
+          "pseudo": null,
+          "ratio": 13.61,
+          "selector": ".row-title",
+          "text": "Синтетическое обсуждение"
+        }
+      ],
+      "failures": 0
+    }
+  ],
+  "viewportMatrix": [
+    {
+      "name": "list-320-light",
+      "height": 844,
+      "mainWidth": 320,
+      "scrollWidth": 320,
+      "title": "Мои встречи - GRAF",
+      "width": 320,
+      "rows": 6,
+      "failures": 0
+    },
+    {
+      "name": "list-390-light",
+      "height": 844,
+      "mainWidth": 390,
+      "scrollWidth": 390,
+      "title": "Мои встречи - GRAF",
+      "width": 390,
+      "rows": 6,
+      "failures": 0
+    },
+    {
+      "name": "list-768-light",
+      "height": 900,
+      "mainWidth": 768,
+      "scrollWidth": 768,
+      "title": "Мои встречи - GRAF",
+      "width": 768,
+      "rows": 6,
+      "failures": 0
+    },
+    {
+      "name": "embedded-detail-1024-light",
+      "height": 768,
+      "mainWidth": 960,
+      "scrollWidth": 1024,
+      "title": "Синтетическая проверка темы - GRAF",
+      "width": 1024,
+      "rows": 5,
+      "failures": 0
+    },
+    {
+      "name": "populated-light",
+      "height": 900,
+      "mainWidth": 1376,
+      "scrollWidth": 1440,
+      "title": "Мои встречи - GRAF",
+      "width": 1440,
+      "rows": 6,
+      "failures": 0
+    }
+  ],
+  "console": [],
+  "limits": [
+    "Synthetic renderer only; no real account or private meeting data",
+    "Range requests and backend sharing/export writes are not implemented by this harness",
+    "Hover/pressed combinations have source-contract and independent review evidence, not exhaustive pointer QA",
+    "Standalone narrow main widths do not certify embedded pinned rail or local overlaps"
+  ]
+}

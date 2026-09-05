@@ -37,7 +37,7 @@ changes.
 for JavaScript, focused DOM contract assertions and browser visual/a11y
 evidence when the local harness is available.
 
-**Risk / Validation Lane**: `high-risk-feature` — user-facing UX, responsive,
+**Risk / Validation Lane**: `high-risk-product` — user-facing UX, responsive,
 accessibility and reference-fidelity review; no product semantics change.
 
 **Release Gate**: `no deploy` — this task ends at PR; production release needs
@@ -78,9 +78,11 @@ only if a focused audit proves the embedded shell blocks the same UX contract.
 
 Use `quickstart.md`, focused cabinet contract/unit/integration tests, `node
 --check`, `git diff --check`, browser visual/accessibility matrix and
-`infra/scripts/ci-local.sh --fast` before PR. No deployment gate is run because
-the user requested an interface PR, not a release. A full gate remains for the
-exact release candidate only.
+GitHub `governance-fast` on the exact PR SHA. Per current repository guidance,
+local `infra/scripts/ci-local.sh --fast` is a manual diagnostic/fallback only;
+it does not replace the GitHub gate. No deployment gate is run because the user
+requested an interface PR, not a release. A full gate remains for the exact
+release candidate only.
 
 ## Project Structure
 
@@ -132,3 +134,21 @@ system layer is introduced.
 | Violation | Why Needed | Simpler Alternative Rejected Because |
 |-----------|------------|-------------------------------------|
 | — | — | — |
+
+## Корректирующий проход — 2026-09-06
+
+Исправить причины неполного переключения темы в существующем `cabinet.css`:
+объединить палитры, заменить фиксированные цвета активных компонентов
+существующими семантическими переменными, устранить локальное наследование
+тёмных цветов sidebar и медиаправила окон, игнорирующие явный выбор темы.
+Новые зависимости, функциональные обработчики и дополнительный слой
+переопределений не нужны. Фирменный знак допустимо адаптировать CSS-фильтром
+для светлой поверхности без нового ассета.
+
+Тестовые данные — синтетические; существующий FastAPI harness расширяется
+реальными render-функциями для непустого списка, detail, входа и кода.
+Контраст и приоритет тем проверяются на вычисленных стилях, состояния
+открываются обычными UI-действиями. Исходные правила сначала проверяются
+как отрицательный контроль. Повторить desktop/mobile и embedded layout,
+мышь/Escape/фокус, затем focused pytest и GitHub `governance-fast` точного SHA.
+Не заявлять прохождение всей первоначальной матрицы по результатам части страниц.
