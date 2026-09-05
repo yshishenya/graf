@@ -1,9 +1,52 @@
 from uuid import UUID
 
+import pytest
+
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fakes.auth_contexts import WORKSPACE_ID
 from tests.fixtures.cabinet import seed_cabinet_meetings
 from tests.fixtures.cabinet_access import SHARED_USER_ID, add_workspace_user, auth_headers_for
+
+
+@pytest.mark.parametrize("embedded", [False, True])
+@pytest.mark.parametrize("scope", ["full_meeting", "summary_only", "unavailable"])
+def test_shared_detail_surface_hint_never_changes_access(client, embedded, scope) -> None:
+    seeds = seed_cabinet_meetings(client)
+    add_workspace_user(client)
+    if scope != "unavailable":
+        created = client.post(
+            f"/api/v1/cabinet/meetings/{seeds.ready_id}/shares",
+            headers=auth_headers(),
+            json={
+                "audience_type": "user",
+                "audience_id": str(SHARED_USER_ID),
+                "content_scope": scope,
+                "can_download": False,
+            },
+        )
+        assert created.status_code == 201
+    headers = auth_headers_for()
+    if embedded:
+        headers["X-GRAF-Client"] = "desktop"
+    response = client.get(
+        f"/shared-meetings/{seeds.ready_id}?workspace_id={WORKSPACE_ID}", headers=headers
+    )
+    assert response.status_code == (404 if scope == "unavailable" else 200)
+    list_path = "/desktop/meetings" if embedded else "/meetings"
+    assert f'href="{list_path}"' in response.text
+    if scope == "summary_only":
+        assert "Вам открыли только итоги" in response.text
+        assert "data-playback-player" not in response.text
+    elif scope == "full_meeting":
+        assert 'id="detail-panel-recording"' in response.text
+        assert 'id="detail-panel-outcomes"' in response.text
+    else:
+        assert "Встреча больше недоступна" in response.text
+    download = client.get(
+        f"/api/v1/cabinet/shared-meetings/{seeds.ready_id}/downloads/audio",
+        params={"workspace_id": str(WORKSPACE_ID)}, headers=headers,
+    )
+    assert download.status_code == (409 if scope == "full_meeting" else 404)
 
 
 def test_recipient_sees_active_share_in_separate_browser_and_desktop_lists(client) -> None:

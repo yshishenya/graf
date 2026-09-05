@@ -1105,6 +1105,12 @@ def test_external_full_invitation_opens_recording_package_and_rechecks_revoke(
     csrf = re.search(r'<meta name="csrf-token" content="([^"]+)"', page.text)
     assert csrf is not None
 
+    desktop_page = client.get(shared_url, headers={"X-GRAF-Client": "desktop"})
+    assert desktop_page.status_code == 200
+    assert "desktop-embedded" in desktop_page.text
+    assert 'href="/desktop/meetings"' in desktop_page.text
+    assert f"/api/v1/cabinet/shared-meetings/{seeds.ready_id}/playback" in desktop_page.text
+
     capabilities = client.get(
         f"/api/v1/cabinet/shared-meetings/{seeds.ready_id}/content-exports",
         params={"workspace_id": str(WORKSPACE_ID)},
@@ -1144,6 +1150,7 @@ def test_external_full_invitation_opens_recording_package_and_rechecks_revoke(
         download = client.get(
             f"/api/v1/cabinet/shared-meetings/{seeds.ready_id}/downloads/audio",
             params={"workspace_id": str(WORKSPACE_ID)},
+            headers={"X-GRAF-Client": "desktop"},
         )
         assert download.status_code == 200
         assert download.content == audio_body

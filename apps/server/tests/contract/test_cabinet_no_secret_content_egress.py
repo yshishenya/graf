@@ -17,9 +17,8 @@ from tests.fixtures.cabinet_access import (
     add_retained_playback_m4a,
     replace_retained_audio_with_test_wav,
 )
-from tests.fixtures.cabinet_components import COMPONENT_FORBIDDEN_MARKERS, COMPONENT_SAFE_FIXTURE
+from tests.fixtures.cabinet_components import COMPONENT_FORBIDDEN_MARKERS
 from tests.fixtures.processing import create_finalized_meeting, enable_processing_autostart
-from twobrain_rec_server.cabinet.templates import get_cabinet_templates
 from twobrain_rec_server.db.models import MeetingOutcomeItem
 from twobrain_rec_server.outcomes.service import ensure_outcomes_for_meeting
 
@@ -45,20 +44,18 @@ def test_cabinet_list_does_not_egress_transcript_or_dependency_secrets(client) -
     assert "private-run-id" not in body
 
 
-def test_cabinet_component_fixtures_are_metadata_safe() -> None:
-    template = get_cabinet_templates().from_string(
-        """
-        {% import "cabinet/components/sections.html" as sections %}
-        {{ sections.workspace_header(fixture.workspace_name, fixture.workspace_subtitle, "2B") }}
-        {{ sections.meeting_row(fixture.meeting_title, "/meetings/synthetic", fixture.status_label, "audio", "26 июн") }}
-        """
-    )
-
-    rendered = template.render(fixture=COMPONENT_SAFE_FIXTURE)
-    evidence = _dump_json({"fixture": COMPONENT_SAFE_FIXTURE, "rendered": rendered})
-
-    for marker in COMPONENT_FORBIDDEN_MARKERS:
-        assert marker not in evidence
+def test_production_meeting_list_renderer_preserves_analytics_privacy(client) -> None:
+    seeds = seed_cabinet_meetings(client)
+    for path in ("/meetings", "/desktop/meetings"):
+        response = client.get(path, headers=auth_headers())
+        assert response.status_code == 200
+        assert str(seeds.ready_id) in response.text
+        for marker in (*COMPONENT_FORBIDDEN_MARKERS, SAFE_TRANSCRIPT_TEXT,
+                       SAFE_SECOND_TRANSCRIPT_TEXT, PRIVATE_EXTERNAL_JOB_ID):
+            assert marker not in response.text
+        for marker in ('data-graf-analytics-private="true"', 'data-ph-mask="true"',
+                       'data-ym-hide-content="true"', 'data-ym-disable-keys="true"'):
+            assert marker in response.text
 
 
 def test_create_meeting_rejects_unsafe_title_without_echoing_raw_input(client) -> None:

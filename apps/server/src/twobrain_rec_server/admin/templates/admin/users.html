@@ -1,7 +1,7 @@
 {% extends "admin/base.html" %}
 
 {% block subtitle %}
-  <p class="admin-subtitle">{{ view.workspace_name }} · роль: {{ view.actor_role }}</p>
+  <p class="admin-subtitle">{{ view.workspace_name }} · роль: {{ role_labels.get(view.actor_role, view.actor_role) }}</p>
 {% endblock %}
 
 {% block content %}
@@ -15,7 +15,7 @@
         <select name="role">
           <option value="">Все</option>
           {% for role in ["owner", "admin", "member"] %}
-            <option value="{{ role }}"{% if view.filters.role == role %} selected{% endif %}>{{ role }}</option>
+            <option value="{{ role }}"{% if view.filters.role == role %} selected{% endif %}>{{ role_labels.get(role, role) }}</option>
           {% endfor %}
         </select>
       </label>
@@ -23,15 +23,15 @@
         <select name="status">
           <option value="">Все</option>
           {% for status in ["active", "inactive", "blocked", "revoked"] %}
-            <option value="{{ status }}"{% if view.filters.status == status %} selected{% endif %}>{{ status }}</option>
+            <option value="{{ status }}"{% if view.filters.status == status %} selected{% endif %}>{{ status_labels.get(status, status) }}</option>
           {% endfor %}
         </select>
       </label>
-      <label>Инвайт
+      <label>Приглашение
         <select name="invitation_status">
           <option value="">Все</option>
           {% for status in ["pending", "completed", "revoked", "expired"] %}
-            <option value="{{ status }}"{% if view.filters.invitation_status == status %} selected{% endif %}>{{ status }}</option>
+            <option value="{{ status }}"{% if view.filters.invitation_status == status %} selected{% endif %}>{{ status_labels.get(status, status) }}</option>
           {% endfor %}
         </select>
       </label>
@@ -43,8 +43,8 @@
         {% for user in view.users.members %}
           <tr>
             <td><a href="/admin/users/{{ user.user_id }}">{{ user.display_name or user.user_id }}</a></td>
-            <td>{{ user.role }}</td>
-            <td>{{ user.status }}</td>
+            <td>{{ role_labels.get(user.role, user.role) }}</td>
+            <td>{{ status_labels.get(user.status, user.status) }}</td>
           </tr>
         {% endfor %}
       </tbody>
@@ -55,17 +55,17 @@
     <form class="admin-form" method="post" action="/admin/invitations">
       <input type="hidden" name="{{ csrf_field_name }}" value="{{ csrf_token }}">
       <label>Контакт
-        <input name="target_contact" type="text" required maxlength="240" placeholder="email, phone или provider id">
+        <input name="target_contact" type="text" required maxlength="240" placeholder="почта, телефон или идентификатор провайдера">
       </label>
       <label>Провайдер
         <input name="target_provider" type="text" maxlength="64" placeholder="email, yandex, vk">
       </label>
       <label>Роль
         <select name="invited_role">
-          <option value="member">member</option>
+          <option value="member">Участник</option>
           {% if view.actor_role == "owner" %}
-            <option value="admin">admin</option>
-            <option value="owner">owner</option>
+            <option value="admin">Администратор</option>
+            <option value="owner">Владелец</option>
           {% endif %}
         </select>
       </label>
@@ -78,7 +78,7 @@
       <ul class="admin-list">
         {% for invitation in view.users.invitations %}
           <li>
-            <span>{{ invitation.target_contact }} · {{ invitation.invited_role }} · {{ invitation.status }} · до {{ invitation.expires_at }}</span>
+            <span>{{ invitation.target_contact }} · {{ role_labels.get(invitation.invited_role, invitation.invited_role) }} · {{ status_labels.get(invitation.status, invitation.status) }} · до {{ invitation.expires_at }}</span>
             {% if invitation.status == "pending" %}
               <form class="admin-inline-form" method="post" action="/admin/invitations/{{ invitation.id }}/revoke">
                 <input type="hidden" name="{{ csrf_field_name }}" value="{{ csrf_token }}">

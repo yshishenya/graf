@@ -5,6 +5,51 @@ import TwoBrainRecAppCore
 import XCTest
 
 final class DesktopCabinetRoutePolicyTests: XCTestCase {
+    func testAuditSettingsLegalAndSharedRoutesAreExact() throws {
+        let policy = DesktopCabinetRoutePolicy(baseURL: try url("/"))
+        for tail in ["preferences", "close", "close/cancel"] {
+            XCTAssertEqual(policy.decision(for: try url("/desktop/settings/account/\(tail)")).route.kind, .settings)
+            XCTAssertEqual(policy.decision(for: try url("/desktop/settings/account/\(tail)/extra")).decision, .blockWithMessage)
+        }
+        for path in ["/offer", "/terms", "/privacy"] {
+            let target = try url(path + "?token=synthetic#private")
+            XCTAssertEqual(policy.decision(for: target).decision, .openExternally)
+            XCTAssertEqual(policy.sanitizedExternalURL(for: target), try url(path))
+            XCTAssertEqual(policy.decision(for: try url(path + "/extra")).decision, .blockWithMessage)
+            XCTAssertEqual(policy.decision(for: try XCTUnwrap(URL(string: "http://rec.2brain.dev" + path))).decision, .blockWithMessage)
+        }
+        let id = "7f3d6f9f-0f7f-4c13-a9af-000000000033"
+        let workspace = "7f3d6f9f-0f7f-4c13-a9af-000000000034"
+        for (path, kind) in [
+            ("/shared-meetings/\(id)", DesktopCabinetRouteKind.meetingDetail),
+            ("/api/v1/cabinet/shared-meetings/\(id)/downloads/audio", .artifactDownload)
+        ] {
+            let target = try url(path + "?workspace_id=\(workspace)")
+            XCTAssertEqual(policy.decision(for: target).decision, .allow)
+            XCTAssertEqual(policy.decision(for: target).route.kind, kind)
+            XCTAssertEqual(policy.decision(for: target).route.meetingId, id)
+            for tab in ["outcomes", "recording"] {
+                let tabURL = try url(path + "?workspace_id=\(workspace)#\(tab)")
+                XCTAssertEqual(
+                    policy.decision(for: tabURL).decision,
+                    kind == .meetingDetail ? .allow : .blockWithMessage,
+                    "Shared detail tabs must remain reloadable; downloads never accept fragments."
+                )
+            }
+            for suffix in ["", "?workspace_id=bad", "?workspace_id=\(workspace)&token=x", "?workspace_id=\(workspace)&workspace_id=\(workspace)", "?workspace_id=\(workspace)#private"] {
+                XCTAssertEqual(policy.decision(for: try url(path + suffix)).decision, .blockWithMessage, path + suffix)
+            }
+            for invalid in [
+                "https://user@rec.2brain.dev\(path)?workspace_id=\(workspace)",
+                "https://foreign.example\(path)?workspace_id=\(workspace)",
+                "https://rec.2brain.dev\(path.replacingOccurrences(of: id, with: "invalid"))?workspace_id=\(workspace)",
+                "https://rec.2brain.dev\(path)/?workspace_id=\(workspace)"
+            ] {
+                XCTAssertEqual(policy.decision(for: try XCTUnwrap(URL(string: invalid))).decision, .blockWithMessage, invalid)
+            }
+        }
+    }
+
     func testAllowsMeetingListDetailAndLoginRoutes() throws {
         let policy = DesktopCabinetRoutePolicy(baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev")))
 

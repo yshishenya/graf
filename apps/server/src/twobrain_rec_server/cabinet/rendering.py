@@ -391,16 +391,18 @@ def render_shared_meeting_summary_page(
     duration_seconds: int,
     summary_sections: list[dict[str, object]],
     authenticated: bool = False,
+    embedded: bool = False,
 ) -> str:
     return _page_shell(
         "Итоги встречи",
-        embedded=False,
+        embedded=embedded,
         content_template="cabinet/pages/shared_meeting_summary_content.html",
         meeting_title=meeting_title,
         occurred_at=occurred_at,
         duration_seconds=duration_seconds,
         summary_sections=_localized_shared_summary_sections(summary_sections),
         authenticated=authenticated,
+        meeting_list_href=_base_path(embedded),
     )
 
 
@@ -1087,6 +1089,7 @@ def _render_meeting_detail_content(
     )
     return render_template(
         "cabinet/pages/meeting_detail_content.html",
+        embedded=embedded,
         base_path=_base_path(embedded),
         meeting_title=review.meeting.title,
         meeting_date=cabinet_view_models.date_label(review.meeting),

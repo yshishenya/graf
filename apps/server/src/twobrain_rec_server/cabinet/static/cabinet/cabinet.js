@@ -834,7 +834,7 @@
     if (problemCode === "auth_session_invalid") return "session";
     if (
       problemCode === "workspace_scope_denied"
-      && location.pathname.startsWith("/desktop/")
+      && (location.pathname.startsWith("/desktop/") || document.body?.dataset?.surfaceMode === "desktop_embedded")
     ) return "workspace";
     if (unknownForbiddenMeansAccess || accessLossProblemCodes.has(problemCode)) return "access";
     return "";
@@ -2122,7 +2122,10 @@
         method: "GET",
         credentials: "same-origin",
         cache: "no-store",
-        headers: { "HX-Request": "true" },
+        headers: {
+          "HX-Request": "true",
+          ...(detail.dataset.cabinetEmbedded === "true" ? { "X-GRAF-Client": "desktop" } : {}),
+        },
       });
       if (discardStaleRefresh() || await recoverMeetingDetailFromResponse(response)) return false;
       if (!response.ok) {
@@ -4080,7 +4083,10 @@
       });
       if (window.sessionStorage.getItem(acceptedFocusKey) === "current") {
         window.sessionStorage.removeItem(acceptedFocusKey);
-        window.requestAnimationFrame(() => document.querySelector("[data-summary-current-result]")?.focus({ preventScroll: false }));
+        window.requestAnimationFrame(() => {
+          activateDetailTab("outcomes");
+          document.querySelector("[data-summary-current-result]")?.focus({ preventScroll: false });
+        });
       }
     });
   };
@@ -5790,6 +5796,60 @@
     });
   };
 
+  let cabinetTooltipsReady = false;
+  const positionCabinetTooltip = (body) => {
+    const trigger = body.closest(".cabinet-tooltip")?.querySelector(".cabinet-tooltip__trigger");
+    if (!trigger) return;
+    const anchor = trigger.getBoundingClientRect();
+    const scale = body.offsetWidth ? body.getBoundingClientRect().width / body.offsetWidth : 1;
+    body.style.setProperty("--tooltip-viewport-width", `${window.innerWidth / scale}px`);
+    body.style.setProperty("--tooltip-viewport-height", `${window.innerHeight / scale}px`);
+    const rect = body.getBoundingClientRect();
+    const left = Math.max(8, Math.min(anchor.left, window.innerWidth - rect.width - 8));
+    const below = anchor.bottom + 8;
+    const top = Math.max(8, Math.min(
+      below + rect.height <= window.innerHeight - 8 ? below : anchor.top - rect.height - 8,
+      window.innerHeight - rect.height - 8,
+    ));
+    body.style.setProperty("--tooltip-left", `${left / scale}px`);
+    body.style.setProperty("--tooltip-top", `${top / scale}px`);
+    body.style.setProperty("--tooltip-bottom", "auto");
+  };
+
+  const initCabinetTooltips = () => {
+    if (cabinetTooltipsReady) return;
+    cabinetTooltipsReady = true;
+    const show = (root) => {
+      const body = root.querySelector(".cabinet-tooltip__body");
+      if (!body || typeof body.showPopover !== "function") return;
+      if (!body.matches(":popover-open")) body.showPopover();
+      positionCabinetTooltip(body);
+    };
+    // Delegation also covers HTMX replacements without retaining old controls.
+    ["pointerover", "focusin"].forEach((name) => document.addEventListener(name, (event) => {
+      const root = event.target.closest?.(".cabinet-tooltip");
+      if (root && !root.contains(event.relatedTarget)) show(root);
+    }));
+    ["pointerout", "focusout"].forEach((name) => document.addEventListener(name, (event) => {
+      const root = event.target.closest?.(".cabinet-tooltip");
+      if (!root || root.contains(event.relatedTarget)) return;
+      // Allow the pointer to cross the small gap into the tooltip itself.
+      window.setTimeout(() => {
+        if (root.matches(":hover") || root.contains(document.activeElement)) return;
+        root.querySelector(".cabinet-tooltip__body:popover-open")?.hidePopover();
+      }, 150);
+    }));
+    document.addEventListener("click", (event) => {
+      const trigger = event.target.closest?.(".cabinet-tooltip__trigger");
+      if (!trigger || typeof trigger.popoverTargetElement?.showPopover !== "function") return;
+      event.preventDefault();
+      show(trigger.closest(".cabinet-tooltip"));
+    });
+    const reposition = () => document.querySelectorAll(".cabinet-tooltip__body:popover-open").forEach(positionCabinetTooltip);
+    window.addEventListener("resize", reposition);
+    document.addEventListener("scroll", reposition, true);
+  };
+
   const initCabinetProfileMenus = () => {
     document.querySelectorAll("[data-profile-menu-root]").forEach((root) => {
       const trigger = root.querySelector("[data-profile-menu-trigger]");
@@ -5809,18 +5869,25 @@
       const supportsPopover = typeof menu.showPopover === "function";
       const popoverOpen = () => supportsPopover && menu.matches(":popover-open");
       const positionMenu = () => {
-        const triggerTop = trigger.getBoundingClientRect().top;
-        menu.style.setProperty("--profile-menu-bottom", `${Math.max(8, window.innerHeight - triggerTop + 8)}px`);
+        const rect = trigger.getBoundingClientRect();
+        const scale = trigger.offsetWidth ? rect.width / trigger.offsetWidth : 1;
+        menu.style.setProperty("--profile-menu-bottom", `${Math.max(8, window.innerHeight - rect.top + 8) / scale}px`);
+        menu.style.setProperty("--profile-menu-viewport-width", `${window.innerWidth / scale}px`);
+        menu.style.setProperty("--profile-menu-viewport-height", `${window.innerHeight / scale}px`);
       };
       const disclosures = Array.from(menu.querySelectorAll(".sidebar-profile-menu__disclosure"));
       const syncDisclosurePosition = (details) => {
-        details.classList.remove("is-flipped");
+        details.classList.remove("is-flipped", "is-inline");
         if (!details.open) return;
         const submenu = details.querySelector("[data-profile-menu-submenu]");
         if (!(submenu instanceof HTMLElement)) return;
         window.requestAnimationFrame(() => {
+          if (!details.open || !details.isConnected) return;
           const rect = submenu.getBoundingClientRect();
           details.classList.toggle("is-flipped", rect.right > window.innerWidth - 8);
+          const placed = submenu.getBoundingClientRect();
+          details.classList.toggle("is-inline", placed.left < 8 || placed.right > window.innerWidth - 8
+            || placed.top < 8 || placed.bottom > window.innerHeight - 8);
         });
       };
       disclosures.forEach((details) => {
@@ -5840,7 +5907,12 @@
         if (!open && restoreFocus) trigger.focus({ preventScroll: true });
       };
       trigger.addEventListener("click", () => setOpen(menu.hidden || (supportsPopover && !popoverOpen())));
-      window.addEventListener("resize", () => { if (!menu.hidden) positionMenu(); });
+      window.addEventListener("resize", () => {
+        if (!menu.hidden) {
+          positionMenu();
+          disclosures.forEach(syncDisclosurePosition);
+        }
+      });
       document.addEventListener("keydown", (event) => {
         if (event.key === "Escape" && !menu.hidden) setOpen(false, true);
       });
@@ -5864,7 +5936,7 @@
     player?.removeAttribute?.("src");
     player?.load?.();
     playback?.remove();
-    const listPath = location.pathname.startsWith("/desktop/")
+    const listPath = location.pathname.startsWith("/desktop/") || document.body?.dataset?.surfaceMode === "desktop_embedded"
       ? "/desktop/meetings"
       : "/meetings";
     const copy = {
@@ -6046,7 +6118,10 @@
       method: "GET",
       credentials: "same-origin",
       cache: "no-store",
-      headers: { "HX-Request": "true" }
+      headers: {
+        "HX-Request": "true",
+        ...(detail.dataset.cabinetEmbedded === "true" ? { "X-GRAF-Client": "desktop" } : {}),
+      }
     });
     try {
       const response = await playbackRecoveryRequest;
@@ -7046,6 +7121,7 @@
     initAuthTransition();
     initCabinetRail();
     initCabinetProfileMenus();
+    initCabinetTooltips();
     initListDisclosures();
     initCodeForms();
     initOutcomeFocus();
@@ -7194,13 +7270,12 @@
 
   window.addEventListener("pageshow", updateSelection);
 
-  if (!csrfToken) return;
-
   document.body.addEventListener("htmx:configRequest", (event) => {
     const detail = event.detail || {};
-    const verb = String(detail.verb || "get").toUpperCase();
-    if (!["POST", "PUT", "PATCH", "DELETE"].includes(verb)) return;
     detail.headers = detail.headers || {};
+    if (document.body?.dataset?.surfaceMode === "desktop_embedded") detail.headers["X-GRAF-Client"] = "desktop";
+    const verb = String(detail.verb || "get").toUpperCase();
+    if (!csrfToken || !["POST", "PUT", "PATCH", "DELETE"].includes(verb)) return;
     detail.headers["X-CSRF-Token"] = csrfToken;
   });
 })();

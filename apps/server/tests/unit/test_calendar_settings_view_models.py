@@ -31,8 +31,8 @@ def test_calendar_settings_boundary_copy_names_read_only_no_auto_record_attendee
     assert "не получают доступ к записи автоматически" in rendered
     assert "на сервере GRAF" in rendered
     assert "Приложение на Mac их не хранит" in rendered
-    assert "не включает автоматическую запись" in rendered
-    assert "автоматическую запись" in rendered
+    assert "Подключение календаря само по себе не включает запись" in rendered
+    assert "Автозапись по приложениям настраивается отдельно" in rendered
     assert "raw_token" not in rendered
     assert "refresh_token" not in rendered
 

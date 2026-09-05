@@ -95,7 +95,7 @@ SUMMARY_CATEGORY_ORDER = (
     "evidence",
 )
 SUMMARY_CATEGORY_LABELS = {
-    "summary": "Саммари",
+    "summary": "Итоги",
     "key_points": "Ключевые моменты",
     "decisions": "Решения",
     "action_items": "Задачи",
@@ -685,7 +685,7 @@ def _render_txt(snapshot: ExportSnapshot) -> bytes:
     lines = [
         snapshot.meeting_title,
         f"Состав: {_scope_label(snapshot.selection.content_scope)}",
-        f"Ревизия транскрипта: {snapshot.processing_result_version}",
+        f"Версия расшифровки: {snapshot.processing_result_version}",
         f"Язык: {snapshot.language or 'не указан'}",
         f"Длительность: {_human_time(snapshot.duration_seconds * 1000)}",
         f"Разделение по спикерам: {_attribution_status_label(snapshot)}",
@@ -693,11 +693,11 @@ def _render_txt(snapshot: ExportSnapshot) -> bytes:
     ]
     if snapshot.selection.content_scope in {"transcript", "combined"}:
         if snapshot.selection.content_scope == "combined":
-            lines.extend(("Транскрипт", "===========", ""))
+            lines.extend(("Расшифровка", "===========", ""))
         lines.extend(_human_transcript_lines(snapshot, markdown=False))
     if snapshot.selection.content_scope in {"summary", "combined"}:
         if snapshot.selection.content_scope == "combined":
-            lines.extend(("", "Саммари", "=======", ""))
+            lines.extend(("", "Итоги", "=======", ""))
         lines.extend(_summary_lines(snapshot, markdown=False))
     return ("\n".join(lines).rstrip() + "\n").encode("utf-8")
 
@@ -707,7 +707,7 @@ def _render_markdown(snapshot: ExportSnapshot) -> bytes:
         f"# {_markdown_escape(snapshot.meeting_title)}",
         "",
         f"- Состав: {_scope_label(snapshot.selection.content_scope)}",
-        f"- Ревизия транскрипта: {snapshot.processing_result_version}",
+        f"- Версия расшифровки: {snapshot.processing_result_version}",
         f"- Язык: {_markdown_escape(snapshot.language or 'не указан')}",
         f"- Длительность: {_human_time(snapshot.duration_seconds * 1000)}",
         f"- Разделение по спикерам: {_markdown_escape(_attribution_status_label(snapshot))}",
@@ -715,11 +715,11 @@ def _render_markdown(snapshot: ExportSnapshot) -> bytes:
     ]
     if snapshot.selection.content_scope in {"transcript", "combined"}:
         if snapshot.selection.content_scope == "combined":
-            lines.extend(("## Транскрипт", ""))
+            lines.extend(("## Расшифровка", ""))
         lines.extend(_human_transcript_lines(snapshot, markdown=True))
     if snapshot.selection.content_scope in {"summary", "combined"}:
         if snapshot.selection.content_scope == "combined":
-            lines.extend(("", "## Саммари", ""))
+            lines.extend(("", "## Итоги", ""))
         lines.extend(_summary_lines(snapshot, markdown=True))
     return ("\n".join(lines).rstrip() + "\n").encode("utf-8")
 
@@ -780,7 +780,7 @@ def human_display_groups(
 def _summary_lines(snapshot: ExportSnapshot, *, markdown: bool) -> list[str]:
     summary = snapshot.summary
     if summary is None:
-        return ["Сохраненное саммари недоступно."]
+        return ["Сохранённые итоги недоступны."]
     lines = [
         (
             f"Статус сохраненной ревизии: {_markdown_escape(summary.status)}"
@@ -1190,7 +1190,7 @@ def _safe_title(title: str | None) -> str:
 
 
 def _scope_label(scope: ExportScope) -> str:
-    return {"transcript": "транскрипт", "summary": "саммари", "combined": "транскрипт и саммари"}[
+    return {"transcript": "расшифровка", "summary": "итоги", "combined": "расшифровка и итоги"}[
         scope
     ]
 

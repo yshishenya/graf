@@ -1,0 +1,185 @@
+# F243: результаты исправлений и границы приёмки
+
+Дата: 2026-09-06. Lane: `high-risk-feature`.
+Ветка: `codex/243-cabinet-audit-remediation`; исходная база:
+`41bf51c7da86212503d971bce09e44640c087f4e` — НЕ SHA исправлений.
+Проверено содержимое исходников этого среза; окончательный SHA и ссылка на
+GitHub `governance-fast` фиксируются в описании PR после commit/push.
+Все данные синтетические; production, реальные записи и учётные записи не использовались.
+
+## Результат
+
+Собственная реализация F243 проверена в пределах таблицы ниже. Полная F243
+**не принята**: готовится зависимый draft PR, а не готовность к merge/release.
+Незакоммиченные изменения соседних задач не копировались и не учитываются как PASS.
+
+| Требование | Реализация и доказательство | Статус |
+|---|---|---|
+| FR-001, FR-010 | Настоящий WKUIDelegate/NSAlert: доверенная главная страница, однократный ответ, Return/Escape отменяют, явная кнопка продолжает; смена страницы, закрытие окна, detach и смерть веб-процесса отменяют запрос | PASS в 50 Swift tests |
+| FR-002, FR-010 | Точные settings/shared/audio/legal routes; desktop hint в full/summary/unavailable и повторной загрузке фрагментов; ссылки архива учитывают поверхность | PASS Swift + 39 DB tests + Node regression |
+| FR-003 | Общая палитра, контраст и все состояния списка/диалогов — F240 | BLOCKED: T008/T014 |
+| FR-004 | Сохранение темы и неизменность locale/timezone — F242 | BLOCKED: T006 частично, T008/T015 |
+| FR-005 | Нативный Popover API, hover/focus/клавиатура, перенос длинных подписей, ограничение области меню и подсказок, короткие окна/масштаб | PASS: 438 проверок Chrome и 438 WebKit |
+| FR-006 | Принятие итогов сначала открывает вкладку итогов, затем фокусирует существующий раздел с tabindex=-1 | PASS executable Node + template tests; настоящий серверный accept/reload в браузере не запускался |
+| FR-007 | Русские роли/статусы с прежними кодами; точные ограничения календаря, локали и пространства; Итоги/Расшифровка в видимых подписях | PASS production renderers и export tests |
+| FR-008 | Удалены только 19 макросов и 20 точных CSS-токенов без производителей; сохранены действующие смешанные группы, маскирование аналитики и все 46 production templates | PASS consumer scan + 321 scoped/39 DB tests |
+| FR-009 | Предупреждающая рамка отключения календаря использует danger-border с достаточной специфичностью | PASS computed style Chrome/WebKit в light/dark |
+| FR-010 | Серверные auth/tenant/grant guards не удалены; view-only не получает права скачивания; capture/Record/Stop не изменены | PASS границы затронутых потоков; не полный аудит продукта |
+
+## Воспроизводимые проверки
+
+### Сервер и исполняемый JavaScript
+
+Из `apps/server`:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
+.venv/bin/python -B -m pytest \
+  -p no:cacheprovider -p pytest_asyncio.plugin -p tests.fixtures.cabinet_exports \
+  --noconftest --capture=sys \
+  tests/unit/test_cabinet_template_components.py \
+  tests/unit/test_cabinet_template_sections.py \
+  tests/unit/test_cabinet_web_shell.py \
+  tests/unit/test_cabinet_audit_presentation.py \
+  tests/unit/test_cabinet_view_models.py \
+  tests/unit/test_calendar_settings_view_models.py \
+  tests/unit/test_transcript_exports.py \
+  tests/contract/test_cabinet_static_assets_contract.py -q --tb=short
+```
+
+Итог: **321 passed**, последний запуск 3.36 s. Node-проверки выполняются из
+существующего pytest contract suite: положение подсказок/подменю, порядок
+активации вкладки и фокуса, desktop hint при обновлении фрагмента и отсутствие
+повторных обработчиков после HTMX. Проверяются настоящие функции cabinet.js.
+
+Из корня, отдельный временный PostgreSQL, автоматически удалённый после тестов:
+
+```sh
+bash apps/server/scripts/run_local_postgres_tests.sh --focused \
+  tests/integration/test_shared_with_me.py \
+  tests/integration/test_recording_share_public_link.py \
+  tests/contract/test_cabinet_no_secret_content_egress.py
+```
+
+Итог: **39 passed**, 145.91 s. Проверены full/summary/unavailable с/без desktop
+hint, разрешённое скачивание синтетического retained audio и отказы. Для full
+view-only прежний ответ `409 artifact_unavailable` сохраняется; summary и
+unavailable не получают аудио. Это не тест серверного сохранения темы F242.
+
+### macOS
+
+```sh
+swift test --package-path apps/macos --filter \
+  'EmbeddedCabinetJavaScriptConfirmTests|DesktopCabinetRoutePolicyTests|DesktopCabinetNavigationRequestPolicyTests|DesktopCabinetNavigationResponsePolicyTests|DesktopMeetingShellWebViewBoundaryTests'
+```
+
+Итог: **50 passed**, 0 failures, 7.883 s после сборки. Шесть новых тестов
+подтверждений включают реальный WKWebView с локальной HTTP-страницей на loopback,
+нативные кнопки, Return/Escape и отсутствие защищаемого действия после отмены.
+Современная сигнатура delegate содержит `@MainActor @Sendable`: тест настоящего
+JavaScript выявил бы необязательный delegate, который лишь «почти совпадает».
+Существующие предупреждения Swift и рекомендация async API в тесте не ошибки.
+Установленное приложение и публичный подписанный бинарник не менялись.
+
+### Браузер
+
+Из `apps/server` запускается тестовый сервер только на loopback:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src .venv/bin/python -B -m uvicorn \
+  tests.fixtures.cabinet_audit_ui_harness:app \
+  --host 127.0.0.1 --port 56643 --no-access-log
+```
+
+На открытой странице этого сервера выполнить функцию из
+[`browser-checks.js`](browser-checks.js) через Playwright `run-code` для Chrome
+и WebKit. Использован установленный WebKit build 2336; отсутствующий default
+build 2358 не выдаётся за проверенный. Функция возвращает `{checks, failures}`.
+
+Итог: **Chrome 438/438, WebKit 438/438**, failures=[].
+Системная тема light/dark × выбранная system/light/dark × ширины 375/550/768/1200,
+высота 812; отдельно 550×400/375×400 и CSS zoom 200%. Проверены подсказки
+account/calendar, границы подменю, перенос каждой подписи, Escape, hover→текст,
+клик снаружи, no-JS Enter/Space/Escape и рамка calendar disconnect.
+Эта матрица доказывает геометрию F243, **не общий контраст F240**.
+CSS zoom 200% не подменяет отдельную проверку системного увеличения/VoiceOver.
+
+Снимки синтетических страниц проверены визуально при 375/550 px. Обнаруженное
+обрезание длинного пункта меню (scrollWidth 294 при clientWidth 220) устранено
+общим white-space:normal; в runner добавлена проверка ширины текста.
+Первый дополнительный browser run был прерван кликом теста по ссылке навигации;
+тест кликает по неинтерактивному заголовку, оба полных повторных запуска прошли.
+
+## Удаление неиспользуемого кода
+
+Удалены макросы sections: meeting_row, playback_controls, detail_side_panel,
+confirmation_dialog, status_banner, empty_state, unavailable_state, auth_form.
+Удалены макросы primitives: button, icon_button, input, select, chip, tab, loader,
+text, status_label, analytics_private_attrs, provider_private_attrs.
+
+Удалены CSS-токены: workspace, brand-mark, avatar, workspace-title, nav-count,
+detail-layout, playback-terminal-state, right-panel, governance, brand-logo--auth,
+auth-brand-wordmark, calendar-empty, calendar-connect-link, settings-handoff-card,
+settings-choice-row--toggle, billing-cycle-choice, calendar-count,
+calendar-disconnect, calendar-provider-mark, sidebar-profile-menu__identity.
+Одноимённый машинный recovery-код `workspace` и маршрут settings/workspace
+сохранены: это не производители CSS-класса. Действующий calendar-disconnect__body,
+provider-logo, cabinet-banner, panel headings, sidebar profile и auth/nav сохранены.
+В deletion report удалён вызов неопределённого импорта старого privacy-макроса;
+стандартные маскирующие атрибуты записаны явно, покрытие реального списка усилено.
+
+Legacy Impact: `remove`; новых aliases/fallbacks/dependencies нет.
+`legacy_new=0`, `unowned_legacy=0`, `expired_exceptions=0` для этого изменения.
+Остальное наследие продукта не объявляется удалённым.
+
+## Ревью и convergence
+
+Независимый review требований: requirements 10/10, security 5/5, UX 6/6 PASS.
+Implementation не менял reviewer-owned markers.
+Проверка correctness и Ponytail основным агентом: новых блокирующих ошибок нет;
+переиспользованы NSAlert, route policy, Popover API и существующие handlers.
+Отдельное заключительное ревью кода выявило P2: штатные фрагменты вкладок
+общей встречи запрещали native reload. Ошибка воспроизведена двумя failed
+assertions. В рамках T005 разрешены только `#outcomes`/`#recording` для detail;
+audio download и неизвестные фрагменты остаются закрытыми. Повторные 50 Swift
+tests PASS. Независимый reviewer повторно проверил staged guard и четыре
+ожидания: APPROVED для commit/draft PR; P2 закрыт, новых блокеров нет.
+Это не доказательство сквозного native reload в установленном приложении.
+
+Converge: `tasks_appended`, не `converged`. Проверены 10 FR, 10 acceptance
+scenarios, 4 SC, 6 решений плана и 7 принципов конституции. Три findings:
+2 partial + 1 missing; CRITICAL 0, HIGH 2, MEDIUM 1. Phase7 добавлена только
+в конец tasks.md: T014/T015/T016 отслеживаются вместе с T008 в #6575.
+Смысл spec.md/plan.md не переписывался для объявления готовности.
+
+Состояние зависимостей на проверку:
+
+- F240: PR #6560, SHA `8eb1bb8078140d51ae910197a613ce0999a98ed9` до последних
+  исправлений тем; незакоммиченный diff владельца не интегрирован.
+- F242: владелец подтвердил отсутствие implementation commit/PR. База
+  `41bf51c7da86212503d971bce09e44640c087f4e` не evidence исправления.
+- F244: владелец подтвердил отсутствие implementation commit/PR; ещё нужны
+  реализация upload/rail/accessibility и совместная проверка.
+
+T003/T004/T005/T007/T009/T010/T011 выполнены. T006 частично (overlays готовы,
+сохранение темы — F242); T008/T012 и T014–T016 остаются открытыми.
+T013 на draft-checkpoint остаётся частично выполненной до итоговой сверки
+с T012 и совместной приёмкой зависимостей. Реальный PR, точный SHA и GitHub
+governance-fast подтверждаются отдельно в PR и #6578; они не закрывают T012.
+
+## Гигиена и следующие ограничения
+
+- `node --check .../cabinet.js`, scoped `ruff check --no-cache`,
+  `git diff --check`: PASS; два новых Python-файла отформатированы Ruff.
+- `python3 scripts/check_spec_kit_governance.py`: PASS.
+- Issue canon ensure: PASS без изменений root governance;
+  validate: PASS, 300 проверенных Spec Kit issues.
+- Полный CI, локальный повтор `ci-local.sh --fast`, release-full, CD dry-run,
+  merge, публикация, notarization/Sparkle, установка и production smoke:
+  **NOT RUN**. Для PR запускается authoritative GitHub governance-fast;
+  локальные выборочные тесты не равны полному CI и не разрешают релиз.
+- Настоящее изменение профиля/удаление аккаунта/отключение календаря production
+  не выполнялись. Нативные механизмы и права проверены синтетически.
+- Не проверены объединённые list/search/upload/dialog contrast состояния,
+  persistence темы и совместные accessibility изменения до финальных SHA
+  F240/F242/F244. Не помечать весь аудит закрытым и не снимать draft до приёмки.

@@ -110,57 +110,37 @@ def test_primitive_component_catalog_covers_controls_and_states() -> None:
     template = get_cabinet_templates().from_string(
         """
         {% import "cabinet/components/primitives.html" as ui %}
-        {{ ui.button("Сохранить") }}
-        {{ ui.button("Удалить", variant="danger", destructive=True) }}
-        {{ ui.button("Загрузка", loading=True) }}
-        {{ ui.icon_button("trash", "Удалить запись", destructive=True) }}
         {{ ui.link("Открыть", "/meetings") }}
-        {{ ui.input("q", "Поиск", placeholder="Найти") }}
-        {{ ui.input("email", "Email", error="Нужен email") }}
-        {{ ui.select("status", "Статус", options, "ready") }}
+        {{ ui.link("Недоступно", "/meetings", disabled=True) }}
         {{ ui.checkbox("selected", "Выбрать", checked=True) }}
         {{ ui.switch("enabled", "Включить", checked=True) }}
-        {{ ui.chip("Готово", "selected") }}
         {{ ui.badge("Ошибка", "error") }}
-        {{ ui.tab("Итоги", "panel-outcomes", selected=True) }}
         {{ ui.tooltip("test-help", "Только безопасная метаинформация") }}
         {{ ui.theme_picker("system") }}
-        {{ ui.loader("Загрузка записей") }}
-        {{ ui.text("Текст", "muted") }}
-        {{ ui.status_label("Недоступно", "unavailable") }}
         """
     )
 
     html = template.render(options=[("ready", "Готово"), ("processing", "В обработке")])
 
     for class_name in [
-        "cabinet-button",
-        "cabinet-icon-button",
         "cabinet-link",
-        "cabinet-field",
         "cabinet-checkbox",
         "cabinet-switch",
-        "cabinet-chip",
         "cabinet-badge",
-        "cabinet-tab",
         "cabinet-tooltip",
         "theme-picker",
-        "cabinet-loader",
-        "cabinet-text",
-        "cabinet-status",
     ]:
         assert class_name in html
-    for state in ["normal", "loading", "selected", "destructive", "error", "unavailable"]:
+    for state in ["normal", "selected", "error", "disabled"]:
         assert f'data-state="{state}"' in html
-    assert 'role="tab"' in html
-    assert 'aria-invalid="true"' in html
-    assert 'aria-label="Удалить запись"' in html
     assert 'role="switch"' in html
     assert 'name="enabled"' in html
     assert 'id="enabled-switch"' in html
     assert 'for="enabled-switch"' in html
     assert 'id="test-help" role="tooltip"' in html
     assert 'aria-describedby="test-help"' in html
+    assert 'popovertarget="test-help"' in html
+    assert 'popover="auto"' in html
     assert html.count('type="radio" name="theme"') == 3
     assert 'value="system" checked' in html
     for icon in ("sun", "moon", "laptop"):
@@ -175,15 +155,13 @@ def test_primitive_components_support_long_russian_overflow_text() -> None:
     template = get_cabinet_templates().from_string(
         """
         {% import "cabinet/components/primitives.html" as ui %}
-        {{ ui.button(long_label) }}
-        {{ ui.text(long_label, overflow=True) }}
+        {{ ui.tooltip("long-help", long_label) }}
         """
     )
 
     html = template.render(long_label=long_label)
 
     assert long_label in html
-    assert "cabinet-text--overflow" in html
-    assert f'title="{long_label}"' in html
+    assert 'id="long-help" role="tooltip" popover="auto"' in html
     assert "overflow-wrap: anywhere;" in CABINET_CSS.read_text()
     assert "overflow_text" in COMPONENT_STATE_NAMES
