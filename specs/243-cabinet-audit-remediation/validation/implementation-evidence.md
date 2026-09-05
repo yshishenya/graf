@@ -250,3 +250,7 @@ Review-owned checklist markers не менялись.
 Совместный quickstart **396 passed**, 552.02s, контейнер удалён.
 T006/T008/T012/T014–T016 выполнены; converge: converged.
 PR остаётся зависимым до merge F240/F244 и exact-head governance-fast.
+
+Дополнительная совместная проверка shared-with-me/public-link/export/auth:
+**123 passed**, 414.59s, изолированный контейнер удалён. Включены права
+полного и ограниченного доступа, отзыв доступа, пакет экспорта и auth contracts.
