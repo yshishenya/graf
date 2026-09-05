@@ -23,9 +23,9 @@
 
 **Independent Test**: Chrome/WebKit viewport/theme matrix; keyboard and resize.
 
-- [ ] T006 [US2] Добавить executable regression для подсказок/подменю и сохранения темы в apps/server/tests/contract/test_cabinet_static_assets_contract.py и текущем synthetic harness. FR-003–FR-005.
+- [X] T006 [US2] Добавить executable regression для подсказок/подменю и сохранения темы в apps/server/tests/contract/test_cabinet_static_assets_contract.py и текущем synthetic harness. FR-003–FR-005.
 - [X] T007 [US2] Исправить tooltip/submenu overflow и предупреждающую рамку в apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css и cabinet.js. FR-005, FR-009.
-- [ ] T008 [US2] Проверить совместимость согласованных исправлений тем F240, accessibility F244 и autosave F242 в specs/243-cabinet-audit-remediation/validation/implementation-evidence.md; если external ownership не подтверждён, реализовать соответствующую часть здесь. FR-003, FR-004.
+- [X] T008 [US2] Проверить совместимость согласованных исправлений тем F240, accessibility F244 и autosave F242 в specs/243-cabinet-audit-remediation/validation/implementation-evidence.md; если external ownership не подтверждён, реализовать соответствующую часть здесь. FR-003, FR-004.
 
 ## Phase 5: US3 — точные тексты и каталог (P2)
 
@@ -37,7 +37,7 @@
 
 ## Phase 6: Validation and PR
 
-- [ ] T012 Выполнить high-risk-feature quickstart, correctness/Ponytail review и converge; записать команды, результаты и ограничения в specs/243-cabinet-audit-remediation/validation/implementation-evidence.md.
+- [X] T012 Выполнить high-risk-feature quickstart, correctness/Ponytail review и converge; записать команды, результаты и ограничения в specs/243-cabinet-audit-remediation/validation/implementation-evidence.md.
 - [X] T013 Добавить changes/unreleased/F243.yaml, commit/push/PR с exact-SHA governance-fast и согласовать статусы tasks/issues в specs/243-cabinet-audit-remediation/tasks.md.
 
 ## Dependencies & Execution Order
@@ -66,6 +66,6 @@ Umbrella: https://github.com/yshishenya/graf/issues/6567.
 
 ## Phase 7: Convergence
 
-- [ ] T014 [US2] После финального коммита F240 проверить полный контраст списка, меню и диалогов в шести сочетаниях тем, записать точный SHA и совместные результаты в specs/243-cabinet-audit-remediation/validation/implementation-evidence.md по FR-003, SC-001, US2/AC1 (partial, HIGH). Владелец реализации F240; отслеживание совместной приёмки: #6575.
-- [ ] T015 [US2] После финального коммита F242 проверить сохранение темы и неизменность locale/timezone через серверную форму и перезагрузку, записать точный SHA в specs/243-cabinet-audit-remediation/validation/implementation-evidence.md по FR-004, SC-003, US2/AC2 (missing, HIGH). Владелец реализации F242; отслеживание совместной приёмки: #6575.
-- [ ] T016 [US2] После финального коммита F244 проверить совместные изменения upload/rail/focus и отсутствие конфликтов в cabinet.js/cabinet.css, записать точные SHA и результаты в specs/243-cabinet-audit-remediation/validation/implementation-evidence.md по plan: Coordination, SC-004 (partial, MEDIUM). Владелец реализации F244; отслеживание совместной приёмки: #6575. До T014–T016 разрешён только зависимый draft PR, не готовность к merge/release.
+- [X] T014 [US2] После финального коммита F240 проверить полный контраст списка, меню и диалогов в шести сочетаниях тем, записать точный SHA и совместные результаты в specs/243-cabinet-audit-remediation/validation/implementation-evidence.md по FR-003, SC-001, US2/AC1 (partial, HIGH). Владелец реализации F240; отслеживание совместной приёмки: #6575.
+- [X] T015 [US2] После финального коммита F242 проверить сохранение темы и неизменность locale/timezone через серверную форму и перезагрузку, записать точный SHA в specs/243-cabinet-audit-remediation/validation/implementation-evidence.md по FR-004, SC-003, US2/AC2 (missing, HIGH). Владелец реализации F242; отслеживание совместной приёмки: #6575.
+- [X] T016 [US2] После финального коммита F244 проверить совместные изменения upload/rail/focus и отсутствие конфликтов в cabinet.js/cabinet.css, записать точные SHA и результаты в specs/243-cabinet-audit-remediation/validation/implementation-evidence.md по plan: Coordination, SC-004 (partial, MEDIUM). Владелец реализации F244; отслеживание совместной приёмки: #6575. До T014–T016 разрешён только зависимый draft PR, не готовность к merge/release.

@@ -188,3 +188,65 @@ Issues #6573, #6576, #6577 закрыты после подробных русс
 - Не проверены объединённые list/search/upload/dialog contrast состояния,
   persistence темы и совместные accessibility изменения до финальных SHA
   F240/F242/F244. Не помечать весь аудит закрытым и не снимать draft до приёмки.
+
+## Совместная приёмка общего выпуска — 2026-09-06
+
+Lane: high-risk-product; последующий выпуск — Release / deploy. Исходные
+частичные результаты выше сохранены как история. Эта проверка относится к
+объединённым F238/F240/F242/F243/F244, integration source
+`50defae4301cc3fa6388862c5234ca3a2b6b11ee`; финальные SHA отдельных PR и
+обязательный governance-fast связываются в их описаниях после rebase.
+
+Проверены production renderers/assets на синтетическом loopback стенде:
+
+- 1620 сочетаний 27 состояний × 6 тем × 2 поверхности × 5 ширин
+  320/390/768/1024/1440: HTTP 200, заголовок, отсутствие горизонтального
+  выхода страницы. Список ready/empty/filtered, detail ready/processing/partial/
+  failed/unavailable, настройки, тариф, shared ready/empty/summary/blocked,
+  вход/код/регистрация/ошибка/успех. Календарь покрыт отдельным runner F243.
+- По 438 Chrome/WebKit: подсказки, profile submenu, zoom200%, короткие окна,
+  Escape/hover/no-JS, warning border. По 42: один профильный DOM, смена ширины,
+  темы, формы и возврат фокуса. По 10: кнопки плеера не перекрываются.
+- Численный контраст видимого текста и placeholder: Chrome3042 и WebKit3048,
+  нарушений0. Шесть сочетаний явной/системной темы, список, поиск, detail,
+  тариф, профиль и upload. Порог4.5:1 для обычного текста,3:1 для крупного.
+- По 639 Chrome/WebKit: upload accessible name, файл/ошибка/нет сессии,
+  Tab/Shift+Tab, scroll, Escape/reopen; narrow rail, сохранение предпочтения,
+  фокус в заменённом main, hit-test поиска и нижние действия панели.
+- По 63 Chrome/WebKit: auth/referral active/unavailable/invalid, ширины и темы,
+  неперекрывающийся legal footer и динамический light→dark→light без reload.
+  Явная тема остаётся выбранной, system следует ОС. Снимок регистрации390
+  проверен после завершения анимации: поле и кнопка видны, legal ниже формы.
+
+Найдены и устранены четыре интеграционных дефекта: потеря мобильного профиля,
+перекрытие «Спикеры» и перемотки, отрицательный отступ legal footer и два
+устаревших тестовых ожидания после удаления мёртвых компонентов F243.
+Проверки не ослаблены: billing тест теперь рендерит обе реальные ссылки,
+theme проверяет используемый selector. Theme-only POST дополнительно проверен
+через настоящую сессию и свежую DB session: locale/timezone сохраняются.
+
+Нативная проверка: сборка GRAF Dev PASS; реальный WKWebView на loopback,
+ручные Record/Stop доступны. Настройки открываются через профиль; NSAlert
+для выхода с других устройств отменяется Return и возвращает фокус.
+После включения F244 повторно проверены доступное имя «Загрузить файл»,
+Tab по контролам, Escape и возврат на «Загрузить запись» в собранном приложении.
+24 focused XCTest (WKWebView/confirmation/routes/zoom) ранее PASS; добавленный
+F238 имеет собственные17 XCTest и exact-head GitHub evidence. Проигрывание
+синтетического WAV не считается доказательством Range или capture.
+
+Correctness/Ponytail review: общий focus helper и все8 callers просмотрены;
+cycleAll включён только для upload, cancel использует существующее закрытие.
+Динамический main сохраняет recovery replaceWith. F242 trial_confirmation
+сохранён при удалении старых macros F243. Mobile profile переносит существующий
+DOM, не создаёт дубли форм. Новых зависимостей и производственных маршрутов нет.
+
+Границы: это применимая матрица Spec Kit, не сертификат WCAG. VoiceOver в этой
+среде не запустился; реальные имена/landmarks/focus проверены через macOS AX.
+Синтетические страницы не доказывают успешные изменения production данных;
+эти операции проверяются DB integration suites. Full CI, notarization и
+production smoke выполняются отдельно для окончательного release candidate.
+Review-owned checklist markers не менялись.
+
+Совместный quickstart **396 passed**, 552.02s, контейнер удалён.
+T006/T008/T012/T014–T016 выполнены; converge: converged.
+PR остаётся зависимым до merge F240/F244 и exact-head governance-fast.
