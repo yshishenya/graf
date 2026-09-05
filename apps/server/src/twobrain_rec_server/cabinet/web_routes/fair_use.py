@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
 from twobrain_rec_server.billing.fair_use import appeal_persisted_review
 from twobrain_rec_server.billing.trial import merged_user_lineage
+from twobrain_rec_server.cabinet.queries import get_account_profile_view
 from twobrain_rec_server.cabinet.rendering_shared import _page_shell
 from twobrain_rec_server.cabinet.templates import cabinet_html_response
 from twobrain_rec_server.cabinet.web_routes.support import (
@@ -109,6 +110,7 @@ async def _render_fair_use_page(
     html = _page_shell(
         "Проверка добросовестного использования",
         embedded=embedded,
+        profile=await get_account_profile_view(db, tenant_scope) if db is not None else None,
         csrf_token=_csrf_token_for_principal(request, principal, tenant_scope=tenant_scope),
         product_analytics_provider=build_request_browser_provider_context(
             request,

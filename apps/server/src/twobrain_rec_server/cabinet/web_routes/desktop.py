@@ -445,6 +445,7 @@ async def embedded_meeting_deletion_report_page(
             meeting_title,
             report,
             embedded=True,
+            profile=await get_account_profile_view(db, tenant_scope),
             csrf_token=_csrf_token_for_principal(request, principal),
             product_analytics_provider=build_request_browser_provider_context(
                 request,

@@ -57,17 +57,15 @@
           <span class="sidebar-profile-menu__account-copy"><strong>{{ profile_name }}</strong>{% if profile_email %}<span>{{ profile_email }}</span>{% endif %}</span>
         </a>
         <div class="sidebar-profile-menu__separator" role="separator"></div>
-        <details class="sidebar-profile-menu__disclosure">
+        {% if profile %}<details class="sidebar-profile-menu__disclosure">
           <summary class="sidebar-profile-menu__item">{{ icons.icon("sun") }}<span>Вид</span></summary>
           <div class="sidebar-profile-menu__submenu" data-profile-menu-submenu>
-            <form class="sidebar-profile-menu__theme-form" data-account-preferences data-account-preferences-auto-save method="post" action="{{ '/desktop/settings/account/preferences' if embedded else '/settings/account/preferences' }}">
+            <form class="sidebar-profile-menu__theme-form" data-account-preferences data-account-preferences-auto-save="true" method="post" action="{{ '/desktop/settings/account/preferences' if embedded else '/settings/account/preferences' }}">
               {{ csrf_field(csrf_token) }}
-              <input type="hidden" name="locale" value="{{ profile.locale if profile else 'ru-RU' }}">
-              <input type="hidden" name="timezone" value="{{ profile.timezone if profile else 'Europe/Moscow' }}">
-              {{ ui.theme_picker(profile.theme if profile else "system") }}
+              {{ ui.theme_picker(profile.theme) }}
             </form>
           </div>
-        </details>
+        </details>{% endif %}
         <a class="sidebar-profile-menu__item" href="{{ '/desktop/settings' if embedded else '/settings' }}" data-profile-menu-item="settings">{{ icons.icon("settings") }}<span>Настройки</span></a>
         <div class="sidebar-profile-menu__separator" role="separator"></div>
         <details class="sidebar-profile-menu__disclosure">
@@ -209,6 +207,21 @@
 {%- if csrf_token -%}
 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 {%- endif -%}
+{%- endmacro %}
+
+{% macro trial_confirmation(csrf_token=None, starts_at=None, ends_at=None, primary=False) -%}
+<details class="billing-coupon" data-trial-confirmation>
+  <summary class="button quiet"{% if primary %} data-billing-primary{% endif %}>Начать 7 дней бесплатно</summary>
+  <p><strong>Карта не нужна. Автосписания не будет.</strong></p>
+  <p>Пробный период доступен один раз. После семи дней автоматически включится Free.</p>
+  {% if starts_at and ends_at %}<p>На момент открытия страницы предварительный период: с {{ starts_at }} до {{ ends_at }}.</p>{% endif %}
+  <p>Семь полных дней начнутся при окончательном подтверждении. Точные даты появятся здесь после запуска. Чтобы отказаться, сверните этот блок.</p>
+  <form action="/billing/trial/activate" method="post">
+    {{ csrf_field(csrf_token) }}
+    <input type="hidden" name="confirmation" value="start_trial">
+    <button class="button quiet" type="submit">Подтвердить запуск на 7 дней</button>
+  </form>
+</details>
 {%- endmacro %}
 
 {% macro auth_form(title, action, email_label="Email", submit_label="Продолжить", error=None) -%}

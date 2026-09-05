@@ -4,10 +4,10 @@ from pathlib import Path
 from uuid import uuid4
 
 from fastapi.routing import APIRoute
-
 from twobrain_rec_server.cabinet.rendering import render_settings_page
 from twobrain_rec_server.cabinet.view_models import (
     AccountDeviceView,
+    AccountProfileView,
     AccountProviderView,
     account_settings_surface,
 )
@@ -205,7 +205,7 @@ def test_settings_overview_matches_product_reference_geometry() -> None:
 def test_settings_binary_controls_use_shared_switches_and_segmented_theme() -> None:
     root = Path(__file__).resolve().parents[2]
     script = (root / "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js").read_text()
-    account = render_settings_page(category="account")
+    account = render_settings_page(category="account", profile=AccountProfileView("Synthetic"))
     notifications = render_settings_page(category="notifications")
 
     assert 'class="theme-picker"' in account

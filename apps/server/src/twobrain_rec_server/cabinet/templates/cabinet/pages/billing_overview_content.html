@@ -77,13 +77,14 @@
           <p class="muted" role="status">Оплата временно недоступна: магазин не включён.</p>
           {% endif %}
           {% if billing_owner and plan_code == "free" and trial_state == "eligible" and not operation_pending %}
-          <form action="/billing/trial/activate" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<input type="hidden" name="confirmation" value="start_trial"><button class="button quiet"{% if not (billing_enabled and catalog_ready|default(True)) %} data-billing-primary{% endif %} type="submit">Попробовать «Личный» 7 дней</button></form>
+          {{ sections.trial_confirmation(csrf_token|default(None), trial_preview_starts_at_label|default(None), trial_preview_ends_at_label|default(None), primary=not (billing_enabled and catalog_ready|default(True))) }}
           {% endif %}
         </div>
         {% endif %}
 
         {% if plan_code == "free" and processing_threshold|default("normal") == "approaching" %}<p class="notice" role="status" aria-live="polite">Использовано 80% месячного лимита обработки. Осталось {{ processing_remaining_label }} до сброса {{ processing_reset_at_label }}.</p>
         {% elif plan_code == "free" and processing_threshold|default("normal") == "exhausted" %}<p class="notice" role="status" aria-live="polite">Лимит обработки исчерпан до {{ processing_reset_at_label }}. Новая обработка станет доступна после сброса лимита; обработка без сохранения аудио также недоступна до этого момента.</p>{% endif %}
+        {% if plan_code == "trial" and trial_starts_at_label|default(None) %}<p>Пробный период: с {{ trial_starts_at_label }} до {{ trial_ends_at_label }}.</p>{% endif %}
         {% if trial_result|default(None) == "activated" %}<p role="status" aria-live="polite">Пробный период активирован на 7 дней.</p>
         {% elif trial_result|default(None) == "pending" %}<p role="status" aria-live="polite">Платёж уже проверяется. Пробный период пока не запускаем.</p>
         {% elif trial_result|default(None) == "already" or trial_state == "already" %}<p role="status" aria-live="polite">Пробный период уже использован.</p>

@@ -30,7 +30,8 @@ def test_every_billing_screen_keeps_payment_help_after_the_primary_panel() -> No
     ):
         html = (TEMPLATE_ROOT / name).read_text(encoding="utf-8")
         assert "Нужна помощь с оплатой?" in html
-        assert 'href="/billing/history"' in html
+        destination = "#billing-help" if name == "billing_history_content.html" else "/billing/history"
+        assert f'href="{destination}"' in html
         assert html.index("Нужна помощь с оплатой?") > html.index("</section>")
 
 

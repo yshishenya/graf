@@ -1187,7 +1187,10 @@ def test_partial_transcript_detail_renders_diarization_placeholder() -> None:
     page = render_meeting_detail_page(review)
 
     assert 'data-transcript-pending' in page
-    assert "Спикеры ещё определяются" in page
+    assert "Здесь появится расшифровка." in page
+    pending = re.search(r'<div[^>]*data-transcript-pending>.*?</div>', page, re.S).group()
+    assert "Спикеры ещё определяются" not in pending
+    assert "Расшифровка появится после завершения диаризации." not in pending
     assert 'data-playback-transcript hidden aria-hidden="true"' in page
 
 
@@ -3356,7 +3359,7 @@ def test_098_ambiguity_chooser_uses_safe_native_controls_and_graf_primitives() -
     assert "panel" in chooser_classes
     assert "<fieldset" in page
     assert "<legend>Выберите встречу</legend>" in page
-    assert page.count('type="radio"') == 5  # chooser radios + profile appearance radios
+    assert page.count('type="radio"') == 2  # chooser only; no profile was supplied
     assert page.count('name="event_id"') == 2
     assert 'aria-describedby="calendar-context-choice-help"' in page
     assert 'id="calendar-context-chooser-heading"' in page
