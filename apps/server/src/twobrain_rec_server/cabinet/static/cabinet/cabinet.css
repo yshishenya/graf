@@ -1766,15 +1766,19 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
 .manual-upload-trigger .ui-icon { flex: 0 0 16px; }
 .manual-upload-dialog {
   width: min(540px, calc(100vw - 28px));
-  max-height: min(720px, calc(100vh - 28px));
+  max-height: min(720px, calc(100dvh - 28px));
   padding: 0;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scroll-padding-block: 4px;
   color: var(--text);
   border: 1px solid var(--line);
   border-radius: var(--radius-dialog);
   background: var(--panel);
   box-shadow: 0 24px 70px rgba(0,0,0,.44);
 }
+.manual-upload-dialog :focus,
+.manual-upload-dropzone { scroll-margin-block: 4px; }
 .manual-upload-dialog::backdrop { background: rgba(0,0,0,.58); }
 .manual-upload-sheet {
   display: grid;
@@ -5282,7 +5286,8 @@ html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned
   width: var(--app-rail-width);
   min-width: var(--app-rail-width);
   padding: 8px 6px;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned) .cabinet-workspace-header {
   display: none;
@@ -6065,5 +6070,16 @@ body {
   }
   .settings-control-row {
     min-height: 60px;
+  }
+}
+
+/* Narrow embedded navigation overlays the reserved rail; focus in main hides it. */
+@media (max-width: 640px) {
+  html[data-cabinet-js="ready"] .app-shell.desktop-embedded[data-cabinet-shell].is-rail-pinned {
+    grid-template-columns: var(--app-rail-width) minmax(0, 1fr);
+  }
+  html[data-cabinet-js="ready"] .app-shell.desktop-embedded[data-cabinet-shell].is-rail-pinned > .sidebar {
+    width: var(--app-sidebar-width);
+    min-width: var(--app-sidebar-width);
   }
 }

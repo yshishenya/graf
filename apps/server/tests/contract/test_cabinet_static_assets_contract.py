@@ -1,3 +1,4 @@
+import json
 import re
 import subprocess
 from pathlib import Path
@@ -2171,7 +2172,7 @@ def test_meeting_list_js_closes_authorization_retry_and_deletion_boundaries() ->
 
     upload_scrub = script[
         script.index("scrubManualUploadPrivateState =") : script.index(
-            'dialog.addEventListener("keydown", (event) => trapModalFocus(dialog, event))',
+            'dialog.addEventListener("keydown", (event) => trapModalFocus(dialog, event, { cycleAll: true }))',
             script.index("scrubManualUploadPrivateState ="),
         )
     ]
@@ -4938,3 +4939,68 @@ def test_meeting_list_css_binds_target_geometry_contrast_and_motion_contracts() 
         in css
     )
     assert ".meeting-row:hover { transform: translateX(2px); }" not in css
+
+
+def test_manual_upload_dialog_has_name_and_scrollable_focus_targets() -> None:
+    template = (
+        ROOT / "src/twobrain_rec_server/cabinet/templates/cabinet/fragments/manual_upload.html"
+    ).read_text()
+    assert 'aria-labelledby="manual-upload-heading"' in template
+    assert template.count('id="manual-upload-heading"') == 1
+    css = (STATIC_DIR / "cabinet.css").read_text()
+    dialog_css = css.split(".manual-upload-dialog {", 1)[1].split("}", 1)[0]
+    assert "100dvh" in dialog_css
+    assert "overflow-y: auto" in dialog_css
+    script = (STATIC_DIR / "cabinet.js").read_text()
+    upload = script[
+        script.index("const initManualUpload =") : script.index("const setRailPinned =")
+    ]
+    assert 'dialog.addEventListener("focusin"' in upload
+    assert 'scrollIntoView({ block: "nearest" })' in upload
+    assert "event.target === fileInput ? dropZone : event.target" in upload
+
+
+def test_rail_narrow_focus_keeps_preference_and_wide_breakpoints() -> None:
+    script = (STATIC_DIR / "cabinet.js").read_text()
+    source = script[
+        script.index("const setRailPinned =") : script.index("const initCabinetProfileMenus =")
+    ]
+    harness = r"""
+const assert = require('node:assert/strict');
+for (const embedded of [false, true]) {
+  const classes = new Set(embedded ? ['desktop-embedded'] : []);
+  const listeners = {}; const docs = {}; const writes = [];
+  let search = {}; let main = {target:search, contains(node) {return node===this.target;}};
+  const toggle = {setAttribute(name, value) { this[name] = value; }, addEventListener(name, fn) {this[name] = fn;}, focus() {document.activeElement = this;}};
+  const shell = {dataset:{}, classList:{contains:name=>classes.has(name), toggle(name,on) {if(on) classes.add(name);else classes.delete(name);}},
+    querySelector:s=>s === '[data-cabinet-navigation]' ? {} : s === '[data-cabinet-rail-toggle]' ? toggle : main,
+    setAttribute(){}, addEventListener(name, fn) {listeners[name]=fn;}};
+  let overlay = null; const document = {activeElement:null, querySelectorAll:()=>[shell],querySelector:()=>overlay,addEventListener(name,fn){docs[name]=fn;}};
+  const media = {}; const window = {matchMedia(query) {return media[query] = {matches:query.startsWith('(min'), addEventListener(name,fn){this.change=fn;}};}};
+  const sessionStorage = {getItem:()=> 'expanded',setItem(key,value){writes.push([key,value]);}};
+  eval(SOURCE + '\ninitCabinetRail();');
+  const narrow = media['(max-width: 640px)'];
+  assert.ok(narrow, 'narrow media listener exists');
+  assert.equal(classes.has('is-rail-pinned'),true);
+  document.activeElement=search; narrow.matches=true; narrow.change();
+  assert.equal(classes.has('is-rail-pinned'),false,'resize hides panel over existing focus');
+  assert.equal(toggle['aria-expanded'],'false'); assert.equal(writes.length,0);
+  narrow.matches=false; narrow.change(); assert.equal(classes.has('is-rail-pinned'),true);
+  document.activeElement=toggle; narrow.matches=true; narrow.change();
+  assert.equal(classes.has('is-rail-pinned'),true);
+  search = {}; main = {target:search, contains(node) {return node===this.target;}};
+  document.activeElement=search; listeners.focusin({target:search});
+  assert.equal(classes.has('is-rail-pinned'),false,'focus in main hides panel'); assert.equal(writes.length,0);
+  toggle.click(); assert.equal(classes.has('is-rail-pinned'),true); assert.equal(writes.at(-1)[1],'expanded');
+  overlay={}; docs.keydown({key:'Escape'}); assert.equal(classes.has('is-rail-pinned'),true);
+  overlay=null; docs.keydown({key:'Escape'}); assert.equal(classes.has('is-rail-pinned'),false); assert.equal(writes.at(-1)[1],'collapsed');
+  narrow.matches=false; narrow.change(); assert.equal(classes.has('is-rail-pinned'),false);
+}
+"""
+    completed = subprocess.run(
+        ["node", "-e", "const SOURCE = " + json.dumps(source) + ";\n" + harness],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr + completed.stdout
