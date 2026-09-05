@@ -3,14 +3,18 @@
 Дата: 2026-09-06. Lane: `high-risk-feature`.
 Ветка: `codex/243-cabinet-audit-remediation`; исходная база:
 `41bf51c7da86212503d971bce09e44640c087f4e` — НЕ SHA исправлений.
-Проверено содержимое исходников этого среза; окончательный SHA и ссылка на
-GitHub `governance-fast` фиксируются в описании PR после commit/push.
+Implementation SHA: `6db3eb4cb1f0f2efb0f660d83164533da9289a8a`.
+Создан [draft PR #6581](https://github.com/yshishenya/graf/pull/6581).
+[GitHub governance-fast](https://github.com/yshishenya/graf/actions/runs/33994631990)
+на implementation SHA: **PASS, 7m0s**. Последующий коммит меняет только этот
+отчёт и task markers, не исходники. Его окончательный SHA и отдельный run
+подтверждаются в [validation comment PR](https://github.com/yshishenya/graf/pull/6581#issuecomment-5555093596).
 Все данные синтетические; production, реальные записи и учётные записи не использовались.
 
 ## Результат
 
 Собственная реализация F243 проверена в пределах таблицы ниже. Полная F243
-**не принята**: готовится зависимый draft PR, а не готовность к merge/release.
+**не принята**: открыт зависимый draft PR, а не готовность к merge/release.
 Незакоммиченные изменения соседних задач не копировались и не учитываются как PASS.
 
 | Требование | Реализация и доказательство | Статус |
@@ -163,9 +167,10 @@ scenarios, 4 SC, 6 решений плана и 7 принципов конст�
 
 T003/T004/T005/T007/T009/T010/T011 выполнены. T006 частично (overlays готовы,
 сохранение темы — F242); T008/T012 и T014–T016 остаются открытыми.
-T013 на draft-checkpoint остаётся частично выполненной до итоговой сверки
-с T012 и совместной приёмкой зависимостей. Реальный PR, точный SHA и GitHub
-governance-fast подтверждаются отдельно в PR и #6578; они не закрывают T012.
+T013 выполнена: fragment/commit/push/PR и exact-SHA governance-fast есть.
+Выполнение T013 на draft-checkpoint не закрывает T012 и совместную приёмку.
+Issues #6573, #6576, #6577 закрыты после подробных русских closure comments
+с implementation SHA и успешным run. #6567/#6574/#6575/#6578 остаются открытыми.
 
 ## Гигиена и следующие ограничения
 

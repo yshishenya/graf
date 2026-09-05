@@ -38,7 +38,7 @@
 ## Phase 6: Validation and PR
 
 - [ ] T012 Выполнить high-risk-feature quickstart, correctness/Ponytail review и converge; записать команды, результаты и ограничения в specs/243-cabinet-audit-remediation/validation/implementation-evidence.md.
-- [ ] T013 Добавить changes/unreleased/F243.yaml, commit/push/PR с exact-SHA governance-fast и согласовать статусы tasks/issues в specs/243-cabinet-audit-remediation/tasks.md.
+- [X] T013 Добавить changes/unreleased/F243.yaml, commit/push/PR с exact-SHA governance-fast и согласовать статусы tasks/issues в specs/243-cabinet-audit-remediation/tasks.md.
 
 ## Dependencies & Execution Order
 
