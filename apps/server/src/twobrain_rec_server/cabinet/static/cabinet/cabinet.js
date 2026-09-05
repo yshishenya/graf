@@ -5782,6 +5782,16 @@
       const menu = root.querySelector("[data-profile-menu]");
       if (!trigger || !menu || root.getAttribute("data-profile-menu-ready") === "true") return;
       root.setAttribute("data-profile-menu-ready", "true");
+      const originalParent = root.parentElement;
+      const mobileNav = root.closest("[data-cabinet-shell]")?.querySelector(".cabinet-mobile-nav");
+      const mobileMedia = window.matchMedia("(max-width: 980px)");
+      const syncProfileLocation = () => {
+        if (!mobileNav) return;
+        const target = mobileMedia.matches ? mobileNav : originalParent;
+        if (root.parentElement !== target) target.append(root);
+      };
+      syncProfileLocation();
+      if (mobileNav) mobileMedia.addEventListener("change", syncProfileLocation);
       const supportsPopover = typeof menu.showPopover === "function";
       const popoverOpen = () => supportsPopover && menu.matches(":popover-open");
       const positionMenu = () => {

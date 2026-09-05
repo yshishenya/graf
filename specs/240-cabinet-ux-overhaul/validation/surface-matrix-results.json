@@ -1,0 +1,53 @@
+{
+  "passed": 1620,
+  "scope": "HTTP 200, heading, document horizontal bounds; production renderers with synthetic data",
+  "paths": [
+    "auth/code",
+    "auth/error",
+    "auth/login",
+    "auth/signup",
+    "auth/signup-email",
+    "auth/success",
+    "billing/blocked",
+    "billing/error",
+    "billing/ready",
+    "detail/failed",
+    "detail/partial",
+    "detail/processing",
+    "detail/ready",
+    "detail/unavailable",
+    "list/empty",
+    "list/filtered",
+    "list/ready",
+    "settings/account",
+    "settings/notifications",
+    "settings/overview",
+    "settings/recording",
+    "settings/summaries",
+    "settings/workspace",
+    "shared/blocked",
+    "shared/empty",
+    "shared/ready",
+    "shared/summary"
+  ],
+  "widths": [
+    320,
+    390,
+    768,
+    1024,
+    1440
+  ],
+  "themes": [
+    "light",
+    "dark",
+    "system"
+  ],
+  "systems": [
+    "light",
+    "dark"
+  ],
+  "surfaces": [
+    "standalone",
+    "embedded"
+  ]
+}
