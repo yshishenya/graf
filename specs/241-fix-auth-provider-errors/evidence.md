@@ -61,6 +61,10 @@ rg -n "providers\s*=\s*\[\]|render_(login|signup)_page\(" \
 
 ```text
 Focused disposable PostgreSQL auth matrix: PASS (39 passed)
+Fast governance tests: PASS (224 passed)
+Fast server unit tests: PASS (1391 passed)
+Changed server contract/integration tests: PASS (202 passed)
+CI contract tests: PASS (66 passed)
 Ruff, touched Python files: PASS
 Python compileall, touched server modules: PASS
 Spec Kit governance: PASS
@@ -68,9 +72,20 @@ Changelog fragments: PASS
 git diff --check: PASS
 ```
 
+`infra/scripts/ci-local.sh --fast` завершён на SHA
+`cbc3a22f78b2b7c04797bf9a612f0eae441a0694`: `requested=fast`,
+`effective=fast`, `components=server,infra,docs`, `coverage=partial`,
+`next_gate=full_before_release`, `result=pass`, `duration_seconds=555`.
+Локальный receipt:
+`.dev/ci-evidence/ci-fast-cbc3a22f78b2-ab2f6cf1de74.json`.
+
+Две предварительные попытки не считаются пройденным gate: первая была
+остановлена защитой `dirty_worktree`, вторая — preflight из-за устаревшего
+локального `.specify/feature.json`. После обновления служебного контекста и
+добавления обязательного `Legacy Impact` выполнен указанный выше чистый проход.
+
 ## Pending PR gates
 
-- `infra/scripts/ci-local.sh --fast` после convergence.
 - PR metadata validation на финальном 40-символьном SHA.
 - GitHub Actions `governance-fast` на том же PR SHA.
 

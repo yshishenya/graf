@@ -56,7 +56,7 @@
 
 **Purpose**: Закрыть high-risk-feature gates на точном PR SHA.
 
-- [ ] T005 Выполнить focused pytest, Ruff, compile, template assertions, `git diff --check`, `$speckit-converge` и `infra/scripts/ci-local.sh --fast`, сохранив результаты в `specs/241-fix-auth-provider-errors/evidence.md`
+- [x] T005 Выполнить focused pytest, Ruff, compile, template assertions, `git diff --check`, `$speckit-converge` и `infra/scripts/ci-local.sh --fast`, сохранив результаты в `specs/241-fix-auth-provider-errors/evidence.md`
 - [ ] T006 Создать commit/push/русский PR с high-risk lane и Exact source SHA, синхронизировать task-backed issues и дождаться `governance-fast` на том же SHA
 
 ---
