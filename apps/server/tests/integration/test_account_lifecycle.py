@@ -1093,3 +1093,34 @@ def test_trial_verification_gate_rejects_unverified_identity() -> None:
             workspace_kind="personal",
             already_used=False,
         )
+
+
+def test_theme_only_form_survives_reload_without_changing_locale_or_timezone(client) -> None:
+    workspace_id, device_id = asyncio.run(_seed_personal_workspace(client))
+    token, session_id = asyncio.run(
+        _issue_web_session(client, user_id=USER_ID, workspace_id=workspace_id, device_id=device_id)
+    )
+    headers = _bind_web_session(client, token=token, session_id=session_id)
+    initial = client.post(
+        "/settings/account/preferences", headers=headers,
+        data={"locale": "en-US", "timezone": "UTC", "theme": "dark"},
+        follow_redirects=False,
+    )
+    assert initial.status_code == 303
+    for prefix in ("", "/desktop"):
+        saved = client.post(
+            f"{prefix}/settings/account/preferences", headers=headers,
+            data={"theme": "light"}, follow_redirects=False,
+        )
+        assert saved.status_code == 303
+        reloaded = client.get(f"{prefix}/settings/account")
+        assert reloaded.status_code == 200
+        assert 'data-theme="light"' in reloaded.text
+
+        async def persisted() -> None:
+            async with client.app_state["sessionmaker"]() as db:
+                user = await db.get(UserIdentity, USER_ID)
+                assert user is not None
+                assert (user.locale, user.timezone, user.theme) == ("en-US", "UTC", "light")
+
+        asyncio.run(persisted())

@@ -1,5 +1,7 @@
 from pathlib import Path
 
+from twobrain_rec_server.cabinet.templates import render_template
+
 ROOT = Path(__file__).parents[4]
 TEMPLATE_ROOT = ROOT / "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages"
 
@@ -237,10 +239,18 @@ def test_manual_upload_exposes_explicit_archive_choice_and_transmits_it() -> Non
 
 
 def test_no_archive_upgrade_cta_opens_manual_upload_with_archive_disabled() -> None:
-    usage = (TEMPLATE_ROOT / "billing_usage_content.html").read_text(encoding="utf-8")
     script = (ROOT / "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js").read_text(
         encoding="utf-8"
     )
-    assert 'href="/meetings?archive_audio=false#manual-upload"' in usage
+    for embedded in (False, True):
+        usage = render_template(
+            "cabinet/pages/billing_usage_content.html", embedded=embedded,
+            processing_threshold="normal", processing_unlimited=True,
+            processing_used_label="0 минут", storage_used=0, storage_reserved=0,
+            storage_available=0, storage_capacity=250_000_000, storage_threshold="full",
+            storage_threshold_label="Архив заполнен", billing_owner=True,
+        )
+        prefix = "/desktop" if embedded else ""
+        assert f'href="{prefix}/meetings?archive_audio=false#manual-upload"' in usage
     assert 'window.location.hash === "#manual-upload"' in script
     assert 'params.get("archive_audio") === "false"' in script

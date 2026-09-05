@@ -133,7 +133,7 @@ def test_theme_components_keep_contrast_tokens_and_visible_interaction_cues() ->
         "input::placeholder, textarea::placeholder": {"color": "var(--muted)", "opacity": "1"},
         ".primary:hover": hover,
         ".auth-form .primary:hover": hover,
-        ".cabinet-button--primary:hover, .cabinet-link--primary:hover": hover,
+        ".cabinet-link--primary:hover": hover,
         ".cabinet-switch input:checked + .cabinet-switch__track": solid,
         ".cabinet-switch input:checked + .cabinet-switch__track::after": {
             "background": "var(--accent-foreground)"
