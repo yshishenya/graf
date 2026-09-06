@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ru">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Вход администратора · GRAF</title>
+<link rel="stylesheet" href="/system-admin/static/console.css">
+<script src="/system-admin/static/login.js" defer></script></head>
+<body><main class="login-card">
+<a class="brand" href="/system-admin">GRAF <span>Системная консоль</span></a>
+<h1>Вход администратора</h1>
+<p>Отдельная учётная запись для управления системой.</p>
+<noscript>Для защищённого входа включите JavaScript.</noscript>
+<p id="message" role="status" aria-live="polite"></p>
+<form id="password-form">
+<label for="email">Адрес администратора</label><input id="email" name="email" type="email" autocomplete="username" required maxlength="240">
+<label for="password">Пароль</label><input id="password" name="password" type="password" autocomplete="current-password" required minlength="14" maxlength="128">
+<button type="submit">Продолжить</button><button id="forgot-password" type="button" class="secondary">Забыли пароль?</button>
+</form>
+<form id="mfa-form" hidden>
+<label for="code">Код из приложения аутентификации</label><input id="code" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required>
+<button type="submit">Войти</button>
+<button id="use-recovery" type="button" class="secondary">Использовать резервный код</button>
+</form>
+<form id="recovery-form" hidden>
+<label for="recovery">Резервный код</label><input id="recovery" name="recovery_code" type="password" autocomplete="off" required maxlength="100">
+<p>После проверки потребуется настроить новый второй фактор.</p><button type="submit">Восстановить второй фактор</button>
+</form>
+<form id="enrolment-form" hidden>
+<label for="new-password">Пароль для новой учётной записи</label><input id="new-password" name="password" type="password" autocomplete="new-password" minlength="14" maxlength="128">
+<p>При восстановлении MFA текущий пароль сохраняется.</p><button type="submit">Настроить второй фактор</button>
+</form>
+<form id="reset-request-form" hidden><label for="reset-email">Адрес администратора</label><input id="reset-email" name="email" type="email" autocomplete="username" required maxlength="240"><button type="submit">Получить ссылку</button></form>
+<form id="reset-complete-form" hidden><label for="reset-password">Новый пароль</label><input id="reset-password" name="password" type="password" autocomplete="new-password" required minlength="14" maxlength="128"><p>Второй фактор сохранится. Прежние сессии будут закрыты.</p><button type="submit">Сменить пароль</button></form>
+<section id="seed-panel" hidden><h2>Добавьте GRAF в приложение аутентификации</h2>
+<p>Введите ключ вручную. Храните его в секрете.</p><code id="seed"></code>
+<form id="confirm-form"><label for="confirm-code">Код из приложения</label><input id="confirm-code" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required><button type="submit">Подтвердить</button></form></section>
+<section id="recovery-codes" hidden><h2>Сохраните резервные коды</h2><p>Каждый код используется один раз. Повторный просмотр недоступен.</p><pre id="codes"></pre><a class="button" href="/system-admin">К системной консоли</a></section>
+</main></body></html>

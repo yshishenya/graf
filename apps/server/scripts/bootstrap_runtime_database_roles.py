@@ -7,10 +7,14 @@ from pathlib import Path
 
 import asyncpg
 
+from twobrain_rec_server.db.rls_validation import SYSTEM_CONTENT_COLUMNS
+
 OWNER_ROLE = "twobrain_rec"
 APP_ROLE = "twobrain_rec_app"
 MAINTENANCE_ROLE = "twobrain_rec_maintenance"
 MEDIA_ROLE = "twobrain_rec_media"
+SYSTEM_ROLE = "twobrain_rec_system"
+SYSTEM_AUTHORITY_ROLE = "twobrain_rec_system_authority"
 DATABASE_NAME = "twobrain_rec"
 DATABASE_NAME_RE = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
 MEDIA_READ_ONLY_TABLES = (
@@ -239,6 +243,114 @@ async def _verify_runtime_roles(
             raise RuntimeError("media database role lock privileges are unsafe")
 
 
+async def _verify_system_boundary(connection: asyncpg.Connection) -> None:
+    """Verify the additive boundary even when console login is not enabled."""
+    exists = await connection.fetchval(
+        "select to_regnamespace('system_control') is not null"
+    )
+    if not exists:
+        return
+    for runtime_role in (APP_ROLE, MAINTENANCE_ROLE, MEDIA_ROLE, SYSTEM_ROLE):
+        if await connection.fetchval("select has_schema_privilege($1::name,'public','CREATE')",runtime_role):
+            raise RuntimeError("runtime role can create objects in the trusted public schema")
+    system_roles = [SYSTEM_ROLE, SYSTEM_AUTHORITY_ROLE]
+    if await connection.fetchval("select exists(select 1 from pg_roles where rolname='twobrain_rec_system_auth')"):
+        system_roles.append('twobrain_rec_system_auth')
+    roles = await connection.fetch(
+        """
+        select oid, rolname, rolcanlogin, rolsuper, rolcreatedb, rolcreaterole,
+               rolinherit, rolreplication, rolbypassrls
+        from pg_roles where rolname = any($1::text[])
+        """, system_roles,
+    )
+    if len(roles) != len(system_roles):
+        raise RuntimeError("system database roles are missing")
+    for role in roles:
+        if any(role[key] for key in (
+            'rolsuper', 'rolcreatedb', 'rolcreaterole', 'rolinherit',
+            'rolreplication', 'rolbypassrls',
+        )) or (role['rolname'] != SYSTEM_ROLE and role['rolcanlogin']):
+            raise RuntimeError("system database role privileges are unsafe")
+        if await connection.fetchval(
+            'select exists(select 1 from pg_auth_members where member = $1 or roleid = $1)',
+            role['oid'],
+        ):
+            raise RuntimeError("system database role membership is unsafe")
+    for role in (APP_ROLE, MEDIA_ROLE):
+        if await connection.fetchval(
+            "select has_schema_privilege($1::name, 'system_control', 'USAGE')", role,
+        ):
+            raise RuntimeError("ordinary database role can access system schema")
+    unsafe_tables = await connection.fetchval(
+        """
+        select exists (
+            select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace
+            where n.nspname in ('public', 'system_control') and c.relkind in ('r','p','v','m')
+              and (has_table_privilege($1::name, c.oid, 'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+                   or (has_table_privilege($1::name, c.oid, 'SELECT')
+                       and (n.nspname, c.relname) != ('system_control', 'audit_events'))
+                   or c.relowner = (select oid from pg_roles where rolname = $1))
+        )
+        """, SYSTEM_ROLE,
+    )
+    if unsafe_tables:
+        raise RuntimeError("system database table privileges are unsafe")
+    columns = await connection.fetch(
+        """
+        select table_schema, table_name, column_name, privilege_type
+        from information_schema.column_privileges where grantee = $1
+        """, SYSTEM_ROLE,
+    )
+    expected = {
+        ('public', 'meetings', name, 'SELECT') for name in (
+            'id', 'workspace_id', 'created_by_user_id', 'device_id', 'started_at', 'ended_at',
+            'duration_seconds', 'status', 'processing_status', 'deletion_state', 'deletion_epoch',
+            'created_at', 'updated_at',
+        )
+    }
+    if await connection.fetchval("select to_regclass('system_control.audit_events') is not null"):
+        expected |= {
+            ('system_control', 'audit_events', name, 'SELECT') for name in (
+                'id', 'principal_id', 'session_id', 'role', 'permission', 'action',
+                'target_type', 'target_id', 'case_context_id', 'result', 'reason', 'occurred_at', 'writer_transaction',
+            )
+        }
+    if await connection.fetchval("select to_regclass('system_control.operations') is not null"):
+        expected |= {('public', 'meetings', 'control_version', 'SELECT'),
+                     ('system_control', 'audit_events', 'operation_id', 'SELECT')}
+        if await connection.fetchval("""
+            select exists(select 1 from pg_class c join pg_namespace n on n.oid=c.relnamespace
+              where n.nspname='system_control' and c.relkind in ('r','p','v','m')
+              and has_table_privilege($1::name,c.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE'))
+        """, MAINTENANCE_ROLE):
+            raise RuntimeError("maintenance can access system tables directly")
+    if await connection.fetchval("select to_regprocedure('system_control.meeting_content_allowed(uuid)') is not null"):
+        expected |= {('public', table, name, 'SELECT')
+                     for table, names in SYSTEM_CONTENT_COLUMNS.items() for name in names.split(',')}
+        for table in SYSTEM_CONTENT_COLUMNS:
+            if not await connection.fetchval("""select exists(select 1 from pg_policy p
+                join pg_class c on c.oid=p.polrelid join pg_namespace n on n.oid=c.relnamespace
+                where n.nspname='public' and c.relname=$1 and c.relrowsecurity and c.relforcerowsecurity
+                  and p.polname='system_content_gate' and not p.polpermissive and p.polcmd='r'
+                  and (select oid from pg_roles where rolname=$2)=any(p.polroles))""", table, SYSTEM_ROLE):
+                raise RuntimeError("system content mandatory RLS gate is missing")
+    if {tuple(row.values()) for row in columns} != expected:
+        raise RuntimeError("system database column privileges are unsafe")
+    gate = await connection.fetchval(
+        """
+        select exists (select 1 from pg_policy p join pg_class c on c.oid = p.polrelid
+            join pg_namespace n on n.oid = c.relnamespace
+            where n.nspname = 'public' and c.relname = 'meetings'
+              and c.relrowsecurity and c.relforcerowsecurity
+              and p.polname = 'system_metadata_gate' and not p.polpermissive
+              and p.polcmd = 'r'
+              and (select oid from pg_roles where rolname = $1) = any(p.polroles))
+        """, SYSTEM_ROLE,
+    )
+    if not gate:
+        raise RuntimeError("system database mandatory RLS gate is missing")
+
+
 async def _bootstrap() -> None:
     owner_password = _read_secret("TWOBRAIN_DB_OWNER_PASSWORD_FILE")
     app_password = _read_secret("TWOBRAIN_DB_APP_PASSWORD_FILE")
@@ -313,7 +425,18 @@ async def _bootstrap() -> None:
                 f"public.rec_playback_normalization_cleanup_page(integer) to {MEDIA_ROLE}",
             ):
                 await connection.execute(statement)
+            if os.environ.get("TWOBRAIN_DB_SYSTEM_PASSWORD_FILE", "").strip():
+                if not await connection.fetchval(
+                    "select to_regnamespace('system_control') is not null"
+                ):
+                    raise RuntimeError("system database migration is required before login setup")
+                await _ensure_login_role(
+                    connection, role_name=SYSTEM_ROLE,
+                    password=_read_secret("TWOBRAIN_DB_SYSTEM_PASSWORD_FILE"),
+                )
+                await connection.execute(f"grant connect on database {database_name} to {SYSTEM_ROLE}")
             await _verify_runtime_roles(connection, database_name=database_name)
+            await _verify_system_boundary(connection)
     finally:
         await connection.close()
 

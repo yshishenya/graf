@@ -1,37 +1,43 @@
 # Tasks: системная консоль GRAF — Feature 254
 
-**Ветка:** `codex/254-system-admin-console`. **Источник требований:** [spec.md](spec.md), [план](plan.md), [контракты](contracts/api.md), [приёмка](acceptance.md). Все задачи открыты: подготовка не является реализацией. T000 — общая GitHub задача, не implementation checkbox.
+**Ветка:** `codex/254-system-admin-console`. **Источник требований:** [spec.md](spec.md), [план](plan.md), [контракты](contracts/api.md), [приёмка](acceptance.md). Реализация начата. Состояние и проверки первого участка — [implementation-evidence.md](implementation-evidence.md). T000 — общая GitHub задача, не implementation checkbox.
 
 Перед кодом прочитать все reviewer-owned checklist. При открытых пунктах следовать gate проекта; исполнитель не меняет их состояние. Предлагаемые новые пути ниже создаются при реализации, existing modules переиспользуются. Номера миграций назначаются по актуальным Alembic heads.
 
 
 ## Основание
 
-- [ ] T001 Зафиксировать ревью требований и матрицу реализации. Пути: `specs/254-system-admin-console/checklists/`; `specs/254-system-admin-console/acceptance.md`.
+- [X] T001 Зафиксировать ревью требований и матрицу реализации. Пути: `specs/254-system-admin-console/checklists/`; `specs/254-system-admin-console/acceptance.md`.
   - Результат: Прочитать reviewer-owned gates; не отмечать их исполнителем. Сохранить решения ревью и связность контрактов, затем обновить базовый SHA перед кодом.
   - Зависимости: нет. Приёмка: AC-001, AC-003, AC-019, AC-033, AC-038, AC-041.
+  - Подготовительная проверка выполнена; это не прохождение перечисленных runtime AC. Внешнее закрытие #6712 ожидает PR и его проверки.
 
-- [ ] T002 Создать системную схему и ограниченные права PostgreSQL. Пути: `apps/server/src/twobrain_rec_server/db/models/system_admin.py`; `apps/server/src/twobrain_rec_server/db/tenant_context.py`; `apps/server/src/twobrain_rec_server/db/session.py`; `apps/server/src/twobrain_rec_server/db/migrations/versions/`; `apps/server/scripts/bootstrap_runtime_database_roles.py`.
+- [X] T002 Создать системную схему и ограниченные права PostgreSQL. Пути: `apps/server/src/twobrain_rec_server/db/models/system_admin.py`; `apps/server/src/twobrain_rec_server/db/tenant_context.py`; `apps/server/src/twobrain_rec_server/db/session.py`; `apps/server/src/twobrain_rec_server/db/migrations/versions/`; `apps/server/scripts/bootstrap_runtime_database_roles.py`.
   - Результат: System_control, restrictive RLS поверх PUBLIC policies, genuine session_user, no BYPASSRLS/role inheritance; узкие SELECT/command policies, повторный bootstrap и pool reset; системные секреты недоступны app/maintenance.
   - Зависимости: T001. Приёмка: AC-001, AC-003, AC-036, AC-041.
+  - Основание выполнено: миграции 0086–0087, отдельные личности/сессии, фиксированные разрешения, scoped grants и case context, restrictive RLS всех доступных сейчас отношений, отдельный pool и повторный bootstrap. Расширение проекций и прав предметных таблиц остаётся в T008–T035; это не прохождение всех AC фичи. Внешнее закрытие #6713 ожидает PR и проверки точного SHA.
 
 - [ ] T003 Добавить долговечные команды и неизменяемый аудит. Пути: `apps/server/src/twobrain_rec_server/system_admin/operations.py`; `apps/server/src/twobrain_rec_server/system_admin/audit.py`; `apps/server/src/twobrain_rec_server/system_admin/schemas.py`.
   - Результат: Preview 5min, expected versions, idempotency, outbox/dispatcher через существующий Temporal, узкие claim/continue/result worker helpers, per-target durable continuation/fence, target scope, revoke до effect-start, continuation после sent, отдельный actual system actor.
   - Зависимости: T002. Приёмка: AC-004, AC-012, AC-024, AC-033, AC-036, AC-037.
+  - В работе: реализован неизменяемый runtime-аудит разрешённых и запрещённых чтений, фактический actor/session/purpose/target/reason, отдельная транзакция до выдачи полномочия; сбой аудита закрывает доступ. Добавлены preview/commit/worker claim/continuation для двух команд встречи и проверки повторов/отзыва/версии. Temporal dispatcher, handlers, batch и scheduled approvals ещё предстоят.
 
 - [ ] T004 Изолировать процесс консоли и выключенный по умолчанию запуск. Пути: `apps/server/src/twobrain_rec_server/system_admin/app.py`; `infra/`; `apps/server/src/twobrain_rec_server/db/rls_validation.py`.
   - Результат: Отдельный service из того же образа, отдельный origin/host-only cookie/CORS/CSRF и route proxy, отдельный credential/pool; обычный server/worker не получает system credential. Read/command admission flags и безопасный rollback.
   - Зависимости: T002. Приёмка: AC-001, AC-035, AC-041, AC-042.
+  - В работе: отдельный ASGI процесс, Origin/CSRF/cookies, optional Compose overlay и nginx template. Полное подключение инфраструктурной проверки и rollback ещё не завершено.
 
 ## US1
 
 - [ ] T005 [US1] Реализовать отдельный вход, второй фактор и восстановление. Пути: `apps/server/src/twobrain_rec_server/system_admin/auth.py`; `apps/server/src/twobrain_rec_server/system_admin/web.py`; `apps/server/scripts/manage_system_admin.py`.
   - Результат: Пароль/scrypt, TOTP RFC vectors, recovery, CSRF, TTL/rate limits, version-bound challenges, recovery только enrolment, key rotation, reset без снятия MFA, bootstrap/recovery без публичного bypass.
   - Зависимости: T002,T003,T004. Приёмка: AC-001, AC-002, AC-003, AC-004.
+  - В работе: проверены scrypt/TOTP, version-bound challenges, enrolment/recovery/reset, HTTP login и операторский init/recover; реализация всех оставшихся auth/rotation/delivery сценариев продолжается.
 
 - [ ] T006 [US1] Реализовать назначения ролей и отзыв действующего доступа. Пути: `apps/server/src/twobrain_rec_server/system_admin/permissions.py`; `apps/server/src/twobrain_rec_server/system_admin/templates/system_admin/admins.html`.
   - Результат: Фиксированная role matrix, temporary object grants, бессрочный последний superadmin под lock, auth_version, no self elevation, revoke streams и delayed commands.
   - Зависимости: T005. Приёмка: AC-001, AC-002, AC-003, AC-004, AC-007.
+  - В работе: HTTP и формы приглашений, повторной отправки, ролей и временных прав; сохранённые состояния отправки и отзыв старых ссылок. Проверены last-admin race, границы grants и MFA. Отзыв будущих потоков аудио и всех типов команд остаётся в зависимых задачах.
 
 - [ ] T007 [US1] Доказать изоляцию входа и PostgreSQL на конкурентных запросах. Пути: `apps/server/tests/integration/test_system_admin_security.py`; `apps/server/tests/contract/test_system_admin_auth.py`.
   - Результат: Реальные роли PostgreSQL; подмена GUC/SET ROLE/cookie; product-origin attack, fake request/worker GUC, challenge reset/revoke race, recovery-only APIs, replay, same TOTP race, two last-admin removals, bootstrap reset, session pool leakage и audit outage.
@@ -52,6 +58,7 @@
 - [ ] T010 [US3] Добавить глобальную карточку встречи и разделение метаданных/контента. Пути: `apps/server/src/twobrain_rec_server/system_admin/queries.py`; `apps/server/src/twobrain_rec_server/system_admin/templates/system_admin/meeting.html`.
   - Результат: Версии/стадии/source/time, no-speech, полный текст с частичной загрузкой/поиском/таймкодами; несуществующие исторические версии не выдумывать.
   - Зависимости: T008. Приёмка: AC-008, AC-009, AC-010, AC-011, AC-013, AC-039.
+  - В работе: отдельный доступ к заголовку/расшифровке, выбор существующего опубликованного результата общим helper, 100 фрагментов на страницу, поиск через POST, привязка страниц к версии и очистка при отзыве. История обработки, итоги, аудио и retained-диагностика ещё не завершены.
 
 - [ ] T011 [US3] Защитить аудио, экспорт и сохранённую диагностику системным доступом. Пути: `apps/server/src/twobrain_rec_server/cabinet/egress.py`; `apps/server/src/twobrain_rec_server/system_admin/web.py`; `apps/server/src/twobrain_rec_server/system_admin/audit.py`.
   - Результат: Явный system egress вместо admin shortcut; stream ticket и Range recheck; revision integrity; distinct retained view; content download/export права, no signed public URL.

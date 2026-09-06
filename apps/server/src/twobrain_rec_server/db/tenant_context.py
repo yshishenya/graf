@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 from uuid import UUID
 
@@ -66,7 +66,11 @@ def _restore_transaction_local_context(
     transaction before any protected statement runs.
     """
 
-    settings = session.info.get("tenant_context")
+    tenant_settings = session.info.get("tenant_context")
+    system_settings = session.info.get("system_context")
+    if tenant_settings is not None and system_settings is not None:
+        raise RuntimeError("cannot mix system and tenant database context")
+    settings = system_settings if system_settings is not None else tenant_settings
     if not isinstance(settings, dict) or connection.dialect.name != "postgresql":
         return
     for name, value in settings.items():
@@ -416,6 +420,64 @@ def shared_with_me_lookup_settings(context: SharedWithMeLookupContext) -> dict[s
     }
 
 
+@dataclass(frozen=True, slots=True)
+class SystemDatabaseContext:
+    admin_session_id: UUID
+    actor_id: UUID
+    session_token_hash: str = field(repr=False)
+    permission: str
+    target_type: str | None = None
+    target_id: UUID | None = None
+    case_context_id: UUID | None = None
+    audit_event_id: UUID | None = None
+
+    def __post_init__(self) -> None:
+        from twobrain_rec_server.system_admin.permissions import PERMISSIONS, TARGET_TYPES
+
+        if not isinstance(self.admin_session_id, UUID) or not isinstance(self.actor_id, UUID):
+            raise ValueError("system context requires UUID identities")
+        if len(self.session_token_hash) != 64 or any(
+            char not in "0123456789abcdef" for char in self.session_token_hash
+        ):
+            raise ValueError("system session token hash must be lowercase hex")
+        if self.permission not in PERMISSIONS:
+            raise ValueError("unsupported system database permission")
+        if (self.target_type is None) != (self.target_id is None):
+            raise ValueError("system target requires both type and UUID")
+        if self.target_type is not None and self.target_type not in TARGET_TYPES:
+            raise ValueError("unsupported system target type")
+        for value in (self.target_id, self.case_context_id, self.audit_event_id):
+            if value is not None and not isinstance(value, UUID):
+                raise ValueError("system context references must be UUIDs")
+
+
+async def apply_system_context(session: AsyncSession, context: SystemDatabaseContext) -> None:
+    if "tenant_context" in session.info:
+        raise RuntimeError("cannot mix system and tenant database context")
+    if not session.info.get("system_database"):
+        raise RuntimeError("system context requires a separate system database session")
+    settings = {
+        "app.context_kind": "system",
+        "app.system_actor_id": str(context.actor_id),
+        "app.system_session_id": str(context.admin_session_id),
+        "app.system_session_token_hash": context.session_token_hash,
+        "app.system_permission": context.permission,
+        "app.system_target_type": context.target_type or "",
+        "app.system_target_id": str(context.target_id) if context.target_id else "",
+        "app.system_case_context_id": str(context.case_context_id) if context.case_context_id else "",
+        "app.system_audit_event_id": str(context.audit_event_id) if context.audit_event_id else "",
+    }
+    existing = session.info.get("system_context")
+    if existing is not None and existing != settings:
+        raise RuntimeError("cannot switch system identity in a database session")
+    session.info["system_context"] = settings
+    for name, value in settings.items():
+        await session.execute(
+            text("select set_config(:setting_name, :setting_value, true)"),
+            {"setting_name": name, "setting_value": value},
+        )
+
+
 async def apply_tenant_context(
     session: AsyncSession,
     context: (
@@ -433,6 +495,8 @@ async def apply_tenant_context(
         | SharedWithMeLookupContext
     ),
 ) -> None:
+    if session.info.get("system_database") or "system_context" in session.info:
+        raise RuntimeError("cannot mix system and tenant database context")
     if isinstance(context, TenantDatabaseContext):
         settings = tenant_context_settings(context)
     elif isinstance(context, MaintenanceTenantContext):

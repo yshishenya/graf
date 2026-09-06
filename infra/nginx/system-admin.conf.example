@@ -1,0 +1,23 @@
+# Operator template: replace the origin/certificate names and configure the
+# existing TLS router. Never include these locations in the product vhost.
+server {
+    listen 127.0.0.1:10445 ssl;
+    server_name system-admin.example.invalid;
+    ssl_certificate /etc/letsencrypt/live/system-admin.example.invalid/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/system-admin.example.invalid/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    client_max_body_size 64k;
+    access_log off;
+
+    location / {
+        proxy_pass http://127.0.0.1:18083;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_buffering off;
+        proxy_read_timeout 60s;
+        add_header Strict-Transport-Security "max-age=31536000" always;
+    }
+}

@@ -29,7 +29,6 @@ from twobrain_rec_server.auth.dependencies import (
 )
 from twobrain_rec_server.cabinet.access import decide_meeting_access
 from twobrain_rec_server.db.models import Meeting
-from twobrain_rec_server.domain.statuses import ProcessingStatus
 from twobrain_rec_server.normalization.pickup import dispatch_normalization_after_accepted_commit
 from twobrain_rec_server.normalization.service import request_normalization_retry_now
 from twobrain_rec_server.processing import store
@@ -38,7 +37,6 @@ from twobrain_rec_server.processing.status import get_content_safe_processing_st
 from twobrain_rec_server.workflows.temporal_client import (
     connect_temporal_client,
     request_processing_manual_check,
-    start_processing_workflow,
 )
 
 router = APIRouter(prefix="/api/v1", tags=["processing"])
@@ -87,69 +85,15 @@ async def _get_temporal_client(request: Request) -> object | None:
 
 
 async def _dispatch_created_processing_attempt(
-    *,
-    request: Request,
-    db: AsyncSession,
-    tenant_scope: TenantScope,
-    meeting_id: UUID,
-    creation: store.ProcessingAttemptCreation,
-    reason_code: str,
+    *, request: Request, db: AsyncSession, tenant_scope: TenantScope, meeting_id: UUID,
+    creation: store.ProcessingAttemptCreation, reason_code: str,
 ) -> tuple[object, str | None]:
-    assert creation.workflow is not None
-    assert creation.media_revision_id is not None
-    assert creation.attempt_ordinal is not None
-    temporal_client = await _get_temporal_client(request)
-    if temporal_client is None:
-        await db.commit()
-        await store.fail_processing_attempt_dispatch(db, workflow_id=creation.workflow.id)
-        raise ProblemDetail(
-            status=503,
-            code="processing_temporal_unavailable",
-            title="Новая попытка временно недоступна",
-            detail="Запуск временно недоступен. Данные записи сохранены; повторите действие позже.",
-        )
-    workflow = await store.set_workflow_status(
-        db,
-        creation.workflow,
-        ProcessingStatus.WORKFLOW_STARTED,
-        reason_code=reason_code,
-    )
-    try:
-        started = await start_processing_workflow(
-            temporal_client=temporal_client,
-            settings=request.app.state.settings,
-            processing_workflow_row_id=workflow.id,
-            meeting_id=meeting_id,
-            media_revision_id=creation.media_revision_id,
-            workspace_id=tenant_scope.workspace_id,
-            tenant_scope=tenant_scope,
-            archive_audio=workflow.archive_audio,
-            attempt_ordinal=creation.attempt_ordinal,
-        )
-    except Exception as exc:
-        await store.fail_processing_attempt_dispatch(db, workflow_id=workflow.id)
-        raise ProblemDetail(
-            status=503,
-            code="processing_attempt_dispatch_unavailable",
-            title="Не удалось запустить новую попытку",
-            detail="Запуск временно недоступен. Данные записи сохранены; повторите действие позже.",
-        ) from exc
+    from twobrain_rec_server.processing.dispatch import dispatch_created_processing_attempt
 
-    dispatch = None
-    if not started.ambiguous:
-        dispatch = "reused" if started.reused else "started"
-        if started.run_id is not None:
-            try:
-                run_persisted = await store.record_processing_attempt_run(
-                    db,
-                    workflow_id=workflow.id,
-                    workflow_run_id=started.run_id,
-                )
-            except Exception:
-                run_persisted = False
-            if not run_persisted:
-                await db.rollback()
-    return workflow, dispatch
+    return await dispatch_created_processing_attempt(
+        settings=request.app.state.settings, temporal_client=await _get_temporal_client(request),
+        db=db, tenant_scope=tenant_scope, meeting_id=meeting_id, creation=creation, reason_code=reason_code,
+    )
 
 
 @router.post(

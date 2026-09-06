@@ -1,6 +1,6 @@
 # Проверка реализации Feature 254
 
-Это инструкция для будущей реализации. Тестовые файлы Feature 254 ниже должны быть созданы задачами; сейчас их успешный запуск не заявляется. Данные только синтетические, платежи — тестовый магазин, рассылка приглашений — локальный перехватчик почты.
+Это инструкция для полной реализации. Уже появились проверки `test_system_admin_{security,authority,operations,login,management,users,content}.py`; их фактические результаты перечислены в [implementation-evidence.md](implementation-evidence.md). Остальные тестовые файлы ниже ещё должны быть созданы задачами. Данные только синтетические, платежи — тестовый магазин, рассылка приглашений — локальный перехватчик почты.
 
 ## Предварительные условия
 
@@ -55,3 +55,13 @@ Migration rehearsal: additive upgrade, resumable backfill, repeat bootstrap, exa
 После всех AC: `$speckit-converge`, профильные проверки и `infra/scripts/ci-local.sh --fast`; required GitHub `governance-fast` на точном SHA. Применимые full/release проверки — по `docs/agent-guidance/release-and-validation.md`. Для production сначала `infra/scripts/cd-remote.sh --dry-run`; исполнение и commit требуют отдельного разрешения. Публичный macOS выпуск проходит все notarization/Sparkle gates.
 
 В evidence: SHA, среда, команда, дата, passed/failed/skipped и причина, synthetic IDs, агрегаты. Без аудио, расшифровок, реальных адресов/токенов/secret paths. Не отмечать future test как passed на основании анализа документа.
+
+## Локальная браузерная консоль
+
+Использовать только новую одноразовую PostgreSQL на loopback с именем `twobrain_rec_test_*`. Путь к файлу URL передаётся без печати содержимого. Из `apps/server`:
+
+```sh
+PYTHONPATH=src:. .venv/bin/python -m tests.fixtures.system_admin_ui_harness --database-url-file /path/to/disposable-db-url
+```
+
+Адрес `https://localhost:8943/system-admin/login`, самоподписанный тестовый TLS. Учётная запись `browser@example.invalid`, пароль `Synthetic browser password 254`, синтетический TOTP seed — base32 от ASCII `12345678901234567890`. Эти константы относятся только к тестовому процессу. Перехватчик почты ничего не отправляет. Обычные продуктовые маршруты в нём не публикуются. После проверки остановить процесс и удалить только его одноразовый контейнер.

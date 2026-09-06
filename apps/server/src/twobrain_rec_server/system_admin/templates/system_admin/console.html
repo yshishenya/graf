@@ -1,0 +1,41 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{ title }} · Системная консоль GRAF</title><link rel="stylesheet" href="/system-admin/static/console.css"><script src="/system-admin/static/console.js" defer></script></head>
+<body><div class="layout"><aside class="sidebar"><a class="brand" href="/system-admin">GRAF <span>Системная консоль</span></a><nav aria-label="Разделы консоли">
+<a href="/system-admin" {% if section=='home' %}aria-current="page"{% endif %}>Мой доступ</a>
+{% if 'users.read' in permissions %}<a href="/system-admin?section=users" {% if section=='users' %}aria-current="page"{% endif %}>Пользователи</a>{% endif %}
+{% if 'meetings.metadata' in permissions %}<a href="/system-admin?section=meetings" {% if section=='meetings' %}aria-current="page"{% endif %}>Встречи</a>{% endif %}
+{% if 'admins.manage' in permissions %}<a href="/system-admin?section=admins" {% if section=='admins' %}aria-current="page"{% endif %}>Администраторы</a>{% endif %}
+{% if 'audit.read' in permissions %}<a href="/system-admin?section=audit" {% if section=='audit' %}aria-current="page"{% endif %}>Журнал действий</a>{% endif %}
+</nav><button id="logout" class="secondary">Выйти</button></aside>
+<main class="content"><h1>{{ title }}</h1><p id="message" role="status" aria-live="polite"></p>
+{% if section=='home' %}<p>Вы вошли как <strong>{{ role_label }}</strong>.</p><p>Сессия действует до {{ identity.expires_at }}. При отсутствии действий вход завершится через 30 минут.</p><p>Доступные разделы показаны слева. Действия и доступ к содержимому фиксируются в журнале.</p>{% else %}
+{% if section=='admins' %}<button id="invite-admin">Пригласить администратора</button><p>Чтение содержимого и временные права выдаются только на конкретный объект. Все изменения требуют причины и свежего второго фактора.</p>{% endif %}
+<p class="muted">Источник: база GRAF. Получено {{ observed_at }} UTC.{% if section=='meetings' %} Здесь показаны метаданные без расшифровок.{% endif %}</p>
+<div class="table-wrap"><table><caption class="muted">{{ rows|length }} записей на странице</caption><thead><tr>{% for key,label in columns %}<th scope="col">{{ label }}</th>{% endfor %}{% if section in ('admins','meetings') %}<th scope="col">Действия</th>{% endif %}</tr></thead><tbody>
+{% for row in rows %}<tr>{% for key,label in columns %}<td>{% if key=='role' %}{{ role_labels.get(row[key],row[key]) }}{% elif key in ('status','processing_status','subscription_state') %}{{ status_labels.get(row[key],row[key] or 'Нет данных') }}{% elif key=='expires_at' and section=='admins' and row[key] is none %}Бессрочно{% elif row[key] is not none and (key.endswith('_at') or key=='paid_through') %}<time datetime="{{ row[key] }}">{{ row[key] }}</time>{% else %}{{ row[key] if row[key] is not none else 'Нет данных' }}{% endif %}</td>{% endfor %}{% if section=='admins' %}<td>{% if row.id|string != identity.principal_id %}<button class="edit-admin secondary" data-id="{{ row.id }}" data-version="{{ row.version }}" data-role="{{ row.role }}" data-status="{{ row.status }}" data-expiry="{{ row.expires_at or '' }}">Изменить</button>
+{% if row.status=='invited' %}<button class="resend-admin secondary" data-id="{{ row.id }}" data-version="{{ row.version }}">Повторить приглашение</button>{% endif %}
+<button class="grants-admin secondary" data-id="{{ row.id }}" data-version="{{ row.version }}" data-role="{{ row.role }}" data-email="{{ row.normalized_email }}">Временные права</button>{% else %}Текущая учётная запись{% endif %}</td>{% endif %}{% if section=='meetings' %}<td><button class="open-content secondary" data-id="{{ row.id }}">Открыть расшифровку</button></td>{% endif %}</tr>
+{% else %}<tr><td colspan="{{ columns|length + 1 }}">Нет записей, доступных по выбранным условиям.</td></tr>{% endfor %}</tbody></table></div>
+{% if next_cursor %}<p><a href="/system-admin?section={{ section }}&amp;after={{ next_cursor }}">Следующая страница</a></p>{% endif %}
+{% endif %}
+{% macro step_up(prefix) %}<label for="{{ prefix }}-code">Свежий код второго фактора</label><input id="{{ prefix }}-code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code"><button data-step-up="{{ prefix }}-code" type="button" class="secondary">Подтвердить полномочия на 5 минут</button>{% endmacro %}
+<dialog id="admin-dialog" aria-labelledby="admin-dialog-title"><form id="admin-form"><h2 id="admin-dialog-title">Изменить доступ администратора</h2>
+<input name="id" type="hidden"><input name="version" type="hidden"><input name="mode" type="hidden">
+<div id="invite-fields" hidden><label for="admin-email">Рабочая почта</label><input id="admin-email" name="email" type="email" maxlength="240" autocomplete="email"></div>
+<div id="assignment-fields"><label for="admin-role">Роль</label><select id="admin-role" name="role">{% for value,label in role_labels.items() %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select>
+<div id="status-field"><label for="admin-status">Состояние</label><select id="admin-status" name="status"><option value="active">Действует</option><option value="invited">Ожидает активации</option><option value="recovery_pending">Восстанавливает второй фактор</option><option value="blocked">Заблокирован</option><option value="revoked">Доступ отозван</option></select></div>
+<label for="admin-expiry">Срок назначения (местное время)</label><input id="admin-expiry" name="expires_at" type="datetime-local"><p>Пустое поле — бессрочное назначение.</p></div>
+<label for="admin-reason">Причина</label><textarea id="admin-reason" name="reason" required maxlength="1000"></textarea><p>Не вставляйте тексты встреч. После изменения доступа или повторного приглашения прежние сессии и ссылки входа будут отозваны.</p>
+{{ step_up('admin') }}<p class="dialog-message" role="status" aria-live="polite"></p><button type="submit">Применить</button><button data-close-dialog type="button" class="secondary">Закрыть</button></form></dialog>
+<dialog id="grants-dialog" aria-labelledby="grants-title"><h2 id="grants-title">Временные права</h2><p id="grants-recipient"></p><p class="dialog-message" role="status" aria-live="polite"></p><div id="grants-list"></div>
+<form id="grant-form"><input name="principal_id" type="hidden"><input name="version" type="hidden">
+<label for="grant-permission">Разрешение</label><select id="grant-permission" name="permission" required></select>
+<label for="grant-type">Тип объекта</label><select id="grant-type" name="target_type" required></select>
+<label for="grant-target">Идентификатор объекта</label><input id="grant-target" name="target_id" required pattern="[0-9a-fA-F-]{36}" maxlength="36">
+<label for="grant-expiry">Действует до (местное время, не более 24 часов)</label><input id="grant-expiry" name="expires_at" type="datetime-local" required>
+<label for="grant-reason">Причина выдачи или отзыва</label><textarea id="grant-reason" name="reason" required maxlength="1000"></textarea>
+{{ step_up('grant') }}<button type="submit">Выдать право</button></form><button data-close-dialog type="button" class="secondary">Закрыть</button></dialog>
+<dialog id="content-dialog" aria-labelledby="content-title"><h2 id="content-title">Расшифровка встречи</h2><p id="content-meeting-id"></p>
+<form id="content-case-form"><label for="content-reason">Причина разбора</label><textarea id="content-reason" name="reason" required maxlength="1000"></textarea><p>Просмотр фиксируется в журнале. Нужны права на содержимое этой встречи.</p><button type="submit">Открыть содержимое</button></form>
+<p class="dialog-message" role="status" aria-live="polite"></p><div id="content-controls" hidden><form id="content-search-form"><label for="content-search">Найти в расшифровке</label><input id="content-search" name="search" type="search" maxlength="200"><button type="submit" class="secondary">Найти</button></form></div>
+<div id="content-text"></div><button id="content-more" hidden>Загрузить ещё</button><button data-close-dialog type="button" class="secondary">Закрыть</button></dialog>
+</main></div></body></html>

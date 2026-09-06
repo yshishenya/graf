@@ -43,6 +43,7 @@ class Meeting(Base):
     deletion_state: Mapped[str] = mapped_column(String(64), default="none")
     # Monotonic tombstone fence.  Every asynchronous content operation snapshots
     # this value and must re-check it before committing or publishing content.
+    control_version: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="1")
     deletion_epoch: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     deletion_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

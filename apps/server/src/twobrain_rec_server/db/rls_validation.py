@@ -4,6 +4,14 @@ import re
 from dataclasses import dataclass, field
 from typing import Literal
 
+# Runtime allowlist; migration 0092 keeps its own immutable schema snapshot.
+SYSTEM_CONTENT_COLUMNS = {
+    "media_revisions": "id,workspace_id,meeting_id,revision_number,status,immutable,updated_at",
+    "processing_workflows": "id,workspace_id,meeting_id,media_revision_id,attempt_ordinal",
+    "processing_results": "id,workspace_id,meeting_id,media_revision_id,processing_workflow_id,status,transcript_status,diarization_status,segment_count,diarization_segment_count,result_version,imported_at,created_at",
+    "diarization_segments": "id,workspace_id,meeting_id,processing_result_id,sequence,start_seconds,end_seconds,speaker_label,text,source_role",
+}
+
 RLSProbeResult = Literal["pass", "blocked", "failed"]
 RLSEnvironment = Literal["local", "postgres_test", "production_like", "live_production"]
 RLSValidationResult = Literal["pass", "blocked"]

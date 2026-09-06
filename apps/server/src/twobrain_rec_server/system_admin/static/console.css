@@ -1,0 +1,39 @@
+:root { font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; color: #202833; background: #f4f6f8; font-size: 16px; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+a { color: #2456ab; }
+.brand { display: block; font-size: 1.4rem; font-weight: 750; color: #233447; text-decoration: none; }
+.brand span { display: block; margin-top: .4rem; font-size: .85rem; font-weight: 500; }
+h1 { font-size: 1.8rem; line-height: 1.25; margin: 2rem 0 1rem; }
+h2 { font-size: 1.2rem; }
+p { line-height: 1.6; }
+.login-card { max-width: 480px; margin: 7vh auto; padding: 2.5rem; background: white; border: 1px solid #dce2e8; border-radius: 16px; }
+label { display: block; font-weight: 600; margin: 1.2rem 0 .5rem; }
+input,select,textarea,button,.button { font: inherit; border-radius: 8px; min-height: 44px; }
+input,select,textarea { width: 100%; padding: .7rem; border: 1px solid #9daab9; background: white; color: inherit; }
+button,.button { padding: .7rem 1.2rem; background: #2456ab; border: 1px solid #2456ab; color: white; cursor: pointer; display: inline-block; text-decoration: none; margin-top: 1.2rem; }
+form>button { width: 100%; }
+button.secondary { background: white; color: #2456ab; }
+button:disabled { opacity: .65; cursor: wait; }
+:focus-visible { outline: 3px solid #c26b00; outline-offset: 3px; }
+[hidden] { display: none !important; }
+#message { color: #8e351a; }
+code,pre { overflow-wrap: anywhere; white-space: pre-wrap; font-size: .95rem; line-height: 1.7; }
+.layout { display: grid; grid-template-columns: 230px minmax(0,1fr); min-height: 100vh; }
+.sidebar { padding: 2rem 1.2rem; background: #fff; border-right: 1px solid #dce2e8; }
+.sidebar nav { display: grid; gap: .5rem; margin-top: 2rem; }
+.sidebar nav a { padding: .8rem; text-decoration: none; border-radius: 8px; }
+.sidebar nav a[aria-current=page] { background: #eaf0fb; font-weight: 650; }
+.content { padding: 2rem; max-width: 1500px; }
+.table-wrap { overflow-x: auto; border: 1px solid #dce2e8; border-radius: 12px; background: white; }
+table { width: 100%; border-collapse: collapse; text-align: left; }
+th,td { padding: 1rem; border-bottom: 1px solid #e6ebef; white-space: nowrap; }
+th { background: #f8fafc; font-size: .85rem; }
+.muted { color: #5c6a78; }
+@media(max-width: 760px) { .layout { grid-template-columns: 1fr; } .sidebar { border-bottom: 1px solid #dce2e8; } .sidebar nav { display: flex; flex-wrap: wrap; margin-top: 1rem; } .content { padding: 1rem; } .login-card { margin: 1rem; padding: 1.4rem; } }
+
+dialog { width: min(620px,calc(100% - 2rem)); max-height: 90vh; overflow: auto; border: 1px solid #9daab9; border-radius: 12px; padding: 1.5rem; }
+dialog::backdrop { background: #20283380; }
+#grants-list p { overflow-wrap: anywhere; border-bottom: 1px solid #dce2e8; padding-bottom: 1rem; }
+
+dialog p { overflow-wrap: anywhere; }

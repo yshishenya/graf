@@ -127,8 +127,34 @@ from twobrain_rec_server.db.models.processing import (
     TranscriptSegment,
 )
 from twobrain_rec_server.db.models.support import SupportIncident, SupportIncidentRateLimitBucket
+from twobrain_rec_server.db.models.system_admin import (
+    SystemAuditEvent,
+    SystemAuthRateLimit,
+    SystemCaseContext,
+    SystemChallenge,
+    SystemCredential,
+    SystemOperation,
+    SystemOperationTarget,
+    SystemPermissionGrant,
+    SystemPreview,
+    SystemPrincipal,
+    SystemRoleAssignment,
+    SystemSession,
+)
 
 __all__ = [
+    "SystemPermissionGrant",
+    "SystemCaseContext",
+    "SystemAuditEvent",
+    "SystemPrincipal",
+    "SystemCredential",
+    "SystemChallenge",
+    "SystemAuthRateLimit",
+    "SystemPreview",
+    "SystemOperation",
+    "SystemOperationTarget",
+    "SystemRoleAssignment",
+    "SystemSession",
     "AdminAuditEvent",
     "AccountClosureRequest",
     "BillingAuditEvent",

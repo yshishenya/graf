@@ -73,6 +73,17 @@ class PostalEmailLoginClient:
         }
         await self._post_message(payload)
 
+    async def send_system_admin_link(self, *, recipient_email: str, url: str, reset: bool) -> None:
+        subject = "Смена пароля администратора GRAF" if reset else "Приглашение администратора GRAF"
+        purpose = "system-admin-reset" if reset else "system-admin-invitation"
+        explanation = "Ссылка действует 15 минут. Второй фактор сохраняется." if reset else "Ссылка действует 24 часа. Для входа потребуется настроить второй фактор."
+        await self._post_message({
+            "to": [recipient_email], "from": formataddr((self.from_name, self.from_address)),
+            "subject": subject, "plain_body": f"{subject}\n\n{explanation}\n{url}",
+            "html_body": f"<p>{escape(subject)}</p><p>{escape(explanation)}</p><p><a href='{escape(url, quote=True)}'>Продолжить в GRAF</a></p>",
+            "tag": purpose, "headers": {"X-2brain-Email-Purpose": purpose},
+        })
+
     async def send_workspace_invitation_review_notice(self, *, recipient_email: str) -> None:
         payload = {
             "to": [recipient_email],
