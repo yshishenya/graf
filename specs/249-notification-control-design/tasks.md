@@ -119,7 +119,7 @@ Runtime выявил HIGH/contradicts по FR-002/004, US1/AC4 и принцип
 
 ## Phase 10: Convergence
 
-- [ ] T024 Устранить обрезание кнопок и источников в `apps/macos/RecApp/Sources/Capture/CaptureStatusItem.swift` и `Sources/Notifications/DesktopControlPanel.swift`; проверить реальный виджет GRAF Dev шириной 290 px в записи и паузе. [FR-013/017; SC-006; partial]
+- [X] T024 Устранить обрезание кнопок и источников в `apps/macos/RecApp/Sources/Capture/CaptureStatusItem.swift` и `Sources/Notifications/DesktopControlPanel.swift`; проверить реальный виджет GRAF Dev шириной 290 px в записи и паузе. [FR-013/017; SC-006; partial]
 
 T010/T017: код и автоматические проверки выполнены, запрос принят macOS;
 видимая системная доставка/полная матрица ещё не приняты. T019: удаление и
