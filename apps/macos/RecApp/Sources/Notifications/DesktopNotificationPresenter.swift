@@ -40,23 +40,26 @@ public final class DesktopNotificationPreferencesStore {
     public func claim(id: String, owner: String, expires: Date, scheduledFor: Date? = nil, now: Date = Date()) -> Bool {
         guard !owner.isEmpty, expires > now else { return false }
         let name = key(owner) + ".attempts"
-        var claims = defaults.dictionary(forKey: name) ?? [:]
-        claims = claims.filter {
-            let expiry = ($0.value as? Double) ?? ($0.value as? [String: Double])?["expires"] ?? 0
-            return expiry > now.timeIntervalSince1970
-        }
+        var claims = defaults.dictionary(forKey: name) as? [String: Double] ?? [:]
+        claims = claims.filter { $0.value > now.timeIntervalSince1970 }
+        let reservationKey = name + ".reservations"
+        var reservations = defaults.dictionary(forKey: reservationKey) as? [String: [String: Double]] ?? [:]
+        reservations = reservations.filter { ($0.value["expires"] ?? 0) > now.timeIntervalSince1970 }
         let digest = SHA256.hash(data: Data(id.utf8)).map { String(format: "%02x", $0) }.joined()
-        if let previous = claims[digest] {
+        if claims[digest] != nil {
             // A future reservation can be replaced after cancellation/restart. Once
             // its due time has passed (or with a legacy claim), never deliver again.
-            guard let reservation = previous as? [String: Double],
-                  let due = reservation["scheduledFor"], due > now.timeIntervalSince1970,
+            guard let due = reservations[digest]?["scheduledFor"], due > now.timeIntervalSince1970,
                   scheduledFor != nil else { return false }
         }
+        // Keep the old numeric ledger readable on rollback. Write its deny marker
+        // first: interruption before the atomic reservation write stays silent.
+        claims[digest] = expires.timeIntervalSince1970
+        defaults.set(claims, forKey: name)
         var reservation = ["expires": expires.timeIntervalSince1970]
         if let scheduledFor { reservation["scheduledFor"] = scheduledFor.timeIntervalSince1970 }
-        claims[digest] = reservation
-        defaults.set(claims, forKey: name)
+        reservations[digest] = reservation
+        defaults.set(reservations, forKey: reservationKey)
         return true
     }
 }

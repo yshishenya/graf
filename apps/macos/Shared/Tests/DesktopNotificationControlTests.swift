@@ -88,6 +88,8 @@ final class DesktopNotificationControlTests: XCTestCase {
         let expiry = due.addingTimeInterval(300)
         let store = DesktopNotificationPreferencesStore(defaults: defaults)
         XCTAssertTrue(store.claim(id: "reminder", owner: "a", expires: expiry, scheduledFor: due, now: now))
+        let legacyLedger = try XCTUnwrap(defaults.dictionaryRepresentation().first { $0.key.hasSuffix(".attempts") }?.value as? [String: Double])
+        XCTAssertEqual(legacyLedger.count, 1, "Rollback must still read the old numeric deny ledger")
         let restored = DesktopNotificationPreferencesStore(defaults: defaults)
         XCTAssertTrue(restored.claim(id: "reminder", owner: "a", expires: expiry, scheduledFor: due, now: now.addingTimeInterval(60)))
         XCTAssertFalse(restored.claim(id: "reminder", owner: "a", expires: expiry, scheduledFor: due.addingTimeInterval(60), now: due))
