@@ -279,3 +279,11 @@ JavaScript confirm, Return/Escape и protectedAction assertions сохранен
 подтвердилась; две замены отменены. Добавлены временные stage markers и
 диагностический вывод только exception/termination/stack symbols из crash report.
 Процессные аргументы, пути, окружение и содержимое памяти не выводятся.
+
+### Причина аварийного завершения macOS 14
+
+- Диагностика 34000555379: `EXC_BREAKPOINT` в `URLRequest._unconditionallyBridgeFromObjectiveC`, вызванном `Coordinator.webView(_:decidePolicyFor:decisionHandler:)` во время загрузки HTTP-документа, до confirm.
+- `WKFrameInfo.request` может отсутствовать до появления документа вопреки nonnull-объявлению SDK. Все чтения URL фрейма сведены к существующему Objective-C getter через KVC с optional `NSURLRequest`; отсутствующий адрес остаётся nil, проверки доверенного адреса не ослаблены.
+- Временные маркеры удалены. Сетевые очереди исходные. Реальный регрессионный тест сохраняет HTTP, WKFrameInfo, JS confirm и Return/Escape. Требуется повторная диагностика Swift 6.0.3.
+- Локальный regression run: 39 XCTest PASS, 8.031s (`EmbeddedCabinet|DesktopMeetingShellWebViewBoundary`); обновлено устаревшее source assertion на тот же guard с optional адресом. Governance и whitespace PASS.
+- Ponytail review: временная диагностика workflow удалена после получения стека; один getter для восьми потребителей, без новых зависимостей.
