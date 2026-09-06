@@ -87,9 +87,9 @@ def test_billing_account_sharing_and_audit_use_viewer_time():
         AccountProfileView,
         account_settings_surface,
     )
-    from twobrain_rec_server.db.models import AuthSession
     from twobrain_rec_server.cabinet.web_routes.billing import _billing_datetime_label
     from twobrain_rec_server.cabinet.web_routes.fair_use import _date_label
+    from twobrain_rec_server.db.models import AuthSession
 
     instant = datetime(2026, 9, 5, 21, 30, tzinfo=UTC)
     token = _display_timezone.set("Asia/Yekaterinburg")

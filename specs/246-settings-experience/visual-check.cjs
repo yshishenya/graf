@@ -22,9 +22,9 @@ const base = process.env.SETTINGS_PREVIEW_URL || 'http://127.0.0.1:8765';
       results.push({embedded, theme, width, path, ...geometry});
       assert.ok(geometry.delta <= 2 && geometry.overflow <= 1 && geometry.column <= (path === '/billing' ? 881 : 781), JSON.stringify(results.at(-1)));
       if (path === '/account') {
-        const locale = await page.locator('#account-locale').boundingBox();
-        const timezone = await page.locator('#account-timezone').boundingBox();
-        if (Math.abs(locale.x - timezone.x) > 2) assert.ok(Math.abs(locale.y - timezone.y) <= 2 && Math.abs(locale.height - timezone.height) <= 2, 'preferences fields must align despite the locale explanation');
+        const locale = await page.locator('label[for=account-locale]').boundingBox();
+        const timezone = await page.locator('[data-timezone-field]').boundingBox();
+        if (Math.abs(locale.x - timezone.x) > 2) assert.ok(Math.abs(locale.y - timezone.y) <= 2, 'preference field groups must align; timezone includes its own search and preview');
         const form = page.locator('.account-profile-form');
         const input = form.locator('input[name=display_name]'), submit = form.locator('button[type=submit]');
         const initial = await input.inputValue();
