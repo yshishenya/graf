@@ -199,6 +199,7 @@ def _seed_future_event(client, source_id: UUID) -> UUID:
                         provider_extras={"raw_payload_retained": False},
                     )
                 ),
+                credential_encryption_key=client.app.state.credential_encryption_key,
             )
             await session.commit()
             return snapshot.id

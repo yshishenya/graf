@@ -76,6 +76,10 @@ from twobrain_rec_server.cabinet.view_models import (
 )
 from twobrain_rec_server.calendar.audit import calendar_context_activity_projections
 from twobrain_rec_server.calendar.google import google_oauth_config_from_settings
+from twobrain_rec_server.calendar.owner_content import (
+    attach_owner_content,
+    owner_content_key_from_settings,
+)
 from twobrain_rec_server.calendar.service import (
     SELECTABLE_CALENDAR_VISIBILITIES,
     calendar_event_matches_preferences,
@@ -297,6 +301,7 @@ async def get_calendar_settings_surface(
     tenant_scope: TenantScope,
     *,
     settings: object | None = None,
+    credential_encryption_key: bytes | None = None,
     notice_codes: tuple[str, ...] = (),
 ):
     from twobrain_rec_server.cabinet.view_models import calendar_settings_surface
@@ -336,6 +341,9 @@ async def get_calendar_settings_surface(
         tenant_scope,
         source_ids=source_ids,
         preference=preference,
+    )
+    attach_owner_content(
+        preview, credential_encryption_key or owner_content_key_from_settings(settings)
     )
     return calendar_settings_surface(
         provider_payloads=list_provider_presets(
@@ -394,8 +402,7 @@ async def _calendar_settings_preview_events(
         query = query.where(CalendarEventSnapshot.all_day.is_(False))
     if preference is None or not preference.include_private_free_busy_prompt_candidates:
         query = query.where(
-            CalendarEventSnapshot.safe_to_show_in_list.is_(True),
-            CalendarEventSnapshot.privacy_class.notin_({"private", "free_busy", "free_busy_only"}),
+            CalendarEventSnapshot.privacy_class.notin_({"free_busy", "free_busy_only"}),
         )
     rows = list(await db.scalars(query.limit(81)))
     return [event for event in rows if calendar_event_matches_preferences(event, preference)][:8]

@@ -237,7 +237,7 @@ async def test_google_event_uses_iana_timezone_when_datetime_has_no_offset() -> 
 
 
 @pytest.mark.asyncio
-async def test_google_cancelled_recurring_instance_can_omit_start_and_end() -> None:
+async def test_google_cancelled_recurring_instance_uses_stable_id_without_ical_uid() -> None:
     http = FakeGoogleHttp(
         [
             (
@@ -246,7 +246,6 @@ async def test_google_cancelled_recurring_instance_can_omit_start_and_end() -> N
                     "items": [
                         {
                             "id": "cancelled-instance",
-                            "iCalUID": "series@example.test",
                             "status": "cancelled",
                             "recurringEventId": "series",
                             "originalStartTime": {
@@ -265,10 +264,10 @@ async def test_google_cancelled_recurring_instance_can_omit_start_and_end() -> N
         "fixture-access", calendar_id="primary"
     )
 
-    event = page.events[0]
-    assert event.source_status == "cancelled"
-    assert event.original_start.isoformat() == "2026-08-19T09:00:00+00:00"
-    assert event.recurrence_instance_id == "cancelled-instance"
+    # Google guarantees only id, recurringEventId and originalStartTime for
+    # cancelled instances. Do not upsert a second snapshot with iCalUID=None.
+    assert page.events == ()
+    assert page.deleted_event_ids == ("cancelled-instance",)
 
 
 @pytest.mark.asyncio
@@ -373,3 +372,51 @@ async def test_google_runtime_refreshes_server_owned_token_before_event_read() -
     assert http.requests[0][1].endswith("/token")
     assert http.requests[1][3] is None
     assert http.requests[1][4] == {"Authorization": "Bearer fixture-access"}
+
+
+@pytest.mark.asyncio
+async def test_google_tombstone_and_private_full_content_share_one_page() -> None:
+    item = {
+        "id": "private",
+        "visibility": "private",
+        "start": {"dateTime": "2026-09-06T09:00:00Z"},
+        "end": {"dateTime": "2026-09-06T10:00:00Z"},
+        "summary": "owner@example.test " * 80,
+        "description": 'Agenda https://example.test/info <a href="https://zoom.us/j/12?pwd=synthetic&amp;from=invite">Join</a>'
+        + "x" * 5000,
+        "location": "Room " * 500,
+        "organizer": {"email": "owner@example.test", "displayName": "owner@example.test"},
+        "attendees": [
+            {"email": "guest@example.test", "optional": True, "responseStatus": "accepted"}
+        ],
+        "attachments": [{"fileUrl": "https://files.example.test/a", "title": "A"}],
+    }
+    adapter = GoogleCalendarAdapter(
+        _config(),
+        http=FakeGoogleHttp(
+            [
+                (
+                    200,
+                    {
+                        "items": [{"id": "removed", "status": "cancelled"}, item],
+                        "nextSyncToken": "next",
+                    },
+                    {},
+                )
+            ]
+        ),
+    )
+    page = await adapter.list_events("fixture-access", calendar_id="primary")
+    assert page.deleted_event_ids == ("removed",)
+    assert page.next_sync_token == "next"
+    event = page.events[0]
+    assert event.title == item["summary"]
+    assert event.description == item["description"]
+    assert event.location == item["location"]
+    assert event.participants[0]["participant_kind"] == "organizer"
+    assert event.participants[1]["participant_kind"] == "optional_attendee"
+    assert event.participants[1]["provider_details"] == item["attendees"][0]
+    assert event.attachments_metadata == item["attachments"]
+    assert event.conference_links[0]["provider_family"] == "zoom"
+    assert event.conference_links[0]["open_url"] == "https://zoom.us/j/12?pwd=synthetic&from=invite"
+    assert event.conference_links[0]["contains_passcode"] is True

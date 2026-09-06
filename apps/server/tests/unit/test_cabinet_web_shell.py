@@ -1466,17 +1466,15 @@ def test_cabinet_rail_collapses_at_surface_breakpoint_without_resize_handler() -
     assert 'document.addEventListener("click"' not in rail_source
 
 
-def test_calendar_sync_refreshes_boundedly_until_server_state_changes() -> None:
+def test_calendar_display_refresh_avoids_page_reload_and_retry_limit() -> None:
     js = _cabinet_js()
-
-    for marker in (
-        "graf-calendar-sync-refresh:",
-        "refreshAttempt < 4",
-        "window.location.reload()",
-        "Синхронизация занимает больше обычного. Обновите страницу позже.",
-        "sessionStorage.removeItem(syncRefreshKey)",
-    ):
-        assert marker in js
+    refresh = js[js.index("const refreshCalendarDisplay"):js.index("const initSettingsFormState")]
+    assert "window.location.reload" not in refresh
+    assert 'window.addEventListener("online"' in refresh
+    assert 'document.addEventListener("visibilitychange"' in refresh
+    assert "30000" in refresh
+    assert "refreshAttempt" not in js
+    assert "graf-calendar-sync-refresh" not in js
 
 
 def test_feature_159_shared_shell_toggle_has_one_truthful_focusable_contract() -> None:

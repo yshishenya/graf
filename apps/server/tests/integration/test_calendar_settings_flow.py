@@ -532,7 +532,7 @@ def test_calendar_settings_connect_app_password_creates_source_without_selected_
     assert len(sources) == 1
     assert sources[0].provider_family == "caldav_yandex"
     assert sources[0].credential_state == "sealed"
-    assert sources[0].last_sync_finished_at is not None
+    assert sources[0].last_sync_finished_at is None  # Catalog was already returned by validation.
     assert sources[0].selected_calendar_count == 0
     assert len(envelopes) == 1
     sealed_payload = json.loads(
@@ -831,7 +831,7 @@ def test_google_oauth_callback_synthetic_completes_state_identity_catalog_and_se
                 source.last_safe_error_code,
             )
 
-    assert asyncio.run(load_source_counts()) == (1, 1, 1, "never_synced", None)
+    assert asyncio.run(load_source_counts()) == (1, 1, 1, "queued", None)
 
     disconnected = client.post(
         f"/api/v1/calendar/sources/{source.id}/disconnect",
@@ -1055,7 +1055,7 @@ def test_calendar_settings_selection_save_empty_and_no_retrospective_matching(cl
     )
     assert selected.status_code == 303
     assert selected.headers["location"] == (
-        "/settings/integrations/calendar?selection_result=saved&sync_result=reconnect_required"
+        "/settings/integrations/calendar?selection_result=saved&sync_result=accepted"
     )
 
     rendered = client.get(selected.headers["location"], headers=auth_headers())
@@ -1195,7 +1195,7 @@ def test_calendar_selection_accepts_twenty_and_rejects_twenty_one_without_trunca
     )
     assert accepted.status_code == 303
     assert accepted.headers["location"].endswith(
-        "selection_result=saved&sync_result=completed"
+        "selection_result=saved&sync_result=accepted"
     )
 
     overflow_ids = [*provider_ids, "overflow"]
@@ -1592,7 +1592,7 @@ def test_calendar_settings_preview_empty_reason_when_selected_calendar_has_no_ma
     assert "All-day hold" not in rendered.text
 
 
-def test_calendar_settings_preview_marks_stale_private_free_busy_safely(client) -> None:
+def test_calendar_settings_preview_preserves_owner_private_title_and_stale_state(client) -> None:
     sessionmaker = client.app_state["sessionmaker"]
     now = datetime.now(UTC)
 
@@ -1660,11 +1660,10 @@ def test_calendar_settings_preview_marks_stale_private_free_busy_safely(client) 
     rendered = client.get("/settings/integrations/calendar", headers=auth_headers())
 
     assert rendered.status_code == 200
-    assert "Скрытое событие" in rendered.text
+    assert "Private board review" in rendered.text
     assert "Личный календарь" in rendered.text
     assert "данные синхронизации могут быть устаревшими" in rendered.text
-    assert "без ссылки на встречу" in rendered.text
-    assert "Private board review" not in rendered.text
+    assert "есть ссылка на встречу" in rendered.text
     assert "attendee@example" not in rendered.text
 
 
@@ -1726,6 +1725,7 @@ def test_calendar_settings_manual_sync_results_cover_safe_states_and_audit(clien
                 sync_state=sync_state,
                 selected_calendar_count=0,
                 last_successful_sync_at=last_successful_sync_at,
+                last_sync_started_at=now if sync_state == "syncing" else None,
                 disconnected_at=disconnected_at,
                 capabilities_json={},
             )
@@ -1745,15 +1745,15 @@ def test_calendar_settings_manual_sync_results_cover_safe_states_and_audit(clien
                 "sync_state": "stale",
                 "last_successful_sync_at": now - timedelta(days=2),
             },
-        "reconnect_required",
-        "Нужно действие",
+            "accepted",
+            "Синхронизация поставлена в очередь",
         ),
         ("already-running", {"sync_state": "syncing"}, "already_running", "Синхронизация уже идет"),
         (
             "provider-failed",
             {"sync_state": "provider_unavailable"},
-            "failed",
-            "Синхронизация не запущена",
+            "accepted",
+            "Синхронизация поставлена в очередь",
         ),
         (
             "needs-action",
@@ -1803,11 +1803,11 @@ def test_calendar_settings_manual_sync_results_cover_safe_states_and_audit(clien
     provider_failed = asyncio.run(load_source(seen_source_ids[2]))
     disconnected = asyncio.run(load_source(seen_source_ids[5]))
 
-    assert accepted.sync_state == "failed_closed"
+    assert accepted.sync_state == "queued"
     assert accepted.last_sync_started_at is not None
     assert accepted.last_successful_sync_at is not None
     assert already_running.sync_state == "syncing"
-    assert provider_failed.sync_state == "provider_unavailable"
+    assert provider_failed.sync_state == "queued"
     assert disconnected.sync_state == "failed_closed"
 
     async def load_sync_audit_events() -> list[CalendarAuditEvent]:
@@ -1826,9 +1826,9 @@ def test_calendar_settings_manual_sync_results_cover_safe_states_and_audit(clien
     assert len(events) == len(cases) * 2
     assert len(result_events) == len(cases)
     assert [event.safe_reason_code for event in result_events] == [
-        "reconnect_required",
+        None,
         "already_running",
-        "failed",
+        None,
         "reconnect_required",
         "unavailable",
         "unavailable",
@@ -1900,10 +1900,9 @@ def test_calendar_settings_cached_projection_and_sync_ack_p95(client) -> None:
         )
         sync_ack_samples.append(perf_counter() - started)
         assert response.status_code == 303
-        assert response.headers["location"].endswith("sync_result=reconnect_required")
+        assert response.headers["location"].endswith("sync_result=accepted")
 
-    # Projection stays cached while manual sync intentionally waits for the
-    # bounded provider path and returns a final state.
+    # Projection stays cached; a manual request acknowledges the queue without provider I/O.
     assert _p95_seconds(projection_samples) <= 0.5
     assert _p95_seconds(projection_samples) <= 1.0
     assert max(sync_ack_samples) < 2.0
@@ -2018,6 +2017,32 @@ def test_calendar_settings_disconnect_stops_future_contribution_purges_credentia
     assert events[-1].outcome == "completed"
     assert "secret-app-password" not in str(events)
     assert "raw_provider_payload" not in str(events)
+
+    reconnected = client.post(
+        "/settings/integrations/calendar/providers/caldav_yandex/connect",
+        headers=auth_headers(),
+        data={"username": "owner@example.test", "credential_input": "synthetic-new-password"},
+        follow_redirects=False,
+    )
+    assert reconnected.status_code == 303
+    assert "connect_result=success" in reconnected.headers["location"]
+    page = client.get(reconnected.headers["location"], headers=auth_headers())
+    assert "Нужно выбрать календари" in page.text
+    assert "Future calendar event" not in page.text
+    assert "synthetic-new-password" not in page.text
+
+    async def active_source_after_reconnect():
+        async with sessionmaker() as session:
+            return list(await session.scalars(select(CalendarSource).where(
+                CalendarSource.connection_state == "active",
+                CalendarSource.owner_user_id == USER_ID,
+            )))
+
+    active = asyncio.run(active_source_after_reconnect())
+    assert len(active) == 1
+    assert active[0].id != source_id
+    assert active[0].selected_calendar_count == 0
+    assert active[0].credential_state == "sealed"
 
 
 def test_calendar_settings_disconnect_partial_feedback_is_safe(client) -> None:

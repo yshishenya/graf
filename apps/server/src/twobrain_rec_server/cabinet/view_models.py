@@ -967,6 +967,7 @@ class UpcomingPreviewItemView:
     ends_at: datetime
     source_ids: tuple[str, ...]
     meeting_link_present: bool
+    all_day: bool = False
     open_meeting_available: bool = False
     calendar_labels: tuple[str, ...] = ()
     source_labels: tuple[str, ...] = ()
@@ -1010,8 +1011,8 @@ class CalendarSettingsSurfaceView:
     )
     no_matching_events_copy: str = "Нет будущих событий, которые подходят под выбранные настройки."
     private_free_busy_copy: str = (
-        "Приватные события и события только со статусом занятости показываются без названия, "
-        "ссылок, участников, описания и вложений."
+        "GRAF показывает сведения, которые провайдер передал владельцу, в том числе для приватных событий. "
+        "Если доступна только занятость, название и другие отсутствующие сведения не добавляются."
     )
     empty_state_title: str = "Календари пока не подключены"
     empty_state_body: str = "Подключите источник календаря, затем выберите календари. Пока календарь не выбран, встречи из него не подтягиваются."
@@ -1278,7 +1279,7 @@ def calendar_visibility_label(visibility: str) -> str:
         "selected": "выбран",
         "hidden": "скрыт провайдером",
         "unavailable": "недоступен",
-        "private": "приватное / только занятость",
+        "private": "приватный календарь",
         "shared": "общий календарь",
         "delegated": "делегированный календарь",
         "removed": "удален у провайдера",
@@ -1338,7 +1339,7 @@ def calendar_sync_health_state(source: CalendarSource, *, now: datetime | None =
         synced_at = source.last_successful_sync_at
         if synced_at.tzinfo is None:
             synced_at = synced_at.replace(tzinfo=UTC)
-        if current - synced_at > timedelta(hours=24):
+        if current - synced_at > timedelta(minutes=3):
             return "stale"
     return "synced" if source.last_successful_sync_at else "never_synced"
 
@@ -1476,7 +1477,7 @@ def calendar_settings_notices(
 
 
 def safe_calendar_label(raw: str | None, *, fallback: str) -> str:
-    return safe_title_candidate(raw) or fallback
+    return raw if raw and raw.strip() else fallback
 
 
 def preview_items(
@@ -1559,18 +1560,14 @@ def upcoming_preview_item(
     duplicate_source_count: int = 1,
     sync_confidence_state: str = "current",
 ) -> UpcomingPreviewItemView:
-    title = safe_calendar_label(
-        event.title if event.safe_to_show_in_list else None, fallback="Скрытое событие"
-    )
-    title_state = (
-        "available"
-        if event.safe_to_show_in_list and title != "Скрытое событие"
-        else event.privacy_class
-    )
+    from twobrain_rec_server.calendar.owner_content import owner_event_title
+
+    raw_title = owner_event_title(event)
+    title = safe_calendar_label(raw_title, fallback="Без названия")
+    title_state = "available" if raw_title and raw_title.strip() else "missing"
     meeting_link_present = bool((event.conference_summary_json or {}).get("meeting_link_present"))
-    if _is_private_or_free_busy(event):
-        meeting_link_present = False
     return UpcomingPreviewItemView(
+        all_day=bool(event.all_day),
         event_id=str(event.id),
         title=title,
         title_state=title_state,
@@ -1630,12 +1627,6 @@ def _event_participant_count(event: CalendarEventSnapshot) -> int:
     except (TypeError, ValueError):
         return 0
 
-
-def _is_private_or_free_busy(event: CalendarEventSnapshot) -> bool:
-    return (
-        event.privacy_class in {"private", "free_busy", "free_busy_only"}
-        or not event.safe_to_show_in_list
-    )
 
 
 @dataclass(frozen=True)

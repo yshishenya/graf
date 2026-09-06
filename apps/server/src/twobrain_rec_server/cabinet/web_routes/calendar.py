@@ -71,7 +71,6 @@ from twobrain_rec_server.calendar.service import (
     unlink_meeting_calendar_context,
     validate_provider_connection,
 )
-from twobrain_rec_server.calendar.worker import run_calendar_source_sync_now
 from twobrain_rec_server.product_analytics.browser_context import (
     build_request_browser_provider_context,
 )
@@ -79,16 +78,6 @@ from twobrain_rec_server.product_analytics.browser_context import (
 router = APIRouter(tags=["cabinet-web"])
 logger = logging.getLogger(__name__)
 
-
-async def _run_calendar_sync_now(request: Request, source_id: UUID) -> None:
-    provider_factory = getattr(request.app.state, "calendar_provider_factory", None)
-    await run_calendar_source_sync_now(
-        request.app.state.db_sessionmaker,
-        request.app.state.settings,
-        source_id,
-        provider_factory=provider_factory if callable(provider_factory) else None,
-        credential_encryption_key=_credential_encryption_key(request, required=False),
-    )
 
 CalendarConnectResultQuery = Query(default=None, max_length=48, alias="connect_result")
 CalendarPolicyLimitedQuery = Query(default=None, max_length=48, alias="policy_limited")
@@ -219,6 +208,7 @@ async def calendar_settings_page(
         db,
         tenant_scope,
         settings=request.app.state.settings,
+        credential_encryption_key=_credential_encryption_key(request, required=False),
         notice_codes=calendar_settings_notice_codes(
             connect_result=connect_result,
             policy_limited=policy_limited,
@@ -536,8 +526,6 @@ async def calendar_provider_connect(
             account_subject=validation.account_subject,
             granted_scopes=validation.granted_scopes,
         )
-        if provider_family == "caldav_yandex":
-            await request_source_sync(db, tenant_scope, source.id)
     except (CalendarProviderError, ProblemDetail) as exc:
         safe_code = getattr(exc, "safe_code", None) or getattr(exc, "code", None)
         result = calendar_connection_result_from_problem(safe_code)
@@ -562,15 +550,6 @@ async def calendar_provider_connect(
         source_id=source.id,
     )
     await db.commit()
-    if provider_family == "caldav_yandex":
-        try:
-            await _run_calendar_sync_now(request, source.id)
-        except Exception as error:
-            logger.error(
-                "initial calendar sync failed; source_id=%s error_type=%s",
-                source.id,
-                type(error).__name__,
-            )
     return calendar_settings_redirect(request, connect_result="success")
 
 
@@ -766,6 +745,7 @@ async def calendar_source_calendar_selection(
         str(value) for value in form.getlist("selected_provider_calendar_ids") if str(value).strip()
     ]
     source = await get_source(db, tenant_scope, source_id)
+    requested_at = datetime.now(UTC)
     try:
         await replace_selected_calendars(
             db, tenant_scope, source, selected_ids, allow_missing=False
@@ -775,23 +755,12 @@ async def calendar_source_calendar_selection(
             raise
         await db.rollback()
         return calendar_settings_redirect(request, selection_result="limit_exceeded")
-    sync_requested_at = None
-    if source.provider_family == "caldav_yandex" and source.selected_calendar_count:
-        sync_requested_at = datetime.now(UTC)
-        await request_source_sync(db, tenant_scope, source.id)
     await db.commit()
-    sync_result = None
-    if sync_requested_at is not None:
-        try:
-            await _run_calendar_sync_now(request, source.id)
-        except Exception as error:
-            logger.error(
-                "selected calendar sync failed; source_id=%s error_type=%s",
-                source.id,
-                type(error).__name__,
-            )
-        await db.refresh(source)
-        sync_result = calendar_manual_sync_result(source, requested_at=sync_requested_at)
+    sync_result = (
+        calendar_manual_sync_result(source, requested_at=requested_at)
+        if source.selected_calendar_count
+        else None
+    )
     return calendar_settings_redirect(
         request,
         selection_result="saved" if source.selected_calendar_count else "empty",
@@ -834,15 +803,6 @@ async def calendar_source_manual_sync(
     requested_at = datetime.now(UTC)
     source = await request_source_sync(db, tenant_scope, source.id)
     await db.commit()
-    try:
-        await _run_calendar_sync_now(request, source.id)
-    except Exception as error:
-        logger.error(
-            "manual calendar sync failed; source_id=%s error_type=%s",
-            source.id,
-            type(error).__name__,
-        )
-    await db.refresh(source)
     result = calendar_manual_sync_result(source, requested_at=requested_at)
     await record_calendar_source_event(
         db,
