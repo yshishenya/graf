@@ -292,3 +292,10 @@ JavaScript confirm, Return/Escape и protectedAction assertions сохранен
 - Серверный Full CI 33999768481: 3900 PASS, 5 FAIL, 36 skipped. Причины: старые подписи календаря, запрет нового focus target итогов, удалённый неиспользуемый privacy macro, старое CSS-ожидание 46px. Проверка аналитики теперь использует реально отрисованный body с четырьмя masking attributes и разрешённым autocapture; runtime evidence проверяет действующие вкладки >=44px вместо наличия произвольного 46px в файле. Это актуализация проверок принятого F240/F243, не изменение производственного server-кода.
 
 - Итоговые focused проверки: 63 server tests PASS в изолированной PostgreSQL, 68.73s; контейнер удалён. 39 macOS tests PASS, 7.964s. Новая диагностика старого Swift и authoritative Full CI остаются обязательными.
+
+### Закрытие release regression
+
+- macos-diagnostic https://github.com/yshishenya/graf/actions/runs/34001190882 на `40210643b579d352aaba32481e53c74e1419df3b`: 801 XCTest PASS (42.474s), ContractValidation PASS, macOS 14 / Swift 6.0.3. Реальный JS confirm с Return/Escape прошёл.
+- governance-fast https://github.com/yshishenya/graf/actions/runs/34001191305 на том же SHA: PASS.
+- T017/T018 закрыты по исправлению и scoped validation. После этой записи меняется только документация; финальный merge SHA требует собственного authoritative Full CI.
+- Проверка корректности: отсутствующий URL остаётся nil, все прежние routePolicy проверки сохранены; делегат соответствует обеим поддерживаемым сигнатурам SDK. Ponytail review: общий optional getter и существующий conditional typealias pattern; дополнительных зависимостей нет.
