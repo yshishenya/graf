@@ -3,7 +3,7 @@
     <p class="eyebrow">Итоги через GRAF</p>
     <h1 id="shared-summary-title">{{ meeting_title }}</h1>
     <p class="muted">
-      {{ occurred_at.strftime("%d.%m.%Y, %H:%M UTC") }} · {{ (duration_seconds // 60) }} мин
+      {% if time_is_upload %}Загружено {% endif %}{{ user_time_element(occurred_at, show_zone=True) }} · {{ (duration_seconds // 60) }} мин
     </p>
     <p class="shared-summary__notice">Вам открыли только итоги этой встречи. Аудио, расшифровка и внутренние данные не доступны.</p>
 

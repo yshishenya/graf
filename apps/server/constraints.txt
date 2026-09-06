@@ -17,6 +17,8 @@ argon2-cffi-bindings==25.1.0
     # via argon2-cffi
 asyncpg==0.31.0
     # via twobrain-rec-server
+babel==2.18.0
+    # via twobrain-rec-server
 backoff==2.2.1
     # via langfuse
 certifi==2026.6.17

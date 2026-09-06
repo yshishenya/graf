@@ -12,17 +12,26 @@ public enum DesktopCabinetSessionBridge {
     public static let authSessionCookieName = DesktopCabinetConfiguration.productionAuthSessionCookieName
 
     @MainActor
-    public static func syncAuthSessionCookies(from webView: WKWebView) {
+    public static func syncAuthSessionCookies(
+        from webView: WKWebView,
+        isCurrentDocument: @escaping @MainActor () -> Bool = { true },
+        completion: @escaping @MainActor () -> Void = {}
+    ) {
         guard let originURL = webView.url else { return }
         webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { cookies in
             Task { @MainActor in
+                guard isCurrentDocument() else { return }
                 let storage = HTTPCookieStorage.shared
                 let plan = reconciliation(
                     webCookies: cookies,
                     nativeCookies: storage.cookies ?? [],
                     originURL: originURL
                 )
-                guard !plan.cookiesToDelete.isEmpty || !plan.cookiesToSet.isEmpty else { return }
+                guard !plan.cookiesToDelete.isEmpty || !plan.cookiesToSet.isEmpty else {
+                    completion()
+                    return
+                }
+                DesktopUserTimeContext.shared.reset()
                 for cookie in plan.cookiesToDelete {
                     storage.deleteCookie(cookie)
                 }
@@ -30,6 +39,7 @@ public enum DesktopCabinetSessionBridge {
                     storage.setCookie(cookie)
                 }
                 NotificationCenter.default.post(name: .twoBrainRecDesktopAuthSessionDidChange, object: nil)
+                completion()
             }
         }
     }

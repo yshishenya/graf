@@ -65,7 +65,7 @@
               <tr>
                 <td>{{ row.target_id }}</td>
                 <td>{{ row.support_mode }}</td>
-                <td>{{ row.rollup_date }}</td>
+                <td>{{ format_user_datetime(row.rollup_date, date_only=True) }}</td>
                 <td>{{ row.outcomes }}</td>
               </tr>
             {% endfor %}

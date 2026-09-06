@@ -55,6 +55,7 @@ from twobrain_rec_server.cabinet.egress import (
     review_playback_state,
 )
 from twobrain_rec_server.cabinet.speakers import speaker_names_for_result
+from twobrain_rec_server.cabinet.user_time import display_timezone_name
 from twobrain_rec_server.cabinet.view_models import (
     AUTHORITATIVE_TITLE_SOURCES,
     PROVIDER_LINK_LABELS,
@@ -276,7 +277,7 @@ def _account_profile_view(user: UserIdentity | None, identities: tuple[ExternalI
             None,
         ),
         locale=(user.locale if user else "ru-RU"),
-        timezone=(user.timezone if user else "Europe/Moscow"),
+        timezone=(user.timezone if user else None),
         theme=(user.theme if user else "system"),
     )
 
@@ -546,7 +547,7 @@ async def list_cabinet_meetings(
         if sort != "title_asc" and len(items) > limit:
             break
     if sort == "title_asc":
-        items.sort(key=lambda item: item.title.casefold())
+        items.sort(key=lambda item: (item.title.casefold(), str(item.meeting_id)))
     has_more = len(items) > limit
     response = MeetingListResponse(
         items=items[:limit],
@@ -560,6 +561,19 @@ async def list_cabinet_meetings(
     )
     response._has_more = has_more
     return response
+
+
+async def shared_meeting_display_metadata(
+    db: AsyncSession, *, meeting: Meeting
+) -> tuple[str, datetime | None, bool]:
+    """HTML metadata only; shared transport projections keep their existing contract."""
+    revision = await _latest_media_revision(db, workspace_id=meeting.workspace_id, meeting_id=meeting.id)
+    source = meeting_source(revision)
+    uploaded = meeting.started_at is None and source == "manual_upload"
+    instant = meeting.started_at or (meeting.created_at if uploaded else None)
+    # The separate semantic timestamp owns localization, including first visits to share links.
+    title = meeting_list_title(meeting, source=source, include_recording_time=False)
+    return title[:160], instant, uploaded
 
 
 async def list_shared_with_me_meetings(
@@ -592,7 +606,7 @@ async def list_shared_with_me_meetings(
     for grant in grants:
         grants_by_workspace.setdefault(grant.workspace_id, []).append(grant)
 
-    rows: dict[UUID, tuple[datetime, tuple[int, int, int], SharedWithMeMeetingItem]] = {}
+    rows: dict[UUID, tuple[datetime | None, tuple[int, int, int], SharedWithMeMeetingItem]] = {}
     for workspace_id, workspace_grants in grants_by_workspace.items():
         proof = await recipient_share_access_proof(
             sessionmaker,
@@ -643,13 +657,21 @@ async def list_shared_with_me_meetings(
                     int(decision.can_download),
                     int(decision.can_export),
                 )
-                occurred_at = meeting.started_at or meeting.created_at
+                revision = await _latest_media_revision(
+                    source_db, workspace_id=workspace_id, meeting_id=meeting.id
+                )
+                source = meeting_source(revision)
+                occurred_at = meeting.started_at or (
+                    meeting.created_at if source == "manual_upload" else None
+                )
                 card = SharedWithMeMeetingItem(
-                    title=meeting_list_title(meeting),
+                    title=meeting_list_title(meeting, source=source),
                     time_label=meeting_list_time_label(
                         occurred_at,
                         timezone_offset_minutes=meeting.recording_display_timezone_offset_minutes,
-                        time_basis="meeting",
+                        time_basis="upload"
+                        if meeting.started_at is None and source == "manual_upload"
+                        else "meeting",
                     ),
                     duration_label=format_duration(meeting.duration_seconds),
                     status_label=(
@@ -668,7 +690,14 @@ async def list_shared_with_me_meetings(
                 previous = rows.get(meeting.id)
                 if previous is None or rank > previous[1]:
                     rows[meeting.id] = (occurred_at, rank, card)
-    return tuple(card for _, _, card in sorted(rows.values(), key=lambda row: row[0], reverse=True))
+    return tuple(
+        card
+        for _, _, card in sorted(
+            (rows[meeting_id] for meeting_id in sorted(rows, key=str)),
+            key=lambda row: (row[0] is not None, row[0] or datetime.min.replace(tzinfo=UTC)),
+            reverse=True,
+        )
+    )
 
 
 def _meeting_matches_query(
@@ -791,67 +820,9 @@ def _meeting_visible_row_search_expression(*, time_basis: MeetingListTimeBasis):
     projected-field searches from expanding into per-meeting access/media queries.
     """
 
-    manual_upload = or_(
-        Meeting.title.ilike("manual-upload-%"),
-        Meeting.title.ilike("manual_upload_%"),
-        Meeting.local_recording_id.ilike("manual-upload-%"),
-        Meeting.local_recording_id.ilike("manual_upload_%"),
-        exists(
-            select(MediaRevision.id).where(
-                MediaRevision.workspace_id == Meeting.workspace_id,
-                MediaRevision.meeting_id == Meeting.id,
-                MediaRevision.source_kind == MediaRevisionSourceKind.MANUAL_UPLOAD.value,
-            )
-        ),
-    )
-    upload_fallback = and_(Meeting.started_at.is_(None), manual_upload)
-    timestamp_value = (
-        Meeting.updated_at
-        if time_basis == "updated"
-        else case(
-            (upload_fallback, Meeting.created_at),
-            else_=Meeting.started_at,
-        )
-    )
-    timezone_offset = case(
-        (
-            Meeting.recording_display_timezone_offset_minutes.between(-14 * 60, 14 * 60),
-            Meeting.recording_display_timezone_offset_minutes,
-        ),
-        else_=0,
-    )
-    localized_timestamp = func.timezone(literal("UTC"), timestamp_value) + func.make_interval(
-        0,
-        0,
-        0,
-        0,
-        0,
-        func.coalesce(timezone_offset, 0),
-    )
-    month_number = cast(func.extract("month", localized_timestamp), Integer)
-    month_label = case(
-        *[
-            (month_number == month, literal(label))
-            for month, label in enumerate(
-                (
-                    "янв",
-                    "фев",
-                    "мар",
-                    "апр",
-                    "май",
-                    "июн",
-                    "июл",
-                    "авг",
-                    "сен",
-                    "окт",
-                    "ноя",
-                    "дек",
-                ),
-                start=1,
-            )
-        ],
-        else_=literal(""),
-    )
+    upload_fallback = and_(Meeting.started_at.is_(None), _manual_upload_condition())
+    timestamp_value = Meeting.updated_at if time_basis == "updated" else _meeting_time_expression()
+    localized_timestamp = func.timezone(literal(display_timezone_name()), timestamp_value)
     date_prefix = (
         literal("Обновлено ")
         if time_basis == "updated"
@@ -861,11 +832,8 @@ def _meeting_visible_row_search_expression(*, time_basis: MeetingListTimeBasis):
         (timestamp_value.is_(None), literal("Без даты")),
         else_=func.concat(
             date_prefix,
-            cast(cast(func.extract("day", localized_timestamp), Integer), String),
-            literal(" "),
-            month_label,
-            literal(", "),
-            func.to_char(localized_timestamp, literal("HH24:MI")),
+            func.to_char(localized_timestamp, literal("DD.MM.YYYY, HH24:MI")),
+            literal(" (UTC)" if display_timezone_name() == "UTC" else ""),
         ),
     )
 
@@ -1549,21 +1517,43 @@ async def _calendar_roster_state(
     return calendar_roster_state(participants)
 
 
+def _manual_upload_condition():
+    latest_source = (
+        select(MediaRevision.source_kind)
+        .where(
+            MediaRevision.workspace_id == Meeting.workspace_id,
+            MediaRevision.meeting_id == Meeting.id,
+            MediaRevision.status == MediaRevisionStatus.ACCEPTED.value,
+            MediaRevision.immutable.is_(True),
+        )
+        .order_by(MediaRevision.revision_number.desc(), MediaRevision.updated_at.desc())
+        .limit(1)
+        .correlate(Meeting)
+        .scalar_subquery()
+    )
+    return latest_source == MediaRevisionSourceKind.MANUAL_UPLOAD.value
+
+
+def _meeting_time_expression():
+    return case(
+        (and_(Meeting.started_at.is_(None), _manual_upload_condition()), Meeting.created_at),
+        else_=Meeting.started_at,
+    )
+
+
 def _apply_sort(query: Select[tuple[Meeting]], sort: str) -> Select[tuple[Meeting]]:
+    meeting_time = _meeting_time_expression()
     sorters = {
         "updated_desc": nullslast(desc(Meeting.updated_at)),
         "updated_asc": nullslast(asc(Meeting.updated_at)),
-        "started_desc": nullslast(desc(Meeting.started_at)),
-        "started_asc": nullslast(asc(Meeting.started_at)),
+        "started_desc": nullslast(desc(meeting_time)),
+        "started_asc": nullslast(asc(meeting_time)),
         "duration_desc": desc(Meeting.duration_seconds),
         "duration_asc": asc(Meeting.duration_seconds),
     }
     if sort == "title_asc":
-        return query.order_by(desc(Meeting.created_at))
-    return query.order_by(
-        sorters.get(sort, nullslast(desc(Meeting.started_at))),
-        desc(Meeting.created_at),
-    )
+        return query.order_by(Meeting.id.asc())
+    return query.order_by(sorters.get(sort, nullslast(desc(meeting_time))), Meeting.id.asc())
 
 
 async def _latest_workflow(

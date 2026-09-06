@@ -61,7 +61,17 @@
         {{ sections.csrf_field(csrf_token) }}
         <div class="settings-form-grid">
           <label class="settings-field" for="account-locale"><span class="field-label">Язык</span><select id="account-locale" name="locale" aria-describedby="account-locale-help"><option value="ru-RU"{% if account_surface.profile and account_surface.profile.locale == 'ru-RU' %} selected{% endif %}>Русский</option><option value="en-US"{% if account_surface.profile and account_surface.profile.locale == 'en-US' %} selected{% endif %}>English</option></select><span class="muted" id="account-locale-help">Предпочтение сохраняется, но интерфейс пока доступен только на русском. Этот выбор не меняет язык расшифровки и итогов встречи.</span></label>
-          <label class="settings-field" for="account-timezone"><span class="field-label">Часовой пояс</span><select id="account-timezone" name="timezone"><option value="Europe/Moscow"{% if account_surface.profile and account_surface.profile.timezone == 'Europe/Moscow' %} selected{% endif %}>Москва (Europe/Moscow)</option><option value="UTC"{% if account_surface.profile and account_surface.profile.timezone == 'UTC' %} selected{% endif %}>UTC</option></select></label>
+          <div class="settings-field" data-timezone-field>
+            <label class="field-label" for="account-timezone">Часовой пояс</label>
+            <label hidden data-timezone-search-wrap for="account-timezone-search"><span class="muted">Найти город или часовой пояс</span><input id="account-timezone-search" type="search" autocomplete="off" maxlength="100" placeholder="Город, страна, IANA или UTC+05:00" aria-controls="account-timezone" data-timezone-search></label>
+            {% set selected_timezone = display_timezone_name() %}
+            <select id="account-timezone" name="timezone" aria-describedby="account-timezone-help account-timezone-preview" data-timezone-select>
+              {% for option in timezone_options(selected_timezone) %}<option value="{{ option.value }}"{% if option.value == selected_timezone %} selected{% endif %}>{{ option.label }}</option>{% endfor %}
+            </select>
+            <small class="muted" id="account-timezone-help">Исходный пояс определяется по устройству. После сохранения выбранный пояс используется на всех ваших устройствах.</small>
+            <output class="muted" id="account-timezone-preview" data-timezone-preview aria-live="polite" hidden></output>
+            <small class="muted" data-timezone-search-result role="status" hidden></small>
+          </div>
         </div>
         {{ ui.theme_picker(account_surface.profile.theme if account_surface.profile else "system") }}
         <div class="account-profile-form__actions"><button class="button" type="submit">Сохранить</button><button class="button quiet" type="reset">Отменить</button></div>
@@ -148,7 +158,7 @@
       <span class="settings-scope-badge">Необратимое действие</span>
       <h2 id="account-close-title">Закрытие аккаунта</h2>
       {% if account_surface.account_close %}
-      <p role="status" aria-live="polite">Закрытие запланировано на {{ account_surface.account_close.finalize_at.strftime("%d.%m.%Y %H:%M UTC") }}. Будущие списания отключены.</p>
+      <p role="status" aria-live="polite">Закрытие запланировано на {{ user_time_element(account_surface.account_close.finalize_at, show_zone=True) }}. Будущие списания отключены.</p>
       {% if account_surface.account_close.can_cancel %}
       <form action="{{ "/desktop/settings/account/close/cancel" if embedded else "/settings/account/close/cancel" }}" method="post">
         {{ sections.csrf_field(csrf_token) }}

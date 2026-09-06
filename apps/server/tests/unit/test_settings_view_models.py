@@ -88,7 +88,7 @@ def test_account_profile_projection_defaults_to_bounded_preferences() -> None:
     profile = AccountProfileView(display_name="Тест")
 
     assert profile.locale == "ru-RU"
-    assert profile.timezone == "Europe/Moscow"
+    assert profile.timezone is None
     assert profile.theme == "system"
 
 
@@ -212,7 +212,7 @@ def test_session_surface_separates_effective_access_and_uses_local_time() -> Non
                                       current_session_id=current.id, now=now)
     assert [s.session_id for s in surface.active_sessions] == [current.id, unbound.id]
     assert surface.active_sessions[0].client_label == 'GRAF для macOS'
-    assert surface.active_sessions[0].last_seen_label == '06.09.2026, 16:57 (Asia/Yekaterinburg)'
+    assert surface.active_sessions[0].last_seen_label == '06.09.2026, 16:57 (UTC+05:00)'
     assert surface.active_sessions[1].client_label == 'Устройство не подключено'
     assert {s.status_label for s in surface.session_history} == {'Срок истёк', 'Завершён', 'Доступ заблокирован'}
     assert all(not s.can_revoke for s in surface.session_history)
@@ -252,4 +252,4 @@ def test_session_compact_time_uses_local_calendar_without_claiming_online() -> N
     ]
     for value, zone, expected in cases:
         assert _session_time(value, zone, relative_to=now) == expected
-    assert _session_time(cases[0][0], "Asia/Yekaterinburg") == "02.01.2026, 00:30 (Asia/Yekaterinburg)"
+    assert _session_time(cases[0][0], "Asia/Yekaterinburg") == "02.01.2026, 00:30 (UTC+05:00)"

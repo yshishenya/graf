@@ -19,6 +19,7 @@ from twobrain_rec_server.auth.sessions import (
     record_session_activity,
     resolve_session_device,
 )
+from twobrain_rec_server.cabinet.user_time import apply_user_time_preference
 from twobrain_rec_server.db.models import (
     AuthSession,
     AuthSessionDeviceBinding,
@@ -369,6 +370,7 @@ async def _principal_from_session_token(request: Request, token: str) -> Authent
         if not logout_request:
             await record_session_activity(db, session, device)
         await db.commit()
+        apply_user_time_preference(user_id=user.id, session_id=session.id, timezone=user.timezone)
         return AuthenticatedPrincipal(
             user_id=user.id,
             organization_id=user.organization_id,
@@ -791,6 +793,7 @@ async def _validate_tenant_scope(
                     title="Device is not trusted for this session",
                 )
 
+    apply_user_time_preference(user_id=user.id, session_id=principal.session_id, timezone=user.timezone)
     return TenantScope(
         organization_id=principal.organization_id,
         workspace_id=workspace_id,

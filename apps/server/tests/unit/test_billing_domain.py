@@ -62,7 +62,7 @@ def test_effective_entitlement_obeys_paid_cutoff() -> None:
     ) == "personal"
 
 
-def test_trial_surface_exposes_exact_moscow_end_and_expired_state() -> None:
+def test_trial_surface_exposes_explicit_utc_without_viewer_context_and_expired_state() -> None:
     now = datetime(2026, 8, 6, 12, 0, tzinfo=UTC)
     ends_at = datetime(2026, 8, 9, 12, 0, tzinfo=UTC)
     days_left, end_label, expired = trial_surface(
@@ -72,7 +72,7 @@ def test_trial_surface_exposes_exact_moscow_end_and_expired_state() -> None:
         now=now,
     )
     assert days_left == 3
-    assert end_label == "09.08.2026, 15:00:00 (МСК)"
+    assert end_label == "09.08.2026, 12:00 (UTC)"
     assert expired is False
 
     two_days_and_twenty_three_hours = datetime(2026, 8, 6, 13, 0, tzinfo=UTC)

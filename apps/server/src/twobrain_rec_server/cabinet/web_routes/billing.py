@@ -6,7 +6,6 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 from urllib.parse import quote, urlencode, urlsplit
 from uuid import UUID, uuid4
-from zoneinfo import ZoneInfo
 
 import httpx
 from fastapi import APIRouter, Form, Query, Request
@@ -97,6 +96,7 @@ from twobrain_rec_server.billing.yookassa import (
 from twobrain_rec_server.cabinet.queries import get_account_profile_view
 from twobrain_rec_server.cabinet.rendering_shared import _page_shell
 from twobrain_rec_server.cabinet.templates import cabinet_html_response
+from twobrain_rec_server.cabinet.user_time import format_user_datetime
 from twobrain_rec_server.cabinet.web_routes.auth_email_flow import _set_browser_auth_cookie
 from twobrain_rec_server.cabinet.web_routes.support import (
     LoginDbDependency,
@@ -320,7 +320,6 @@ def _checkout_result_redirect(
     return response
 
 
-MOSCOW = ZoneInfo("Europe/Moscow")
 
 
 def billing_checkout_return_url(request: Request, *, safe_invoice_number: str | None = None) -> str:
@@ -550,10 +549,10 @@ def trial_surface(
     trial_ends_at: datetime | None,
     now: datetime,
 ) -> tuple[int | None, str | None, bool]:
-    """Return days-left, exact Moscow end label and the expired-trial state."""
+    """Return days-left, exact viewer-local end label and the expired-trial state."""
     if trial_ends_at is None:
         return None, None, False
-    end_label = _billing_datetime_label(trial_ends_at, seconds=True)
+    end_label = _billing_datetime_label(trial_ends_at)
     expired = (
         raw_plan_code == "trial" and trial_ends_at <= now and effective_plan_code_value == "free"
     )
@@ -591,9 +590,8 @@ def trial_phase(*, trial_ends_at: datetime | None, now: datetime) -> str | None:
     return None
 
 
-def _billing_datetime_label(value: datetime | None, *, seconds: bool = False) -> str | None:
-    pattern = "%d.%m.%Y, %H:%M:%S (МСК)" if seconds else "%d.%m.%Y, %H:%M (МСК)"
-    return value.astimezone(MOSCOW).strftime(pattern) if value is not None else None
+def _billing_datetime_label(value: datetime | None) -> str | None:
+    return format_user_datetime(value, show_zone=True) if value is not None else None
 
 
 def _billing_amount_label(amount_minor: int | None, currency: str = "RUB") -> str | None:
@@ -1381,7 +1379,7 @@ async def billing_overview_page(
         processing_remaining_label=format_duration(
             max(0, FREE_PROCESSING_SECONDS - processing_used - processing_reserved)
         ),
-        processing_reset_at_label=window_end.astimezone(MOSCOW).strftime("%d.%m.%Y, %H:%M (МСК)"),
+        processing_reset_at_label=format_user_datetime(window_end, show_zone=True),
         free_processing_limit_label="300 минут",
         processing_usage_freshness=window.freshness_state
         if window is not None
@@ -1398,10 +1396,10 @@ async def billing_overview_page(
         billing_enabled=bool(request.app.state.settings.billing_checkout_enabled),
         catalog_ready=("month" in approved_catalog and "year" in approved_catalog),
         trial_result=trial_result,
-        trial_preview_starts_at_label=_billing_datetime_label(now, seconds=True),
-        trial_preview_ends_at_label=_billing_datetime_label(now + timedelta(days=TRIAL_DAYS), seconds=True),
+        trial_preview_starts_at_label=_billing_datetime_label(now),
+        trial_preview_ends_at_label=_billing_datetime_label(now + timedelta(days=TRIAL_DAYS)),
         trial_starts_at_label=_billing_datetime_label(
-            trial_activation.starts_at if trial_activation is not None else None, seconds=True
+            trial_activation.starts_at if trial_activation is not None else None
         ),
         trial_days_left=trial_days_left,
         trial_ends_at_label=trial_ends_at_label,
@@ -1545,8 +1543,8 @@ async def billing_plans_page(
         operation_pending=operation_pending,
         trial_state=trial_state,
         billing_enabled=bool(request.app.state.settings.billing_checkout_enabled),
-        trial_preview_starts_at_label=_billing_datetime_label(now, seconds=True),
-        trial_preview_ends_at_label=_billing_datetime_label(now + timedelta(days=TRIAL_DAYS), seconds=True),
+        trial_preview_starts_at_label=_billing_datetime_label(now),
+        trial_preview_ends_at_label=_billing_datetime_label(now + timedelta(days=TRIAL_DAYS)),
         catalog_ready=catalog_ready,
         support_email=request.app.state.settings.billing_support_email,
     )
@@ -2260,7 +2258,7 @@ async def billing_usage_page(
         processing_remaining_label=format_duration(
             max(0, FREE_PROCESSING_SECONDS - processing_used - processing_reserved)
         ),
-        processing_reset_at_label=window_end.astimezone(MOSCOW).strftime("%d.%m.%Y, %H:%M (МСК)"),
+        processing_reset_at_label=format_user_datetime(window_end, show_zone=True),
         trial_eligible=trial_eligible,
         billing_owner=billing_owner,
         billing_role=role,

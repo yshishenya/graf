@@ -154,8 +154,8 @@ async def test_billing_routes_render_real_profile_and_persisted_trial_dates(
     assert 'name="locale"' not in html and 'name="timezone"' not in html
     if active_trial:
         assert "Пробный период: с " in html
-        assert billing._billing_datetime_label(trial.starts_at, seconds=True) in html
-        assert billing._billing_datetime_label(trial.ends_at, seconds=True) in html
+        assert billing._billing_datetime_label(trial.starts_at) in html
+        assert billing._billing_datetime_label(trial.ends_at) in html
         assert "1,5 MB" in html
     else:
         assert "Контакт поддержки пока не настроен" in html
@@ -164,7 +164,7 @@ async def test_billing_routes_render_real_profile_and_persisted_trial_dates(
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "form",
-    [{"theme": "light"}, {"locale": "ru-RU", "timezone": "Europe/Moscow", "theme": "system"}],
+    [{"theme": "light"}, {"locale": "ru-RU", "timezone": "Europe/Moscow", "theme": "system"}, {"timezone": "Asia/Kathmandu"}],
 )
 async def test_preferences_preserve_omitted_fields(monkeypatch, form):
     user = SimpleNamespace(
@@ -183,7 +183,7 @@ async def test_preferences_preserve_omitted_fields(monkeypatch, form):
         request=SimpleNamespace(form=AsyncMock(return_value=form)),
     )
     assert vars(user) == original | form
-    assert audit.await_args.kwargs["metadata"]["fields"] == list(form)
+    assert set(audit.await_args.kwargs["metadata"]["fields"]) == set(form)
     assert db.get.await_args.kwargs["with_for_update"] is True
     db.commit.assert_awaited_once()
 
@@ -291,8 +291,8 @@ def test_trial_discloses_terms_before_separate_confirmation(page_name):
         payment_method_label=None,
         next_charge_label=None,
         support_email=None,
-        trial_preview_starts_at_label="06.09.2026, 12:00:00 (МСК)",
-        trial_preview_ends_at_label="13.09.2026, 12:00:00 (МСК)",
+        trial_preview_starts_at_label="06.09.2026, 12:00 (UTC)",
+        trial_preview_ends_at_label="13.09.2026, 12:00 (UTC)",
     )
     disclosure = re.search(r"<details[^>]*data-trial-confirmation.*?</details>", page, re.S)
     assert disclosure

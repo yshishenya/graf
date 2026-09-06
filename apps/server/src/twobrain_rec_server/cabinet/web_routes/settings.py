@@ -46,6 +46,7 @@ from twobrain_rec_server.cabinet.queries import (
 )
 from twobrain_rec_server.cabinet.rendering import render_settings_page
 from twobrain_rec_server.cabinet.templates import cabinet_html_response
+from twobrain_rec_server.cabinet.user_time import valid_timezone_choice
 from twobrain_rec_server.cabinet.web_routes.auth_email_flow import (
     EMAIL_LINK_PROVIDER,
     _create_email_login_state,
@@ -689,11 +690,17 @@ async def _save_account_preferences(
         name: _account_preference_value(form, name, allowed)
         for name, allowed in (
             ("locale", frozenset({"ru-RU", "en-US"})),
-            ("timezone", frozenset({"Europe/Moscow", "UTC"})),
             ("theme", frozenset({"system", "dark", "light"})),
         )
         if name in form
     }
+    if "timezone" in form:
+        zone = str(form.get("timezone") or "")
+        if not valid_timezone_choice(zone):
+            raise ProblemDetail(
+                status=422, code="invalid_account_timezone", title="Выберите часовой пояс из списка"
+            )
+        preferences["timezone"] = zone
     if not preferences:
         raise ProblemDetail(
             status=422, code="empty_account_preferences", title="Выберите настройку аккаунта"

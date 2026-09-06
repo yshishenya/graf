@@ -81,6 +81,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.storage = storage
     app.state.web_csrf_secret = settings.web_csrf_secret
     app.state.support_incident_integration_status = support_incident_configuration_status(settings)
+    from twobrain_rec_server.cabinet.user_time import user_time_middleware
+
+    app.middleware("http")(user_time_middleware)
     app.middleware("http")(request_logging_middleware)
     app.add_middleware(ProductAnalyticsIngressGuard)
     app.add_exception_handler(ProblemDetail, problem_exception_handler)

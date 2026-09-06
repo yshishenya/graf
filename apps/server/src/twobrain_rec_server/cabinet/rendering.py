@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from html import escape
 from urllib.parse import urlencode
 from uuid import UUID
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from twobrain_rec_server.api.schemas import (
     MeetingListItem,
@@ -55,6 +54,11 @@ from twobrain_rec_server.cabinet.templates import (
     render_icon,
     render_template,
     trusted_component_html,
+)
+from twobrain_rec_server.cabinet.user_time import (
+    format_user_datetime,
+    local_datetime,
+    user_time_element,
 )
 from twobrain_rec_server.deletion.report import BOUNDED_DELETE_COPY
 from twobrain_rec_server.domain.media_filenames import MANUAL_MEDIA_UPLOAD_ACCEPT
@@ -350,6 +354,7 @@ def render_share_invitation_accept_page(
     csrf_token: str | None,
     meeting_title: str | None = None,
     meeting_occurred_at: datetime | None = None,
+    meeting_time_is_upload: bool = False,
     meeting_duration_seconds: int | None = None,
     invitation_expires_at: datetime | None = None,
     content_scope: str = "summary_only",
@@ -372,6 +377,7 @@ def render_share_invitation_accept_page(
         meeting_list_href=_base_path(False),
         meeting_title=meeting_title,
         meeting_occurred_at=meeting_occurred_at,
+        meeting_time_is_upload=meeting_time_is_upload,
         meeting_duration_seconds=meeting_duration_seconds,
         invitation_expires_at=invitation_expires_at,
         content_scope=content_scope,
@@ -387,9 +393,10 @@ def render_share_invitation_accept_page(
 def render_shared_meeting_summary_page(
     *,
     meeting_title: str,
-    occurred_at: datetime,
+    occurred_at: datetime | None,
     duration_seconds: int,
     summary_sections: list[dict[str, object]],
+    time_is_upload: bool = False,
     authenticated: bool = False,
     embedded: bool = False,
 ) -> str:
@@ -399,6 +406,7 @@ def render_shared_meeting_summary_page(
         content_template="cabinet/pages/shared_meeting_summary_content.html",
         meeting_title=meeting_title,
         occurred_at=occurred_at,
+        time_is_upload=time_is_upload,
         duration_seconds=duration_seconds,
         summary_sections=_localized_shared_summary_sections(summary_sections),
         authenticated=authenticated,
@@ -1102,7 +1110,16 @@ def _render_meeting_detail_content(
         title_version=review.meeting.title_version if shared_workspace_id is None else None,
         title_edit=title_edit or {},
         title_csrf_token=csrf_token or "",
-        meeting_date=cabinet_view_models.date_label(review.meeting),
+        meeting_date=(
+            "Загружено "
+            if review.meeting.started_at is None
+            and review.meeting.source == "manual_upload"
+            and review.meeting.uploaded_at is not None
+            else ""
+        )
+        + user_time_element(
+            cabinet_view_models.meeting_time_value(review.meeting, time_basis="meeting")
+        ),
         meeting_duration=cabinet_view_models.format_duration(review.meeting.duration_seconds),
         status_label=_ui_text(review.meeting.status_label),
         media_revision_id=(
@@ -1644,8 +1661,20 @@ def _render_meeting_row(
         if can_manage_lifecycle
         else '<span class="row-delete-form row-contextual-placeholder" aria-hidden="true"></span>'
     )
+    time_value = cabinet_view_models.meeting_time_value(item, time_basis=time_basis)
+    start_value = cabinet_view_models.meeting_time_value(item, time_basis="meeting")
+
+    def instant_attribute(value: datetime | None) -> str:
+        return (value if value.tzinfo else value.replace(tzinfo=UTC)).isoformat() if value else ""
+
+    time_prefix = (
+        "Обновлено "
+        if time_basis == "updated"
+        else ("Загружено " if item.started_at is None and item.source == "manual_upload" else "")
+    )
+    time_markup = f"{time_prefix}{user_time_element(time_value)}" if time_value else "Без даты"
     return f"""
-      <li class="meeting-row cabinet-row{row_state_classes}" data-meeting-row data-meeting-id="{item.meeting_id}">
+      <li class="meeting-row cabinet-row{row_state_classes}" data-meeting-row data-meeting-id="{item.meeting_id}" data-sort-started="{instant_attribute(start_value)}" data-sort-updated="{instant_attribute(item.updated_at)}" data-sort-duration="{item.duration_seconds}" data-sort-title="{title}">
         {selection_control}
         <span class="row-icon" data-media-kind="{source_label}" aria-hidden="true">{source_icon}</span>
         <div class="meeting-content">
@@ -1656,7 +1685,7 @@ def _render_meeting_row(
           {meta_html}
         </div>
         {delete_control}
-        <span class="meeting-date" id="{time_id}">{escape(presentation.time_label)}</span>
+        <span class="meeting-date" id="{time_id}">{time_markup}</span>
       </li>
     """
 
@@ -1789,7 +1818,7 @@ def _render_home_upcoming(
         rows = "".join(
             f"""
             <article class="calendar-home-upcoming__row">
-              {f'<time datetime="{escape(item.starts_at.isoformat())}">{escape(_home_upcoming_time_label(item.starts_at, display_timezone, all_day=item.all_day))}</time>' if calendar_surface.preferences.show_upcoming_time else '<span class="calendar-home-upcoming__time-hidden">Время скрыто настройкой</span>'}
+              {f'<time datetime="{escape(item.starts_at.isoformat())}" title="{escape(format_user_datetime(item.starts_at.date() if item.all_day else item.starts_at, show_zone=True))}" aria-label="{escape(format_user_datetime(item.starts_at.date() if item.all_day else item.starts_at, show_zone=True))}">{escape(_home_upcoming_time_label(item.starts_at, display_timezone, all_day=item.all_day))}</time>' if calendar_surface.preferences.show_upcoming_time else '<span class="calendar-home-upcoming__time-hidden">Время скрыто настройкой</span>'}
               <div>
                 <strong>{escape(item.title if calendar_surface.preferences.show_upcoming_title else "Название скрыто настройкой")}</strong>
                 <small>{"Есть ссылка на встречу" if item.meeting_link_present else "Без ссылки на встречу"}{" · данные могут быть устаревшими" if item.sync_confidence_state == "stale" else " · обновляется" if item.sync_confidence_state == "updating" else ""}</small>
@@ -1833,24 +1862,21 @@ def _render_home_upcoming(
 
 
 def _home_upcoming_time_label(value: datetime, timezone_name: str, *, all_day: bool = False) -> str:
-    try:
-        target_timezone = ZoneInfo(timezone_name)
-    except ZoneInfoNotFoundError:
-        target_timezone = UTC
-    localized = (value if value.tzinfo is not None else value.replace(tzinfo=UTC)).astimezone(
-        target_timezone
-    )
-    today = datetime.now(target_timezone).date()
+    if all_day:
+        return f"{format_user_datetime(value.date())}, весь день"
+    localized = local_datetime(value)
+    today = local_datetime(datetime.now(UTC)).date()
     day_label = (
         "Сегодня"
         if localized.date() == today
         else "Завтра"
         if localized.date() == today + timedelta(days=1)
-        else localized.strftime("%d.%m")
+        else ""
     )
-    if all_day:
-        return f"{value.strftime('%d.%m')}, весь день"
-    return f"{day_label}, {localized.strftime('%H:%M')}"
+    return (
+        f"{day_label}, {format_user_datetime(value, time_only=True)}"
+        if day_label else format_user_datetime(value)
+    )
 
 
 def _render_previous_recurring_pointer(
@@ -2095,9 +2121,7 @@ def _render_calendar_context(
 
 
 def _calendar_context_time(value, timezone_offset_minutes: int) -> str:
-    display_timezone = timezone(timedelta(minutes=timezone_offset_minutes))
-    localized = value.replace(tzinfo=UTC) if value.tzinfo is None else value
-    return localized.astimezone(display_timezone).strftime("%H:%M")
+    return str(user_time_element(value))
 
 
 def _calendar_context_csrf_field(csrf_token: str | None) -> str:
