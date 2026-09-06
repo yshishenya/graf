@@ -12,6 +12,8 @@ public typealias EmbeddedCabinetOpenPanelCompletionHandler =
     ([URL]?) -> Void
 public typealias EmbeddedCabinetDownloadCompletionHandler =
     (URL?) -> Void
+public typealias EmbeddedCabinetConfirmCompletionHandler =
+    (Bool) -> Void
 #else
 public typealias EmbeddedCabinetNavigationDecisionHandler =
     @MainActor @Sendable (WKNavigationActionPolicy) -> Void
@@ -21,6 +23,8 @@ public typealias EmbeddedCabinetOpenPanelCompletionHandler =
     @MainActor @Sendable ([URL]?) -> Void
 public typealias EmbeddedCabinetDownloadCompletionHandler =
     @MainActor @Sendable (URL?) -> Void
+public typealias EmbeddedCabinetConfirmCompletionHandler =
+    @MainActor @Sendable (Bool) -> Void
 #endif
 
 public enum EmbeddedCabinetBackNavigationDecision: Equatable, Sendable {
@@ -1680,7 +1684,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             _ webView: WKWebView,
             runJavaScriptConfirmPanelWithMessage message: String,
             initiatedByFrame frame: WKFrameInfo,
-            completionHandler: @escaping @MainActor @Sendable (Bool) -> Void
+            completionHandler: @escaping EmbeddedCabinetConfirmCompletionHandler
         ) {
             requestJavaScriptConfirmation(
                 in: webView, message: message, frameURL: frame.documentRequestURL,
@@ -2404,6 +2408,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         }
     }
 }
+
 private extension WKFrameInfo {
     var documentRequestURL: URL? {
         // macOS 14 can return nil before a frame has a document despite the

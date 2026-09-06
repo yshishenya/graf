@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -328,7 +329,9 @@ def run_checks() -> dict[str, Any]:
     _add_check(checks, "deletion_report_fragment_bounded", "<!doctype html>" not in deletion_report_fragment and 'data-cabinet-fragment="deletion-report"' in deletion_report_fragment, "deletion report HTMX response is a bounded fragment")
     _add_check(checks, "hx_vary_header", hx_response.headers.get("Vary") == "HX-Request", "HTMX responses declare Vary: HX-Request")
     _add_check(checks, "responsive_contract", "@media (max-width: 980px)" in css and "@media (max-width: 540px)" in css, "desktop and mobile-width breakpoints exist")
-    _add_check(checks, "focus_contract", ":focus-visible" in css and "min-height: 46px;" in css, "focus visibility and target sizing are styled")
+    tab_rule = re.search(r"\.meeting-detail-tabs \.tab\s*\{([^}]+)\}", css)
+    tab_height = re.search(r"min-height:\s*(\d+)px", tab_rule[1]) if tab_rule else None
+    _add_check(checks, "focus_contract", ":focus-visible" in css and tab_height is not None and int(tab_height[1]) >= 44, "focus visibility and at least 44px meeting navigation tabs are styled")
     _add_check(
         checks,
         "ephemeral_js",

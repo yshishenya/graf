@@ -160,9 +160,9 @@ def test_calendar_settings_boundary_rendering_explains_privacy_and_recording_lim
     assert "Только чтение" in html
     assert "Пароли не живут на Mac" in html
     assert "Приложение на Mac их не хранит" in html
-    assert "Участники встречи не становятся получателями саммари" in html
-    assert "не включает автоматическую запись" in html
-    assert "скрытую или автоматическую запись" in html
+    assert "Участники встречи не становятся получателями итогов и не получают доступ к записи автоматически." in html
+    assert "Подключение календаря само по себе не включает запись." in html
+    assert "Автозапись по приложениям настраивается отдельно." in html
     assert_no_forbidden_calendar_settings_content(html)
 
 
