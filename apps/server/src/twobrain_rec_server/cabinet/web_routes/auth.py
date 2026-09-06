@@ -26,6 +26,7 @@ from twobrain_rec_server.auth.rate_limit import enforce_auth_rate_limits
 from twobrain_rec_server.auth.sessions import (
     create_callback_state,
     issue_callback_nonce,
+    revoke_auth_sessions,
 )
 from twobrain_rec_server.cabinet.access import share_invitation_continuation_matches
 from twobrain_rec_server.cabinet.auth_rendering import (
@@ -760,8 +761,7 @@ async def logout_current_browser_session(
             and auth_session.workspace_id == principal.session_workspace_id
             and auth_session.user_id == principal.user_id
         ):
-            auth_session.status = "revoked"
-            auth_session.last_seen_at = datetime.now(UTC)
+            await revoke_auth_sessions(db, [auth_session])
             await write_auth_audit_event(
                 db,
                 workspace_id=principal.session_workspace_id,

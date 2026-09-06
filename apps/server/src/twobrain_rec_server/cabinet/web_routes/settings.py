@@ -28,7 +28,11 @@ from twobrain_rec_server.auth.provider_links import (
     recovery_safe_unlink_allowed,
 )
 from twobrain_rec_server.auth.rate_limit import enforce_auth_rate_limits
-from twobrain_rec_server.auth.sessions import fingerprint_identity
+from twobrain_rec_server.auth.sessions import (
+    fingerprint_identity,
+    revoke_auth_sessions,
+    revoke_registered_devices,
+)
 from twobrain_rec_server.auth.workspace_onboarding import (
     list_active_workspaces,
     list_workspace_join_offers,
@@ -106,6 +110,7 @@ async def _render_settings(
     provider_link: str | None = None,
     device_revoke: str | None = None,
     session: str | None = None,
+    session_confirmation: dict[str, str] | None = None,
     notification: str | None = None,
     account_close: str | None = None,
     profile: str | None = None,
@@ -168,6 +173,7 @@ async def _render_settings(
             provider_link_result=provider_link,
             device_revoke_result=device_revoke,
             session_result=session,
+            session_confirmation=session_confirmation,
             notification_result=notification,
             account_close_result=account_close,
             profile_result=profile,
@@ -847,7 +853,7 @@ async def _revoke_account_session(
     )
     if session is None:
         raise ProblemDetail(status=404, code="auth_session_not_found", title="Сессия не найдена")
-    session.status = "revoked"
+    await revoke_auth_sessions(db, [session])
     await write_auth_audit_event(
         db,
         workspace_id=tenant_scope.workspace_id,
@@ -875,11 +881,9 @@ async def _revoke_other_account_sessions(
                 AuthSession.status == "active",
                 AuthSession.id != tenant_scope.auth_session_id,
             )
-            .with_for_update()
         )
     )
-    for session in sessions:
-        session.status = "revoked"
+    await revoke_auth_sessions(db, sessions)
     if sessions:
         await write_auth_audit_event(
             db,
@@ -908,56 +912,17 @@ async def _revoke_other_account_devices(
                 RegisteredDevice.status == "active",
                 RegisteredDevice.id != tenant_scope.device_id,
             )
-            .with_for_update()
         )
     )
-    device_ids = [device.id for device in devices]
-    sessions = []
-    bindings = []
-    if device_ids:
-        sessions = list(
-            await db.scalars(
-                select(AuthSession)
-                .where(
-                    AuthSession.workspace_id == tenant_scope.workspace_id,
-                    AuthSession.user_id == principal.user_id,
-                    AuthSession.status == "active",
-                    AuthSession.device_id.in_(device_ids),
-                )
-                .with_for_update()
-            )
-        )
-        bindings = list(
-            await db.scalars(
-                select(AuthSessionDeviceBinding)
-                .where(AuthSessionDeviceBinding.registered_device_id.in_(device_ids))
-                .with_for_update()
-            )
-        )
-    for device in devices:
-        device.status = "revoked"
-        device.registration_state = "revoked"
-        device.revoked_by = principal.user_id
-    for session in sessions:
-        session.status = "revoked"
-    for binding in bindings:
-        binding.device_state = "blocked"
-        binding.revocation_reason = "device_revoked"
-    if devices or sessions:
+    device_count, session_count = await revoke_registered_devices(db, devices, actor_user_id=principal.user_id)
+    if device_count or session_count:
         await write_auth_audit_event(
-            db,
-            workspace_id=tenant_scope.workspace_id,
-            actor_user_id=principal.user_id,
-            user_id=principal.user_id,
-            event_type="auth_devices_revoked",
-            metadata={
-                "scope": "other_devices",
-                "device_count": len(devices),
-                "session_count": len(sessions),
-            },
+            db, workspace_id=tenant_scope.workspace_id, actor_user_id=principal.user_id,
+            user_id=principal.user_id, event_type="auth_devices_revoked",
+            metadata={"scope": "other_devices", "device_count": device_count, "session_count": session_count},
         )
     await db.commit()
-    return len(devices), len(sessions)
+    return device_count, session_count
 
 
 @router.post(
@@ -1145,98 +1110,106 @@ async def unlink_embedded_settings_account_provider(
     )
 
 
-@router.post(
-    "/settings/account/sessions/revoke-others",
-    include_in_schema=False,
-    dependencies=[WebCSRFDependency],
-)
+async def _session_revoke_action(
+    request: Request,
+    *,
+    tenant_scope: TenantScope,
+    principal: AuthenticatedPrincipal,
+    db: AsyncSession | None,
+    embedded: bool,
+    session_id: UUID | None = None,
+) -> HTMLResponse:
+    base = f"{'/desktop' if embedded else ''}/settings/account"
+    if not principal.auth_via_session or not is_web_cookie_session(request):
+        return RedirectResponse(base + "?session=reauth_required", status_code=303)
+    if db is None:
+        return RedirectResponse(base + "?session=failed", status_code=303)
+    try:
+        form = await request.form()
+        if form.get("confirm") != "1":
+            surface = await get_account_settings_surface(db, tenant_scope)
+            if session_id is not None:
+                if session_id in {principal.session_id, tenant_scope.auth_session_id}:
+                    raise ProblemDetail(status=422, code="current_session_revoke_forbidden", title="Для завершения этого сеанса выберите «Выйти»")
+                target = next((row for row in surface.sessions if row.session_id == session_id), None)
+                if target is None:
+                    raise ProblemDetail(status=404, code="auth_session_not_found", title="Сеанс не найден")
+                title = f"Завершить сеанс «{target.client_label}»?"
+                detail = f"Вход выполнен: {target.issued_label}. Последняя связь: {target.last_seen_label}. Этот сеанс останется действующим."
+                action = f"{base}/sessions/{session_id}/revoke"
+            else:
+                title = "Завершить остальные сеансы?"
+                detail = f"Сеансов для завершения: {sum(row.can_revoke for row in surface.sessions)}. Этот сеанс останется действующим. Действие касается текущего рабочего пространства."
+                action = f"{base}/sessions/revoke-others"
+            return await _render_settings(
+                request, category="account", embedded=embedded, tenant_scope=tenant_scope,
+                principal=principal, db=db,
+                session_confirmation={"title": title, "detail": detail, "action": action},
+            )
+        if session_id is None:
+            await _revoke_other_account_sessions(db, tenant_scope=tenant_scope, principal=principal)
+            result = "others_revoked"
+        else:
+            await _revoke_account_session(db, session_id=session_id, tenant_scope=tenant_scope, principal=principal)
+            result = "revoked"
+        return RedirectResponse(base + "?session=" + result, status_code=303)
+    except SQLAlchemyError:
+        await db.rollback()
+        return RedirectResponse(base + "?session=failed", status_code=303)
+
+
+@router.post("/settings/account/sessions/revoke-others", include_in_schema=False, dependencies=[WebCSRFDependency])
 async def revoke_other_settings_sessions(
     request: Request,
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
-) -> RedirectResponse:
-    if not principal.auth_via_session or not is_web_cookie_session(request):
-        return RedirectResponse("/settings/account?session=reauth_required", status_code=303)
-    if db is None:
-        raise ProblemDetail(
-            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
-        )
-    await _revoke_other_account_sessions(db, tenant_scope=tenant_scope, principal=principal)
-    return RedirectResponse("/settings/account?session=others_revoked", status_code=303)
+) -> HTMLResponse:
+    return await _session_revoke_action(
+        request, tenant_scope=tenant_scope, principal=principal, db=db,
+        embedded=False,
+    )
 
 
-@router.post(
-    "/desktop/settings/account/sessions/revoke-others",
-    include_in_schema=False,
-    dependencies=[WebCSRFDependency],
-)
-async def revoke_other_embedded_settings_sessions(
-    request: Request,
-    tenant_scope: TenantScope = WebTenantDependency,
-    principal: AuthenticatedPrincipal = PrincipalDependency,
-    db: AsyncSession | None = WebDbDependency,
-) -> RedirectResponse:
-    if not principal.auth_via_session or not is_web_cookie_session(request):
-        return RedirectResponse(
-            "/desktop/settings/account?session=reauth_required", status_code=303
-        )
-    if db is None:
-        raise ProblemDetail(
-            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
-        )
-    await _revoke_other_account_sessions(db, tenant_scope=tenant_scope, principal=principal)
-    return RedirectResponse("/desktop/settings/account?session=others_revoked", status_code=303)
-
-
-@router.post(
-    "/settings/account/sessions/{session_id}/revoke",
-    include_in_schema=False,
-    dependencies=[WebCSRFDependency],
-)
+@router.post("/settings/account/sessions/{session_id}/revoke", include_in_schema=False, dependencies=[WebCSRFDependency])
 async def revoke_settings_session(
     request: Request,
     session_id: UUID,
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
-) -> RedirectResponse:
-    if not principal.auth_via_session or not is_web_cookie_session(request):
-        return RedirectResponse("/settings/account?session=reauth_required", status_code=303)
-    if db is None:
-        raise ProblemDetail(
-            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
-        )
-    await _revoke_account_session(
-        db, session_id=session_id, tenant_scope=tenant_scope, principal=principal
+) -> HTMLResponse:
+    return await _session_revoke_action(
+        request, tenant_scope=tenant_scope, principal=principal, db=db,
+        embedded=False, session_id=session_id,
     )
-    return RedirectResponse("/settings/account?session=revoked", status_code=303)
 
 
-@router.post(
-    "/desktop/settings/account/sessions/{session_id}/revoke",
-    include_in_schema=False,
-    dependencies=[WebCSRFDependency],
-)
+@router.post("/desktop/settings/account/sessions/revoke-others", include_in_schema=False, dependencies=[WebCSRFDependency])
+async def revoke_other_embedded_settings_sessions(
+    request: Request,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> HTMLResponse:
+    return await _session_revoke_action(
+        request, tenant_scope=tenant_scope, principal=principal, db=db,
+        embedded=True,
+    )
+
+
+@router.post("/desktop/settings/account/sessions/{session_id}/revoke", include_in_schema=False, dependencies=[WebCSRFDependency])
 async def revoke_embedded_settings_session(
     request: Request,
     session_id: UUID,
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
-) -> RedirectResponse:
-    if not principal.auth_via_session or not is_web_cookie_session(request):
-        return RedirectResponse(
-            "/desktop/settings/account?session=reauth_required", status_code=303
-        )
-    if db is None:
-        raise ProblemDetail(
-            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
-        )
-    await _revoke_account_session(
-        db, session_id=session_id, tenant_scope=tenant_scope, principal=principal
+) -> HTMLResponse:
+    return await _session_revoke_action(
+        request, tenant_scope=tenant_scope, principal=principal, db=db,
+        embedded=True, session_id=session_id,
     )
-    return RedirectResponse("/desktop/settings/account?session=revoked", status_code=303)
 
 
 @router.get("/account", response_class=HTMLResponse, include_in_schema=False)
@@ -1505,6 +1478,8 @@ async def revoke_settings_device(
             code="cabinet_store_unavailable",
             title="Cabinet store unavailable",
         )
+    if device_id == tenant_scope.device_id or device_id == principal.session_device_id:
+        raise ProblemDetail(status=422, code="current_device_revoke_forbidden", title="Для завершения этого сеанса выберите «Выйти»")
     await revoke_device(
         request=request,
         device_id=device_id,
@@ -1783,6 +1758,8 @@ async def revoke_embedded_settings_device(
             code="cabinet_store_unavailable",
             title="Cabinet store unavailable",
         )
+    if device_id == tenant_scope.device_id or device_id == principal.session_device_id:
+        raise ProblemDetail(status=422, code="current_device_revoke_forbidden", title="Для завершения этого сеанса выберите «Выйти»")
     await revoke_device(
         request=request,
         device_id=device_id,

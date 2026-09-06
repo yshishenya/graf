@@ -5853,3 +5853,10 @@ body {
     min-width: var(--app-sidebar-width);
   }
 }
+
+/* Session details reuse the settings list without the account-linking divider. */
+.settings-session-list { list-style: none; margin: 0; padding: 0; }
+#account-sessions-title { scroll-margin-block-start: 76px; }
+.session-details { margin-top: 8px; }
+.session-details > summary { width: fit-content; cursor: pointer; }
+.session-details p { margin: 8px 0 0; }

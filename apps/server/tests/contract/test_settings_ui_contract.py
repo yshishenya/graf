@@ -363,7 +363,7 @@ def test_account_preferences_and_provider_unlink_are_csrf_protected() -> None:
 
 def test_account_surface_template_contains_profile_preference_and_session_controls() -> None:
     page = render_settings_page(category="account")
-    for label in ("Профиль", ">Язык<", "Часовой пояс", "Системная", "Активные сессии"):
+    for label in ("Профиль", ">Язык<", "Часовой пояс", "Системная", "Устройства и сеансы"):
         assert label in page
     assert "data-account-preferences" in page
     assert "session_token_hash" not in page

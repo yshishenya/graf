@@ -21,7 +21,12 @@ from twobrain_rec_server.auth.browser_handoff import (
 )
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
 from twobrain_rec_server.auth.rate_limit import enforce_auth_rate_limits
-from twobrain_rec_server.auth.sessions import hash_token
+from twobrain_rec_server.auth.sessions import (
+    create_login_device,
+    hash_token,
+    issue_auth_session,
+    resolve_session_device,
+)
 from twobrain_rec_server.billing.catalog import (
     FREE_PROCESSING_SECONDS,
     FREE_STORAGE_BYTES,
@@ -104,6 +109,7 @@ from twobrain_rec_server.cabinet.web_routes.support import (
 from twobrain_rec_server.db.models import (
     AuthCallbackState,
     AuthSession,
+    AuthSessionDeviceBinding,
     BillingAuditEvent,
     BillingInvoice,
     BillingOperation,
@@ -127,6 +133,8 @@ from twobrain_rec_server.db.tenant_context import (
     AuthReferralLookupContext,
     AuthReferralUserLookupContext,
     AuthSessionLookupContext,
+    TenantDatabaseContext,
+    WorkspaceAuthContext,
     apply_tenant_context,
     apply_tenant_scope,
 )
@@ -200,7 +208,7 @@ async def billing_browser_handoff(
         AuthSessionLookupContext(session_token_hash=hash_token(session_token)),
     )
     auth_session = await db.scalar(
-        select(AuthSession).where(AuthSession.session_token_hash == hash_token(session_token))
+        select(AuthSession).where(AuthSession.session_token_hash == hash_token(session_token)).with_for_update()
     )
     if auth_session is None or auth_session.status != "active" or auth_session.expires_at <= now:
         await apply_tenant_context(db, AuthCallbackLookupContext(state_nonce=state))
@@ -210,6 +218,51 @@ async def billing_browser_handoff(
         await db.commit()
         return fallback
 
+    user = await db.get(UserIdentity, auth_session.user_id)
+    valid_owner = user is not None and user.status == "active"
+    if valid_owner:
+        await apply_tenant_context(db, WorkspaceAuthContext(
+            organization_id=user.organization_id, workspace_id=auth_session.workspace_id,
+            user_id=user.id, context_kind="auth_bootstrap",
+        ))
+        workspace = await db.get(Workspace, auth_session.workspace_id)
+        membership = await db.scalar(select(WorkspaceMembership).where(
+            WorkspaceMembership.workspace_id == auth_session.workspace_id,
+            WorkspaceMembership.user_id == user.id,
+        ))
+        valid_owner = (
+            workspace is not None and workspace.organization_id == user.organization_id
+            and workspace.id != request.app.state.settings.web_login_workspace_id
+            and membership is not None and membership.status == "active"
+            and (workspace.kind != "personal" or (
+                workspace.owner_user_id == user.id and membership.role == "owner"))
+        )
+    if valid_owner:
+        await apply_tenant_context(db, TenantDatabaseContext(
+            organization_id=user.organization_id, workspace_id=auth_session.workspace_id,
+            user_id=user.id, auth_session_id=auth_session.id, device_id=auth_session.device_id,
+        ))
+        valid_owner, source_device = await resolve_session_device(db, auth_session)
+        valid_owner = valid_owner and source_device is not None
+    if not valid_owner:
+        await apply_tenant_context(db, AuthCallbackLookupContext(state_nonce=state))
+        callback_state.used_at = now
+        callback_state.result = "failed"
+        callback_state.error_code = "auth_handoff_session_invalid"
+        await db.commit()
+        return fallback
+    device = await create_login_device(
+        db, user_id=user.id, workspace_id=auth_session.workspace_id,
+        user_agent=request.headers.get("user-agent"), browser_only=True, now=now,
+    )
+    issued = await issue_auth_session(
+        db, user_id=user.id, workspace_id=auth_session.workspace_id, device_id=device.id,
+        provider=auth_session.provider, claims_fingerprint=auth_session.claims_fingerprint,
+        now=now, expires_at=auth_session.expires_at,
+    )
+    db.add(AuthSessionDeviceBinding(auth_session_id=issued.id,
+        registered_device_id=device.id, device_state="trusted", last_heartbeat_at=now))
+    await db.flush()
     await apply_tenant_context(db, AuthCallbackLookupContext(state_nonce=state))
     callback_state.used_at = now
     callback_state.result = "completed"
@@ -219,8 +272,8 @@ async def billing_browser_handoff(
     _set_browser_auth_cookie(
         request,
         redirect,
-        token=session_token,
-        expires_at=auth_session.expires_at,
+        token=issued.token,
+        expires_at=issued.expires_at,
     )
     return redirect
 

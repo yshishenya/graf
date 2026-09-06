@@ -457,6 +457,7 @@ def render_settings_page(
     provider_link_result: str | None = None,
     device_revoke_result: str | None = None,
     session_result: str | None = None,
+    session_confirmation: dict[str, str] | None = None,
     notification_result: str | None = None,
     account_close_result: str | None = None,
     profile_result: str | None = None,
@@ -492,8 +493,9 @@ def render_settings_page(
             provider_unlink_result_copy,
             device_revoke_result_copy,
             {
-                "revoked": "Сеанс завершён.",
-                "others_revoked": "Остальные сеансы завершены. Текущая сессия остаётся активной.",
+                "revoked": "Сеанс завершён. Для доступа к серверу в том приложении или браузере потребуется войти снова.",
+                "failed": "Не удалось завершить сеанс. Обновите страницу и повторите попытку.",
+                "others_revoked": "Остальные сеансы в этом рабочем пространстве завершены. Этот сеанс сохранён.",
                 "reauth_required": "Для управления сессиями войдите через подтверждённую веб-сессию и повторите попытку.",
             }.get(session_result),
             {
@@ -509,9 +511,9 @@ def render_settings_page(
         or provider_unlink_outcome
         or (
             {
-                "title": "Настройки обновлены",
+                "title": "Не удалось завершить сеанс" if session_result == "failed" else "Настройки обновлены",
                 "detail": other_account_result,
-                "kind": "success",
+                "kind": "error" if session_result == "failed" else "success",
             }
             if other_account_result
             else None
@@ -551,6 +553,7 @@ def render_settings_page(
         if embedded
         else "/settings/join-offers",
         "summary_formats": BUILT_IN_TEMPLATES,
+        "session_confirmation": session_confirmation,
         "account_surface": account_surface or cabinet_view_models.AccountSettingsSurface(),
         "provider_link_result": provider_link_result_copy,
         "account_outcome": account_outcome,
@@ -562,8 +565,9 @@ def render_settings_page(
         "provider_unlink_result": provider_unlink_result_copy,
         "device_revoke_result": device_revoke_result_copy,
         "session_result": {
-            "revoked": "Сеанс завершён.",
-            "others_revoked": "Остальные сеансы завершены. Текущая сессия остаётся активной.",
+            "revoked": "Сеанс завершён. Для доступа к серверу в том приложении или браузере потребуется войти снова.",
+                "failed": "Не удалось завершить сеанс. Обновите страницу и повторите попытку.",
+            "others_revoked": "Остальные сеансы в этом рабочем пространстве завершены. Этот сеанс сохранён.",
             "reauth_required": "Для управления сессиями войдите через подтверждённую веб-сессию и повторите попытку.",
         }.get(session_result),
         "notification_result": {"saved": "Настройки уведомлений сохранены."}.get(

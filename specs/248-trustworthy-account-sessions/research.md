@@ -1,0 +1,18 @@
+# Research — 2026-09-06
+
+## Проверенные дефекты
+Email и OAuth объединяют все входы пользователя в browser-email:<user>/browser-login:<user>, безусловно ставят web и оживляют revoked регистрацию. WKWebView не добавляет устойчивый applicationNameForUserAgent; initial X-GRAF-Client не сохраняется на form POST. Workspace switch снова создаёт web. Billing handoff копирует тот же token в браузер. API device revoke не завершает AuthSession; principal-only API не проверяют device. UI active не проверяет expires_at; last_seen меняется при входе/выходе, не обычных запросах. UI путает все/остальные устройства, раскрывает техническую client_version и повторяет записи без связи с клиентом.
+
+## Источники и решения
+Все страницы прочитаны live, HTTP 200; это официальная документация, не доступ к приватным экранам продуктов.
+- [Google](https://support.google.com/accounts/answer/3067630?hl=en): несколько сеансов на одном устройстве нормальны; одинаковые имена не доказывают один компьютер; последнее взаимодействие включает фоновую синхронизацию. Решение: считать сеансы, не компьютеры, явно объяснить активность.
+- [GitHub](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/viewing-and-managing-your-sessions): web/mobile sessions разделяются, отзыв конкретной сессии отключает конкретное приложение. Решение: главный признак — клиент, провайдер вторичен.
+- [Apple](https://support.apple.com/en-us/102649): сведения зависят от типа устройства. Решение: не копировать обещание аппаратной идентификации Apple; не собирать имя/серийный номер Mac.
+- [OWASP](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html): серверная инвалидизация обязательна; IP/UA не доказательство подлинности. Решение: проверка и отзыв на сервере, ограниченные сведения клиента только для подписей.
+- [RFC 8252](https://www.rfc-editor.org/rfc/rfc8252.txt): браузер может быть частью входа в native app. Решение: не выводить конечный тип клиента из URL формы. Полная переработка OAuth/PKCE вне задачи.
+
+## Data/RLS
+Повторно используем RegisteredDevice/AuthSession/Binding. В policy 0077 устройства видимы только request-контексту; auth_bootstrap недостаточен. Перед сменой контекста выполнять flush. Для principal: session lookup → user/membership bootstrap → request для устройства и активности. Для handoff: callback lock → исходная сессия и контекст → новый browser сеанс → flush → callback update в одной транзакции.
+
+## Выбор и альтернативы
+Выбран уникальный логический клиент на независимый успешный вход. Постоянный аппаратный ID отвергнут: лишняя приватность и неверная гарантия физического устройства. Общий per-user browser ID отвергнут: смешивает разные клиенты и оживляет отзыв. Массовое переименование старых записей отвергнуто: исходные данные неоднозначны. Raw User-Agent и геолокация отвергнуты: не нужны задаче. Дублирующий технический список registrations заменён пользовательскими сеансами, API отзыва остаётся совместимым.

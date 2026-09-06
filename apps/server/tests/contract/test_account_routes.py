@@ -829,12 +829,35 @@ def test_stale_email_proof_returns_to_visible_email_form_without_old_confirm() -
 
 
 def test_account_security_renders_exact_bulk_and_per_session_actions() -> None:
-    page = render_settings_page(category="account", csrf_token="safe-csrf")
+    from twobrain_rec_server.cabinet.view_models import account_settings_surface
+    from twobrain_rec_server.db.models import AuthSession
 
+    session = AuthSession(id=uuid4(), provider="email", status="active", expires_at=datetime.now(UTC)+timedelta(hours=1))
+    surface = account_settings_surface(sessions=(session,))
+    page = render_settings_page(category="account", csrf_token="safe-csrf", account_surface=surface)
+    assert "Устройства и сеансы" in page
     assert "Завершить остальные сеансы" in page
-    assert "Выйти на всех устройствах" in page
+    assert "Выйти на всех устройствах" not in page
     assert 'action="/settings/account/sessions/revoke-others"' in page
-    assert 'action="/settings/account/devices/revoke-others"' in page
+    assert 'action="/settings/account/devices/revoke-others"' not in page
+    assert "текущем рабочем пространстве" in page
+    assert "фоновую работу" in page
+    empty = render_settings_page(category="account", csrf_token="safe-csrf")
+    assert 'action="/settings/account/sessions/revoke-others"' not in empty
+
+
+@pytest.mark.parametrize("embedded", [False, True])
+def test_session_confirmation_is_explicit_accessible_and_works_without_javascript(embedded) -> None:
+    action = ("/desktop" if embedded else "") + "/settings/account/sessions/revoke-others"
+    page = render_settings_page(category="account", csrf_token="safe-csrf", embedded=embedded,
+                                session_confirmation={"title": "Завершить остальные сеансы?", "detail": "Этот сеанс останется действующим.", "action": action})
+    assert f'action="{action}"' in page
+    assert 'name="confirm" value="1"' in page
+    assert 'name="csrf_token"' in page
+    assert "Отмена" in page
+    assert "не удаляет локальные" in page
+    assert 'data-confirm=' not in page
+    assert 'id="session-confirmation-title"' in page
 
 
 def test_workspace_switch_and_join_routes_are_csrf_protected_in_browser_and_desktop() -> None:
@@ -884,7 +907,7 @@ def test_account_security_renders_bulk_result_as_persistent_status() -> None:
     )
 
     assert "Доступ на остальных устройствах завершён. Текущее устройство остаётся активным." in page
-    assert "Остальные сеансы завершены. Текущая сессия остаётся активной." in page
+    assert "Остальные сеансы в этом рабочем пространстве завершены. Этот сеанс сохранён." in page
 
 
 def test_account_ia_aliases_cover_profile_security_and_notifications() -> None:

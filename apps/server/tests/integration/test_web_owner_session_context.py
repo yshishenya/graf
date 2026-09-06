@@ -620,6 +620,7 @@ def test_settings_provider_link_callback_keeps_browser_nonce_binding(
 
 
 def test_browser_provider_callback_keeps_only_authorized_detail_return(monkeypatch, client) -> None:
+    client.headers["User-Agent"] = "GRAFDesktop/2026.09.06.1"
     seeds = seed_cabinet_meetings(client)
     _patch_browser_provider_callbacks(monkeypatch)
     client.portal.call(lambda: _link_owner_yandex_identity(client, subject="browser-yandex-owner"))
@@ -639,6 +640,14 @@ def test_browser_provider_callback_keeps_only_authorized_detail_return(monkeypat
     assert allowed_callback.status_code == 303
     assert allowed_callback.headers["location"] == "/meetings"
     assert f"{AUTH_SESSION_COOKIE_NAME}=" in allowed_callback.headers["set-cookie"]
+
+    async def verify_native_oauth():
+        async with client.app_state["sessionmaker"]() as db:
+            row = await db.scalar(select(AuthSession).where(AuthSession.session_token_hash ==
+                                  hash_token(client.cookies.get(AUTH_SESSION_COOKIE_NAME))))
+            device = await db.get(RegisteredDevice, row.device_id)
+            assert device.platform == "macos" and device.client_version == "2026.09.06.1"
+    client.portal.call(verify_native_oauth)
 
     client.cookies.clear()
     client.portal.call(_set_workspace_self_enrollment_policy, client, True)
@@ -777,9 +786,14 @@ def test_browser_email_login_start_is_durably_rate_limited(client) -> None:
     assert "Слишком много попыток" in blocked.text
 
 
+@pytest.mark.parametrize(("agent", "platform", "version"), (
+    ("GRAFDesktop/2026.09.06.1", "macos", "2026.09.06.1"),
+    ("Mozilla/5.0 (Macintosh) Chrome/130 Safari/537", "web", "browser:chrome:macos"),
+))
 def test_browser_email_login_flow_sets_cookie_binds_browser_device_and_opens_meetings(
-    client,
+    client, agent, platform, version,
 ) -> None:
+    client.headers["User-Agent"] = agent
     seed_cabinet_meetings(client)
     client.portal.call(_link_owner_email_identity, client)
 
@@ -829,6 +843,15 @@ def test_browser_email_login_flow_sets_cookie_binds_browser_device_and_opens_mee
     assert meetings.status_code == 200
     assert "Проектный синк" not in meetings.text
     assert "missing_auth_context" not in meetings.text
+
+    async def verify_client():
+        async with client.app_state["sessionmaker"]() as db:
+            session = await db.scalar(select(AuthSession).where(
+                AuthSession.session_token_hash == hash_token(session_cookie)))
+            device = await db.get(RegisteredDevice, session.device_id)
+            assert device.platform == platform and device.client_version == version
+            assert device.device_public_id.startswith("login:")
+    client.portal.call(verify_client)
 
 
 @pytest.mark.parametrize("cookie_mode", ("missing", "wrong"))
@@ -2682,6 +2705,24 @@ def test_desktop_billing_handoff_sets_browser_session_once(client, tmp_path) -> 
     assert handoff.status_code == 303
     assert handoff.headers["location"] == "/billing"
     assert f"{AUTH_SESSION_COOKIE_NAME}=" in handoff.headers["set-cookie"]
+    browser_token = client.cookies.get(AUTH_SESSION_COOKIE_NAME)
+    assert browser_token != OWNER_REVIEW_TEST_TOKEN
+
+    async def verify_independent_sessions():
+        async with client.app_state["sessionmaker"]() as db:
+            source = await db.scalar(select(AuthSession).where(
+                AuthSession.session_token_hash == hash_token(OWNER_REVIEW_TEST_TOKEN)))
+            browser = await db.scalar(select(AuthSession).where(
+                AuthSession.session_token_hash == hash_token(browser_token)))
+            assert browser is not None and source is not None
+            assert browser.id != source.id and browser.device_id != source.device_id
+            assert browser.expires_at == source.expires_at
+            assert source.status == "active"
+            browser.status = "revoked"
+            await db.commit()
+    client.portal.call(verify_independent_sessions)
+    assert client.get("/api/v1/auth/me", headers={"X-Auth-Session": OWNER_REVIEW_TEST_TOKEN,
+                      "X-Workspace-Id": str(WORKSPACE_ID)}).status_code == 200
 
     async def read_state() -> tuple[str, str | None]:
         async with client.app_state["sessionmaker"]() as db:
@@ -2738,3 +2779,77 @@ def test_meetings_page_rejects_denied_owner_session_device_binding(client) -> No
 
     assert response.status_code == 403
     assert response.json()["code"] == "device_revoked"
+
+
+@pytest.mark.parametrize('invalid_source', ('revoked', 'expired', 'device_revoked', 'binding_blocked', 'membership_inactive'))
+def test_billing_handoff_rechecks_source_and_does_not_issue_session(client, tmp_path, invalid_source):
+    source = client.portal.call(_seed_owner_review_session, client)
+    key_file = tmp_path / 'handoff-encryption-key'
+    key_file.write_bytes(Fernet.generate_key())
+    client.app.state.settings.credential_encryption_key_file = key_file
+    start = client.post('/api/v1/cabinet/billing/handoff',
+                        headers={'X-Auth-Session': OWNER_REVIEW_TEST_TOKEN})
+    assert start.status_code == 200
+    state = start.json()['state']
+    async def invalidate():
+        async with client.app_state['sessionmaker']() as db:
+            session = await db.get(AuthSession, source.id)
+            if invalid_source == 'revoked':
+                session.status = 'revoked'
+            elif invalid_source == 'expired':
+                session.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+            elif invalid_source == 'device_revoked':
+                device = await db.get(RegisteredDevice, session.device_id)
+                device.status = 'revoked'
+            elif invalid_source == 'binding_blocked':
+                binding = await db.scalar(select(AuthSessionDeviceBinding).where(
+                    AuthSessionDeviceBinding.auth_session_id == source.id))
+                binding.device_state = 'blocked'
+            else:
+                membership = await db.scalar(select(WorkspaceMembership).where(
+                    WorkspaceMembership.workspace_id == WORKSPACE_ID,
+                    WorkspaceMembership.user_id == USER_ID))
+                membership.status = 'removed'
+            await db.commit()
+    client.portal.call(invalidate)
+    result = client.get(f'/billing/handoff?state={state}', follow_redirects=False)
+    assert result.status_code == 303
+    assert result.headers['location'].startswith('/login?')
+    assert 'set-cookie' not in result.headers
+    async def verify():
+        async with client.app_state['sessionmaker']() as db:
+            sessions = list(await db.scalars(select(AuthSession)))
+            assert len(sessions) == 1
+            callback = await db.scalar(select(AuthCallbackState).where(AuthCallbackState.state_nonce == state))
+            assert callback.result == 'failed'
+    client.portal.call(verify)
+
+
+@pytest.mark.parametrize('logout_path', ('/logout', '/desktop/meetings'))
+def test_logout_preserves_last_activity_for_session_device_and_binding(client, logout_path):
+    session = client.portal.call(_seed_owner_review_session, client)
+    last_activity = datetime.now(UTC) - timedelta(minutes=20)
+    async def age_activity():
+        async with client.app_state['sessionmaker']() as db:
+            row = await db.get(AuthSession, session.id)
+            device = await db.get(RegisteredDevice, row.device_id)
+            binding = await db.scalar(select(AuthSessionDeviceBinding).where(
+                AuthSessionDeviceBinding.auth_session_id == session.id))
+            row.last_seen_at = device.last_seen_at = binding.last_heartbeat_at = last_activity
+            await db.commit()
+    client.portal.call(age_activity)
+    client.cookies.set(AUTH_SESSION_COOKIE_NAME, OWNER_REVIEW_TEST_TOKEN)
+    response = client.post(logout_path, data={
+        'csrf_token': issue_csrf_token(session_id=session.id, secret=str(client.app.state.web_csrf_secret)),
+        'next': '/login',
+    }, follow_redirects=False)
+    assert response.status_code == 303
+    async def verify():
+        async with client.app_state['sessionmaker']() as db:
+            row = await db.get(AuthSession, session.id)
+            device = await db.get(RegisteredDevice, row.device_id)
+            binding = await db.scalar(select(AuthSessionDeviceBinding).where(
+                AuthSessionDeviceBinding.auth_session_id == session.id))
+            assert row.status == 'revoked' and binding.device_state == 'blocked'
+            assert row.last_seen_at == device.last_seen_at == binding.last_heartbeat_at == last_activity
+    client.portal.call(verify)

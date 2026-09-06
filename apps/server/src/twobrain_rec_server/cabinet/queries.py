@@ -87,6 +87,7 @@ from twobrain_rec_server.calendar.service import (
 from twobrain_rec_server.db.models import (
     AccountClosureRequest,
     AuthSession,
+    AuthSessionDeviceBinding,
     CalendarEventSnapshot,
     CalendarParticipant,
     CalendarSettingsPreference,
@@ -230,6 +231,11 @@ async def get_account_settings_surface(
             .order_by(AuthSession.last_seen_at.desc(), AuthSession.created_at.desc())
         )
     )
+    bindings = tuple(await db.scalars(
+        select(AuthSessionDeviceBinding).where(
+            AuthSessionDeviceBinding.auth_session_id.in_([row.id for row in sessions]),
+        )
+    )) if sessions else ()
     closure = await db.scalar(
         select(AccountClosureRequest)
         .where(
@@ -244,6 +250,7 @@ async def get_account_settings_surface(
         identities=identities,
         devices=devices,
         sessions=sessions,
+        bindings=bindings,
         current_session_id=tenant_scope.auth_session_id,
         current_device_id=tenant_scope.device_id,
         can_unlink_provider=lambda identity: recovery_safe_unlink_allowed(
