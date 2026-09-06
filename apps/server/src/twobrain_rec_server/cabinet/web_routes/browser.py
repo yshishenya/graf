@@ -496,6 +496,7 @@ async def share_invitation_magic_link(
         now = datetime.now(UTC)
         device = await _resolve_email_browser_device(
             session,
+            user_agent=request.headers.get("user-agent"),
             workspace=personal_workspace,
             user=user,
             now=now,

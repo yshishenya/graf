@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import TYPE_CHECKING, Literal, cast
 from uuid import UUID
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from twobrain_rec_server.api.schemas import (
     ArtifactEgressState,
@@ -56,6 +57,7 @@ from twobrain_rec_server.calendar.service import (
 )
 from twobrain_rec_server.db.models import (
     AuthSession,
+    AuthSessionDeviceBinding,
     CalendarEventSnapshot,
     CalendarParticipant,
     CalendarSettingsPreference,
@@ -188,6 +190,14 @@ class AccountSessionView:
     current: bool
     can_revoke: bool
 
+    client_label: str = "Неизвестный вход"
+    client_detail: str = ""
+    issued_label: str = "Нет данных"
+    last_seen_label: str = "Нет данных"
+    expires_label: str = "Нет данных"
+    last_seen_short: str = "Нет данных"
+    active: bool = False
+
 
 @dataclass(frozen=True, slots=True)
 class AccountProfileView:
@@ -206,6 +216,18 @@ class AccountSettingsSurface:
     sessions: tuple[AccountSessionView, ...] = ()
     unavailable: bool = False
     account_close: AccountCloseView | None = None
+
+    @property
+    def active_sessions(self) -> tuple[AccountSessionView, ...]:
+        return tuple(row for row in self.sessions if row.active)
+
+    @property
+    def session_history(self) -> tuple[AccountSessionView, ...]:
+        return tuple(row for row in self.sessions if not row.active)
+
+    @property
+    def has_other_sessions(self) -> bool:
+        return any(row.can_revoke for row in self.sessions)
 
 
 def account_provider_view(
@@ -251,22 +273,77 @@ def account_device_view(
     )
 
 
+def _session_time(value: datetime | None, timezone_name: str, *, relative_to: datetime | None = None) -> str:
+    if value is None:
+        return "Нет данных"
+    try:
+        zone = ZoneInfo(timezone_name)
+    except (ValueError, ZoneInfoNotFoundError):
+        zone = ZoneInfo("UTC")
+    aware = value.replace(tzinfo=UTC) if value.tzinfo is None else value
+    local = aware.astimezone(zone)
+    if relative_to is not None:
+        reference = relative_to.replace(tzinfo=UTC) if relative_to.tzinfo is None else relative_to
+        days = (reference.astimezone(zone).date() - local.date()).days
+        if days in (0, 1) and aware <= reference:
+            return f"{'сегодня' if days == 0 else 'вчера'}, {local:%H:%M}"
+        return f"{local:%d.%m.%Y, %H:%M}"
+    return f"{local:%d.%m.%Y, %H:%M} ({zone.key})"
+
+
+def _session_client(device: RegisteredDevice | None) -> tuple[str, str]:
+    if device is None:
+        return "Устройство не подключено", "Вы вошли в аккаунт, но устройство ещё не подключено. Доступ к данным ограничен."
+    if device.platform == "macos":
+        version = device.client_version or ""
+        detail = f"Версия {version}" if re.fullmatch(r"[0-9]+(?:\.[0-9]+){1,3}", version) else "Версия приложения неизвестна"
+        return "GRAF для macOS", detail
+    metadata = (device.client_version or "").split(":")
+    browsers = {"chrome": "Chrome", "edge": "Edge", "firefox": "Firefox", "safari": "Safari", "unknown": "Неизвестный вход"}
+    systems = {"macos": "macOS", "windows": "Windows", "linux": "Linux", "ios": "iOS", "android": "Android", "unknown": ""}
+    if (device.platform == "web" and (device.device_public_id or "").startswith("login:")
+            and len(metadata) == 3 and metadata[0] == "browser"
+            and metadata[1] in browsers and metadata[2] in systems):
+        system = systems[metadata[2]]
+        return browsers[metadata[1]] + (f" на {system}" if system else ""), ""
+    return "Неизвестный вход", "Для этого входа сведения о приложении или браузере не сохранились"
+
+
 def account_session_view(
     session: AuthSession,
     *,
     current_session_id: UUID | None,
+    device: RegisteredDevice | None = None,
+    access_allowed: bool = True,
+    timezone_name: str = "UTC",
+    now: datetime | None = None,
 ) -> AccountSessionView:
-    provider_label = PROVIDER_LINK_LABELS.get(session.provider, "Способ входа")
-    status_label = "Активна" if session.status == "active" else "Отозвана"
+    from twobrain_rec_server.auth.sessions import is_session_token_valid
+
+    now = now or datetime.now(UTC)
+    active = is_session_token_valid(session, now) and access_allowed
+    status_label = {"revoked": "Завершён", "expired": "Срок истёк", "replaced": "Заменён новым входом"}.get(session.status, "Состояние неизвестно")
+    if session.status == "active":
+        status_label = "Действует" if active else ("Доступ заблокирован" if not access_allowed else "Срок истёк")
+    client_label, client_detail = _session_client(device)
+    if not access_allowed and device is None:
+        client_label, client_detail = "Неизвестный вход", "Связь с устройством недоступна"
     current = session.id == current_session_id
     return AccountSessionView(
         session_id=session.id,
-        provider_label=provider_label,
+        provider_label=PROVIDER_LINK_LABELS.get(session.provider, "Способ входа неизвестен"),
         status_label=status_label,
         last_seen_at=session.last_seen_at,
         expires_at=session.expires_at,
         current=current,
-        can_revoke=session.status == "active" and not current,
+        can_revoke=active and not current,
+        client_label=client_label,
+        client_detail=client_detail,
+        issued_label=_session_time(session.issued_at, timezone_name),
+        last_seen_label=_session_time(session.last_seen_at, timezone_name),
+        last_seen_short=_session_time(session.last_seen_at, timezone_name, relative_to=now),
+        expires_label=_session_time(session.expires_at, timezone_name),
+        active=active,
     )
 
 
@@ -276,13 +353,41 @@ def account_settings_surface(
     identities: Iterable[ExternalIdentity] = (),
     devices: Iterable[RegisteredDevice] = (),
     sessions: Iterable[AuthSession] = (),
+    bindings: Iterable[AuthSessionDeviceBinding] = (),
+    now: datetime | None = None,
     current_session_id: UUID | None = None,
     current_device_id: UUID | None = None,
     can_unlink_provider: Callable[[ExternalIdentity], bool] | None = None,
     unavailable: bool = False,
     account_close: AccountCloseView | None = None,
 ) -> AccountSettingsSurface:
+    from twobrain_rec_server.auth.sessions import session_device_access
+
     identity_rows = tuple(identities)
+    device_rows = tuple(devices)
+    devices_by_id = {device.id: device for device in device_rows}
+    bindings_by_session: dict[UUID, list[AuthSessionDeviceBinding]] = defaultdict(list)
+    for binding in bindings:
+        bindings_by_session[binding.auth_session_id].append(binding)
+    session_views = []
+    for session in sessions:
+        allowed, device = session_device_access(session, devices_by_id, bindings_by_session[session.id])
+        # A revoked binding stops access, but does not erase known client metadata.
+        known_device = devices_by_id.get(session.device_id)
+        if device is None and known_device is not None and (
+            known_device.user_id == session.user_id and known_device.workspace_id == session.workspace_id
+        ):
+            device = known_device
+        session_views.append(account_session_view(
+            session, current_session_id=current_session_id, device=device,
+            access_allowed=allowed, timezone_name=profile.timezone if profile else "UTC", now=now,
+        ))
+    session_views.sort(key=lambda row: (
+        not row.current,
+        -(row.last_seen_at.replace(tzinfo=UTC) if row.last_seen_at and row.last_seen_at.tzinfo is None
+          else row.last_seen_at).timestamp() if row.last_seen_at else float("inf"),
+        str(row.session_id),
+    ))
     return AccountSettingsSurface(
         profile=profile,
         providers=tuple(
@@ -294,12 +399,9 @@ def account_settings_surface(
             for index, identity in enumerate(identity_rows)
         ),
         devices=tuple(
-            account_device_view(device, current_device_id=current_device_id) for device in devices
+            account_device_view(device, current_device_id=current_device_id) for device in device_rows
         ),
-        sessions=tuple(
-            account_session_view(session, current_session_id=current_session_id)
-            for session in sessions
-        ),
+        sessions=tuple(session_views),
         unavailable=unavailable,
         account_close=account_close,
     )

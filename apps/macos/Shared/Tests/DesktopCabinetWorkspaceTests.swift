@@ -1,4 +1,8 @@
 import Foundation
+import AppKit
+import Network
+import SwiftUI
+import WebKit
 import TwoBrainRecAppCore
 import TwoBrainRecShared
 
@@ -6,6 +10,94 @@ import TwoBrainRecShared
 import XCTest
 
 final class DesktopCabinetWorkspaceTests: XCTestCase {
+    func testDesktopUserAgentOnlyIncludesValidatedVersion() {
+        XCTAssertEqual(DesktopCabinetConfiguration.applicationNameForUserAgent(version: "2026.09.06.1"), "GRAFDesktop/2026.09.06.1")
+        for value in [nil, "", "local", "2026.02.29.1", "2026.09.06.+1", "2026.09.06.1\r\nPrivate: name", "MacBook of Someone"] {
+            XCTAssertEqual(DesktopCabinetConfiguration.applicationNameForUserAgent(version: value), "GRAFDesktop/unknown")
+        }
+    }
+
+    @MainActor
+    func testRealCabinetUserAgentSurvivesFormPostAndRedirect() async throws {
+        _ = NSApplication.shared
+        let parameters = NWParameters.tcp
+        parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
+        let listener = try NWListener(using: parameters)
+        let listening = expectation(description: "synthetic auth server ready")
+        let get = expectation(description: "initial GET identifies app")
+        let post = expectation(description: "form POST identifies app")
+        let redirect = expectation(description: "redirect GET identifies app")
+        let marker = DesktopCabinetConfiguration.applicationNameForUserAgent()
+        listener.stateUpdateHandler = { state in
+            if case .ready = state { listening.fulfill() }
+        }
+        listener.newConnectionHandler = { connection in
+            connection.start(queue: .global())
+            Self.receiveAuthFixtureRequest(connection, marker: marker, get: get, post: post, redirect: redirect)
+        }
+        listener.start(queue: .global())
+        defer { listener.cancel() }
+        await fulfillment(of: [listening], timeout: 5)
+        let port = try XCTUnwrap(listener.port)
+        let origin = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port.rawValue)"))
+        let request = URLRequest(url: origin.appendingPathComponent("login"))
+        let cabinet = EmbeddedCabinetWebView(
+            request: request, routePolicy: DesktopCabinetRoutePolicy(baseURL: origin),
+            cabinetState: .constant(.expiredSession), fallbackRequest: request,
+            navigationController: EmbeddedCabinetNavigationController()
+        )
+        let host = NSHostingView(rootView: cabinet)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.orderFront(nil)
+        defer { window.close() }
+        await fulfillment(of: [get], timeout: 10)
+        await fulfillment(of: [post, redirect], timeout: 10)
+    }
+
+    private nonisolated static func receiveAuthFixtureRequest(
+        _ connection: NWConnection, buffered: Data = Data(), marker: String,
+        get: XCTestExpectation, post: XCTestExpectation, redirect: XCTestExpectation
+    ) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 16_384) { data, _, complete, error in
+            var received = buffered
+            received.append(data ?? Data())
+            guard let request = String(data: received, encoding: .utf8), request.contains("\r\n\r\n") else {
+                guard !complete, error == nil, received.count < 32_768 else {
+                    XCTFail("Incomplete synthetic HTTP request"); connection.cancel(); return
+                }
+                receiveAuthFixtureRequest(connection, buffered: received, marker: marker, get: get, post: post, redirect: redirect)
+                return
+            }
+            let userAgent = request.components(separatedBy: "\r\n").first { $0.lowercased().hasPrefix("user-agent:") } ?? ""
+            XCTAssertTrue(userAgent.contains("AppleWebKit/"), "Keep WebKit's base User-Agent")
+            XCTAssertTrue(userAgent.contains(marker), "All HTTP steps must identify the application")
+            let status: String
+            let html: String
+            if request.hasPrefix("GET /login ") {
+                get.fulfill()
+                status = "200 OK"
+                html = "<!doctype html><form method='post' action='/login/email/start'><input name='synthetic' value='yes'></form><script>document.forms[0].submit()</script>"
+            } else if request.hasPrefix("POST /login/email/start ") {
+                post.fulfill()
+                status = "303 See Other\r\nLocation: /desktop/settings/account"
+                html = ""
+            } else if request.hasPrefix("GET /desktop/settings/account ") {
+                redirect.fulfill()
+                status = "200 OK"
+                html = "<!doctype html><title>Synthetic account</title><p>Signed in</p>"
+            } else {
+                XCTFail("Unexpected synthetic auth route")
+                status = "404 Not Found"
+                html = ""
+            }
+            let response = "HTTP/1.1 \(status)\r\nContent-Type: text/html\r\nContent-Length: \(html.utf8.count)\r\nConnection: close\r\n\r\n\(html)"
+            connection.send(content: Data(response.utf8), completion: .contentProcessed { _ in connection.cancel() })
+        }
+    }
+
     func testDefaultWorkspaceOpensMeetingsList() throws {
         let configuration = try XCTUnwrap(DesktopCabinetConfiguration(rawBaseURL: "https://rec.2brain.dev", headers: [:]))
 
