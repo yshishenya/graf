@@ -18,7 +18,7 @@
 
 - [X] T005 [US1] Дополнить `apps/macos/Shared/Tests/DesktopCalendarReminderTests.swift` и `CaptureControlV5Tests.swift` проверками совмещённой панели, независимых capture/upload статусов и действий. [FR-001/002/003/014]
 - [X] T006 [US1] Расширить `apps/macos/RecApp/Sources/Calendar/CalendarTray.swift` и внедрить текущие capture actions из `App/TwoBrainRecApp.swift`; сохранить safe calendar projection. [FR-001/002/014/017]
-- [ ] T007 [US1] Обеспечить постоянную видимую компактную панель и Stop при hidden menu/fullscreen в `apps/macos/RecApp/App/TwoBrainRecApp.swift`, не меняя countdown 214. [FR-003/004/013]
+- [X] T007 [US1] Обеспечить постоянную видимую компактную панель и Stop при hidden menu/fullscreen в `apps/macos/RecApp/App/TwoBrainRecApp.swift`, не меняя countdown 214. [FR-003/004/013]
 - [X] T008 [US1] Объединить точки входа настроек в `apps/macos/RecApp/App/TwoBrainRecApp.swift` и маршруты `Sources/Cabinet/DesktopMeetingShellView.swift`, сохранив локальное владение автозаписью. [FR-017]
 
 ## Phase 4 — US2: timely messages
@@ -49,8 +49,8 @@
 
 Проверка: old config + local queue + upgrade + fallback + rollback.
 
-- [ ] T018 [US5] Добавить upgrade/rollback/local-mode проверки в `apps/macos/Shared/Tests/DesktopCabinetWorkspaceTests.swift`; сохранить проверки `DesktopCabinetUploadLinkTests.swift`, `DesktopUploadQueueV5Tests.swift`, `DesktopMeetingShellWebViewBoundaryTests.swift`; зафиксировать все callers compact queue в `specs/249-notification-control-design/research.md`. [FR-015]
-- [ ] T019 [US5] После T018 удалить только доказанно недостижимую embedded queue ветку в `apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift` и уточнить footer в `Sources/Calendar/CalendarTray.swift`; сохранить decoder и автономный список. [FR-014/015/016]
+- [X] T018 [US5] Добавить upgrade/rollback/local-mode проверки в `apps/macos/Shared/Tests/DesktopCabinetWorkspaceTests.swift`; сохранить проверки `DesktopCabinetUploadLinkTests.swift`, `DesktopUploadQueueV5Tests.swift`, `DesktopMeetingShellWebViewBoundaryTests.swift`; зафиксировать все callers compact queue в `specs/249-notification-control-design/research.md`. [FR-015]
+- [X] T019 [US5] После T018 удалить только доказанно недостижимую embedded queue ветку в `apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift` и уточнить footer в `Sources/Calendar/CalendarTray.swift`; сохранить decoder и автономный список. [FR-014/015/016]
 
 ## Phase 8 — Validation and closeout
 
@@ -135,9 +135,9 @@ T010/T017: код и автоматические проверки выполн�
 ## Phase 12: Convergence
 
 - [ ] T026 Исправить повторную постановку отменённых будущих напоминаний без повторной доставки уже наступивших; на клике проверять актуальную ссылку и срок события; обновлять разрешение при возврате в окно настроек. Добавить регрессии и повторить GRAF Dev. [FR-006/011/012/019; T010/T017; contradicts]
-- [ ] T027 Выполнить запрошенные пользователем пять независимых экспертных проходов субагентами, устранить подтверждённые проблемы пути и записать ограничения: это не измерение времени пяти людей. [SC-004/006; T021; user clarification 2026-09-06]
-- [ ] T028 Сохранить виджет до подтверждённого освобождения capture при Stop/error, показать переход остановки и ненавязчивый итог с доступом к записи; добавить проверки состояний. [FR-002/003/013; US1; expert pass 2]
-- [ ] T029 Сохранить ошибку формата при непринятом повторе и подтверждать показанную revision только после успешного открытия встречи; добавить серверные/браузерные регрессии. [FR-007/008/009; C04/C05]
+- [X] T027 Выполнить запрошенные пользователем пять независимых экспертных проходов субагентами, устранить подтверждённые проблемы пути и записать ограничения: это не измерение времени пяти людей. [SC-004/006; T021; user clarification 2026-09-06]
+- [X] T028 Сохранить виджет до подтверждённого освобождения capture при Stop/error, показать переход остановки и ненавязчивый итог с доступом к записи; добавить проверки состояний. [FR-002/003/013; US1; expert pass 2]
+- [X] T029 Сохранить ошибку формата при непринятом повторе и подтверждать показанную revision только после успешного открытия встречи; добавить серверные/браузерные регрессии. [FR-007/008/009; C04/C05]
 
 
 T026: https://github.com/yshishenya/graf/issues/6758
@@ -150,16 +150,43 @@ T029: https://github.com/yshishenya/graf/issues/6761
 
 ## Phase 13: Convergence
 
-- [ ] T030 Добавить штатный переход между версиями управляющего кода в `scripts/dev-harness.py`: проверять чистый checkout прежнего полного SHA и его runtime digest до любых изменений, восстанавливать прежний runtime прежним кодом при отказе, поддержать симметричный rollback через проверенный target checkout. Сохранить блокировку, единственный GRAF Dev, данные и проверки идентичности; добавить регрессии и выполнить живой переход. [T022; process: single GRAF Dev; partial]
+- [X] T030 Добавить штатный переход между версиями управляющего кода в `scripts/dev-harness.py`: проверять чистый checkout прежнего полного SHA и его runtime digest до любых изменений, восстанавливать прежний runtime прежним кодом при отказе, поддержать симметричный rollback через проверенный target checkout. Сохранить блокировку, единственный GRAF Dev, данные и проверки идентичности; добавить регрессии и выполнить живой переход. [T022; process: single GRAF Dev; partial]
 
 T030: https://github.com/yshishenya/graf/issues/6763
 
-- [ ] T031 Устранить повторные сигналы одной записи при ошибке Stop и подавлять баннер поверх видимого результата; назвать переход в общий список «Открыть локальные записи» в `DesktopNotificationPresenter.swift` и `DesktopControlPanel.swift`, добавить регрессии. [FR-002/005/019; expert pass 5; contradicts]
+- [X] T031 Устранить повторные сигналы одной записи при ошибке Stop и подавлять баннер поверх видимого результата; назвать переход в общий список «Открыть локальные записи» в `DesktopNotificationPresenter.swift` и `DesktopControlPanel.swift`, добавить регрессии. [FR-002/005/019; expert pass 5; contradicts]
 
 T031: https://github.com/yshishenya/graf/issues/6764
 
 ## Phase 14: Convergence
 
-- [ ] T032 Исправить устаревший статус разрешения после повторного включения macOS: обновлять его в открытом активном разделе настроек, сверять перед тестовым уведомлением. Повторить OS off/on без закрытия раздела в единственном GRAF Dev. [FR-011/012; live eb9a8d517; contradicts]
+- [X] T032 Исправить устаревший статус разрешения после повторного включения macOS: обновлять его в открытом активном разделе настроек, сверять перед тестовым уведомлением. Повторить OS off/on без закрытия раздела в единственном GRAF Dev. [FR-011/012; live eb9a8d517; contradicts]
 
 T032: https://github.com/yshishenya/graf/issues/6765
+
+## Сверка фактической приёмки на 57db9ba34, 2026-09-06
+
+T007: живая запись47с, закрыто главное окно, Krisp переведён в полноэкранный
+режим, виджет и однократный Stop доступны. T018/T019: upgrade → rollback на
+3de3eec50 → возврат57db9ba34, 13/13 smoke на обоих переходах, запись47с и
+настройки сохранены. Автономные decoder/queue проверки входят в Swift812.
+T027: пять отдельных сценарных агентов, исправления T026–T032.
+T028: короткая запись показала последовательно «Останавливаем запись…» и
+«Запись остановлена / Отправляем запись / Локальная копия сохранена».
+T029: сервер/Node9 PASS; живой веб возвращает «Важное» после закрытия истории,
+не восстанавливает точку на старых результатах. Просмотр и отзыв доступа
+проверены регрессиями предыдущего коммита, продуктовый код веба с тех пор не менялся.
+T030: штатный живой cross-definition rollback и возврат PASS, общий lock,
+полные13 проверок; временный checkout удалён после возврата.
+T031: один инцидент с обратной совместимостью,12 targeted Swift; фактический
+виджет результата показан. T032: OS off→on отражается в том же открытом
+разделе на установленной57db9ba34; исходное разрешение on восстановлено.
+
+T010/T017/T026 пока сохраняют обязательство полного сценария календарных
+напоминаний/Focus; только реальная системная тестовая доставка подтверждена
+журналом usernoted Delivering alert/notificationCenter и Presenting as banner.
+T020/T021/T022 остаются открыты: полная аппаратная матрица, VoiceOver и нативный
+p95 ещё не приняты. Mac заблокировался во время перехода к VoiceOver,
+инструмент сообщил невозможность автоматического разблокирования. Продолжение
+интерфейсных действий требует разблокированного Mac. Веб p95=33.7мс (40 открытий,
+2 requestAnimationFrame), это не нативный p95 и не пользовательские секунды SC-004.
