@@ -1,5 +1,13 @@
 # Temporal, LiteLLM and Langfuse Runtime Contract
 
+**Уточнение Feature 239 от 2026-09-06:** специальный GRAF route binding,
+model allowlist, gateway compiler attestation и соответствующие headers ниже
+относятся к исторической редакции и не требуются новым runtime. Текущий
+договор модели/параметров и безопасного перехода задан в
+[Feature 239](../239-full-meeting-minutes/contracts/meeting-protocol.md).
+Exact Langfuse versions, request/response integrity, nullable reported
+provenance, access/deletion/publication и ambiguous-egress guards сохраняются.
+
 ## Versioned Workflow and typed boundary contract
 
 Feature 195 does not mutate the existing workflow incompatibly. After its

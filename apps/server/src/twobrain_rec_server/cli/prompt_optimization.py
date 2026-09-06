@@ -154,7 +154,7 @@ async def _start(
         source = root_bundle.child(args.prompt_name)
         bundle_metadata = snapshot_bundle_metadata(source)
         if bundle_metadata is None:
-            raise RuntimeError("production root bundle has no route binding")
+            raise RuntimeError("production root bundle metadata is missing")
         reflection = bind_snapshot_from_metadata(
             _fetch_snapshot(client, "graf/prompt-optimization/reflection", "text"),
             bundle_metadata,
