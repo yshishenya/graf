@@ -1,0 +1,38 @@
+# F255: исследование macOS и упрощения
+
+Дата: 2026-09-06. База исходников: `a389657e607ef8389fcf947b26b158cee6928884`. Два исследования выполнены отдельными read-only агентами в рамках speckit-plan; исходники не менялись.
+
+## Решение: системная sidebar и стабильный WKWebView
+
+Apple рекомендует стандартные split views для боковых панелей. Они получают актуальное системное оформление при сборке новым SDK. Дополнительные собственные фоны могут перекрыть материал. Поэтому основной вариант — native navigation рядом с одним WebView. Стекло относится к навигации/управлению; содержимое встречи, текст, финансовые таблицы не покрываются отдельными glass effects.
+
+Альтернативы: CSS blur мал, но не является системным Liquid Glass. `NSGlassEffectView` под прозрачным HTML сохраняет структуру, однако `WKWebView.underPageBackgroundColor` не обещает прозрачность всего compositor. Private KVC `drawsBackground` исключён. Полный перенос кабинета в SwiftUI несоразмерен задаче.
+
+В установленном SDK `NSGlassEffectView` доступен с macOS 26.0, поддерживает regular/clear, cornerRadius/contentView; гарантированное размещение внутри материала относится к contentView. Сначала стандартная sidebar, без отдельного glass effect поверх неё. Реальный запуск со старым titlebar accessory обязателен, документация его не заменяет.
+
+## Решение: одна компоновка и автоматический материал
+
+На macOS 26 совместимая пара клиент/сервер использует системное стекло. На macOS 14.5 и при Reduce Transparency — законченное матовое исполнение. Старый сервер сохраняет HTML fallback. Light/dark/system берётся из существующего профиля; System остаётся предпочтением следовать ОС. Новых настроек/хранилищ и переключателя «стекло» нет.
+
+Веб использует матовую панель. Предлагаемые GRAF отступы 8–12 px, радиус 14–16 px и строки 36–40 px — проектные ориентиры, а не требование Apple. Системные native метрики имеют приоритет; итог измеряется читаемостью и доступностью, а не пиксельным совпадением с вебом.
+
+## Решение: убрать пустые выборы, сохранить рабочие входы
+
+Подтверждены десять постоянных disabled-команд, два пустых подменю. Их удаление — сокращение ненужного выбора. Не создавать вместо них новые разделы. Общие встречи доступны из настроек напрямую: 2 → 1 действие. Аккаунт: 2 действия из закрытого меню; тема: 3. Существующий рабочий вход настроек в профиле остаётся, поскольку его удаление не сокращает путь.
+
+Историческая issue #5804 не совпадает с нынешней записью T002 F201; не закрывать по чужой отметке. F240 #6588 владеет доступностью профиля на узких экранах. F245–F253 имеют смежные владельцы; точный реестр в inventory.md.
+
+## Решение: безопасная передача меню
+
+Серверные CabinetNavigationItem, cabinet_navigation/settings_category_navigation остаются источником. Controller сохраняет историю/route policy/session boundary. Новый небольшой snapshot метаданных не копирует данные встреч. HTML скрывается после подтверждения native готовности, с привязкой к текущему документу. Theme/logout используют существующие формы и CSRF; новая HTTP реализация не нужна.
+
+## Первичные источники Apple
+
+- [Adopting Liquid Glass](https://developer.apple.com/documentation/technologyoverviews/adopting-liquid-glass)
+- [HIG: Sidebars](https://developer.apple.com/design/human-interface-guidelines/sidebars)
+- [HIG: Materials](https://developer.apple.com/design/human-interface-guidelines/materials)
+- [HIG: Accessibility](https://developer.apple.com/design/human-interface-guidelines/accessibility)
+- [NSGlassEffectView](https://developer.apple.com/documentation/appkit/nsglasseffectview)
+- [WKWebView.underPageBackgroundColor](https://developer.apple.com/documentation/webkit/wkwebview/underpagebackgroundcolor)
+
+Исследование подтверждает выбор API и направление. Оно не является runtime evidence готовой оболочки. Нативная проверка macOS 14.5/26 и совместной пары версий запланирована в quickstart.md.
